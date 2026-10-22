@@ -8,6 +8,7 @@ fn sh(script: &str, stdin: Stdio) -> Child {
         ("GREETING".to_string(), "hi".to_string()),
     ];
     spawn(Command {
+        arg0: None,
         program: Path::new("/bin/sh"),
         args: &args,
         env: &env,
@@ -84,6 +85,7 @@ fn stdin_is_the_childs_and_a_signal_to_the_group_reaches_its_children() {
 #[test]
 fn a_missing_program_is_not_found_and_lookups_answer() {
     let err = spawn(Command {
+        arg0: None,
         program: Path::new("/nonexistent/program"),
         args: &[],
         env: &[],
@@ -116,6 +118,7 @@ fn a_session_child_leads_its_own_session() {
         "ps -o sess= -p $$ >/dev/null; echo $$".to_string(),
     ];
     let child = spawn(Command {
+        arg0: None,
         program: Path::new("/bin/sh"),
         args: &args,
         env: &[],
@@ -132,4 +135,41 @@ fn a_session_child_leads_its_own_session() {
     assert_eq!(out.trim(), child.pid.to_string());
     assert!(sid == child.pid || sid == -1, "{sid}");
     let _ = wait(child.pid);
+}
+
+#[test]
+fn a_write_to_a_child_that_has_gone_fails_without_a_signal() {
+    let mut child = sh("echo $EXACT_TEST_TAG; exit 0", Stdio::Pipe);
+    let stdin = child.stdin.take().unwrap();
+    #[cfg(target_vendor = "apple")]
+    assert!(
+        sigpipe_off(stdin.as_raw_fd()),
+        "the parent's end raises no SIGPIPE"
+    );
+    let _ = read_all(child.stdout.take().unwrap());
+    wait(child.pid).unwrap();
+    let mut file = std::fs::File::from(stdin);
+    let e = file.write_all(&[0u8; 65536]).unwrap_err();
+    assert_eq!(e.raw_os_error(), Some(libc::EPIPE));
+    // A child is in this process's session, and names the program as told.
+    let args = vec!["5".to_string()];
+    let sleeper = spawn(Command {
+        arg0: Some("named"),
+        program: Path::new("/bin/sleep"),
+        args: &args,
+        env: &[],
+        cwd: Path::new("/"),
+        stdin: Stdio::Null,
+        stdout: Stdio::Null,
+        stderr: Stdio::Null,
+        session: false,
+    })
+    .unwrap();
+    assert_eq!(
+        session_of(sleeper.pid),
+        session_of(std::process::id() as i32)
+    );
+    assert!(session_of(sleeper.pid).is_some());
+    signal_group(sleeper.pid, SIGKILL).unwrap();
+    wait(sleeper.pid).unwrap();
 }

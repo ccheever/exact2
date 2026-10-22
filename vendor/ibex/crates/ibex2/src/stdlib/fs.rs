@@ -513,12 +513,9 @@ pub fn set_roots(roots: Roots) {
 /// A `home:` or `bundle:` path's native path, lexically normalized and kept
 /// under its root; `None` for any other path.
 fn namespaced(path: &str) -> Option<Result<PathBuf, HostError>> {
-    let (namespace, rest) = if let Some(rest) = path.strip_prefix("home:/") {
-        ("home", rest)
-    } else if let Some(rest) = path.strip_prefix("bundle:/") {
-        ("bundle", rest)
-    } else {
-        return None;
+    let (namespace, rest) = match path.strip_prefix("home:/") {
+        Some(rest) => ("home", rest),
+        None => ("bundle", path.strip_prefix("bundle:/")?),
     };
     let roots = ROOTS.read().unwrap_or_else(|e| e.into_inner());
     let root = match namespace {
@@ -541,9 +538,20 @@ fn namespaced(path: &str) -> Option<Result<PathBuf, HostError>> {
 /// The grant prefixes in `namespace` (`home:` or `bundle:`) that cover
 /// `spelled`, as native paths realized: a path is admitted only if its own
 /// realized path stays under one of them, as `admit` does for native paths.
-fn realized_within(grants: &GrantSet, write: bool, spelled: &str, native: &Path) -> bool {
+fn realized_within(
+    grants: &GrantSet,
+    write: bool,
+    spelled: &str,
+    native: &Path,
+    leaf: bool,
+) -> bool {
     use crate::grant::Grant;
-    let real = realize(native);
+    // An operation on a link itself (`lstat`, `readlink`, `symlink`'s new
+    // link) follows its parent's links, not its own.
+    let real = match (leaf, native.parent(), native.file_name()) {
+        (true, Some(parent), Some(name)) => realize(parent).join(name),
+        _ => realize(native),
+    };
     grants.iter().any(|grant| {
         let prefix = match (grant, write) {
             (Grant::FsRead(prefix), false) | (Grant::FsWrite(prefix), true) => prefix,
@@ -597,9 +605,10 @@ fn run_namespaced(
     }
     admit_as(grants, op, Path::new(path), destination.map(Path::new))?;
     let realized = grants.realized_fs();
+    let leaf = matches!(op, FsOp::Lstat | FsOp::Readlink | FsOp::Symlink);
     for (spelled, native, write) in needs {
         let ok = if spelled.starts_with("home:") || spelled.starts_with("bundle:") {
-            realized_within(grants, write, spelled, native)
+            realized_within(grants, write, spelled, native, leaf)
         } else {
             let as_op = if write {
                 FsOp::WriteFile

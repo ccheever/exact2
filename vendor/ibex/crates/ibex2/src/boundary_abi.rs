@@ -1146,6 +1146,20 @@ fn run_async(
     {
         return crate::sqlite_abi::run(op as u32, args, state, grants);
     }
+    if op == AsyncOp::FsUnlock {
+        return unlock(args, state);
+    }
+    if op == AsyncOp::FsFlock {
+        let taken = run_fs(
+            crate::stdlib::fs::FsOp::Flock,
+            args,
+            grants,
+            state.app_directories(),
+            state.documents(),
+            state.storage_limits(),
+        )?;
+        return held(taken, state);
+    }
     if let Some(fs_op) = fs_op_for(op) {
         return run_fs(
             fs_op,
@@ -1255,6 +1269,35 @@ fn fs_op_for(op: AsyncOp) -> Option<crate::stdlib::fs::FsOp> {
         AsyncOp::FsUnlock => FsOp::Unlock,
         _ => return None,
     })
+}
+
+/// A lock `flock` took moves to the runtime that asked (exact2 LLP 1133.007
+/// D6a): its handle there is the one the code gets.
+fn held(taken: HostValue, state: &crate::task::RuntimeState) -> Result<HostValue, HostError> {
+    let HostValue::Str(transfer) = taken else {
+        return Err(HostError::Failed("flock: no lock".into()));
+    };
+    let file = crate::stdlib::fs_more::take(&transfer)
+        .ok_or_else(|| HostError::Failed("flock: the lock was lost".into()))?;
+    let mut locks = state.file_locks.lock().unwrap_or_else(|e| e.into_inner());
+    locks.0 += 1;
+    let handle = locks.0;
+    locks.1.insert(handle, file);
+    Ok(HostValue::Str(handle.to_string()))
+}
+
+/// Release one of this runtime's locks; another runtime's handle names none.
+fn unlock(args: &[HostValue], state: &crate::task::RuntimeState) -> Result<HostValue, HostError> {
+    let handle = match args.first() {
+        Some(HostValue::Str(h)) => h.parse::<u64>().ok(),
+        Some(HostValue::Number(n)) => Some(*n as u64),
+        _ => None,
+    };
+    let mut locks = state.file_locks.lock().unwrap_or_else(|e| e.into_inner());
+    match handle.and_then(|h| locks.1.remove(&h)) {
+        Some(_) => Ok(HostValue::Undefined),
+        None => Err(HostError::Failed("unlock: no lock with that handle".into())),
+    }
 }
 
 /// Normalize, admit, then act — in that order, always.

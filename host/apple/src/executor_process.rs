@@ -419,7 +419,12 @@ fn answer(
             format!("outside the app's grants ({line})"),
         );
     }
-    if spec.kind != "execPath" && !origin.directs_children() {
+    // `execPath` starts nothing, but a `path:` name with no `env.PATH`
+    // reads the login shell's, which only a foreground turn captures (D5).
+    let login_path = spec.program.starts_with("path:")
+        && !(spec.env.iter().flatten()).any(|(k, _)| k == "PATH")
+        && shared.processes.agent.is_none();
+    if (spec.kind != "execPath" || login_path) && !origin.directs_children() {
         return person_required(&spec.kind, origin);
     }
     if let Some(path) = &spec.stdin_from {
@@ -753,7 +758,7 @@ pub(crate) fn quit(shared: &Shared) {
     for child in &children {
         child.send(Input::Release);
     }
-    real::quit(shared, QUIT_GRACE_MS);
+    groups::quit(shared, QUIT_GRACE_MS);
 }
 
 /// The app's directories are known: a launch after a crash ends what its
@@ -765,7 +770,7 @@ pub(crate) fn launched(shared: &Arc<Shared>) {
     let shared = shared.clone();
     let _ = std::thread::Builder::new()
         .name("exact-child-reap".into())
-        .spawn(move || real::reap(&shared));
+        .spawn(move || groups::reap_once(&shared));
 }
 
 #[cfg(test)]
@@ -845,6 +850,8 @@ impl exact_runner::WorkClock for Work {
 }
 
 // Only the desktops start programs (§8): iOS, tvOS and Android link none of it.
+#[path = "executor_process_groups.rs"]
+mod groups;
 #[path = "executor_process_real.rs"]
 mod real;
 

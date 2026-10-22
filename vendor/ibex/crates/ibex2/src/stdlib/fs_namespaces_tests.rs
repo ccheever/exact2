@@ -60,6 +60,21 @@ fn home_and_bundle_paths_run_on_the_hosts_directories() {
             .contains("links are followed")
     );
     assert!(denied(call(FsOp::ReadFile, "home:/.t3/../.ssh", None, None)).contains(". or .."));
+    // A link itself, its target outside the grant or missing, is the link's
+    // to read: only its parent's links are followed.
+    let FsResult::Stat(link) = call(FsOp::Lstat, "home:/.t3/escape", None, None).unwrap() else {
+        panic!()
+    };
+    assert!(link.is_symlink);
+    assert_eq!(
+        call(FsOp::Readlink, "home:/.t3/escape", None, None).unwrap(),
+        FsResult::Text(base.join("outside").display().to_string())
+    );
+    let _ = std::os::unix::fs::symlink(base.join("nowhere"), home.join(".t3/dangling"));
+    assert!(matches!(
+        call(FsOp::Lstat, "home:/.t3/dangling", None, None),
+        Ok(FsResult::Stat(_))
+    ));
     let realpath = call(FsOp::Realpath, "home:/.t3/settings.json", None, None).unwrap();
     assert_eq!(
         realpath,

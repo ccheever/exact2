@@ -1318,8 +1318,10 @@ grandchild that holds the pipes after its parent exits ends too. `storage.fs`
 reads and writes `home:/…` (the user's home, under a grant narrower than
 `home:/`) and reads `bundle:/…` (the app bundle, read-only), and gains
 `lstat`, `readlink`, `access`, `chmod`, `symlink`, `digest(path, "SHA-256")`
-and `flock(path, {timeout})`, whose answer's `unlock()` releases it; `stat`
-answers `mode` and `isSymbolicLink`.
+and `flock(path, {timeout})`, held until its answer's `unlock()` or the end
+of the answer that took it (a TypeScript source's only, for now); `stat`
+answers `mode` and `isSymbolicLink`. An `env.read login:<NAME>` name is a
+shell variable's (`[A-Za-z_][A-Za-z0-9_]*`).
 
 Under the agent nothing runs unless the drive names it: `--process
 <target>=<executable>` runs that file in the target's place,

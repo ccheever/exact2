@@ -199,12 +199,11 @@ fn operation<'a>(op: &str, args: &'a Value) -> Result<Operation<'a>, String> {
             None,
             Some(text(args, "algorithm")?.as_bytes().to_vec()),
         ),
-        "fs.flock" => (
-            FsOp::Flock,
-            None,
-            Some(number(args, "timeout").unwrap_or_else(|_| b"0".to_vec())),
-        ),
-        "fs.unlock" => (FsOp::Unlock, None, None),
+        // A lock belongs to the runtime that took it (LLP 1133.007 D6a),
+        // which a Rust source's storage has none of yet.
+        "fs.flock" | "fs.unlock" => {
+            return Err(format!("{op}: a TypeScript source's storage only, for now"))
+        }
         _ => return Err(format!("unsupported storage operation {op}")),
     })
 }

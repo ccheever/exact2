@@ -485,7 +485,10 @@ impl GrantSet {
                         _ => Grant::SqliteOpen(prefix),
                     }
                 }
-                "env.read" => Grant::EnvRead(target.to_string()),
+                "env.read" => {
+                    login_name(target, index)?;
+                    Grant::EnvRead(target.to_string())
+                }
                 "secret.keep" => {
                     if !valid_name(target) {
                         return Err(format!(
@@ -542,6 +545,25 @@ impl GrantSet {
 }
 
 /// `home:/` alone names every file the person has; a line names a subtree
+/// An `env.read login:<NAME>` name (LLP 1133.007 D5) is a shell variable's:
+/// the login shell is asked for it by name, so nothing else may be one.
+fn login_name(target: &str, index: usize) -> Result<(), String> {
+    let Some(name) = target.strip_prefix("login:") else {
+        return Ok(());
+    };
+    let mut chars = name.chars();
+    let first = chars
+        .next()
+        .is_some_and(|c| c == '_' || c.is_ascii_alphabetic());
+    if first && chars.all(|c| c == '_' || c.is_ascii_alphanumeric()) {
+        return Ok(());
+    }
+    Err(format!(
+        "line {}: `{target}` is not a login variable's name ([A-Za-z_][A-Za-z0-9_]*)",
+        index + 1
+    ))
+}
+
 /// (LLP 1133.007 D6, `home-grant-whole`).
 fn whole_home(prefix: &PathPrefix, index: usize) -> Result<(), String> {
     if prefix.0 == ["home:"] {

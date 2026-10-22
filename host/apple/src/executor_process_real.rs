@@ -2,16 +2,14 @@
 //! process group of the child's own, its output read by a thread per pipe
 //! and handed to the supervisor a few chunks ahead at most (so a full queue
 //! stops the reading and the child waits on its pipe), its stdin written by
-//! a thread from a queue, and its exit reaped by another. Each group is
-//! recorded in the app's cache directory with its leader's start time and
-//! the boot, so the next launch after a crash ends what is left of it (D9),
-//! and a quit ends every group at once.
+//! a thread from a queue, and its exit reaped by another. Its group is
+//! recorded for the quit and for the next launch after a crash
+//! (`groups.rs`).
 use super::supervise::{exec_reply, Child, Seen};
 use super::{failed, ChildCtl, Input, Ran, Shared, Spec, CHUNK, HIGH_WATER};
 use exact_runner::{FailureKind, Outcome};
 use ibex2::process as os;
 use ibex2::stdlib::abort::AbortController;
-use serde_json::{json, Value as Json};
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -26,8 +24,6 @@ const AHEAD: usize = 4;
 /// The login shell's limits (D5), and `launchctl`'s.
 const SHELL_LIMIT: Duration = Duration::from_secs(5);
 const LAUNCHCTL_LIMIT: Duration = Duration::from_secs(2);
-/// After a quit's signal, the longest it waits before `SIGKILL` (D2).
-const QUIT_LIMIT_MS: f64 = 5000.0;
 
 /// A namespace path's native path: `home:/` the person's home directory
 /// (under the agent, the drive's `--home`, or an empty scratch directory),
@@ -242,7 +238,7 @@ impl Drop for RealChild {
         self.cancel.store(true, Ordering::Release);
         self.end();
         if !os::group_alive(self.pid) {
-            forget_group(&self.shared, self.pid);
+            super::groups::forget(&self.shared, self.pid);
         }
     }
 }
@@ -288,7 +284,17 @@ pub(super) fn spawn(
         (None, false) => os::Stdio::Null,
     };
     let pipe = |on: bool| if on { os::Stdio::Pipe } else { os::Stdio::Null };
+    // `argv[0]` is the program as named, as Node passes it: a `path:` name's
+    // name, a path before its links are followed.
+    let arg0 = match spec.program.strip_prefix("path:") {
+        Some(name) => name.to_string(),
+        None => native(shared, &spec.program)
+            .unwrap_or_else(|_| program.clone())
+            .display()
+            .to_string(),
+    };
     let child = os::spawn(os::Command {
+        arg0: Some(&arg0),
         program: &program,
         args: &spec.args,
         env: &env,
@@ -306,7 +312,7 @@ pub(super) fn spawn(
         _ => failed(FailureKind::Refused, format!("spawn {}: {e}", spec.program)),
     })?;
     let pid = child.pid;
-    remember_group(shared, pid, spec);
+    super::groups::remember(shared, pid, &spec.kill_signal, spec.force_kill_after);
     let cancel = Arc::new(AtomicBool::new(false));
     let credit = Arc::new(Credit {
         taken: Mutex::new(0),
@@ -508,6 +514,8 @@ pub(super) fn exec(
             _ => {}
         }
     }
+    // Its leader has closed; what is left of its group ends before the answer.
+    super::groups::end(child.pid() as i32, &spec.kill_signal, spec.force_kill_after);
     drop(child);
     if abort.signal().aborted() {
         return failed(FailureKind::Aborted, "the execFile was let go");
@@ -572,6 +580,10 @@ fn capture_with(
     home: &Path,
 ) -> HashMap<String, String> {
     let mut found = HashMap::new();
+    // Each name goes into the shell's command line: only a variable's name
+    // may (the grammars refuse any other, LLP 1133.007 D5).
+    let names: Vec<&str> = (names.iter().copied()).filter(|n| shell_name(n)).collect();
+    let names = names.as_slice();
     for (shell, flags) in shells {
         let flags = *flags;
         let nu = shell.file_name().is_some_and(|n| n == "nu");
@@ -628,11 +640,28 @@ fn capture_with(
     found
 }
 
-/// Run a fixed program to its end, in a session of its own with no
-/// controlling terminal; its stdout, or `None` past `limit`.
+/// A shell variable's name: `[A-Za-z_][A-Za-z0-9_]*`.
+fn shell_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|c| c == '_' || c.is_ascii_alphabetic())
+        && chars.all(|c| c == '_' || c.is_ascii_alphanumeric())
+}
+
+/// After the program exits, how long its output may still arrive: a
+/// background job its rc files started can hold the pipe open forever.
+const AFTER_EXIT: Duration = Duration::from_millis(200);
+
+/// Run a fixed program in a session of its own with no controlling
+/// terminal: its stdout (lossily UTF-8) once it exits and its output stops,
+/// or `None` past `limit`. Its group is ended either way.
 fn run(program: &Path, args: &[String], home: &Path, limit: Duration) -> Option<String> {
-    let env: Vec<(String, String)> = std::env::vars().collect();
+    let env: Vec<(String, String)> = std::env::vars_os()
+        .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
+        .collect();
     let child = os::spawn(os::Command {
+        arg0: None,
         program,
         args,
         env: &env,
@@ -645,136 +674,56 @@ fn run(program: &Path, args: &[String], home: &Path, limit: Duration) -> Option<
     .ok()?;
     let pid = child.pid;
     let mut out = std::fs::File::from(child.stdout?);
+    enum Got {
+        Bytes(Vec<u8>),
+        End,
+        Exit,
+    }
     let (tx, rx) = std::sync::mpsc::channel();
+    let reader = tx.clone();
     let _ = std::thread::Builder::new()
         .name("exact-login-shell".into())
         .spawn(move || {
-            let mut text = String::new();
-            let _ = out.read_to_string(&mut text);
-            let _ = tx.send(text);
+            let mut buf = vec![0u8; 16 << 10];
+            loop {
+                match out.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        if reader.send(Got::Bytes(buf[..n].to_vec())).is_err() {
+                            return;
+                        }
+                    }
+                }
+            }
+            let _ = reader.send(Got::End);
         });
-    let text = rx.recv_timeout(limit).ok();
-    if text.is_none() {
+    let _ = std::thread::Builder::new()
+        .name("exact-login-shell-wait".into())
+        .spawn(move || {
+            let _ = os::wait(pid);
+            let _ = tx.send(Got::Exit);
+        });
+    let deadline = Instant::now() + limit;
+    let (mut bytes, mut exited_at, mut ended) = (Vec::new(), None::<Instant>, false);
+    while !(ended && exited_at.is_some()) {
+        let until = match (exited_at, ended) {
+            (Some(at), false) => (at + AFTER_EXIT).min(deadline),
+            _ => deadline,
+        };
+        match rx.recv_timeout(until.saturating_duration_since(Instant::now())) {
+            Ok(Got::Bytes(b)) => bytes.extend_from_slice(&b),
+            Ok(Got::End) => ended = true,
+            Ok(Got::Exit) => exited_at = Some(Instant::now()),
+            Err(_) => break,
+        }
+    }
+    let finished = exited_at.is_some();
+    // Past the limit, or an rc file's background job holds the pipe: its
+    // session's group ends.
+    if !(finished && ended) {
         let _ = os::signal_group(pid, os::SIGKILL);
     }
-    let _ = os::wait(pid);
-    text
-}
-
-/// Where this app records its children's groups: its cache directory.
-fn records(shared: &Shared) -> Option<PathBuf> {
-    Some(shared.root_paths.get()?[1].join("exact-children.json"))
-}
-
-fn read_records(path: &Path) -> Vec<Json> {
-    (std::fs::read(path).ok())
-        .and_then(|bytes| serde_json::from_slice::<Vec<Json>>(&bytes).ok())
-        .unwrap_or_default()
-}
-
-fn write_records(path: &Path, entries: &[Json]) {
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let tmp = path.with_extension("json.tmp");
-    if std::fs::write(&tmp, Json::Array(entries.to_vec()).to_string()).is_ok() {
-        let _ = std::fs::rename(&tmp, path);
-    }
-}
-
-/// Edits to the record file, which every session of the app shares.
-static RECORDS: Mutex<()> = Mutex::new(());
-
-fn remember_group(shared: &Shared, pid: i32, spec: &Spec) {
-    (shared.processes.groups.lock().unwrap())
-        .insert(pid, (spec.kill_signal.clone(), spec.force_kill_after));
-    if let Some(path) = records(shared) {
-        let _guard = RECORDS.lock().unwrap();
-        let mut entries = read_records(&path);
-        entries.push(json!({ "pgid": pid, "start": os::start_time(pid), "boot": os::boot_id() }));
-        write_records(&path, &entries);
-    }
-}
-
-fn forget_group(shared: &Shared, pid: i32) {
-    shared.processes.groups.lock().unwrap().remove(&pid);
-    if let Some(path) = records(shared) {
-        let _guard = RECORDS.lock().unwrap();
-        let entries: Vec<Json> = (read_records(&path).into_iter())
-            .filter(|e| e["pgid"].as_i64() != Some(i64::from(pid)))
-            .collect();
-        write_records(&path, &entries);
-    }
-}
-
-/// The next launch after a crash (D9): end what is left of each recorded
-/// group from this boot, only members that started no earlier than its
-/// leader, whom a reused group id would not include.
-pub(super) fn reap(shared: &Shared) {
-    let Some(path) = records(shared) else {
-        return;
-    };
-    let _guard = RECORDS.lock().unwrap();
-    let entries = read_records(&path);
-    if entries.is_empty() {
-        return;
-    }
-    let boot = os::boot_id();
-    for entry in &entries {
-        let (Some(pgid), Some(start)) = (entry["pgid"].as_i64(), entry["start"].as_u64()) else {
-            continue;
-        };
-        if entry["boot"].as_str() != boot.as_deref() || pgid <= 1 {
-            continue;
-        }
-        for member in os::group_members(pgid as i32) {
-            if os::start_time(member).is_some_and(|t| t >= start) {
-                let _ = os::signal_process(member, os::SIGKILL);
-            }
-        }
-    }
-    write_records(&path, &[]);
-}
-
-/// The app quits (D2, D9): every group this launch started gets its kill
-/// signal at once; each is waited for up to its grace or 5 s, whichever is
-/// shorter, and then gets `SIGKILL`.
-pub(super) fn quit(shared: &Shared, grace_ms: f64) {
-    let live: Vec<(i32, String, f64)> = (shared.processes.groups.lock().unwrap().iter())
-        .map(|(pid, (signal, grace))| {
-            (*pid, signal.clone(), grace.min(grace_ms).min(QUIT_LIMIT_MS))
-        })
-        .filter(|(pid, ..)| os::group_alive(*pid))
-        .collect();
-    if live.is_empty() {
-        return;
-    }
-    for (pid, signal, _) in &live {
-        let _ = os::signal_group(*pid, os::signal_number(signal).unwrap_or(os::SIGTERM));
-    }
-    let started = Instant::now();
-    loop {
-        let waiting: Vec<&(i32, String, f64)> = live
-            .iter()
-            .filter(|(pid, ..)| os::group_alive(*pid))
-            .collect();
-        if waiting.is_empty() {
-            break;
-        }
-        let elapsed = started.elapsed().as_secs_f64() * 1000.0;
-        for (pid, _, grace) in &waiting {
-            if elapsed >= *grace {
-                let _ = os::signal_group(*pid, os::SIGKILL);
-            }
-        }
-        if elapsed >= QUIT_LIMIT_MS + 100.0 {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    for (pid, ..) in &live {
-        forget_group(shared, *pid);
-    }
+    finished.then(|| String::from_utf8_lossy(&bytes).into_owned())
 }
 
 #[cfg(test)]

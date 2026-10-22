@@ -127,24 +127,31 @@ pub(super) fn start_time(pid: i32) -> Option<u64> {
     }
 }
 
+/// This boot's identity: `kern.bootsessionuuid`, which `kern.boottime`
+/// is not, since a clock correction moves the boot time it reports.
 pub(super) fn boot_id() -> Option<String> {
-    let mut boot: libc::timeval = libc::timeval {
-        tv_sec: 0,
-        tv_usec: 0,
-    };
-    let mut size = std::mem::size_of::<libc::timeval>();
-    let name = c"kern.boottime";
-    // SAFETY: the out buffer is a timeval of `size` bytes.
+    let mut buf = [0u8; 64];
+    let mut size = buf.len();
+    let name = c"kern.bootsessionuuid";
+    // SAFETY: the out buffer holds `size` bytes.
     let r = unsafe {
         libc::sysctlbyname(
             name.as_ptr(),
-            (&mut boot as *mut libc::timeval).cast(),
+            buf.as_mut_ptr().cast(),
             &mut size,
             std::ptr::null_mut(),
             0,
         )
     };
-    (r == 0).then(|| format!("{}.{:06}", boot.tv_sec, boot.tv_usec))
+    if r != 0 {
+        return None;
+    }
+    let text = &buf[..size.min(buf.len())];
+    let end = text.iter().position(|b| *b == 0).unwrap_or(text.len());
+    std::str::from_utf8(&text[..end])
+        .ok()
+        .map(str::to_string)
+        .filter(|s| !s.is_empty())
 }
 
 pub(super) fn group_members(pgid: i32) -> Vec<i32> {

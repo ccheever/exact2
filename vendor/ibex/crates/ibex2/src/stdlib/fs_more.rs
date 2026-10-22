@@ -1,8 +1,11 @@
 //! The file operations exact2 LLP 1133.007 D6a adds, by Node's names where
 //! Node has them (Exact patch 18): `access`, `chmod`, `symlink`, a file's
 //! `digest` read in bounded memory, and `flock`, an exclusive advisory lock
-//! (POSIX `flock(2)`, a declared deviation: Node has none) held until its
-//! `unlock` or the session's end. Each takes its one argument as text in
+//! (POSIX `flock(2)`, a declared deviation: Node has none). A lock taken here
+//! waits in [`LOCKS`] until the runtime that asked takes it
+//! (`boundary_abi.rs`), which then holds it until its code's `unlock`, the
+//! end of the answer that took it, or the runtime's shutdown. Each takes its
+//! one argument as text in
 //! the operation's data: the mode, the link's target, the algorithm, the
 //! lock's timeout in milliseconds. The path is admitted above.
 use super::fs::FsResult;
@@ -12,7 +15,7 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-/// The locks this process holds, by handle.
+/// Locks taken and not yet moved to a runtime, by handle.
 static LOCKS: Mutex<(u64, Option<HashMap<u64, std::fs::File>>)> = Mutex::new((0, None));
 
 fn argument(data: Option<&[u8]>) -> String {
@@ -91,6 +94,14 @@ fn try_lock(file: &std::fs::File) -> Result<bool, String> {
 #[cfg(not(unix))]
 fn try_lock(_file: &std::fs::File) -> Result<bool, String> {
     Err("unsupported: flock waits for this host (LLP 1133.007 stage 3)".into())
+}
+
+/// Take a lock out of this table: the runtime that asked holds it from here.
+#[allow(dead_code)] // the engine's async operations, which some builds leave out
+pub(crate) fn take(handle: &str) -> Option<std::fs::File> {
+    let id: u64 = handle.parse().ok()?;
+    let mut locks = LOCKS.lock().unwrap_or_else(|e| e.into_inner());
+    locks.1.as_mut()?.remove(&id)
 }
 
 /// Release a lock by its handle.

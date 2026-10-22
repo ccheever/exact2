@@ -178,6 +178,30 @@ fn a_leader_that_exits_first_leaves_no_group_behind() {
     );
 }
 
+/// Rewrite every entry of the record at `path` with `change`.
+fn edit_record(path: &std::path::Path, change: impl Fn(&mut serde_json::Value)) {
+    let mut entries: Vec<serde_json::Value> =
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    entries.iter_mut().for_each(change);
+    std::fs::write(path, serde_json::Value::Array(entries).to_string()).unwrap();
+}
+
+/// A pid that no process has now: a child already reaped.
+fn dead_pid() -> i64 {
+    let mut child = std::process::Command::new("/usr/bin/true").spawn().unwrap();
+    let pid = child.id();
+    child.wait().unwrap();
+    i64::from(pid)
+}
+
+fn until_gone(pgid: i32, what: &str) {
+    let deadline = Instant::now() + Duration::from_secs(6);
+    while os::group_alive(pgid) {
+        assert!(Instant::now() < deadline, "{what}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
 #[test]
 fn a_crash_leaves_a_record_that_the_next_launch_reaps() {
     let (core, woke, dir) = core("process.spawn /bin/sh");
@@ -188,17 +212,76 @@ fn a_crash_leaves_a_record_that_the_next_launch_reaps() {
     let record = dir.join("cache/exact-children.json");
     let text = std::fs::read_to_string(&record).unwrap();
     assert!(text.contains(&format!("\"pgid\":{leader}")), "{text}");
-    // A crash: the core is gone without its quit, the group left running.
+    // Another executor of the app in this live process (a plan swap, a
+    // second window) keeps the first one's child.
+    let (other, _woke, _) = core_in("process.spawn /bin/sh", dir.clone());
+    super::super::groups::reap(&other.shared);
+    assert!(
+        os::group_alive(leader),
+        "a live recorder's group is its own"
+    );
+    // A crash: the recorder is gone, the group left running.
     std::mem::forget(core);
-    assert!(os::group_alive(leader));
-    let (next, _woke, _) = core_in("process.spawn /bin/sh", dir.clone());
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while os::group_alive(leader) {
-        assert!(Instant::now() < deadline, "the next launch left the group");
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    let dead = dead_pid();
+    edit_record(&record, |e| e["recorder"] = dead.into());
+    super::super::groups::reap(&other.shared);
+    until_gone(leader, "the next launch left the group");
     assert_eq!(std::fs::read_to_string(&record).unwrap(), "[]");
-    drop(next);
+    drop(other);
+}
+
+#[test]
+fn a_stale_record_ends_no_group_that_is_not_the_apps() {
+    let (core, _woke, dir) = core("process.spawn /bin/sh");
+    // A group this test starts, alive and nobody's child of the app.
+    let args = vec!["-c".to_string(), "sleep 30 & wait".to_string()];
+    let unrelated = os::spawn(os::Command {
+        arg0: None,
+        program: std::path::Path::new("/bin/sh"),
+        args: &args,
+        env: &[],
+        cwd: std::path::Path::new("/"),
+        stdin: os::Stdio::Null,
+        stdout: os::Stdio::Null,
+        stderr: os::Stdio::Null,
+        session: false,
+    })
+    .unwrap();
+    let pgid = unrelated.pid;
+    std::thread::sleep(Duration::from_millis(50));
+    let record = dir.join("cache/exact-children.json");
+    let dead = dead_pid();
+    let entry = |start: Option<u64>, session: i64| {
+        serde_json::json!({ "pgid": pgid, "start": start, "boot": os::boot_id(),
+            "session": session, "recorder": dead, "recorderStart": 1 })
+    };
+    // The crashed app's session was another (its own, as a GUI app's is),
+    // though the group id and even the leader's start time match.
+    std::fs::write(
+        &record,
+        serde_json::json!([entry(os::start_time(pgid), dead)]).to_string(),
+    )
+    .unwrap();
+    super::super::groups::reap(&core.shared);
+    assert!(
+        os::group_alive(pgid),
+        "another session's group is left alone"
+    );
+    assert_eq!(std::fs::read_to_string(&record).unwrap(), "[]");
+    // Its session, but its leader started at another time: a reused id.
+    let session = i64::from(os::session_of(pgid).unwrap());
+    std::fs::write(
+        &record,
+        serde_json::json!([entry(Some(1), session)]).to_string(),
+    )
+    .unwrap();
+    super::super::groups::reap(&core.shared);
+    assert!(
+        os::group_alive(pgid),
+        "a reused group id's group is left alone"
+    );
+    os::signal_group(pgid, os::SIGKILL).unwrap();
+    let _ = os::wait(pgid);
 }
 
 #[test]
@@ -210,10 +293,30 @@ fn a_quit_ends_every_group() {
     let leader = spawned_pid(&out);
     let quit = Instant::now();
     drop(core);
-    assert!(!os::group_alive(leader), "the quit ended the group");
+    // The caller's thread does not wait: the escalation runs off it.
     assert!(
-        quit.elapsed() < Duration::from_secs(6),
-        "a quit waits at most 5 s"
+        quit.elapsed() < Duration::from_millis(500),
+        "{:?}",
+        quit.elapsed()
+    );
+    until_gone(leader, "the quit ended the group within 5 s");
+}
+
+#[test]
+fn exec_file_ends_what_its_child_left_running() {
+    let (core, woke, _) = core("process.spawn /bin/sh");
+    let body = serde_json::json!({ "kind": "execFile", "program": "/bin/sh",
+        "args": ["-c", "sleep 30 >/dev/null 2>&1 & echo $!"], "encoding": "utf8", "forceKillAfter": 500 });
+    core.run(request(1, body, false), None).unwrap();
+    let out = collect(&core, &woke, |o| !o.is_empty());
+    let Outcome::Response(r) = &out[0] else {
+        panic!("{out:?}")
+    };
+    let reply: serde_json::Value = serde_json::from_slice(&r.body).unwrap();
+    let grandchild: i32 = reply["stdout"].as_str().unwrap().trim().parse().unwrap();
+    assert!(
+        os::start_time(grandchild).is_none(),
+        "its group ended before the answer"
     );
 }
 
@@ -320,4 +423,28 @@ fn the_login_shell_answers_the_named_variables_between_markers() {
         "{found:?}"
     );
     assert!(!found.contains_key("EXACT_NOT_SET_ANYWHERE"));
+    // A name that is not a variable's never reaches the shell (D5).
+    let marker = std::env::temp_dir().join(format!("exact-injected-{}", std::process::id()));
+    let bad = format!("X;touch {}", marker.display());
+    let found = super::capture_with(
+        &[(std::path::PathBuf::from("/bin/sh"), "-lc")],
+        &["PATH", &bad],
+        std::path::Path::new("/"),
+    );
+    assert!(found.contains_key("PATH") && !found.contains_key(bad.as_str()));
+    assert!(!marker.exists(), "the name ran as a command");
+    // A background job holding the pipe: the answer comes at the exit.
+    let started = Instant::now();
+    let out = super::run(
+        std::path::Path::new("/bin/sh"),
+        &["-c".into(), "echo hi; sleep 30 &".into()],
+        std::path::Path::new("/"),
+        Duration::from_secs(5),
+    );
+    assert_eq!(out.as_deref(), Some("hi\n"));
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        started.elapsed()
+    );
 }

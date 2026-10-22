@@ -43,7 +43,10 @@ pub enum Stdio {
 pub struct Command<'a> {
     /// The executable, a native path (no `PATH` lookup here: [`find_on_path`]).
     pub program: &'a Path,
-    /// Its arguments, after `argv[0]`, which is the program.
+    /// `argv[0]`: the program as the caller named it, as Node passes it
+    /// (`None`: the native path).
+    pub arg0: Option<&'a str>,
+    /// Its arguments, after `argv[0]`.
     pub args: &'a [String],
     /// Its whole environment.
     pub env: &'a [(String, String)],
@@ -77,7 +80,11 @@ pub enum Exit {
 pub fn spawn(command: Command<'_>) -> io::Result<Child> {
     let c = |s: &OsStr| CString::new(s.as_bytes()).map_err(|_| invalid("a NUL in an argument"));
     let program = c(command.program.as_os_str())?;
-    let mut argv = vec![program.clone()];
+    let arg0 = match command.arg0 {
+        Some(name) => c(OsStr::new(name))?,
+        None => program.clone(),
+    };
+    let mut argv = vec![arg0];
     for arg in command.args {
         argv.push(c(OsStr::new(arg))?);
     }
@@ -104,6 +111,7 @@ pub fn spawn(command: Command<'_>) -> io::Result<Child> {
                 } else {
                     (read, write)
                 };
+                no_sigpipe(&mine);
                 kept[fd] = Some(mine);
                 Given::Fd(theirs)
             }
@@ -132,20 +140,56 @@ fn invalid(why: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, why.to_string())
 }
 
-/// A pipe whose ends are close-on-exec: another spawn inherits neither.
+/// A pipe whose ends are close-on-exec: another spawn inherits neither. On
+/// Linux both are made so at once (`pipe2`), so a fork on another thread
+/// between the two calls cannot inherit them.
 fn pipe() -> io::Result<(OwnedFd, OwnedFd)> {
     let mut fds = [0 as RawFd; 2];
+    #[cfg(target_os = "linux")]
+    // SAFETY: `fds` has room for the two descriptors pipe2 writes.
+    let r = unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) };
+    #[cfg(not(target_os = "linux"))]
     // SAFETY: `fds` has room for the two descriptors pipe writes.
-    if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
+    let r = unsafe { libc::pipe(fds.as_mut_ptr()) };
+    if r != 0 {
         return Err(io::Error::last_os_error());
     }
     // SAFETY: both were just opened and are owned here alone.
     let (read, write) = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
+    #[cfg(not(target_os = "linux"))]
     for fd in [&read, &write] {
         // SAFETY: a valid descriptor.
         unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) };
     }
     Ok((read, write))
+}
+
+/// A write to the parent's end of a pipe whose child has gone fails with
+/// `EPIPE` rather than raising `SIGPIPE`, which ends a process whose `main`
+/// did not ignore it (a Swift app's: Rust's runtime ignores it for Rust's
+/// own `main`). Apple's `F_SETNOSIGPIPE` says so per descriptor; elsewhere
+/// the host's `main` is Rust's.
+/// `<sys/fcntl.h>` on Apple platforms; libc 0.2.190 lacks them.
+#[cfg(target_vendor = "apple")]
+const F_SETNOSIGPIPE: libc::c_int = 73;
+#[cfg(all(test, target_vendor = "apple"))]
+const F_GETNOSIGPIPE: libc::c_int = 74;
+
+fn no_sigpipe(fd: &OwnedFd) {
+    #[cfg(target_vendor = "apple")]
+    // SAFETY: a valid descriptor; the flag affects it alone.
+    unsafe {
+        libc::fcntl(fd.as_raw_fd(), F_SETNOSIGPIPE, 1);
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    let _ = fd;
+}
+
+/// Whether `fd` writes raise no `SIGPIPE` ([`no_sigpipe`]), for a test.
+#[cfg(all(test, target_vendor = "apple"))]
+fn sigpipe_off(fd: RawFd) -> bool {
+    // SAFETY: plain fcntl.
+    unsafe { libc::fcntl(fd, F_GETNOSIGPIPE) == 1 }
 }
 
 /// Wait for child `pid` to end, reaping it.
@@ -269,6 +313,14 @@ pub fn group_members(pgid: i32) -> Vec<i32> {
     platform::group_members(pgid)
 }
 
+/// The session process `pid` belongs to: what a crash's cleanup checks a
+/// group's members by, since a group id reused after the group ended
+/// belongs to another session (a GUI app's children are in the app's).
+pub fn session_of(pid: i32) -> Option<i32> {
+    // SAFETY: plain syscall.
+    let sid = unsafe { libc::getsid(pid) };
+    (pid > 0 && sid > 0).then_some(sid)
+}
 /// The user's password-database entry: its home directory and login shell.
 fn passwd() -> Option<(PathBuf, PathBuf)> {
     let mut buf = vec![0u8; 16 << 10];
@@ -297,6 +349,29 @@ fn passwd() -> Option<(PathBuf, PathBuf)> {
         PathBuf::from(OsStr::from_bytes(&text(entry.pw_shell)))
     };
     Some((dir, shell))
+}
+
+/// Run `wait` when the process exits (`atexit`), once however often it is
+/// asked: a host whose quit ends its children off the main thread has
+/// `exit` wait for them.
+pub fn wait_at_exit(wait: fn()) {
+    static WAITS: std::sync::Mutex<Vec<fn()>> = std::sync::Mutex::new(Vec::new());
+    static REGISTER: std::sync::Once = std::sync::Once::new();
+    extern "C" fn run() {
+        let waits = WAITS.lock().map(|w| w.clone()).unwrap_or_default();
+        for wait in waits {
+            wait();
+        }
+    }
+    let mut waits = WAITS.lock().unwrap_or_else(|e| e.into_inner());
+    if !waits.contains(&wait) {
+        waits.push(wait);
+    }
+    drop(waits);
+    // SAFETY: `run` is a plain function that lives as long as the process.
+    REGISTER.call_once(|| unsafe {
+        libc::atexit(run);
+    });
 }
 
 /// The person's home directory, from the password database, not `$HOME`,

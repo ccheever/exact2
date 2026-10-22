@@ -47,6 +47,17 @@ pub(super) fn spawn(
     // SAFETY: a valid out pointer.
     unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) };
     let max_fd = limit.rlim_cur.min(65_536) as libc::c_int;
+    // Where `close_range` is missing, the descriptors open now, walked
+    // before the fork (the walk allocates, which the child may not), mark
+    // those past the loop's bound too.
+    let open: Vec<libc::c_int> = std::fs::read_dir("/proc/self/fd")
+        .map(|dir| {
+            (dir.flatten())
+                .filter_map(|e| e.file_name().to_str()?.parse().ok())
+                .filter(|fd| *fd > 2)
+                .collect()
+        })
+        .unwrap_or_default();
     // SAFETY: plain syscall.
     let parent = unsafe { libc::getpid() };
     // SAFETY: the child runs only async-signal-safe calls on memory made
@@ -91,6 +102,11 @@ pub(super) fn spawn(
                 if source < 0 || libc::dup2(source, fd) < 0 {
                     fail(report);
                 }
+                // Already in place: `dup2` changed nothing, its
+                // close-on-exec flag included, which must not survive.
+                if source == fd {
+                    libc::fcntl(fd, libc::F_SETFD, 0);
+                }
             }
             // Everything past 2 closes at exec; the report pipe was already
             // close-on-exec.
@@ -104,7 +120,7 @@ pub(super) fn spawn(
             #[cfg(not(target_os = "linux"))]
             let marked = false;
             if !marked {
-                for fd in 3..max_fd {
+                for fd in (3..max_fd).chain(open.iter().copied()) {
                     libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
                 }
             }

@@ -13,6 +13,7 @@ const events: string[] = [];
 // the echoed long line, counted rather than shown.
 const pids: string[] = [];
 let echoed = 0;
+let relocks = 0;
 const show = () => ({ text: `pids ${pids.join(',')} | echoed ${echoed} | ${events.slice(-12).join(' | ')}` });
 // Output can be long (the real child echoes a 100,000-byte line): its start and length.
 const brief = (data: string | ArrayBuffer) => {
@@ -97,12 +98,23 @@ const sources: Sources = {
       return { text: `install: ${(x as Error).message}` };
     }
   },
+  // A lock its answer takes and never unlocks: the answer's end releases it,
+  // so the next press takes it again at once (D6a).
+  relock: async (_args, _store, storage) => {
+    try {
+      await storage.fs.flock('home:/.fixture/.relock', { timeout: 0 });
+      return { text: `locked ${++relocks}` };
+    } catch (x) {
+      return { text: `relock: ${(x as Error).message}` };
+    }
+  },
   poke: ([what]) => {
     if (!child) return { text: 'no child' };
     try {
       if (what === 'write') return { text: `write ${child.write('poke\n')}` };
       if (what === 'say') return { text: `say ${child.write('hello\n')}` };
       if (what === 'quit') return { text: `quit ${child.write('quit\n')}` };
+      if (what === 'close') return { text: `close ${child.write('close\n')}` };
       if (what === 'end') {
         child.end();
         return { text: 'ended' };
