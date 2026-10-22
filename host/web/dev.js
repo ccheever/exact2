@@ -790,7 +790,9 @@ if (es) {
   // A marked view that changes size (a font-size pin, a commit) is outlined
   // where it is now.
   const resized = typeof ResizeObserver === "function" ? new ResizeObserver(() => place()) : null;
-  const unmark = () => { resized?.disconnect(); for (const { mark } of marks.splice(0)) mark.remove(); };
+  // The banner says what the dashed boxes are while they show (every copy of the selection's source).
+  const legend = (n) => { const t = inspecting.banner?.firstChild; if (t?.nodeType === 3) t.nodeValue = n > 0 ? `Inspecting: dashed boxes mark every copy of this source (${n}); click a view to select it` : "Inspecting: click a view to select it"; };
+  const unmark = () => { resized?.disconnect(); for (const { mark } of marks.splice(0)) mark.remove(); legend(0); };
   const place = () => {
     for (const { mark, el } of marks) {
       const r = el.getBoundingClientRect();
@@ -818,6 +820,7 @@ if (es) {
       resized?.observe(el);
     }
     place();
+    legend(found.length);
   };
   // `hold {revision, hold}` (LLP 1122 D4, D8; *1.11*): `{site, instance, state}` of this page's plan, the view by
   // its site and instance path (exactly one, as a refresh finds it), held by the input glue as the real state; null
