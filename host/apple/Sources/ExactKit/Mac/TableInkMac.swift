@@ -34,7 +34,7 @@ extension NodeView {
         guard presenter?.tables.feeds.isEmpty == false else { return false }
         var above = superview
         while let view = above, !(view is NSTableView) {
-            if let cell = view as? TableRowCell { return cell.backgroundStyle == .emphasized }
+            if let cell = view as? TableRowCell { return cell.paintsSelection && cell.backgroundStyle == .emphasized }
             above = view.superview
         }
         return false

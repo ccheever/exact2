@@ -583,6 +583,28 @@ final class TableFeedKeyMacTests: XCTestCase {
         }
     }
 
+    func testAuthoredPressedPaintFollowsTheTablesClickWithoutReplacingSelection() throws {
+        let source = TableFixture.source(count: 20).replacingOccurrences(of: "row press=open(r)", with: "row press=open(r) -exact-press-opacity=0.4 -exact-press-background-color=\"#ff0000\" -exact-press-color=\"#00ff00\"")
+        let f = try keyed(count: 20, source: source)
+        let row = try f.node("row-1")
+        XCTAssertTrue(row.authorsPress)
+        var observed = false
+        click(try f.node("title-1"), in: f) {
+            observed = true
+            XCTAssertTrue(row.pressed)
+            XCTAssertTrue(row.pressPaint.down)
+            XCTAssertEqual(row.pressPaint.depth, 0.6, accuracy: 0.001)
+            XCTAssertEqual(f.table.selectedRow, -1, "AppKit still selects on release")
+        }
+        XCTAssertTrue(observed)
+        XCTAssertFalse(row.pressed)
+        XCTAssertEqual(f.table.selectedRow, 1)
+        XCTAssertTrue(f.window.firstResponder === f.table)
+        XCTAssertTrue(f.status.hasPrefix("opened 1 presses 1 "), f.status)
+        XCTAssertLessThan(chroma(try fill(1, in: f)), 0.02, "only the selection paint is suppressed")
+        XCTAssertFalse(try f.node("title-1").inEmphasizedRow, "selected-item ink needs the selected-item ground")
+    }
+
     func testAContextClickAndADoubleClickOnARowAreTheRowsOwn() throws {
         let f = try keyed(count: 20, source: Self.acting)
         /// A press of a mouse button and its release in the middle of `view`, as `click` sends the left one.
