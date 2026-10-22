@@ -12,11 +12,10 @@ final class ComposerPasteTests: XCTestCase {
 
     func testPasteAsTextIsTheKeyThePasteRunsIn() {
         XCTAssertTrue(T3ComposerEditor.isPasteAsTextKey(key("v", 9, [.command, .shift])))
-        XCTAssertTrue(T3ComposerEditor.isPasteAsTextKey(key("V", 9, [.command, .shift, .option])), "the host's Paste and Match Style")
-        XCTAssertTrue(T3ComposerEditor.isPasteAsTextKey(key("ㅍ", 9, [.command, .shift])), "Korean 2-Set's ㅍ on the V key")
+        XCTAssertFalse(T3ComposerEditor.isPasteAsTextKey(key("V", 9, [.command, .shift, .option])), "⌥ leaves it out, as the reference's rule does")
+        XCTAssertFalse(T3ComposerEditor.isPasteAsTextKey(key("ㅍ", 9, [.command, .shift])), "the key's character, as the reference's event.key")
         XCTAssertFalse(T3ComposerEditor.isPasteAsTextKey(key("v", 9, [.command])), "Paste")
         XCTAssertFalse(T3ComposerEditor.isPasteAsTextKey(key("v", 9, [.command, .shift, .control])))
-        XCTAssertFalse(T3ComposerEditor.isPasteAsTextKey(key("k", 9, [.command, .shift])), "a layout's own letter at the V key's place")
         XCTAssertFalse(T3ComposerEditor.isPasteAsTextKey(nil), "chosen with the pointer, no key comes first")
     }
 }
