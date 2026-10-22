@@ -90,7 +90,9 @@ function mapDesignSource(app, dir) {
  * it was and resolves `{superseded}`: what it read is older than the files.
  * With none, it is published whatever moved. */
 function build(app, dist, keep = () => false, compiler = null, superseded = null) {
-  const stage = resolve(app.target, 'web-js-dev-stage');
+  // One stage per dist: two loops on one target/ (two apps outside a workspace, or one CARGO_TARGET_DIR) never
+  // build into each other's.
+  const stage = resolve(app.target, 'web-js-dev-stage', createHash('sha256').update(resolve(dist)).digest('hex').slice(0, 16));
   rmSync(stage, { recursive: true, force: true });
   const began = Date.now();
   // The app's own inputs beside its Contract sources, and which were there.
