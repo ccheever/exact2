@@ -729,9 +729,10 @@ pub(crate) fn continue_document(
                     arena.mark_export_dirty(slot, NodeFlags::PROPS_DIRTY);
                     view_box_changed(arena, layout, slot, *prop, receipt);
                     // A first `value` makes a `progress` the bar (LLP 1116 D8).
+                    // `popover` takes a box out of its parent's flow (`style::taffy_style`).
                     if matches!(
                         prop,
-                        PropId::Type | PropId::AccessibilityRole | PropId::Href
+                        PropId::Type | PropId::AccessibilityRole | PropId::Href | PropId::Popover
                     ) || (*prop == PropId::Value && old.is_none())
                     {
                         if let Some(node) = arena.taffy(slot) {
@@ -769,7 +770,11 @@ pub(crate) fn continue_document(
                         view_box_changed(arena, layout, slot, *prop, receipt);
                         if matches!(
                             prop,
-                            PropId::Type | PropId::AccessibilityRole | PropId::Href | PropId::Value
+                            PropId::Type
+                                | PropId::AccessibilityRole
+                                | PropId::Href
+                                | PropId::Value
+                                | PropId::Popover
                         ) {
                             if let Some(node) = arena.taffy(slot) {
                                 layout.restyle(arena, slot, node);

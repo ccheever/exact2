@@ -1482,6 +1482,14 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     if arena.is_root(slot) && s.position == taffy::style::Position::Static {
         s.position = taffy::style::Position::Relative;
     }
+    // HTML's UA sheet: an open popover is `position: fixed` in the top layer,
+    // out of its parent's flow, so opening one moves nothing around where it
+    // was written (a host lifts and places it; Harmony's room composer, a
+    // popover written after it, jumped up by its height on iOS). A closed one
+    // is covered whole (`display: none`).
+    if arena.props(slot).str(crate::PropId::Popover).is_some() {
+        s.position = taffy::style::Position::Absolute;
+    }
     s
 }
 
