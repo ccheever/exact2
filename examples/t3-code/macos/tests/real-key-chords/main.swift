@@ -10,7 +10,7 @@ import XCTest
 // path can lose a chord. Every ⌘ chord of the reference's defaults that holds in an open thread is sent here as the
 // window server sends it (a CGEvent-backed NSEvent through NSApp.sendEvent), from the composer and with nothing
 // focused, past the clone's own monitors (T3Menus, T3Composer with its launcher-letter guard, T3LatinChords,
-// T3TextContextMenu, T3ComposerIntent) and its menu bar
+// T3TextContextMenu) and its menu bar
 // (T3Menus.augment, T3MenuBar.arrange) over the host's, and must reach the host's monitor and the host's item for
 // that chord, leaving the composer's text and the focus alone. The host's parts are stand-ins, as in menu-bar: its bar
 // (DevMenuMac.makeMenu's items), a session monitor that only records (the host's presses and consumes), and
@@ -165,7 +165,7 @@ final class Fixture {
     let composerText = NSTextView(frame: NSRect(x: 20, y: 300, width: 600, height: 80))
     let composer = T3Composer(), menus = T3Menus()
     let latinChords = T3LatinChords(agent: false)
-    let textMenu = T3TextContextMenu(agent: false), intent = T3ComposerIntent()
+    let textMenu = T3TextContextMenu(agent: false)
     var elements: [ExactElement] = []
     /// What the host's session monitor saw: each keydown's key code and modifiers.
     var session: [(UInt16, NSEvent.ModifierFlags)] = []
@@ -192,14 +192,11 @@ final class Fixture {
             return element
         }
         let composerElement = element(.t3Composer, "composer", 3, composerText, ["snapshot-owner": "t1"])
-        let sendElement = element(.t3Send, "send", 4, send)
         activate()
         menus.updatesDisabledReason = { "no feed" }
         textMenu.install()
         // T3Module.element's order.
-        for element in [composerElement, sendElement] {
-            composer.install(element); menus.install(element)
-        }
+        composer.install(composerElement); menus.install(composerElement)
         tick(0.2)
         // The next plan batch files the window's commands over the clone's bar.
         host.file(referenceChords.filter { !editMenuChords.contains($0) }.map(Chord.init), in: NSApp.mainMenu!)

@@ -226,8 +226,7 @@ describe('the composer against the reference\'s', () => {
     expect(snapshot(client)).toMatchObject({ modelLabel: 'Model B', providerDriver: 'codex', canSend: true });
     expect(modelCatalog(client, 'codex', '').models.filter(row => row.selected).map(row => row.key)).toEqual(['codex:model-b']);
     // onToggleModel seeds the set with selectedModelSelection, the shown model.
-    native.gesture = { modifiers: 'shift', source: 'pointer', ageMs: 12 };
-    await client.command('model', 'model-a', 'claude', 0, native, disk);
+    await client.command('model', 'model-a', 'claude', 1, native, disk);
     expect(snapshot(client).composer).toMatchObject({ fanout: true, fanoutKeys: ['codex:model-b', 'claude:model-a'], fanoutLabel: 'Model B, Model A' });
     await composerBranches(client, native, false, ''); // the strip reads the checkout's branch, the worktrees' base
     await client.command('send', '', 'Both models', 0, native, disk);

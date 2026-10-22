@@ -1,9 +1,9 @@
 // ComposerCommandMenuLayer (ChatComposer.tsx): the command and stash drawers
 // are a fixed layer over the chat, not part of the composer's flow, so opening
 // one never resizes the transcript above it. The layer sits on the chat column
-// (T3ComposerFrames.swift measures it as `chat`) with its bottom edge on the
-// card's top (`card`); the drawer's own 17pt seam reaches under the card.
-import { obj, type Obj } from '../client/domain';
+// (its layout frame `chat`, layout-frames.ts) with its bottom edge on the card's
+// top (`card`); the drawer's own 17pt seam reaches under the card.
+import type { Obj } from '../client/domain';
 
 export type ComposerDrawer = { placed: boolean; left: number; width: number; bottom: number; listMax: number; cardX: number; cardY: number; cardWidth: number; cardHeight: number; hold: number };
 /** Until both frames are measured the drawer stays in the composer's flow. */
@@ -18,8 +18,7 @@ function frame(frames: Obj, name: string): number[] {
 }
 
 /** Where the layer goes in the chat column, from the window-space frames of the column and the card. */
-export function composerDrawer(presentation: Obj): ComposerDrawer {
-  const frames = obj(presentation.frames);
+export function composerDrawer(frames: Obj): ComposerDrawer {
   const card = frame(frames, 'card'), chat = frame(frames, 'chat');
   if (!card.length) return NO_DRAWER;
   const [cardX, cardTop, cardWidth, cardHeight] = card as [number, number, number, number];
@@ -40,8 +39,7 @@ export function composerDrawer(presentation: Obj): ComposerDrawer {
  * expanded stack. A card taller than its 48pt resting row is expanded.
  */
 export type StackHold = { owner: string; height: number };
-export function composerStackHold(hold: StackHold, owner: string, presentation: Obj): number {
-  const frames = obj(presentation.frames);
+export function composerStackHold(hold: StackHold, owner: string, frames: Obj): number {
   const card = frame(frames, 'card'), stack = frame(frames, 'stack');
   if (hold.owner !== owner) { hold.owner = owner; hold.height = 0; }
   if (card.length && stack.length && card[3]! > 60 && stack[3]! > 0) hold.height = stack[3]!;

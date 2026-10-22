@@ -399,7 +399,6 @@ component T3Window
     citeMessage = (citeShown ? chip.message : "")
     citeQuote = (citeShown ? chip.quote : "")
     citeAt = (citeShown ? chip.at : -1)
-    citeOpen = citeShown
     // The answer whose Cite shows (markdown.contract AnswerMarkdown), its offer, its withdrawal, and the
     // timeline's scroll (ChatColumn).
     citeOffered = (citeShows ? citeFor : "")

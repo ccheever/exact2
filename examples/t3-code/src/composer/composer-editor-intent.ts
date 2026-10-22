@@ -3,8 +3,8 @@
 // runs is the follow-up alternate, ⌘↩ or ⌥⌘↩ in a new-thread draft starts it
 // in the background (composer.sendBackground), and ⌥⌘↩ on an existing thread
 // sends and then opens a fresh new-thread composer (composer.sendAndNewThread).
-// The gesture is a pointer press's own modifiers (its MouseEvent, `pressGesture`) or, for any other press,
-// T3ComposerIntent.swift's newest Return.
+// The gesture rides with the press (`pressGesture`): a pointer press's own modifiers (its MouseEvent), or a send
+// chord's, which the focused composer's key action reads from its keydown (app.contract composerKeyEvent).
 import { arr, obj, str, type Obj } from '../client/domain';
 
 export type SendIntent = 'foreground' | 'alternate' | 'background';
@@ -70,17 +70,18 @@ export function chordsFor(config: Obj, command: string, extra: Record<string, bo
 }
 
 /**
- * A press that carried modifiers (`pointer:meta+alt`, press-modifiers.contract heldModifiers): the pointer gesture it
- * was, now. Null for a press with none (a plain click, a key, an assistive or shortcut press), whose gesture is the
- * module's newest Return, if any.
+ * What pressed Send (app.contract `submit`): a pointer press with its modifiers (`pointer:meta+alt`,
+ * press-modifiers.contract heldModifiers), or a send chord typed in the composer (`key:meta+alt`, `key:` for none).
+ * A plain press (a click, a key with no chord, an assistive or shortcut press) is a plain send: `{}`.
  */
-export function pressGesture(pressed: string): Obj | null {
-  if (!pressed.startsWith('pointer:')) return null;
-  const modifiers = pressed.slice('pointer:'.length).split('+').filter(name => ['meta', 'control', 'alt', 'shift'].includes(name)).join('+');
-  return modifiers ? { modifiers, source: 'pointer', ageMs: 0 } : null;
+export function pressGesture(pressed: string): Obj {
+  const source = pressed.startsWith('pointer:') ? 'pointer' : pressed.startsWith('key:') ? 'key' : '';
+  if (!source) return {};
+  const modifiers = pressed.slice(source.length + 1).split('+').filter(name => ['meta', 'control', 'alt', 'shift'].includes(name)).join('+');
+  return modifiers || source === 'key' ? { modifiers, source, ageMs: 0 } : {};
 }
 
-/** The gesture's chord: T3ComposerIntent names modifiers meta, control, alt, shift. */
+/** The gesture's chord: its modifiers are named meta, control, alt, shift (press-modifiers.contract). */
 export function gestureChord(modifiers: string, key = 'Enter'): string {
   const has = (name: string) => new RegExp(`\\b${name}\\b`).test(modifiers);
   return [...(has('meta') ? ['Meta'] : []), ...(has('control') ? ['Control'] : []), ...(has('alt') ? ['Alt'] : []), ...(has('shift') ? ['Shift'] : []), key].join('+');
@@ -107,14 +108,20 @@ export function sendIntent(config: Obj, gesture: Obj, running: boolean, draft: b
 }
 
 /**
- * The send button's `aria-keyshortcuts`: ⌘↩ always reaches it (the
- * mod-enter send shortcut), plus whichever chords resolve to a send command
- * here — the alternate while running, start-in-background in a draft, and
- * send-and-new-thread on an existing thread.
+ * The chords that resolve to a send command here, which composerSubmissionIntentForKey makes no plain send: the
+ * alternate while running, start-in-background in a draft, and send-and-new-thread on an existing thread. An open
+ * command menu leaves these to Send and takes the other Returns.
+ */
+export function sendCommandChords(config: Obj, running: boolean, draft: boolean, terminalOpen = false, requiresModifier = false): string {
+  const context = { draftThreadRoute: draft, turnRunning: running, terminalOpen, composerRequiresModifier: requiresModifier };
+  return [...new Set([...(running ? chordsFor(config, 'composer.sendAlternate', context) : []),
+    ...(draft ? chordsFor(config, 'composer.sendBackground', context) : chordsFor(config, 'composer.sendAndNewThread', context))])].join(' ');
+}
+
+/**
+ * Every send chord: ⌘↩ always (the mod-enter send shortcut) and sendCommandChords. The focused composer takes them
+ * with their modifiers; the Send buttons declare them as `aria-keyshortcuts` while it is not focused.
  */
 export function sendChords(config: Obj, running: boolean, draft: boolean, terminalOpen = false, requiresModifier = false): string {
-  const context = { draftThreadRoute: draft, turnRunning: running, terminalOpen, composerRequiresModifier: requiresModifier };
-  return [...new Set(['Meta+Enter',
-    ...(running ? chordsFor(config, 'composer.sendAlternate', context) : []),
-    ...(draft ? chordsFor(config, 'composer.sendBackground', context) : chordsFor(config, 'composer.sendAndNewThread', context))])].join(' ');
+  return [...new Set(['Meta+Enter', ...sendCommandChords(config, running, draft, terminalOpen, requiresModifier).split(' ').filter(Boolean)])].join(' ');
 }

@@ -3,7 +3,7 @@
 // preview/ThreadPreviewMiniPlayer.tsx's MiniPlayerShell gestures, ChatView.logic.ts
 // shouldRenderPreviewMiniPlayer). The `chatCanvas` source: Contract measures the canvas (the chat
 // column's `chat` frame below its 52 pt header), the composer overlay (`overlay`) and the inline
-// card's content (`details-content`) with `t3-frame` hooks; this runs resolveChatCanvasLayout and
+// card's content (`details-content`) as layout frames (layout-frames.ts); this runs resolveChatCanvasLayout and
 // answers the chat lane, the card's fold and the floating player's frame, which Contract draws. It also answers
 // ThreadDetailsCard's presentation (inline where a placement is left, else the header's popover) and its density,
 // from the content heights it keeps per thread and preferred width.
@@ -27,6 +27,7 @@ import { deviceKey, deviceThreadId, miniStoreOf } from '../device/device-session
 import { shownBrowserTab, shownDevice } from '../panel/panel-surfaces';
 import { floatingBrowserSize } from '../browser/browser-capture'; // a floating Browser tab
 import { inlineOpen } from './shell-prefs';
+import { layoutFrames } from './layout-frames';
 import { detailsKey } from '../details/shell-details';
 
 /** The chat header above the canvas (ChatCanvas starts below it). */
@@ -127,16 +128,16 @@ function applyGesture(client: T3Client, state: CanvasState, gesture: Gesture | n
   store.resize(threadKey, gesture.sourceKey, next.width, { x: next.x, y: next.y });
 }
 
-/** Fresh frames and stream reports: the module's status, watched while a layout reads them. */
-const presented = (presentation: Obj): Presentation => ({ frames: obj(presentation.frames), streams: obj(presentation.deviceStreams) });
+/** The layout frames and the module's stream reports (its status, watched while a layout reads them). */
+const presented = (client: T3Client, presentation: Obj): Presentation => ({ frames: layoutFrames(client), streams: obj(presentation.deviceStreams) });
 async function livePresentation(client: T3Client, native: Native | null | undefined, state: CanvasState, watch: boolean): Promise<Presentation> {
-  if (!native?.available || !watch) return presented(obj(client.presentation));
+  if (!native?.available || !watch) return presented(client, obj(client.presentation));
   native.watch('t3.status');
   try {
     const reply = await bridgeReply(native, { op: 'status' });
-    if (reply.ok) { state.live = presented(obj(obj(reply.value).presentation)); return state.live; }
+    if (reply.ok) { state.live = presented(client, obj(obj(reply.value).presentation)); return state.live; }
   } catch { /* the snapshot's last presentation stands in */ }
-  return presented(obj(client.presentation));
+  return presented(client, obj(client.presentation));
 }
 
 /** The `chatCanvas` source. */
@@ -148,8 +149,8 @@ export async function chatCanvasView(client: T3Client, native: Native | null | u
   const current = player ? miniStoreOf(client).get(threadKey) ?? player : null;
   const width = Math.max(0, args.width);
   const card = args.detailsInline && inlineOpen(client, detailsKey(client)); // ThreadDetailsCard reports itself only while open inline
-  // Mid-gesture the frames of its start stand; otherwise a layout with a player or the card follows the module's frames.
-  const { frames, streams } = gesture && state.gesture ? state.live ?? presented(obj(client.presentation)) : await livePresentation(client, native, state, !!current || card || args.popoverOpen);
+  // Mid-gesture the frames of its start stand; otherwise a layout follows the frames last measured.
+  const { frames, streams } = gesture && state.gesture ? state.live ?? presented(client, obj(client.presentation)) : await livePresentation(client, native, state, !!current || card || args.popoverOpen);
   const chat = rect(frames.chat), overlay = rect(frames.overlay);
   const container = { width, height: Math.max(0, (chat ? chat[3]! : args.viewportHeight) - CHAT_HEADER_HEIGHT) };
   // The lane's rem constants (ps-5, min-w-[40rem]) at the Interface font size, the root size.

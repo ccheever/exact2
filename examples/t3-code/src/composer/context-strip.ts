@@ -11,7 +11,7 @@
 // its own controls row (composer-controls.contract ComposerFooter `resting`) and the strip is not
 // mounted while the card rests (app-main.contract), so the strip never hosts those controls.
 // useLabelsOverflow (BranchToolbar.tsx at 74541bab17, with resolveContextStripLabelsCompact) reads the
-// laid-out strip from the module's frames and anchors instead of the DOM.
+// laid-out strip from its layout frame (layout-frames.ts) and the module's anchors instead of the DOM.
 import type { T3Client } from '../client/client';
 import { obj } from '../client/domain';
 import { probeKey } from './composer-menus';
@@ -19,6 +19,7 @@ import { addTargetOptions, environmentOptions, NO_RUN_ON } from '../details/git-
 import { runOnMenuWidth } from './composer-menus';
 import { autoIndicator, withAutoOption } from './auto-balance';
 import { fleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
+import { layoutFrames } from '../shell/layout-frames';
 
 // A remote (non-primary) environment is always surfaced, even when it is the
 // only environment available: with a single connected machine there is nothing
@@ -102,7 +103,7 @@ export function stripLabelTexts(client: T3Client): string[] {
 export function stripLabelsCompact(client: T3Client, rootFontSize: number): boolean {
   const layout = stripLayouts.get(client);
   if (!layout || !layout.controls.length) return false;
-  const anchors = obj(client.presentation.anchors), strip = obj(client.presentation.frames).strip;
+  const anchors = obj(client.presentation.anchors), strip = layoutFrames(client).strip;
   const stripWidth = Array.isArray(strip) ? Number(strip[2]) : NaN;
   if (!(stripWidth > 0)) return layout.compact;
   const width = (name: string) => { const value = anchors[name]; return Array.isArray(value) ? Number(value[1]) || 0 : 0; };

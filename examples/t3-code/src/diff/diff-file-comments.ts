@@ -22,7 +22,7 @@ import { addReviewCommentChip, localId, removeReviewCommentChip } from '../compo
 type Range = { start: number; end: number };
 type Saved = { contextId: string; path: string; startLine: number; endLine: number; text: string };
 /** `focus`: the right panel (its panel key) whose open draft's textarea took the focus, '' when it let go; the composer's
- * Send then leaves ⌘↩ to the draft (files-surface.ts fileDraftHoldsCommandEnter), as diff.ts draftFocus does.
+ * send chords then leave ⌘↩ to the draft (files-surface.ts fileDraftHoldsCommandEnter), as diff.ts draftFocus does.
  * `drag`: the gutter's press, held until its release (diff-line-drag.ts). */
 type FileComments = { selection: { path: string; range: Range } | null; draft: { path: string; id: string; startLine: number; endLine: number } | null; saved: Saved[]; texts: Map<string, string>; focus: string; drag: LineDrag | null };
 const states = new WeakMap<T3Client, FileComments>();
