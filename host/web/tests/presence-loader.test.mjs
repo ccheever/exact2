@@ -80,7 +80,7 @@ test('preload schedules the one load after paint, which pending names until it l
 test('a batch with another custom property fetches nothing', () => {
   let calls = 0;
   const presence = presenceLoader(() => { calls++; return new Promise(() => {}); }, {}, () => {});
-  expect(presence.hold({ ops: [{ op: 'style', id: 1, css: '--exact-press: 0.96; --exact-tint: red; font-family: "--exact-layout-transition"' }] })).toBe(false);
+  expect(presence.hold({ ops: [{ op: 'style', id: 1, css: '--exact-press: 0.96; --exact-tint: red; font-family: "A;--exact-layout-transition:x"' }] })).toBe(false);
   expect(calls).toBe(0);
   presence.hold({ ops: [{ op: 'style', id: 1, css: '--exact-exit-animation: leave 200ms' }] });
   expect(calls).toBe(1);
