@@ -187,6 +187,10 @@ struct HostState {
     /// Each open socket's buffered bytes at the start of this turn, by the
     /// prelude's ticket for its stream (op 15).
     socket_buffered: Vec<(u64, u64)>,
+    /// The binary message being mapped (a socket's frame, a byte stream's
+    /// bytes), which the prelude copies into an ArrayBuffer of its own
+    /// through bytes door op 9 rather than decoding base64.
+    binary: Vec<u8>,
     native: Option<Box<dyn NativeModule>>,
     /// The native module takes long calls off this thread (`native.later`).
     later: bool,
@@ -1278,7 +1282,8 @@ impl Module {
         let call = self.streams[at].1.call;
         let ended = !matches!(outcome, Outcome::Message(_));
         self.progress += 1;
-        let outcome_text = outcome_to_json(&outcome).to_string();
+        let (outcome_text, binary) = wire::message_to_json(outcome);
+        self.host.binary = binary;
         self.host.socket_buffered = socket::snapshot(&self.streams, store);
         self.host.socket_ops.clear();
         self.host.answer_ops.clear();
@@ -1300,6 +1305,7 @@ impl Module {
             Ok(Module::step(sig, engine, source, reply, self.host.baking))
         })();
         self.host.store = None;
+        self.host.binary = Vec::new();
         // The replies the mapper staged answering this frame (LLP 1016.000
         // D7), staged on the store however the call ended: the runner sends
         // them with this frame's commit, or journals them refused.

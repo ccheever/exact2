@@ -1098,6 +1098,7 @@ impl<D: DataSource> Runner<D> {
         let (ticket, target, name) = (p.ticket, p.target, self.target_name(p.target));
         let what = super::lines::fulfilling(ticket, &name, summary);
         let before = self.sockets.len();
+        crate::stream_timing::entered(ticket);
         let result = self.fulfill_inner(p, outcome);
         // What the mapper staged answering this frame (LLP 1016.000 D7):
         // addressed for the commit, or left staged by a frame that failed.
@@ -1107,6 +1108,7 @@ impl<D: DataSource> Runner<D> {
         let mapper = |b: &crate::SocketSend| matches!(b.origin, crate::SocketOrigin::Mapper(_));
         let replied = left || self.sockets[before..].iter().any(mapper);
         self.conclude(checkpoint, &result, was_poisoned);
+        crate::stream_timing::committed(result.is_ok());
         self.arm_then(result.is_ok());
         self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);

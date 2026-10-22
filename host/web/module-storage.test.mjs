@@ -28,6 +28,7 @@ export const agentStream = () => null; export const keyStore = () => ({}); expor
     writeFileSync(resolve(dir, 'storage-fs.js'), `export const createFileSystem = () => ({
   readFile: path => new Promise(ok => globalThis.reads.push(() => ok(new TextEncoder().encode(path)))), dispose() {} });`);
     const prelude = readFileSync(resolve(ROOT, 'js/src/prelude.js'), 'utf8');
+    const binary = readFileSync(resolve(ROOT, 'js/src/binary.js'), 'utf8');
     const script = new TextEncoder().encode(`exact = { abi: 1, appId: 'test.storage', grants: 'net.fetch https://api.castle.test', answer(source, args, store, storage) {
   const read = path => storage.fs.readFile(path).then(bytes => new TextDecoder().decode(bytes));
   if (source === 'feed') { const file = read('app:/data/feed'); return fetch('https://api.castle.test/feed').then(r => r.text()).then(async text => text + ' ' + await file); }
@@ -42,7 +43,7 @@ export const agentStream = () => null; export const keyStore = () => ({}); expor
     win.document = { createElement: () => ({}), head: { append: el => vm.runInContext(el.textContent, win) } };
     const frame = { contentWindow: win, setAttribute() {}, remove() {} };
     Object.defineProperties(globalThis, {
-      fetch: { configurable: true, writable: true, value: async url => { const r = new Response(String(url).endsWith('module-prelude.js') ? prelude : 'never'); Object.defineProperty(r, 'url', { value: 'http://127.0.0.1/x' }); return r; } },
+      fetch: { configurable: true, writable: true, value: async url => { const r = new Response(String(url).endsWith('module-prelude.js') ? prelude : String(url).endsWith('module-binary.js') ? binary : 'never'); Object.defineProperty(r, 'url', { value: 'http://127.0.0.1/x' }); return r; } },
       document: { configurable: true, value: { createElement: () => frame, body: { append() {} } } },
       location: { configurable: true, value: { href: 'http://127.0.0.1/', origin: 'http://127.0.0.1' } },
     });
@@ -98,12 +99,13 @@ export const agentStream = () => null; export const keyStore = () => ({}); expor
   open: async () => ({ query: async (_sql, params) => params,
     prepare: async () => ({ query: async params => params, close: async () => {} }), close: async () => {} }), dispose() {} });`);
     const prelude = readFileSync(resolve(ROOT, 'js/src/prelude.js'), 'utf8');
+    const binary = readFileSync(resolve(ROOT, 'js/src/binary.js'), 'utf8');
     const bytes = new TextEncoder().encode(`exact = { abi: 1, appId: 'test.storage', grants: 'net.fetch https://api.castle.test', answer(source, args, store, storage) {
   const read = path => storage.fs.readFile(path).then(bytes => new TextDecoder().decode(bytes));
   ${script}
 } };`);
     const sha = new Bun.CryptoHasher('sha256').update(bytes).digest('hex');
-    globalThis.fetch = async url => { const r = new Response(String(url).endsWith('module-prelude.js') ? prelude : 'never'); Object.defineProperty(r, 'url', { value: 'http://127.0.0.1/x' }); return r; };
+    globalThis.fetch = async url => { const r = new Response(String(url).endsWith('module-prelude.js') ? prelude : String(url).endsWith('module-binary.js') ? binary : 'never'); Object.defineProperty(r, 'url', { value: 'http://127.0.0.1/x' }); return r; };
     globalThis.location = { href: 'http://127.0.0.1/', origin: 'http://127.0.0.1' };
     globalThis.exact = {};
     if (placement === 'main') {
