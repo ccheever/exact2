@@ -25,7 +25,7 @@
 //
 // **Whole, or not at all.** The toolbar shows a heading, buttons whose face
 // is a symbol and a title, and nothing else. A header holding anything the
-// bar has no place for (a picture, a second line of text, a pressable
+// bar has no place for (a picture, a pressable
 // title, a field) stays painted in the page as written, and the session's
 // log says what it was: a header is never half projected. While the bar
 // shows it the header is hidden and its box is the platform's (`HostCovers`,
@@ -64,10 +64,11 @@ struct WindowHeader {
     /// The header's search input: the bar's search item, whose field is
     /// the input's own.
     var search: NodeView?
+    var subtitle: NodeView?
 
     /// Whether `node` is one of the header's nodes the bar shows or stands for.
     func places(_ node: NodeView) -> Bool {
-        node === header || node === heading || node === segments || node === search
+        node === header || node === heading || node === subtitle || node === segments || node === search
             || buttons.contains { $0 === node } || backs.contains { $0 === node } || tabs.contains { $0 === node }
     }
 
@@ -87,10 +88,13 @@ struct WindowHeader {
         let children = { (node: NodeView) in node.container.subviews.compactMap { $0 as? NodeView } }
         let items = Set(rule.items.map(ObjectIdentifier.init))
         let backs = rule.items.filter { item in !rule.leading.contains { $0 === item } && !rule.trailing.contains { $0 === item } }
+        var passedHeading = false
+        var subtitle: NodeView?
         // Everything the header shows has a place in the bar, or none of it goes.
         func refusal(in node: NodeView) -> String? {
             for child in children(node) where child.style["display"]?.string != "none" {
-                if child === rule.heading { continue }
+                if child === rule.heading { passedHeading = true; continue }
+                if passedHeading, subtitle == nil, child.isParagraph { subtitle = child; continue }
                 if child === rule.tap { return "its heading is inside a pressable (#\(child.id)), and a window's title is not pressed" }
                 // LLP 1075.003 §9.15: iOS's custom-view item; the toolbar makes none.
                 if rule.readouts.contains(where: { $0 === child }) { return "it holds a readout (#\(child.id), `role=\"status\"`), which the toolbar has no item for" }
@@ -132,6 +136,7 @@ struct WindowHeader {
         if let why = refusal(in: rule.header) { return .kept(why) }
         var read = WindowHeader(route: route, header: rule.header, heading: rule.heading, title: rule.heading.accessibleText,
                                 leading: rule.leading.filter(shown), trailing: rule.trailing.filter(shown), backs: backs)
+        read.subtitle = subtitle
         if let list = rule.segments, shown(list), let tabs = titleTabs(of: list) { (read.segments, read.tabs) = (list, tabs) }
         if let input = rule.search, shown(input) { read.search = input }
         return .shown(read)
@@ -164,9 +169,9 @@ struct WindowHeader {
 
     /// Whether a toolbar item can show all of a button's face: a native
     /// button's symbol and title, or a custom button holding text and at most
-    /// one image. A box drawn inside it (an avatar, a badge) is not an
-    /// item's to draw.
+    /// one image, or a filled avatar box drawn as a `BadgeFace`.
     static func showable(_ button: NodeView) -> Bool {
+        if BadgeFace(button) != nil { return true }
         if button.isNativeButton { return button.face?.raster != true }
         let children = { (node: NodeView) in node.container.subviews.compactMap { $0 as? NodeView } }
         let content = children(button)
