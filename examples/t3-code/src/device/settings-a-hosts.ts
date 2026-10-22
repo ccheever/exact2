@@ -51,7 +51,7 @@ export function updateDeviceHosts(hosts: HostConfig[], host: HostConfig, remove:
 export const hostsOf = (settings: Obj): HostConfig[] => arr(settings.deviceHosts).map(host => ({ id: str(host.id), label: str(host.label), target: str(host.target),
   ...(str(host.identityFile) ? { identityFile: str(host.identityFile) } : {}), ...(typeof host.port === 'number' ? { port: host.port } : {}) }));
 // randomUUID's shape (Math.random and Date.now are unavailable in data sources).
-const randomId = () => Array.from(randomBytes(16), (byte, index) => `${[4, 6, 8, 10].includes(index) ? '-' : ''}${byte.toString(16).padStart(2, '0')}`).join('');
+export const randomId = () => Array.from(randomBytes(16), (byte, index) => `${[4, 6, 8, 10].includes(index) ? '-' : ''}${byte.toString(16).padStart(2, '0')}`).join('');
 const envLabel = (client: T3Client) => str(obj(client.config.environment).label, 'this environment');
 
 // ── Views ──────────────────────────────────────────────────────────────────

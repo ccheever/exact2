@@ -16,7 +16,7 @@ function harness(capabilities: Obj = { attachmentUploads: true, fileAttachments:
   } };
   const rpcs: Obj[] = [];
   const local = { drafts: {} as Record<string, string> };
-  const client = { local, draftKey: 'env:t1', environmentId: 'env', generation: 1, snapshotDrafts: [] as Obj[], draft: '',
+  const client = { local, draftKey: 'env:t1', attachmentKey: 'env:t1', environmentId: 'env', generation: 1, snapshotDrafts: [] as Obj[], draft: '',
     config: { environment: { capabilities } },
     async rpc(_native: Native, method: string, payload: Obj) { rpcs.push({ method, payload }); return { attachmentId: 'att-7', relativeUrl: '/api/attachments/upload/y' }; } } as unknown as T3Client;
   return { native, client, calls, rpcs, local };

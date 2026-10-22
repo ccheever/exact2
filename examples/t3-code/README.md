@@ -171,9 +171,13 @@ The app has no desktop self-update feed, so its own download/restart step is abs
 - Conversation: bounded history with older-page loading, streaming assistant and
   tool rows, work-log inspector, checkpoints and changed files, fork dividers, answered
   questions, mention and file chips, Markdown with code blocks (wrap, copy) and Mermaid
-  diagrams: each fence renders in the Mermaid page (`assets/mermaid/`, an `iframe` per fence,
-  LLP 1020.001) with the Mermaid and DOMPurify builds the reference locks, which
-  `tools/generate/` vendors into `assets/mermaid/vendor/`. A failed workspace
+  diagrams: each closed fence, also while its reply streams, renders in the Mermaid page
+  (`assets/mermaid/`, an `iframe` per fence, LLP 1020.001) with the pele and DOMPurify builds
+  the reference locks, which `tools/generate/` vendors into `assets/mermaid/vendor/`; pele lays
+  a diagram out for the lane's width. With Settings › Appearance › Render math on, a display
+  formula (`$$…$$` or `\[…\]` opening and closing a line, or a ```math fence) is typeset by
+  the reference's KaTeX in the math page (`assets/math/`, an `iframe` per formula); inline math
+  stays TeX source until Markdown text has an inline atom (draft PR #888). A failed workspace
   preparation offers Retry (`prepared-run.retry`), and the failure row hides once a retry
   supersedes it (`workspace-retry.ts`, 737993303d). Code colouring follows Shiki for
   every declarator of a `const`/`let`/`var` list, object keys versus type annotations,
@@ -191,7 +195,15 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   measured reservation at its end (`composer-overlay.ts`); with Chat width Wide or Full
   the context strip's workspace control is the desktop Select. PNG, JPEG and HEIC images over
   2000 pixels on their long edge are scaled to that edge before upload; PNGs already within it keep their bytes.
-- Requests: approvals, single/multiple-choice and free-text questions.
+- Requests: approvals, single/multiple-choice and free-text questions. While an approval is pending the
+  composer stays usable: Send declines the approvals it shows, then steers the turn with the message
+  (`declineForRedirect` in `client-ops-composer.ts`); a draft edited meanwhile stays unsent. A typed answer
+  stays with its thread until the question resolves. While the composer answers a question the server lets
+  carry attachments, its shelf is that question's (`question-attachments.ts`): a dropped, pasted or picked image
+  joins it without a chip, as does a SnapShot taken while the question is open (pinned when the capture is
+  first seen); a question whose shelf is still staging files stays unanswered; the answer uploads each question's
+  images beside its file chips, its shelves taking and giving up nothing meanwhile, and the drafts go when the
+  request resolves.
 - Version control in the workspace card (`src/details/git*`): the branch picker (search, create
   a ref with Enter, check out, "Start from origin"), the git actions quick action and
   menu, the commit dialog (file selection, message, "Commit on new branch"), the
@@ -209,9 +221,12 @@ The app has no desktop self-update feed, so its own download/restart step is abs
 - Right side: the workspace card (docked beside the chat from 984 pt, a header popover
   below), Changes (branch) and Uncommitted diffs plus per-turn diffs, lineage with
   merge-back, the surface chooser and a tab bar per thread (`src/panel/`): Files
-  (the workspace tree with search and expand-all, file previews with breadcrumbs,
+  (the workspace tree with search and expand-all, which leaves ignored folders such as `node_modules`
+  to open by hand, file previews with breadcrumbs,
   rendered Markdown/CSV and an editor that writes back with `projects.writeFile`; opened
-  from Go to file, content search and file chips; its explorer and rendered/source
+  from Go to file, content search and file chips: a chip written from the workspace root as a bare name, or
+  with a subfolder project's own folders repeated, opens the file the workspace search finds, and a `~/` link
+  opens as a host file the server expands, `workspace-file-lookup.ts`; its explorer and rendered/source
   choices persist; an `.html` file opens rendered in the sandboxed WebKit body (its sibling stylesheets, scripts and
   images load through the signed asset URL's token directory, and the page may load stylesheets, scripts,
   images, fonts and fetches from other hosts as the reference's sandboxed frame does (https, and `http` to an IP
@@ -271,7 +286,10 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   where the reader may not comment; the host's conversations on their lines; what a failed diff
   read means, with Try again), hand-offs and quick actions (`pages-pr-handoffs*`,
   `pages-pr-quick*`) and the thread links (`pages-pr-links*`). A thread's pull request surface
-  keeps the tab it was left on.
+  keeps the tab it was left on. Every +/- splits into code, tests, mocks, generated files and docs
+  (`pr-change-breakdown.ts`, the server's `pullRequests.changeBreakdown`): a list row's on its first
+  hover, the detail's at once (drawn by the window's hover layer, since the header folds), the
+  details card's inline under the diff size.
 - Terminal: the thread terminal drawer below the chat column (`terminal.contract`,
   `terminal-drawer*.ts`; T3 Code's ThreadTerminalDrawer in its drawer mode): sessions on the
   server, split and close, the drawer's state kept per thread. The terminal is T3 Code's own
@@ -285,8 +303,8 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   the shell at once, as T3 Code's window listener does.
 - Browser surface: a right-panel Browser tab on a `WKWebView` in the module
   (`T3BrowserSession*.swift`, `browser-*.ts`; T3 Code embeds Chromium, which exact2 does not
-  offer, #100): tabs and the chrome row, history and local servers, zoom, appearance, the
-  device toolbar, Annotate, screenshots, recording, downloads, a separate window and the
+  offer, #100): tabs and the chrome row, history and local servers, the address bar's search
+  engine, zoom, appearance, the device toolbar, Annotate, screenshots, recording, downloads, a separate window and the
   floating player, profiles and cookie import, and an agent's `previewAutomation` requests.
 - Command palette (threads, projects, actions, files, content search, New thread in…,
   Link pull request), toasts, the Nightly mobile-app notice, macOS notifications (after
@@ -295,10 +313,13 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   VS Code theme import, keybindings, providers (sign-in and runtime install), connections
   (pairing, SSH, outdated-host update), scheduled tasks, SnapShots, diagnostics and licenses.
 
-Return sends; Shift-Return inserts a newline; IME marked text stays an editor action.
+Return sends; Shift-Return inserts a newline, continues a Markdown list (renumbering the numbered
+items below) or leaves an empty item or quote line, with rich text on or off; IME marked text stays an
+editor action. A bracket or quote typed over a selection wraps it.
 ⌘↩ sends from the button; in a new-thread draft it starts the thread in the background
 when the server binds `composer.sendBackground`; ⌥⌘↩ on an existing thread sends and
-opens a fresh draft in the same project. Other chords follow the server's keybindings
+opens a fresh draft in the same project. With Settings › Send shortcut set so that Return needs ⌘,
+⌘↩ follows the Follow-up behaviour setting while a turn runs and ⌘⇧↩ takes the other. Other chords follow the server's keybindings
 (⌘K palette, ⌘N new thread, ⇧⌘M model picker, ⇧⌘K copy PR number, ⌘B sidebar). ⌘B bolds instead
 while the rich-text composer has the focus, as Tiptap does: a click into an existing draft
 counts as focus (the window's first responder is followed, `T3ComposerInput.swift`), and ⌘B / ⌘I end
@@ -542,7 +563,7 @@ Differences that belong to the app:
   different `--seed` each launch, or the server takes a repeated command id for the command it
   already ran and does nothing.
 - The Browser surface is WebKit, not Chromium (#100 was closed as not planned). Pages get no
-  Notification API or geolocation.
+  geolocation. A page's notification permission request is denied, as in the reference.
 - The host opens the first window before the embedded server is ready (#117 was closed as not
   planned), so the window shows the connecting state first.
 - The launch's landing (`home-landing.ts`) waits for a background environment while it connects, but
@@ -562,8 +583,6 @@ Differences that belong to the app:
 - An image inside a link's text has no tooltip and no keyboard menu key.
 - In the composer, a review comment's popover shows its comment and diff as plain text (the
   reference renders Markdown and a highlighted diff); a sent pull request chip has no hover card.
-- Proactive panels is a setting with no effect: no surface opens on its own when a pull request is
-  linked or a turn's diff lands (the reference's `useProactivePanels`).
 
 Some checks need a person: physical modifier chords, right-click menus, real pointer drags
 and hovers, macOS notification and screen-capture grants, provider installs and logins, and
@@ -617,11 +636,23 @@ above.
 - Edit › Paste is enabled after a click on blank ground, and choosing it only forgets the held
   keys: the window root takes that focus and hears `paste`. Elsewhere AppKit disables Paste when
   nothing can take it. The reference's Paste is always enabled.
-- A folder dropped on the chat column is not mentioned in the prompt. The reference inserts its
-  absolute path as an `@` mention (ChatComposer.tsx `addDroppedFolders`); a dropped folder reaches
-  the clone as a `doc:` handle with no path (LLP 1069.010 D1), so the clone shows the reference's
-  own refusal for a folder whose path it cannot get: 'Couldn't get the path of "src"', "Type the
-  folder path with @ instead." Files dropped with it attach.
+- A folder dropped on the chat column or pasted into the composer is not mentioned in the prompt. The
+  reference inserts its absolute path as an `@` mention (ChatComposer.tsx `addComposerFolders`); such a
+  folder reaches the clone as a `doc:` handle with no path (LLP 1069.010 D1), so the clone shows the
+  reference's own refusal for a folder whose path it cannot get: 'Couldn't get the path of "src"',
+  "Type the folder path with @ instead." Files dropped or pasted with it attach.
+- A whole-word `_text_` in the composer is drawn in italic, where the reference's composer keeps typed
+  underscores literal: Exact's Markdown field paints CommonMark emphasis and has no option to leave `_`
+  out (clone `issues/composer-editing-underscore-emphasis.md`). `node_modules` and an underscore in a
+  code span stay plain, and the sent message renders the same in both.
+- An image or a file chip copied from the composer pastes whole only within this app: the reference
+  carries the chip's record in a clipboard type of its own, and Exact's clipboard holds text, so the
+  clone finds the record by the id in the pasted link, in the draft that holds it or in the latest copy
+  (`composer-copied-chips.ts`). The latest copy's image bytes stay until another copy replaces it, as
+  the reference keeps that copy's files in memory.
+- Leaving a quote with an empty `> ` line leaves a blank line under it, which the clone's composer
+  shows: the reference's composer hides the blank line it writes there, so that the comment under the
+  quote is its own paragraph and not a lazy continuation of the quote.
 - An image over 10 MB is re-encoded as a PNG when it can hold transparency and else as a JPEG; the
   reference prefers WebP, which `compressImage` does not write. An image within its limits keeps its
   bytes and type, and a PNG or JPEG over 2000 px is fitted in its own type, as the reference's are.

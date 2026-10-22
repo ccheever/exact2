@@ -13,6 +13,7 @@ function fixture() {
   const client = new T3Client();
   Object.assign(client, { generation: 1, environmentId: 'env', origin: 'http://fixture', projectId: 'p', threadId: 't', connection: 'connected', configLive: true, shellLive: true, threadLive: true, scopes: ['orchestration:operate'] });
   client.shell = { sequence: 1, projects: [{ id: 'p', workspaceRoot: '/p' }], threads: [{ id: 't', projectId: 'p' }] };
+  client.local.deviceSettings.snapShotEnabled = true; // the refresh adopts captures only while SnapShots are on
   const calls: Obj[] = [], disk: string[] = [];
   let queue = Promise.resolve(), gate: (Gate & { match: (saved: Obj) => boolean }) | null = null, catalog = () => ({ projects: client.shell.projects, threads: client.shell.threads });
   const files: Files = { fs: { async mkdir() {}, async readFile() { return new TextEncoder().encode(disk.at(-1) || '').buffer; }, atomicWriteFile(_path, bytes) {

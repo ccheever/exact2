@@ -25,7 +25,10 @@ shape HoverTip
   // "tip" (TooltipPopup: words, takes no pointer, closes with its trigger; "policy" is one after a 200 ms delay, "tooltip" one
   // after Base UI's default 600 ms), "scopes" (AccessScopeSummary's
   // card), "freshness" (PullRequestBaseFreshnessWarning's card, drawn by T3Window from the open PR), "pr-badge" (the
-  // composer badge's ThreadPullRequestsMiniList, a tooltip whose rows take the pointer: 600 ms open, 100 ms close).
+  // composer badge's ThreadPullRequestsMiniList, a tooltip whose rows take the pointer: 600 ms open, 100 ms close),
+  // "breakdown" (a +/- split, PullRequestChangeBreakdownStat: a 600 ms tooltip; `text` is the split's key, drawn by T3Window
+  // from the view that holds it), "pr-card" (the details card's pull request row tooltip, ThreadDetailsPrRow's glass
+  // TooltipPopup: 600 ms; `text` is the row's key).
   kind: string
   text: string
   lines: string[]
@@ -37,6 +40,8 @@ shape HoverTip
   height: number
   // The content's height, for the flip.
   estimate: number
+  // The content's width, when known: a centred popup is then kept 5pt inside the window (Base UI's collision shift).
+  wide: number
   testId: string
 
 // Base UI's closeDelay after the pointer leaves a hover card or its trigger, on the root's 10 ms hover clock: the
@@ -48,12 +53,15 @@ fn hoverDelay(kind: string): number = kind == "scopes" or kind == "pr-badge" ? 1
 // the freshness card's delay={0}; PolicyTooltip's delay={200} (kind "policy", settings-kit.contract PolicyTip, drawn as a
 // tip); a Tooltip with no provider Base UI's 600 (kind "tooltip": ThreadAutomationsPanel's, thread-automations.contract); a
 // tooltip here at once (CnTooltip's, the picker's TooltipProvider delay={0}).
-fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : (kind == "policy" or kind == "workflow-member" ? 200 : (kind == "tooltip" or kind == "code" or kind == "pr-badge" ? 600 : 0)))
+fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : (kind == "policy" or kind == "workflow-member" ? 200 : (kind == "tooltip" or kind == "model-name" or kind == "code" or kind == "pr-badge" or kind == "breakdown" or kind == "pr-card" ? 600 : 0)))
 
-fn noHoverTip(): HoverTip = HoverTip(key="", kind="", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, testId="")
+fn noHoverTip(): HoverTip = HoverTip(key="", kind="", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, wide=0, testId="")
 
 // The tip for a trigger at `frame`: placement from Base UI's props, the content from the trigger.
-fn hoverTipAtFrame(key: string, kind: string, text: string, lines: string[], side: string, align: string, frame: Geometry, estimate: number, testId: string): HoverTip = HoverTip(key=key, kind=kind, text=text, lines=lines, side=side, align=align, x=frame.x, y=frame.y, width=frame.width, height=frame.height, estimate=estimate, testId=testId)
+fn hoverTipAtFrame(key: string, kind: string, text: string, lines: string[], side: string, align: string, frame: Geometry, estimate: number, testId: string): HoverTip = HoverTip(key=key, kind=kind, text=text, lines=lines, side=side, align=align, x=frame.x, y=frame.y, width=frame.width, height=frame.height, estimate=estimate, wide=0, testId=testId)
+
+// The same tip with its content's width, so the layer keeps a centred one inside the window.
+fn hoverTipWide(tip: HoverTip, wide: number): HoverTip = HoverTip(key=tip.key, kind=tip.kind, text=tip.text, lines=tip.lines, side=tip.side, align=tip.align, x=tip.x, y=tip.y, width=tip.width, height=tip.height, estimate=tip.estimate, wide=wide, testId=tip.testId)
 
 // The positioned layer, on the trigger's side (`place`): top and bottom in a row as wide as the widest
 // popup (20rem) plus room, left and right in a column as tall; only the popup takes the pointer, and a
@@ -77,10 +85,14 @@ component HoverLayer
   derive place = tip.side == "left" ? hoverFlip("left", "right", leftRoom, rightRoom, tip.estimate) : (tip.side == "right" ? hoverFlip("right", "left", rightRoom, leftRoom, tip.estimate) : (tip.side == "bottom" ? hoverFlip("bottom", "top", bottomRoom, topRoom, tip.estimate) : hoverFlip("top", "bottom", topRoom, bottomRoom, tip.estimate)))
   // A "code" tip (TooltipPopup variant code, a media's path) is up to 30rem wide.
   derive span = tip.kind == "code" ? 32.5 : 22.5
-  derive left = tip.align == "start" ? tip.x : (tip.align == "end" ? tip.x + tip.width - span * rem : tip.x + tip.width / 2 - span / 2 * rem)
+  // A popup of known width above or below its trigger starts where it stays 5pt inside the window (Base UI's collision
+  // shift), and the row holds it at its start.
+  derive shifted = tip.wide > 0 and (tip.side == "top" or tip.side == "bottom")
+  derive aligned = tip.align == "start" ? tip.x : (tip.align == "end" ? tip.x + tip.width - tip.wide : tip.x + tip.width / 2 - tip.wide / 2)
+  derive left = shifted ? max(5, min(viewportWidth - 5 - tip.wide, aligned)) : (tip.align == "start" ? tip.x : (tip.align == "end" ? tip.x + tip.width - span * rem : tip.x + tip.width / 2 - span / 2 * rem))
   derive top = max(titlebar + 5, tip.align == "start" ? tip.y : (tip.align == "end" ? tip.y + tip.height - 22.5 * rem : tip.y + tip.height / 2 - 11.25 * rem))
-  derive justify = tip.align == "start" ? "flex-start" : (tip.align == "end" ? "flex-end" : "center")
-  derive card = tip.kind != "tip" and tip.kind != "policy" and tip.kind != "tooltip" and tip.kind != "code"
+  derive justify = shifted or tip.align == "start" ? "flex-start" : (tip.align == "end" ? "flex-end" : "center")
+  derive card = tip.kind != "tip" and tip.kind != "policy" and tip.kind != "tooltip" and tip.kind != "model-name" and tip.kind != "code" and tip.kind != "breakdown" and tip.kind != "pr-card"
   view
     if place == "bottom"
       row position="absolute" left=left top=(tip.y + tip.height) width=(span * rem) justify-content=justify align-items="flex-start" pointer-events="none" z-index=140 testId="hover-layer"
@@ -135,6 +147,17 @@ component HoverText
       text tip.text font-size="0.75rem" line-height="1rem" font-weight=(tip.lines.length > 0 ? 500 : 400) white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"
       for line in tip.lines key=line
         text line font-size="0.75rem" line-height="1rem" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#71717b, #a1a1a1)"
+
+// ProviderModelsSection's model name TooltipPopup (kind "model-name", Base UI's 600 ms): the name, then the slug in
+// muted 2xs monospace when it differs.
+component HoverModelName
+  props
+    tip: HoverTip
+  view
+    column max-width="20rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" role="tooltip" testId=tip.testId
+      text tip.text font-size="0.75rem" line-height="1rem" overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"
+      for line in tip.lines key=line
+        text line font-family="ui-monospace" font-size="0.625rem" line-height="0.875rem" overflow-wrap="anywhere" color="light-dark(#71717b, #818181)"
 
 // MediaActions' TooltipPopup (variant code: monospace 11px with relaxed leading, up to
 // 30rem, breaking anywhere), the media's full path, URL or name. The code variant keeps the base `text-balance`.

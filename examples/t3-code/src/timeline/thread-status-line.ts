@@ -1,7 +1,7 @@
 // The rows after a thread's last message: a pending context handoff and the
 // thread's settled, snoozed or woke line, adapted from T3 Code (MIT); see
 // LICENSE-T3. Sources at 9c161462c9: ChatView.tsx (threadStatusLine, the
-// timeline footer, pendingHandoff), chat/ThreadStatusLine.tsx,
+// timeline footer, pendingHandoff and its usable selection at 74541bab17), chat/ThreadStatusLine.tsx,
 // chat/V2LifecycleRow.tsx (HandoffRow, HandoffEndpoint),
 // packages/client-runtime/src/handoff.ts (resolvePendingHandoff) and
 // timestampFormat.ts (formatRelativeTimeLabel, formatRelativeTimeUntilLabel).
@@ -9,7 +9,7 @@
 import { arr, obj, str, type Message, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import { wokeAt, wokeWatermark } from '../composer/composer-controls-commands';
-import { composerSelection } from '../composer/composer-provider-selection';
+import { composerSelection, instanceUsable } from '../composer/composer-provider-selection';
 import { fanoutSelections } from '../composer/composer-controls-fanout';
 import { handoffEndpoint } from './timeline-events';
 import { formatRelativeTimeLabel } from '../browser/browser-history';
@@ -86,7 +86,8 @@ export function threadFooterRows(client: T3Client, now: number): Message[] {
   if (!client.threadId || !client.thread) return [];
   const providers = arr(client.config.providers), chosen = composerSelection(client, !!fanoutSelections(client));
   const instanceId = chosen.instanceId || client.providerId, model = chosen.entry ? chosen.model : client.modelId;
-  const handoff = pendingHandoff(client.projection, instanceId ? { instanceId, model } : null, providers);
+  // A provider the next send would skip (disabled or unavailable) previews no handoff.
+  const handoff = pendingHandoff(client.projection, instanceId && instanceUsable(client, instanceId) ? { instanceId, model } : null, providers);
   const endpoints = handoff ? [handoffEndpoint(handoff.from, providers, 0), handoffEndpoint(handoff.to, providers, 1)] : [];
   const rows: Message[] = handoff ? [{ id: `pending-handoff:${client.threadId}`, kind: 'handoff', title: 'Context handoff pending', body: '', tone: 'neutral',
     icon: 'arrow-right-left', detail: endpoints.map(endpoint => endpoint.label).join(' → '), activities: endpoints }] : [];

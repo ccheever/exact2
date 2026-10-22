@@ -3,8 +3,8 @@ import AppKit
 import WebKit
 
 /// A Browser tab's annotation pick. MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
-/// apps/desktop/src/preview/Manager.ts (`pickElement`, `cancelPickElement`, `captureAnnotationScreenshot`,
-/// `normalizeCaptureRect`), PickPreload.ts (the overlay, here assets/browser-annotate.js) and react-grab's
+/// apps/desktop/src/preview/Manager.ts (`pickElement`, `cancelPickElement`, `captureAnnotationScreenshot`;
+/// `normalizeCaptureRect` and `cropAnnotationScreenshot` at 74541bab17), PickPreload.ts (the overlay, here assets/browser-annotate.js) and react-grab's
 /// `getElementContext` (the component name, source and stack).
 ///
 /// - The overlay runs in the app's own content world (`.defaultClient`, as T3BrowserFavicon's script): it shares
@@ -14,9 +14,10 @@ import WebKit
 ///   world (`.page`) reads React's fiber on those elements (`__reactFiber$…`: the nearest component's name, its
 ///   `_debugSource`, its `_debugOwner` chain), then removes the marks. Production React keeps the fiber but not
 ///   the debug fields, and minifies names, as in the reference.
-/// - The crop is `takeSnapshot` of the union of the targets (the overlay's rect, clamped to the page), written as
+/// - The crop is `takeSnapshot` of the union of the targets (the overlay's rect, clipped to the page), written as
 ///   a PNG draft image (`imageDirectory`, the composer's draft images) within five seconds; a timeout, a failed
-///   write or an image over 10 MB keeps the annotation without it (`screenshotFailed`).
+///   write or an image over 10 MB keeps the annotation without it (`screenshotFailed`). So does a pick whose
+///   targets are all scrolled out of view, or whose rect has no pixels in the page: the snapshot holds none of them.
 /// - Exactly one settlement per pick (Manager `claimSettle`): a result, Escape in the page, `cancel()`, a newer
 ///   pick or a main-frame navigation; a crop that finishes after its pick settled is dropped and its file removed.
 /// - The data module reads the outcome with `take(serial:)` once `report.ready` (T3BrowserSessions' ops).
@@ -139,10 +140,10 @@ final class T3BrowserAnnotation: NSObject, WKScriptMessageHandler {
             }
             annotation["screenshot"] = NSNull() // the page never supplies the crop (isPreviewAnnotationPayload)
             let submission = body["submission"] as? String == "send" ? "send" : "attach"
-            let rect = Self.normalizeCaptureRect(body["rect"])
+            let rect = Self.normalizeCaptureRect(body["rect"]), targets = Self.targetRects(annotation)
             enrich(annotation, in: web) { [weak self] enriched in
                 guard let self, current == self.pick, self.active else { return }
-                self.crop(web, rect: rect, annotationId: enriched["id"] as? String ?? "annotation") { [weak self] screenshot in
+                self.crop(web, rect: rect, targets: targets, annotationId: enriched["id"] as? String ?? "annotation") { [weak self] screenshot in
                     guard let self, current == self.pick, self.active else {
                         // claimSettle: a crop outliving its pick touches nothing, and its file goes.
                         if let id = screenshot?["id"] as? String, let directory = self?.imageDirectory ?? nil { try? FileManager.default.removeItem(at: directory.appendingPathComponent("\(id).png")) }
@@ -255,17 +256,57 @@ final class T3BrowserAnnotation: NSObject, WKScriptMessageHandler {
 
     // MARK: The crop
 
-    /// Manager `normalizeCaptureRect`: finite, positive, whole CSS pixels from the top-left.
+    /// Manager `normalizeCaptureRect`: finite numbers and a positive size, in CSS pixels as the page sent them. A rect
+    /// that starts above or left of the viewport keeps its origin: the crop clips it (`cropRegion`).
     static func normalizeCaptureRect(_ value: Any?) -> CGRect? {
         guard let rect = value as? [String: Any] else { return nil }
         let read = { (key: String) -> Double? in (rect[key] as? NSNumber).map(\.doubleValue).flatMap { $0.isFinite ? $0 : nil } }
         guard let x = read("x"), let y = read("y"), let width = read("width"), let height = read("height"), width > 0, height > 0 else { return nil }
-        return CGRect(x: max(0, x.rounded(.down)), y: max(0, y.rounded(.down)), width: max(1, width.rounded(.up)), height: max(1, height.rounded(.up)))
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    /// Manager's `targetRects`: each element's and region's rect and each stroke's bounds, in CSS pixels.
+    static func targetRects(_ annotation: [String: Any]) -> [CGRect] {
+        func rects(_ key: String, _ field: String) -> [CGRect] {
+            (annotation[key] as? [[String: Any]] ?? []).compactMap { target in
+                guard let rect = target[field] as? [String: Any] else { return nil }
+                let read = { (key: String) -> Double? in (rect[key] as? NSNumber).map(\.doubleValue).flatMap { $0.isFinite ? $0 : nil } }
+                guard let x = read("x"), let y = read("y"), let width = read("width"), let height = read("height") else { return nil }
+                return CGRect(x: x, y: y, width: width, height: height)
+            }
+        }
+        return rects("elements", "rect") + rects("regions", "rect") + rects("strokes", "bounds")
+    }
+
+    /// `cropAnnotationScreenshot`'s geometry: the region of a `size`-point snapshot to keep, the whole of it without a
+    /// rect, or nil when it would hold none of the pick. `scale` turns CSS pixels into the snapshot's points (the page
+    /// zoom). Padding, or the union of targets out of view, can overlap an empty part of the viewport, so at least one
+    /// target must be in it; a zero-width or zero-height SVG line still paints at the top or left edge. A rect with no
+    /// pixels in the snapshot is refused rather than clamped onto its edge, which would attach an unrelated strip.
+    static func cropRegion(rect: CGRect?, targets: [CGRect], scale: CGFloat, size: CGSize) -> CGRect? {
+        guard size.width > 0, size.height > 0 else { return nil }
+        let s = scale.isFinite && scale > 0 ? scale : 1
+        let visible = targets.contains { target in
+            (target.width > 0 || target.height > 0) && target.minX * s < size.width && target.minY * s < size.height
+                && (target.width == 0 ? target.minX >= 0 : target.minX + target.width > 0)
+                && (target.height == 0 ? target.minY >= 0 : target.minY + target.height > 0)
+        }
+        if !targets.isEmpty, !visible { return nil }
+        guard let rect else { return CGRect(origin: .zero, size: size) }
+        let x = max(0, (rect.minX * s).rounded(.down)), y = max(0, (rect.minY * s).rounded(.down))
+        let right = min(size.width, ((rect.minX + rect.width) * s).rounded(.up)), bottom = min(size.height, ((rect.minY + rect.height) * s).rounded(.up))
+        guard right > x, bottom > y else { return nil }
+        return CGRect(x: x, y: y, width: right - x, height: bottom - y)
     }
 
     /// `captureAnnotationScreenshot`: the rect (or the whole page) as a PNG draft image, or nil within the timeout.
-    private func crop(_ web: WKWebView, rect: CGRect?, annotationId: String, done: @escaping ([String: Any]?) -> Void) {
+    private func crop(_ web: WKWebView, rect: CGRect?, targets: [CGRect], annotationId: String, done: @escaping ([String: Any]?) -> Void) {
         guard let directory = imageDirectory else { return done(nil) }
+        let bounds = web.bounds
+        guard let region = Self.cropRegion(rect: rect, targets: targets, scale: web.pageZoom * web.magnification, size: bounds.size) else {
+            note("crop: nothing of the pick is in view")
+            return done(nil)
+        }
         var finished = false
         let finish = { (value: [String: Any]?) in
             guard !finished else { return }
@@ -273,9 +314,7 @@ final class T3BrowserAnnotation: NSObject, WKScriptMessageHandler {
             done(value)
         }
         let configuration = WKSnapshotConfiguration()
-        let bounds = web.bounds
-        let target = (rect ?? bounds).intersection(CGRect(origin: .zero, size: bounds.size))
-        if rect != nil, !target.isNull, target.width >= 1, target.height >= 1 { configuration.rect = target }
+        configuration.rect = region
         let timeout = DispatchWorkItem { finish(nil) }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.screenshotTimeout, execute: timeout)
         web.takeSnapshot(with: configuration) { image, _ in
@@ -286,7 +325,8 @@ final class T3BrowserAnnotation: NSObject, WKScriptMessageHandler {
             guard (try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)) != nil,
                   let png = NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:]),
                   png.count <= Self.maxImageBytes, (try? png.write(to: url, options: .atomic)) != nil else { return finish(nil) }
-            let cropped = configuration.rect.isNull || configuration.rect.isEmpty ? CGRect(origin: .zero, size: bounds.size) : configuration.rect
+            // The payload's cropRect is the page's rect (the reference's), or the whole view without one.
+            let cropped = rect ?? region
             finish(["id": id, "name": "preview-annotation-\(annotationId).png", "sizeBytes": png.count, "mimeType": "image/png",
                     "width": cgImage.width, "height": cgImage.height,
                     "cropRect": ["x": cropped.minX, "y": cropped.minY, "width": cropped.width, "height": cropped.height]])

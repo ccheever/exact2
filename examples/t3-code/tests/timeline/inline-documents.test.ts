@@ -90,7 +90,7 @@ test('expanding and restoring a document keeps its source and ignores fullscreen
 
 
 test('inline width selects responsive measurements and is retained while fullscreen', async () => {
-  const responsiveItem = { ...item, output: { htmlRender: { ...html, height: 600, heights: [[364, 560], [728, 200]], outline: 't2,2,100,5,1' } } };
+  const responsiveItem = { ...item, output: { htmlRender: { ...html, height: 600, heights: [[364, 560], [728, 200]] } } };
   const client = fixture(responsiveItem), responsiveRef = inlineReference(responsiveItem)!;
   client.rpc = async () => ({ relativeUrl: '/api/assets/responsive', expiresAt: 10_000_000 });
   const key = inlineDocumentKey(client, 't', 'i', responsiveRef);
@@ -99,10 +99,9 @@ test('inline width selects responsive measurements and is retained while fullscr
   await inlineDocumentEvent(client, key, 'measure', '364|560');
   const inline = inlineDocumentView(client, key, responsiveRef);
   expect(inline.height).toBe(560);
-  expect(inline.outline[0]?.width).toBe(200);
   await inlineDocumentEvent(client, key, 'fullscreen', 'open');
   await inlineDocumentEvent(client, key, 'measure', '1280|840');
-  expect(inlineDocumentView(client, key, responsiveRef)).toMatchObject({ height: 560, outline: inline.outline });
+  expect(inlineDocumentView(client, key, responsiveRef)).toMatchObject({ height: 560 });
   await inlineDocumentEvent(client, key, 'fullscreen', 'close');
   expect(inlineDocumentView(client, key, responsiveRef).height).toBe(560);
 });
@@ -133,6 +132,27 @@ test('MCP fullscreen publishes the measured guest viewport and retains its docum
   expect(context()).toMatchObject({ displayMode: 'inline', containerDimensions: { width: 728, maxHeight: 2000 } });
   expect(inlineDocumentView(client, key, appRef)).toMatchObject({ fullscreen: false, height: initial.height, src: initial.src });
   expect(mints).toBe(1);
+});
+
+test('an MCP app opens full screen only right after input in its own frame (McpAppFrame)', async () => {
+  const appItem = { ...item, toolName: 'weather.forecast', output: { t3McpApp: { attachmentId: 'mcp', server: 'weather', tool: 'forecast', resourceUri: 'ui://weather' } } };
+  const client = fixture(appItem), appRef = inlineReference(appItem)!;
+  client.rpc = async () => ({ relativeUrl: '/api/assets/mcp', expiresAt: 10_000_000 });
+  const key = inlineDocumentKey(client, 't', 'i', appRef);
+  await syncInlineDocuments(client, native, 0);
+  const config = JSON.parse(decodeURIComponent(inlineDocumentView(client, key, appRef).src.split('#')[1]!));
+  const message = (value: unknown, activation?: unknown) => inlineDocumentEvent(client, key, 'message', JSON.stringify({ t3Document: config.token, message: value, ...(activation ? { activation } : {}) }));
+  await message({ jsonrpc: '2.0', id: 'init', method: 'ui/initialize', params: { appCapabilities: { availableDisplayModes: ['inline', 'fullscreen'] } } });
+  await message({ jsonrpc: '2.0', method: 'ui/notifications/initialized' });
+  const request = { jsonrpc: '2.0', method: 'ui/request-display-mode', params: { mode: 'fullscreen' } };
+  // On load, from a timer, or with the focus but no tap or key press in the frame: the app stays in the thread.
+  await message({ ...request, id: 1 });
+  await message({ ...request, id: 2 }, { focused: true, active: false });
+  await message({ ...request, id: 3 }, { focused: false, active: true });
+  expect(inlineDocumentView(client, key, appRef).fullscreen).toBe(false);
+  // Right after a tap in the frame it opens.
+  await message({ ...request, id: 4 }, { focused: true, active: true });
+  expect(inlineDocumentView(client, key, appRef).fullscreen).toBe(true);
 });
 
 for (const identity of ['generation', 'environment', 'origin', 'thread'] as const) {

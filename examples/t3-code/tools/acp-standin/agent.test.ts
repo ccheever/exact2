@@ -1,7 +1,7 @@
 // The ACP stand-in, offline: what install.mjs writes where the T3 server's ACP Registry catalog
 // reads it, the agent's ACP v1 replies in each mode, and `forget`.
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AGENT, forget, install, installPaths, registryIndex, status } from "./install.mjs";
@@ -98,6 +98,15 @@ describe("the agent", () => {
     expect(readFileSync(join(repo, "notes/plan.md"), "utf8")).toStartWith("# Plan");
     expect(readFileSync(join(repo, "notes/outline.ts"), "utf8")).toContain("export function title");
     expect(notes.find((note) => note.params.update.sessionUpdate === "tool_call")!.params.update).toMatchObject({ kind: "edit", status: "completed" });
+    // Each "Write <n> notes" turn writes n new files, so every such turn's checkpoint has n files.
+    for (const round of [1, 2]) {
+      notes.length = 0;
+      await talk(executable, [{ method: "session/load", params: { sessionId, cwd: repo, mcpServers: [] } }, { method: "session/prompt", params: { sessionId, prompt: first("Write 3 notes") } }], notes);
+      const written = notes.find((note) => note.params.update.sessionUpdate === "tool_call")!.params.update;
+      expect(written).toMatchObject({ kind: "edit", status: "completed", title: "Write 3 notes" });
+      expect(new Set(written.locations.map((location: { path: string }) => location.path.replace(/note-\d\.md$/, ""))).size).toBe(1);
+      expect(readdirSync(join(repo, "notes")).filter((name) => name.startsWith("batch-")).length).toBe(round);
+    }
 
     // The permission request goes to the client; the turn ends with its answer.
     const child = Bun.spawn([executable], { stdin: "pipe", stdout: "pipe", env: {}, cwd: root });
@@ -122,6 +131,28 @@ describe("the agent", () => {
     await child.exited;
   });
 
+  test("'Ask a question' asks one free-text question and names the attachments the server appended to its answer", async () => {
+    const { executable } = install(join(root, "home-ask"), { methods: "none" });
+    const shot = join(root, "ask-shot.png");
+    writeFileSync(shot, "png");
+    const child = Bun.spawn([executable], { stdin: "pipe", stdout: "pipe", env: {}, cwd: root });
+    const lines = child.stdout.pipeThrough(new TextDecoderStream()).getReader();
+    let buffered = "";
+    const next = async () => { for (;;) { const at = buffered.indexOf("\n"); if (at >= 0) { const line = buffered.slice(0, at); buffered = buffered.slice(at + 1); return JSON.parse(line); } buffered += (await lines.read()).value ?? ""; } };
+    const write = (message: object) => { child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`); child.stdin.flush(); };
+    write({ id: 1, method: "session/prompt", params: { sessionId: "s1", prompt: [{ type: "text", text: "<user_request>\nAsk a question\n</user_request>" }] } });
+    const asked = await next();
+    expect(asked).toMatchObject({ method: "elicitation/create", params: { sessionId: "s1", mode: "form", message: "Which window shows the problem?",
+      requestedSchema: { type: "object", properties: { answer: { type: "string" } } } } });
+    // userInputAttachments.ts appends one line per attachment, its name and its path on the server, both JSON strings.
+    const answer = `The settings window\n\nAttached image ${JSON.stringify("SnapShot.png")}: ${JSON.stringify(shot)}\nAttached image ${JSON.stringify("gone.png")}: ${JSON.stringify(join(root, "gone.png"))}`;
+    write({ id: asked.id, result: { action: "accept", content: { answer } } });
+    expect((await next()).params.update).toEqual({ sessionUpdate: "agent_message_chunk", content: { type: "text",
+      text: 'Stand-in reply: answer "The settings window" with 2 attachments: image SnapShot.png, image gone.png (missing)' } });
+    child.stdin.end();
+    await child.exited;
+  });
+
   test("'Read the thread <id>' thinks, then runs a t3_thread_read tool call on that id before the reply", async () => {
     const home = join(root, "home-read");
     const { executable } = install(home, { methods: "none" });
@@ -138,7 +169,7 @@ describe("the agent", () => {
     expect(notes.find(note => note.params?.update?.sessionUpdate === "tool_call")!.params.update.rawInput).toEqual({ threadId: "thread-9" });
   });
 
-  test("'Wait on the thread <id>' holds a t3_thread_wait call; 'Link the thread <id>' links it; 'Fail the turn' fails with a JSON error", async () => {
+  test("'Wait on the thread <id>' holds a t3_thread_wait call; 'Link the thread <id>' links it; 'Show the Markdown sample' replies in two chunks; 'Fail the turn' fails with a JSON error", async () => {
     const home = join(root, "home-wait");
     const { executable } = install(home, { methods: "none" });
     const prompt = (sessionId: string, text: string) => ({ method: "session/prompt", params: { sessionId, prompt: [{ type: "text", text: `<user_request>\n${text}\n</user_request>` }] } });
@@ -154,6 +185,11 @@ describe("the agent", () => {
     expect(wait.kinds).toEqual([["tool_call", "t3_thread_wait"], ["tool_call_update", "completed"], ["agent_message_chunk", "Stand-in reply: the other thread finished"]]);
     expect(wait.updates[0].rawInput).toEqual({ threadId: "thread-7" });
     expect((await turn("Link the thread thread-7")).kinds).toEqual([["agent_message_chunk", "Stand-in reply: the plan continues in [the other thread](t3-thread://v1/thread-7)."]]);
+    // A Markdown reply in two chunks, the first a closed Mermaid fence.
+    const sample = await turn("Show the Markdown sample pausing 0s");
+    expect(sample.kinds.map(([kind]) => kind)).toEqual(["agent_message_chunk", "agent_message_chunk"]);
+    expect(sample.updates[0].content.text).toStartWith("Here is the sample.\n\n```mermaid\nflowchart LR");
+    expect(sample.updates[1].content.text).toContain("$$\nE = mc^2\n$$");
     const failed = await turn("Fail the turn");
     expect(failed.reply.error.code).toBe(-32603);
     expect(JSON.parse(failed.reply.error.message).error.message).toBe("The stand-in could not finish this turn.");

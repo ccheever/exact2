@@ -96,7 +96,7 @@ component SnapSwitch
     toggle: action
   view
     button press=toggle role="switch" aria-checked=checked aria-label=label disabled=disabled id=switchId testId=switchId display="flex" flex-direction="row" align-items="center" justify-content=(checked ? "flex-end" : "flex-start") width="1.875rem" height="1.125rem" padding="0.125rem" box-sizing="border-box" border-width=0 border-radius="0.5625rem" flex-shrink=0 opacity=(disabled ? 0.64 : 1) background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") title="" data-focus-stop=(disabled ? "" : "enabled")
-      box width="0.875rem" height="0.875rem" border-radius="0.4375rem" flex-shrink=0 background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 1px 3px #0000000d"
+      box width="0.875rem" height="0.875rem" border-radius="0.4375rem" flex-shrink=0 background-color=(checked ? "light-dark(#fcfcfc, #0a0a0a)" : "light-dark(#fcfcfc, #818181)") box-shadow="0 1px 3px #0000000d"
 
 // settingsLayout.tsx SettingsRow: title, description and status beside a
 // right-aligned control column (minmax(10rem, auto), gap 32).

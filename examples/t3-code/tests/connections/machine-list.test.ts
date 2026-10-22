@@ -20,6 +20,13 @@ test('the primary (this Mac) leads and always counts; switched-off saved machine
   expect(balanceSources(rows.filter(row => !row.primary)).map(({ source, primary }) => [source.key, primary])).toEqual([['r', false], ['b', false]]);
 });
 
+// ConnectionsSettings.tsx loadBalancingEnvironments (#15052): an unsupported environment keeps its switch but is left out.
+test('an environment whose server this client does not support is left out of balancing, the primary too', () => {
+  const rows = [{ key: 'p', origin: A, enabled: true, primary: true, phase: 'unsupported' }, { key: 'b', origin: B, enabled: true, phase: 'connected' },
+    { key: 'old', origin: 'https://old.example.com', enabled: true, phase: 'unsupported' }];
+  expect(balanceSources(rows).map(({ source }) => source.key)).toEqual(['b']);
+});
+
 test('this machine and B: Load balancing and GitHub sharing show This machine first, then B, as the reference', () => {
   primaryAt(A, 'env-a', 'Mac A');
   const saved = [{ origin: B, environmentId: 'env-b', label: 'Mac B', enabled: true }];

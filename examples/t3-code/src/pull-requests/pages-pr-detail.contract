@@ -28,6 +28,8 @@ use PrActionsView from "./pages-pr-actions.contract"
 use PrdHeaderActions from "./pages-pr-actions.contract"
 use PrdBaseBranch from "./pages-pr-actions.contract"
 use PrdApproveWorkflows from "./pages-pr-actions.contract"
+use PrBreakdown from "./pr-breakdown.contract"
+use PrBreakdownStat from "./pr-breakdown.contract"
 use PrdConfirmEscape from "./pages-pr-actions.contract"
 use PrWrites from "./pages-pr-compose.contract"
 use PrdComposer from "./pages-pr-compose.contract"
@@ -105,6 +107,7 @@ shape PrDetailView
   files: string
   additions: string
   deletions: string
+  breakdown: PrBreakdown
   checksSummary: string
   checksTone: string
   reviewers: PrPerson[]
@@ -250,7 +253,7 @@ component PrdBody
   action textLocal(op: string, id: string, value: string)
     if op == "pr-link-open"
       act("link-open", value)
-    else if op == "surface-file"
+    else if op == "surface-file" or op == "surface-file-link"
       act("file-open", `${surface}\n${id}`)
     else if op == "surface-files-link-menu"
       act("file-menu", `${surface}\n${id}`)
@@ -501,9 +504,11 @@ component PrdHeader
             row align-items="center" gap="0.25rem" aria-label=`${detail.filesCount} changed ${detail.filesCount == "1" ? "file" : "files"}`
               PgIcon(name="file-diff", size=12, color="light-dark(#71717b, #818181)")
               text detail.filesCount font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" white-space="nowrap"
-            row align-items="baseline" gap="0.25rem" flex-shrink=0
-              text detail.additions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color=(detail.diffScheme == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#009966, #00d492)")
-              text detail.deletions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color=(detail.diffScheme == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
+            if detail.additions != ""
+              PrBreakdownStat(breakdown=detail.breakdown, tipId="pull-request-breakdown-condensed", request=local("pr-breakdown", ""))
+                row align-items="baseline" gap="0.25rem" flex-shrink=0
+                  text detail.additions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color=(detail.diffScheme == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#009966, #00d492)")
+                  text detail.deletions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color=(detail.diffScheme == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
       // The block: it leaves at once (the scroll refund paints in the same frame) and eases back in.
       column width="100%" height=(condensed ? "0px" : "auto") overflow="hidden" flex-shrink=0 -exact-layout-transition=(condensed or still ? "none" : "200ms ease-out") testId="pull-request-fold"
         column id=`${measureId}-fold` width="100%" padding-left="1rem" padding-right="1rem" padding-bottom="1rem" box-sizing="border-box" inert=condensed opacity=(condensed ? 0 : 1) translate=(condensed and not still ? "0 -4px" : "0 0") transition=(still ? "none" : condensed ? "opacity 100ms ease-out, translate 100ms ease-out" : "opacity 150ms ease-out 50ms, translate 150ms ease-out 50ms")
@@ -526,9 +531,11 @@ component PrdHeader
               row min-width="4rem" justify-content="flex-end" align-items="center" gap="0.375rem"
                 PgIcon(name="file-diff", size=14, color="light-dark(#71717b, #818181)")
                 text detail.files font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" white-space="nowrap"
-              row align-items="baseline" gap="0.25rem"
-                text detail.additions font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=(detail.diffScheme == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#009966, #00d492)")
-                text detail.deletions font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=(detail.diffScheme == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
+              if detail.additions != ""
+                PrBreakdownStat(breakdown=detail.breakdown, tipId="pull-request-breakdown", request=local("pr-breakdown", ""))
+                  row align-items="baseline" gap="0.25rem"
+                    text detail.additions font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=(detail.diffScheme == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#009966, #00d492)")
+                    text detail.deletions font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=(detail.diffScheme == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
 
 // A mono value that copies itself (the checkout command, the head branch);
 // PullRequestCopyableCode swaps it for a centred "Copied" for 1.6s.

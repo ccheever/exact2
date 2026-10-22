@@ -1,12 +1,24 @@
-// Ported from T3 Code 9c161462c9 (MIT, see LICENSE-T3): packages/shared/src/preview.test.ts, its
-// `isLoopbackHost`, `normalizePreviewUrl` and `resolveAddressBarInput` tests under their own names (`it.each` rows as loops;
+// Ported from T3 Code 74541bab17 (MIT, see LICENSE-T3): packages/shared/src/preview.test.ts, its
+// `isLoopbackHost`, `normalizePreviewUrl`, `resolveAddressBarInput` and `resolveSearchUrlTemplate` tests under their own
+// names (`it.each` rows as loops;
 // `newPreviewTabId` stays with the server, which issues tab ids). Then the load-failed page's words
 // (apps/web/src/components/preview/PreviewUnreachable.tsx, errorCodeMessages.ts), which the
 // reference renders without a unit test of its own.
 import { describe, expect, it } from 'bun:test';
-import { describePreviewError, isLoopbackHost, normalizePreviewUrl, PreviewUrlNormalizationError, previewErrorLabel, previewHost, resolveAddressBarInput } from '../../src/browser/browser-url';
+import { BROWSER_SEARCH_ENGINES, describePreviewError, isLoopbackHost, isValidSearchUrlTemplate, normalizePreviewUrl, PreviewUrlNormalizationError, previewErrorLabel, previewHost, resolveAddressBarInput,
+  resolveSearchUrlTemplate } from '../../src/browser/browser-url';
 
 describe('resolveAddressBarInput', () => {
+  for (const [input, expected] of [
+    ['localhost:3000/?next=https://example.com', 'http://localhost:3000/?next=https://example.com'],
+    ['127.0.0.1:3000/#https://example.com', 'http://127.0.0.1:3000/#https://example.com'],
+    ['example.com/https://example.org', 'https://example.com/https://example.org'],
+  ] as const) {
+    it(`opens the outer address when it contains another URL: ${input}`, () => {
+      expect(resolveAddressBarInput(input)).toBe(expected);
+    });
+  }
+
   it('opens what users type as addresses', () => {
     expect(resolveAddressBarInput('localhost:5173')).toBe('http://localhost:5173/');
     expect(resolveAddressBarInput('127.0.0.1:3000/path')).toBe('http://127.0.0.1:3000/path');
@@ -36,6 +48,33 @@ describe('resolveAddressBarInput', () => {
     // A known scheme with a numeric payload is not a host and port.
     for (const input of ['ftp:21', 'tel:5551234']) expect(() => resolveAddressBarInput(input)).toThrow(PreviewUrlNormalizationError);
     expect(resolveAddressBarInput('devbox:8080')).toBe('https://devbox:8080/');
+  });
+
+  it('searches with the given template and still opens addresses directly', () => {
+    const google = resolveSearchUrlTemplate({ browserSearchEngine: 'google', browserCustomSearchUrl: '' });
+    expect(resolveAddressBarInput('how to center a div', google)).toBe('https://www.google.com/search?q=how%20to%20center%20a%20div');
+    expect(resolveAddressBarInput('cnn.com', google)).toBe('https://cnn.com/');
+    expect(resolveAddressBarInput('a&b', 'https://search.example/?q=%s&lang=en')).toBe('https://search.example/?q=a%26b&lang=en');
+  });
+});
+
+describe('resolveSearchUrlTemplate', () => {
+  it('uses a valid custom template and falls back to DuckDuckGo for an unusable one', () => {
+    expect(resolveSearchUrlTemplate({ browserSearchEngine: 'custom', browserCustomSearchUrl: ' https://search.example/?q=%s ' })).toBe('https://search.example/?q=%s');
+    for (const browserCustomSearchUrl of ['https://search.example/?q=', "javascript:alert('%s')", 'https://%s.example.com/', 'https://%s@search.example/?q=%s']) {
+      expect(resolveSearchUrlTemplate({ browserSearchEngine: 'custom', browserCustomSearchUrl })).toBe('https://duckduckgo.com/?q=%s');
+    }
+  });
+
+  // Clone row: one query through every engine the setting offers, as the address bar sends it.
+  it('searches each engine for a query', () => {
+    const urls = Object.fromEntries(BROWSER_SEARCH_ENGINES.map(engine => [engine, resolveAddressBarInput('t3 code', resolveSearchUrlTemplate({ browserSearchEngine: engine, browserCustomSearchUrl: 'https://search.example/find?q=%s' }))]));
+    expect(urls).toEqual({
+      duckduckgo: 'https://duckduckgo.com/?q=t3%20code', google: 'https://www.google.com/search?q=t3%20code', bing: 'https://www.bing.com/search?q=t3%20code',
+      brave: 'https://search.brave.com/search?q=t3%20code', kagi: 'https://kagi.com/search?q=t3%20code', ecosia: 'https://www.ecosia.org/search?q=t3%20code',
+      custom: 'https://search.example/find?q=t3%20code',
+    });
+    expect(isValidSearchUrlTemplate('http://search.example/?q=%s')).toBe(true);
   });
 });
 

@@ -1,7 +1,7 @@
 // Settings › Integrations › Browser's default rows (MIT reference, see LICENSE-T3, T3 Code
-// 9c161462c9: apps/web/src/components/settings/IntegrationsSettings.tsx BrowserViewportSetting, BrowserZoomSetting,
+// 74541bab17: apps/web/src/components/settings/IntegrationsSettings.tsx BrowserViewportSetting, BrowserZoomSetting,
 // BrowserAppearanceSetting, BrowserRecordingFrameRateSetting, BrowserRecordingInputSettings,
-// BrowserAutoShowFloatingPreviewSetting). `view` is browser-defaults.ts `browserDefaultsView`; each write is
+// BrowserAutoShowFloatingPreviewSetting, BrowserSearchEngineSetting). `view` is browser-defaults.ts `browserDefaultsView`; each write is
 // `restlocal:browser-defaults` with `key=…&value=…`. "Open links in" is browser-links.ts's row, between these two groups.
 use SelectOption from "../settings/settings-kit.contract"
 use SettingsSelect from "../settings/settings-kit.contract"
@@ -49,6 +49,13 @@ shape BrowserDefaultsView
   autoShow: bool
   autoShowReset: bool
   pullRequestLinksInApp: bool
+  searchEngineLabel: string
+  searchEngineReset: bool
+  searchEngineOptions: SelectOption[]
+  searchEngineCustom: bool
+  customSearchUrl: string
+  // The custom URL's warning while it is not an http(s) URL with `%s`; empty when it is.
+  customSearchUrlStatus: string
 
 // SettingsRow: the title (with its reset arrow while the value is not the default), the description, the control.
 component BdRow
@@ -182,7 +189,36 @@ component BrowserAutoShowRow
     BdRow(rowId="auto-show", title="Auto-show floating preview", description="Show the floating preview when an agent opens a browser or device unless the agent says otherwise.", reset=view.autoShowReset, resetLabel="auto-show floating preview", resetPress=local("browser-defaults", "key=reset&value=auto-show"))
       SettingsSwitch(checked=view.autoShow, label="Auto-show floating preview", disabled=false, switchId="browser-auto-show-floating-preview", toggle=local("browser-defaults", `key=auto-show&value=${view.autoShow ? "false" : "true"}`))
 
-// Open pull requests in T3 Code (PullRequestLinksOpenInAppSetting, after Auto-show; not a preview default, so never disabled).
+// Search engine (BrowserSearchEngineSetting, after Auto-show; not desktop-only in the reference, as web clients search
+// from server-run tabs) and, while Custom is chosen, the custom search URL, committed on Enter or when the field is left.
+component BrowserSearchEngineRow
+  inject
+    rem: number
+  props
+    view: BrowserDefaultsView
+    local: action
+  action pick(value: string)
+    local("browser-defaults", `key=search-engine&value=${encodeURIComponent(value)}`)
+  action commit(value: string)
+    local("browser-defaults", `key=custom-search-url&value=${encodeURIComponent(value)}`)
+  view
+    column width="100%" testId="browser-search-engine-setting"
+      BdRow(rowId="search-engine", title="Search engine", description="What the address bar searches when you type something that isn't a URL.", reset=view.searchEngineReset, resetLabel="search engine", resetPress=local("browser-defaults", "key=reset&value=search-engine"))
+        SettingsSelect(selectId="browser-search-engine", label="Search engine", valueLabel=view.searchEngineLabel, empty=false, value="", width=(160 * rem / 16), disabled=false, options=view.searchEngineOptions, choose=pick)
+      if view.searchEngineCustom
+        row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" testId="browser-default-row-custom-search-url"
+          column flex=1 min-width=0 gap="0.25rem"
+            row min-height="1.25rem" align-items="center"
+              text "Custom search URL" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+            text "Use %s where the search terms go." font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
+            if view.customSearchUrlStatus != ""
+              text view.customSearchUrlStatus font-size="0.75rem" line-height="1rem" padding-top="0.125rem" color="light-dark(#71717b, #818181)" testId="browser-custom-search-url-status"
+          row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end"
+            // Keyed by the stored text, so a commit the data module trimmed shows what it kept.
+            for stored in [view.customSearchUrl] key=stored
+              input value=stored change=commit placeholder="https://example.com/search?q=%s" aria-label="Custom search URL" spellcheck="false" autocorrect="off" autocapitalize="none" maxlength=2048 testId="browser-custom-search-url" id="field-browser-custom-search-url" width="16rem" height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)" data-editable="yes"
+
+// Open pull requests in T3 Code (PullRequestLinksOpenInAppSetting, after Search engine; not a preview default, so never disabled).
 component PullRequestLinksRow
   props
     view: BrowserDefaultsView

@@ -1,5 +1,5 @@
 // The editors the client knows (MIT reference, see LICENSE-T3: packages/contracts/src/editor.ts
-// EDITORS, REMOTE_CAPABLE_EDITOR_IDS, remoteSchemeForEditor, buildRemoteOpenUrl, at 9c161462c9).
+// EDITORS, REMOTE_CAPABLE_EDITOR_IDS, remoteSchemeForEditor, at 9c161462c9; buildRemoteOpenUrl at 74541bab17).
 // `remoteScheme` marks VS Code and the forks that ship Remote-SSH, plus Zed with its own link shape.
 // `jetbrainsProductCode` (`IU`, `PY`, …) marks the JetBrains IDEs: they open remote projects through
 // the Toolbox App's `jetbrains://gateway/ssh/…` link, which uses the code to choose the IDE backend.
@@ -45,18 +45,19 @@ export function editorLabel(id: string): string {
 }
 
 /**
- * `<scheme>://vscode-remote/ssh-remote+<host><path>` (Zed: `zed://ssh/<host><path>`, JetBrains IDEs a
- * Toolbox App `jetbrains://gateway/ssh/environment?…` link), which opens `absolutePath` on `host` in the
- * local editor over SSH; undefined for editors without remote links.
+ * `<scheme>://vscode-remote/ssh-remote+[<user>@]<host><path>` (Zed: `zed://ssh/[<user>@]<host><path>`, JetBrains
+ * IDEs a Toolbox App `jetbrains://gateway/ssh/environment?h=<host>&u=<user>…` link), which opens `absolutePath` on
+ * `host` in the local editor over SSH, as `username` when one is known; undefined for editors without remote links.
+ * VS Code opens a file only with a position after it (`isFile`).
  */
-export function buildRemoteOpenUrl(input: { editor: string; host: string; absolutePath: string }): string | undefined {
+export function buildRemoteOpenUrl(input: { editor: string; host: string; username?: string; absolutePath: string; isFile?: boolean }): string | undefined {
   const scheme = remoteSchemeForEditor(input.editor);
   if (scheme === undefined) return undefined;
   const jetbrainsProductCode = EDITOR_DEFINITIONS.find(editor => editor.id === input.editor)?.jetbrainsProductCode;
   if (jetbrainsProductCode !== undefined) {
-    // Like the VS Code link, no user or port: the SSH config entry for `host` supplies them. A bare
-    // product code lets Toolbox pick the backend build.
+    // No port: the SSH config entry for `host` supplies it. A bare product code lets Toolbox pick the backend build.
     const params = new URLSearchParams({ h: input.host, launchIde: 'true', ideHint: jetbrainsProductCode, projectHint: input.absolutePath.replace(/\\/g, '/') });
+    if (input.username !== undefined) params.set('u', input.username);
     return `${scheme}://gateway/ssh/environment?${params.toString()}`;
   }
   // Windows server paths (`C:\...`) appear as `/C:/...` in vscode-remote URIs.
@@ -66,7 +67,11 @@ export function buildRemoteOpenUrl(input: { editor: string; host: string; absolu
   if (input.editor === 'zed') {
     // Zed resolves a rooted path on the system drive: `C:\Users\x` becomes `/Users/x`; other drives stay.
     const zedPath = /^[Cc]:[\\/]/.test(input.absolutePath) ? rootedPath.slice(3) : rootedPath;
-    return `${scheme}://ssh/${encodedHost}${zedPath.split('/').map(encodeURIComponent).join('/')}`;
+    // Zed reads this segment as ssh URL userinfo, so the `@` stays literal.
+    const destination = input.username === undefined ? encodedHost : `${encodeURIComponent(input.username)}@${encodedHost}`;
+    return `${scheme}://ssh/${destination}${zedPath.split('/').map(encodeURIComponent).join('/')}`;
   }
-  return `${scheme}://vscode-remote/ssh-remote+${encodedHost}${rootedPath.split('/').map(encodeURIComponent).join('/')}`;
+  const destination = input.username === undefined ? input.host : `${input.username}@${input.host}`;
+  // VS Code opens a bare vscode-remote path as a folder; a trailing position makes it open the file.
+  return `${scheme}://vscode-remote/ssh-remote+${encodeURIComponent(destination)}${rootedPath.split('/').map(encodeURIComponent).join('/')}${input.isFile ? ':1:1' : ''}`;
 }

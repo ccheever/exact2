@@ -84,10 +84,12 @@ with the token `gh auth token` gives it, so the seed starts it again behind the 
 stand-in (`github-api-standin.mjs`, port `T3_FIXTURE_GITHUB_PORT`, default 16592, and the next
 port): a proxy that tunnels `api.github.com` to its own HTTPS server, whose certificate a CA made
 under `<root>/github-api` signs (the server trusts it by `NODE_EXTRA_CA_CERTS`), and refuses every
-other host. It answers the head lookup, the lookup by number and the summary
+other host. It answers the head lookup, the lookup by number, the summary, the Pull Requests page's
+listing (the search, a repository's list and the counts read after them)
 (`api-calls.log` there lists each request), and the detail panel (`github-api-detail.mjs`): the
 detail with four checks (passed, skipped, running, and a status without a link), an issue comment
-and a review, a review thread on `README.md` line 3 with a reply, the files viewed, and a patch
+and a review, a review thread on `README.md` line 3 with a reply, the files viewed, each file's line
+counts (the change breakdown: code, and docs for the Markdown), and a patch
 long enough to scroll (`GET pulls/7` as a diff). Comment and Close (and Reopen) change what the
 next read answers until the stand-in stops; Merge, reactions, edits and the rest are not answered.
 The
@@ -96,7 +98,7 @@ stand-in answers the calls the reference server makes for these (`GitHubCli.ts`,
 the stand-in), logs each to `envs/<name>/gh-calls.log` and refuses every other one.
 
 `drive` runs `scripts/agent.mjs macos` on the newest bundle (`EXACT_MAC_BIN` overrides) at
-1280x840 (`--size`, `--storage` and `--epoch` pass through to the driver). In a fresh store the app opens its welcome wizard: the drive pairs each `--pair`
+1280x840 (`--size`, `--storage`, `--epoch` and `--seed` pass through to the driver; a drive against a server an earlier drive used needs a new `--seed`, since two launches with one seed mint the same command ids). In a fresh store the app opens its welcome wizard: the drive pairs each `--pair`
 environment there (a fresh single-use token each; the driver's echo of it is redacted), then
 finishes the wizard with "Do not import projects", and runs your ops. `--local` also starts
 "This machine" on the fixture's local home and port, with that home's provider directories and

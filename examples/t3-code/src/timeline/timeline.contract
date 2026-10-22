@@ -71,11 +71,17 @@ component TimelineRow
     hoverPart: action
     // A user turn's box entering or leaving the transcript (ChatColumn turnSeen).
     seen: action
+  // The lane's width, which a wide table's fit follows (`@container/chat-lane`, markdown.contract MarkdownTable).
+  state laneWidth = 0
+  action laneSized(width: number, height: number)
+    laneWidth = width
+  provide
+    chatLaneWidth = laneWidth
   view
     column id=`row-${message.id}` hover=hoverPart(message.hoverKey, "") width="100%" padding-top=(message.first ? lead : 0) padding-left="3rem" padding-right="3rem" box-sizing="border-box" align-items="center"
       if message.first and (hasMore or historyError != "")
         HistoryControl(lane=lane, hasMore=hasMore, loading=historyLoading, error=historyError, busy=busy, load=earlier)
-      column width="100%" max-width=lane min-width=0 box-sizing="border-box" padding-bottom=(message.last ? 0.75 * rem + tail : 0) margin-bottom=`${rowGap(message.kind, message.continues, message.expanded, message.actionsId != "", message.kind == "checkpoint" and message.attached, message.meta) / 16}rem`
+      column resize=laneSized width="100%" max-width=lane min-width=0 box-sizing="border-box" padding-bottom=(message.last ? 0.75 * rem + tail : 0) margin-bottom=`${rowGap(message.kind, message.continues, message.expanded, message.actionsId != "", message.kind == "checkpoint" and message.attached, message.meta) / 16}rem`
         if message.kind == "user"
           UserRow(message=message, documents=documents, command=command, local=local, hovering=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart, bubble=bubble, ink=ink, attachments=attachments, scheme=scheme, seen=seen)
         else if message.kind == "workflow"

@@ -8,8 +8,12 @@
 import { arr, obj, str, type Obj } from '../client/domain';
 import { ClientError, activeRun, providerAvailable } from '../client/protocol';
 import type { T3Client } from '../client/client';
+import { composerRequests } from './requests';
 
-/** Next-turn choices made in a started thread while a turn runs (the reference keeps them in the draft). */
+/**
+ * Next-turn choices made in a started thread while a turn runs (the reference keeps them in the draft). An empty
+ * `providerId` stages no model: the composer follows the thread's.
+ */
 export type StagedSelection = { providerId: string; modelId: string; options: Obj[]; runtimeMode: string; interactionMode: string };
 export type ComposerControlsPrefs = {
   stickyProvider: string;
@@ -44,8 +48,9 @@ export function decodeComposerControls(saved: unknown): ComposerControlsPrefs {
   }
   for (const [key, entry] of Object.entries(obj(value.staged)).slice(0, 200)) {
     const staged = obj(entry);
-    if (str(staged.providerId) && str(staged.modelId)) next.staged[key] = { providerId: str(staged.providerId), modelId: str(staged.modelId),
-      options: options(staged.options), runtimeMode: str(staged.runtimeMode, 'approval-required'), interactionMode: str(staged.interactionMode, 'default') };
+    const model = !!str(staged.providerId) && !!str(staged.modelId);
+    if (model || str(staged.runtimeMode) || str(staged.interactionMode)) next.staged[key] = { providerId: model ? str(staged.providerId) : '', modelId: model ? str(staged.modelId) : '',
+      options: model ? options(staged.options) : [], runtimeMode: str(staged.runtimeMode, 'approval-required'), interactionMode: str(staged.interactionMode, 'default') };
   }
   for (const [key, at] of Object.entries(obj(value.wokeSeen)).slice(-500)) if (typeof at === 'string') next.wokeSeen[key] = at;
   for (const [key, entry] of Object.entries(obj(value.contexts)).slice(-200)) {
@@ -105,24 +110,50 @@ export function stagesChanges(client: T3Client): boolean {
   return !!client.threadId;
 }
 export function stage(client: T3Client, change: Partial<StagedSelection>): void {
-  const state = prefs(client);
-  const current = state.staged[client.draftKey] ?? { providerId: client.providerId, modelId: client.modelId,
-    options: client.modelOptions.map(option => ({ ...option })), runtimeMode: client.runtimeMode, interactionMode: client.interactionMode };
+  const state = prefs(client), saved = state.staged[client.draftKey];
+  const current = saved ?? { providerId: client.providerId, modelId: client.modelId, options: client.modelOptions.map(option => ({ ...option })),
+    runtimeMode: client.runtimeMode, interactionMode: client.interactionMode };
   const next = { ...current, ...change };
   const thread = obj(client.projection.thread), selection = obj(thread.modelSelection);
-  const same = next.providerId === str(selection.instanceId) && next.modelId === str(selection.model)
-    && JSON.stringify(next.options) === JSON.stringify(arr(selection.options)) && next.runtimeMode === str(thread.runtimeMode, 'approval-required')
-    && next.interactionMode === str(thread.interactionMode, 'default');
+  const modelUnstaged = !next.providerId;
+  const sameModel = modelUnstaged || (next.providerId === str(selection.instanceId) && next.modelId === str(selection.model)
+    && JSON.stringify(next.options) === JSON.stringify(arr(selection.options)));
+  const same = sameModel && next.runtimeMode === str(thread.runtimeMode, 'approval-required') && next.interactionMode === str(thread.interactionMode, 'default');
   if (same) delete state.staged[client.draftKey]; else state.staged[client.draftKey] = next;
-  client.providerId = next.providerId; client.modelId = next.modelId; client.modelOptions = next.options.map(option => ({ ...option }));
+  if (!modelUnstaged) { client.providerId = next.providerId; client.modelId = next.modelId; client.modelOptions = next.options.map(option => ({ ...option })); }
   client.runtimeMode = next.runtimeMode; client.interactionMode = next.interactionMode;
 }
 /** After the thread's own selection is read, a staged choice still owns the composer. */
 export function applyStaged(client: T3Client): void {
   const staged = prefs(client).staged[client.draftKey];
   if (!staged) return;
-  client.providerId = staged.providerId; client.modelId = staged.modelId; client.modelOptions = staged.options.map(option => ({ ...option }));
+  if (staged.providerId) { client.providerId = staged.providerId; client.modelId = staged.modelId; client.modelOptions = staged.options.map(option => ({ ...option })); }
   client.runtimeMode = staged.runtimeMode; client.interactionMode = staged.interactionMode;
+}
+/** draftModelPickMatchesThread (shared/model.ts): the same instance, model and options in any order; fast mode off counts as unset. */
+export function draftModelPickMatchesThread(pick: { instanceId: string; model: string; options: Obj[] }, thread: Obj): boolean {
+  const canonical = (list: unknown) => arr(list).filter(option => option.id !== 'fastMode' || option.value !== false)
+    .map(option => `${str(option.id)}\u0000${String(option.value)}`).sort().join('\n');
+  return pick.instanceId === str(thread.instanceId) && pick.model === str(thread.model) && canonical(pick.options) === canonical(thread.options);
+}
+/**
+ * subscribeComposerDraftModelReconciliation (composerDraftStore.ts): a started thread's staged model that the thread
+ * now runs, as the live shell reports it (another client picked the same model), is dropped, so the draft follows
+ * the thread's later changes. Staged modes stay. Returns whether anything changed.
+ */
+export function reconcileStagedModels(client: T3Client): boolean {
+  if (!client.shellLive || !client.environmentId) return false;
+  const staged = prefs(client).staged, prefix = `${client.environmentId}:`;
+  let changed = false;
+  for (const [key, entry] of Object.entries(staged)) {
+    if (!entry.providerId || !key.startsWith(prefix) || key.startsWith(`${prefix}new:`)) continue;
+    const thread = client.shell.threads.find(candidate => `${prefix}${str(candidate.id)}` === key);
+    if (!thread || !draftModelPickMatchesThread({ instanceId: entry.providerId, model: entry.modelId, options: entry.options }, obj(thread.modelSelection))) continue;
+    if (entry.runtimeMode === str(thread.runtimeMode, 'approval-required') && entry.interactionMode === str(thread.interactionMode, 'default')) delete staged[key];
+    else staged[key] = { ...entry, providerId: '', modelId: '', options: [] };
+    changed = true;
+  }
+  return changed;
 }
 export function stagedFor(client: T3Client, key = client.draftKey): StagedSelection | undefined { return prefs(client).staged[key]; }
 export function clearStaged(client: T3Client, key: string): void { delete prefs(client).staged[key]; }
@@ -163,7 +194,12 @@ export function isCompacting(client: T3Client): boolean {
     && arr(latestUser.attachments).length === 0
     && !items.some(item => item.type === 'compaction' && item.runId === run.id && ['completed', 'failed', 'interrupted', 'cancelled'].includes(str(item.status)));
 }
+/**
+ * ChatComposer followUpBehavior: a send declines the approvals the composer shows to redirect the agent, so it steers
+ * the waiting turn instead of queueing behind it. Approvals the typing guard holds stay unseen and pending.
+ */
 export function followUpBehavior(client: T3Client): string {
+  if (composerRequests(client).approvals.length > 0) return 'steer';
   return str((client.local as { clientSettings?: Obj }).clientSettings?.followUpBehavior, 'queue') === 'steer' ? 'steer' : 'queue';
 }
 /** startThreadTurn with server-resolved command context: queue waits behind the active run, everything else names its intent. */

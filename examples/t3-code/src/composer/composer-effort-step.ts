@@ -73,16 +73,15 @@ export function composerReasoningStep(input: Parameters<typeof reasoningStep>[0]
 }
 
 /**
- * ChatComposer stepReasoningEffort: nothing while no provider is available, an
- * approval or a question is pending, or a queued message is being edited.
+ * ChatComposer stepReasoningEffort: nothing while no provider is available, a
+ * question is pending, or a queued message is being edited.
  * `store` saves the option as the traits menu does; the prompt edit is one
  * undoable replacement in the editor that keeps the caret.
  */
 export async function stepReasoningEffort(client: T3Client, native: Native, direction: 1 | -1, store: (id: string, value: string) => Promise<void>): Promise<void> {
   const chosen = composerSelection(client, !!fanoutSelections(client));
   if (chosen.noProviderAvailable || !chosen.provider) return;
-  const requests = pendingRequests(client.projection);
-  if (requests.approvals.length || requests.inputs.length || queuedEdit(client)) return;
+  if (pendingRequests(client.projection).inputs.length || queuedEdit(client)) return;
   const editor = await bridgeReply(native, { op: 'editorState' }).then(reply => reply.ok ? obj(reply.value) : null, () => null);
   const prompt = typeof editor?.text === 'string' ? editor.text : client.draft;
   const models = arr(chosen.provider.models), model = chosen.entry ? chosen.model : client.modelId;

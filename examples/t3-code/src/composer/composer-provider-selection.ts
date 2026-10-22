@@ -1,5 +1,5 @@
 // The composer's provider and model, decided as T3 Code decides them (MIT; see
-// LICENSE-T3, reference 9c161462c9). Sources: apps/web/src/providerInstances.ts
+// LICENSE-T3, reference 74541bab17). Sources: apps/web/src/providerInstances.ts
 // (deriveProviderInstanceEntries, sortProviderInstanceEntries,
 // isProviderInstancePickerReady, resolveSelectableProviderInstanceEntry),
 // components/ChatView.logic.ts (resolveComposerProviderSelection),
@@ -163,7 +163,7 @@ function instanceCustomModels(settings: Obj, instanceId: string, driver: string)
 export function instanceModelOptions(local: Prefs, settings: Obj, entry: ProviderEntry, selectedModel?: string | null): Obj[] {
   const options = entry.models.filter(model => model.isCustom !== true);
   const seen = new Set(options.map(model => str(model.slug)));
-  for (const custom of instanceCustomModels(settings, entry.instanceId, entry.driverKind).slice(0, 32)) {
+  for (const custom of instanceCustomModels(settings, entry.instanceId, entry.driverKind)) {
     if (str(custom.slug).length > 256 || seen.has(str(custom.slug))) continue;
     seen.add(str(custom.slug)); options.push(custom);
   }
@@ -238,10 +238,18 @@ export function carryNewThreadModelSelection(client: SelectionSource & { modelOp
  * it sends (deriveEffectiveComposerModelState) and the no-provider chrome. `fanout` is
  * multipleModelSelections !== null.
  */
+/** ChatView's providerInstanceEntries: sorted entries with the settings' and the project's enabled flags. */
+function instanceEntries(client: SelectionSource): ProviderEntry[] {
+  const settings = obj(client.config.settings);
+  return applyProviderInstanceSettings(providerEntries(arr(client.config.providers)), settings).map(entry => ({ ...entry, enabled: projectProviderEnabled(settings, client.projectId ?? '', entry.instanceId, entry.enabled) }));
+}
+/** An instance the next send can run on: listed, enabled and not unavailable (ChatView pendingHandoffSelectionUsable). */
+export function instanceUsable(client: SelectionSource, instanceId: string): boolean {
+  return instanceEntries(client).some(entry => entry.instanceId === instanceId && entry.enabled && entry.isAvailable);
+}
 export function composerSelection(client: SelectionSource, fanout = false) {
   const providers = arr(client.config.providers), settings = obj(client.config.settings), local = client.local ?? {};
-  // ChatView's providerInstanceEntries: sorted entries with the settings' enabled flags.
-  const entries = applyProviderInstanceSettings(providerEntries(providers), settings).map(entry => ({ ...entry, enabled: projectProviderEnabled(settings, client.projectId ?? '', entry.instanceId, entry.enabled) }));
+  const entries = instanceEntries(client);
   const projection = client.threadId ? obj(client.projection) : {};
   const thread = obj(projection.thread), threadSelection = obj(thread.modelSelection);
   // deriveThreadRuntime is null until the thread has a run or a provider thread.

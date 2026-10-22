@@ -36,10 +36,43 @@ test('the generator pins its packages at the integrity values the reference lock
     ['lucide-react@0.564.0', 'JJ8GVTQqFwuliifD48U6+h7DXEHdkhJ/E87kksGByII3qHxtPciVb8T8woQONHBQgHVOl7rSMrrip3SeVNy7Fg=='],
     ['@pierre/trees@1.0.0-beta.4', 'OfT1yk9ne8Te5+GB5zUY8yqE6B8BqjBHQJleH4lu8ltwNpoocZl4vXt1AzlEExpxI/pp+AFX5QG+lR3JjtTEag=='],
     ['morphicons@1.7.1', 'q5ylxy5/d7vBg0OAzanlooXf05PekovMYDuuQVpr6vAQZxl99lrJbaIi+jJ32PXQf9WEEaDO2pbNBsx1ZhEnFQ=='],
-    ['mermaid@11.17.2', 'V6K3C8EBdEsPFZXSKMJe6ppQOENxuHARr9GvHX4hh47lAbhMRD9qf4oEK7LoaRQxULMa80/qt5gHO73aCleBBg=='],
+    ['pele@1.8.0', 'AYmHttE70cwNJVXdfPMCANGivFlmc3bGGpMG0GqH5S5vE3RgtEuLlkqbhRfe94Csv/ZEd1TUbv2dMUHpw4p1Bg=='],
+    ['katex@0.16.47', 'Eeo8Ys1doU1z+x8AZsPpQu+p/QcZBI5PeOo7QGQdy2x2m0MU/hYagBbGOmXwr5KVbEfVuWv9LpnQWeehogurjg=='],
     ['dompurify@3.4.16', 'sqo+pNp3qRhCIpbgRi1y8Tgk27Bo2Ry7w0dC1NBeNTdZChWjz9Xb/KOoZbRP/R6pQZ80Qw8YhXw13hWWBbMRnQ=='],
   ]) {
     const entry = lock.split('\n').find(line => line.includes(`["${name}"`)) ?? '';
     expect(entry).toContain(`sha512-${integrity}`);
   }
 });
+
+// The Mermaid page's pele (assets/mermaid/vendor/) draws the diagram kinds the Mermaid build it replaced drew, the
+// fixtures of the transcript, Files and attachment tests among them, and the math page's KaTeX typesets.
+test('the vendored pele renders the fixtures the Mermaid build rendered, and the vendored KaTeX typesets', async () => {
+  const assets = join(import.meta.dir, '..', '..', 'assets');
+  const pele = await import(join(assets, 'mermaid', 'vendor', 'pele', 'lazy.js'));
+  const fixtures: [string, string][] = [
+    ['graph TD\n  A --> B', 'flowchart'],
+    ['graph LR\n  Files --> Preview', 'flowchart'],
+    ['flowchart TD\n  A[Start] --> B{Ready?}\n  B -->|yes| C[Ship]\n  B -->|no| A', 'flowchart'],
+    ['sequenceDiagram\n  Alice->>Bob: Hi\n  Bob-->>Alice: Hello', 'sequence'],
+    ['classDiagram\n  Animal <|-- Duck\n  Animal : +int age', 'class'],
+    ['stateDiagram-v2\n  [*] --> Still\n  Still --> Moving\n  Moving --> [*]', 'state'],
+    ['erDiagram\n  CUSTOMER ||--o{ ORDER : places', 'er'],
+    ['gantt\n  title Plan\n  dateFormat YYYY-MM-DD\n  section A\n  Task :a1, 2026-01-01, 3d', 'gantt'],
+    ['pie title Pets\n  "Dogs" : 386\n  "Cats" : 85', 'pie'],
+    ['mindmap\n  root((Root))\n    A\n    B', 'mindmap'],
+    ['gitGraph\n  commit\n  branch dev\n  commit\n  checkout main\n  merge dev', 'gitGraph'],
+    ['journey\n  title Day\n  section Work\n    Code: 5: Me', 'journey'],
+    ['timeline\n  title History\n  2025 : One\n  2026 : Two', 'timeline'],
+  ];
+  for (const [source, type] of fixtures) {
+    const result = await pele.renderAsync(source, { links: false, images: false, autoDirection: false });
+    expect([source, result.type]).toEqual([source, type]);
+    expect(result.width).toBeGreaterThan(0);
+    expect(result.svg).toStartWith('<svg');
+  }
+  await expect(pele.renderAsync('not a diagram')).rejects.toThrow('No diagram type detected');
+  const katex = (await import(join(assets, 'math', 'vendor', 'katex.mjs'))).default;
+  expect(katex.renderToString('x^2', { displayMode: true, output: 'htmlAndMathml', throwOnError: true, trust: false })).toContain('katex-display');
+  expect(() => katex.renderToString('\\frac{', { throwOnError: true })).toThrow();
+}, 60_000);
