@@ -32,6 +32,8 @@ private final class OrientationUpdate: OrientationView {
     override func updateLayer() { layer?.contents = image }
 }
 
+// These fixtures isolate capture behavior but do not reproduce Caltrain's
+// mixed text orientation. Passing them cannot qualify a QUEUE 465 fix.
 final class CaptureOrientationMacTests: XCTestCase {
     func testHeaderBesideScrollRows() throws {
         _ = NSApplication.shared
@@ -97,9 +99,7 @@ final class CaptureOrientationMacTests: XCTestCase {
             print("MIXED \(name) copy=\(marker(copy, i)) original=\(marker(original, i)) cache=\(marker(cache, i))")
             XCTAssertEqual(marker(original, i), "upright", name)
             XCTAssertEqual(marker(cache, i), "upright", name)
-        }
-        XCTExpectFailure("QUEUE 465: a header and scroll rows lose their backing-store orientation in a copied subtree") {
-            XCTAssertEqual([0, 1, 5, 2, 6].map { marker(copy, $0) }, [0, 1, 5, 2, 6].map { marker(cache, $0) })
+            assertMarkerPairExists(copy, i)
         }
         try evidence([("mixed-copy", copy), ("mixed-original", original), ("mixed-cache", cache)])
     }
@@ -205,17 +205,23 @@ final class CaptureOrientationMacTests: XCTestCase {
             print("HISTORY \(i) copy=\(marker(copy, i)) original=\(marker(original, i)) presentation=\(presented.map { marker($0, i) } ?? "nil") cache=\(marker(cache, i)) ctmBeforeCache=\(drawn[i]) geometry=\(backing.isGeometryFlipped)/\(layer.isGeometryFlipped)/\(shell.layer!.isGeometryFlipped) flipped=\(backing.contentsAreFlipped()) contents=\(String(describing: backing.contents)) presentedContents=\(String(describing: backing.presentation()?.contents))")
             XCTAssertEqual(marker(cache, i), "upright")
             XCTAssertEqual(marker(original, i), "upright")
-        }
-        XCTExpectFailure("QUEUE 465: a copied subtree loses AppKit backing-store orientation") {
-            XCTAssertEqual(marker(copy, 0), marker(cache, 0))
+            assertMarkerPairExists(copy, i)
         }
         try evidence([("history-copy", copy), ("history-original", original), ("history-cache", cache)])
     }
 
-    private func marker(_ rep: NSBitmapImageRep, _ i: Int) -> String {
-        let x = (i % 4) * 120 + 4, y = (i / 4) * 56 + 4
+    private func assertMarkerPairExists(_ rep: NSBitmapImageRep, _ i: Int, file: StaticString = #filePath, line: UInt = #line) {
+        let top = marker(rep, i), bottom = marker(rep, i, bottom: true)
+        XCTAssertTrue(["upright", "flipped"].contains(top), "missing marker in cell \(i): \(top)", file: file, line: line)
+        XCTAssertEqual(top, bottom, "cell \(i) must contain both colored markers", file: file, line: line)
+    }
+
+    private func marker(_ rep: NSBitmapImageRep, _ i: Int, bottom: Bool = false) -> String {
+        let x = (i % 4) * 120 + 4, y = (i / 4) * 56 + (bottom ? 52 : 4)
         guard let c = rep.colorAt(x: x * rep.pixelsWide / 480, y: y * rep.pixelsHigh / 112) else { return "missing" }
-        return c.redComponent > 0.8 && c.blueComponent < 0.2 ? "upright" : c.blueComponent > 0.8 && c.redComponent < 0.2 ? "flipped" : "other"
+        let red = c.redComponent > 0.8 && c.blueComponent < 0.2
+        let blue = c.blueComponent > 0.8 && c.redComponent < 0.2
+        return (bottom ? blue : red) ? "upright" : (bottom ? red : blue) ? "flipped" : "other"
     }
 
     private func evidence(_ pictures: [(String, NSBitmapImageRep)]) throws {
