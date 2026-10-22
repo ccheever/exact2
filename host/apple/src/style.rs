@@ -1050,7 +1050,7 @@ fn style_json_shown(
             Some(&insets)
         } else if computed.position_area != PositionArea::None {
             Some(&placed)
-        } else if computed.position_type == exact_kernel::PositionType::Sticky {
+        } else if node.layout_position() == exact_kernel::PositionType::Sticky {
             Some(&vertical)
         } else {
             None
