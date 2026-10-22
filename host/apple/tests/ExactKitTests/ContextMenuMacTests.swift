@@ -307,11 +307,11 @@ final class ContextMenuMacTests: XCTestCase {
     }
 
     /// The menu a right press opens takes the button's release: the view
-    /// never hears its `rightMouseUp`. The press's hold ends as the menu
-    /// closes, with `pointerup` to the ancestor that heard its down, and
+    /// never hears its `rightMouseUp`. The press's hold ends when the menu
+    /// starts tracking, with `pointerup` to the ancestor that heard its down, and
     /// hover follows the pointer again. A hold left behind kept every row's
     /// hover from following until a left click (realinput-1017l, failure 3).
-    func testTheHoldOfTheRightPressThatOpenedAMenuEndsAsItCloses() throws {
+    func testTheHoldOfTheRightPressEndsWhenItsMenuStartsTracking() throws {
         try XCTSkipIf(ExactEnv.agentMode, "the agent presents painted popovers")
         let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
         p.apply(wireBatch([
@@ -330,6 +330,8 @@ final class ContextMenuMacTests: XCTestCase {
         let center = NotificationCenter.default
         let began = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
             guard let menu = note.object as? NSMenu else { return }
+            XCTAssertFalse(p.pointerHolds, "native tracking takes ownership of the contact")
+            XCTAssertEqual(heard, ["9 down", "9 up"])
             RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTracking() }
         }
         let ended = center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { _ in closed = true }
