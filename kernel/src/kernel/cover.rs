@@ -219,6 +219,8 @@ impl Kernel {
 /// both insets, so its children keep their start and their scroll extent's
 /// end is where the platform's own inset begins.
 pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
+    // A popover is the host's to lift, out of flow, open or closed (`style::top_layer`).
+    crate::style::top_layer::apply(arena, slot, s);
     let (style, env) = (arena.effective_style(slot), arena.env());
     match arena.cover(slot) {
         Some(HostCover::Whole) => s.display = taffy::style::Display::None,
@@ -283,7 +285,7 @@ fn scroller_insets_bottom(arena: &NodeArena, slot: u32) -> bool {
                 && s.position_type != crate::PositionType::Absolute
                 && arena.cover(c) != Some(HostCover::Whole)
                 // A popover is out of flow, open or closed (`style::taffy_style`).
-                && !crate::style::top_layer(arena, c)
+                && !crate::style::top_layer::top_layer(arena, c)
         };
         let Some(&last) = arena.children(at).iter().rev().find(flowing) else {
             return false;
