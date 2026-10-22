@@ -499,8 +499,6 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
   at the focused node's centre.
 - `T3ToolActivityIcon.swift`: a muted tool icon is drawn at the reference's `brightness(0.6)` in the
   light appearance; CSS `filter` applies only to SVG elements, and an SVG `image` is not built.
-- `T3ImageAccent.swift` and `T3ComposerImageChip.swift`: an image's average colour needs its
-  pixels, and readback is refused. The latter supplies raw image facts only.
 - `RightPanelTabsInput.swift`: the device tab's rename field keeps Escape and ⌘ chords to itself;
   an `aria-keyshortcuts` button hears its chord before a field's `key` handler.
 - `T3RemoteEditors.swift` (probing installed editors needs a process and file checks; `openURL`
@@ -509,7 +507,8 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
   `getSystemLocale` follows the Region setting), `T3WindowChrome.swift` (no
   `env(titlebar-area-*)`), `T3RootFont.swift` (the native views' rem), `T3PanelsNative.swift` (the
   Files editor's caret under the press that mounted it), and the data module's sleep
-  (`timelineSleep`: data modules have no timers).
+  (`timelineSleep`: data modules have no timers, and an answer that awaits a promise another
+  answer settles is refused as pending on nothing when no fetch or storage step is in flight).
 - Composer OS adapters (`T3ComposerAttach`, `T3ComposerIntent`, `T3ComposerQueueKey` and
   `T3ComposerEditor`) retain large-paste folding, Paste as Text, modifier and focus routing, and a
   video's first frame and typed link. A drop on the chat column or a sidebar row, a paste's files
