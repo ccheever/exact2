@@ -181,6 +181,10 @@ final class MenuHost {
                 #endif
                 continue // Its own primary action invokes after activation (D13).
             }
+            // A custom invoker's popover that is no menu opens as itself, from
+            // the invoker, as a native button's does (LLP 1021 D3: only a menu
+            // is the platform's pull-down); its tap invokes after its press (`invoke`).
+            if !pullsDown(pop) { continue }
             live.insert(v.id)
             if isConfirmation(pop) {
                 let button = overlays[v.id] ?? InvokerButton(type: .custom)
