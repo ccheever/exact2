@@ -367,6 +367,20 @@ describe('Device setup', () => {
     await deviceLocal(client, native, 'continue', '', '');
     expect((await deviceView(client, native)).step).toBe(1);
   });
+  // DeviceSetup.test.ts "names an EAS host instead of local tooling when only the cloud can run iOS" (74541bab17); the
+  // EAS host summary arrives as `easHosts` and its devices join the list beside the other hosts'.
+  test('an EAS host names the cloud, and its simulators join the device list', async () => {
+    const local = remoteOnly().hosts[0]!;
+    const wire = { ...remoteOnly(), hostStatuses: { eas: { status: 'ready' } }, hosts: [local],
+      easHosts: [{ id: 'eas', kind: 'eas', label: 'EAS Simulator', hubInstalled: true, agentDeviceInstalled: true, platforms: [{ platform: 'ios', available: true }, { platform: 'android', available: false, reason: 'Not supported yet.' }] }],
+      devices: [{ hostId: 'eas', id: 'eas-ios', platform: 'ios', name: 'iPhone (EAS Simulator)', version: 'Cloud', booted: false, physical: false }] };
+    const { client } = fakeClient();
+    await surfaceLocal(client, native, 'open', 'm', '');
+    deviceStateEvent(client, { subscriptionId: '1-9', key: DEVICE_STATE_KEY, value: wire });
+    const view = await deviceView(client, native);
+    expect(view.platforms[0]).toEqual({ id: 'ios', platform: 'iOS', ready: true, message: 'EAS Simulator starts iOS Simulators in the cloud with EAS Simulator.' });
+    expect(view.groups).toEqual([{ id: 'ios', label: 'iOS Simulators', devices: [{ id: 'eas\u0000eas-ios', name: 'iPhone (EAS Simulator)', platform: 'ios', description: 'EAS Simulator · Cloud · Stopped', action: 'Start' }] }]);
+  });
   test('Device opens the wizard until onboarding is complete; the stream decides readiness', async () => {
     const { client, calls } = fakeClient();
     await surfaceLocal(client, native, 'open', 'm', '');

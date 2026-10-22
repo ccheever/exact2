@@ -253,10 +253,21 @@ function formParams(value: string): Record<string, string> {
  * the command's message `toasted:` so the form stays open without its own
  * error text.
  */
+const WEBHOOK_FAILURE = /^(Invalid filter|Invalid age limit|Invalid webhook settings|Signing secret is required): /;
 export function settingsFailure(client: T3Client, op: string, id: string, value: string, message: string): string {
   if (!message) return '';
   let title = '', description = message;
   const form = formParams(value);
+  if (op === 'rest:task' && form.action === 'save' && message.split('\n').every(line => WEBHOOK_FAILURE.test(line))) {
+    // The webhook trigger's checks (scheduled-webhook.ts webhookSchedule): one toast per line, as submit()
+    // raises one reportFailure per invalid field.
+    const lines = message.split('\n');
+    for (let index = 0; index < lines.length; index++) {
+      const match = WEBHOOK_FAILURE.exec(lines[index]!)!;
+      pushToast(client, { kind: 'error', title: match[1]!, description: lines[index]!.slice(match[0].length), stacked: true });
+    }
+    return WEBHOOK_FAILURE.exec(lines[0]!)![1]!;
+  }
   if (op === 'rest:task' && form.action === 'save') {
     if (/^Scheduled task is incomplete|^Enter a task name and prompt/.test(message)) { title = 'Scheduled task is incomplete'; description = 'Add a title, prompt, project, and model.'; }
     else if (/interval of at least one minute/.test(message)) { title = 'Invalid interval'; description = 'Enter an interval of at least one minute.'; }

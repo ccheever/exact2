@@ -30,7 +30,7 @@ import { annotationAttachedToDraft, annotationSendMarked, takeAnnotationSend } f
 import { markAnnotationSend } from '../browser/browser-annotation';
 import { annotationDispatchCurrent, takeAnnotationDispatch } from '../browser/browser-capture';
 import { composerChipFinishCurrent, takeComposerChipFinish } from '../composer/composer-chip-bridge';
-import { pressGesture, sendIntent } from '../composer/composer-editor-intent';
+import { pressGesture, composerRequiresModifier, sendIntent } from '../composer/composer-editor-intent';
 import { launchTitle } from '../composer/composer-editor-title';
 import { promptLengthMessage } from '../composer/composer-editor-menu';
 import { composerFileAttachments, draftFiles } from '../composer/composer-editor-files';
@@ -176,7 +176,8 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   const gesture = pressGesture(pressed) ?? await this.call(native, { op: 'composerSendIntent' }).catch(() => ({}));
   const running = !!selection.threadId && threadPhase(this.projection) === 'running';
   // An annotation's ⌘↩ sends in the foreground, "auto" (PreviewView onSendAnnotation).
-  const intent = annotationSend ? 'foreground' : sendIntent(this.config, gesture, running, !selection.threadId, terminalOpen(this));
+  const intent = annotationSend ? 'foreground' : sendIntent(this.config, gesture, running, !selection.threadId, terminalOpen(this),
+    composerRequiresModifier(this.local.deviceSettings.sendShortcut, value || this.draft));
   const provider = arr(this.config.providers).find(provider => provider.instanceId === sendProviderId);
   // onSend's !providerAvailable: no provider entry, or Antigravity's block reason. A listed provider whose probe failed
   // still sends, and the server's failure shows on the thread.

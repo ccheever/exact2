@@ -313,10 +313,13 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   VS Code theme import, keybindings, providers (sign-in and runtime install), connections
   (pairing, SSH, outdated-host update), scheduled tasks, SnapShots, diagnostics and licenses.
 
-Return sends; Shift-Return inserts a newline; IME marked text stays an editor action.
+Return sends; Shift-Return inserts a newline, continues a Markdown list (renumbering the numbered
+items below) or leaves an empty item or quote line, with rich text on or off; IME marked text stays an
+editor action. A bracket or quote typed over a selection wraps it.
 ⌘↩ sends from the button; in a new-thread draft it starts the thread in the background
 when the server binds `composer.sendBackground`; ⌥⌘↩ on an existing thread sends and
-opens a fresh draft in the same project. Other chords follow the server's keybindings
+opens a fresh draft in the same project. With Settings › Send shortcut set so that Return needs ⌘,
+⌘↩ follows the Follow-up behaviour setting while a turn runs and ⌘⇧↩ takes the other. Other chords follow the server's keybindings
 (⌘K palette, ⌘N new thread, ⇧⌘M model picker, ⇧⌘K copy PR number, ⌘B sidebar). ⌘B bolds instead
 while the rich-text composer has the focus, as Tiptap does: a click into an existing draft
 counts as focus (the window's first responder is followed, `T3ComposerInput.swift`), and ⌘B / ⌘I end
@@ -633,11 +636,23 @@ above.
 - Edit › Paste is enabled after a click on blank ground, and choosing it only forgets the held
   keys: the window root takes that focus and hears `paste`. Elsewhere AppKit disables Paste when
   nothing can take it. The reference's Paste is always enabled.
-- A folder dropped on the chat column is not mentioned in the prompt. The reference inserts its
-  absolute path as an `@` mention (ChatComposer.tsx `addDroppedFolders`); a dropped folder reaches
-  the clone as a `doc:` handle with no path (LLP 1069.010 D1), so the clone shows the reference's
-  own refusal for a folder whose path it cannot get: 'Couldn't get the path of "src"', "Type the
-  folder path with @ instead." Files dropped with it attach.
+- A folder dropped on the chat column or pasted into the composer is not mentioned in the prompt. The
+  reference inserts its absolute path as an `@` mention (ChatComposer.tsx `addComposerFolders`); such a
+  folder reaches the clone as a `doc:` handle with no path (LLP 1069.010 D1), so the clone shows the
+  reference's own refusal for a folder whose path it cannot get: 'Couldn't get the path of "src"',
+  "Type the folder path with @ instead." Files dropped or pasted with it attach.
+- A whole-word `_text_` in the composer is drawn in italic, where the reference's composer keeps typed
+  underscores literal: Exact's Markdown field paints CommonMark emphasis and has no option to leave `_`
+  out (clone `issues/composer-editing-underscore-emphasis.md`). `node_modules` and an underscore in a
+  code span stay plain, and the sent message renders the same in both.
+- An image or a file chip copied from the composer pastes whole only within this app: the reference
+  carries the chip's record in a clipboard type of its own, and Exact's clipboard holds text, so the
+  clone finds the record by the id in the pasted link, in the draft that holds it or in the latest copy
+  (`composer-copied-chips.ts`). The latest copy's image bytes stay until another copy replaces it, as
+  the reference keeps that copy's files in memory.
+- Leaving a quote with an empty `> ` line leaves a blank line under it, which the clone's composer
+  shows: the reference's composer hides the blank line it writes there, so that the comment under the
+  quote is its own paragraph and not a lazy continuation of the quote.
 - An image over 10 MB is re-encoded as a PNG when it can hold transparency and else as a JPEG; the
   reference prefers WebP, which `compressImage` does not write. An image within its limits keeps its
   bytes and type, and a PNG or JPEG over 2000 px is fitted in its own type, as the reference's are.

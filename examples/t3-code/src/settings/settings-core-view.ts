@@ -19,6 +19,7 @@ import { importView, resetImport } from '../appearance/settings-appearance-impor
 import { rememberDelivery, updateConfirmation } from './settings-a-about';
 import { killConfirmation } from './settings-a-telemetry';
 import { hostChecks, hostEditorView } from '../device/settings-a-hosts';
+import { easEditorView } from '../device/settings-eas-hosts';
 import { libraryCards, removalPicks } from '../appearance/settings-a-collections';
 import { installedFonts } from '../appearance/appearance-fonts';
 import { fontDiffPreview } from '../appearance/settings-font-previews';
@@ -127,9 +128,9 @@ export async function settingsCore(client: T3Client, native: Native | null | und
     archiveConfirm: archiveConfirmation(client),
     updateConfirm: updateConfirmation(client),
     killConfirm: killConfirmation(client),
-    hostEditor: hostEditorView(client), hostChecks: hostChecks(client),
+    hostEditor: hostEditorView(client), hostChecks: hostChecks(client), easEditor: easEditorView(client),
     // Any settings-a dialog the root must mount (SettingsADialogs).
-    saOpen: updateConfirmation(client) || killConfirmation(client).pid !== '' || hostEditorView(client).open,
+    saOpen: updateConfirmation(client) || killConfirmation(client).pid !== '' || hostEditorView(client).open || easEditorView(client).open,
     background: backgroundDialog(obj(client.config.settings), client.ready && !!client.environmentId && scope.kind !== 'unavailable' && scope.selected.length === 1),
   };
 }
