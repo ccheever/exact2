@@ -244,7 +244,7 @@ final class ComposerEditorTests: XCTestCase {
         let huge = String(repeating: "x", count: 120_000)
         XCTAssertFalse(adapter.shouldChange(fixture.editor, range: NSRange(location: 3, length: 0), text: huge))
         XCTAssertEqual((fixture.sync()["notices"] as? [[String: String]])?.first?["title"], "Pasted text is too large for this message")
-        adapter.pastingAsText = true
+        adapter.pastingAsText = { true }
         XCTAssertTrue(adapter.shouldChange(fixture.editor, range: NSRange(location: 3, length: 0), text: huge))
         XCTAssertTrue(adapter.folds.isEmpty)
         XCTAssertEqual(fixture.editor.string, "abc")
