@@ -271,10 +271,13 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     /// keeps a normal titled window and zero insets. The window is the adapter's;
     /// the insets are the view's (`ExactView.syncInsets`).
     func coverChrome() {
-        // `window-controls-overlay` (LLP 1039 D8): with no route's toolbar,
-        // an empty unified one stands in the title bar, which the page
-        // underlaps, as a hand-built window that draws its own title row
-        // does. Not in full screen, where Chrome's overlay goes too.
+        // `window-controls-overlay` (LLP 1039 D8): while the session shows
+        // no toolbar of its own (a route's header), an empty unified one
+        // stands in the title bar, which the page underlaps, as a hand-built
+        // window that draws its own title row does. Not in full screen,
+        // where Chrome's overlay goes too; it comes back once the window is
+        // windowed again, as the toolbar's height would otherwise change
+        // under AppKit's exit animation.
         let overlay = windowControlsOverlay && toolbarAttached && !view.hasWindowToolbar
             && !enteringFullScreen && !window.styleMask.contains(.fullScreen)
         if overlay, window.toolbar == nil { window.toolbar = overlayToolbar }
@@ -319,6 +322,7 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     private var enteringFullScreen = false
     func windowWillEnterFullScreen(_ notification: Notification) { enteringFullScreen = true; coverChrome() }
     func windowDidEnterFullScreen(_ notification: Notification) { enteringFullScreen = false }
+    func windowDidFailToEnterFullScreen(_ window: NSWindow) { enteringFullScreen = false; coverChrome() }
     func windowDidExitFullScreen(_ notification: Notification) { coverChrome() }
     /// Off while the session's toolbar is attached, which takes the window
     /// only while it has no toolbar.
