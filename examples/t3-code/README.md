@@ -343,9 +343,12 @@ menu is a window-level popup, placed from the trigger's `frame()` (scroll offset
 that Escape and an outside press close (`table-menu.*`). The row context menus are Contract context
 popovers, which the host presents as an `NSMenu` at the pointer, or for the ContextMenu key at the
 focused row's centre (exact2 #314): the sidebar's thread, draft and selection menus, the legacy sidebar's
-row, selection and project menus, the Files tree's, a panel tab's and a pull request number's. A draft
-row's ContextMenu and Shift+F10, and a tab's Shift+F10, show theirs from the row, below it. The branch
-picker's Copy branch name, the chat's file and web link menus, the media menu and the legacy sidebar's
+row, selection and project menus, the Files tree's, a panel tab's, a pull request number's, and the chat's
+web and file link menus (`link-menus.contract`; their rows are computed before the right-click,
+`external-link-menu.ts` and `file-link-menu.ts`). A draft
+row's ContextMenu and Shift+F10, and a tab's Shift+F10, show theirs from the row, below it. A mailto, irc,
+xmpp or fragment link has no menu of its own, so its right-click is the desktop shell's. The branch
+picker's Copy branch name, the media menu and the legacy sidebar's
 choice of project members stay the module's (`T3ContextMenu.swift` and `T3Sidebar.swift` say why). A global hotkey of another
 app (a launcher holding ⌘1, say) never reaches the window.
 
@@ -443,6 +446,12 @@ filed were moved there or closed). The gaps someone using this app runs into:
 - Data modules have no timers ([`issues/closed/20261009-typescript-failure-parity.md`](../../issues/closed/20261009-typescript-failure-parity.md),
   #124; closed with timers still deferred). Time is an argument, and debounces and cooldowns are
   Contract tasks.
+- The ContextMenu key and VoiceOver's show menu on a reply's mailto, irc, xmpp or fragment link open nothing,
+  where the reference opens the desktop shell's menu: those links write no `contextmenu`, and on macOS a
+  keyboard or VoiceOver menu request that no node answers ends (`MouseEventsMac.swift` `contextTarget`),
+  while a right-click goes on to the shell's menu. Chrome sends the request on to the default menu.
+- On the pull request page a file link's press opens its menu below the link (a popover invoker), where the
+  reference opens it at the click.
 - A backdrop blur sees only its parent ([`issues/closed/20261010-macos-backdrop-beyond-parent.md`](../../issues/closed/20261010-macos-backdrop-beyond-parent.md);
   main keeps the limit), so the composer is opaque where the reference's glass shows the
   transcript through it.

@@ -176,6 +176,27 @@ describe('Chat file link menu', () => {
     expect(toasts(owner).map(toast => [toast.title, toast.description])).toEqual([['Media unavailable', 'not found']]);
   });
 
+  test('a page or a PDF offers Open in integrated browser after Open, where the thread\'s Browser can open, and opens it there', async () => {
+    const { owner, native, signed, refuseSigning } = fixture();
+    await loadSshAliases(native);
+    const ids = (path: string, context = {}) => markdownFileMenuRows(owner, path, context).map(row => row.id);
+    expect(ids('/srv/project/site/index.html')).toEqual(['open', 'reveal', 'copy-relative', 'copy-full']); // no preview:operate yet
+    Object.assign(owner, { configLive: true, shellLive: true, threadLive: true, scopes: ['preview:operate'], available: true });
+    expect(markdownFileMenuRows(owner, '/srv/project/site/index.html:3')).toEqual([{ id: 'open', label: 'Open in Cursor' }, { id: 'open-in-browser', label: 'Open in integrated browser' },
+      { id: 'reveal', label: 'Reveal in Finder' }, { id: 'copy-relative', label: 'Copy relative path' }, { id: 'copy-full', label: 'Copy full path' }]);
+    expect(ids('/srv/project/docs/spec.PDF')).toContain('open-in-browser');
+    expect(ids('/srv/project/src/index.ts')).not.toContain('open-in-browser');
+    expect(ids('/srv/project/site/index.html', { previewMedia: false })).not.toContain('open-in-browser'); // the pull request page
+    owner.available = false;
+    expect(ids('/srv/project/site/index.html')).not.toContain('open-in-browser');
+    owner.available = true;
+    // The pick signs the page as a workspace file of the thread (openFileInPreview); a refusal is the reference's toast.
+    refuseSigning();
+    await markdownFilePick(owner, native, '/srv/project/site/index.html:3', 'open-in-browser');
+    expect(signed).toEqual([{ method: 'assets.createUrl', resource: { _tag: 'workspace-file', threadId: 't', path: '/srv/project/site/index.html' } }]);
+    expect(toasts(owner).map(toast => [toast.title, toast.description])).toEqual([['Unable to open file in browser', 'not found']]);
+  });
+
   test('reveal strips the line and asks the file manager to reveal; a row the menu does not offer does nothing', async () => {
     const { owner, native, requests } = fixture();
     await markdownFilePick(owner, native, '/srv/project/src/index.ts:12', 'reveal');

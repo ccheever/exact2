@@ -11,9 +11,15 @@ export function pullRequestUrls(markdown: string): string[] {
   return found.map(url => url.replace(/[.,;:!?]+$/, '')).filter(url => /\/(?:pulls?|-\/merge_requests|pull-requests|pullrequest)\/\d+/.test(url));
 }
 
+/** `url` as written and as `new URL` spells it (a link node's href can be either: the source's text, or the parsed
+ *  destination with its host lowercased and its path percent-encoded), so the window's exact match finds both. */
+export function hrefSpellings(url: string): string[] {
+  try { const parsed = new URL(url).href; return parsed === url ? [url] : [url, parsed]; } catch { return [url]; }
+}
+
 export function notePullRequestLinks(markdown: string): void {
   if (!markdown.includes('://')) return;
-  for (const url of pullRequestUrls(markdown)) {
+  for (const url of pullRequestUrls(markdown).flatMap(hrefSpellings)) {
     noted.delete(url);
     noted.add(url);
     if (noted.size > NOTED_MAX) noted.delete(noted.values().next().value!);

@@ -259,8 +259,8 @@ component PrdBody
     else
       local(op, id, value)
   // A file link's menu (link-menus.contract FileLinkButton) in this panel's text: the link's target and its rows, read in
-  // the pull request's workspace (pages-pr-detail.ts). The page has no thread to preview media in, and a file link's press
-  // opens the menu there, as MarkdownFileLink does with no primary action.
+  // the pull request's workspace (pages-pr-detail.ts). The page has no thread to preview media or open the Browser
+  // beside, and a file link's press opens the menu there, as MarkdownFileLink does with no primary action.
   provide
     fileLinkMenu = fileMenu
     fileLinkPopover = `pr-file-link-menu-${surface}`
@@ -269,7 +269,7 @@ component PrdBody
   state fileRows: LinkMenuRow[] = []
   action fileMenu(tip: string, target: string, rows: LinkMenuRow[])
     fileTip = tip
-    fileRows = surface == "page" ? rows.filter((row) => row.id != "preview-media") : rows
+    fileRows = surface == "page" ? rows.filter((row) => row.id != "preview-media" and row.id != "open-in-browser") : rows
   action filePick(id: string)
     act("file-pick", `${surface}\n${fileTip}\n${id}`)
   // A host with no patch has no Code tab, and whoever stood on it is back on the Summary.
