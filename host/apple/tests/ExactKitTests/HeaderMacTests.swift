@@ -343,7 +343,7 @@ final class HeaderMacTests: XCTestCase {
         XCTAssertEqual(window.title, "Shelf", "the declared toolbar has no heading: the window's own title")
         XCTAssertFalse(try node(p, 10).isHidden, "the header paints, whole")
         XCTAssertTrue(try node(p, 30).isHidden, "the declared toolbar is the window's")
-        XCTAssertEqual(p.covers.delivered, [:])
+        XCTAssertEqual(p.covers.delivered, [30: .whole])
         // The route without one projects its header as any other.
         select("b", in: p)
         XCTAssertEqual(window.title, "Detail")
@@ -352,7 +352,7 @@ final class HeaderMacTests: XCTestCase {
         select("a", in: p)
         XCTAssertEqual(identifiers(), [back, "exact.command.31"])
         XCTAssertEqual(window.title, "Shelf")
-        XCTAssertEqual(p.covers.delivered, [:])
+        XCTAssertEqual(p.covers.delivered, [30: .whole])
         p.toolbar.detach()
     }
 
