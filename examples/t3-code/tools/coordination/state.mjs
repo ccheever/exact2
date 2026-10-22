@@ -192,7 +192,7 @@ export class Coordination {
     const free = this.freeBytes(volume);
     if (free - budgetGiB * GiB < 50 * GiB) fail(`50 GiB reserve refused: free=${free}, allocation=${budgetGiB * GiB}`);
     if (Object.values(s.tasks).some(t => t.outputs.some(o => !o.cleaned && (inside(path, o.path) || inside(o.path, path))))) fail('output overlaps another receipt');
-    if (!command(['git', 'check-ignore', '--no-index', relative(task.worktree, path)], task.worktree)) fail('output must be Git-ignored');
+    if (!command(['git', 'check-ignore', '--no-index', `${relative(task.worktree, path)}/`], task.worktree)) fail('output must be Git-ignored');
     mkdirSync(path, { recursive: true });
     const st = lstatSync(path);
     const output = { path, dev: st.dev, ino: st.ino, budgetGiB, freeBefore: free };
