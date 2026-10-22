@@ -50,6 +50,24 @@ final class PressFeedbackMacTests: XCTestCase {
         XCTAssertEqual(pressed, [1], "the click is the tap it was")
     }
 
+    func testSpaceShowsFeedbackUntilReleaseOrFocusLeaves() throws {
+        let (_, node) = fixture()
+        func key(_ type: NSEvent.EventType) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0,
+                                          windowNumber: window.windowNumber, context: nil, characters: " ", charactersIgnoringModifiers: " ", isARepeat: false, keyCode: 49))
+        }
+        XCTAssertTrue(window.makeFirstResponder(node))
+        node.keyDown(with: try key(.keyDown))
+        XCTAssertTrue(node.pressed)
+        XCTAssertEqual(node.press.to, 0.97)
+        node.keyUp(with: try key(.keyUp))
+        XCTAssertFalse(node.pressed)
+        node.keyDown(with: try key(.keyDown))
+        XCTAssertTrue(node.pressed)
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        XCTAssertFalse(node.pressed)
+    }
+
     func testABubbledPopoverPressReleasesItsAncestorsScaleAsAnInPagePressDoes() throws {
         let (p, ancestor) = fixture()
         var presses: [UInt32] = []

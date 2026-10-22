@@ -64,6 +64,7 @@ extension NodeView {
         super.viewWillMove(toWindow: newWindow)
     }
     func focusLeft() {
+        releaseKeyboardPress()
         focusVisible = false
         presenter?.selection.focusLeft()
         presenter?.collections.pinsChanged()
