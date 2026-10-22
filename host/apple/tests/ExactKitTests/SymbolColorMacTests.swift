@@ -52,6 +52,35 @@ final class SymbolColorMacTests: XCTestCase {
         for i in 0..<4 { XCTAssertEqual(got[i], want[i], accuracy: 0.51, "\(message): \(got) is not \(want)", file: file, line: line) }
     }
 
+    func testAnUntintedPathAndSFSymbolDrawTheSameUnsaidInk() throws {
+        let label: [String: Any] = ["sys": "labelColor", "c": [[0, 0, 0, 255], [255, 255, 255, 255]]]
+        let p = presenter([(2, false, ["text_color": label]), (3, false, ["text_color": label])])
+        defer { p.reset() }
+        p.apply(wireBatch([
+            ["op": "style", "id": 1, "style": ["background_color": [[255, 255, 255, 255], [30, 30, 30, 255]]]],
+            ["op": "props", "id": 2, "set": ["imageSource": "symbol:icon||0 0 24 24|M0 0 L24 0 L24 24 L0 24 Z|icons/square.svg", "symbolName": "", "symbolPath": "M 0 0 L 24 0 L 24 24 L 0 24 Z", "symbolViewBox": "0 0 24 24"]],
+            ["op": "props", "id": 3, "set": ["imageSource": "symbol:sf/square.fill", "symbolName": "square.fill"]],
+            ["op": "frame", "id": 2, "x": 20, "y": 20, "w": 24, "h": 24],
+            ["op": "frame", "id": 3, "x": 60, "y": 20, "w": 24, "h": 24],
+        ]))
+        XCTAssertNotNil(p.views[2]?.image)
+        XCTAssertTrue(p.views[2]?.symbolFound == true)
+        let page = try XCTUnwrap(p.views[1])
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            window.appearance = NSAppearance(named: appearance)
+            p.views[2]?.reapplyColors(); p.views[3]?.reapplyColors()
+            let rep = try XCTUnwrap(Capture.picture(of: page))
+            let scale = CGFloat(rep.pixelsWide) / page.bounds.width
+            func rgb(_ x: CGFloat) throws -> [Int] {
+                let c = try XCTUnwrap(rep.colorAt(x: Int(x * scale), y: Int(32 * scale))?.usingColorSpace(.sRGB))
+                return [c.redComponent, c.greenComponent, c.blueComponent].map { Int(($0 * 255).rounded()) }
+            }
+            let path = try rgb(32), sf = try rgb(72)
+            print("Unsaid icon ink \(appearance.rawValue): path \(path), SF \(sf)")
+            for (a, b) in zip(path, sf) { XCTAssertEqual(a, b, accuracy: 1) }
+        }
+    }
+
     func testAWrittenColourIsTheSymbolsInk() throws {
         let p = presenter([(2, true, ["text_color": tint]), (3, true, ["text_color": pink]), (4, false, ["text_color": pink]),
                            (5, true, ["text_color": pink, "tint_color": teal])])

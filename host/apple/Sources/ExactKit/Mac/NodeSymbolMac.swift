@@ -40,7 +40,7 @@ extension NodeView {
                 presenter.intrinsic(self.id, size)
             }
         }
-        // An icon path is the node's tint, else its colour (D10); a symbol is its tint, else its written colour (stage 9 B).
+        // Paths and SF Symbols take an authored tint or colour, else the platform's ink.
         symbolView?.contentTintColor = props["symbolPath"] != nil ? iconPathTint : symbolTint ?? symbolInk ?? unsaidSymbolTint
         // A colour that comes or goes while its row is selected (TableInkMac.swift).
         symbolView?.cell?.backgroundStyle = symbolBackground(inEmphasizedRow)

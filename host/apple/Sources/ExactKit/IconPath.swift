@@ -1,6 +1,6 @@
 // An icon path on a node (LLP 1121 D10; stage 9 A; ExactCore's IconPath draws
-// it): its image and its tint, `-exact-tint-color` where written, else its
-// `color` (path icons only: an SF Symbol keeps its own tint, 17:03).
+// it): its image and tint. On the Mac a path and an SF Symbol share the
+// platform's unsaid ink; an authored tint or colour takes precedence.
 #if os(macOS)
 import AppKit
 #else
@@ -21,7 +21,7 @@ extension NodeView {
     var iconPathTint: PlatformColor {
         if style["tint_color"] != nil { return symbolTint ?? inheritedTint }
         #if os(macOS)
-        return channels("text_color").map(TextEngine.color) ?? .textColor
+        return symbolTint ?? symbolInk ?? unsaidSymbolTint
         #else
         return channels("text_color").map(TextEngine.color) ?? .label
         #endif
