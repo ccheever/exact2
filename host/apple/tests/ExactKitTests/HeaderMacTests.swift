@@ -72,6 +72,27 @@ final class HeaderMacTests: XCTestCase {
     private func identifiers() -> [String] { window.toolbar?.items.map(\.itemIdentifier.rawValue) ?? [] }
     private let back = WindowToolbarHost.backIdentifier.rawValue
 
+    func testAuthoredClearInkReachesTheWindowTitleAndToolbarAndAbsenceRestoresAppKit() throws {
+        let p = fixture(extra: [
+            ["op": "style", "id": 12, "style": ["text_color": [0, 0, 0, 0], "written": ["text_color"]]],
+            ["op": "style", "id": 13, "style": ["text_color": [0, 0, 0, 0], "written": ["text_color"]]]])
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        let titleItem = try XCTUnwrap(window.toolbar?.items.first { $0.itemIdentifier.rawValue == "exact.authored-title" })
+        let title = try XCTUnwrap(titleItem.view as? NSTextField)
+        XCTAssertEqual(title.stringValue, "Library")
+        XCTAssertEqual(title.textColor?.alphaComponent, 0)
+        XCTAssertEqual(window.titleVisibility, .hidden)
+        let button = try XCTUnwrap(p.toolbar.items[13]?.view as? NSButton)
+        XCTAssertEqual(button.contentTintColor?.alphaComponent, 0)
+        p.apply(wireBatch([
+            ["op": "style", "id": 12, "style": ["text_color": [255, 0, 0, 255]]],
+            ["op": "style", "id": 13, "style": ["text_color": [255, 0, 0, 255]]]]))
+        p.toolbar.sync()
+        XCTAssertFalse(window.toolbar?.items.contains { $0.itemIdentifier.rawValue == "exact.authored-title" } ?? true)
+        XCTAssertNil(p.toolbar.items[13]?.view)
+        XCTAssertEqual(window.titleVisibility, .visible)
+    }
+
     func testARIAUnavailableToolbarViewerRemainsPressable() throws {
         let p = fixture(extra: [["op": "props", "id": 13, "set": ["accessibilityDisabled": "true"]]])
         XCTAssertTrue(p.toolbar.attach(to: window))
