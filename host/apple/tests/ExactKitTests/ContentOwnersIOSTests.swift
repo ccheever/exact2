@@ -32,10 +32,10 @@ final class ContentOwnersIOSTests: XCTestCase {
         super.tearDown()
     }
 
-    private func until(_ what: String, _ seconds: Double = 5, _ done: () -> Bool) {
+    private func until(_ what: @autoclosure () -> String, _ seconds: Double = 5, _ done: () -> Bool) {
         let deadline = Date().addingTimeInterval(seconds)
         while !done(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
-        XCTAssertTrue(done(), what)
+        XCTAssertTrue(done(), what())
     }
 
     /// A fixture booted in a window of the test host's scene, `size` large:
@@ -399,7 +399,11 @@ final class ContentOwnersIOSTests: XCTestCase {
         let route = try node(session, "route-form")
         let controller = try XCTUnwrap(p.navigation.controllers[route.id])
         let sheetView = try XCTUnwrap(controller.view)
-        until("the sheet's route takes the sheet's size") { self.laidOut(session, route.id) == sheetView.bounds.size }
+        // Layout crosses the host ABI as f32; compare UIKit's bounds at that precision.
+        until("the sheet's route takes the sheet's size: kernel \(String(describing: self.laidOut(session, route.id))), UIKit \(sheetView.bounds.size)") {
+            let size = CGSize(width: CGFloat(Float(sheetView.bounds.width)), height: CGFloat(Float(sheetView.bounds.height)))
+            return self.laidOut(session, route.id) == size
+        }
         let form = try node(session, "form-scroll"), sv = try XCTUnwrap(form.scroll)
         XCTAssertTrue(controller.edgeScroll === form, "the scroller ends the route")
         let bottom = { form.convert(form.bounds, to: sheetView).maxY }
