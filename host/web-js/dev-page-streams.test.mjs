@@ -66,3 +66,44 @@ test('a page that closes is no build of the loop any more, by 127.0.0.1 or by lo
     rmSync(dist, { recursive: true, force: true });
   }
 }, 1_200_000);
+
+test('a page stream on a socket handed to the loop\'s server ends with its client, by the res close backstop alone', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-page-hand-off-')), dist = mkdtempSync(join(tmpdir(), 'exact-page-hand-off-dist-'));
+  writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Streams', app: { id: 'com.exact.streams', name: 'Streams' } }));
+  writeFileSync(join(dir, 'app.contract'), 'component App\n  view\n    text "streams"\n');
+  writeFileSync(join(dir, 'app.tamber'), 'tamber streams\n\ntheme\n  ink = #000000\n');
+  const free = async () => { const l = createServer(); await new Promise(ok => l.listen(0, '127.0.0.1', ok)); const p = l.address().port; await new Promise(ok => l.close(ok)); return p; };
+  const port = await free(), handOff = await free();
+  const dev = spawnOwned(process.execPath, ['--preload', resolve(ROOT, 'host/web-js/hand-off.preload.mjs'), resolve(ROOT, 'host/web/dev.mjs'), '--app', dir, '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist, EXACT_TEST_HAND_OFF: `${port}:${handOff}` }, stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '', socket;
+  dev.stdout.on('data', d => { out += d; });
+  dev.stderr.on('data', d => { out = (out + d).slice(-8000); });
+  const until = async (pass, ms, what) => { const end = Date.now() + ms; while (!(await pass())) { if (Date.now() > end) throw new Error(`${what}: not seen in ${out.slice(-2000)}`); await new Promise(ok => setTimeout(ok, 100)); } };
+  const base = `http://127.0.0.1:${port}`;
+  const builds = async () => {
+    const { token } = await (await fetch(`${base}/__tamber/token`)).json();
+    const hello = await (await fetch(`${base}/__tamber`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-exact-tamber-token': token }, body: '{"method":"hello"}' })).json();
+    return hello.ok.builds.length;
+  };
+  try {
+    await until(() => out.includes(`127.0.0.1:${port}/`) && out.includes('plan ready'), 900_000, 'the first build');
+    // The page's stream, by the hand-off: its first frame gives the nonce a build registers with.
+    let got = '';
+    socket = connect(handOff, '127.0.0.1', () => socket.write(`GET /__dev/page HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAccept: text/event-stream\r\n\r\n`));
+    socket.on('data', d => { got += d; });
+    socket.on('error', () => {});
+    await until(() => /"nonce":"[0-9a-f]+"/.test(got), 30_000, 'the stream\'s first frame');
+    const nonce = /"nonce":"([0-9a-f]+)"/.exec(got)[1];
+    const registered = await fetch(`${base}/__dev/report`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ nonce, kind: 'register', id: 'handed-1', host: 'web-js', capabilities: [] }) });
+    expect(registered.status).toBeLessThan(300);
+    await until(async () => (await builds()) === 1, 10_000, 'the handed-off page\'s build');
+    socket.destroy();
+    // Gone with its client: req 'close' never comes on this socket under Bun, so res 'close' is what ends it.
+    await until(async () => (await builds()) === 0, 10_000, 'the handed-off page\'s build gone');
+  } finally {
+    socket?.destroy();
+    await dev.stop(30_000);
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(dist, { recursive: true, force: true });
+  }
+}, 1_200_000);
