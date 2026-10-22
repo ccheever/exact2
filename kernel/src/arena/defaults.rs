@@ -70,11 +70,8 @@ pub(crate) struct DefaultContext {
 
 impl NodeArena {
     pub(crate) fn refresh_sticky(&mut self, slot: u32) {
-        if self
-            .computed_source(slot, StyleId::PositionType)
-            .position_type
-            == crate::PositionType::Sticky
-        {
+        // Sticky for layout: a popover's platform start's sticky is not.
+        if crate::style::top_layer::layout_position(self, slot) == crate::PositionType::Sticky {
             self.sticky_slots.insert(slot);
         } else {
             self.sticky_slots.remove(slot);

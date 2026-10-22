@@ -311,7 +311,7 @@ extension Agent {
         if v.scrollDormant { v.needScroll() }
         let list = presenter.groupedLists?.scroller(for: v.id).flatMap { $0.superview === v ? $0 : nil }
         guard let sv = list ?? v.scroll, sv.isScrollEnabled else {
-            return ["error": "drag #\(v.id): without --touch platform a drag scrolls a scroller it starts on (`tap <scroll or list> drag 0 -300`); any other drag is a real gesture, --touch platform's (LLP 1080.000 §11)"]
+            return ["error": "drag #\(v.id) starts on nothing the agent scrolls, so it is a gesture only a real touch makes (a row's swipe actions, a slider, a pan): drive with --touch platform (LLP 1080.000 §11). Without it a drag scrolls only a scroll or list it starts on (`tap <scroll or list> drag 0 -300`), and `tap <action>` performs a row's swipe action"]
         }
         // Where the finger goes down: the request's point in the viewport, else the middle.
         let b = box(v), vp = presenter.viewport

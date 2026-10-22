@@ -58,7 +58,7 @@ fn walk(
     for c in children {
         match c {
             Child::Node(n) => {
-                if n.collection.is_none() && u.stale(&sites.deps.nodes[n.node.0 as usize]) {
+                if n.collection().is_none() && u.stale(&sites.deps.nodes[n.node.0 as usize]) {
                     walk(u, &n.children, frames, Some(n.view), out)?;
                 }
             }

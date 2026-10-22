@@ -10,7 +10,8 @@
 // D4). The header a bar replaces is laid out as `display: none`, so the parts
 // are read from their styles, not their frames: the host sends the authored
 // size of a childless box and an authored gap for this (`kept_geometry`,
-// host/apple/src/style.rs).
+// host/apple/src/style.rs). A native button has no such face: its title's
+// size and weight are the item's title font (`HeaderShape.Item.font`).
 #if os(iOS) || os(tvOS)
 import UIKit
 

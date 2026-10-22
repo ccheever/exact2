@@ -1,7 +1,8 @@
   /* The neutral look (LLP 1115.000 D4 part B): what the web draws where the author says nothing, the same in every
      browser and on every operating system. A web build takes this sheet after the shell's browser resets
      (host/web/look.mjs). The browser keeps its system font, the reader's text size and the focus ring.
-     Like the shell's, every rule is `:where()` or sits under one #exact-root, so the author's rows win.
+     Like the shell's, every rule is `:where()` or sits under one #exact-root, so the author's rows win, except where
+     a rule says the platform decides whatever is written (a modal sheet's frame, a bar item's symbol).
 
      The rules the look follows:
      - Colour is Apple's: a build lays Apple's pairs over this sheet's roles (host/web/look.mjs, LLP 1115.000 D4). A
@@ -12,19 +13,21 @@
      - Shape: 8 px corners on a control, 12 px on a surface that floats or groups, 4 px on a mark.
      - Size: a control is 36 px tall at the body size, and 44 px on a touch device (`any-pointer: coarse`: any
        coarse input, normally a touch screen, whichever pointer it uses now, so nothing resizes as a mouse comes or
-       goes); a checkbox, a radio and a switch are the line's height (20 px), and a checkbox or a radio 24 px on a
-       touch device.
+       goes), except a mini or small button, which keeps its own height there as UIKit's does; a checkbox, a radio
+       and a switch are the line's height (20 px), and a checkbox or a radio 24 px on a touch device.
      - Elevation has three steps: a bar or a card is flat, with a 1 px line; a menu or popover is raised, a line and
        a short shadow; a dialog or a sheet's card is modal, a line and a long shadow over a 40% scrim.
      - Emphasis is a fill, never a weight: filled, tinted, gray, bordered (the unsaid button, an outline), plain.
      - A state adds one thing: hover a wash of the control's ink (`-exact-quaternary-fill`, where a pointer hovers),
        pressed a stronger one, keyboard focus the browser's own ring, disabled the grey ink (`GrayText`'s), invalid
-       the red line, selected the accent or a raised chip.
+       the red line, selected the accent or a raised chip. Held, a plain, borderless, filled or glass button shows
+       UIKit's highlight instead (below).
 
      Every length and ratio below is a row of the schema's `metrics`, in its neutral column: the kernel sizes a control
      by those rows, and a host that paints its own controls (the Linux desktop, Windows) draws from them (LLP 1115.000
      D17). host/web/tests/neutral-look.test.mjs holds this sheet to the table, so a number changes there and here
-     together.
+     together. The one exception, which the census names, is the line a bar's level-1 title takes (below): the large
+     title's size at iOS's large-title line height.
 
      The roles this sheet and the shell's name, as the neutral column's pairs (the same test holds them to the table;
      apple-colors.test.mjs holds the Apple pairs a build lays over them), and the look's own few values. The line is the
@@ -41,20 +44,53 @@
   html { background-color: var(--exact-background); color: var(--exact-label); }
 
   /* Buttons. One box: 36 px (44 on a touch device) in every engine, so a line's height is said (`normal` is each
-     engine's own, 18 px or 20 for the system font), a 1 px edge every style keeps so they line up, no dimmed face
-     while pressed. `bordered` and the unsaid button are an outline in the label's ink; `gray` a neutral fill; `filled`
-     the accent under the ink that reads on it; `tinted` and `plain` the accent as ink. `destructive` is the red as the
-     button's accent, so an outline or a grey button takes red ink. */
+     engine's own, 18 px or 20 for the system font), and a 1 px edge every style keeps so they line up. `bordered` and
+     the unsaid button are an outline in the label's ink; `gray` a neutral fill; `filled` the accent under the ink that
+     reads on it; `tinted` and `plain` the accent as ink. `destructive` is the red as the button's accent, so an outline
+     or a grey button takes red ink. */
   #exact-root button[data-button-style] { min-height: 2.25em; min-width: 2.25em; border: 1px solid transparent; padding: .4375em 1em; line-height: 1.25; }
   #exact-root button[data-button-style]:has(> img:only-child):not([navigationPresentation="modal"] > header button[aria-label]) { padding-inline: .5em; }
-  @media (any-pointer: coarse) { #exact-root button[data-button-style] { min-height: 44px; min-width: 44px; } }
+  /* A mini or small button writes `--exact-touch-floor: 0px` (LLP 1069.011.001 D8), so on a touch device it keeps the
+     floor it has under a mouse, as UIKit's does. The look takes that answer on Android too, where Material keeps a
+     48 dp target; at a 16 px root the button is 32 px, which meets WCAG 2.5.8's 24 px minimum. */
+  @media (any-pointer: coarse) { #exact-root button[data-button-style] { min-height: max(2.25em, var(--exact-touch-floor, 44px)); min-width: max(2.25em, var(--exact-touch-floor, 44px)); } }
   /* The floor and the padding are the look's, and a size the author wrote is the author's (LLP 1115: what is written
      wins). In CSS a minimum outranks a size, and a border box is never narrower than its padding, so the host names a
      written `width` or `height` (`data-exact-said`, D2's bit) and on that axis the look steps aside: the minimum is
      CSS's own again and the label is centred in the box that was written, which is the box the kernel lays out. */
   #exact-root button[data-button-style][data-exact-said~="height"] { min-height: auto; padding-block: 0; }
   #exact-root button[data-button-style][data-exact-said~="width"] { min-width: auto; padding-inline: 0; }
-  #exact-root button[data-button-style][data-pressed] > * { opacity: 1; }
+  /* Symbols. A symbol drawn for an SF Symbol (a role, or an icon with an `sf` source) is SF's size at its font size.
+     Its path keeps to about the 20-unit live area of a 24-unit box, and an SF Symbol's glyph fills its point size (a
+     circle is 1em across, in a 1.18em image), so its box is 1.2em, as the image is on iOS. On a button's face UIKit
+     draws the symbol at its large scale, about a quarter larger again, at every control size: there the box is 1.5em.
+     Beside a title the button lays it out at that width, as UIKit lays out its image's, but no taller: the box
+     overhangs its 1em place above and below by half its growth. Over or under a title (a column writes
+     `--exact-button-stacked: 1`, button_css.rs) it overhangs only toward the title, by a quarter of its growth, the
+     margin a role's live area leaves, so a role's ink is the image padding from the title's line. A symbol alone
+     overhangs on every side, so its button stays square. A tab's, a radio's and a menu or chooser row's symbol keeps
+     the box the look gives it, as iOS draws those outside a button's face: a tab bar's or a segment's image (at body
+     size, SegmentsIOS.swift) and a menu item's (MenuRowsIOS.swift). An icon of the app's own draws its viewBox at
+     1em, as the Apple hosts draw its path. The symbol glue reads the scale for the image's natural size, and a page
+     built ahead of time sizes the image's source by it (document.rs). */
+  :where(#exact-root img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"], button[data-button-style] > *)) { --exact-symbol-scale: 1.2; }
+  :where(#exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *) > img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"])) { --exact-symbol-scale: 1.5; margin: calc((1 - var(--exact-symbol-scale)) * .5em); }
+  :where(#exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *) > img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"]):not(:only-child)) { --exact-symbol-away: calc((1 - var(--exact-symbol-scale)) * .5em * (1 - var(--exact-button-stacked, 0))); --exact-symbol-toward: calc((1 - var(--exact-symbol-scale)) * .5em * (1 - var(--exact-button-stacked, 0) / 2)); margin-inline: 0; margin-block: var(--exact-symbol-away) var(--exact-symbol-toward); }
+  :where(#exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *) > [data-exact-text] ~ img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"])) { margin-block: var(--exact-symbol-toward) var(--exact-symbol-away); }
+  /* A button's image and its title are UIKit's image padding apart (`UIButton.Configuration.imagePadding`, which the
+     iOS host sets to the system spacing for the title's font: 8 points for 13- to 17-point titles at the default text
+     size, measured on iOS 27), beside each other or one over the other, unless the author wrote a gap. A tab, a radio
+     and a menu or chooser row keep their own spacing: iOS draws them outside a button. */
+  #exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *):has(> img) { --exact-button-column-gap: 8px; --exact-button-row-gap: 8px; }
+  /* A circle's ink beside a title reaches about .125em above and below its place (a lock's .15em), and a button clips
+     what overflows it (the shell's `overflow: clip`), so a written height, which has no padding, keeps .125em, but
+     not over or under a title, where the symbol overhangs only toward it. Where that height is its content's and the
+     line height under about 1.1, the clip cuts about .03em off either end of a lock. A symbol alone is not clipped,
+     as UIButton does not clip its image, but takes no hits, which stay in the button's own box, as UIView's do. A
+     sheet bar's word, which takes a symbol's place, is not a symbol. */
+  #exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *, [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source]))))[data-exact-said~="height"]:has(> img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"]):not(:only-child)) { padding-block: calc(.125em * (1 - var(--exact-button-stacked, 0))); }
+  #exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *, [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source])))):has(> img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"]):only-child) { overflow: visible; }
+  #exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *, [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source])))) > img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"]):only-child { pointer-events: none; }
   #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]) { background-color: transparent; color: var(--exact-label); }
   #exact-root button[data-button-style="bordered"] { border-color: var(--exact-line); }
   #exact-root button[data-button-style="gray"] { background-color: var(--exact-secondary-fill); }
@@ -65,20 +101,39 @@
     #exact-root, #exact-root * { --exact-accent-text: lab(from var(--exact-accent, AccentColor) calc((49 - l) * 1e6 + 100) 0 0 / 1); }
     #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style="prominent-glass"], [data-button-style="prominent-clear-glass"]) { color: lab(from var(--exact-accent, AccentColor) calc((49 - l) * 1e6 + 100) 0 0 / 1); }
   }
-  /* Hover and pressed: a wash of the button's own ink over its fill, as an image, so the fill beneath is whatever
-     the style or the accent made it. */
+  /* Hover, and a bordered, gray or tinted button's press: a wash of the button's own ink over its fill, as an image,
+     so the fill beneath is whatever the style or the accent made it. */
   @media (hover: hover) {
     #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"], :disabled):hover { background-color: transparent; background-image: linear-gradient(var(--exact-quaternary-fill) 0 0); }
     #exact-root button[data-button-style="gray"]:not([role="tab"], [role="radio"], :disabled):hover { background-color: var(--exact-secondary-fill); }
-    #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"]):not(:disabled):hover { background-image: linear-gradient(var(--exact-quaternary-fill) 0 0); }
     #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]):not(:disabled):hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) 12%, transparent); background-image: linear-gradient(color-mix(in srgb, currentColor 8%, transparent) 0 0); }
     #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"]):not(:disabled):hover { background-color: var(--exact-accent, AccentColor); background-image: linear-gradient(color-mix(in srgb, currentColor 12%, transparent) 0 0); }
   }
+  /* Each press ties its hover's specificity and wins by coming after it, so these stay below the hover block. */
   #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"])[data-pressed] { background-color: transparent; background-image: linear-gradient(var(--exact-tertiary-fill) 0 0); }
   #exact-root button[data-button-style="gray"]:not([role="tab"], [role="radio"])[data-pressed] { background-color: var(--exact-secondary-fill); }
-  #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"])[data-pressed] { background-image: linear-gradient(var(--exact-tertiary-fill) 0 0); }
-  #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"])[data-pressed] { background-image: linear-gradient(color-mix(in srgb, currentColor 16%, transparent) 0 0); }
-  #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"])[data-pressed] { background-image: linear-gradient(color-mix(in srgb, currentColor 22%, transparent) 0 0); }
+  #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"])[data-pressed]:not(:disabled) { background-image: linear-gradient(color-mix(in srgb, currentColor 16%, transparent) 0 0); }
+  /* Held, a plain, borderless, filled or glass button shows UIKit's highlight, whatever its accent (measured on iOS 27):
+     - Its face is at 75%, as `UIButton.Configuration` draws a highlighted button's ink. The face is the button's
+       children, and the name a sheet's bar draws in place of a symbol (`::after`, below), so the focus ring keeps its
+       ink. A symbol fades by its tint, so one with a colour of its own (`-exact-tint-color`, which outranks this)
+       keeps it, as UIKit keeps a symbol its `imageColorTransformer` colours; a raster image, which takes no tint, keeps
+       its own.
+     - A plain or borderless button draws no box, as UIKit's do: no wash, hovered or held (the Mac's borderless button
+       shows no hover either).
+     - A filled one's fill is at 75% in light and mixed 20% with white in dark, as `.filled()` draws it.
+     - Glass takes a 20% white wash over its material, in light and dark, as `.glass()` brightens under a finger (it
+       also grows, which the web does not draw).
+     An authored press (a scale, a pressed paint) adds to this, as on iOS, where UIKit highlights a native button
+     whatever press its author wrote (NativeButtonsIOS.swift's `isHighlighted`; `authorsPress` in PressFeedback.swift
+     gates only the dim of a pressable that is no control). A disabled button takes none, and a menu's or a chooser's
+     row keeps its own look. */
+  #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"], [data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style$="glass"])[data-pressed]:not(:disabled, :is([role="menu"], [data-exact-chooser]) *) {
+    &:is([data-button-style="filled"], [data-button-style="bordered-prominent"]) { background-color: light-dark(color-mix(in srgb, var(--exact-accent, AccentColor) 75%, transparent), color-mix(in srgb, var(--exact-accent, AccentColor), #fff 20%)); background-image: none; }
+    &[data-button-style$="glass"] { background-image: linear-gradient(color-mix(in srgb, #fff 20%, transparent) 0 0); }
+    & > :not(img), &::after { opacity: .75; }
+    & > img { --exact-tint: color-mix(in srgb, currentColor 75%, transparent); }
+  }
   /* Disabled, in every style (LLP 1116.005 D8): the grey ink, and the neutral fill where the style filled with the
      accent; an outline fades to a divider. */
   #exact-root button[data-button-style]:disabled { color: var(--exact-gray-text); background-image: none; }
@@ -222,14 +277,45 @@
 
   /* A route's `header` is a plain bar: the page's ground, opaque, over a 1 px line, in the label's ink whatever the
      page's `color` (its own, written, wins). Its title is the route's heading at its level's size; nothing collapses.
-     A button nobody styled is the bar's: no outline, and the Back button the bar draws is one of them. */
+     A button nobody styled is the bar's: no outline, and the Back button the bar draws is one of them, though in its
+     navigation root's accent, as UIKit tints its Back (index.html). */
   :where(#exact-root [navigationkey] > header) { background-color: var(--exact-background); backdrop-filter: none; box-shadow: none; border-bottom: 1px solid var(--exact-separator); color: var(--exact-label); }
+  /* A level-1 heading in a route's bar stands where iOS draws its large title, in a bar that collapses as the page
+     scrolls. The web's bar never collapses, so the title keeps its level's size (`title1`, LLP 1115 D3) and takes at
+     least the large title's line, centred in it by equal margins: the bar is as tall as with the large title, and the
+     title stays centred beside the bar's buttons. The line is the large title's size at the web's 16 px root
+     (`textStyles`) at iOS's large-title line height, 1.2 (about 41 pt for its 34 pt); on the wasm runtime it is the
+     large title's only at a 16 px root (QUEUE.md). A title with no text yet keeps the line, and so does a smaller size
+     or line height the author writes, as on iOS, where the bar reads neither. Margins leave the heading's box to the
+     author (its height, its background, what a clamp clips), and an author's margin wins. The heading is found
+     roughly as the shared rule finds the bar's title (`kernel/src/bars.rs`): under the route's first child, a
+     `header`, outside any top layer, and as a `span` in the title's button. A route in a presented stack has an inline
+     title, as in UIKit (LLP 1116.020 D2): the presented route, a route pushed after it while it is not leaving, and a
+     route leaving with it. Naming `h1`–`h6` gives the rule the specificity of the shell's heading reset (`margin: 0`),
+     which it beats by coming later. */
+  :where(#exact-root [navigationkey]:not(:is([navigationPresentation="modal"], [navigationPresentation="fullscreen"]), :is([navigationPresentation="modal"], [navigationPresentation="fullscreen"]):not([data-exiting]) ~ *, :is([navigationPresentation="modal"], [navigationPresentation="fullscreen"]) ~ [data-exiting]) > header:first-child) :is(h1, h2, h3, h4, h5, h6, span):where([role="heading"][aria-level="1"]:not([popover] *, dialog *)) { min-height: 1lh; margin-block: max(0px, (2.0625rem * 1.2 - 1lh) / 2); }
   #exact-root [navigationkey] > header button[data-button-style="bordered"]:not([role="tab"], [role="radio"]) { border-color: transparent; }
-  #exact-root [navigationkey] > header::part(back) { box-sizing: border-box; min-height: 2.25em; padding: 0 .625em 0 .375em; color: var(--exact-label); font-weight: 500; cursor: default; --exact-back-press: 1; }
+  #exact-root [navigationkey] > header::part(back) { box-sizing: border-box; min-height: 2.25em; padding: 0 .625em 0 .375em; font-weight: 500; cursor: default; --exact-back-press: 1; }
   #exact-root [navigationkey] > header::part(back):focus-visible { outline: revert; outline-offset: 2px; }
-  #exact-root [navigationkey] > header::part(back):active { background-color: var(--exact-tertiary-fill); }
   @media (hover: hover) { #exact-root [navigationkey] > header::part(back):hover { background-color: var(--exact-quaternary-fill); } }
+  #exact-root [navigationkey] > header::part(back):active { background-color: var(--exact-tertiary-fill); } /* after :hover, which a held pointer matches too */
   @media (any-pointer: coarse) { #exact-root [navigationkey] > header::part(back) { min-height: 44px; } }
+  /* LLP 1115.000 D4.15: a symbol alone on a bar item's face is the bar's symbol size whatever size the app writes on
+     the symbol or the item, as UIKit draws a bar button item's image (NavigationBarIOS.swift `barItemMade`): at the
+     large scale of the bar's 17-point body, 22 points (measured 21.7, LLP 1121), here 22/17 of the web's body, the
+     root's font size. A symbol drawn for an SF Symbol keeps its 1.2em box (above), on a native button's face too,
+     since the bar's size is already the large scale `button-symbol-scale` gives a face elsewhere; an icon of the
+     app's own has its em. On a native button the symbol overhangs the button's 1em place, as a face's does, so the
+     button is as tall as one with a word. The bar is a header navigation.js or document.rs marks `data-exact-bar`,
+     where iOS makes one; an item is a pressable in it, not a tab of its tablist, nor in a popover, a dialog, a
+     readout or another item (the title's pressable, around the heading, is no item; one inside it is). A symbol
+     beside words (a title's chevron, a chip's) or inside a box of the item's keeps its size (the LLP says how iOS
+     draws those). */
+  #exact-root [navigationkey] > header[data-exact-bar] :is(button, [data-exact-on~="press"]):not(:is([role="tablist"], [role="status"], [popover], dialog, :is(button, [data-exact-on~="press"]):not(:has([data-exact-text][role="heading"]))) *, :has(> :not(img[data-symbol-path]))) {
+    & > img[data-symbol-path] { font-size: 1.2941rem !important; width: calc(var(--exact-symbol-scale, 1) * 1em) !important; height: calc(var(--exact-symbol-scale, 1) * 1em) !important; }
+    & > img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"]) { --exact-symbol-scale: 1.2; }
+    &[data-button-style] > img[data-symbol-path] { margin: calc((1rem - var(--exact-symbol-scale, 1) * 1em) / 2); }
+  }
   /* A pressable nobody styled in a bar dims where a pointer hovers, as a bar button dims under a finger on iOS, in
      place of the unsaid wash, which would fill a box the button does not show (around a chevron or a word). It dims
      to the shell's press dim, at once as a press does, so a press shows nothing more. The rule weighs no more than

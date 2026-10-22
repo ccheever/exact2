@@ -112,7 +112,7 @@ fn multicol_rows_lower_with_their_keywords() {
     let node = |t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap();
     let flow = node("flow").style;
     assert_eq!(
-        (flow.column_width, flow.column_count),
+        (flow.rare.column_width, flow.column_count),
         (Dimension::Points(120.0), 3)
     );
     assert_eq!(flow.column_fill, ColumnFill::Auto);
@@ -126,7 +126,7 @@ fn multicol_rows_lower_with_their_keywords() {
     assert_eq!(node("para").style.break_inside, BreakInside::Avoid);
     let rule = node("rule").style;
     assert_eq!(
-        (rule.column_count, rule.column_width),
+        (rule.column_count, rule.rare.column_width),
         (0, Dimension::Points(200.0))
     );
     assert_eq!(
@@ -135,7 +135,10 @@ fn multicol_rows_lower_with_their_keywords() {
     );
     assert!(rule.column_rule_color.is_some());
     let two = node("two").style;
-    assert_eq!((two.column_count, two.column_width), (2, Dimension::Auto));
+    assert_eq!(
+        (two.column_count, two.rare.column_width),
+        (2, Dimension::Auto)
+    );
     assert_eq!(two.column_rule_width, 5.0);
     assert_eq!(two.break_after, BreakBetween::AvoidColumn);
 }

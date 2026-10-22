@@ -313,14 +313,16 @@ impl<D: DataSource> Host<D> {
 
     /// Motion-only entry: unchanged held values and compositor-only frames do
     /// not traverse layout. Settled automatic owners return to authored layout.
-    pub(super) fn height_layout_if_needed(&mut self, batch: &mut Batch) -> Result<(), String> {
+    /// True when it laid out.
+    pub(super) fn height_layout_if_needed(&mut self, batch: &mut Batch) -> Result<bool, String> {
         self.sync_height_owner()?;
         self.sync_height_transitions()?;
         self.collect_height_samples()?;
-        if self.height_sampling != self.height_projection {
-            self.layout(batch)?;
+        if self.height_sampling == self.height_projection {
+            return Ok(false);
         }
-        Ok(())
+        self.layout(batch)?;
+        Ok(true)
     }
 
     /// Catch the last published constrained CSS height, never authored target.

@@ -45,9 +45,10 @@ struct HeaderShape: Equatable {
         /// A face that says more than a title or symbol (a dot beside its
         /// label, a font of the author's), drawn as painted (`ChipFace`).
         let chip: ChipFace?
-        /// Whether the button opens a popover (`Invocation.opensPopover`):
-        /// the item's menu, its rows read when it opens, as LLP 1021 D3's
-        /// pull-down.
+        /// Whether the button opens a menu-shaped popover or a confirmation
+        /// (`MenuHost.pullsDown`): the item's menu, its rows read when it
+        /// opens, as LLP 1021 D3's pull-down. Any other popover opens as
+        /// itself, from the item (`MenuHost.openFromBar`).
         let menu: Bool
         /// The popover's `aria-label`: the menu's title, as an in-page
         /// button's is (MenusIOS: "Open location in", "Sort by").
@@ -64,6 +65,11 @@ struct HeaderShape: Equatable {
         /// (UIKit's tint, the platform default) for a colour the button
         /// only inherits or the compiler implied.
         let tint: [[Double]]?
+        /// A native button's title font where its face's rows give a size or
+        /// a weight (LLP 1069.011.001 D4), as its in-page control draws it:
+        /// the item's title in it, so its glass fits those words. Nil is
+        /// UIKit's bar title font.
+        let font: UIFont?
         /// A readout's face (`role="status"`, LLP 1075.003 §9.15): an item
         /// no one presses, whose custom view shows the face as written and
         /// follows it in place (BarReadoutIOS.swift).
@@ -75,6 +81,16 @@ struct HeaderShape: Equatable {
         /// on each side, which UIKit does not publish: 12 pt on iOS 26 and 27
         /// (measured), so its glass is 16 pt wider than the words each side.
         static let titleInset: CGFloat = 12
+        /// The font UIKit draws a plain bar item's title in, which it does
+        /// not publish: the system font at 17 pt, medium in the 26 design and
+        /// bold under Bold Text (both measured on iOS 27,
+        /// `testTheUnsaidTitleFontIsUIKits`); regular before it, semibold
+        /// under Bold Text. A row its author left unsaid keeps this one's
+        /// size or weight; the kernel has stepped the weights it sends.
+        static func titleFont(bold: Bool) -> UIFont {
+            if #available(iOS 26.0, *), LinkedDesign.liquidGlass { return .systemFont(ofSize: 17, weight: bold ? .bold : .medium) }
+            return .systemFont(ofSize: 17, weight: bold ? .semibold : .regular)
+        }
         init(_ button: NodeView, readout isReadout: Bool = false) {
             var symbol: String?, text = "", ink: (NodeView, String)?
             func walk(_ node: NodeView) {
@@ -116,7 +132,7 @@ struct HeaderShape: Equatable {
             badge = button.isNativeButton || isReadout ? nil : BadgeFace(button)
             chip = badge == nil && !isReadout ? ChipFace(button) : nil
             let invocation = button.presenter?.invocation(of: button)
-            menu = invocation?.opensPopover == true
+            menu = invocation.map { $0.opensPopover && button.presenter?.menus.pullsDown($0.target) == true } == true
             menuTitle = menu ? invocation?.target.props["accessibilityLabel"] ?? "" : ""
             self.symbol = symbol
             title = text
@@ -125,6 +141,14 @@ struct HeaderShape: Equatable {
             accessibilityDisabled = button.ariaUnavailable
             prominent = ["filled", "bordered-prominent", "prominent-glass", "prominent-clear-glass"].contains(face?.style ?? "")
             ownGlass = ["glass", "clear-glass"].contains(face?.style ?? "")
+            #if os(tvOS)
+            // tvOS's bar title font is not measured: its own stays.
+            font = nil
+            #else
+            let rows = face?.rows.title ?? [:]
+            font = rows["font_size"] != nil || rows["font_weight"] != nil
+                ? ButtonConfigurationIOS.font(Self.titleFont(bold: button.traitCollection.legibilityWeight == .bold), rows: rows) : nil
+            #endif
             // The platform's tint unless the author said otherwise (LLP
             // 1115.000 D2): a tint written on the symbol, else a `color`
             // written on the button, a platform colour as much as a literal.
@@ -149,7 +173,7 @@ struct HeaderShape: Equatable {
         /// view follows it in place (`showReadouts`).
         var source: String {
             if readout != nil { return "readout:\(toolbarGroup.map(String.init) ?? ""):\(id):\(testId ?? "")" }
-            return "\(toolbarGroup.map(String.init) ?? ""):\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(ownGlass):\(badge?.source ?? ""):\(chip?.source ?? ""):\(menu):\(menuTitle):\(tint ?? []):\(testId ?? "")"
+            return "\(toolbarGroup.map(String.init) ?? ""):\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(ownGlass):\(badge?.source ?? ""):\(chip?.source ?? ""):\(menu):\(menuTitle):\(tint ?? []):\(font.map { "\($0.fontName) \($0.pointSize) \(TextEngine.controlWeight($0))" } ?? ""):\(testId ?? "")"
         }
     }
     let header: NodeView
@@ -441,7 +465,7 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
         #if os(iOS)
         guard let item else { return }
         let sticks = field.map { f in
-            f.style["position_type"]?.string == "sticky" && ["top", "bottom"].contains { f.style[$0]?.length(basis: 0) != nil }
+            f.layoutPosition == "sticky" && ["top", "bottom"].contains { f.style[$0]?.length(basis: 0) != nil }
         } ?? false
         let hides = (field?.props["value"] ?? "").isEmpty && !sticks
         if item.hidesSearchBarWhenScrolling != hides { item.hidesSearchBarWhenScrolling = hides }
@@ -557,7 +581,18 @@ final class BarPress: NSObject {
     let id: UInt32
     weak var host: NavigationHost?
     init(_ id: UInt32, _ host: NavigationHost) { self.id = id; self.host = host }
-    @objc func press() { _ = host?.act(id, 0) }
+    @objc func press() {
+        guard let host, let node = host.presenter.views[id] else { return }
+        // A popover that is no menu, named with no press of its own, opens
+        // from the item (`MenuHost.openFromBar`); with a press, after it
+        // (`MenuHost.invoke`).
+        if !node.handlers.contains("press"), let invocation = host.presenter.invocation(of: node), invocation.opensPopover,
+           !host.presenter.menus.pullsDown(invocation.target) {
+            _ = host.presenter.menus.openFromBar(node)
+            return
+        }
+        _ = host.act(id, 0)
+    }
 }
 
 /// One stack Exact built: its delegate, whether its routes may show the bar
@@ -618,7 +653,14 @@ extension NavigationHost {
         // An item whose button only opens a menu is UIKit's pull-down, which
         // no public API opens: under the agent's painted popovers it opens
         // painted (`agentOpen(barItem:)`); under UIKit's menus a real touch opens it.
-        if !node.handlers.contains("press"), !node.disabled, presenter.invocation(of: node)?.opensPopover == true {
+        if !node.handlers.contains("press"), !node.disabled, let invocation = presenter.invocation(of: node), invocation.opensPopover {
+            // A popover that is no menu opens as itself, from the item, as
+            // from a native button in the page (LLP 1021 D3 covers menus only).
+            if !presenter.menus.pullsDown(invocation.target) {
+                return presenter.menus.openFromBar(node)
+                    ? ["tapped": id, "delivery": "host-activation", "native": "bar-button-item", "popover": "lifted"]
+                    : ["error": "bar item #\(id) opens nothing now: it is ineligible or names no popover"]
+            }
             switch presenter.menus.agentOpen(barItem: node) {
             case true?: return ["tapped": id, "delivery": "host-activation", "native": "bar-pull-down", "menu": "painted"]
             case false?: return ["error": "bar item #\(id) opens nothing now: its menu's button is ineligible or names no popover"]
@@ -1163,18 +1205,20 @@ extension NavigationHost {
     }
 
     /// Whether `v` takes a place in its parent's flow as the kernel lays it
-    /// out: not `display: none`, not positioned out of it, and not a closed
-    /// `dialog` or popover, which the host leaves out of layout
-    /// (`MenuHost.layOut`), as a browser's `dialog:not([open])` and
-    /// `[popover]:not(:popover-open)` are `display: none`. So a route's
-    /// menus and confirmations, written between its header and its scroller
-    /// or after the scroller, leave the scroller its route's top and bottom
-    /// edges. One given back to layout to show in Exact's views (a context
-    /// menu's preview, the agent's painted popover) counts as laid out.
+    /// out: not `display: none`, not positioned out of it, not a popover
+    /// (the kernel lays an open one out of flow, as HTML's top layer is, and
+    /// a closed one not at all), and not a closed `dialog`, which the host
+    /// leaves out of layout (`MenuHost.layOut`), as a browser's
+    /// `dialog:not([open])` is `display: none`. So a route's menus and
+    /// confirmations, written between its header and its scroller or after
+    /// the scroller, leave the scroller its route's top and bottom edges. A
+    /// dialog given back to layout to show in Exact's views counts as laid out.
     static func inFlow(_ v: NodeView) -> Bool {
-        let topLayer = v.props["popover"] != nil || v.props["semanticTag"] == "dialog"
-        return v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
-            && (!topLayer || v.presenter?.menus.isLaidOut(v) == true)
+        // A popover lays out absolute (`layoutPosition`), unless sticky; a
+        // sticky one is in flow while laid out, as a dialog is (`MenuHost.layOut`).
+        let dialog = v.props["semanticTag"] == "dialog" || v.props["popover"] != nil
+        return v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.layoutPosition)
+            && (!dialog || v.presenter?.menus.isLaidOut(v) == true)
     }
 
     /// The physical backend owned by a content node.
@@ -1241,6 +1285,11 @@ extension NavigationHost {
         // tint is its fill, which `color` is not.
         if let tint = i.tint, !i.prominent, i.badge == nil, i.chip == nil {
             item.tintColor = UIColor { TextEngine.color(tint[$0.userInterfaceStyle == .dark ? 1 : 0]) }
+        }
+        if let font = i.font, image == nil {
+            for state: UIControl.State in [.normal, .highlighted, .disabled, .selected, .focused] {
+                item.setTitleTextAttributes([.font: font], for: state)
+            }
         }
         if #available(iOS 26.0, tvOS 26.0, *) {
             if i.prominent { item.style = .prominent }

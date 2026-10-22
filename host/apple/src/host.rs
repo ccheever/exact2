@@ -143,14 +143,15 @@ impl std::fmt::Display for HostError {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Mirror {
-    props: exact_kernel::SortedMap<String, String>,
+    props: exact_kernel::SortedMap<&'static str, String>,
     /// The style the presenter last heard, one allocation per text ([`paragraph::StyleTexts`]).
     style: std::rc::Rc<str>,
-    children: Vec<ViewId>,
+    children: Box<[ViewId]>,
     frame: Option<(f32, f32, f32, f32)>,
     content: Option<(f32, f32)>,
-    flow: Vec<exact_kernel::FlowShape>,
-    field_content: Option<crate::batch::ContentBox>,
+    flow: Box<[exact_kernel::FlowShape]>,
+    /// Boxed: only a text field has one, and inline it was a quarter of the mirror.
+    field_content: Option<Box<crate::batch::ContentBox>>,
     field_cell: bool,
     block: Option<(f32, f32)>,
 }
@@ -166,7 +167,7 @@ pub struct Host<D: DataSource> {
     /// The active head's `edited` (LLP 1069.010 D6), sent with the title.
     head_edited: bool,
     language: Option<String>,
-    /// Boxed: a mirror is 200 bytes, and the table has up to twice as many slots as views.
+    /// Boxed: a mirror is 128 bytes, and the table has up to twice as many slots as views.
     mirror: IdMap<ViewId, Box<Mirror>>,
     style_texts: paragraph::StyleTexts,
     keys: IdMap<NodeKey, ViewId>,
@@ -185,9 +186,11 @@ pub struct Host<D: DataSource> {
     dirty_paragraphs: BTreeSet<ViewId>,
     pending_layout: IdSet<NodeKey>,
     layout_withheld: bool,
-    /// Committing a presented frame's timers and frame tasks
-    /// ([`Host::frame`]), where nothing but their commits moves the tree.
-    in_frame: bool,
+    /// A layout failed or a commit's did not run: `inert_layout` lays out.
+    layout_owed: bool,
+    /// Committing an advance's or a presented frame's timers, answers and
+    /// frame tasks ([`Host::advanced`]), where only their commits move the tree.
+    in_advance: bool,
     /// Routes whose `navigationDetent` names `fit-content` (LLP 1075.003
     /// §9.11), each with its width, resolved padding, border and bottom cover when last measured.
     fit_routes: Vec<(ViewId, Option<[f32; 10]>)>,
@@ -231,6 +234,8 @@ pub struct Host<D: DataSource> {
     /// or grants that do not parse).
     secrets: Option<Box<dyn crate::store::KeptStore>>,
     data_activated: bool,
+    /// The source's activation, run ahead of `activate_data` by `prepare_data`.
+    source_prepared: Option<Result<(), String>>,
     store_refresh_pending: bool,
     store_activation_pending: bool,
     store_retry_names: Vec<String>,
@@ -507,7 +512,8 @@ impl<D: DataSource> Host<D> {
             dirty_paragraphs: BTreeSet::new(),
             pending_layout: IdSet::default(),
             layout_withheld: false,
-            in_frame: false,
+            layout_owed: false,
+            in_advance: false,
             fit_routes: Vec::new(),
             stickies: IdMap::default(),
             fragments: IdMap::default(),
@@ -550,6 +556,7 @@ impl<D: DataSource> Host<D> {
             viewport: (viewport.width as f32, viewport.height as f32),
             now_ms: 0.0,
             data_activated: false,
+            source_prepared: None,
             store_refresh_pending: false,
             store_activation_pending: false,
             store_retry_names: Vec::new(),
@@ -733,12 +740,6 @@ impl<D: DataSource> Host<D> {
         // 1069.002 D4, D7); the last launch's picks go.
         crate::picker::set_roots(data.clone(), cache.clone(), temporary.clone());
         source.configure_storage(data, cache, temporary)
-    }
-
-    /// The common post-pixel activation order for committed sources.
-    pub(crate) fn activate_source(source: &mut D) -> Result<(), exact_runner::DataError> {
-        Self::configure_storage(source)?;
-        source.activate()
     }
 
     /// The work behind a continuation, dispatched on this thread after the
@@ -1007,10 +1008,7 @@ impl<D: DataSource> Host<D> {
         // The frame source started: frame tasks are its, not the timers' (LLP 1073 D4).
         self.runner.present_frames(true);
         let a = self.runner.frame(now_ms);
-        self.in_frame = true;
-        let out = self.advanced(a);
-        self.in_frame = false;
-        out
+        self.advanced(a)
     }
 
     fn advanced(&mut self, a: exact_runner::Advanced) -> String {
@@ -1021,7 +1019,10 @@ impl<D: DataSource> Host<D> {
         }
         self.runner.canvas_frame();
         let error = a.error.map(|e| format!("{e:?}"));
-        self.commit(&a.receipts, error)
+        self.in_advance = true;
+        let out = self.commit(&a.receipts, error);
+        self.in_advance = false;
+        out
     }
 
     /// An image loaded: its intrinsic size, in points (`None` when it failed
@@ -1110,39 +1111,46 @@ impl<D: DataSource> Host<D> {
 
     /// The date (LLP 1027.000.000): re-answer `exactTime` in one commit.
     pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> String {
-        match self.runner.set_time(epoch_at_zero, utc_offset) {
-            Ok(Some(receipt)) => self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => self.finish(Batch::new(), None),
-            Err(e) => self.finish(Batch::new(), Some(format!("time: {e:?}"))),
-        }
+        let answer = self.runner.set_time(epoch_at_zero, utc_offset);
+        self.told(answer, "time")
     }
 
     /// The user's display preferences (LLP 1061 D4): re-answer
     /// `exactViewport` in one commit; the same preferences commit nothing.
     pub fn set_preferences(&mut self, preferences: exact_runner::Preferences) -> String {
-        match self.runner.set_preferences(preferences) {
-            Ok(Some(receipt)) => self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => self.finish(Batch::new(), None),
-            Err(e) => self.finish(Batch::new(), Some(format!("preferences: {e:?}"))),
-        }
+        let answer = self.runner.set_preferences(preferences);
+        self.told(answer, "preferences")
     }
 
     /// The page's visibility, connectivity and share sheet (LLP 1069.000
     /// D2): re-answer `exactPage` in one commit; the same facts commit nothing.
     pub fn set_page(&mut self, page: exact_runner::Page) -> String {
-        match self.runner.set_page(page) {
+        let answer = self.runner.set_page(page);
+        self.told(answer, "page")
+    }
+
+    /// The viewer's locale and zone, beside the date: one commit when it changes.
+    pub fn set_place(
+        &mut self,
+        locale: &str,
+        time_zone: &str,
+        seed: Option<f64>,
+        format_locale: Option<&str>,
+    ) -> String {
+        let answer = self
+            .runner
+            .set_place_formatted(locale, time_zone, seed, format_locale);
+        self.told(answer, "place")
+    }
+
+    /// A told fact's answer: its commit, an empty batch when the fact is
+    /// unchanged, or the refusal named by `what`.
+    fn told(
+        &mut self,
+        answer: Result<Option<exact_kernel::CommitReceipt>, RunnerError>,
+        what: &str,
+    ) -> String {
+        match answer {
             Ok(Some(receipt)) => self.commit(
                 &[Timed {
                     at_ms: self.now_ms,
@@ -1151,27 +1159,8 @@ impl<D: DataSource> Host<D> {
                 None,
             ),
             Ok(None) => self.finish(Batch::new(), None),
-            Err(e) => self.finish(Batch::new(), Some(format!("page: {e:?}"))),
+            Err(e) => self.finish(Batch::new(), Some(format!("{what}: {e:?}"))),
         }
-    }
-
-    /// The viewer's locale and zone, beside the date: one commit when it changes.
-    pub fn set_place(&mut self, locale: &str, time_zone: &str, seed: Option<f64>) -> String {
-        let (receipts, error) = match self.runner.set_place(locale, time_zone, seed) {
-            Ok(Some(receipt)) => (
-                vec![Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => (vec![], None),
-            Err(e) => (vec![], Some(format!("place: {e:?}"))),
-        };
-        if receipts.is_empty() {
-            return self.finish(Batch::new(), error);
-        }
-        self.commit(&receipts, error)
     }
 
     /// The viewport's change into `batch`, after what it holds (`set_view`).
@@ -1366,17 +1355,17 @@ impl<D: DataSource> Host<D> {
         }
         let seek = self.engine.advance(self.engine_time(self.now_ms));
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
-        // A frame whose commits changed no node (a frame task that only
-        // moved state nothing shows) lays out as a timer with no commit
-        // does: sixty commits a second each cost a whole layout and paint
-        // order walk otherwise. A withheld layout still runs to settle.
-        let inert = self.in_frame
-            && !self.layout_withheld
-            && receipts.iter().all(|t| unchanged(&t.receipt));
+        // An advance whose commits changed no node (a frame task that only
+        // moved state nothing shows; a `sent` reader answered at each MIDI
+        // message's time, LLP 1125 D6, with nothing on screen reading it)
+        // lays out only what such a commit can move (`inert_layout`): each
+        // would cost a whole layout and paint order walk otherwise.
+        let inert = self.in_advance && receipts.iter().all(|t| unchanged(&t.receipt));
         let layout_error = if height_target_error.is_some() {
+            self.layout_owed = true;
             height_target_error
         } else if inert {
-            self.height_layout_if_needed(&mut batch).err()
+            self.inert_layout(&mut batch, !receipts.is_empty()).err()
         } else {
             self.layout(&mut batch).err()
         };

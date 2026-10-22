@@ -4,7 +4,7 @@
 // --url`). The tool shows the server's hello, and an agent's write arrives
 // on its long poll attributed. Its stub-server tests are
 // apps/design-tool/app.test.contract.
-import { expect, test } from 'bun:test';
+import { expect, onTestFinished, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -12,6 +12,7 @@ import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { request } from 'node:http';
 import { spawnOwned } from './test-children.mjs';
+import { checkoutPort, takePort } from './port-lock.mjs';
 
 import { DRIVEN, drive, lines, proxied, ROOT, stop, STUB_APP, TOOL_DIST, TOOL_ORIGIN, toolTurns } from './design-tool-harness.mjs';
 import { suiteBrowser } from './agent-launch.mjs';
@@ -44,7 +45,7 @@ test('the tool opens on the theme fixture, shows its hello, and an agent\'s writ
     expect(drive.exitCode, driveSaid).toBe(0);
     const replies = out.seen.filter(l => l.startsWith('{')).map(l => JSON.parse(l));
     const { hello, changes } = replies.findLast(r => r.resources).resources;
-    expect(hello).toMatchObject({ ok: true, protocol: 'tamber/1.15', app });
+    expect(hello).toMatchObject({ ok: true, protocol: 'tamber/1.16', app });
     expect(hello.files.map(f => f.path)).toEqual(['app.contract', 'app.tamber']);
     expect(changes.recent[0]).toMatchObject({ kind: 'changed', who: 'agent:codex', files: ['app.tamber'], tokens: ['surface.card'] });
     // One tool per machine: while it runs, another app's is refused, naming
@@ -393,7 +394,10 @@ test('expressions are kept unless pinned, "only this mode" adds a when, redo wri
       'clock +1', 'clock data', 'tap undo', 'clock data', 'tap redo', 'clock data', 'tap undo', 'clock data',
       'clock +1', 'clock data', 'type new-name surface.raised', 'type new-value light-dark(#ffffff, #202020)', 'tap add-token', 'clock data', 'tap apply', 'clock data',
       'clock +1', 'clock data', 'tap cell-surface.raised-0-light', 'clock data', 'type rename-to surface.lifted', 'tap rename', 'clock data', 'tap apply', 'clock data',
-      'clock +1', 'clock data', 'tap cell-surface.lifted-0-light', 'clock data', 'tap remove', 'clock settle', 'tap confirm-remove-yes', 'clock settle', 'clock data', 'tap apply', 'clock data',
+      'clock +1', 'clock data', 'tap cell-surface.lifted-0-light', 'clock data',
+      // Settled before the dialog opens: a settle runs the tool's follow task (a commit later), whose read of a file
+      // the rename wrote reloads the branch panel, and with it the dialog, were it open.
+      'clock settle', 'clock data', 'tap remove', 'tap confirm-remove-yes', 'clock settle', 'clock data', 'tap apply', 'clock data',
       // The unformatted line itself, edited and undone.
       'clock +1', 'clock data', 'tap cell-text.primary-0-light', 'clock data', 'type branch-value light-dark(#000000, #e7e9ea)', 'type branch-value key Enter', 'clock data', 'tap apply', 'clock data',
       'clock +1', 'clock data', 'tap undo', 'clock data', 'state',
@@ -765,6 +769,8 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
     const base = `http://127.0.0.1:${port}`;
     const devSaid = lines(dev);
     await devSaid.until(l => l.includes(`127.0.0.1:${port}/`), 600_000);
+    // Its page built (a build that failed frames an error page, which never registers as the frame's build).
+    expect(devSaid.seen.filter(l => l.includes('does not build'))).toEqual([]);
     tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
     other = await polledBuild(base, 'linux-1');
@@ -781,7 +787,8 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
       return null;
     })();
     const replies = await drive(url, `design-tool-canvas-${process.pid}`, ['type name Ada', 'tap save-name', 'clock data', 'tree canvas', 'layout', 'type canvas-size tablet', 'layout', 'type canvas-size desktop', 'layout', 'clock +2000 real',
-      ...wait, 'state',
+      // The framed page's first registration, on a loaded machine (another run beside this one) later than a pin's.
+      ...Array.from({ length: 8 }, () => ['clock +2000 real', 'clock data']).flat(), 'state',
       // Dark and Black pinned on the other build only.
       'type pin-build linux-1', 'type pin-scheme dark', 'type pin-mode-dark-style black', 'tap pin-apply', 'clock data', ...wait, 'state',
       // Open past one presence lease (35 s, each real-clock step at least
@@ -1104,6 +1111,10 @@ async function kindsOnTheJsLoop() {
 test('stage 6 kinds on the JS loop: a typed length scrubs live and Keep writes one line, motion says Rebuilds first, an inline font-weight token rebuilds, icons listed', () => kindsOnTheJsLoop(), 900_000);
 
 test('T2b: inspect from the tool selects a view in the canvas frame, shows its source and rows, and opens its token on the branch that won', async () => {
+  // This checkout's apps/theme-fixture (the wasm loop builds the app's crate, so no copy will do), in turn with another
+  // run here: its design server takes the app's .exact/tamber.lock, which refuses a second writer.
+  const giveFixture = await takePort(1000 + checkoutPort(resolve(ROOT, 'apps/theme-fixture')), { label: `T2b on ${ROOT}/apps/theme-fixture` });
+  onTestFinished(giveFixture);
   const listener = (await import('node:http')).createServer();
   await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
   const port = listener.address().port;

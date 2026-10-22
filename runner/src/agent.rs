@@ -20,6 +20,7 @@ use exact_kernel::{NodeRef, PropValue, RowValue, StyleId};
 use exact_plan::{BindingKind, Plan, TypeKind, TypesId, Value};
 use std::fmt::Write as _;
 
+mod lineage;
 mod looks;
 mod row;
 /// A row's value as `node` prints it: the JS target's inspect table (LLP 1122 T2b) writes the same words.
@@ -66,6 +67,12 @@ pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         // Every view's plan site, and the plan's digest (LLP 1122 D5): what a
         // development page outlines by, without a node's whole explanation.
         Some("sites") => runner.view_sites_json(),
+        // A view and each logical ancestor to the root with its plan site (null for none): what a development
+        // page walks to move a selection up its call sites (tamber/1.16 `inspect` `select`), with no node's rows.
+        Some("ancestors") => match field_num(request, "id") {
+            Some(n) if n >= 0.0 && n == n.trunc() => lineage::ancestors(runner, n as u32),
+            _ => error("ancestors needs a numeric id"),
+        },
         Some("node") => match field_num(request, "id") {
             Some(n) if n >= 0.0 && n == n.trunc() => {
                 let mut reply = node(runner, n as u32);
@@ -691,19 +698,18 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         num(runner.now_ms())
     );
     let mut first = true;
-    for row in plan.slots.iter() {
+    for (i, row) in plan.slots.iter().enumerate() {
         if row.owner.is_some() {
             // A row slot has a value per row, not one here (LLP 1017 P4c).
             continue;
         }
-        let name = plan.str(row.name);
         if !first {
             s.push(',');
         }
         first = false;
-        quote(name, &mut s);
+        quote(plan.str(row.name), &mut s);
         s.push(':');
-        match runner.slot(name) {
+        match runner.slot_at(i) {
             Some(v) => typed_json(plan, row.ty, v, &mut s),
             None => s.push_str("null"),
         }
@@ -777,7 +783,7 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         }
         quote(name, &mut s);
         s.push(':');
-        match runner.derive(name) {
+        match runner.derive_at(i) {
             Some(v) => typed_json(plan, row.ty, v, &mut s),
             None => s.push_str("null"),
         }
@@ -790,7 +796,7 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         }
         quote(name, &mut s);
         s.push(':');
-        match runner.shown_resource(name) {
+        match runner.shown_resource_at(i) {
             Some(v) => typed_json(plan, row.ty, v, &mut s),
             None => s.push_str("null"),
         }

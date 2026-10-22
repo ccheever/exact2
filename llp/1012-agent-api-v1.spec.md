@@ -969,7 +969,10 @@ pixels show.
   labelled above it; the head line names them in that order. Beside it,
   `<png>.regions.png` holds the regions alone, a row each in their numbers'
   order, the same three panels cut from each picture at its own resolution,
-  so a region is read without cropping the whole screen.
+  so a region is read without cropping the whole screen. `<png>.side.png`
+  holds the reference and the screen side by side at half a pixel a point,
+  each region outlined on both, so the two are viewed in one small picture
+  rather than composed by hand.
 
 On the euxy port the four screens the judge marked down came out as the
 judge saw them: the note pads (`pad-57 (View "A2") [146,361 25×48]: 25×40 at

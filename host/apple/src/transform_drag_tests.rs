@@ -126,7 +126,7 @@ fn boot_trapping(source: &str) -> (Host<NoData>, Packet, String) {
         .str(name);
     let guard = b.code(guard);
     let mut plan = b.finish().unwrap();
-    plan.bindings[handle].expr = guard;
+    plan.bindings.to_mut()[handle].expr = guard;
     plan.validate().unwrap();
     boot_plan(&plan.encode())
 }

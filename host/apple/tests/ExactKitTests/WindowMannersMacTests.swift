@@ -126,6 +126,9 @@ final class WindowMannersMacTests: XCTestCase {
         XCTAssertEqual(session.state, .ready, "its session stays")
         XCTAssertTrue(PageFacts.hidden, "a window its close hid is not seen")
         XCTAssertEqual(settled("hidden"), "hidden", "and its page is told so")
+        // Visibility may already read hidden (an occluded window): wait for the close's persisted fact.
+        let hid = Date().addingTimeInterval(5)
+        while transition() != "true 0", Date() < hid { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
         XCTAssertEqual(transition(), "true 0", "put away: pagehide with persisted")
         shown.makeKeyAndOrderFront(nil) // the reopen's `front()`
         XCTAssertTrue(shown.isVisible, "the reopen shows it")

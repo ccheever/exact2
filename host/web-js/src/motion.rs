@@ -5,7 +5,7 @@ use super::{value_js, Em};
 use crate::code::Scope;
 use crate::style;
 use exact_kernel::{PropId, StyleId};
-use exact_plan::{BindingKind, EventKind, Value};
+use exact_plan::{BindingKind, EventKind, NodesId, Value};
 use std::fmt::Write as _;
 
 impl Em<'_> {
@@ -14,7 +14,7 @@ impl Em<'_> {
     /// leaves springs to the engine).
     pub(crate) fn is_motion_node(&self, i: u32) -> bool {
         let plan = self.plan;
-        let row = &plan.nodes[i as usize];
+        let row = &plan.node(NodesId(i));
         let binding = |id: u16, kind: BindingKind| {
             row.bindings
                 .iter()
@@ -50,7 +50,7 @@ impl Em<'_> {
             return Ok(());
         }
         let plan = self.plan;
-        let row = &plan.nodes[i as usize];
+        let row = &plan.node(NodesId(i));
         let binding = |id: u16, kind: BindingKind| {
             row.bindings
                 .iter()
@@ -85,7 +85,7 @@ impl Em<'_> {
     pub(super) fn drag_targets(&self, prop: PropId) -> std::collections::BTreeSet<u32> {
         let plan = self.plan;
         let binding = |i: u32, prop: PropId| {
-            plan.nodes[i as usize]
+            plan.node(NodesId(i))
                 .bindings
                 .iter()
                 .map(|b| plan.binding(b))
@@ -124,7 +124,7 @@ impl Em<'_> {
 
     pub(super) fn reorder_handle(&self, i: u32) -> bool {
         let plan = self.plan;
-        plan.nodes[i as usize]
+        plan.node(NodesId(i))
             .bindings
             .iter()
             .map(|b| plan.binding(b))
@@ -141,7 +141,8 @@ impl Em<'_> {
         let plan = self.plan;
         let mut values = Vec::new();
         for (id, initial) in [(StyleId::Height, "null"), (StyleId::Transition, "\"\"")] {
-            let b = plan.nodes[i as usize]
+            let b = plan
+                .node(NodesId(i))
                 .bindings
                 .iter()
                 .map(|b| plan.binding(b))

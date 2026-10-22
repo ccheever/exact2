@@ -74,7 +74,7 @@ impl<D: DataSource> Host<D> {
 
     pub(super) fn set_environment(&mut self, env: Env) -> String {
         let mut batch = Batch::new();
-        let error = match self.environment_into(env, &mut batch) {
+        let error = match self.environment_into(env, None, &mut batch) {
             Ok(false) => None,
             Ok(true) => self.layout(&mut batch).err(),
             Err(e) => Some(e),
@@ -82,15 +82,27 @@ impl<D: DataSource> Host<D> {
         self.finish(batch, error)
     }
 
-    /// `env` set, and when it changed, what reads it re-sent into `batch`,
-    /// not yet laid out.
-    fn environment_into(&mut self, env: Env, batch: &mut Batch) -> Result<bool, String> {
+    /// `env` set, and the segments' rects on the kernel's grid when given,
+    /// and when either changed, what reads them re-sent into `batch`, not yet
+    /// laid out.
+    fn environment_into(
+        &mut self,
+        env: Env,
+        segments: Option<Vec<exact_kernel::Rect>>,
+        batch: &mut Batch,
+    ) -> Result<bool, String> {
         let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
-        let changed = self
-            .runner
-            .kernel_mut()
-            .set_env(env)
-            .map_err(|e| format!("insets: {e:?}"))?;
+        let kernel = self.runner.kernel_mut();
+        let moved = match segments {
+            Some(rects) => {
+                let (cols, rows) = (kernel.env().cols, kernel.env().rows);
+                kernel
+                    .set_segments(cols, rows, rects)
+                    .map_err(|e| format!("view: segments: {e:?}"))?
+            }
+            None => false,
+        };
+        let changed = kernel.set_env(env).map_err(|e| format!("insets: {e:?}"))? || moved;
         if changed {
             self.height_targets_dirty = true;
             for id in self.preorder() {
@@ -103,16 +115,19 @@ impl<D: DataSource> Host<D> {
 
     /// What changed of the view at once, each part only when given: the
     /// window's size (`None` in it clears it), the safe-area insets, the
-    /// layout regions and the viewport, in one batch under one layout, as
-    /// the calls one by one would leave them. An iOS boot's view takes the
-    /// whole window as its tab bar comes (LLP 1123 D1), which changes all
-    /// four (`ExactView.fit`).
+    /// layout regions, the viewport and the segments' rects on the grid the
+    /// kernel has, in one batch under one layout, as the calls one by one
+    /// would leave them. An iOS boot's view takes the whole window as its
+    /// tab bar comes (LLP 1123 D1), which changes the first four
+    /// (`ExactView.fit`); a keyboard changes the viewport and the
+    /// segments' extents together (LLP 1078, the keyboard).
     pub fn set_view(
         &mut self,
         screen: Option<Option<(f32, f32)>>,
         insets: Option<[f32; 4]>,
         regions: Option<Option<[[f32; 4]; 5]>>,
         size: Option<(f32, f32)>,
+        segments: Option<Vec<exact_kernel::Rect>>,
     ) -> String {
         let mut env = self.runner.kernel().env();
         if let Some(screen) = screen {
@@ -124,8 +139,15 @@ impl<D: DataSource> Host<D> {
         if let Some(regions) = regions {
             env = env.with_regions(regions);
         }
+        // Rects off the kernel's grid are refused before anything changes.
+        if let Some(rects) = &segments {
+            let next = env.with_segments(env.cols, env.rows, rects.clone());
+            if !next.segments_consistent() || !next.is_finite() {
+                return self.finish(Batch::new(), Some("view: segments off the grid".into()));
+            }
+        }
         let mut batch = Batch::new();
-        let changed = self.environment_into(env, &mut batch);
+        let changed = self.environment_into(env, segments, &mut batch);
         let error = changed.as_ref().err().cloned();
         match size {
             Some((width, height)) => self.resize_inner(width, height, batch, error),

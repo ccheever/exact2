@@ -127,6 +127,8 @@ test('a length named is the design\'s own, else a base name\'s in the kernel tab
   expect([baseLength(schema, none, 'radius.md', 'web'), baseLength(schema, none, 'radius.md', 'linux')]).toEqual([8, 8]);
   // A metric row with no Material cell reads the web's first look's there.
   expect(baseLength(schema, none, 'space.sm', 'android')).toBe(8);
+  // A stretch reads its metric (stage 13 D5): the Mac's space.xl is grouped-label-inset's 30.
+  expect(baseLength(schema, none, 'space.xl', 'macos')).toBe(30);
   // A measured cell, a guideline's, radius.full's one length.
   expect(baseLength(schema, none, 'space.xs', 'ios')).toBe(5);
   expect(baseLength(schema, none, 'space.lg', 'android')).toBe(24);

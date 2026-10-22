@@ -34,7 +34,7 @@ extension NodeView {
         #endif
     }
 
-    func contentBox() -> CGRect {
+    package func contentBox() -> CGRect {
         if !isNativeTextControl {
             return kernelContentBox?.offsetBy(dx: bounds.minX, dy: bounds.minY) ?? layoutBounds
         }

@@ -378,6 +378,47 @@ final class ContentOwnersIOSTests: XCTestCase {
         XCTAssertEqual(laidOut(session, sheet.id), sheetView.bounds.size, "no keys, no end")
     }
 
+    /// A scroller that ends a sheet's route reaches the sheet's bottom edge
+    /// (LLP 1116 D2): UIKit insets its content by the sheet's bottom safe
+    /// area, and nothing above it clips there, so its content shows through
+    /// the inset down to the edge. A hand-built scroll view in a floating 45%
+    /// sheet on iOS 27 has the same: the sheet's bottom safe area is 34 points
+    /// in its own space, though it floats clear of the home indicator.
+    func testASheetsEdgeScrollerReachesTheSheetsBottom() throws {
+        guard let scene = UIApplication.shared.connectedScenes.first(where: { $0 is UIWindowScene }) as? UIWindowScene else {
+            throw missing("scene", "a sheet is presented, with its safe area, only in a scene's window")
+        }
+        // The whole screen, so the window reaches the home indicator.
+        let session = try fixture("owner-sheet-edge", scene.screen.bounds.size, plan: "EXACT_NAVIGATION_BARS_PLAN")
+        let p = session.presenter
+        p.press(try node(session, "start-open-form").id)
+        until("UIKit has presented the sheet") {
+            guard let sheet = self.host?.presentedViewController else { return false }
+            return sheet.view.window != nil && !sheet.isBeingPresented && sheet.transitionCoordinator == nil
+        }
+        let route = try node(session, "route-form")
+        let controller = try XCTUnwrap(p.navigation.controllers[route.id])
+        let sheetView = try XCTUnwrap(controller.view)
+        until("the sheet's route takes the sheet's size") { self.laidOut(session, route.id) == sheetView.bounds.size }
+        let form = try node(session, "form-scroll"), sv = try XCTUnwrap(form.scroll)
+        XCTAssertTrue(controller.edgeScroll === form, "the scroller ends the route")
+        let bottom = { form.convert(form.bounds, to: sheetView).maxY }
+        until("the scroller reaches the sheet's bottom edge, inset by the sheet's bottom safe area") {
+            sheetView.safeAreaInsets.bottom > 0 && abs(bottom() - sheetView.bounds.maxY) < 0.5
+                && abs(sv.adjustedContentInset.bottom - sheetView.safeAreaInsets.bottom) < 0.5
+        }
+        XCTAssertGreaterThan(sheetView.safeAreaInsets.bottom, 0, "the sheet has a bottom safe area")
+        XCTAssertEqual(bottom(), sheetView.bounds.maxY, accuracy: 0.5, "the scroller ends at the sheet's bottom edge")
+        XCTAssertEqual(sv.adjustedContentInset.bottom, sheetView.safeAreaInsets.bottom, accuracy: 0.5)
+        var view: UIView? = sv
+        while let v = view, v !== sheetView {
+            if v.clipsToBounds {
+                XCTAssertEqual(v.convert(v.bounds, to: sheetView).maxY, sheetView.bounds.maxY, accuracy: 0.5, "\(type(of: v)) clips at the sheet's edge")
+            }
+            view = v.superview
+        }
+    }
+
     /// A sheet's editor is revealed once the keys have settled and the
     /// sheet's current blocks are told and laid out: a reveal waits behind a
     /// slice in flight, as the blocks do, and so scrolls in the geometry the

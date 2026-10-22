@@ -10,9 +10,6 @@ import AppKit
 #else
 import UIKit
 #endif
-#if os(iOS)
-import GameController
-#endif
 
 enum DisplayPreferences {
     /// What an agent's `prefer` set, in place of the platform's settings.
@@ -97,7 +94,7 @@ enum DisplayPreferences {
     static var input: Preferences {
         if let agentInput { return agentInput }
         #if os(iOS)
-        return touchScreenInput(mouse: pointable ? GCMouse.current : nil)
+        return touchScreenInput(mouse: mouse.flatMap { ($0 as AnyObject).perform(NSSelectorFromString("current"))?.takeUnretainedValue() })
         #else
         return .platformInput
         #endif
@@ -150,7 +147,8 @@ enum DisplayPreferences {
     static let displayModes = ["standalone", "browser", "fullscreen", "minimal-ui", "window-controls-overlay", "picture-in-picture", "tabbed"]
     static func displayMode(_ view: PlatformView?) -> UInt32 {
         #if os(macOS)
-        return view?.window?.styleMask.contains(.fullScreen) == true ? 2 : 0
+        if view?.window?.styleMask.contains(.fullScreen) == true { return 2 }
+        return (view as? ExactView)?.controlsOverlay == true ? 4 : 0
         #else
         return 0
         #endif
@@ -195,8 +193,17 @@ enum DisplayPreferences {
         return idiom == .pad || idiom == .mac || ProcessInfo.processInfo.isiOSAppOnMac
         #endif
     }()
-    /// A trackpad or mouse attached or removed changes `pointer` and `hover`.
-    private static let pointingDevices: [Notification.Name] = pointable ? [.GCMouseDidConnect, .GCMouseDidDisconnect] : []
+    /// GameController's `GCMouse`, where a pointer can point. Loaded here,
+    /// not linked: a link maps the framework and the six images it brings
+    /// beyond UIKit's, and runs their initializers, before `main` in every
+    /// iPhone app, which never asks (3 to 11 ms in the iOS 27 simulator).
+    private static let mouse: AnyClass? = {
+        guard pointable, dlopen("/System/Library/Frameworks/GameController.framework/GameController", RTLD_LAZY) != nil else { return nil }
+        return NSClassFromString("GCMouse")
+    }()
+    /// A trackpad or mouse attached or removed changes `pointer` and `hover`
+    /// (`GCMouseDidConnect` and `GCMouseDidDisconnect`, by their values).
+    private static let pointingDevices: [Notification.Name] = mouse == nil ? [] : [Notification.Name("GCMouseDidConnectNotification"), Notification.Name("GCMouseDidDisconnectNotification")]
     #elseif !os(macOS)
     private static let pointingDevices: [Notification.Name] = []
     #endif

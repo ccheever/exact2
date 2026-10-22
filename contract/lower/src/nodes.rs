@@ -106,7 +106,13 @@ impl Lowerer<'_> {
             None => attrs.as_slice(),
         };
         let inked = tags::symbol_ink(tag, positional, &expanded[sheet.len()..]);
-        let added: Vec<Attr> = inked.into_iter().chain(painted_group).collect();
+        crate::popover_surface::check_authored(expanded)?;
+        let surfaced = crate::popover_surface::implied(expanded, *span);
+        let added: Vec<Attr> = inked
+            .into_iter()
+            .chain(painted_group)
+            .chain(surfaced)
+            .collect();
         let expanded = match added.is_empty() {
             false => std::borrow::Cow::Owned([expanded, &added].concat()),
             true => std::borrow::Cow::Borrowed(expanded),

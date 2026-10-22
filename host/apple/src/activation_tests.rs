@@ -111,6 +111,73 @@ impl DataSource for SharedStoreSource {
     }
 }
 
+/// Counts its activations; refuses while `refuse` is set.
+struct Counted {
+    ready: Arc<AtomicBool>,
+    refuse: Arc<AtomicBool>,
+    activations: Arc<AtomicUsize>,
+}
+impl DataSource for Counted {
+    fn app_id(&self) -> &str {
+        "test.exact.activation"
+    }
+    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(name.into()))
+    }
+    fn preload(&self) -> Result<bool, DataError> {
+        Ok(self.ready.load(Ordering::SeqCst))
+    }
+    fn when_preloaded(&self, _: Wake) {}
+    fn activate(&mut self) -> Result<(), DataError> {
+        self.activations.fetch_add(1, Ordering::SeqCst);
+        if self.refuse.load(Ordering::SeqCst) {
+            return Err(DataError::Unavailable("refused".into()));
+        }
+        Ok(())
+    }
+}
+
+#[test]
+fn prepared_data_activates_once_and_its_refusal_is_committed_then_retried() {
+    let mut builder = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    builder.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+    let plan = builder.finish().unwrap().encode();
+    let ready = Arc::new(AtomicBool::new(false));
+    let refuse = Arc::new(AtomicBool::new(true));
+    let activations = Arc::new(AtomicUsize::new(0));
+    let source = Counted {
+        ready: ready.clone(),
+        refuse: refuse.clone(),
+        activations: activations.clone(),
+    };
+    let measurer = Box::new(MonospaceMeasurer::default());
+    let (mut host, _) = Host::boot(&plan, source, measurer, 10.0, 10.0).unwrap();
+    let count = || activations.load(Ordering::SeqCst);
+
+    host.prepare_data();
+    assert_eq!(count(), 0, "a source still loading its image is left alone");
+    ready.store(true, Ordering::SeqCst);
+    host.prepare_data();
+    host.prepare_data();
+    assert_eq!(count(), 1, "prepared once");
+    let refused = host.activate_data();
+    assert!(refused.contains("activate data"), "{refused}");
+    assert_eq!(
+        count(),
+        1,
+        "the prepared refusal is committed, not run again"
+    );
+
+    refuse.store(false, Ordering::SeqCst);
+    host.prepare_data();
+    assert_eq!(count(), 2, "a refused activation is prepared again");
+    assert!(!host.activate_data().contains("activate data"));
+    assert_eq!(count(), 2, "activation uses the prepared source");
+    assert!(host.data_activated);
+    host.prepare_data();
+    assert_eq!(count(), 2, "nothing to prepare once activated");
+}
+
 #[test]
 fn peer_store_refresh_reasks_readers_and_restores_persisted_slots_in_every_session() {
     use crate::store::{KeptStore, Platform};

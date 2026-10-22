@@ -412,8 +412,12 @@ async function suite({ open: openSession, check: record }, reset) {
     check(on.length === 0, `${tag}: no control on the band ${JSON.stringify(band)}: ${JSON.stringify(on.map((m) => ({ id: m.testId ?? m.id, x: m.x, y: m.y, w: m.w, h: m.h })))}`);
   };
   /** With the keyboard up where one is expected (layout `l`), the note sheet rides on it: it ends with the routes in the
-   * shortened viewport, below the note's header, with its Dismiss button and its textarea above that end. */
-  const onKeyboard = async (s, l, tag) => {
+   * shortened viewport, below the note's header, with its Dismiss button and its textarea above that end. Given `top`,
+   * the lower segment's before the keyboard, the fold keeps its two segments, the lower one's top there and ending where
+   * the viewport does, never below zero (LLP 1078, the keyboard). */
+  const onKeyboard = async (s, l, tag, top) => {
+    const [, lower] = l.env['vertical-viewport-segments'] === 2 ? l.env['viewport-segments'] : [];
+    if (lower || top !== undefined) check(lower && (top === undefined || near(lower[1], top)) && near(lower[3], Math.max(0, l.viewport.h - lower[1]), 0.02), `${tag}: the keyboard leaves the lower segment's top ${top} and ends it with the viewport ${l.viewport.h}: ${JSON.stringify(lower)}`);
     const sheet = box(l, 'note-sheet'), back = box(l, 'note-back'), dismiss = box(l, 'note-dismiss'), area = box(l, 'note-textarea'), end = await routesEnd(s, l, tag), kb = l.env['keyboard-inset-height'];
     check(sheet && back && dismiss && area && near(sheet.y + sheet.h, end) && sheet.y >= back.y + back.h && dismiss.y + dismiss.h <= end && area.y + area.h <= end + 0.01 && (!(await expected(s, kb)) || kb > 0), `${tag}: the sheet sits on the keyboard-shortened viewport, ending with the routes at ${end}, below the note's header, Dismiss and the textarea above that end: ${JSON.stringify(sheet)} in ${JSON.stringify(l.viewport)} kb ${kb}, Back ${JSON.stringify(back)}, Dismiss ${JSON.stringify(dismiss)}, textarea ${JSON.stringify(area)}`);
   };
@@ -530,6 +534,9 @@ async function suite({ open: openSession, check: record }, reset) {
         if (await rose(s, kb, tag)) {
           check(kb > 100, `${tag}: the software keyboard rose: keyboard-inset-height ${kb}`);
           check(kb > 0 && note.y + note.h <= l2.viewport.h - kb + 0.01 && note.y < noteBefore.y, `${tag}: the field is revealed above the keyboard ${JSON.stringify(note)} kb ${kb} (was ${JSON.stringify(noteBefore)})`);
+          // A fold's segments keep their tops, and the last row ends at the visual viewport's end, the keyboard's top (LLP 1078, the keyboard).
+          const [was, now, end, cols] = [l.env['viewport-segments'] ?? [], l2.env['viewport-segments'] ?? [], l2.viewport.h - kb, l2.env['horizontal-viewport-segments']];
+          check(now.length === was.length && was.every(([, y, , h], i) => near(now[i][1], y) && near(now[i][3], i < was.length - cols ? h : Math.max(0, Math.min(y + h, end) - y), 0.02)), `${tag}: the keyboard ends the last row of segments at the visual viewport's end ${end}: ${JSON.stringify(now)} (were ${JSON.stringify(was)})`);
         }
         // Fold while editing: focus and text survive each fold, the new pose is covered.
         for (const [from, next, fold] of folds(tag, deg)) {
@@ -548,6 +555,7 @@ async function suite({ open: openSession, check: record }, reset) {
         const l3 = await down(s, tag);
         const st3 = await s.state();
         check(st3.slots.focused === false && l3.env['keyboard-inset-height'] === 0 && box(l3, 'note').y === noteBefore.y, `${tag}: dismiss took the keyboard away: focused ${st3.slots.focused}, kb ${l3.env['keyboard-inset-height']}, the field at ${box(l3, 'note')?.y} (was ${noteBefore.y})`);
+        check(JSON.stringify(l3.env['viewport-segments']) === JSON.stringify(l.env['viewport-segments']), `${tag}: the segments are the window's again once the keyboard goes: ${JSON.stringify(l3.env['viewport-segments'])}`);
       });
     } catch (e) { check(false, `insets: ${e.message}`); } finally { await s.close(); }
   }
@@ -748,7 +756,7 @@ async function suite({ open: openSession, check: record }, reset) {
     await s.type('note-title-input', title);
     ({ l } = await keyboard(s, true));
     if (await rose(s, l.env['keyboard-inset-height'], tag)) {
-      await onKeyboard(s, l, tag);
+      await onKeyboard(s, l, tag, lower[1]);
       await offBand(s, l, `${tag} editing`);
     }
     const before = await editing(s, 'noteFocused', 'note-title-input');
@@ -758,7 +766,7 @@ async function suite({ open: openSession, check: record }, reset) {
     ({ l } = await keyboard(s, true));
     const st = await s.state();
     check(back && st.slots.title === title && st.slots.noteFocused === true && st.focus.editor === before.node && st.focus.native === before.native && clean(st, before), `${tag}→90°: the title and its focus survived ${JSON.stringify({ title: st.slots.title, noteFocused: st.slots.noteFocused })}`);
-    if (await rose(s, l.env['keyboard-inset-height'], `${tag}→90°`)) await onKeyboard(s, l, `${tag}→90°`);
+    if (await rose(s, l.env['keyboard-inset-height'], `${tag}→90°`)) await onKeyboard(s, l, `${tag}→90°`, lower[1]);
     await offBand(s, l, `${tag}→90° editing`);
     await pose(s, 130);
     await s.tap('note-dismiss'); await down(s, tag);
