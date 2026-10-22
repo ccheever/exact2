@@ -1,0 +1,21 @@
+# Code review round 2: package icon tokens (5670ec48df), Grok
+
+**RIGHT WITH CHANGES**
+
+All eight round-1 findings are fixed in this tree. I inspected the code and the tests named in the RFC; I did not execute them.
+
+A package design param may name its own icon (`theme/packages.rs:380-417`). Writes join package icons (`tamber_params.rs:233-236`; `laid` takes `joined_icons`). A `.contract` literal `icon(svg …)` reads that package’s root (`icons.rs:104-106`; the loader sets `Params::package` and `root`). `Home::leaves` confines package SVGs to canonical `<root>/assets/` for the build, `draws`, the source graph, the write check, and `tamber check`’s copy. App icons stay unconfined. A package-only design seeds the graph (`sources.rs:627-630`). `hello {paths:true}` adds an `assets` digest and the watcher compares it (`tamber_packages.rs:48-78`, `tamber-package-designs.mjs:44`). Any `color` outside `defs` / `symbol` / `clipPath` / `mask` / `pattern` marks the SVG a non-template (`icon_svg.rs:256-266`), app icons included. `resolve` sets `package`, `file`, and `identity` before returning (`tamber_base.rs:441-442`); `explain` adds `package_value` only when the app overrides (`:583`).
+
+A package linked from outside the app, and a root that is itself a symlink, are stored as the real directory of `package.json` (`resolve.rs:314-321`). `leaves` then requires the file’s real path to sit under that directory’s `assets/`. `Path::starts_with` is component-wise, so `assets-evil` does not match. Lexical `svg` paths still reject `/`, `\`, `:`, and `.` / `..` (`tamber/src/icon.rs:83-91`). A `.contract` param that names an icon aliases that icon and reads beside the line that writes `icon(…)` (D11). A design-file param that names another package’s or the app’s icon is still `tamber-unknown-token`.
+
+A7 leaves every icon in this repo building as before: no `.svg` here contains `color`. `svg_of` errors on a non-template only for a package home (`icons.rs:204`). An app icon is refused later only when a shipped target cannot draw one (`declare`, `icons.rs:315-338`). Web still draws the file; an `sf` source still covers Apple. An app that ships ios, android, or linux, has no `sf` source, and sets `color` would newly get `tamber-icon-svg`. Nothing in this tree is in that position.
+
+`assets` on the wire is a sha256 hex digest of path and bytes. Absolute `path` and `watch` are added only when `paths` is true (`tamber_serve.rs:770-778`). The HTTP server forces every client `hello` to `paths: false` (`tamber-server.mjs:747`); the in-process watcher is the only `paths: true` caller (`:423`). The `changed` event keeps `package`, `file` (`@pkg/file.tamber`), and the design-text digest (`tamber-package-designs.mjs:48`). The Rust server is stdio-only.
+
+The `tamber/1.16` clause (`docs/tamber-protocol.md:146-149`), the D11 amendment (`llp/1121-tamber.rfc.md:903-914`), and `docs/contract-for-agents.md:3708-3728` match the ruling.
+
+1. **SHOULD-FIX — `leaves` does not bind the bytes that are read.** `contract/lower/src/icons.rs:156-199`. A `canonicalize` error is treated as inside (`return false`), and `svg_of` then `read_to_string`s the original path, which follows links again. Repro: during `contract build`, after `canonicalize` of `<pkg>/assets/star.svg` (a real file under `<pkg>/assets/`) and before the read, replace that path with a symlink to the app’s `assets/star.svg`. The build accepts the app’s bytes. The assets digest reads the graph path the same way (`tamber_packages.rs:65`). The standalone `tamber check` copy does too (`tamber.rs:327`); an app that already has packages is checked through `compile_path_all` (`tamber.rs:286`), which comes back through `svg_of`. Read the canonical path, and treat a canonicalize failure as leaving.
+
+2. **NIT — a style `color` is matched case-sensitively.** `icon_svg.rs:128` (`k.trim() == name`). Repro: `<path style="Color: red" fill="currentColor" …>` stays a template. CSS property names are case-insensitive. The attribute `color` and lowercase `style="color: red"` are caught (`:259`, tests at `:415-428`).
+
+3. **NIT — D11’s historical paragraph still says package icon tokens are refused.** `llp/1121-tamber.rfc.md:890-893` (`tamber-package-block`; icons QUEUE), directly above the amendment that allows them.

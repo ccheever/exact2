@@ -624,6 +624,17 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
+    /// The presenter has painted this session: evaluate the deferred logic
+    /// without committing it (`Host::prepare_data`); `data_ready` commits.
+    pub fn prepare_data(&mut self) {
+        if self.host.is_none() {
+            return;
+        }
+        self.painted = true;
+        self.adopt_app_module();
+        self.host.as_mut().expect("checked").prepare_data();
+    }
+
     /// The presenter has painted this session; deferred logic can now load.
     pub fn data_ready(&mut self) -> u32 {
         if self.host.is_none() {
@@ -1289,7 +1300,7 @@ impl<D: DataSource> Bridge<D> {
 
     /// The locale and time zone, as `locale NUL timeZone` in the input buffer.
     pub fn set_place(&mut self, len: usize) -> u32 {
-        // `locale NUL timeZone`, then `NUL seed` at launch.
+        // `locale NUL timeZone`, then `NUL seed` and `NUL formatLocale`.
         let text = std::str::from_utf8(&self.input[..len.min(self.input.len())]).unwrap_or("");
         let mut fields = text.split('\0');
         let (Some(locale), Some(zone)) = (fields.next(), fields.next()) else {
@@ -1297,10 +1308,9 @@ impl<D: DataSource> Bridge<D> {
         };
         let seed = fields.next().and_then(|s| s.parse::<f64>().ok());
         let (locale, zone) = (locale.to_owned(), zone.to_owned());
-        let out = self
-            .host
-            .as_mut()
-            .map_or_else(not_booted, |h| h.set_place(&locale, &zone, seed));
+        let out = self.host.as_mut().map_or_else(not_booted, |h| {
+            h.set_place(&locale, &zone, seed, fields.next())
+        });
         self.emit(out)
     }
 

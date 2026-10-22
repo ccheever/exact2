@@ -291,7 +291,7 @@ extension NavigationHost {
                 ?? face.raster.flatMap { rasterURL($0) }.flatMap { TabFace.rasterImage(at: $0, points: FaceSymbol.tabBarPoints(traits)) }
             item.title = face.title
             item.image = image
-            item.selectedImage = face.base.flatMap { FaceSymbol.isPath($0) ? nil : UIImage(systemName: $0 + ".fill") } ?? image
+            item.selectedImage = face.base.flatMap(TabFace.filled) ?? image
             item.accessibilityIdentifier = ids[index]
             item.isEnabled = !face.disabled
             if face.disabled || face.accessibilityDisabled { item.accessibilityTraits.insert(.notEnabled) }

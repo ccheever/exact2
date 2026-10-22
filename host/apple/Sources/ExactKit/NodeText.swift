@@ -33,7 +33,8 @@ extension NodeView {
     func decoratingAncestors(dark: Bool) -> [(String, [Double]?)] {
         var out: [(String, [Double]?)] = []
         var box: NodeView = self
-        while !["absolute", "fixed"].contains(box.style["position_type"]?.string ?? ""),
+        // A popover is out of flow too (the kernel's top layer), unless sticky.
+        while !["absolute", "fixed"].contains(box.layoutPosition),
               box === self || !(box.actsAsButton || box.kind == "control"),
               let parent = box.nodeSuperview {
             if let lines = parent.style["text_decoration_line"]?.string, !lines.isEmpty, lines != "none" {

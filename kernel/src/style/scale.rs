@@ -7,8 +7,9 @@
 //!   unset reads this table. The compiler knows the nine names, so a view
 //!   reading one compiles with no design (`contract_lower::theme`), and the
 //!   plan keeps nothing for them: the kernel already holds every column.
-//! - Every cell names its source (a metrics row, a measurement or a
-//!   guideline, `docs/scale-measured.md`), which the build resolves. This is
+//! - Every cell names its source (a metrics row, a stretch of one theme2
+//!   ruled, a measurement or a guideline, `docs/scale-measured.md`), which
+//!   the build resolves. This is
 //!   the one table every reader of the base takes (theme2's condition (c)):
 //!   the design server's `describe`, `resolve` and `explain` read it under
 //!   `tamber/1.14` (rt1's stage 10 D), never a copy.
@@ -243,11 +244,13 @@ pub fn column_for(target: &str) -> Option<&'static str> {
     })
 }
 
-/// A cell's source as words: `metric grouped-row-gap`, `measured <id>`,
-/// `guideline <id>`, `full`, `terminal cells`.
+/// A cell's source as words: `metric grouped-row-gap`, `stretch of
+/// grouped-label-inset: <why>`, `measured <id>`, `guideline <id>`, `full`,
+/// `terminal cells`.
 pub fn source(cell: ScaleCell) -> String {
     match cell.source {
         ScaleSource::Metric(m) => format!("metric {m}"),
+        ScaleSource::Stretch { metric, why } => format!("stretch of {metric}: {why}"),
         ScaleSource::Measured(id) => format!("measured {id}"),
         ScaleSource::Guideline(id) => format!("guideline {id}"),
         ScaleSource::Full => "full".into(),
@@ -300,7 +303,7 @@ mod tests {
             for (column_name, column) in COLUMNS {
                 let c = cell(r, column);
                 match c.source {
-                    ScaleSource::Metric(m) => {
+                    ScaleSource::Metric(m) | ScaleSource::Stretch { metric: m, .. } => {
                         let metric = METRICS
                             .iter()
                             .find(|x| x.name == m)
@@ -329,6 +332,25 @@ mod tests {
                 assert_eq!(r.terminal.value, ScaleValue::Cells(0.0), "{}", r.name);
             }
         }
+    }
+
+    // Stage 13 D5: the Mac's space.xl is the one stretch theme2 ruled, its
+    // metric's value, with its reason.
+    #[test]
+    fn the_macs_space_xl_is_a_stretch() {
+        let xl = SCALE.iter().find(|r| r.name == "space.xl").unwrap();
+        assert!(matches!(
+            xl.macos.source,
+            ScaleSource::Stretch { metric: "grouped-label-inset", why } if !why.is_empty()
+        ));
+        assert_eq!(xl.macos.value, ScaleValue::Px(30.0));
+        let stretches = SCALE
+            .iter()
+            .flat_map(|r| COLUMNS.iter().map(move |(_, c)| cell(r, *c)))
+            .filter(|c| matches!(c.source, ScaleSource::Stretch { .. }))
+            .count();
+        assert_eq!(stretches, 1);
+        assert!(source(xl.macos).starts_with("stretch of grouped-label-inset: "));
     }
 
     // theme2's (a): within each look, xs ≤ sm ≤ md ≤ lg ≤ xl and radius

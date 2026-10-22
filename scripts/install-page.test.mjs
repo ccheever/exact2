@@ -291,6 +291,35 @@ chmod 755 target/exact-filesystem-tool/debug/exact-filesystem
   } finally {rmSync(dir,{recursive:true,force:true});}
 }, 200_000);
 
+test('a helper checked from the same inputs is taken by the next process without a build, and an edit builds again', () => {
+  const dir=realpathSync(mkdtempSync(join(tmpdir(),'exact-helper-record-')));
+  try {
+    for (const sub of ['scripts','bin','filesystem/src']) mkdirSync(join(dir,sub),{recursive:true});
+    writeFileSync(join(dir,'scripts/filesystem.mjs'),readFileSync(new URL('./filesystem.mjs',import.meta.url)));
+    writeFileSync(join(dir,'filesystem/src/main.rs'),'fn main() {}\n');
+    // A stand-in Cargo that counts its builds and publishes whatever helper-source holds
+    writeFileSync(join(dir,'bin/cargo'),`#!/bin/sh
+printf x >> builds
+mkdir -p target/exact-filesystem-tool/debug
+cp helper-source target/exact-filesystem-tool/debug/exact-filesystem
+chmod 755 target/exact-filesystem-tool/debug/exact-filesystem
+`,{mode:0o755});
+    writeFileSync(join(dir,'helper-source'),`#!/bin/sh\nprintf '%s\\n' '{"value":"helper"}'\n`);
+    const env={...process.env,PATH:join(dir,'bin')+':'+process.env.PATH,CARGO_HOME:join(dir,'cargo-home')};
+    delete env.EXACT_FILESYSTEM_HELPER;
+    const get=()=>{
+      const run=spawnSync(process.execPath,['--eval',"import {filesystem} from './scripts/filesystem.mjs';console.log(filesystem({op:'get'}));"],{cwd:dir,encoding:'utf8',env});
+      assert.equal(run.status,0,run.stderr);assert.equal(run.stdout.trim(),'helper');
+      return readFileSync(join(dir,'builds'),'utf8').length;
+    };
+    assert.equal(get(),1);
+    assert.equal(get(),1,'the same inputs need no second build');
+    writeFileSync(join(dir,'filesystem/src/main.rs'),'fn main() { }\n');
+    assert.equal(get(),2,'an edit to the crate builds again');
+    assert.equal(get(),2);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+}, 200_000);
+
 test('a helper named by its checker is taken without a build, and only if it is this checkout\'s and intact', () => {
   const dir=realpathSync(mkdtempSync(join(tmpdir(),'exact-helper-named-')));
   try {

@@ -242,8 +242,8 @@ impl Modes {
         }
         for (i, node) in plan.nodes.iter().enumerate() {
             if let Some(p) = parts[i].as_mut() {
-                self.type_rows(plan, node, p);
-                self.boundary(plan, node, p);
+                self.type_rows(plan, &node, p);
+                self.boundary(plan, &node, p);
             }
         }
         Ok(parts)

@@ -383,12 +383,11 @@ impl<D: DataSource> Presenter<D> {
             self.key_up(key, code, self.host.now());
         }
         // A Control or Meta chord is a shortcut, as a browser's: the focus's
-        // `key` handlers hear it, and no canvas or control starts with it.
+        // `key` handlers hear it (the root's with nothing focused), and no
+        // canvas or control starts with it.
         if down && self.held & 0b1100_1100 != 0 {
-            if self.focus.is_some() {
-                let name = if code == "NumpadEnter" { "Enter" } else { key };
-                self.key_down_with(name, code, repeat, self.host.now());
-            }
+            let name = if code == "NumpadEnter" { "Enter" } else { key };
+            self.key_down_with(name, code, repeat, self.host.now());
             return;
         }
         let contact = if code == "Space" {
@@ -460,12 +459,16 @@ impl<D: DataSource> Presenter<D> {
             })
         }) {
             let _ = self.type_key(id, code, key, down, repeat);
-        } else if down && code == "Tab" {
-            // From no focus, Tab takes the first stop (LLP 1088 D7.3).
-            self.key_down("Tab", self.host.now());
-        } else if down && self.back_key(key) {
-            // And a Back key goes back (LLP 1115.000 D5.4).
-            self.key_down_with(key, code, repeat, self.host.now());
+        } else if down {
+            // With nothing focused the root's handlers hear the key; then Tab
+            // takes the first stop (LLP 1088 D7.3) and a Back key goes back
+            // (LLP 1115.000 D5.4).
+            let name = match key {
+                "Space" => " ",
+                "NumpadEnter" => "Enter",
+                name => name,
+            };
+            self.key_down_with(name, code, repeat, self.host.now());
         }
         if code == "Escape"
             && self.focus.is_some_and(|id| {

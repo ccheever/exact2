@@ -1076,7 +1076,7 @@ impl Collection {
         mut mounted: Mounted,
         text: &str,
     ) -> Result<(), InstanceError> {
-        views::validate_row(u.env.plan, &mounted.row.roots)?;
+        views::validate_row(u.env.plan, u.sites, &mounted.row.roots)?;
         let position = mounted.position;
         let count = self.index.len();
         if mounted.published != (position, count) {

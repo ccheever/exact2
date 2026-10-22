@@ -11,8 +11,18 @@ extension NodeView {
     /// role (LLP 1069.011.000 D1).
     var isButton: Bool { kind == "button" || isNativeButton }
     /// Its face, as the kernel reads it (LLP 1069.011.000 D1); nil when the
-    /// presenter cannot read one.
+    /// presenter cannot read one. UIKit's presenter keeps a native button's
+    /// until a batch changes it (`ControlHost.face`); a custom button's face
+    /// is read from its child views, whose ops do not name the button, so
+    /// it is read each time.
+    #if os(macOS)
     var face: ButtonFace? { presenter?.buttonFace?(id) }
+    #else
+    var face: ButtonFace? {
+        guard let presenter, presenter.buttonFace != nil else { return nil }
+        return isNativeButton ? presenter.controls.face(id) : presenter.buttonFace?(id)
+    }
+    #endif
 
     var accessibleText: String {
         if let text = props["text"] { return text }
@@ -236,10 +246,10 @@ extension NodeView {
         // An `input`'s `aria-label` names its field, as a text area's names it.
         if let field, field.accessibilityLabel() != authoredLabel { field.setAccessibilityLabel(authoredLabel) }
         #else
-        // UIKit has no property for `aria-required`, `aria-invalid`, `aria-haspopup` or `aria-current`.
+        // UIKit has no property for `aria-required`, `aria-invalid`, `aria-haspopup` or `aria-current` (a button's current is its selected trait, NodeViewIOS).
         let target: UIView = field ?? presenter?.controls.controls[id] ?? textArea as UIView? ?? self
-        if disabled || ariaUnavailable { target.accessibilityTraits.insert(.notEnabled) }
-        else { target.accessibilityTraits.remove(.notEnabled) }
+        // Only on change: a set is kept in UIKit's associated object table.
+        if target.accessibilityTraits.contains(.notEnabled) != (disabled || ariaUnavailable) { target.accessibilityTraits.formSymmetricDifference(.notEnabled) }
         if target.accessibilityHint != description { target.accessibilityHint = description }
         #endif
     }
@@ -472,7 +482,7 @@ extension UIView {
     /// A toggle button as UIKit has one: the `toggleButton` trait, and the
     /// value VoiceOver reads as its state ("1" on, "0" off, "2" mixed).
     func setAccessibilityToggle(_ pressed: String?) {
-        if pressed != nil { accessibilityTraits.insert(.toggleButton) } else { accessibilityTraits.remove(.toggleButton) }
+        if accessibilityTraits.contains(.toggleButton) != (pressed != nil) { accessibilityTraits.formSymmetricDifference(.toggleButton) }
         accessibilityValue = pressed.map { $0 == "mixed" ? "2" : $0 == "true" ? "1" : "0" }
     }
     /// A checkable role as UIKit reads one (LLP 1115.000 D13.3): a checkbox
@@ -621,13 +631,16 @@ extension Presenter {
                   node.accessibilityVisible, !node.disabled, node.bounds.width > 0, node.bounds.height > 0 else { continue }
             #if os(macOS)
             guard let window = node.window else { continue }
-            let current = window.firstResponder
+            let current = window.firstResponder, click = pressMount(node, in: window)
             if (current as? NodeView)?.returnsPointerFocusToCanvas != true { autofocusProcessed.insert(ObjectIdentifier(node)) }
-            guard current == nil || current === window || current === window.contentView || current === viewport || current === session?.view || (current as? NodeView)?.canvasInput != nil else { continue }
+            guard click != nil || current == nil || current === window || current === window.contentView || current === viewport || current === session?.view || (current as? NodeView)?.canvasInput != nil else { continue }
             // Blocked autofocus stays pending until the pointer hands focus back.
             autofocusProcessed.insert(ObjectIdentifier(node))
             let target = keyView(of: node)
-            if target.acceptsFirstResponder { _ = window.makeFirstResponder(target) }
+            if target.acceptsFirstResponder, window.makeFirstResponder(target), let click,
+               let editor = node.textArea ?? (node.field?.currentEditor() as? NSTextView) {
+                editor.setSelectedRange(NSRange(location: Self.caret(in: editor, at: click), length: 0))
+            }
             #else
             // Any focus a node holds stays, however it came (Charlie, 2026-10-17), except: the session's own
             // view holding it for its shortcuts (ShortcutsIOS), a surface control's from its touch, which the
@@ -638,9 +651,10 @@ extension Presenter {
             guard let window = node.window else { continue }
             autofocusProcessed.insert(ObjectIdentifier(node))
             guard !hasFocus(window) else { continue }
-            let target: UIResponder = node.textArea ?? node.field ?? node
+            let target: UIResponder = node.textArea ?? node.field ?? node, caret = pressCaret(in: node)
             autofocused(node) // the app's focus now, as Tab's and focus(id)'s
             if target.becomeFirstResponder() {
+                if let (input, at) = caret { input.selectedTextRange = input.textRange(from: at, to: at) }
                 autofocusedThisTurn = node
                 DispatchQueue.main.async { [weak self] in self?.autofocusedThisTurn = nil }
             }

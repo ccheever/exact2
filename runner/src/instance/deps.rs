@@ -57,6 +57,18 @@ impl Bits {
     }
 }
 
+/// Hashed as [`PartialEq`] compares: up to the last word with a bit set.
+impl std::hash::Hash for Bits {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let words = self
+            .0
+            .iter()
+            .rposition(|w| *w != 0)
+            .map_or(0, |last| last + 1);
+        self.0[..words].hash(state);
+    }
+}
+
 /// Equal when they hold the same bits, whatever words each holds.
 impl PartialEq for Bits {
     fn eq(&self, other: &Bits) -> bool {
@@ -102,7 +114,7 @@ impl Layout {
 }
 
 /// What one code body, or the union over a subtree, reads.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct Reads {
     /// Inputs, by [`Layout`].
     pub(crate) bits: Bits,
@@ -170,8 +182,9 @@ pub(crate) fn into_scope(frames: u64, dirty: bool) -> u64 {
     (frames << 1) | (frames & (1 << 63)) | u64::from(dirty)
 }
 
-/// Read sets by index, those that read nothing one shared entry: most of a
-/// plan's bindings are literal rows.
+/// Read sets by index, each distinct set held once: most of a plan's
+/// bindings are literal rows, which read nothing, and most of the rest read
+/// what another reads (euxy: 5,651 bindings, 85 distinct sets).
 #[derive(Debug, Default)]
 pub(crate) struct ReadsTable {
     /// Each index's place in `reads`; 0 is the empty set.
@@ -181,22 +194,24 @@ pub(crate) struct ReadsTable {
 
 impl FromIterator<Reads> for ReadsTable {
     fn from_iter<I: IntoIterator<Item = Reads>>(all: I) -> Self {
-        let mut table = ReadsTable {
-            at: Vec::new(),
-            reads: vec![Reads::default()],
-        };
+        let all = all.into_iter();
+        let mut at = Vec::with_capacity(all.size_hint().0);
+        let mut places: std::collections::HashMap<Reads, u32> = Default::default();
         for reads in all {
-            let at = match reads == Reads::default() {
+            let place = match reads == Reads::default() {
                 true => 0,
                 false => {
-                    table.reads.push(reads);
-                    table.reads.len() - 1
+                    let next = places.len() as u32 + 1;
+                    *places.entry(reads).or_insert(next)
                 }
             };
-            table.at.push(at as u32);
+            at.push(place);
         }
-        table.reads.shrink_to_fit();
-        table
+        let mut reads = vec![Reads::default(); places.len() + 1];
+        for (set, place) in places {
+            reads[place as usize] = set;
+        }
+        ReadsTable { at, reads }
     }
 }
 
@@ -212,19 +227,19 @@ impl std::ops::Index<usize> for ReadsTable {
 pub struct Deps {
     layout: Option<Layout>,
     pub(crate) bindings: ReadsTable,
-    pub(crate) surface_args: Vec<Reads>,
+    pub(crate) surface_args: ReadsTable,
     /// A node's own reads and every descendant's, relative to the node.
-    pub(crate) nodes: Vec<Reads>,
+    pub(crate) nodes: ReadsTable,
     /// A region's subject, relative to the region.
-    pub(crate) subjects: Vec<Reads>,
+    pub(crate) subjects: ReadsTable,
     /// A region's key, relative to the row (bit 0 is the item).
-    pub(crate) keys: Vec<Reads>,
+    pub(crate) keys: ReadsTable,
     /// Exactly the innermost row's position; identities survive item changes.
     pub(crate) index_keys: Vec<bool>,
     /// A region's arms' sites, relative to the row or arm frame.
-    pub(crate) bodies: Vec<Reads>,
+    pub(crate) bodies: ReadsTable,
     /// Subject, key and body, relative to the region.
-    pub(crate) regions: Vec<Reads>,
+    pub(crate) regions: ReadsTable,
     /// Each derive's body.
     pub(crate) derives: Vec<Reads>,
     /// Each resource's arguments together.
@@ -257,7 +272,7 @@ impl Deps {
             layout: Some(layout),
             bindings: plan.bindings.iter().map(|b| scan(b.expr)).collect(),
             surface_args: plan.surface_args.iter().map(|a| scan(a.expr)).collect(),
-            nodes: vec![Reads::default(); plan.nodes.len()],
+            nodes: ReadsTable::default(),
             subjects: plan.regions.iter().map(|r| scan(r.subject)).collect(),
             keys: plan.regions.iter().map(|r| scan(r.key)).collect(),
             index_keys: plan
@@ -265,8 +280,8 @@ impl Deps {
                 .iter()
                 .map(|r| is_index_key(plan.code(r.key)))
                 .collect(),
-            bodies: vec![Reads::default(); plan.regions.len()],
-            regions: vec![Reads::default(); plan.regions.len()],
+            bodies: ReadsTable::default(),
+            regions: ReadsTable::default(),
             derives: plan.derives.iter().map(|d| scan(d.body)).collect(),
             resource_args: plan
                 .resources
@@ -280,7 +295,11 @@ impl Deps {
                 })
                 .collect(),
         };
-        // Post-order over the site tree without recursing to the plan's depth.
+        // Post-order over the site tree without recursing to the plan's depth;
+        // the sites' reads are tabled once every one is known.
+        let mut nodes = vec![Reads::default(); plan.nodes.len()];
+        let mut bodies = vec![Reads::default(); plan.regions.len()];
+        let mut regions = vec![Reads::default(); plan.regions.len()];
         let mut stack: Vec<(super::Site, bool)> = children
             .children(None, None)
             .iter()
@@ -301,6 +320,10 @@ impl Deps {
                 stack.extend(kids(site).into_iter().map(|(_, s)| (s, false)));
                 continue;
             }
+            let of = |site| match site {
+                super::Site::Node(n) => &nodes[n.0 as usize],
+                super::Site::Region(r) => &regions[r.0 as usize],
+            };
             match site {
                 super::Site::Node(n) => {
                     let node = plan.node(n);
@@ -314,24 +337,27 @@ impl Deps {
                         }
                     }
                     for (_, kid) in kids(site) {
-                        reads.union(deps.site(kid), 0);
+                        reads.union(of(kid), 0);
                     }
-                    deps.nodes[n.0 as usize] = reads;
+                    nodes[n.0 as usize] = reads;
                 }
                 super::Site::Region(r) => {
                     let i = r.0 as usize;
                     let mut body = Reads::default();
                     for (_, kid) in kids(site) {
-                        body.union(deps.site(kid), 0);
+                        body.union(of(kid), 0);
                     }
                     let mut all = deps.subjects[i].clone();
                     all.union(&deps.keys[i], 1);
                     all.union(&body, 1);
-                    deps.bodies[i] = body;
-                    deps.regions[i] = all;
+                    bodies[i] = body;
+                    regions[i] = all;
                 }
             }
         }
+        deps.nodes = nodes.into_iter().collect();
+        deps.bodies = bodies.into_iter().collect();
+        deps.regions = regions.into_iter().collect();
         deps
     }
 
@@ -357,13 +383,6 @@ impl Deps {
                 _ => Input::Clock,
             }
         })
-    }
-
-    fn site(&self, site: super::Site) -> &Reads {
-        match site {
-            super::Site::Node(n) => &self.nodes[n.0 as usize],
-            super::Site::Region(r) => &self.regions[r.0 as usize],
-        }
     }
 
     /// The inputs that differ between what the tree last showed and `env`.

@@ -390,7 +390,9 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
-    /// A key at the focused node, by the web's name, with its physical key
+    /// A key at the focused node, or at the session's first root when
+    /// nothing is focused (the DOM's `window` listeners hear a key whose
+    /// target is `<body>`), by the web's name, with its physical key
     /// (`code`, "" when unknown) and whether it is an auto-repeat: every
     /// `keycapture` hears a keydown outermost first, then each `key` handler
     /// (`kind`; `keyup` for a release, #140) at or above it hears it,
@@ -406,7 +408,7 @@ impl<D: DataSource> Presenter<D> {
         repeat: bool,
         now_ms: f64,
     ) -> (Option<String>, bool) {
-        let target = self.focus;
+        let target = self.focus.or_else(|| self.host.roots().first().copied());
         let mut path = Vec::new();
         let mut at = target.and_then(|id| self.handler_target(id, kind));
         while let Some(id) = at {
@@ -468,7 +470,7 @@ impl<D: DataSource> Presenter<D> {
         (error, prevented)
     }
 
-    /// A key's release at the focus: its `keyup` handlers (#140), by the
+    /// A key's release at the focus (or the root): its `keyup` handlers (#140), by the
     /// name its keydown had (`Space` is " "). A release has no default here.
     pub(crate) fn key_up(&mut self, key: &str, code: &str, now_ms: f64) {
         let name = match key {

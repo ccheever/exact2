@@ -1115,10 +1115,23 @@ impl<D: DataSource> Host<D> {
 
     /// The viewer's place and launch seed, together in one commit.
     pub fn set_place(&mut self, place: &exact_runner::time::Place) -> Option<String> {
-        match self
-            .runner
-            .set_place(&place.locale, &place.time_zone, Some(place.seed))
-        {
+        let answer = self.runner.set_place_formatted(
+            &place.locale,
+            &place.time_zone,
+            Some(place.seed),
+            Some(&place.format_locale),
+        );
+        self.told(answer, "place")
+    }
+
+    /// A told fact's answer: its commit, nothing when the fact is unchanged,
+    /// or the refusal named by `what`.
+    fn told(
+        &mut self,
+        answer: Result<Option<exact_kernel::CommitReceipt>, exact_runner::RunnerError>,
+        what: &str,
+    ) -> Option<String> {
+        match answer {
             Ok(Some(receipt)) => self.commit(
                 &[Timed {
                     at_ms: self.now_ms,
@@ -1127,23 +1140,14 @@ impl<D: DataSource> Host<D> {
                 None,
             ),
             Ok(None) => None,
-            Err(e) => Some(format!("place: {e:?}")),
+            Err(e) => Some(format!("{what}: {e:?}")),
         }
     }
 
     /// The date (LLP 1027.000.000): re-answer `exactTime` in one commit.
     pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> Option<String> {
-        match self.runner.set_time(epoch_at_zero, utc_offset) {
-            Ok(Some(receipt)) => self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => None,
-            Err(e) => Some(format!("time: {e:?}")),
-        }
+        let answer = self.runner.set_time(epoch_at_zero, utc_offset);
+        self.told(answer, "time")
     }
 
     /// The device's posture and the viewport segments (LLP 1078 D4), set
@@ -1189,33 +1193,15 @@ impl<D: DataSource> Host<D> {
 
     /// The display preferences (LLP 1061 D5): re-answer `exactViewport()` in one commit.
     pub fn set_preferences(&mut self, preferences: exact_runner::Preferences) -> Option<String> {
-        match self.runner.set_preferences(preferences) {
-            Ok(Some(receipt)) => self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => None,
-            Err(e) => Some(format!("preferences: {e:?}")),
-        }
+        let answer = self.runner.set_preferences(preferences);
+        self.told(answer, "preferences")
     }
 
     /// The page's visibility, connectivity and share sheet (LLP 1069.000
     /// D2): re-answer `exactPage()` in one commit.
     pub fn set_page(&mut self, page: exact_runner::Page) -> Option<String> {
-        match self.runner.set_page(page) {
-            Ok(Some(receipt)) => self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => None,
-            Err(e) => Some(format!("page: {e:?}")),
-        }
+        let answer = self.runner.set_page(page);
+        self.told(answer, "page")
     }
 
     /// Seek presentation. Returns whether the registered Height changed layout;

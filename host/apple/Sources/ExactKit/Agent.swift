@@ -1001,7 +1001,7 @@ public final class Agent {
     }
 
     /// Whether the launch left work for a later main-queue turn.
-    func launchQueued() -> Bool { session.natives.activationQueued || session.presenter.launchAutofocusPending }
+    func launchQueued() -> Bool { session.activationInFlight || session.presenter.launchAutofocusPending }
 
     /// Turn the run loop until that work has run, or until `deadline`.
     func drainLaunch(until deadline: Date) -> Bool {

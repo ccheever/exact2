@@ -434,6 +434,11 @@ component NativeFixture
                     if e.name == "plain"
                       text "No Back control" testId="subtitle-plain" font-size=12 color="#6b7280"
                       text "Draft" testId="aside-plain" font-size=12 color="#6b7280"
+                    // A bar item opening a popover that is no menu: it opens
+                    // as itself, from the item, not as a pull-down (LLP 1021 D3).
+                    if e.name == "plain"
+                      button popovertarget="plain-about" aria-label="About" testId="about-plain" padding=6 background-color="#e5e7eb"
+                        image "symbol:info" width=20 height=20
                     button id="compose" press=compose aria-label="Compose" testId=`compose-${e.name}` padding=6 background-color="#e5e7eb"
                       image "symbol:compose" width=20 height=20
                     // A readout after the buttons: an item nothing presses,
@@ -443,6 +448,9 @@ component NativeFixture
                       row role="status" testId="readout-plain" aria-label=`${composed} composed` display="flex" align-items="center" gap=6
                         column width=7 height=7 border-radius=3.5 background-color=(composed > 0 ? "#16a34a" : "#9ca3af")
                         text `${composed} sent` testId="readout-text" font-family="Menlo" font-size=12 color="#6b7280"
+                if e.name == "plain"
+                  column id="plain-about" popover="auto" testId="plain-about" padding=12 width=220
+                    text "A route with no Back control of its own." font-size=13
                 if e.name == "home"
                   column id="bar-menu" popover="auto" position="absolute" role="menu" aria-label="Actions" width=200 padding=8 background-color="#ffffff"
                     button appearance="none" press=bump popovertarget="bar-menu" popovertargetaction="hide" role="menuitem" testId="bar-menu-bump" height=44 text-align="start"

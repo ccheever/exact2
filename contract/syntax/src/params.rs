@@ -11,6 +11,12 @@ use crate::Span;
 pub struct Params {
     /// `post.contract#PostButton`, as the driver sets it; `None` until then.
     pub identity: Option<String>,
+    /// The package whose file declares it, by its `package.json` name, as
+    /// the driver sets it; none for the app's (LLP 1121 stage 13).
+    pub package: Option<String>,
+    /// That package's directory, where its `assets/` are: a literal
+    /// `icon(svg …)` default reads its SVG there.
+    pub root: Option<String>,
     /// The section's params, in order; empty without one.
     pub list: Vec<ComponentParam>,
 }

@@ -44,6 +44,9 @@ private final class RasterSource: RasterSourceOwner, @unchecked Sendable {
     var inspecting = false
     var metadata: RasterMetadata?
     var input: RasterInput?
+    /// A remote source's downloaded body, or why not, for a worker to read
+    /// the header of (`RasterBackend.inspectOne`).
+    var fetched: Result<RasterInput, Error>?
     var cancellation = RasterCancellation()
     var failure: String?
     /// The decodes whose last attempt failed in ImageIO or Core Graphics over
@@ -186,12 +189,21 @@ private final class RasterBackend: @unchecked Sendable {
         let source = stopped || paused ? nil : sources.values.compactMap(\.value).filter { $0.users > 0 && !$0.inspecting && $0.metadata == nil && $0.failure == nil }.min { $0.id < $1.id }
         source?.inspecting = true
         let cancellation = source?.cancellation
+        let fetched = source?.fetched
+        source?.fetched = nil
         lock.unlock()
         guard let source, let cancellation else { return false }
+        // A remote source downloads on URLSession's queue, never on a worker,
+        // and stays `inspecting` (so its release cancels it) until its body
+        // is here: the workers go on reading headers and decoding meanwhile.
+        if fetched == nil, let url = RasterInput.remote(source.name) {
+            RasterInput.fetch(url, cancellation: cancellation) { [weak self] result in self?.downloaded(source, cancellation, result) }
+            return true
+        }
         var metadata: RasterMetadata?, input: RasterInput?, failure: String?
         do {
             guard let resolver = source.resolver else { throw RasterFailure.decode }
-            input = try RasterInput.open(source.name, resolver: resolver, cancellation: cancellation)
+            input = try fetched?.get() ?? RasterInput.open(source.name, resolver: resolver, cancellation: cancellation)
             metadata = try input!.metadata()
         } catch { failure = error is RasterFailure || error is RasterHTTPStatus ? String(describing: error) : error.localizedDescription }
         lock.lock()
@@ -207,6 +219,17 @@ private final class RasterBackend: @unchecked Sendable {
         lock.unlock()
         wake()
         return true
+    }
+    /// A remote source's body arrived: a worker reads its header next. One
+    /// let go of meanwhile is asked for again from the start, and the room
+    /// it held at the metadata cap may admit a waiting image.
+    private func downloaded(_ source: RasterSource, _ cancellation: RasterCancellation, _ result: Result<RasterInput, Error>) {
+        lock.lock()
+        if cancellation.isCancelled { source.cancellation = RasterCancellation() } else { source.fetched = result }
+        source.inspecting = false
+        lock.unlock()
+        exact_raster_session_control(id, 5)
+        wake()
     }
     func decode(_ work: ExactRasterWork) {
         let charge = NativeRasterCharge(work.charge)
