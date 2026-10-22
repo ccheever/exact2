@@ -118,37 +118,109 @@ final class ShortcutMenu: NSMenu {
     private var removalIDs = Set<String>()
     fileprivate func removeStandardItems(_ ids: Set<String>) {
         removalIDs = ids
-        applyRemovals()
+        watchTracking()
+        applyRemovals(late: tracking)
     }
     /// What each removed item was: hidden (a hidden alternate's chord), and
     /// whether its chord worked hidden.
     private var removed: [(NSMenuItem, Bool, Bool)] = []
+    /// Items no removal holds any more, with what a write put off has yet
+    /// to give back.
+    private var unrestored: [(NSMenuItem, Bool, Bool)] = []
     override func update() {
         super.update()
-        applyRemovals()
+        applyRemovals(late: false)
     }
     override func insertItem(_ newItem: NSMenuItem, at index: Int) {
         super.insertItem(newItem, at: index)
-        applyRemovals()
+        applyRemovals(late: false)
     }
-    private func applyRemovals() {
-        guard !removalIDs.isEmpty || !removed.isEmpty else { return }
-        for (item, hidden, hiddenEquivalent) in removed.reversed() {
-            item.isHidden = hidden
-            item.allowsKeyEquivalentWhenHidden = hiddenEquivalent
+    /// Records `hidden` as what `item` goes back to when its removal ends,
+    /// if a removal here holds it or its restoration is still to be
+    /// written. The host's sync sets its own items' state through this, so
+    /// it never writes a state the removal then reverses.
+    fileprivate func holdHidden(_ item: NSMenuItem, _ hidden: Bool) -> Bool {
+        var held = false
+        for index in removed.indices where removed[index].0 === item { removed[index].1 = hidden; held = true }
+        for index in unrestored.indices where unrestored[index].0 === item { unrestored[index].1 = hidden; held = true }
+        return held
+    }
+    // An open menu is a table AppKit lays out, and a plan batch can arrive
+    // inside that layout: a menu item's own view entering the menu's window
+    // can make it key (Help's search field), which posts the window facts.
+    // An item shown or hidden there inserts or deletes a row, and AppKit
+    // throws (`-[NSTableRowData insertRowsAtIndexes:withRowAnimation:]`).
+    // So a removal writes only what changes, and a batch's change while the
+    // menu is open is written on the next turn of the run loop, outside any
+    // layout.
+    private var tracking = false, writeScheduled = false
+    private var trackingObservers: [NSObjectProtocol] = []
+    private func watchTracking() {
+        guard trackingObservers.isEmpty else { return }
+        // The object is the menu bar for its menus, or a popped-up menu.
+        let center = NotificationCenter.default
+        trackingObservers = [(NSMenu.didBeginTrackingNotification, true), (NSMenu.didEndTrackingNotification, false)].map { name, begins in
+            center.addObserver(forName: name, object: nil, queue: nil) { [weak self] note in
+                guard let self, let root = note.object as? NSMenu,
+                      sequence(first: self as NSMenu, next: \.supermenu).contains(where: { $0 === root }) else { return }
+                self.tracking = begins
+            }
         }
-        removed.removeAll(keepingCapacity: true)
+    }
+    deinit { trackingObservers.forEach(NotificationCenter.default.removeObserver) }
+    /// `late`: write on the run loop's next turn.
+    private func applyRemovals(late: Bool) {
+        guard !removalIDs.isEmpty || !removed.isEmpty || !unrestored.isEmpty else { return }
+        let previous = unrestored + removed
+        // Each item as it was before any removal: as saved for one removed
+        // or still to be restored, as it is for any other.
+        var saved: [ObjectIdentifier: (Bool, Bool)] = [:]
+        for (item, hidden, hiddenEquivalent) in previous where saved[ObjectIdentifier(item)] == nil {
+            saved[ObjectIdentifier(item)] = (hidden, hiddenEquivalent)
+        }
+        let restored = { (item: NSMenuItem) in saved[ObjectIdentifier(item)] ?? (item.isHidden, item.allowsKeyEquivalentWhenHidden) }
+        var next: [(NSMenuItem, Bool, Bool)] = []
         // A hidden submenu's items keep their chords (AppKit), so a removed
         // submenu's go with it; the app's own commands stay.
         func remove(_ item: NSMenuItem) {
-            removed.append((item, item.isHidden, item.allowsKeyEquivalentWhenHidden))
-            item.allowsKeyEquivalentWhenHidden = false
-            item.isHidden = true
+            let (hidden, hiddenEquivalent) = restored(item)
+            next.append((item, hidden, hiddenEquivalent))
             for child in item.submenu?.items ?? [] where !(child.target is ShortcutHost) { remove(child) }
         }
-        for item in items where (!item.isHidden || item.allowsKeyEquivalentWhenHidden) && !(item.target is ShortcutHost) {
-            guard let id = Self.standardID(item), removalIDs.contains(id) else { continue }
+        // An item hidden on its own is left out, unless a removal already
+        // holds it: the host may hide one of its own items under a removal.
+        for item in items where !(item.target is ShortcutHost) {
+            let (hidden, hiddenEquivalent) = restored(item)
+            guard !hidden || hiddenEquivalent || removed.contains(where: { $0.0 === item }),
+                  let id = Self.standardID(item), removalIDs.contains(id) else { continue }
             remove(item)
+        }
+        let kept = Set(next.map { ObjectIdentifier($0.0) })
+        let restores = previous.filter { item, hidden, hiddenEquivalent in
+            !kept.contains(ObjectIdentifier(item)) && (item.isHidden != hidden || item.allowsKeyEquivalentWhenHidden != hiddenEquivalent)
+        }
+        // Removed from now, though written later: `performKeyEquivalent`
+        // leaves its chord out at once.
+        removed = next
+        let hides = next.map(\.0).filter { !$0.isHidden || $0.allowsKeyEquivalentWhenHidden }
+        if late && (!restores.isEmpty || !hides.isEmpty) {
+            unrestored = restores
+            guard !writeScheduled else { return }
+            writeScheduled = true
+            RunLoop.main.perform(inModes: [.common]) { [weak self] in
+                self?.writeScheduled = false
+                self?.applyRemovals(late: false)
+            }
+            return
+        }
+        unrestored = []
+        for (item, hidden, hiddenEquivalent) in restores.reversed() {
+            if item.isHidden != hidden { item.isHidden = hidden }
+            if item.allowsKeyEquivalentWhenHidden != hiddenEquivalent { item.allowsKeyEquivalentWhenHidden = hiddenEquivalent }
+        }
+        for item in hides {
+            if item.allowsKeyEquivalentWhenHidden { item.allowsKeyEquivalentWhenHidden = false }
+            if !item.isHidden { item.isHidden = true }
         }
     }
     static func standardID(_ item: NSMenuItem) -> String? {
@@ -414,7 +486,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             // ⌘[ and stands in for it (`claim`).
             let own = navigationMenu.items.filter { !($0.target is ShortcutHost) }
             let routed = presenter?.carrying("navigationBack").isEmpty == false
-            for item in own { item.isHidden = !routed || replaced.contains { $0 === item } }
+            for item in own { setHidden(item, !routed || replaced.contains { $0 === item }) }
             // History commands precede destinations regardless of where the
             // toolbar sits in the authored tree; destinations keep tree order.
             let history = navigation.filter { $0.keyEquivalentModifierMask == .command && ["[", "]"].contains($0.keyEquivalent) }
@@ -519,8 +591,15 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             let stands = standing.contains { Self.answers(host, key: key, mask, to: $0) }
             replaced.removeAll { $0 === host }
             if stands { replaced.append(host) }
-            host.isHidden = stands || host.identifier == DevMenu.zoomAlternate
+            setHidden(host, stands || host.identifier == DevMenu.zoomAlternate)
         }
+    }
+    /// Shows or hides one of the host's own items, or, while a removal
+    /// holds it, sets what the removal's end gives back.
+    private func setHidden(_ item: NSMenuItem, _ hidden: Bool) {
+        let menus = [fileMenu, applicationMenu, navigationMenu, editMenu, viewMenu, windowMenu, helpMenu].compactMap { $0 as? ShortcutMenu }
+        guard !menus.contains(where: { $0.holdHidden(item, hidden) }) else { return }
+        if item.isHidden != hidden { item.isHidden = hidden }
     }
     /// The host's Edit items an app command may stand in for.
     private static let editRoles: Set<Selector> = [Selector(("undo:")), Selector(("redo:")), #selector(NSText.cut(_:)),
