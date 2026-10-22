@@ -167,7 +167,7 @@ extension NavigationHost {
         }
         let coordinator = tabController?.transitionCoordinator
             ?? (Array(tabNavigations.values) + presentedNavigations).lazy.compactMap(\.transitionCoordinator).first
-        if coordinator?.animate(alongsideTransition: nil, completion: { _ in resync() }) == false { resync() }
+        if coordinator?.animate(alongsideTransition: nil, completion: { _ in resync() }) == false, !realizeWaits { resync() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { resync() }
     }
 
