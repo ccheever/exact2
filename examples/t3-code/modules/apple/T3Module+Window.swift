@@ -1,6 +1,6 @@
 // T3Module's window ops (T3Module.swift routes them): the installed fonts, the
-// appearance, send shortcut and quit mode, Open in Finder's folder picker and
-// copying text.
+// appearance and send shortcut, Open in Finder's folder picker, Check for Updates…
+// and copying text.
 import Foundation
 import AppKit
 
@@ -17,8 +17,14 @@ extension T3Module {
         if request["op"] as? String == "devicePresentation" {
             DispatchQueue.main.async { [weak self] in
                 self?.chrome.setAppearance(request["appearanceMode"] as? String ?? "system")
-                self?.menus.quitMode = request["confirmQuit"] as? String ?? "hold"
                 T3RootFont.set(request["rootFontSize"]) // Interface font size (T3RootFont.swift)
+                reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": [:]])
+            }
+            return
+        }
+        if request["op"] as? String == "checkForUpdates" { // Check for Updates…'s box (T3Menus.swift).
+            DispatchQueue.main.async { [weak self] in
+                self?.menus.checkForUpdates(nil)
                 reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": [:]])
             }
             return

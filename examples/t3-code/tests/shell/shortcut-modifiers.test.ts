@@ -61,7 +61,7 @@ describe('shortcutModifierState', () => {
 
 const root = contractComponent('app.contract', 'T3Code');
 const window = contractComponent('src/shell/app-window.contract', 'T3Window');
-const scope = (): Env => ({ ...fns, ShortcutModifierState: (record: State) => record, releaseUndoClaim: () => {} });
+const scope = (): Env => ({ ...fns, ShortcutModifierState: (record: State) => record, releaseUndoClaim: () => {}, quitHoldKey: () => {} }); // quit-hold.test.ts runs the hold
 const rootState = (): Env => ({ shortcutModifiers: emptyState(), speedModifierState: emptyState(), threadJumpHintsShown: false, undoHeldKey: '', composerFocused: false });
 
 describe('the window tracks held modifiers from its key events', () => {

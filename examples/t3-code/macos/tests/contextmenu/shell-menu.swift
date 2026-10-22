@@ -42,7 +42,7 @@ private final class CountingTextView: NSTextView {
     override func rightMouseDown(with event: NSEvent) { ownMenus += 1 }
 }
 
-/// An app-drawn image under a node (T3ToolActivityIcon's IconView): presses go through it to the node.
+/// An app-drawn image under a node (`T3ShellImageView`): presses go through it to the node.
 private final class DrawnIcon: NSView, T3ShellImageView {
     var shellImage: CGImage?
     override func hitTest(_ point: NSPoint) -> NSView? { nil }

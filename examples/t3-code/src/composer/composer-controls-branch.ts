@@ -352,12 +352,11 @@ export async function selectBranch(client: T3Client, native: Native, storage: Fi
   }
 }
 
-/** handleBranchContextMenu: right-clicking the branch trigger or a ref offers "Copy branch name". */
-export async function branchMenu(client: T3Client, native: Native, name: string): Promise<string> {
+/** handleBranchContextMenu's one item, "Copy branch name": the trigger's and each ref's context popover
+ * (composer-controls.contract BranchNameMenu) runs it with the right-clicked name. */
+export async function copyBranchName(client: T3Client, native: Native, name: string): Promise<string> {
   if (!name) return '';
   const access = client.restAccess(native);
-  const reply = await access.call({ op: 'contextMenu', items: [{ id: 'copy-branch-name', label: 'Copy branch name', icon: 'copy' }] });
-  if (reply.clicked !== 'copy-branch-name') return '';
   try {
     const copied = await access.call({ op: 'copyText', text: name });
     if (copied.copied === false) throw new ClientError('The clipboard refused the branch name.');

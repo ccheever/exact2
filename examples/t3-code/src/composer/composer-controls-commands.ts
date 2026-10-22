@@ -11,7 +11,7 @@ import { ClientError, activeRun, launchPayload, type Files, type Native } from '
 import { pushToast } from '../shell/toast';
 import { wokeAt as sidebarWokeAt } from '../sidebar/sidebar-model';
 import { beginQueuedEdit, cancelQueuedEdit, queuedDrop, queueState, removeQueuedEditAttachment } from './composer-controls-queue';
-import { branchMenu, dismissBranchMismatch, restoreThreadBranch, selectBranch, setEnvMode } from './composer-controls-branch';
+import { copyBranchName, dismissBranchMismatch, restoreThreadBranch, selectBranch, setEnvMode } from './composer-controls-branch';
 import { attachIncoming, type IncomingFiles } from './composer-controls-attach';
 import { queueRowDrop } from '../sidebar/legacy-sidebar-drop';
 import { openUsageLimits, closeUsageLimits, changeLimitRecovery, usageLocal } from './composer-controls-usage';
@@ -262,7 +262,7 @@ export async function composerLocal(client: T3Client, _native: Native, _storage:
     return id === 'row' ? queueRowDrop(client, incoming.target, incoming) : attachIncoming(client, _native, id, incoming);
   }
   if (op === 'branch-mismatch-dismiss') { dismissBranchMismatch(client, id); return ''; }
-  if (op === 'branch-menu') return branchMenu(client, _native, value);
+  if (op === 'branch-copy') return copyBranchName(client, _native, value);
   // The compact strip's workspace trigger has no context menu (BranchToolbar's MobileRunContextSelector).
   if (op === 'noop') return '';
   if (op === 'balance-load') return loadHostResources(client, _native, id, Number(value) || 0); // the machines' host resources

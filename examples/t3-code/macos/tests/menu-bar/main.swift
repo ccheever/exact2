@@ -102,37 +102,21 @@ final class MenuBarTests: XCTestCase {
     let chords: [String: (String, NSEvent.ModifierFlags)] = ["Thread 1": ("1", .command), "Undo": ("z", .command), "Close Right Panel": ("w", .command),
                                                             "Toggle Diff": ("d", .command), "Open in Editor": ("o", .command), "Medium": ("e", [.command, .shift])]
 
-    func testTheBarMatchesTheReferenceDesktopMenus() {
+    /// The bar's menus and items are the host's and Contract's (`-exact-menu`, `-exact-menu-remove`); the module adds
+    /// Paste as Text and routes Edit › Undo, and leaves every other item where the host put it.
+    func testTheModuleLeavesTheHostsBarButEditsUndo() {
         _ = NSApplication.shared
         let host = ShortcutHost(), dev = DevTarget()
         let bar = hostBar(host, dev)
         let menus = T3Menus()
-        menus.updatesDisabledReason = { "no feed" }
+        let before = bar.items.map { menu in (menu.title, menu.submenu!.items.map { "\($0.title)\($0.isHidden ? " (hidden)" : "")" }) }
         menus.augment(bar)
         menus.augment(bar)
-        XCTAssertEqual(bar.items.map(\.title), ["T3 Code", "File", "Edit", "View", "Window", "Help"], "no Develop or Go menu")
-        let file = bar.items[1].submenu!, view = bar.items[3].submenu!
-        XCTAssertEqual(file.items.filter { !$0.isHidden }.map(\.title), ["Close Window"], "File shows only Close Window (DesktopApplicationMenu.ts darwin)")
-        XCTAssertTrue(file.items.filter { $0.isHidden }.allSatisfy(\.allowsKeyEquivalentWhenHidden), "the host's command items stay key equivalents")
-        XCTAssertTrue(file.delegate === menus.keys)
-        // A later plan batch files a new item: it is concealed before the menu shows.
-        let later = NSMenuItem(title: "Thread 2", action: #selector(ShortcutHost.activate(_:)), keyEquivalent: "2")
-        later.target = host
-        file.insertItem(later, at: 0)
-        menus.keys.menuNeedsUpdate(file)
-        XCTAssertEqual(file.items.filter { !$0.isHidden }.map(\.title), ["Close Window"])
-        // DesktopApplicationMenu.ts View: Reload, Force Reload, —, Actual Size, Zoom In, Zoom Out, —, Toggle Full Screen.
-        XCTAssertEqual(view.items.filter { !$0.isHidden }.map { $0.isSeparatorItem ? "—" : $0.title },
-                       ["Reload", "Force Reload", "—", "Actual Size", "Zoom In", "Zoom Out", "—", "Enter Full Screen"])
-        XCTAssertTrue(bar.performKeyEquivalent(with: key("r", 15)))
-        XCTAssertEqual(host.pressed, ["Reload"], "⌘R presses the window's own button")
-        XCTAssertEqual(dev.reloads, 0, "the Develop menu is gone")
-        // The host's Save Trace stays a hidden ⌥⌘T in a development build, once.
-        let traces = view.items.filter { $0.title == "Save Trace" }
-        XCTAssertEqual(traces.count, 1)
-        XCTAssertTrue(traces.allSatisfy { $0.isHidden && $0.allowsKeyEquivalentWhenHidden && $0.keyEquivalent == "t" && $0.keyEquivalentModifierMask == [.command, .option] })
-        XCTAssertTrue(bar.performKeyEquivalent(with: key("t", 17, [.command, .option])))
-        XCTAssertEqual(dev.traces, 1, "⌥⌘T saves a trace")
+        let after = bar.items.map { menu in (menu.title, menu.submenu!.items.filter { $0.title != "Paste as Text" }.map { "\($0.title)\($0.isHidden ? " (hidden)" : "")" }) }
+        XCTAssertEqual(after.map(\.0), before.map(\.0))
+        XCTAssertEqual(after.map(\.1), before.map(\.1))
+        XCTAssertEqual(bar.items.first { $0.title == "Edit" }!.submenu!.items.filter { $0.title == "Paste as Text" }.count, 1)
+        XCTAssertTrue(bar.items.first { $0.title == "Edit" }!.submenu!.items[0].target === menus.keys)
     }
 
     func testKeystrokesReachTheWindowsCommands() {
@@ -141,53 +125,23 @@ final class MenuBarTests: XCTestCase {
         let bar = hostBar(host, dev)
         NSApp.mainMenu = bar
         let menus = T3Menus()
-        menus.updatesDisabledReason = { "no feed" }
         menus.augment(bar)
         menus.keys.keystroke = { true }
         sync(bar, chords)
-        let file = bar.items.first { $0.submenu?.title == "File" }!.submenu!
-        // ⌘D and ⌘O are free once Develop is gone: AppKit keeps them on the window's items.
-        XCTAssertEqual(file.item(withTitle: "Toggle Diff")?.keyEquivalent, "d")
-        XCTAssertEqual(file.item(withTitle: "Open in Editor")?.keyEquivalent, "o")
-        XCTAssertTrue(bar.performKeyEquivalent(with: key("d", 2)))
-        XCTAssertTrue(bar.performKeyEquivalent(with: key("o", 31)))
         XCTAssertTrue(bar.performKeyEquivalent(with: key("1", 18)))
         XCTAssertTrue(bar.performKeyEquivalent(with: key("e", 14, [.command, .shift])))
-        XCTAssertEqual(host.pressed, ["Toggle Diff", "Open in Editor", "Thread 1", "Medium"])
-        XCTAssertEqual(dev.infos, 0, "App Info… no longer takes ⌘D")
+        XCTAssertEqual(host.pressed, ["Thread 1", "Medium"])
         // ⌘Z: Edit › Undo keeps the chord; with no editable text focused, a keystroke is thread.undo.
         host.pressed = []
         XCTAssertTrue(bar.performKeyEquivalent(with: key("z", 6)))
         XCTAssertEqual(host.pressed, ["Undo"])
+        let file = bar.items.first { $0.submenu?.title == "File" }!.submenu!
         let undo = bar.items.first { $0.submenu?.title == "Edit" }!.submenu!.items[0]
         XCTAssertTrue(menus.keys.validateMenuItem(undo), "enabled while the undo notice is live")
         host.disabled = ["Undo"]
         XCTAssertFalse(menus.keys.validateMenuItem(undo), "nothing to undo")
         file.item(withTitle: "Undo").map { $0.menu?.removeItem($0) }
         XCTAssertFalse(menus.keys.validateMenuItem(undo))
-        // ⌘W: an open right panel closes first; without one the window closes.
-        host.pressed = []
-        XCTAssertTrue(bar.performKeyEquivalent(with: key("w", 13)))
-        XCTAssertEqual(host.pressed, ["Close Right Panel"])
-        host.disabled.insert("Close Right Panel")
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.orderFront(nil)
-        XCTAssertTrue(window.isVisible)
-        menus.keys.closeTarget = { window }
-        XCTAssertTrue(bar.performKeyEquivalent(with: key("w", 13)))
-        XCTAssertFalse(window.isVisible, "no panel to close: Close Window closes the window")
-        // A click on the menu item (no keystroke) is always Close Window.
-        menus.keys.keystroke = { false }
-        host.disabled = []
-        let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        other.isReleasedWhenClosed = false
-        other.orderFront(nil)
-        menus.keys.closeTarget = { other }
-        host.pressed = []
-        menus.keys.closeWindow(nil)
-        XCTAssertEqual(host.pressed, [])
-        XCTAssertFalse(other.isVisible)
         NSApp.mainMenu = nil
     }
 

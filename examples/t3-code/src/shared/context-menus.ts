@@ -4,8 +4,8 @@
 // components/pullRequest/pullRequestLinkContextMenu.ts (a change request's number),
 // ChatMarkdown.tsx's file-link menu, components/preview/fileExplorerLabel.ts and
 // editorLabels.ts openInEditorMenuLabel; diffFileActions.ts resolveDiffPathForWorkspace and
-// packages/shared/src/path.ts for the absolute path. The module's `contextMenu` op
-// (T3ContextMenu.swift) shows them as ElectronMenu.ts would: an item with children is a submenu.
+// packages/shared/src/path.ts for the absolute path. Contract context popovers show them, which macOS
+// presents as ElectronMenu.ts's native menu: an item with children is a submenu.
 import { obj, str, type Obj } from '../client/domain';
 import { EDITOR_DEFINITIONS } from './editors';
 import type { MenuItem } from '../sidebar/sidebar-menu';

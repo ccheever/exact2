@@ -126,7 +126,7 @@ export async function chatExternalLinkPick(client: T3Client, native: Native, sto
         throw error;
       }
     },
-    openExternal: target => openInSystemBrowser(native, target),
+    openExternal: target => openInSystemBrowser(target),
     copyLink: async target => {
       const reply = await bridgeReply(native, { op: 'copyText', text: target });
       if (!reply.ok) throw new Error(reply.error?.message || 'The clipboard is unavailable.');

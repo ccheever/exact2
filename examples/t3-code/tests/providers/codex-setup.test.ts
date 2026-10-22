@@ -12,6 +12,7 @@ import { codexFlow, codexSetupView, readCodexSetupMode } from '../../src/provide
 import { codexSetupOp, codexSetupPrepare, RECEIVE_FAILED, type CodexContext } from '../../src/providers/codex-setup-ops';
 import { codexHandoffEvent } from '../../src/providers/codex-handoff-events';
 import { appPath } from '../support/app-files';
+import { externalOpensForTests, resetExternalOpensForTests } from '../../src/client/external-open';
 
 const instanceId = 'codex_personal';
 const port = 16241, state = 'a'.repeat(43);
@@ -35,6 +36,7 @@ class Fake implements ProviderHost, Native {
   /** What `codexAuthTake` answers next, and what the listener was asked. */
   taken: Obj = { phase: 'waiting' }; startFailure = '';
   constructor(live: Obj[] = [provider()]) {
+    resetExternalOpensForTests();
     this.config = { environment: { label: 'This Mac' }, settings: { providers: {}, providerInstances: { [instanceId]: { driver: 'codex', displayName: 'ChatGPT - Personal', enabled: true, config: { enabled: true, setupMode: 'managed' } } } }, providers: live };
   }
   watch() {}
@@ -44,7 +46,6 @@ class Fake implements ProviderHost, Native {
     const ok = (value: Obj) => ({ ok: true, generation: this.generation, value });
     if (op === 'subscribe') { const id = `sub-${++this.serial}`; this.subs[str(request.key)] = id; return ok({ id }); }
     if (op === 'unsubscribe') { delete this.subs[str(request.key)]; return ok({}); }
-    if (op === 'remoteEditorsOpen') return ok({ opened: true, recorded: true });
     if (op === 'codexAuthStart') return this.startFailure ? { ok: false, generation: this.generation, error: { kind: 'CodexAuth', message: this.startFailure, uncertain: false } } : ok({ listening: true });
     if (op === 'codexAuthTake') { const value = this.taken; this.taken = { phase: 'none' }; return ok(value); }
     return ok({});
@@ -115,12 +116,12 @@ describe('managed Codex setup (CodexSetupSection)', () => {
     expect(fake.setup().control).toBe('waiting');
     fake.emit('auth', waiting()); await fake.prepare(); await fake.prepare();
     expect(fake.nativeOps('codexAuthStart')).toEqual([{ op: 'codexAuthStart', authorizationUrl }]);
-    expect(fake.nativeOps('remoteEditorsOpen')).toEqual([]);
+    expect(externalOpensForTests()).toEqual([]);
     expect(fake.setup().controlLabel).toBe('Open sign-in page');
     // "Open sign-in page" again re-opens the browser on the listener the flow already holds.
     await fake.press('setup:codex-open');
     expect(fake.nativeOps('codexAuthStart')).toHaveLength(1);
-    expect(fake.nativeOps('remoteEditorsOpen')).toEqual([{ op: 'remoteEditorsOpen', url: authorizationUrl }]);
+    expect(externalOpensForTests()).toEqual([authorizationUrl]);
     fake.taken = { phase: 'received', callbackUrl }; await fake.prepare();
     expect(fake.methods('provider.auth.complete')).toEqual([{ method: 'provider.auth.complete', payload: { instanceId, flowId: 'flow-1', callbackUrl } }]);
     fake.emit('auth', auth({ phase: 'verifying', flowId: 'flow-1' })); await fake.prepare();
@@ -165,7 +166,7 @@ describe('managed Codex setup (CodexSetupSection)', () => {
     expect(fake.methods('provider.auth.complete')).toEqual([{ method: 'provider.auth.complete', payload: { instanceId, flowId: 'flow-1', callbackUrl } }]);
     expect(fake.setup().formKey).toBe('flow-1:1');
     await fake.press('setup:codex-browser');
-    expect(fake.nativeOps('remoteEditorsOpen')).toEqual([{ op: 'remoteEditorsOpen', url: authorizationUrl }]);
+    expect(externalOpensForTests()).toEqual([authorizationUrl]);
   });
 
   test('cancel releases the listener and restores the start state; a failed listener shows the desktop message', async () => {
@@ -315,7 +316,7 @@ describe('managed Codex setup (CodexSetupSection)', () => {
     // The primary's auth state drives the row and opens the page there (no local listener: the primary listens).
     codexHandoffEvent({ key: `chatgpt-handoff:${instanceId}`, subscriptionId: 'handoff-1', value: { phase: 'auth', state: waiting('primary-flow') } });
     await codexSetupPrepare([fake.context(remote)]);
-    expect(fake.nativeOps('remoteEditorsOpen')).toEqual([{ op: 'remoteEditorsOpen', url: authorizationUrl }]);
+    expect(externalOpensForTests()).toEqual([authorizationUrl]);
     expect(fake.nativeOps('codexAuthStart')).toEqual([]);
     expect(fake.setup().callback).toBe(false);
     const transferred = { registration: { clientId: 'oaiapp_one' }, credentials: { clientId: 'oaiapp_one' } };

@@ -7,12 +7,12 @@
 // check details and the published repository (kind "button", no modifier), a pull request link with no project to
 // open it beside, and terminal links all ask `resolveLinkTarget`. A chat link's ⌥-click opens the system browser unless
 // the setting and the click keep it in the app: `resolveLinkTarget` reads no ⌥, so it already lands there. "app" opens a Browser tab beside the thread
-// (`preview.open`); an in-app open that fails falls back to the system browser (`remoteEditorsOpen`, the clone's
-// shell.openExternal); a project script's `previewUrl` always opens in the app.
+// (`preview.open`); an in-app open that fails falls back to the system browser (shell.openExternal,
+// external-open.ts); a project script's `previewUrl` always opens in the app.
 import type { T3Client } from '../client/client';
 import { openThreadLinkTarget, parseThreadLinkHref, resolveThreadLink } from '../timeline/thread-links';
 import { arr, num, obj, str } from '../client/domain';
-import { bridgeReply, ClientError, type Native } from '../client/protocol';
+import { ClientError, type Native } from '../client/protocol';
 import { letGo } from '../client/let-go';
 import { activeRef } from '../terminal/terminal-drawer-view';
 import { parseScopedThreadKey, scopedThreadKey, type ScopedThreadRef } from '../terminal/terminal-ui-state';
@@ -25,6 +25,7 @@ import { BrowserSettingsReadError, DEFAULT_BROWSER_PROFILE_ID } from './browser-
 import { mediaFileReference } from '../media/media-reference';
 import { assetUrl } from '../settings/settings-b-icons';
 import { openHome } from '../pages/home-landing';
+import { openExternal } from '../client/external-open';
 
 export type BrowserLinkTarget = 'system' | 'app';
 export type LinkEvent = { readonly metaKey: boolean; readonly ctrlKey: boolean; readonly button?: number };
@@ -132,10 +133,9 @@ export async function openFileInPreview(client: T3Client, native: Native, ref: S
   await openUrlInPreview(client, native, ref, url);
 }
 
-/** ElectronShell.openExternal (T3RemoteEditors.swift; an agent run records the URL). */
-export async function openInSystemBrowser(native: Native, url: string): Promise<void> {
-  const reply = await bridgeReply(native, { op: 'remoteEditorsOpen', url });
-  if (!reply.ok || obj(reply.value).opened === false) throw new ClientError('Link opening is unavailable.');
+/** ElectronShell.openExternal (external-open.ts; an agent run journals the URL). */
+export async function openInSystemBrowser(url: string): Promise<void> {
+  if (!openExternal(url)) throw new ClientError('Link opening is unavailable.');
 }
 
 /** useOpenLink: the setting decides; a failed in-app open falls back to the system browser rather than dropping the click.
@@ -147,7 +147,7 @@ export async function openLink(client: T3Client, native: Native, url: string, op
     try { await openUrlInPreview(client, native, ref, url); return 'app'; }
     catch (error) { if (letGo(error) || error instanceof BrowserSettingsReadError) throw error; }
   }
-  await openInSystemBrowser(native, url);
+  await openInSystemBrowser(url);
   return 'system';
 }
 
@@ -171,7 +171,7 @@ export async function openLinkFromUi(client: T3Client, native: Native, pressed: 
   // A button on the pull request page ("button-page") has no thread to open beside: the system browser.
   // A work-log web result ("external") is the reference's target=_blank link: always the system browser (setWindowOpenHandler).
   try {
-    if (kind === 'external') await openInSystemBrowser(native, url);
+    if (kind === 'external') await openInSystemBrowser(url);
     else await openLink(client, native, url, { event, ...(kind === 'button-page' ? { threadRef: null } : {}) });
   }
   catch (error) {

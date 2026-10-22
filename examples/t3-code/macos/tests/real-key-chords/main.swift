@@ -240,7 +240,8 @@ final class RealKeyChordsTests: XCTestCase {
     func checkEveryChord(focus: NSResponder?, label: String, except taken: Set<String> = []) {
         let f = fixture
         XCTAssertTrue(f.activate() || screenLocked, "the app is active and its window key, as under real keys")
-        XCTAssertEqual(NSApp.mainMenu?.items.map(\.title), ["T3 Code", "File", "Edit", "View", "Window", "Help"], "the clone's bar (no Develop, no Go)")
+        // The module leaves the host's menus; the window root's `-exact-menu-remove` takes Develop and Go.
+        XCTAssertEqual(NSApp.mainMenu?.items.map(\.title), ["T3 Code", "File", "Edit", "View", "Go", "Window", "Develop", "Help"], "the host's bar")
         for key in referenceChords where !editMenuChords.contains(key) && !taken.contains(key) {
             let chord = Chord(key: key)
             f.window.makeFirstResponder(focus)

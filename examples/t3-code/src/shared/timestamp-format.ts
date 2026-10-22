@@ -1,8 +1,8 @@
 // Timestamps in the Mac's locale. Reference apps/web/src/timestampFormat.ts (1e2ecbd975,
 // resolveHour12 at 74541bab17; MIT, see LICENSE-T3): resolveTimestampLocale, resolveWeekStartsOn,
 // resolveHour12 and the cached wall-clock formatters. The desktop host reports the system locale
-// (Electron's app.getSystemLocale() with `_` → `-`; here the native module's `systemLocale`, T3Locale.swift,
-// read with the status presentation). The packaged Electron app's runtime default locale is en-US
+// (Electron's app.getSystemLocale() with `_` → `-`; here Contract's `exactTime().formatLocale`, the Region's
+// format locale, which app.contract passes with the snapshot request). The packaged Electron app's runtime default locale is en-US
 // (it ships only that Chromium locale), while the macOS data runtime's default follows the Mac's
 // region (en-KR on a Korean Mac; exact2 docs/reference.md: pass the locale explicitly), so a call
 // the reference leaves at the runtime default passes RUNTIME_LOCALE here.
@@ -50,7 +50,7 @@ let hostTag: string | null | undefined;
 let timestampLocale: string | undefined;
 const formatters = new Map<string, Intl.DateTimeFormat>();
 
-/** The status presentation's `systemLocale` (T3Locale.swift); a repeat of the same tag is free. */
+/** `exactTime().formatLocale` (presentation.ts snapshot); a repeat of the same tag is free. */
 export function adoptHostLocale(systemLocale: unknown): void {
   const tag = typeof systemLocale === 'string' ? systemLocale : null;
   if (tag === hostTag) return;

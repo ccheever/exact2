@@ -16,6 +16,7 @@ import { openFileLink, panelState, type Surface } from '../../src/panel/panel-su
 import { resetRemoteEditorsForTests } from '../../src/connections/remote-open';
 import { messageChips } from '../../src/timeline/message-chips';
 import { previewPdfAssetUrl } from '../../src/browser/browser-url';
+import { externalOpensForTests } from '../../src/client/external-open';
 import { fileLinkCopyPaths, formatFilePathForClipboard, pickStrippedWorkspaceMatch, pickWorkspaceBasenameMatch, stripRepeatedWorkspacePrefix,
   workspaceLookupPath, workspaceRelativeFilePath } from '../../src/timeline/workspace-file-lookup';
 
@@ -46,7 +47,6 @@ function fixture(answer: Answer = () => ({}), options: { root?: string; remote?:
     }
     if (request.op === 'sshHosts') return { ok: true, generation: 0, value: { targets: options.remote ? { [origin]: { alias: 'devbox', username: 'dev' } } : {} } };
     if (request.op === 'remoteEditorsProbe') return { ok: true, generation: 0, value: { editors: ['vscode'] } };
-    if (request.op === 'remoteEditorsOpen') return { ok: true, generation: 0, value: { opened: true } };
     if (request.op === 'copyText') return { ok: true, generation: 0, value: { copied: true } };
     return { ok: true, generation: 0, value: {} };
   } };
@@ -77,6 +77,17 @@ describe('home-relative host paths', () => {
     expect(view.crumbs.map(crumb => crumb.label)).toEqual(['~', '.claude', 'CLAUDE.md']);
     expect(requests.filter(request => request.method === 'projects.readFile').map(request => request.payload.relativePath)).toEqual(['~/.claude/CLAUDE.md']);
     expect(requests.filter(request => request.method === 'projects.listEntries').map(request => request.payload.directoryPath)).toEqual(['']);
+  });
+});
+
+describe('a press that begins editing', () => {
+  test('the view carries the press number the module heard, with the editing it began', async () => {
+    const { client, native } = fixture((method) => method === 'projects.readFile' ? { contents: 'one\n', byteLength: 4 } : method === 'projects.listEntries' ? { entries: [] } : {});
+    const tabs = panelState(client), readme = file('README.md');
+    tabs.surfaces = [readme]; tabs.active = readme.id; tabs.visible = true;
+    expect((await filesView(client, native, readme)).editPress).toBe('');
+    await filesLocal(client, native, 'begin-edit', readme.path, '4');
+    expect(await filesView(client, native, readme)).toMatchObject({ editing: true, editorText: 'one\n', editPress: '4' });
   });
 });
 
@@ -112,7 +123,7 @@ describe('a failed refresh', () => {
     const view = await filesView(client, native, readme);
     expect(view).toMatchObject({ preview: 'code', text: 'kept', previewError: '' });
     await filesLocal(client, native, 'open-editor', view.absolutePath, 'vscode');
-    expect(calls.filter(call => call.op === 'remoteEditorsOpen').at(-1)?.url).toBe('vscode://vscode-remote/ssh-remote+dev%40devbox/work/repo/README.md:1:1');
+    expect(externalOpensForTests().at(-1)).toBe('vscode://vscode-remote/ssh-remote+dev%40devbox/work/repo/README.md:1:1');
     fail = 'path_not_file';
     await filesLocal(client, native, 'refresh', '', '');
     expect(filesState(client).reads.get('README.md')).toMatchObject({ notFile: true, contents: '' });
@@ -172,7 +183,7 @@ describe('Open in from the file preview', () => {
     tabs.surfaces = [readme]; tabs.active = readme.id; tabs.visible = true;
     const view = await filesView(client, native, readme);
     await filesLocal(client, native, 'open-editor', view.absolutePath, 'vscode');
-    expect(calls.find(call => call.op === 'remoteEditorsOpen')?.url).toBe('vscode://vscode-remote/ssh-remote+dev%40devbox/work/repo/README.md:1:1');
+    expect(externalOpensForTests().at(-1)).toBe('vscode://vscode-remote/ssh-remote+dev%40devbox/work/repo/README.md:1:1');
   });
 });
 

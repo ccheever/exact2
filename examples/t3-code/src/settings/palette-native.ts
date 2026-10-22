@@ -1,5 +1,5 @@
-// What the app's native module needs from the device settings beyond deviceSettings:
-// the Quit shortcut mode (settings.ts QuitConfirmationMode, default "hold").
+// The Quit shortcut mode (settings.ts QuitConfirmationMode, default "hold"), which the window's ⌘Q hold
+// reads from the settingsCore resource (quit-hold.contract).
 import { obj, str } from '../client/domain';
 
 export const QUIT_MODES = ['direct', 'hold', 'double-click'] as const;
