@@ -40,6 +40,9 @@ export const readBody = (req, limit, res = null, raw = false) => new Promise(don
   });
   req.on('end', () => finish(raw ? Buffer.concat(chunks) : Buffer.concat(chunks).toString('utf8')));
   req.on('error', () => finish(undefined));
+  // The client left: settled here, or on its connection's close below. One that stays and only trickles is
+  // cut by its door's connection deadline (10 s, `timeoutMs` in tamber-remote.mjs's guard), which runs while
+  // a body arrives; a loopback request has the dev loop's.
   req.on('close', () => finish(undefined));
   // (and when its connection closes: Bun loses `req`'s close on a socket a TLS door hands to the HTTP
   // server, so a client that left mid-body would hold this, and its chunks, for good)
