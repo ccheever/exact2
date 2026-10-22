@@ -1,6 +1,7 @@
 // A cold WebView may run before layout. Exercise the real wasm runner in a
 // zero-sized iframe, including a served document and a dev-plan restart.
 import { expect } from 'bun:test';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { extname, resolve } from 'node:path';
 import { assertWebDistApp } from '../../../scripts/agent.mjs';
@@ -8,6 +9,7 @@ import { chromium, refuseStale, suiteBrowser, webChanges } from '../../../script
 import { resolveApp } from '../../../scripts/app.mjs';
 import { need, notApplicable } from '../../../scripts/coverage.mjs';
 import { jsTargetBuild } from '../serve.mjs';
+import { withLook } from '../look.mjs';
 
 const ROOT = resolve(import.meta.dir, '../../..');
 const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
@@ -24,7 +26,7 @@ async function prerequisite() {
   return ['chrome', null];
 }
 const check = process.env.EXACT_GLUE_FAST === '1'
-  ? notApplicable('this test needs a built wasm Caltrain app') : need(...await prerequisite());
+  ? notApplicable('the web-ax-test step runs this test against the built wasm Caltrain app') : need(...await prerequisite());
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm' };
 
 // Observe entry to the viewport wait, or a boot attempt on a host without
@@ -80,9 +82,9 @@ function serve(documentPage) {
     const url = new URL(req.url);
     if (url.pathname === '/frame') return new Response(`<!doctype html><iframe
       style="border:0;width:${Number(url.searchParams.get('w'))}px;height:${Number(url.searchParams.get('h'))}px"
-      src="/${url.searchParams.has('document') ? 'document' : 'index.html'}?agent=1"></iframe>`,
+      src="/${url.searchParams.has('document') ? '' : 'index.html'}?agent=1"></iframe>`,
     { headers: { 'content-type': 'text/html' } });
-    if (url.pathname === '/document') return new Response(documentPage, { headers: { 'content-type': 'text/html' } });
+    if (url.pathname === '/') return new Response(documentPage, { headers: { 'content-type': 'text/html' } });
     const file = Bun.file(resolve(dist, '.' + url.pathname));
     return await file.exists() ? new Response(file, { headers: { 'content-type': TYPES[extname(url.pathname)] ?? 'application/octet-stream' } })
       : new Response('', { status: 404 });
@@ -132,11 +134,17 @@ check('wasm boot waits for both viewport dimensions; zero resizes and plan reloa
 }, 120000);
 
 check('a served document stays unbooted at zero size and adopts when it gets a viewport', async () => {
-  const render = spawnSync('cargo', ['run', '-q', '-p', 'caltrain-linux', '--bin', 'caltrain-render', '--',
-    '--plan', resolve(dist, 'app.plan'), '--viewport', '400x300', '--shell', resolve(dist, 'index.html'), '/'],
-  { cwd: ROOT, encoding: 'utf8' });
-  expect(render.status, render.stderr).toBe(0);
-  const documentPage = JSON.parse(render.stdout.trim().split('\n').at(-1)).page;
+  const dir = mkdtempSync(resolve(ROOT, '.zero-viewport-'));
+  let documentPage;
+  try {
+    const shell = resolve(dir, 'index.html');
+    writeFileSync(shell, withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8')));
+    const render = spawnSync('cargo', ['run', '-q', '-p', 'caltrain-linux', '--bin', 'caltrain-render', '--',
+      '--plan', resolve(dist, 'app.plan'), '--viewport', '400x300', '--shell', shell, '/'],
+    { cwd: ROOT, encoding: 'utf8' });
+    expect(render.status, render.stderr + render.stdout).toBe(0);
+    documentPage = JSON.parse(render.stdout.trim().split('\n').at(-1)).page;
+  } finally { rmSync(dir, { recursive: true, force: true }); }
   expect(documentPage).toContain('application/vnd.exact.checkpoint');
   const browser = await suiteBrowser(), server = serve(documentPage);
   try {
@@ -155,6 +163,7 @@ check('a served document stays unbooted at zero size and adopts when it gets a v
     await resize(page, frame, 400, 300);
     await booted(frame);
     expect((await status(frame)).boots).toEqual([[400, 300]]);
+    expect(await frame.evaluate(async () => (await exact.agent({ op: 'state' })).adopted)).toBe(true);
     expect(JSON.stringify(await frame.evaluate(() => exact.agent({ op: 'logs', since: 0 })))).not.toMatch(/InvalidViewport|not booted/);
   } finally { await browser.close(); server.stop(true); }
 }, 120000);
