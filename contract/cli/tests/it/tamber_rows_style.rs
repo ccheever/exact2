@@ -162,3 +162,26 @@ fn a_buttons_a_grouped_lists_and_a_swipes_style_rows_are_left_to_the_build() {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// Refusals are said as the build reaches them (Grok's round 3): an element's
+/// style row before its own, and an earlier element's style row before a
+/// later one's, whatever their order in the file. The first is the build's.
+#[test]
+fn refusals_come_in_the_order_the_build_reaches_them() {
+    let op = json!({"op": "set-token", "name": "gap", "value": "#444444"});
+    let written = DESIGN.replace("gap = 8px", "gap = #444444");
+    same_words(
+        &reading("rows-style-own-after"),
+        DESIGN,
+        "use Card from \"@acme/reading\"\nstyle Pad\n  padding=\"gap\"\ncomponent App\n  view\n    column class=Pad margin=\"gap\"\n      Card()\n",
+        op.clone(),
+        &written,
+    );
+    same_words(
+        &reading("rows-style-element-order"),
+        DESIGN,
+        "use Card from \"@acme/reading\"\nstyle Pad\n  padding=\"gap\"\nstyle Wide\n  margin=\"gap\"\ncomponent App\n  view\n    column class=Wide\n      row class=Pad\n        Card()\n",
+        op,
+        &written,
+    );
+}

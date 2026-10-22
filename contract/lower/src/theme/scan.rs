@@ -485,6 +485,10 @@ impl Said {
                             computed,
                             within: within.clone(),
                             element: 0,
+                            order: lowered
+                                .get(&(node as *const Node as usize))
+                                .copied()
+                                .unwrap_or(0),
                         });
                     }
                     // A style's rows where an element applies it, as lowering
@@ -570,6 +574,10 @@ impl Said {
                             computed,
                             within: within.clone(),
                             element: lowered
+                                .get(&(node as *const Node as usize))
+                                .copied()
+                                .unwrap_or(0),
+                            order: lowered
                                 .get(&(node as *const Node as usize))
                                 .copied()
                                 .unwrap_or(0),
