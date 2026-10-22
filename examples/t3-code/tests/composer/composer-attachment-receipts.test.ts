@@ -4,7 +4,7 @@ import type { Files, Native } from '../../src/client/protocol';
 import { composerFieldOwner } from '../../src/composer/auto-balance-owner';
 import { composerFieldAcknowledged, composerFieldNative, composerFieldObserved, composerFieldResource } from '../../src/composer/composer-field-bridge';
 import { prepareAttachmentEffect } from '../../src/composer/composer-attachment-receipts';
-import { draftFiles, takeFold } from '../../src/composer/composer-editor-files';
+import { draftFiles, foldPaste } from '../../src/composer/composer-editor-files';
 import { observeComposer } from '../support/composer-field-fixture';
 import { captureHost, commitAnnotationSend, takeAnnotationDispatch } from '../../src/browser/browser-capture';
 import { composerWrites } from '../../src/client/client-ops-composer';
@@ -30,8 +30,8 @@ function setup(value = 'seed') {
 test('fold staging settles once in the independent ACK, before its caller continuation', async () => {
   const state = setup(), { client, snapshot, owner, native } = state;
   const waiting = () => composerFieldResource(client, [snapshot, 0], owner);
-  const taking = takeFold(client, native, { id: 1, snapshotOwner: snapshot.snapshotOwner, fieldOwner: owner, value: snapshot.value,
-    start: 4, end: 4, expect: '', text: 'x'.repeat(40_000) }, 'fold-1');
+  const taking = foldPaste(client, native, 'fold', { id: 1, snapshotOwner: snapshot.snapshotOwner, fieldOwner: owner, value: snapshot.value,
+    start: 4, end: 4, text: 'x'.repeat(40_000) }, 'fold-1');
   await taking;
   const command = waiting();
   expect(command.completion).toBeGreaterThan(0);
@@ -47,8 +47,8 @@ test('fold staging settles once in the independent ACK, before its caller contin
 test('a refused fold clears its reserved bytes and metadata without a success toast', async () => {
   const state = setup(), { client, snapshot, owner, native } = state;
   const waiting = () => composerFieldResource(client, [snapshot, 0], owner);
-  const taking = takeFold(client, native, { id: 1, snapshotOwner: snapshot.snapshotOwner, fieldOwner: owner, value: snapshot.value,
-    start: 4, end: 4, expect: '', text: 'large paste' }, 'fold-2');
+  const taking = foldPaste(client, native, 'fold', { id: 1, snapshotOwner: snapshot.snapshotOwner, fieldOwner: owner, value: snapshot.value,
+    start: 4, end: 4, text: 'large paste' }, 'fold-2');
   await taking;
   waiting();
   state.input('manual edit', 1);

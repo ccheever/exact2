@@ -54,6 +54,17 @@ component CmpIcon
 // carries text beside a file (a Finder copy carries the file's name) pastes the text.
 fn composerPasteImage(path: string): bool = ["png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "svg", "ico", "avif", "jxl"].includes(path.toLowerCase().split(".").slice(-1).join(""))
 fn composerPasteTakesFiles(files: string[], text: string): bool = files.length > 0 and (files.filter((path) => composerPasteImage(path)).length > 0 or text == "")
+// foldPastedText over pastedTextDisposition and wouldTextPasteExceedLimit (ChatComposer.tsx, client-runtime textPaste.ts):
+// "fold" makes a text paste a pasted-text.txt file chip, "too-large-message" and "too-large-attach" refuse it with the
+// reference's toasts, and "inline" leaves it to the field. A paste folds at 32 KB, in UTF-16 units or UTF-8 bytes, or when
+// it would take the prompt past 120,000 units. A unit is at most 3 bytes, so the byte count (encodeURIComponent's escapes)
+// is read only where it can decide. `limit` is the server's staging limit, 0 when this paste cannot be staged
+// (composer-editor-files.ts foldLimit).
+fn composerUtf8Length(text: string): number = encodeURIComponent(text).length - 2 * (encodeURIComponent(text).split("%").length - 1)
+fn composerPasteLarge(text: string): bool = text.length >= 32768 or (text.length * 3 >= 32768 and composerUtf8Length(text) >= 32768)
+fn composerPasteExceeds(text: string, valueLength: number, start: number, end: number): bool = valueLength - (max(min(start, valueLength), min(end, valueLength)) - min(start, valueLength)) + text.length > 120000
+fn composerPasteOverLimit(text: string, limit: number): bool = limit <= 0 or (text.length * 3 > limit and composerUtf8Length(text) > limit)
+fn composerPasteDisposition(text: string, valueLength: number, start: number, end: number, limit: number): string = text == "" or not (composerPasteExceeds(text, valueLength, start, end) or composerPasteLarge(text)) ? "inline" : (not composerPasteOverLimit(text, limit) ? "fold" : (not composerPasteExceeds(text, valueLength, start, end) ? "inline" : (limit > 0 ? "too-large-attach" : "too-large-message")))
 
 component ComposerCard
   inject
@@ -71,6 +82,8 @@ component ComposerCard
     composerCopied: action
     // A drop, a paste or Attach files (app.contract attachFiles, composer-controls-attach.ts).
     attachFiles: action
+    // A text paste, which a large one folds into a file (app.contract composerPasteFold).
+    composerPasteFold: action
   props
     editor: ComposerEditorView
     data: Snapshot
@@ -121,8 +134,9 @@ component ComposerCard
     pasteAsTextUntil = 0
     onBlur()
   // onComposerPaste: with a thread open, the paste's files attach (preventDefault keeps their names out of the
-  // prompt). Armed by its key (richKey), the paste is Paste as Text (consumePasteAsTextShortcut, one paste only): its
-  // images get no inline chip. Edit › Paste as Text chosen with the pointer has no key before it, so it is a Paste.
+  // prompt); a large text paste folds into a file (foldPastedText). Armed by its key (richKey), the paste is Paste as
+  // Text (consumePasteAsTextShortcut, one paste only): its images get no inline chip and its text stays inline however
+  // large (bypassAutoAttachment). Edit › Paste as Text chosen with the pointer has no key before it, so it is a Paste.
   // Leaving the composer disarms it, as the reference's window blur does.
   state pasteAsTextUntil = 0
   action pasted(e: ClipboardEvent)
@@ -131,6 +145,8 @@ component ComposerCard
     if data.projectId != "" and composerPasteTakesFiles(e.files, e.text)
       preventDefault()
       attachFiles("paste", e.files, [], asText, "")
+    else if not asText and e.text != ""
+      composerPasteFold(e.text)
   view
     column width="100%" border-radius="1.375rem" border-style="solid" border-width=1 border-color=(contextOver ? "light-dark(#1b4ed8b3, #346bf1b3)" : (data.look.themed ? data.look.border : "light-dark(#00000014, #ffffff0d)")) background-color=(data.look.themed ? data.look.popover : "light-dark(#fefefe, #101010)") box-shadow="0 12px 28px -18px light-dark(#00000066, #00000000), inset 0 1px 0 0 light-dark(#00000000, #ffffff08)" box-sizing="border-box" testId="composer-surface" position="relative" resize=frameMoved id="composer-surface" data-paint=`${(contextOver ? "" : (data.look.themed ? "border" : ""))} ${(data.look.themed ? "surfaceOverlay" : "")}` data-pick=((data.look.themed ? "surfaceOverlay" : "") != "" ? (data.look.themed ? "surfaceOverlay" : "") : ((contextOver ? "" : (data.look.themed ? "border" : "")) != "" ? (contextOver ? "" : (data.look.themed ? "border" : "")) : ""))
       // bg-accent/45 and ring-primary/70 while a thread is held over the composer.

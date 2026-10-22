@@ -2,8 +2,8 @@ import { composerInput } from './requests';
 import { removeStaged } from './composer-staged-copies';
 import { rememberCopiedChips, stagedInUse } from './composer-copied-chips';
 import { noteComposerFilePaths, refreshFileMetadata } from '../shared/file-metadata';
-// The shared field's source/selection feeds command menus and guarded edits.
-// Native sync supplies file-paste and notice channels; Contract draws the menus.
+// The shared field's source/selection feeds command menus and guarded edits;
+// Contract draws the menus.
 import { preserveCitationDraft } from '../timeline/citation-draft';
 import type { T3Client } from '../client/client';
 import { bridgeReply, ClientError, type Native } from '../client/protocol';
@@ -19,7 +19,7 @@ import {
   pullRequestRecord, pullRequestRows, pullRequestState, repositorySelector,
   skillChipLabels, skillRows, slashRows, threadRows, type EditorTrigger, type MenuRow,
 } from './composer-editor-menu';
-import { composerFileRecords, draftFiles, fileChipContexts, foldLimit, pruneFiles, takeFold } from './composer-editor-files';
+import { composerFileRecords, draftFiles, fileChipContexts, foldLimit, pruneFiles } from './composer-editor-files';
 import { imageChipContexts, imageContextRecords } from './composer-editor-attach';
 import { composerDrawer, composerStackHold, NO_DRAWER, type ComposerDrawer, type StackHold } from './composer-editor-drawer';
 import { layoutFrames } from '../shell/layout-frames';
@@ -41,7 +41,8 @@ import { parseFleetThreadId } from '../connections/settings-b-fleet';
 export type ComposerMenuRow = Omit<MenuRow, 'insert'>;
 export type ComposerMenu = { open: boolean; kind: string; listLabel: string; searchKey: string; loading: boolean; emptyText: string; count: number; rows: ComposerMenuRow[] };
 export type ComposerStash = StashView & { menuOpen: boolean; keyStash: string };
-export type ComposerEditorView = { owner: string; menu: ComposerMenu; promptLimit: string; overLimit: boolean; usageLimits: number; stash: ComposerStash; drawer: ComposerDrawer };
+/** `foldLimit`: the byte limit for folding a large paste into a file (0: it cannot be staged), which the composer's `paste` reads. */
+export type ComposerEditorView = { owner: string; menu: ComposerMenu; promptLimit: string; overLimit: boolean; usageLimits: number; stash: ComposerStash; foldLimit: number; drawer: ComposerDrawer };
 
 type Search = { entries: Obj[]; failed: boolean; providers?: Obj[] };
 type EditorCache = {
@@ -64,7 +65,7 @@ function cache(client: T3Client): EditorCache {
 
 const CLOSED: ComposerMenu = { open: false, kind: '', listLabel: '', searchKey: '', loading: false, emptyText: '', count: 0, rows: [] };
 const NO_STASH: ComposerStash = { count: 0, pulse: 0, rows: [], menuOpen: false, keyStash: '' };
-export const EDITOR_BAKED: ComposerEditorView = { owner: '', menu: CLOSED, promptLimit: '', overLimit: false, usageLimits: 0, stash: NO_STASH, drawer: NO_DRAWER };
+export const EDITOR_BAKED: ComposerEditorView = { owner: '', menu: CLOSED, promptLimit: '', overLimit: false, usageLimits: 0, stash: NO_STASH, foldLimit: 0, drawer: NO_DRAWER };
 
 async function editorCall(native: Native, request: Obj): Promise<Obj> {
   const reply = await bridgeReply(native, request);
@@ -227,7 +228,7 @@ export const localId = (): string => uuid();
 export async function composerEditorView(client: T3Client, native: Native | null | undefined, now = 0): Promise<ComposerEditorView> {
   preserveCitationDraft(client);
   const view = await editorView(client, native, now);
-  return { ...view, drawer: { ...composerDrawer(layoutFrames(client)), hold: composerStackHold(holds(client), client.snapshotOwner, layoutFrames(client)) } }; // composer-editor-drawer.ts
+  return { ...view, foldLimit: client.ready ? foldLimit(client) : 0, drawer: { ...composerDrawer(layoutFrames(client)), hold: composerStackHold(holds(client), client.snapshotOwner, layoutFrames(client)) } }; // composer-editor-drawer.ts
 }
 const stackHolds = new WeakMap<T3Client, StackHold>();
 function holds(client: T3Client): StackHold {
@@ -246,7 +247,7 @@ export async function refreshComposerWorkspace(client: T3Client, native: Native 
   if (!native?.available || !client.ready) return { key, retry: false, wake };
   return cache(client).discovery.refresh(key, (method, payload) => client.restAccess(native).request(method, payload, true));
 }
-async function editorView(client: T3Client, native: Native | null | undefined, now: number): Promise<Omit<ComposerEditorView, 'drawer'>> {
+async function editorView(client: T3Client, native: Native | null | undefined, now: number): Promise<Omit<ComposerEditorView, 'drawer' | 'foldLimit'>> {
   const entry = cache(client);
   const stash: ComposerStash = { ...stashView(client.local, now), menuOpen: entry.stashOpen && stashView(client.local, now).count > 0, keyStash: commandChord(client, 'composer.stash', 'Meta+S') };
   const limit = promptLengthMessage(client.draft);
@@ -255,22 +256,14 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
   const overLimit = limit !== '';
   const literal = composerInput(client)?.active?.initialAnswer !== undefined;
   const draft = composerInput(client)?.custom ?? client.draft, files = draftFiles(client.local);
-  const fieldOwner = composerFieldOwner(client), snapshotOwner = client.snapshotOwner;
+  const fieldOwner = composerFieldOwner(client);
   const observed = composerFieldCurrent(client, fieldOwner);
   const mentioned = composerSourceSession(client);
   const source = observed?.value ?? draft;
   noteComposerFilePaths(client, (mentioned.matches(fieldOwner, source) ? mentioned.chips : composerChips(source)).flatMap(chip => chip.kind === 'mention' ? [chip.path] : []));
-  let state: Obj = {};
   if (native?.available) {
     native.watch('t3.editor');
-    try {
-      state = await editorCall(native, { op: 'editorSync', snapshotOwner, fieldOwner, foldLimit: client.ready ? foldLimit(client) : 0 });
-    } catch (error) { if (letGo(error)) throw error; state = {}; }
     await refreshFileMetadata(client, native);
-    if (state.snapshotOwner !== snapshotOwner || state.fieldOwner !== fieldOwner || client.snapshotOwner !== snapshotOwner || composerFieldOwner(client) !== fieldOwner) state = {};
-    for (const notice of arr(state.notices)) pushToast(client, { kind: str(notice.kind) === 'error' ? 'error' : 'info', title: str(notice.title), description: str(notice.description), hideCopy: true });
-    // Large pastes the editor held back become pasted-text.txt chips (composer-editor-files.ts).
-    for (const fold of [...arr(state.folds)].sort((a, b) => num(a.id) - num(b.id))) await takeFold(client, native, fold, localId()).catch(() => undefined);
     // A dropped attached file's staged copy goes with it (composer-editor-attach.ts).
     const current = composerFieldCurrent(client, composerFieldOwner(client));
     for (const dropped of pruneFiles(client.local, client.local.drafts, current?.value === '' ? '' : client.draftKey, files)) {

@@ -4,7 +4,7 @@ import type { ComposerMode } from './composer-source-session';
 import type { ComposerBlockOrigin } from './composer-markdown';
 
 export type ComposerFieldReplacement = {
-  kind: 'edit'; edit: ComposerFieldEdit; fold: number | null;
+  kind: 'edit'; edit: ComposerFieldEdit;
 } & ComposerFieldEffects | { kind: 'refused'; reason: string };
 type Context = { snapshot: ComposerFieldSnapshot; draftOwner: string; mode: ComposerMode; chips: readonly ComposerChip[]; blockOrigins?: readonly ComposerBlockOrigin[] };
 const blank = (character: string) => /^[ \t\r\n]$/.test(character);
@@ -32,7 +32,6 @@ export function composerFieldReplacement(request: unknown, context: Context): Co
   if (request.expect !== undefined && typeof request.expect !== 'string') return refused('field expectation invalid');
   if (request.kind !== undefined && typeof request.kind !== 'string') return refused('field trigger invalid');
   if (request.caret !== undefined && !integer(request.caret)) return refused('field caret invalid');
-  if (request.fold !== undefined && (!integer(request.fold) || request.fold < 0)) return refused('field fold invalid');
   if (request.history !== undefined && (!integer(request.history) || request.history < 0)) return refused('field history invalid');
   if (request.citation !== undefined && (!integer(request.citation) || request.citation < 0)) return refused('field citation invalid');
   if (request.completion !== undefined && (!integer(request.completion) || request.completion < 0)) return refused('field completion invalid');
@@ -59,7 +58,6 @@ export function composerFieldReplacement(request: unknown, context: Context): Co
   const size = source.length - (end - start) + text.length;
   const caret = !insert && integer(request.caret) ? Math.max(0, Math.min(request.caret, size)) : start + text.length;
   return { kind: 'edit', focus: insert || request.focus !== false, then, history: typeof request.history === 'number' ? request.history : 0, citation: typeof request.citation === 'number' ? request.citation : 0, completion: typeof request.completion === 'number' ? request.completion : 0,
-    fold: !insert && integer(request.fold) ? request.fold : null,
     edit: { generation: snapshot.generation, snapshotOwner: snapshot.snapshotOwner, owner: snapshot.owner,
       value: source, start, end, text, selectionStart: caret, selectionEnd: caret } };
 }
