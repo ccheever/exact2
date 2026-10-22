@@ -62,6 +62,7 @@ final class CaptureOrientationMacTests: XCTestCase {
         field.stringValue = "Palo Fg"; field.font = .systemFont(ofSize: 20)
         root.addSubview(field)
         let window = NSWindow(contentRect: shell.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: .aqua)
         window.isReleasedWhenClosed = false; window.contentView = shell
         defer { window.close() }
         window.makeKeyAndOrderFront(nil)
@@ -95,6 +96,23 @@ final class CaptureOrientationMacTests: XCTestCase {
         print("MIXED DRAWS before=\(drawsBefore) afterCopy=\(drawsAfterCopy) afterOriginal=\([header.draws, first.draws, second.draws])")
         let cache = try XCTUnwrap(root.bitmapImageRepForCachingDisplay(in: root.bounds))
         root.cacheDisplay(in: root.bounds, to: cache)
+        // Crop the first word inside the editor, excluding the bezel and caret.
+        var glyphRect = root.convert(editor.bounds, from: editor)
+        glyphRect.size.width = min(glyphRect.width, 40)
+        let reference = glyphs(cache, in: glyphRect)
+        XCTAssertGreaterThan(reference.ink, 30, "AppKit reference contains editor glyphs")
+        for (name, sample) in [("copy", glyphs(copy, in: glyphRect)), ("original", glyphs(original, in: glyphRect))] {
+            XCTAssertGreaterThan(sample.ink, 30, "\(name) retains the field editor's text")
+            let upright = glyphDifference(sample.mask, reference.mask)
+            let flipped = glyphDifference(sample.mask, reference.mask, flipped: true)
+            print("EDITOR \(name) ink=\(sample.ink) referenceInk=\(reference.ink) uprightError=\(upright) flippedError=\(flipped)")
+            XCTAssertLessThan(min(upright, flipped), 0.2, "\(name) contains the reference glyphs")
+            if name == "copy" {
+                XCTExpectFailure("QUEUE 465 diagnostic: copied field-editor glyphs are vertically inverted") {
+                    XCTAssertLessThan(upright, flipped, "editor orientation agrees with AppKit")
+                }
+            } else { XCTAssertLessThan(upright, flipped, "original editor orientation agrees with AppKit") }
+        }
         for (name, i) in [("header", 0), ("row1", 1), ("row2", 5), ("image", 2), ("direct", 6)] {
             print("MIXED \(name) copy=\(marker(copy, i)) original=\(marker(original, i)) cache=\(marker(cache, i))")
             XCTAssertEqual(marker(original, i), "upright", name)
@@ -214,6 +232,33 @@ final class CaptureOrientationMacTests: XCTestCase {
         let top = marker(rep, i), bottom = marker(rep, i, bottom: true)
         XCTAssertTrue(["upright", "flipped"].contains(top), "missing marker in cell \(i): \(top)", file: file, line: line)
         XCTAssertEqual(top, bottom, "cell \(i) must contain both colored markers", file: file, line: line)
+    }
+
+    private func glyphs(_ rep: NSBitmapImageRep, in rect: CGRect) -> (ink: Int, mask: [Bool]) {
+        var points: [(Int, Int)] = []
+        for y in 0..<Int(rect.height) {
+            for x in 0..<Int(rect.width) {
+                let px = Int((rect.minX + CGFloat(x)) * CGFloat(rep.pixelsWide) / 480)
+                let py = Int((rect.minY + CGFloat(y)) * CGFloat(rep.pixelsHigh) / 112)
+                if let c = rep.colorAt(x: px, y: py), c.alphaComponent > 0.9,
+                   max(c.redComponent, c.greenComponent, c.blueComponent) < 0.4 { points.append((x, y)) }
+            }
+        }
+        guard let minX = points.map(\.0).min(), let minY = points.map(\.1).min(),
+              let maxX = points.map(\.0).max(), let maxY = points.map(\.1).max() else {
+            return (0, Array(repeating: false, count: 32 * 24))
+        }
+        let width = maxX - minX + 1, height = maxY - minY + 1
+        let ink = Set(points.map { ($0.1 - minY) * width + $0.0 - minX })
+        // Normalize the ink bounds to compare 1x and Retina captures without
+        // including the editor's padding or depending on glyph placement.
+        let mask = (0..<24).flatMap { y in (0..<32).map { x in ink.contains((y * height / 24) * width + x * width / 32) } }
+        return (points.count, mask)
+    }
+
+    private func glyphDifference(_ a: [Bool], _ b: [Bool], flipped: Bool = false) -> Double {
+        let mismatches = a.indices.filter { i in a[i] != b[(flipped ? 23 - i / 32 : i / 32) * 32 + i % 32] }.count
+        return Double(mismatches) / Double(a.count)
     }
 
     private func marker(_ rep: NSBitmapImageRep, _ i: Int, bottom: Bool = false) -> String {
