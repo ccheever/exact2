@@ -82,6 +82,22 @@ final class NavigationBarIOSTests: XCTestCase {
         _ = target.perform(try XCTUnwrap(item.action), with: item)
     }
 
+    func testAuthoredClearTitleInkAndAbsenceUseDifferentAppearances() throws {
+        let session = try fixture("title-ink", module: false)
+        let heading = try node(session, "title-home")
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let item = try XCTUnwrap(nav.topViewController?.navigationItem)
+        XCTAssertNil(item.standardAppearance)
+        session.presenter.apply(wireBatch([["op": "style", "id": heading.id,
+            "style": ["text_color": [0, 0, 0, 0], "written": ["text_color"]]]]))
+        let appearance = try XCTUnwrap(item.standardAppearance)
+        XCTAssertEqual((appearance.titleTextAttributes[.foregroundColor] as? UIColor)?.cgColor.alpha, 0)
+        XCTAssertEqual((appearance.largeTitleTextAttributes[.foregroundColor] as? UIColor)?.cgColor.alpha, 0)
+        session.presenter.apply(wireBatch([["op": "style", "id": heading.id,
+            "style": ["text_color": [255, 0, 0, 255]]]]))
+        XCTAssertNil(item.standardAppearance, "an inherited colour leaves UIKit's title alone")
+    }
+
     func testAPushAfterKeyboardDismissalInstallsTheDestinationBeforeReturning() throws {
         let session = try fixture("synchronous-push", module: false)
         let presenter = session.presenter
