@@ -10,8 +10,9 @@ import * as perf from './perf.js';
 // mapper's entry, to each decode and to the commit standing, in ms, from
 // `start` on. `__exact_gate_decode` is the gate's stub decode until
 // `VideoDecoder` is the module's: the browser's decoder per track, made by
-// the chunk that carries a config, each frame closed as it comes out, and
-// closed when the stream that made it ends.
+// the chunk that carries a config in a stream's mapper (a call from
+// anywhere else throws), each frame closed as it comes out, and closed
+// when the stream that made it ends.
 const gate = { on: false, started: 0, streams: {}, current: null, decoders: new Map(),
   row(name) { return this.streams[name] ??= { messages: 0, commits: 0, decodes: 0, decodedBytes: 0, frames: 0, decodeErrors: 0, busy: 0, toEntry: [], toDecode: [], toCommit: [] }; },
   enter(name, receipt) {
@@ -30,12 +31,14 @@ const gate = { on: false, started: 0, streams: {}, current: null, decoders: new 
   ended(name) { for (const [track, d] of this.decoders) if (d.owner === name) { try { d.decoder.close(); } catch {} this.decoders.delete(track); } },
   decode(track, type, timestamp, data, config) {
     const c = this.current;
-    if (this.on && c) { const r = this.row(c.name); r.decodes++; r.decodedBytes += data.byteLength; if (c.receipt != null) r.toDecode.push(performance.now() - c.receipt); }
+    // A decoder belongs to the stream whose mapper made it, and closes with it.
+    if (!c) throw new Error("__exact_gate_decode is called from a stream's mapper");
+    if (this.on) { const r = this.row(c.name); r.decodes++; r.decodedBytes += data.byteLength; if (c.receipt != null) r.toDecode.push(performance.now() - c.receipt); }
     if (typeof VideoDecoder !== 'function') return;
     let d = this.decoders.get(track);
     if (config && d?.codec !== config.codec) {
       try { d?.decoder.close(); } catch {}
-      const owner = c?.name, count = k => { if (this.on && owner) this.row(owner)[k]++; };
+      const owner = c.name, count = k => { if (this.on) this.row(owner)[k]++; };
       const decoder = new VideoDecoder({ output: f => { f.close(); count('frames'); }, error: () => count('decodeErrors') });
       decoder.configure(config);
       this.decoders.set(track, d = { decoder, codec: config.codec, owner });

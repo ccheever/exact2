@@ -4,8 +4,8 @@
 // names only its size, and the host fills an ArrayBuffer of it through the
 // bytes door (op 9, js/src/crypto.rs): base64 decoded byte by byte in the
 // interpreter cost 1.8 ms a 12 KB message. Evaluated just before prelude.js,
-// natively and in the web's module realm, which takes `__exact_binary` and
-// deletes it.
+// which takes `__exact_binary` and deletes it: natively, and on the web in
+// the module realm's iframe (module-glue.js) or its worker (module-worker.js).
 (function (global) {
   "use strict";
   var door = global.__exact_bytes; // natively; prelude.js takes it from the global
