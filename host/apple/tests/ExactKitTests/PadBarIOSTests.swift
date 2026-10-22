@@ -118,12 +118,12 @@ final class PadBarIOSTests: XCTestCase {
         let host = UIViewController()
         let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
         let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
-        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.frame = window.screen.bounds
         window.rootViewController = host
         window.makeKeyAndVisible()
         host.view.addSubview(view)
         sessionWindow = window
-        XCTAssertNil(session.boot(plan: try Data(contentsOf: URL(fileURLWithPath: path)), size: CGSize(width: 402, height: 874)).error)
+        XCTAssertNil(session.boot(plan: try Data(contentsOf: URL(fileURLWithPath: path)), size: window.bounds.size).error)
         view.frame = host.view.bounds
         view.layoutIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.4))
@@ -138,7 +138,7 @@ final class PadBarIOSTests: XCTestCase {
         // The bar: ± and Done, the keyboard's own glass keys, and no fill
         // across it, opaque or not, over what is behind it.
         let bar = try XCTUnwrap(from.field?.inputAccessoryView as? PadBar, "± and Done in the accessory bar")
-        bar.frame.size.width = 402
+        bar.frame.size.width = window.bounds.width
         bar.layoutIfNeeded()
         func paints(_ v: UIView) -> Bool {
             if v.frame.width >= bar.bounds.width - 1, let c = v.backgroundColor, c.resolvedColor(with: v.traitCollection).cgColor.alpha > 0.99 { return true }
@@ -152,13 +152,14 @@ final class PadBarIOSTests: XCTestCase {
         p.applyKeyboard(top: keys, duration: 0, curve: 0)
         RunLoop.main.run(until: Date().addingTimeInterval(0.4))
         let nav = try XCTUnwrap(p.navigation.primaryNavigation)
-        XCTAssertEqual(box(p.viewport).maxY, keys, accuracy: 0.5, "the viewport ends at the keys' top, the bar's included")
+        XCTAssertEqual(box(p.viewport).maxY, keys + bar.bounds.height, accuracy: 0.5, "the viewport runs under the accessory")
+        XCTAssertEqual(box(list).maxY, keys + bar.bounds.height, accuracy: 0.5, "the edge scroller draws under the glass keys")
+        XCTAssertGreaterThanOrEqual(list.adjustedContentInset.bottom, bar.bounds.height, "its content clears the accessory")
         for v in [from, swap] {
             XCTAssertLessThanOrEqual(box(v).maxY, keys + 0.5, "\(v.props["testId"] ?? "") above the bar: \(box(v))")
             XCTAssertGreaterThanOrEqual(box(v).minY, box(nav.navigationBar).maxY - 0.5, "\(v.props["testId"] ?? "") below the navigation bar: \(box(v))")
         }
-        // Behind the bar, below the viewport: the list's background goes on,
-        // not the canvas's band.
+        // The background continues below the scroller, where the keys begin.
         let behind = try XCTUnwrap(view.backgroundColor).resolvedColor(with: view.traitCollection)
         XCTAssertEqual(behind, try XCTUnwrap(list.backgroundColor).resolvedColor(with: view.traitCollection), "the list's background behind the bar")
         XCTAssertNotEqual(behind, canvas.resolvedColor(with: view.traitCollection), "not the canvas's")
@@ -168,6 +169,7 @@ final class PadBarIOSTests: XCTestCase {
         p.applyKeyboard(top: nil, duration: 0, curve: 0)
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         XCTAssertEqual(view.backgroundColor?.resolvedColor(with: view.traitCollection), canvas.resolvedColor(with: view.traitCollection))
+        XCTAssertEqual(try node("content").pageBand.bottom, 0, "the accessory inset leaves with the keyboard")
     }
 
     func testAOneTimeCodeGetsNoBarAndABarTakesTheFieldsTint() throws {

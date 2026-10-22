@@ -418,6 +418,11 @@ public final class ExactView: UIView {
             physical = CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: bottom - bounds.minY)
         }
         #endif
+        #if os(iOS)
+        if physical.maxY < bounds.maxY {
+            physical.size.height += min(presenter.keyboardAccessoryHeight, bounds.maxY - physical.maxY)
+        }
+        #endif
         // Display changes can leave logical bounds unchanged. Update resources
         // independently of the resize commit, from this view's local traits.
         // The raster budget follows this view's own bounds — the panel it
