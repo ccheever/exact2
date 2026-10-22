@@ -26,7 +26,7 @@ const page = `<!doctype html>
   <button id="more" popovertarget="submenu">More</button>
   <button id="close" popovertarget="menu" popovertargetaction="hide">Close</button>
 </div>
-<div id="submenu" popover role="menu"><button id="deep">Deep</button></div>
+<div id="submenu" popover role="menu"><button id="deep">Deep</button><button id="deeper" popovertarget="picker">Pick from the submenu</button></div>
 <div id="picker" popover><button id="emoji">👍</button></div>
 <div id="manual" popover="manual">Manual</div>
 <script type="module">
@@ -135,4 +135,14 @@ check('what a row opens after its press, a commandfor naming nothing, and a togg
   await until('open()', ['menu', 'manual']);
   await press('toggle');
   await until('open()', ['menu']); // the manual one toggled closed; the menu, as HTML has it, stays
+}), 60000);
+
+check('a submenu\'s row opens its popover from the outermost menu\'s invoker, and both menus close', () => inChrome(async (evaluate, press, until) => {
+  await press('opener');
+  await until('open()', ['menu']);
+  await press('more');
+  await until('open()', ['menu', 'submenu']);
+  await press('deeper');
+  await until('open()', ['picker']);
+  expect(await evaluate('sources.picker')).toBe('opener');
 }), 60000);

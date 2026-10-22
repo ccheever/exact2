@@ -843,9 +843,10 @@ final class MenuHost {
         layOut(pop)
         guard let presenter, live(pop) else { return }
         // A row of an open menu opens a popover that is no menu as the menu's own invoker would (LLP 1021's menu rule).
-        let menu = pop.props["accessibilityRole"] == "menu" ? nil : agentOpen.values.first { m in
-            m.popover?.props["accessibilityRole"] == "menu" && row.flatMap { presenter.views[$0] }.map { $0.isDescendant(of: m.popover!) } == true }
-        let source = menu.map { $0.source } ?? row
+        let holder = { (id: UInt32?) in self.agentOpen.values.first { m in
+            m.popover?.props["accessibilityRole"] == "menu" && id.flatMap { presenter.views[$0] }.map { $0.isDescendant(of: m.popover!) } == true } }
+        var source = row, hops = 0 // past any submenu, to what opened the outermost menu
+        while pop.props["accessibilityRole"] != "menu", let m = holder(source), hops < 8 { source = m.source; hops += 1 }
         // Nested in the latest open popover holding its opener or itself.
         let opener = source.flatMap { presenter.views[$0] }
         let ancestor = agentOpen.filter { _, open in
