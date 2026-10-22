@@ -41,6 +41,33 @@ export function modules(rows, bound = {}, events = {}) {
     answer: (t, o, f) => { if (!o.more) deviceTickets.delete(t); return under(t.device, f); },
   });
   const asks = (row, send) => row.request === "always" ? send : row.request === "when-prompt" ? !send : false;
+  // An interface's grant lines, none of which the app writes, refuse a call that may ask (LLP 1069.008 D3).
+  const ungranted = (row, send) => {
+    const lines = row.sub.grants ?? [];
+    if (!lines.length || row.sub.admission === "none" || !asks(row, send)) return null;
+    // A grant line is `device.<name> <purpose>` (LLP 1069.008): its purpose word too.
+    if ((data.grants ?? "").split("\n").some(l => { const w = l.trim().split(/\s+/); return lines.includes(w[0]) && w.length > 1; })) return null;
+    say(`${row.key.split(".")[1]}: refused: the grants name no ${lines.join(" or ")}`);
+    return { error: row.sub.permission?.denied ?? "NotAllowedError" };
+  };
+  // Each option a name ranges as Web IDL's `[EnforceRange] unsigned long long`: truncated toward zero, it lies in
+  // 0 to 2^53 − 1, else the call refuses `TypeError`.
+  const enforceRange = (row, args) => {
+    for (const option of row.sub.enforceRange ?? []) {
+      const n = args?.[option];
+      if (typeof n !== "number") continue;
+      const t = Math.trunc(n);
+      if (!(t >= 0 && t <= Number.MAX_SAFE_INTEGER)) { say(`${row.key.split(".")[1]}: refused: TypeError, ${option}= is ${n}, not a whole number from 0 to 2^53 - 1`); return { error: "TypeError" }; }
+      args[option] = t + 0;
+    }
+    return null;
+  };
+  // Outside the agent a module with no web implementation is refused, never substituted (LLP 1133 D8).
+  const unimplemented = row => {
+    if (clock.agent || bound[row.key.split(".")[0]]) return null;
+    say(`${row.key}: refused: NotSupportedError, no implementation here`);
+    return { error: "NotSupportedError" };
+  };
   const personRequired = (row, send) => {
     const p = row.sub.permission;
     if (originNow() === "person" || !p || row.sub.admission === "none" || stateOf(p.name) !== "prompt" || !asks(row, send)) return false;
@@ -120,6 +147,7 @@ export function modules(rows, bound = {}, events = {}) {
     if (clock.agent || !bound[extension]) return null;
     if (!loaded.has(extension)) loaded.set(extension, bound[extension]().then(m => m.implementation?.({
       changed: key => byKey.has(key) && reask([key]),
+      log: say,
       // A package's own raising has the device's origin; a person's is the host's to give (D6).
       emit: (name, args) => raise(`${extension}.${name}`, args, "device"),
       // Only an event that is the web's user activation (HTML's activation-triggering input events, and `click`), and
@@ -174,9 +202,12 @@ export function modules(rows, bound = {}, events = {}) {
     try { return effectNow(row, args, from); } finally { origin = before; }
   };
   const effectNow = (row, args, from) => {
-    const name = row.key.split(".")[1];
+    const name = row.key.split(".")[1], refused = ungranted(row, true) ?? enforceRange(row, args);
+    if (refused) return Promise.resolve(refused);
     const real = viaImplementation(row, args);
     if (real) return real.then(r => { if (errorCode(r)) say(`${name}: refused: ${errorCode(r)}`); return errorCode(r) ? r : null; });
+    const absent = unimplemented(row);
+    if (absent) return Promise.resolve(absent);
     const p = row.sub.permission, state = p && row.sub.admission !== "none" ? stateOf(p.name) : null;
     if (state === "denied") { say(`${name}: refused: ${p.denied}`); return Promise.resolve({ error: p.denied }); }
     if (state === "prompt" && asks(row, true)) {
@@ -224,7 +255,9 @@ export function modules(rows, bound = {}, events = {}) {
     const tap = row.sub.list.tap ?? {}, location = tap.navigate ? entry[tap.navigate] : null;
     if (typeof location === "string") { navigateRoot(locationOf(location)); return { ref, navigate: location, delivery: "substituted" }; }
     if (!tap.event) return { ref, delivery: "substituted" };
-    const args = (tap.args ?? []).map(a => typeof a === "string" ? entry[a] ?? null : a && typeof a === "object" ? Object.fromEntries(Object.entries(a).map(([k, f]) => [k, entry[f] ?? null])) : a);
+    // An entry posted with no key carries "" for it, as an untagged notification's `tag` is.
+    const field = f => entry[f] ?? (f === row.sub.list.key ? "" : null);
+    const args = (tap.args ?? []).map(a => typeof a === "string" ? field(a) : a && typeof a === "object" ? Object.fromEntries(Object.entries(a).map(([k, f]) => [k, field(f)])) : a);
     raise(`${row.key.split(".")[0]}.${tap.event}`, args, "person");
     return { ref, event: tap.event, delivery: "substituted" };
   };
@@ -240,8 +273,12 @@ export function modules(rows, bound = {}, events = {}) {
   const reserved = (data.reserved ??= {});
   for (const row of byKey.values()) {
     reserved[row.source] = (_, args, name) => {
+      const refused = ungranted(row, row.send);
+      if (refused) return answer(row, refused);
       const real = viaImplementation(row, args?.[0] !== undefined ? object(args[0], row.options) : {});
       if (real) return real.then(json => answer(row, json));
+      const absent = unimplemented(row);
+      if (absent) return answer(row, absent);
       const timeout = row.send ? timeoutOf(row, args) : null, d = decideTimed(row, row.send, timeout);
       if (d.hold) return hold(row, d.hold, name, false, timeout);
       return answer(row, d.now);
@@ -343,8 +380,12 @@ export function modules(rows, bound = {}, events = {}) {
       const row = byKey.get(`${body.extension}.${body.source ?? body.send}`);
       if (!row || row.send !== !!body.send) return Promise.resolve({ error: "NotSupportedError" });
       if (row.type === "u") return effect(row, body.args ?? {});
+      const refused = ungranted(row, row.send);
+      if (refused) return Promise.resolve(refused);
       const real = viaImplementation(row, body.args);
       if (real) return real.then(json => complete(json, row.type));
+      const absent = unimplemented(row);
+      if (absent) return Promise.resolve(absent);
       const timeout = row.send ? timeoutOf(row, body.args) : null, d = decideTimed(row, row.send, timeout);
       if (d.hold) return hold(row, d.hold, row.key, true, timeout);
       say(`native ${row.key} (substituted)`);

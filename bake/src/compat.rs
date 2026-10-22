@@ -246,8 +246,7 @@ fn commands_digest() -> String {
     for name in contract_syntax::HOST_COMMANDS {
         let shape = match *name {
             "share" => "3",
-            "showNotification" => "5",
-            "closeNotification" | "stopSounds" => "1",
+            "stopSounds" => "1",
             "playSounds" => "1:4|5|6",
             "playSound" => "6",
             "sendMIDI" => "3",
@@ -834,8 +833,7 @@ mod tests {
             for name in contract_syntax::HOST_COMMANDS {
                 let shape = match *name {
                     "share" => "3",
-                    "showNotification" => "5",
-                    "closeNotification" | "stopSounds" => "1",
+                    "stopSounds" => "1",
                     "playSounds" => "1:4|5|6",
                     "playSound" => "6",
                     "sendMIDI" => "3",

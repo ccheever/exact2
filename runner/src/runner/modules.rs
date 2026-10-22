@@ -65,6 +65,10 @@ pub(super) struct Extensions {
     bound: BTreeSet<String>,
     /// The bound live sources that have had a reader, until released.
     live: BTreeSet<String>,
+    /// Outside the agent on a host without a module's implementation: its
+    /// names refuse `NotSupportedError` rather than being substituted, so
+    /// its absence is visible (LLP 1133 D8).
+    refuse_unbound: bool,
     /// What the declared substitute keeps (LLP 1133.004 §7): keyed lists,
     /// values, and the effects held on a permission ticket.
     declared: declared::Declared,
@@ -162,7 +166,11 @@ impl<D: DataSource> Runner<D> {
             let args = self.args_json(&row, args);
             return Ok(Answer::Later(self.bound_request(&row, args)));
         }
-        let answer = match self.decide(&row, false) {
+        let decided = match self.unimplemented(&row) {
+            Some(refused) => Decision::Now(refused),
+            None => self.decide(&row, false),
+        };
+        let answer = match decided {
             Decision::Now(json) => {
                 self.log(format!("query {resource}: {key} (substituted)"));
                 self.answer_json(self.plan.resources[i].ty, &key, &json)
@@ -187,9 +195,21 @@ impl<D: DataSource> Runner<D> {
     ) -> Result<Answer, DataError> {
         let row = self.module_row(source);
         let key = self.key(&row);
+        if let Some(refused) = self.ungranted(&row, true) {
+            let ty = self.plan.mutations[m].ty;
+            return self.answer_json(ty, &key, &refused).map(Answer::Now);
+        }
+        let mut json_args = self.args_json(&row, args);
+        if let Err(refused) = self.enforce_range(&row, &mut json_args) {
+            let ty = self.plan.mutations[m].ty;
+            return self.answer_json(ty, &key, &refused).map(Answer::Now);
+        }
         if self.bound(&row) {
-            let args = self.args_json(&row, args);
-            return Ok(Answer::Later(self.bound_request(&row, args)));
+            return Ok(Answer::Later(self.bound_request(&row, json_args)));
+        }
+        if let Some(refused) = self.unimplemented(&row) {
+            let ty = self.plan.mutations[m].ty;
+            return self.answer_json(ty, &key, &refused).map(Answer::Now);
         }
         let _ = self.say_person_required(&row, true);
         let timeout = self.timeout(&row, &self.args_json(&row, args));
@@ -344,6 +364,59 @@ impl<D: DataSource> Runner<D> {
             }
         }
         self.decide_value(row, &sub, send)
+    }
+
+    /// Why a call of `row` that may ask is refused before any module sees it:
+    /// its interface declares grant lines and the app writes none of them
+    /// (LLP 1069.008 D3, LLP 1133.002 D6). Journaled here.
+    fn ungranted(&mut self, row: &ModulesRow, send: bool) -> Option<Json> {
+        let sub = self.substitute(row);
+        let lines: Vec<&str> = (sub["grants"].as_array().into_iter().flatten())
+            .filter_map(Json::as_str)
+            .collect();
+        if lines.is_empty() || sub["admission"] == "none" || !self.asks(row, send) {
+            return None;
+        }
+        let grants = self.data.grants();
+        // A grant line is `device.<name> <purpose>` (LLP 1069.008): its purpose word too.
+        let named = (grants.lines()).any(|l| {
+            let mut words = l.split_whitespace();
+            words.next().is_some_and(|w| lines.contains(&w)) && words.next().is_some()
+        });
+        if named {
+            return None;
+        }
+        self.log(format!(
+            "{}: refused: the grants name no {}",
+            self.plan.str(row.declared),
+            lines.join(" or ")
+        ));
+        Some(json!({ "error": sub["permission"]["denied"].as_str().unwrap_or("NotAllowedError") }))
+    }
+
+    /// A host outside the agent with no implementation of `row`'s module
+    /// refuses its names, journaled (LLP 1133 D8: absence is visible).
+    pub fn refuse_unbound_modules(&mut self, refuse: bool) {
+        self.extensions.refuse_unbound = refuse;
+        // What boot read from a substitute is asked again, and refused.
+        let keys: Vec<String> = (self.plan.modules.iter())
+            .filter(|m| refuse && !self.bound(m) && !m.send)
+            .map(|m| self.key(m))
+            .collect();
+        for key in keys {
+            self.announce(&key);
+        }
+    }
+
+    fn unimplemented(&mut self, row: &ModulesRow) -> Option<Json> {
+        if !self.extensions.refuse_unbound || self.bound(row) {
+            return None;
+        }
+        self.log(format!(
+            "{}: refused: NotSupportedError, no implementation here",
+            self.key(row)
+        ));
+        Some(json!({ "error": "NotSupportedError" }))
     }
 
     /// Whether a call of `row` may show the platform's prompt.
@@ -555,6 +628,19 @@ impl<D: DataSource> Runner<D> {
             _ => return None,
         };
         let key = format!("{extension}.{declared}");
+        let now = |answer: Json| Dispatch::Run(Work::Now(Box::new(move || response(&answer))));
+        let found = (self.plan.modules.iter())
+            .find(|m| self.key(m) == key)
+            .cloned();
+        if let Some(refused) = found.as_ref().and_then(|row| self.ungranted(row, send)) {
+            return Some(now(refused));
+        }
+        let mut args = v["args"].clone();
+        let converted = match found.as_ref().map(|row| self.enforce_range(row, &mut args)) {
+            Some(Err(refused)) => return Some(now(refused)),
+            Some(Ok(converted)) => converted,
+            None => false,
+        };
         // A bound module answers it: the handler, past this admission. A
         // call data code makes while a device-origin answer is in flight is
         // the device's (LLP 1133.002 D12, least privileged when unsure): it
@@ -563,11 +649,9 @@ impl<D: DataSource> Runner<D> {
             if !send {
                 self.bound_read(&key);
             }
-            let row = (self.plan.modules.iter())
-                .find(|m| self.key(m) == key)
-                .cloned();
-            if let Some(row) = row.filter(|_| self.extensions.events.origin() != Origin::Person) {
-                let request = self.bound_request(&row, v["args"].clone());
+            let device = self.extensions.events.origin() != Origin::Person;
+            if let Some(row) = found.clone().filter(|_| device || converted) {
+                let request = self.bound_request(&row, args);
                 let handler = self.native_slot().handler();
                 return Some(Dispatch::Run(Work::Later(Box::new(
                     move |reply| match handler {
@@ -581,25 +665,21 @@ impl<D: DataSource> Runner<D> {
             }
             return None;
         }
-        let now = |answer: Json| Dispatch::Run(Work::Now(Box::new(move || response(&answer))));
-        let Some(row) = self
-            .plan
-            .modules
-            .iter()
-            .find(|m| self.key(m) == key)
-            .cloned()
-        else {
+        let Some(row) = found else {
             self.log(format!("{key}: not a module this app's plan names"));
             return Some(now(json!({ "error": "NotSupportedError" })));
         };
         if row.send != send {
             return Some(now(json!({ "error": "NotSupportedError" })));
         }
+        if let Some(refused) = self.unimplemented(&row) {
+            return Some(now(refused));
+        }
         if self.is_effect(&row) {
-            return Some(self.effect_call(&row, v["args"].clone()));
+            return Some(self.effect_call(&row, args));
         }
         let _ = self.say_person_required(&row, send);
-        let timeout = self.timeout(&row, &v["args"]);
+        let timeout = self.timeout(&row, &args);
         match self.decide_timed(&row, send, timeout) {
             Decision::Now(answer) => {
                 self.log(format!("native {key} (substituted)"));

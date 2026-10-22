@@ -632,7 +632,11 @@ final class NativeViews {
     func installAppModule() {
         guard let session else { return }
         let path = NativeViews.modulePath(session: session)
-        guard FileManager.default.fileExists(atPath: path) else { return }
+        // No artifact, no implementation: outside the agent the modules a plan names are refused (LLP 1133 D8).
+        guard FileManager.default.fileExists(atPath: path) else {
+            if !ExactEnv.agentMode { session.runtime.bindExtensions([]) }
+            return
+        }
         hasAppModule = true
         let rt = session.runtime.rt
         session.runtime.on { exact_set_app_module(rt, nativeLaterCallback, nativeCallCallback, UnsafeMutableRawPointer(bitPattern: UInt(rt))) }
@@ -646,13 +650,18 @@ final class NativeViews {
     /// 100 ms budget (the sample host, 2026-09-27).
     func prepareAppModule() {
         activateHatches()
-        guard hasAppModule, instance == nil, case .success(let table) = self.table() else { return }
+        guard hasAppModule, instance == nil else { return }
+        guard case .success(let table) = self.table() else {
+            // The artifact did not load: nothing implements its modules, so outside the agent they are refused (LLP 1133 D8).
+            if !ExactEnv.agentMode, let session { session.runtime.bindExtensions([]) }
+            return
+        }
         _ = module(table)
         // Its extensions answer their names from now on, outside the agent;
         // under the agent the runner's substitute does (LLP 1124 D7), unless
         // the drive binds one (`--bind`).
         let bound = ExactEnv.agentMode ? table.extensions.filter(ExactEnv.agentBind.contains) : table.extensions
-        if !bound.isEmpty, let session {
+        if !bound.isEmpty || !ExactEnv.agentMode, let session {
             session.runtime.bindExtensions(bound)
         }
     }

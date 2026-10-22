@@ -646,3 +646,53 @@ fn the_rust_binding_is_the_plans_modules_with_their_wire_names() {
         .unwrap_or_else(|e| panic!("{e:?}"));
     assert_eq!(contract::module_rust(&plan).unwrap().lines().count(), 1);
 }
+
+struct Ungranted;
+impl exact_runner::DataSource for Ungranted {
+    fn query(
+        &mut self,
+        source: &str,
+        _: &[exact_runner::Value],
+    ) -> Result<exact_runner::Value, exact_runner::DataError> {
+        Err(exact_runner::DataError::UnknownSource(source.into()))
+    }
+    fn grants(&self) -> &str {
+        // A grant line without its purpose word grants nothing (LLP 1069.008).
+        "device.geolocation\n"
+    }
+}
+
+/// LLP 1133.004 stage 1's admission, for every module: a call that may ask
+/// is refused before any module sees it when the app writes none of the
+/// interface's grant lines, from Contract and from data code alike.
+#[test]
+fn a_call_that_may_ask_without_a_grant_line_is_refused_before_any_module() {
+    let app = App::new("ungranted");
+    let plan = app.compile(APP).unwrap_or_else(|e| panic!("{e:?}"));
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        Ungranted,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.act("locate", Vec::new()).unwrap();
+    assert!(r.device_holds().is_empty(), "no permission ticket");
+    let call = br#"{"extension":"geolocation","send":"getCurrentPosition","args":{}}"#.to_vec();
+    let exact_runner::Dispatch::Run(exact_runner::Work::Now(work)) =
+        r.native_work(&exact_runner::Request::native(call))
+    else {
+        panic!("answered at once");
+    };
+    let exact_runner::Outcome::Response(reply) = work() else {
+        panic!("a reply")
+    };
+    assert!(String::from_utf8_lossy(&reply.body).contains("PERMISSION_DENIED"));
+    let journal = exact_runner::agent::handle(&r, r#"{"op":"logs"}"#);
+    assert_eq!(
+        journal.matches("getCurrentPosition: refused: the grants name no device.geolocation or device.geolocation-approximate").count(),
+        2,
+        "{journal}"
+    );
+}

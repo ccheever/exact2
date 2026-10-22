@@ -37,6 +37,10 @@
       "name": "@exact/lists",
       "version": "0.1.0",
     },
+    "packages/notifications": {
+      "name": "@exact/notifications",
+      "version": "1.0.0",
+    },
     "packages/reading": {
       "name": "@exact/reading",
       "version": "0.1.0",
@@ -58,6 +62,8 @@
     "@exact/geolocation": ["@exact/geolocation@workspace:packages/geolocation"],
 
     "@exact/lists": ["@exact/lists@workspace:packages/lists"],
+
+    "@exact/notifications": ["@exact/notifications@workspace:packages/notifications"],
 
     "@exact/reading": ["@exact/reading@workspace:packages/reading"],
 
