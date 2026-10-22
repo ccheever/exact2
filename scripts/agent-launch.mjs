@@ -455,6 +455,7 @@ export function parseFlags(argv) {
     else if (argv[i] === '--reader') { flags.reader = true; process.env.EXACT_ANDROID_READER = '1'; }
     else if (argv[i] === '--seed') flags.seed = Number(argv[++i]);
     else if (argv[i] === '--locale') flags.locale = argv[++i];
+    else if (argv[i] === '--format-locale') flags.formatLocale = argv[++i];
     else if (argv[i] === '--time-zone') flags.timeZone = argv[++i];
     else if (argv[i] === '--epoch') flags.epoch = argv[++i];
     else if (argv[i] === '--timing') flags.timing = argv[++i];
@@ -560,7 +561,7 @@ export function withEpoch(href, epoch) {
 /** Launch lines from `state.faults` (LLP 1103 D3): a reload relaunches with the table as it is now. */
 export const faultSpecOf = faults => (faults ?? []).map(f => [f.prefix, f.times ?? '-', f.left ?? '-', f.hits, f.armed ? 1 : 0].join('\t')).join('\n');
 
-export function launchFacts({seed, locale, timeZone, epoch, failFetch, env = {}}) {
+export function launchFacts({seed, locale, formatLocale, timeZone, epoch, failFetch, env = {}}) {
   seed = Number(seed ?? env.EXACT_AGENT_SEED ?? 1);
   // An ISO date, Unix milliseconds or `now` (the machine's clock, read here, once); hosts are told milliseconds.
   epoch = String(epoch ?? env.EXACT_AGENT_EPOCH ?? AGENT_EPOCH);
@@ -574,12 +575,15 @@ export function launchFacts({seed, locale, timeZone, epoch, failFetch, env = {}}
   locale = Intl.getCanonicalLocales(locale)[0];
   if (!locale) throw new Error('locale: a BCP 47 language tag');
   new Intl.DateTimeFormat(locale, {timeZone}).format(0);
+  // The Region's format apart from the language (`exactTime().formatLocale`); unsaid, the hosts answer the locale.
+  formatLocale = formatLocale ?? env.EXACT_AGENT_FORMAT_LOCALE;
+  if (formatLocale !== undefined) formatLocale = Intl.getCanonicalLocales(formatLocale)[0];
   failFetch = faultSpec(failFetch ?? env.EXACT_AGENT_FAIL_FETCH);
-  return {seed, locale, timeZone, epoch, ...(failFetch ? {failFetch} : {})};
+  return {seed, locale, timeZone, epoch, ...(formatLocale ? {formatLocale} : {}), ...(failFetch ? {failFetch} : {})};
 }
 
 export function launchEnvironment(facts) {
-  return {EXACT_AGENT_SEED: String(facts.seed), EXACT_AGENT_LOCALE: facts.locale, EXACT_AGENT_TIME_ZONE: facts.timeZone, EXACT_AGENT_EPOCH: String(facts.epoch), ...(facts.failFetch ? {EXACT_AGENT_FAIL_FETCH: facts.failFetch} : {})};
+  return {EXACT_AGENT_SEED: String(facts.seed), EXACT_AGENT_LOCALE: facts.locale, EXACT_AGENT_TIME_ZONE: facts.timeZone, EXACT_AGENT_EPOCH: String(facts.epoch), ...(facts.formatLocale ? {EXACT_AGENT_FORMAT_LOCALE: facts.formatLocale} : {}), ...(facts.failFetch ? {EXACT_AGENT_FAIL_FETCH: facts.failFetch} : {})};
 }
 
 // A build older than what it was made from is refused before launch

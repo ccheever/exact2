@@ -612,6 +612,7 @@ fn a_reload_carries_state_and_starts_the_pictures_over() {
         locale: "fr-CA".into(),
         time_zone: "America/Toronto".into(),
         seed: 123_456_789.0,
+        format_locale: String::new(),
     };
     assert!(p.set_place(&place).is_none());
     assert!(p.set_time(1_790_000_000_000.0, -240.0).is_none());
