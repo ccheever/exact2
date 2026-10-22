@@ -27,7 +27,7 @@ test "a dev loop whose page won't let this tool frame it is said above the canva
   tap "save-name"
   clock data
   expect tree missing "canvas-refused"
-  request POST "/__stub/canvas-check" {"via": "http://127.0.0.1:5173", "allowed": false, "origins": ["http://localhost:5173", "http://127.0.0.1:9999"]} as ada
+  request POST "/__stub/canvas-check" {"via": "http://127.0.0.1:5173", "allowed": false, "origins": ["http://localhost:5173", "http://127.0.0.1:9999"], "portFixes": true} as ada
   request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": []} as ada
   clock +1
   clock data
