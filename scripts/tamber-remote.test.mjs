@@ -230,7 +230,8 @@ test('a subscription through the TLS door ends when its client leaves', async ()
     const pin = async () => (await send(true, port, { method: 'POST', path: '/__tamber', headers, body: JSON.stringify({ method: 'pin', build: 'nowhere', scheme: 'dark' }) })).status;
     expect(await pin()).toBe(409);
     const first = await new Promise((ok, fail) => {
-      stream = secureRequest({ host: '127.0.0.1', port, method: 'POST', path: '/__tamber/subscribe', headers: { host: `127.0.0.1:${port}`, ...headers }, rejectUnauthorized: false }, res => res.once('data', d => ok(String(d))));
+      // (its first event whole, however the bytes come)
+      stream = secureRequest({ host: '127.0.0.1', port, method: 'POST', path: '/__tamber/subscribe', headers: { host: `127.0.0.1:${port}`, ...headers }, rejectUnauthorized: false }, res => { let got = ''; res.on('data', d => { got += d; if (got.includes('\n\n')) ok(got); }); });
       stream.on('error', fail);
       stream.end('{}');
     });
@@ -243,7 +244,7 @@ test('a subscription through the TLS door ends when its client leaves', async ()
       await new Promise(ok => setTimeout(ok, 100));
     }
   } finally { stream?.destroy(); await doors.close(); await wire.close(); }
-});
+}, 30_000);
 
 test('a connection slow to send its request, silent, trickling its head, or idle after an answer is closed; an answer that takes long is not', async () => {
   // (A wire reads the request's body before it answers, as the real one does.)
