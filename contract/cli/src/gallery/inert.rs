@@ -93,7 +93,7 @@ fn handler(c: &Component, file: &File, prop: &str) -> Option<Signature> {
                 let typed: Option<Signature> = args
                     .iter()
                     .enumerate()
-                    .map(|(i, e)| Some((ARGS[i.min(ARGS.len() - 1)], typed(e, items)?)))
+                    .map(|(i, e)| Some((*ARGS.get(i)?, typed(e, items)?)))
                     .collect();
                 uses.push(typed.map(|mut s| {
                     s.extend(payload);
@@ -109,11 +109,18 @@ fn handler(c: &Component, file: &File, prop: &str) -> Option<Signature> {
     (!first.is_empty() && same).then_some(first)
 }
 
-/// Each `for` item in scope: its name and its shape's plain fields' types.
-type Items<'a> = BTreeMap<&'a str, Vec<(String, &'static str)>>;
+/// Each name a `for` or `match` binds in scope: an item's shape's plain
+/// fields' types, and its type when the source says it.
+type Items<'a> = BTreeMap<&'a str, Bound<'a>>;
 
-/// A call's argument names, in order.
-const ARGS: [&str; 4] = ["a", "b", "c", "d"];
+#[derive(Clone, Default)]
+struct Bound<'a> {
+    fields: Vec<(String, &'static str)>,
+    ty: Option<&'a TypeExpr>,
+}
+
+/// A call's argument names, by position; a call with more is left to `noop`.
+const ARGS: [&str; 8] = ["a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7"];
 
 /// The type of an argument the source settles: a literal, or a field of a
 /// `for` item (`items`: each item's name and its shape's fields).
@@ -125,6 +132,7 @@ fn typed(e: &Expr, items: &Items<'_>) -> Option<&'static str> {
         Expr::Member(inner, field, _) => match inner.as_ref() {
             Expr::Ident(name, _) => items
                 .get(name.as_str())?
+                .fields
                 .iter()
                 .find(|(f, _)| f == field)
                 .map(|(_, ty)| *ty),
@@ -154,7 +162,7 @@ fn plain(ty: &TypeExpr) -> Option<&'static str> {
 fn calls<'a>(
     nodes: &'a [Node],
     items: &Items<'a>,
-    c: &Component,
+    c: &'a Component,
     file: &File,
     f: &mut dyn FnMut(&Node, &Items<'a>),
 ) {
@@ -178,26 +186,28 @@ fn calls<'a>(
                 ..
             } => {
                 let mut inner = items.clone();
-                let fields = match list {
-                    Expr::Ident(name, _) => {
-                        c.props
+                // The list's element type: a list prop's, or a list an outer
+                // `for` item is (a name it binds hiding the prop's).
+                let listed = match list {
+                    Expr::Ident(name, _) => match items.get(name.as_str()) {
+                        Some(bound) => bound.ty,
+                        None => c
+                            .props
                             .iter()
                             .find(|p| &p.name == name)
-                            .and_then(|p| match &p.ty {
-                                Some(TypeExpr::List(element, _)) => match element.as_ref() {
-                                    TypeExpr::Named(shape, _) => {
-                                        file.shapes.iter().find(|s| &s.name == shape)
-                                    }
-                                    _ => None,
-                                },
-                                _ => None,
-                            })
-                    }
+                            .and_then(|p| p.ty.as_ref()),
+                    },
                     _ => None,
                 };
-                inner.insert(
-                    var.as_str(),
-                    fields
+                let element = match listed {
+                    Some(TypeExpr::List(element, _)) => Some(element.as_ref()),
+                    _ => None,
+                };
+                let fields = match element {
+                    Some(TypeExpr::Named(shape, _)) => file
+                        .shapes
+                        .iter()
+                        .find(|s| &s.name == shape)
                         .map(|s| {
                             s.fields
                                 .iter()
@@ -205,15 +215,23 @@ fn calls<'a>(
                                 .collect()
                         })
                         .unwrap_or_default(),
+                    _ => Vec::new(),
+                };
+                inner.insert(
+                    var.as_str(),
+                    Bound {
+                        fields,
+                        ty: element,
+                    },
                 );
                 if let Some(index) = index {
-                    inner.insert(index.as_str(), Vec::new());
+                    inner.insert(index.as_str(), Bound::default());
                 }
                 calls(body, &inner, c, file, f);
             }
             Node::Match { some, none, .. } => {
                 let mut inner = items.clone();
-                inner.insert(some.0.as_str(), Vec::new());
+                inner.insert(some.0.as_str(), Bound::default());
                 calls(&some.1, &inner, c, file, f);
                 calls(none, items, c, file, f);
             }

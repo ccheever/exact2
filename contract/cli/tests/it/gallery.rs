@@ -756,9 +756,34 @@ component Forward
     set: action
   view
     Toggle(title="f", on=on, set=set)
+
+component Five
+  props
+    pick: action
+  view
+    button press=pick(1, 2, 3, 4, `e${1}`)
+      text "Five"
+
+shape Num
+  id: number
+
+shape Word
+  id: string
+
+component ShadowList
+  props
+    items: Num[]
+    groups: Word[][]
+    pick: action
+  view
+    column
+      for items, i in groups key = i
+        for x in items key = x.id
+          button press=pick(x.id)
+            text "x"
 "#;
 
-const APP_BOUNDARIES: &str = r#"use Stem, Shadowed, Toggle, Twice, Odd, Forward from "@acme/lib"
+const APP_BOUNDARIES: &str = r#"use Stem, Shadowed, Toggle, Twice, Odd, Forward, Five, ShadowList from "@acme/lib"
 
 component App
   state on = false
@@ -773,6 +798,8 @@ component App
       Twice(on=on, set=flip)
       Odd(pick=pick)
       Forward(on=on, set=flip)
+      Five(pick=pick)
+      ShadowList(items=[], groups=[], pick=pick)
 "#;
 
 /// A stem (`symbol:${chevron}-left`, an alias of `back`) keeps the prop's
@@ -780,7 +807,10 @@ component App
 /// is a role's alias gets that role; a `for` that binds the prop's name
 /// hides it; two components of one signature share one inert action; an
 /// action the view calls with a literal argument gets an inert action of its
-/// type; one it passes on to another component stays `noop`, for the
+/// type (its arguments named by position, five as well as one, a template
+/// a string, a `for` item's field typed from the list it iterates, even one
+/// an outer `for` binds over the prop's name); one it passes on to another
+/// component stays `noop`, for the
 /// compiler to refuse. (One given to handlers that pass different payloads
 /// stays `noop` too, which `press` and `navigate` both take.)
 #[test]
@@ -811,7 +841,9 @@ fn a_stem_a_shadow_a_shared_signature_and_an_action_the_view_calls_otherwise() {
         r#"Stem(chevron="chevron", gear="settings")"#,
         r#"Shadowed(symbol="symbol")"#,
         r#"Twice(on=false, set=noop_bool)"#,
-        "action noop_string(a: string)",
+        "action noop_string(a0: string)",
+        "(a0: number, a1: number, a2: number, a3: number, a4: string)",
+        r#"ShadowList(items=[], groups=[], pick=noop_string)"#,
         r#"Odd(pick=noop_string)"#,
         "binding to `noop`",
     ] {

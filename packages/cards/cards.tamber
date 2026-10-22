@@ -27,7 +27,10 @@ theme
   cards.visit-ink = #ffffff  scheme=fixed
   // The profile header's: its banner's brand ground and the fade under the
   // status bar over it, its surface and "Follows you" pill.
-  cards.banner = #0070ff  scheme=fixed
+  // The package's brand ground, a default avatar's and a banner's alike.
+  cards.banner = cards.avatar-default
+  // Over the banner's picture, not the page: fixed in both schemes, as the
+  // status bar's white over it is (no platform role is a scrim's colour).
   cards.banner-shade = #00000080  scheme=fixed
   cards.profile-surface = -exact-background
   cards.pill = -exact-secondary-background
@@ -94,11 +97,15 @@ theme
   // and picture; the names, handle, counts and the actions' row.
   cards.banner-height: length = 150px
   cards.banner-compact: length = 100px
-  cards.avatar-top: length = 104px
-  cards.avatar-top-compact: length = 54px
+  // The avatar overlaps the banner's bottom by its overlap, whatever the
+  // banner's height; its box is the picture and its ring each side.
+  cards.avatar-overlap: length = 46px
+  cards.avatar-top: length = calc(cards.banner-height - cards.avatar-overlap)
+  cards.avatar-top-compact: length = calc(cards.banner-compact - cards.avatar-overlap)
   cards.profile-avatar-left: length = 10px
-  cards.profile-avatar-box: length = 94px
   cards.profile-avatar: length = 90px
+  cards.profile-avatar-ring: length = 2px
+  cards.profile-avatar-box: length = calc(cards.profile-avatar + cards.profile-avatar-ring * 2)
   cards.profile-pad: length = space.md
   cards.profile-top: length = 12px
   cards.profile-bottom: length = space.sm

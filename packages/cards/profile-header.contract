@@ -23,6 +23,8 @@ component ProfileHeader
     meta: color = "cards.meta" control = "token" group = "Color" priority = 2 label = "Meta text"
     alert: color = "cards.alert" control = "token" group = "Color" priority = 3 label = "Alert"
     alertGround: color = "cards.alert-ground" control = "token" group = "Color" priority = 3 label = "Alert ground"
+    badge: color = "cards.badge" control = "token" group = "Color" priority = 3 label = "Badge"
+    badgeMark: color = "cards.badge-mark" control = "token" group = "Color" priority = 3 label = "Badge mark"
   props
     id: string
     bannerSrc: string
@@ -68,7 +70,9 @@ component ProfileHeader
         scale=(1 + min(pull, 150) / 150)
         if bannerSrc != ""
           image bannerSrc position="absolute" inset=0 width="100%" height="100%" object-fit="cover" alt=""
-        // A dark fade under the status bar.
+        // A dark fade under the status bar. Its 20 below the safe area's top
+        // stays a literal: a calc() can't name a token, nor a token an env()
+        // (QUEUE).
         box position="absolute"
           top=0
           left=0
@@ -127,7 +131,7 @@ component ProfileHeader
               class=Name
             if badge != "none"
               column padding-left="cards.profile-badge-gap" margin-top="cards.profile-badge-drop" flex-shrink=0
-                VerifiedBadge(badge=badge, size="cards.profile-badge")
+                VerifiedBadge(badge=badge, size="cards.profile-badge", ink="param.badge", mark="param.badgeMark")
           row gap="cards.profile-handle-gap" align-items="center"
             if followsYou
               text "Follows you" testId=`profile-follows-you-${id}`

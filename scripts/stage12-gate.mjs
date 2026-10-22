@@ -514,8 +514,11 @@ const compiled = (r, plan) => {
   return null;
 };
 
-/** The ids of library-gate's slotted cells (each a marker): its PostCards'. */
-export const markerIds = () => placements(readFileSync(join(LIBRARY_GATE, 'app.contract'), 'utf8'), ['PostCard']).map(p => p.id);
+/** The library's components with a slot (library-gate.test.mjs checks each
+ * of their cells holds its marker). */
+export const SLOTTED = ['PostCard', 'ProfileHeader'];
+/** The ids of library-gate's slotted cells (each a marker). */
+export const markerIds = () => placements(readFileSync(join(LIBRARY_GATE, 'app.contract'), 'utf8'), SLOTTED).map(p => p.id);
 
 /** Differing pixels inside `rect` (layout points, scaled to the shots, `top`
  * pixels down: a host's bars above the viewport). */
