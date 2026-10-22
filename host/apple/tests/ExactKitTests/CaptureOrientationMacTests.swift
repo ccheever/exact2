@@ -162,17 +162,31 @@ final class CaptureOrientationMacTests: XCTestCase {
             root.addSubview(v); views.append(v)
         }
         root.displayIfNeeded(); CATransaction.flush()
+        let deadline = Date().addingTimeInterval(1)
+        while views.contains(where: { $0.layer?.presentation()?.contents == nil }) && Date() < deadline {
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
+        for (i, v) in views.enumerated() {
+            let presented = try XCTUnwrap(v.layer?.presentation(), "presentation layer unavailable for contents case \(i)")
+            let contents = try XCTUnwrap(presented.contents, "presentation contents unavailable for case \(i)")
+            print("PRESENTATION \(i) available=\(type(of: contents))")
+        }
         let backing = try XCTUnwrap(root.layer)
         let tree = Capture.paintOrderLayer(of: root, root: backing)
         let copy = NSBitmapImageRep(cgImage: try XCTUnwrap(Capture.picture(of: tree, size: root.bounds.size, scale: 1)))
-        let original = NSBitmapImageRep(cgImage: try XCTUnwrap(Capture.picture(of: backing, size: root.bounds.size, scale: 1)))
+        let drawsAfterCopy = [early, redraw, late, held].map(\.draws)
         let shownTree = Capture.paintOrderLayer(of: root, root: backing)
-        func swap(_ source: CALayer, _ target: CALayer) {
-            target.contents = source.presentation()?.contents ?? source.contents
-            for (s, t) in zip(source.sublayers ?? [], target.sublayers ?? []) { swap(s, t) }
+        func swap(_ source: CALayer, _ target: CALayer) throws {
+            let presented = try XCTUnwrap(source.presentation(), "presentation layer unavailable while copying \(type(of: source))")
+            if source.contents != nil {
+                target.contents = try XCTUnwrap(presented.contents, "drawing layer has no presentation contents")
+            } else { target.contents = presented.contents }
+            for (s, t) in zip(source.sublayers ?? [], target.sublayers ?? []) { try swap(s, t) }
         }
-        swap(backing, shownTree)
+        try swap(backing, shownTree)
         let shownCopy = NSBitmapImageRep(cgImage: try XCTUnwrap(Capture.picture(of: shownTree, size: root.bounds.size, scale: 1)))
+        XCTAssertEqual([early, redraw, late, held].map(\.draws), drawsAfterCopy, "sample both copies before any original-tree redraw")
+        let original = NSBitmapImageRep(cgImage: try XCTUnwrap(Capture.picture(of: backing, size: root.bounds.size, scale: 1)))
         for (i, v) in views.enumerated() {
             let layer = try XCTUnwrap(v.layer), contents = layer.contents as? NSObject
             let pixel = contents?.responds(to: NSSelectorFromString("pixelTransform")) == true ? String(describing: contents?.value(forKey: "pixelTransform")) : "none"
