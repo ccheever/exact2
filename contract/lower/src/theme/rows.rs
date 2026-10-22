@@ -34,9 +34,10 @@
 //! computed row whose type the root's scope doesn't give (a call, a `for`'s
 //! item), whose number tokens are the build's; a row through a `let`; a
 //! `font` shorthand naming no type token; a state part's row; a style's row
-//! where lowering rewrites class rows first or under a choice of styles
-//! (`scan::Said::of`); and refusals outside a style row (an SVG attribute,
-//! a canvas).
+//! any element applying it leaves to the build (lowering rewrites its class
+//! rows first, it chooses between styles, or a `for` or `match` binds a name
+//! around it: `scan::Said::of`); and refusals outside a style row (an SVG
+//! attribute, a canvas).
 
 use super::{bind, fold, profiles, scan, Origin, Refusals, Sink, ThemeEntry};
 use crate::{DeclaredFont, LowerError};

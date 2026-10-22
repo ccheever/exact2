@@ -176,6 +176,41 @@ fn order(nodes: &[Node], out: &mut std::collections::HashMap<usize, usize>) {
     }
 }
 
+/// The styles an element's `class=` names: one, or a choice's two.
+fn class_names(attrs: &[Attr]) -> Vec<&str> {
+    match attrs.iter().find(|a| a.name == "class").map(|c| &c.value) {
+        Some(Expr::Ident(name, _)) => vec![name.as_str()],
+        Some(Expr::Ternary(_, yes, no, _)) => [&**yes, &**no]
+            .into_iter()
+            .filter_map(|e| match e {
+                Expr::Ident(name, _) => Some(name.as_str()),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Whether `grouped::style` refuses `tag`, its class's rows with its own.
+fn grouped_refused(file: &File, tag: &str, attrs: &[Attr]) -> bool {
+    let style = |name: &str| {
+        file.styles
+            .iter()
+            .rfind(|s| s.name == name)
+            .map(|s| s.attrs.as_slice())
+    };
+    let Ok(class) = crate::class::rows(attrs, &style) else {
+        return false;
+    };
+    let expanded: Vec<Attr> = class
+        .map(|(_, rows)| rows)
+        .unwrap_or_default()
+        .into_iter()
+        .chain(attrs.iter().filter(|a| a.name != "class").cloned())
+        .collect();
+    crate::grouped::style(tag, &expanded).is_err()
+}
+
 /// The address of `node` and of every node inside it, into `out`.
 fn addresses(node: &Node, out: &mut std::collections::HashSet<usize>) {
     out.insert(node as *const Node as usize);
@@ -308,6 +343,7 @@ impl Said {
         // (`left`).
         let mut lowered = std::collections::HashMap::new();
         order(&root.view, &mut lowered);
+        let mut unjudged: std::collections::HashSet<Span> = Default::default();
         let mut stack: Vec<(&Node, Around)> =
             root.view.iter().map(|n| (n, Around::default())).collect();
         while let Some((node, around)) = stack.pop() {
@@ -461,8 +497,12 @@ impl Said {
                     // grouped list's, or one `grouped::style` refuses, and its
                     // rows and sheet; a `button`'s, which `button_appearance`
                     // reads first, a native one refusing rows of its own; an
-                    // `audio`'s `display`), and one a `for` or `match` binds a
-                    // name around.
+                    // `audio`'s `display`; a row a `delete=` swipe expands,
+                    // whose rows go before the class's), and one a `for` or
+                    // `match` binds a name around. A style row applied at any
+                    // such element is the build's at every element (`unjudged`,
+                    // below): there it may be the build's first refusal of it,
+                    // in its words.
                     let plain_class = a
                         .iter()
                         .find(|r| r.name == "class")
@@ -475,7 +515,8 @@ impl Said {
                         || grouped != Grouped::No
                         || yielding.is_some()
                         || tag == "button"
-                        || tag == "audio";
+                        || tag == "audio"
+                        || a.iter().any(|r| r.name == "delete");
                     let style = |name: &str| {
                         file.styles
                             .iter()
@@ -486,7 +527,7 @@ impl Said {
                         true => None,
                         false => crate::class::rows(a, &style).ok().flatten(),
                     };
-                    let class = class.filter(|(_, rows)| {
+                    let judged = class.as_ref().is_some_and(|(_, rows)| {
                         let joined: Vec<Attr> = rows.iter().chain(own).cloned().collect();
                         let plain: Vec<Attr> = rows
                             .iter()
@@ -496,11 +537,16 @@ impl Said {
                         matches!(crate::box_transform::lower(tag, in_svg, &joined), Ok(None))
                             && matches!(crate::grouped::style(tag, &plain), Ok(None))
                     });
-                    for r in class
-                        .iter()
-                        .flat_map(|(_, rows)| rows)
-                        .filter(|r| crate::native::refused(tag, r).is_none())
-                    {
+                    if !judged {
+                        for name in class_names(a) {
+                            unjudged.extend(style(name).into_iter().flatten().map(|r| r.span));
+                        }
+                    }
+                    for r in class.iter().filter(|_| judged).flat_map(|(_, rows)| rows) {
+                        if crate::native::refused(tag, r).is_some() {
+                            unjudged.insert(r.span);
+                            continue;
+                        }
                         let computed = match super::rows::kept(r) {
                             Some(false) => None,
                             Some(true) => match super::rows::typed(&r.value, scope) {
@@ -538,6 +584,9 @@ impl Said {
                         _ if tag == "list" && grouped_list(file, tag, a) => Grouped::Sections,
                         _ => Grouped::No,
                     };
+                    // A list `grouped::style` refuses is lowered no further:
+                    // its children are the build's (`prepare_element`).
+                    let left = left || (tag == "list" && grouped_refused(file, tag, a));
                     let inner = Around {
                         svg: inside,
                         parent: Some(tag.as_str()),
@@ -573,6 +622,9 @@ impl Said {
                 Node::Children { .. } => {}
             }
         }
+        // A style row applied where the check leaves class rows to the build
+        // is the build's everywhere.
+        rows.retain(|r| r.element == 0 || !unjudged.contains(&r.attr.span));
         let mut folded = BTreeSet::new();
         // A colour keyframe folds its tokens as a row does (`keyframes::tokens`):
         // its value as the app compiles it, through a palette function's
