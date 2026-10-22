@@ -24,10 +24,11 @@ component ComposeFrame
     label: color = "actions.compose-label" control = "token" group = "Color" priority = 2 label = "Languages"
     surface: color = "actions.compose-surface" control = "token" group = "Color" priority = 2 label = "Surface"
     divider: color = "actions.compose-divider" control = "token" group = "Color" priority = 3 label = "Divider"
-    count: color = "actions.compose-count" control = "token" group = "Color" priority = 3 label = "Count"
-    over: color = "actions.compose-over" control = "token" group = "Color" priority = 3 label = "Over the limit"
-    track: color = "actions.compose-track" control = "token" group = "Color" priority = 3 label = "Ring track"
-    arc: color = "actions.compose-arc" control = "token" group = "Color" priority = 3 label = "Ring arc"
+    // The counter's: what's left, and the ring, which a designer sets together.
+    countInk: color = "actions.compose-count" control = "token" group = "Counter" priority = 3 label = "Count text"
+    over: color = "actions.compose-over" control = "token" group = "Counter" priority = 3 label = "Over the limit"
+    track: color = "actions.compose-track" control = "token" group = "Counter" priority = 3 label = "Ring track"
+    arc: color = "actions.compose-arc" control = "token" group = "Counter" priority = 3 label = "Ring arc"
   props
     // Names its body's testId: compose-body, or compose-body-<id> beside others.
     id: string
@@ -171,7 +172,7 @@ component ComposeFrame
               font-size="actions.compose-small-size"
               line-height="actions.compose-count-line"
               font-variant-numeric="tabular-nums"
-              color=(over ? "param.over" : "param.count")
+              color=(over ? "param.over" : "param.countInk")
             svg viewBox="0 0 30 30" width="actions.compose-ring" height="actions.compose-ring" aria-hidden=true
               if over
                 circle cx=15 cy=15 r=13 fill="none" stroke="param.over" stroke-width=4
