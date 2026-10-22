@@ -710,13 +710,13 @@ function followScroll(el, enabled) {
   return { followedScrolls, followScroll, settleFollow, rememberScroll };
 }
 // One scheme allowlist for every URL the page can navigate to: a link's `href` (an authored `link`, an inline run bound
-// to data, a Markdown link), an iframe's `src`, and `openURL`, which also take a scheme app.json's `open_url` declares
-// (`exact.openSchemes`; never an iframe's). A `javascript:` URL in any of them runs in this page's origin, so the schemes
-// that run or read content stay refused even if declared. The browser's own parser reads the scheme, past the whitespace
-// and control characters it may hide behind.
+// to data, a Markdown link), an iframe's `src`, and `openURL`. A `javascript:` URL in any of them runs in this page's
+// origin. The browser's own parser reads the scheme, past the whitespace and control characters it may hide behind.
+// `openURL` alone also takes a scheme app.json's `open_url` declares (`exact.openSchemes`, `declaredScheme`), never one
+// that runs or reads content.
 export const declaredScheme = protocol => !/^(javascript|vbscript|data|file|filesystem|blob|about|view-source|jar|intent|content):$/.test(protocol) && (globalThis.exact?.openSchemes ?? []).includes(protocol.slice(0, -1));
-export function navigableURL(href, base = document.baseURI, declared = true) {
-  try { const url = new URL(href, base); return ["http:", "https:", "mailto:", "tel:"].includes(url.protocol) || declared && declaredScheme(url.protocol) ? url.href : null; } catch { return null; }
+export function navigableURL(href, base = document.baseURI) {
+  try { const url = new URL(href, base); return ["http:", "https:", "mailto:", "tel:"].includes(url.protocol) ? url.href : null; } catch { return null; }
 }
 export const navigates = (el, name) => name === "href" || (name === "src" && el.localName === "iframe");
 // A present sandbox without `allow-same-origin` gives an opaque origin; tokens use ASCII whitespace and ignore case.
@@ -724,7 +724,7 @@ export const opaqueSandbox = sandbox => sandbox != null && !sandbox.toLowerCase(
 export function dataURL(src, base = document.baseURI) { try { return src != null && new URL(src, base).protocol === "data:"; } catch { return false; } }
 /** Whether an iframe in `sandbox` shows `src`: a `navigableURL`, or a `data:`
  * document in an opaque sandbox, whose script cannot reach this page (LLP 1020 §10). */
-export const frameURL = (src, sandbox, base = document.baseURI) => navigableURL(src, base, false) !== null || (opaqueSandbox(sandbox) && dataURL(src, base));
+export const frameURL = (src, sandbox, base = document.baseURI) => navigableURL(src, base) !== null || (opaqueSandbox(sandbox) && dataURL(src, base));
 /** A refused URL is never written: a link loses its `href`, an iframe shows about:blank. */
 export function refuseURL(el, name, value) {
   console.warn(`exact: refused ${name} ${JSON.stringify(String(value).slice(0, 80))}: only http, https, mailto and tel navigate${name === "src" ? ", and data: in a sandbox without allow-same-origin" : ""}`);
