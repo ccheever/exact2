@@ -7,7 +7,7 @@ import { liveFleetEvent } from './shared/live-streams';
 import type { Native } from './shared/protocol';
 import { environmentKey, fleet, type FleetEntry } from './shared/settings-b-fleet';
 import { mobileSchedule, mobileScheduleInput, mobileTaskDraft, mobileTaskInput, mobileTaskSignature } from './settings-scheduled-draft';
-import { mobileScheduledBegin, mobileScheduledBranches, mobileScheduledBranchQuery, mobileScheduledClose, mobileScheduledCommand, mobileScheduledEdit, mobileScheduledEditor, mobileScheduledEnvironment, mobileScheduledMenu, mobileScheduledSave, mobileScheduledTasks, scheduledGrant } from './settings-scheduled';
+import { mobileScheduledBegin, mobileScheduledBranches, mobileScheduledBranchQuery, mobileScheduledClose, mobileScheduledCommand, mobileScheduledEdit, mobileScheduledEditor, mobileScheduledEnvironment, mobileScheduledMenu, mobileScheduledPrepare, mobileScheduledSave, mobileScheduledTasks, scheduledGrant } from './settings-scheduled';
 const task:Obj={id:'task-a',title:'Audit',prompt:'Inspect this',projectId:'p',modelSelection:{instanceId:'codex',model:'gpt'},schedule:{type:'webhook',signature:{header:'signature',encoding:'hex',prefix:'sha256=',secret:'must-not-send'},maxDeliveryAgeMinutes:30},workspaceStrategy:{type:'root'},enabled:true,runtimeMode:'auto',interactionMode:'default',threadId:'thread',creationSource:'web'};
 test('webhook edits preserve current signature metadata, never send a secret or stale configuration',()=>{
   const draft=mobileTaskDraft('',null,task),changed={...task,schedule:{...obj(task.schedule),signature:{header:'new-signature',encoding:'base64',prefix:'v2',secret:'also-private'}}};
@@ -290,4 +290,17 @@ test('a held scope refresh neither resamples the focused clock nor replaces the 
   }finally{gate.release();await older;}
   expect(taskRows()).toMatchObject([{id:'new-project',subtitle:'Every minute · Next run in 1 minute'}]);
   expect(scheduledClock('entry-a',0,65).now).toBe(clockEpoch+30_000);
+});
+
+test('Scheduled reconnect clears connection feedback while preserving the draft and explicit field errors',async()=>{
+  const f=transport();await mobileScheduledBegin(scope,'scheduled-test','',f.native);
+  mobileScheduledEdit('title','Owned recovery');mobileScheduledEdit('prompt','Keep this draft');
+  const before=mobileScheduledEditor();f.entry.phase='disconnected';
+  const disconnected=await mobileScheduledPrepare(f.native);
+  expect(disconnected).toMatchObject({connected:false,canSave:false,name:before.name,prompt:before.prompt});
+  expect(disconnected.error).toContain('disconnected');
+  f.entry.phase='connected';const reconnected=await mobileScheduledPrepare(f.native);
+  expect(reconnected).toMatchObject({connected:true,canSave:true,error:'',id:before.id,name:before.name,prompt:before.prompt,dirty:true});
+  mobileScheduledEdit('unknown','');await mobileScheduledPrepare(f.native);
+  expect(mobileScheduledEditor().error).toBe('Unknown scheduled task field.');
 });
