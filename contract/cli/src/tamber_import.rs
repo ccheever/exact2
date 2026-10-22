@@ -387,7 +387,7 @@ fn read_source(path: &Path) -> std::io::Result<Vec<(String, String)>> {
 }
 
 fn import_json(kind: &str, import: &Import) -> Value {
-    json!({
+    let mut out = json!({
         "importer": kind,
         "ops": import.ops.iter().map(op_json).collect::<Vec<_>>(),
         "offers": import.offers.iter().map(|o| json!({
@@ -411,9 +411,12 @@ fn import_json(kind: &str, import: &Import) -> Value {
         // A re-import's dial changes and marked pins (LLP 1121 D14, stage 10b).
         "dials": dials_json(&import.dials),
         "pins": pins_json(&import.pins),
-        // What decided a choice the source didn't say (a Pencil number's kind; *1.16*).
-        "notes": import.notes,
-    })
+    });
+    // What decided a choice the source didn't say (a Pencil number's kind; *1.16*), when there is one.
+    if !import.notes.is_empty() {
+        out["notes"] = json!(import.notes);
+    }
+    out
 }
 
 fn dials_json(dials: &[exact_tamber::import::DialChange]) -> Vec<Value> {

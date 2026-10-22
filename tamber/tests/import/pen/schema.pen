@@ -1,0 +1,32 @@
+{
+  "version": "2.21",
+  "themes": { "Mode": ["dark", "default"] },
+  "variables": {
+    "page": { "type": "color", "value": [ { "value": "#000000" }, { "value": "#ffffff", "theme": { "Mode": "default" } } ] },
+    "pad": { "type": "number", "value": [ { "value": 16 }, { "value": 12, "theme": { "Mode": "dark" } } ] },
+    "line": { "type": "number", "value": 1 },
+    "centre": { "type": "number", "value": 0.5 },
+    "shadowX": { "type": "number", "value": 2 },
+    "shadowBlur": { "type": "number", "value": 6 },
+    "blurRadius": { "type": "number", "value": 10 },
+    "knob": { "type": "number", "value": 3 },
+    "idWidth": { "type": "number", "value": 40 },
+    "loopA": { "type": "color", "value": "$loopB" },
+    "loopB": { "type": "color", "value": "$loopA" },
+    "braced": { "type": "string", "value": "{body}" },
+    "body": { "type": "string", "value": "Inter" },
+    "twice": { "type": "color", "value": "#010101" },
+    "mixedEntries": { "type": "color", "value": [ { "value": "#020202" }, 7, { "value": "#030303", "theme": { "Mode": "dark" } } ] },
+    "twice": { "type": "color", "value": "#040404" }
+  },
+  "children": [
+    { "type": "frame", "fill": "$page", "padding": "$pad", "strokeWidth": { "top": "$line" },
+      "effect": [ { "type": "shadow", "offset": { "x": "$shadowX", "y": 0 }, "blur": "$shadowBlur" }, { "type": "blur", "radius": "$blurRadius" } ],
+      "children": [
+        { "type": "rectangle", "fill": { "type": "gradient", "center": { "x": "$centre", "y": 0.5 } } },
+        { "type": "ref", "descendants": { "size": { "width": "$idWidth" } } },
+        { "type": "frame", "fill": { "type": "shader", "uniforms": { "width": "$knob" } } },
+        { "type": "text", "fontFamily": "$braced" }
+      ] }
+  ]
+}
