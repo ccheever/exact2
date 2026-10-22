@@ -48,7 +48,7 @@ pub struct DesignSource {
     /// `package.json` name (`@exact/reading`); none for the app's.
     pub package: Option<String>,
     /// The package's directory, where its `assets/` are (an icon's SVG is
-    /// read beside the design file it is written in, stage 13); none for
+    /// read under the assets of the root whose file writes it, stage 13); none for
     /// the app's, whose `assets/` are the app's.
     pub root: Option<String>,
 }

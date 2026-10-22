@@ -188,8 +188,8 @@ pub fn run(args: &[String]) -> ExitCode {
                 .or_else(|| path.parent().map(Path::to_path_buf))
         }
     };
-    // Each SVG where the build reads it: beside the design file it is
-    // written in (a package's under its root, stage 13), by its path there.
+    // Each SVG where the build reads it: under the assets of the root whose
+    // file writes it (a package's under its root, stage 13), by its path there.
     let mut svgs: Vec<(PathBuf, &str)> = folding
         .icons
         .iter()
@@ -198,7 +198,8 @@ pub fn run(args: &[String]) -> ExitCode {
             let at =
                 contract_lower::icons::Home::of(i, home.as_deref(), &app.packages, &app.tokens);
             // A package's that leaves it is not copied, and is refused as the build refuses it.
-            Some((at.svg(svg).filter(|p| !at.leaves(p))?, svg))
+            // Read at the path checked (round 2, R2-3).
+            Some((at.resolve(&at.svg(svg)?)?, svg))
         })
         .collect();
     svgs.sort_unstable();

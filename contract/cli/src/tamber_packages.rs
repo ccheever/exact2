@@ -42,40 +42,76 @@ pub(crate) fn packaged(app: &AppParams, out: &mut Value, paths: bool) {
 /// The local wire's watcher's `hello {paths: true}`: each package entry in
 /// `out` given `assets`, a digest of the package SVGs the app's build reads
 /// (stage 13 round 1, Astra 6: an edit of one changes what `draws` says
-/// without touching the design's text), each by its path and bytes, one
-/// looked for and not there by its path; so the watcher announces it as a
-/// change of the package's design.
+/// without touching the design's text), so the watcher announces it as a
+/// change of the package's design; and `watch.assets`, the same for each
+/// package with no design whose SVGs the build reads (a Contract
+/// component's icon param, round 2, R2-4), named `<package>/assets/`.
 pub(crate) fn assets(app: &AppParams, out: &mut Value, graph: &contract::SourceGraph) {
     // Never `out["packages"]` written: none listed is no key.
     let listed = out.get_mut("packages").and_then(Value::as_array_mut);
     for (entry, p) in listed.into_iter().flatten().zip(&app.packages) {
-        let Some(root) = p.root.as_deref() else {
+        if let Some(root) = p.root.as_deref() {
+            entry["assets"] = json!(assets_under(graph, std::path::Path::new(root)));
+        }
+    }
+    let designed: Vec<&str> = app
+        .packages
+        .iter()
+        .filter_map(|p| p.root.as_deref())
+        .collect();
+    let mut others: Vec<(String, std::path::PathBuf)> = Vec::new();
+    for s in &graph.sources {
+        let contract::Origin::Package { name, root, .. } = &s.origin else {
             continue;
         };
-        let under = std::path::Path::new(root).join("assets");
-        let mut read: Vec<(String, Option<Vec<u8>>)> = graph
-            .sources
-            .iter()
-            .map(|s| (&s.path, true))
-            .chain(graph.consulted.iter().map(|c| (c, false)))
-            .filter(|(path, _)| path.starts_with(&under))
-            .map(|(path, there)| {
-                (
-                    path.display().to_string(),
-                    there.then(|| std::fs::read(path).ok()).flatten(),
-                )
-            })
-            .collect();
-        read.sort();
-        let mut bytes = Vec::new();
-        for (path, body) in &read {
-            bytes.extend(path.as_bytes());
-            bytes.push(0);
-            bytes.extend(body.as_deref().unwrap_or(b"(none)"));
-            bytes.push(0);
+        let svg = s.path.starts_with(root.join("assets"));
+        let known = designed.iter().any(|d| std::path::Path::new(d) == root)
+            || others.iter().any(|(_, r)| r == root);
+        if svg && !known {
+            others.push((name.clone(), root.clone()));
         }
-        entry["assets"] = json!(digest(&bytes));
     }
+    others.sort();
+    let listed: Vec<Value> = others
+        .iter()
+        .map(|(name, root)| json!({"package": name, "file": format!("{name}/assets/"), "assets": assets_under(graph, root)}))
+        .collect();
+    out["watch"]["assets"] = json!(listed);
+}
+
+/// A digest of the SVGs under `root`'s `assets/` the build reads, each by
+/// its path and its bytes where it really is inside them (round 2, R2-3),
+/// one looked for and not there (or leaving) by its path.
+fn assets_under(graph: &contract::SourceGraph, root: &std::path::Path) -> String {
+    let under = root.join("assets");
+    let inside = |path: &std::path::Path| {
+        let real = path.canonicalize().ok()?;
+        let assets = root.canonicalize().ok()?.join("assets");
+        real.starts_with(assets).then_some(real)
+    };
+    let mut read: Vec<(String, Option<Vec<u8>>)> = graph
+        .sources
+        .iter()
+        .map(|s| (&s.path, true))
+        .chain(graph.consulted.iter().map(|c| (c, false)))
+        .filter(|(path, _)| path.starts_with(&under))
+        .map(|(path, there)| {
+            let body = there.then(|| inside(path)).flatten();
+            (
+                path.display().to_string(),
+                body.and_then(|real| std::fs::read(real).ok()),
+            )
+        })
+        .collect();
+    read.sort();
+    let mut bytes = Vec::new();
+    for (path, body) in &read {
+        bytes.extend(path.as_bytes());
+        bytes.push(0);
+        bytes.extend(body.as_deref().unwrap_or(b"(none)"));
+        bytes.push(0);
+    }
+    digest(&bytes)
 }
 
 /// What the local wire's watcher watches for the packages' designs

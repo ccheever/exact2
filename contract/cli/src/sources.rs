@@ -1,6 +1,7 @@
 //! File loading and source identity shared by Contract compilation and navigation.
 //! @ref LLP 1017.000 P8; LLP 1035.005 D2/D3; LLP 1091 (module scope).
 
+mod home;
 mod library;
 pub(crate) mod packages;
 mod refused;
@@ -280,80 +281,6 @@ impl Loader<'_> {
     }
 }
 
-/// A source's file as a component's identity names it (LLP 1121 D15),
-/// from where the file is alone, never the route a `use` reached it by: a
-/// file in a package (the nearest directory above it, below the app's own
-/// and no higher than a linked package's root, whose `package.json` has a
-/// name: under `node_modules`, linked from elsewhere, or vendored) under
-/// the package's name, else the file relative to the app's directory (the
-/// root linked into the app's tree, where the link sits). None for a file
-/// outside the app in no named package: its place from
-/// the app would spell this machine's directories, so it is refused
-/// ([`UNNAMED`]).
-fn home(path: &Path, origin: &Origin, app_root: &Path) -> Option<String> {
-    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    let app = app_root
-        .canonicalize()
-        .unwrap_or_else(|_| app_root.to_path_buf());
-    let relative = |root: &Path| {
-        path.strip_prefix(root)
-            .ok()
-            .map(|p| p.to_string_lossy().replace('\\', "/"))
-    };
-    let named = |root: &Path| {
-        std::fs::read_to_string(root.join("package.json"))
-            .ok()
-            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-            .and_then(|m| m["name"].as_str().map(str::to_string))
-    };
-    // A directory above a linked package's root is none of the package's.
-    let root = match origin {
-        Origin::Package { root, .. } => Some(root.as_path()),
-        _ => None,
-    };
-    for dir in path.ancestors().skip(1) {
-        // The app's own directory and those above it are no package of it,
-        // unless the package holds the app (a package's own test app).
-        let ours = root.is_some_and(|r| dir.starts_with(r));
-        if !ours && app.starts_with(dir) {
-            break;
-        }
-        if let (Some(name), Some(rest)) = (named(dir), relative(dir)) {
-            return Some(format!("{name}/{rest}"));
-        }
-        if root == Some(dir) {
-            break;
-        }
-    }
-    if let Some(rest) = relative(&app) {
-        return Some(rest);
-    }
-    match origin {
-        Origin::Builtin => Some(path.to_string_lossy().into_owned()),
-        _ => None,
-    }
-}
-
-/// [`home`] for the root file linked into the app's tree from elsewhere
-/// (conform's corpus fixtures: `conformance/tabs.contract`, a link to the
-/// corpus's), by `given`, the path it was named by: the app's own, named
-/// where the link sits. None for a package's file, or a link outside. A
-/// file a `use` reaches is its canonical path's, refused outside the app
-/// by its `use` (`contract-use-path`).
-fn linked_home(given: &Path, origin: &Origin, app_root: &Path) -> Option<String> {
-    if matches!(origin, Origin::Package { .. }) {
-        return None;
-    }
-    let app = app_root.canonicalize().ok()?;
-    // A bare file name's directory is the working one, as `app_root`'s is.
-    let dir = given.parent().filter(|d| !d.as_os_str().is_empty());
-    let dir = dir.unwrap_or(Path::new(".")).canonicalize().ok()?;
-    let at = dir.join(given.file_name()?);
-    at.strip_prefix(&app)
-        .ok()
-        .map(|p| p.to_string_lossy().replace('\\', "/"))
-}
-
 /// The refusal of a component file outside the app in no named package.
 const UNNAMED: &str = "contract-package-unnamed";
 
@@ -508,6 +435,7 @@ pub fn code_beside(root: &Path) -> bool {
     })
 }
 
+use home::{home, linked_home, named_home};
 pub(crate) use uses::{apply as apply_uses, unreached, use_fixes};
 
 /// One source a compilation reads (LLP 1091 D10).
@@ -767,12 +695,12 @@ impl Loader<'_> {
         // Each component's identity, its file relative to its root and its
         // name (LLP 1121 D15): what its params are named by.
         let origin = &self.sources.origins[source_id as usize];
-        let found = home(path, origin, self.app_root);
+        let found = named_home(path, origin, self.app_root);
         let linked = || match source_id {
-            0 => linked_home(&self.root_given, origin, self.app_root),
+            0 => linked_home(&self.root_given, origin, self.app_root).map(|h| (h, None)),
             _ => None,
         };
-        let Some(home) = found.or_else(linked) else {
+        let Some((home, owner)) = found.or_else(linked) else {
             // `link` refuses it at the `use` first; this is the backstop.
             let span = Span {
                 source_id,
@@ -785,12 +713,11 @@ impl Loader<'_> {
             return Err(vec![name_error(UNNAMED, unnamed(name), span)]);
         };
         // A package's components know their package, whose `assets/` a
-        // literal icon default reads (stage 13).
-        let (package, root) = match origin {
-            Origin::Package { name, root, .. } => {
-                (Some(name.clone()), Some(root.display().to_string()))
-            }
-            _ => (None, None),
+        // literal icon default reads (stage 13): the named package their
+        // identity names, vendored ones included (round 2, Astra 1).
+        let (package, root) = match owner {
+            Some((name, dir)) => (Some(name), Some(dir.display().to_string())),
+            None => (None, None),
         };
         for c in &mut file.components {
             c.params.identity = Some(format!("{home}#{}", c.name));

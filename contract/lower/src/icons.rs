@@ -142,25 +142,31 @@ impl<'a> Home<'a> {
         Some(self.root?.join("assets").join(file))
     }
 
-    /// Whether `path` (this home's SVG, [`Home::svg`]) leaves its package:
-    /// a package's file that is there must be, links followed, under the
-    /// package's own `assets/` (round 1, Astra 4 = Grok 2), so no link
-    /// passes off the app's or another package's bytes as the package's.
-    /// One not there yet leaves nothing. The app's are not confined: its
-    /// `assets/` are its own to arrange (a link to a shared directory is the
-    /// author's choice), and the web stages them as they are.
-    pub fn leaves(&self, path: &Path) -> bool {
+    /// The file to read for `path` (this home's SVG, [`Home::svg`]), or
+    /// none where it leaves its package: a package's file that is there
+    /// must be, links followed, under the package's own `assets/` (round 1,
+    /// Astra 4 = Grok 2), so no link passes off the app's or another
+    /// package's bytes as the package's; and it is read at the canonical
+    /// path checked, never the link again (round 2, R2-3). An entry there
+    /// that can't be resolved (a dangling link) leaves; one not there at
+    /// all is read as itself, and is missing. The app's are not confined:
+    /// its `assets/` are its own to arrange (a link to a shared directory is
+    /// the author's choice), and the web stages them as they are.
+    pub fn resolve(&self, path: &Path) -> Option<std::path::PathBuf> {
         let (Some(_), Some(root)) = (self.package, self.root) else {
-            return false;
+            return Some(path.to_path_buf());
         };
-        let Ok(real) = path.canonicalize() else {
-            return false;
-        };
-        let assets = root
-            .canonicalize()
-            .unwrap_or_else(|_| root.to_path_buf())
-            .join("assets");
-        !real.starts_with(assets)
+        if path.symlink_metadata().is_err() {
+            return Some(path.to_path_buf());
+        }
+        let real = path.canonicalize().ok()?;
+        let root = root.canonicalize().ok()?;
+        real.starts_with(root.join("assets")).then_some(real)
+    }
+
+    /// Whether `path` leaves its package ([`Home::resolve`]).
+    pub fn leaves(&self, path: &Path) -> bool {
+        self.resolve(path).is_none()
     }
 
     /// `assets/<file>` as a refusal names it: a package's by its package.
@@ -188,14 +194,13 @@ fn svg_of(icon: &tamber::Icon, home: Home) -> Result<Option<crate::icon_svg::Svg
         }
         (Some(file), Some(root)) => (file, root),
     };
-    let path = root.join("assets").join(file);
-    if home.leaves(&path) {
+    let Some(path) = home.resolve(&root.join("assets").join(file)) else {
         return Err(format!(
             "`{}`: {} leaves the package (a link to a file outside its `assets/`): a package's SVG is its own file",
             icon.name,
             home.shown(file)
         ));
-    }
+    };
     std::fs::read_to_string(path)
         .map_err(|e| e.to_string())
         .and_then(|t| Ok((t.len(), crate::icon_svg::read(&t)?)))

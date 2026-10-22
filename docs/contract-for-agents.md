@@ -3749,10 +3749,10 @@ app's design sets (`Map.pin = #000000` under `params`, or the full name). It
 may declare icons (`icons`, `reading.star = icon(sf "star", svg "star.svg")`),
 each named `reading.…` and naming only its own package's icons; the app's
 design overrides one by full name under its `icons`, whole. An icon's SVG path
-is relative to the `assets/` beside the design file it is written in, so a
-package's (an icon's, or a param default's `icon(svg …)` in its design or its
-Contract) reads
-`<package>/assets/`, and in v1 it must be a one-colour template
+is relative to the `assets/` of the root whose file writes it: the app's
+directory for the app's, the package's root for a package's (an icon's, or a
+param default's `icon(svg …)` in its design or its Contract), so a package
+whose `"tamber"` is `theme/palette.tamber` still reads `<package>/assets/`; in v1 it must be a one-colour template
 (`tamber-icon-svg`). It declares no axes, dials, `params` lines or `exports`
 (`tamber-package-block`; its `when` lines name the app's axes), declares only `reading.…` names and none of the
 base names (`tamber-package-name`), and a token in it names only tokens the
