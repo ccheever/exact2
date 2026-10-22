@@ -2,11 +2,18 @@
 // A Discord stand-in for tests and agent drives (llp/0001 §4.4): the user gateway (zlib-stream or
 // text) and the REST paths Excord uses, over the seeded world, plus `/control/*` to inject traffic.
 // `bun apps/excord/fixture/server.ts [--port 4790] [--seed 1]`; app.ts's `origin` points here.
+// POST /control/clock {advance_ms} advances wall time by an offset for timestamps, nonce expiry,
+// rate limits and reaction batches, flushing due batches before returning. Reset clears the offset.
+// With passive capabilities, full guild events require subscribeAll, POST /control/subscribe
+// {guild_id} after login, or op 14 {guild_id} / op 37 {subscriptions: {[guild_id]: {}}}.
+// Either subscription opcode accepts either shape.
+// POST /control/heartbeat-request asks every socket for op 1; POST /control/react-many
+// {channel_id, message_id, emoji, user_ids} adds reactions and flushes their batch immediately.
 import { constants, createDeflate } from 'node:zlib';
 import type { ServerWebSocket } from 'bun';
 import {
   createMessageGenerator, createWorld, emptyMessage, fileAssets, imageArtwork, pageMessages,
-  replySnapshot, seededRandom, snowflakeFromMs,
+  NONCE_WINDOW_MS, recentNonceMessage, replySnapshot, seededRandom, snowflakeFromMs,
   type Channel, type Emoji, type Guild, type Message, type PageQuery, type World,
 } from './world.ts';
 
@@ -49,7 +56,19 @@ export function splitFrames(bytes: Uint8Array, parts: number): Uint8Array[] {
 }
 
 interface Dispatch { op: 0; t: string; s: number; d: any }
-interface Session { id: string; seq: number; dispatches: string[] }
+interface ReactionAdd {
+  channel_id: string; message_id: string; guild_id?: string; user_id: string; emoji: Emoji;
+  burst: false; type: 0;
+}
+interface ReactionBatch { dueAt: number; adds: ReactionAdd[] }
+interface Session {
+  id: string; seq: number; dispatches: string[];
+  capabilities: number;
+  subscribedGuilds: Set<string>;
+  subscriptions: { op: number; guild_ids: string[] }[];
+  passiveUpdates: number;
+  reactions: Map<string, ReactionBatch>;
+}
 interface Connection {
   id: number;
   compressed: boolean;
@@ -65,6 +84,9 @@ export interface FixtureOptions {
   hostname?: string;
   seed?: number;
   heartbeatInterval?: number;
+  nonceWindowMs?: number; // Default: five minutes, measured on the fixture clock.
+  reactionDebounceMs?: number; // Default: 500 ms from the first add in each message's batch.
+  subscribeAll?: boolean; // Default: false; true subscribes every new session to all seeded guilds.
   rateLimits?: { default?: RateLimit; messages?: RateLimit; routes?: Record<string, RateLimit> };
 }
 interface Bucket extends RateLimit { used: number; reset: number }
@@ -86,6 +108,9 @@ const selectedHeaders = ['authorization', 'x-super-properties', 'content-type', 
 const allowedHeaders = 'Authorization, X-Super-Properties, Content-Type, X-Discord-Locale, X-Discord-Timezone, X-Debug-Options';
 const rateHeaderNames = ['X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset',
   'X-RateLimit-Reset-After', 'X-RateLimit-Bucket', 'X-RateLimit-Global', 'X-RateLimit-Scope', 'Retry-After'];
+const PASSIVE_GUILD_UPDATE = 1 << 11;
+const DEBOUNCE_MESSAGE_REACTIONS = 1 << 13;
+const PASSIVE_GUILD_UPDATE_V2 = 1 << 14;
 
 class HttpError extends Error {
   constructor(public status: number, message: string, public code = 0) { super(message); }
@@ -184,12 +209,17 @@ export function startFixture(options: FixtureOptions = {}) {
   const seed = options.seed ?? 1;
   const hostname = options.hostname ?? '127.0.0.1';
   const heartbeatInterval = options.heartbeatInterval ?? 41250;
+  const nonceWindowMs = integer(options.nonceWindowMs, NONCE_WINDOW_MS);
+  const reactionDebounceMs = integer(options.reactionDebounceMs, 500, 2147483647);
   let world: World;
   let origin = '', gatewayUrl = '';
   let connectionCounter = 0, sessionCounter = 0, identifyCount = 0, resumeCount = 0, loginsDone = 0;
   let stopAcks = false, readyBytes = 0, loginBytes = 0, frameParts = 1, syntheticCounter = 10000;
   let closed = false;
   let resetVersion = 0;
+  let clockOffsetMs = 0, messageTimestamp = 0, messageSequence = 0, passiveUpdateCount = 0;
+  let reactionTimer: ReturnType<typeof setTimeout> | undefined;
+  const nowMs = () => Date.now() + clockOffsetMs;
   const sockets = new Set<Socket>();
   const sessions = new Map<string, Session>();
   const buckets = new Map<string, Bucket>();
@@ -198,6 +228,14 @@ export function startFixture(options: FixtureOptions = {}) {
   const frames: FrameSize[] = [];
   const reactionUsers = new Map<string, Set<string>>();
   const burstTimers = new Map<ReturnType<typeof setTimeout>, () => void>();
+
+  function nextMessage() {
+    const ms = nowMs();
+    messageSequence = ms === messageTimestamp ? messageSequence + 1 : 0;
+    messageTimestamp = ms;
+    world.nextTimestamp = ms + 1;
+    return { ms, id: snowflakeFromMs(ms, messageSequence) };
+  }
 
   function send(socket: Socket, frame: object | string): Promise<number> {
     const serialized = typeof frame === 'string' ? frame : JSON.stringify(frame);
@@ -231,18 +269,118 @@ export function startFixture(options: FixtureOptions = {}) {
     return frame;
   }
 
-  function broadcast(event: string, data: unknown): Promise<number[]> {
-    const pending: Promise<number>[] = [];
+  function deliver(session: Session, event: string, data: unknown): Promise<number>[] {
     // Offline sessions retain the same dispatches for RESUME's replay.
-    for (const session of sessions.values()) {
-      const frame = dispatch(session, event, data);
-      for (const socket of sockets) if (socket.data.session === session) pending.push(send(socket, frame));
+    const frame = dispatch(session, event, data);
+    return [...sockets].filter(socket => socket.data.session === session).map(socket => send(socket, frame));
+  }
+
+  function passiveVersion(session: Session, guildId?: string): number {
+    if (!guildId || session.subscribedGuilds.has(guildId)) return 0;
+    return session.capabilities & PASSIVE_GUILD_UPDATE_V2 ? 2
+      : session.capabilities & PASSIVE_GUILD_UPDATE ? 1 : 0;
+  }
+
+  function flushReactionBatch(session: Session, key: string): Promise<number>[] {
+    const batch = session.reactions.get(key);
+    if (!batch) return [];
+    session.reactions.delete(key);
+    if (batch.adds.length === 1) return deliver(session, 'MESSAGE_REACTION_ADD', batch.adds[0]);
+    const { channel_id, message_id, guild_id } = batch.adds[0];
+    const reactions = new Map<string, { emoji: Emoji; users: string[] }>();
+    for (const { emoji, user_id } of batch.adds) {
+      const key = emoji.id ?? emoji.name;
+      let reaction = reactions.get(key);
+      if (!reaction) { reaction = { emoji, users: [] }; reactions.set(key, reaction); }
+      if (!reaction.users.includes(user_id)) reaction.users.push(user_id);
     }
+    return deliver(session, 'MESSAGE_REACTION_ADD_MANY', { channel_id, message_id,
+      ...(guild_id ? { guild_id } : {}), reactions: [...reactions.values()] });
+  }
+
+  function scheduleReactions() {
+    clearTimeout(reactionTimer);
+    reactionTimer = undefined;
+    let next = Infinity;
+    for (const session of sessions.values()) for (const batch of session.reactions.values()) {
+      next = Math.min(next, batch.dueAt);
+    }
+    if (next !== Infinity && !closed) reactionTimer = setTimeout(
+      () => flushReactions().catch(() => {}), Math.max(0, next - nowMs()));
+  }
+
+  function flushReactions(): Promise<number[]> {
+    const pending: Promise<number>[] = [], now = nowMs();
+    for (const session of sessions.values()) for (const [key, batch] of session.reactions) {
+      if (now >= batch.dueAt) pending.push(...flushReactionBatch(session, key));
+    }
+    scheduleReactions();
     return Promise.all(pending);
   }
 
-  async function login(socket: Socket) {
-    const session: Session = { id: `fixture-${seed}-${++sessionCounter}`, seq: 0, dispatches: [] };
+  function broadcastReactionAdds(adds: ReactionAdd[], immediate = false): Promise<number[]> {
+    const pending: Promise<number>[] = [];
+    for (const session of sessions.values()) {
+      const keys = new Set<string>(), now = nowMs();
+      for (const add of adds) {
+        if (passiveVersion(session, add.guild_id)) continue;
+        if (!(session.capabilities & DEBOUNCE_MESSAGE_REACTIONS)) {
+          pending.push(...deliver(session, 'MESSAGE_REACTION_ADD', add));
+          continue;
+        }
+        const key = `${add.channel_id}/${add.message_id}`;
+        let batch = session.reactions.get(key);
+        if (!keys.has(key) && batch && now >= batch.dueAt) {
+          pending.push(...flushReactionBatch(session, key));
+          batch = undefined;
+        }
+        if (!batch) {
+          batch = { dueAt: now + reactionDebounceMs, adds: [] };
+          session.reactions.set(key, batch);
+        }
+        batch.adds.push(add);
+        keys.add(key);
+      }
+      if (immediate) for (const key of keys) pending.push(...flushReactionBatch(session, key));
+    }
+    scheduleReactions();
+    return Promise.all(pending);
+  }
+
+  function broadcast(event: string, data: any): Promise<number[]> {
+    if (event === 'MESSAGE_REACTION_ADD') return broadcastReactionAdds([data]);
+    const pending: Promise<number>[] = [];
+    const guildId = data.guild_id ?? world.channels.find(channel => channel.id === data.channel_id)?.guild_id;
+    for (const session of sessions.values()) {
+      const version = passiveVersion(session, guildId);
+      if (version && event === 'MESSAGE_CREATE') {
+        const channels = [{ id: data.channel_id, last_message_id: data.id, last_pin_timestamp: null }];
+        const update = version === 2
+          ? { guild_id: guildId, updated_channels: channels, updated_members: [],
+            removed_voice_states: [], updated_voice_states: [] }
+          : { guild_id: guildId, channels, members: [], voice_states: [] };
+        pending.push(...deliver(session, `PASSIVE_UPDATE_V${version}`, update));
+        session.passiveUpdates++;
+        passiveUpdateCount++;
+        continue;
+      }
+      if (version && (event === 'TYPING_START' || /^MESSAGE_(UPDATE|DELETE|REACTION_)/.test(event))) continue;
+      // A removal must follow queued adds, or the delayed batch would restore the reaction.
+      if (event === 'MESSAGE_REACTION_REMOVE' || event === 'MESSAGE_DELETE' || event === 'MESSAGE_DELETE_BULK') {
+        for (const id of data.ids ?? [data.message_id ?? data.id]) {
+          pending.push(...flushReactionBatch(session, `${data.channel_id}/${id}`));
+        }
+      }
+      pending.push(...deliver(session, event, data));
+    }
+    scheduleReactions();
+    return Promise.all(pending);
+  }
+
+  async function login(socket: Socket, capabilities: number) {
+    const session: Session = { id: `fixture-${seed}-${++sessionCounter}`, seq: 0, dispatches: [], capabilities,
+      subscribedGuilds: new Set(options.subscribeAll ? world.guilds.map(guild => guild.id) : []),
+      subscriptions: [], passiveUpdates: 0, reactions: new Map() };
     sessions.set(session.id, session);
     socket.data.session = session;
     const size = readyBytes, burst = loginBytes;
@@ -271,10 +409,24 @@ export function startFixture(options: FixtureOptions = {}) {
       if (!stopAcks) await send(socket, { op: 11, d: null });
       return;
     }
+    if (frame?.op === 14 || frame?.op === 37) {
+      const session = socket.data.session;
+      if (!session) return;
+      const guildIds = typeof frame.d?.guild_id === 'string' ? [frame.d.guild_id]
+        : frame.d?.subscriptions && typeof frame.d.subscriptions === 'object'
+          ? Object.keys(frame.d.subscriptions) : [];
+      for (const id of guildIds) session.subscribedGuilds.add(id);
+      session.subscriptions.push({ op: frame.op, guild_ids: guildIds });
+      return;
+    }
     if (frame?.op !== 2 && frame?.op !== 6) return;
     if (frame.d?.token !== world.token) { socket.close(4004, 'Authentication failed'); return; }
     if (socket.data.session) { socket.close(4005, 'Already authenticated'); return; }
-    if (frame.op === 2) { identifyCount++; await login(socket); return; }
+    if (frame.op === 2) {
+      identifyCount++;
+      await login(socket, Number.isSafeInteger(frame.d.capabilities) ? frame.d.capabilities : 0);
+      return;
+    }
     resumeCount++;
     const session = sessions.get(frame.d.session_id);
     if (!session) { await send(socket, { op: 9, d: false }); return; }
@@ -309,7 +461,9 @@ export function startFixture(options: FixtureOptions = {}) {
     const reference = body.message_reference;
     const earlier = reference ? message(channelId, textField(reference, 'message_id')) : undefined;
     if (reference?.channel_id && reference.channel_id !== channelId) throw new HttpError(400, 'Reply must be in this channel');
-    const created = emptyMessage(destination, author, world.nextTimestamp++, content);
+    const { ms, id } = nextMessage();
+    const created = emptyMessage(destination, author, ms, content);
+    created.id = id;
     if (body.nonce !== undefined) created.nonce = body.nonce;
     if (earlier) {
       created.type = 19;
@@ -329,7 +483,7 @@ export function startFixture(options: FixtureOptions = {}) {
   async function edit(channelId: string, id: string, content: string) {
     const current = message(channelId, id);
     current.content = content;
-    current.edited_timestamp = new Date(world.nextTimestamp++).toISOString();
+    current.edited_timestamp = new Date(nowMs()).toISOString();
     await broadcast('MESSAGE_UPDATE', { id, channel_id: channelId, guild_id: current.guild_id,
       content, edited_timestamp: current.edited_timestamp });
     return current;
@@ -359,7 +513,7 @@ export function startFixture(options: FixtureOptions = {}) {
     return { id: custom?.[2] ?? null, name: custom?.[1] ?? value };
   }
 
-  async function react(channelId: string, id: string, emoji: Emoji, userId: string, add: boolean) {
+  function changeReaction(channelId: string, id: string, emoji: Emoji, userId: string, add: boolean): ReactionAdd | undefined {
     const current = message(channelId, id);
     if (!world.users.some(user => user.id === userId)) throw new HttpError(400, 'Unknown user');
     let reaction = current.reactions.find(value => value.emoji.id === emoji.id && value.emoji.name === emoji.name);
@@ -385,10 +539,15 @@ export function startFixture(options: FixtureOptions = {}) {
     reaction.count_details.normal = reaction.count;
     reaction.me = users.has(world.me.id);
     if (!reaction.count) current.reactions.splice(current.reactions.indexOf(reaction), 1);
-    await broadcast(add ? 'MESSAGE_REACTION_ADD' : 'MESSAGE_REACTION_REMOVE', {
+    return {
       channel_id: channelId, message_id: id, user_id: userId, emoji,
       ...(current.guild_id ? { guild_id: current.guild_id } : {}), burst: false, type: 0,
-    });
+    };
+  }
+
+  async function react(channelId: string, id: string, emoji: Emoji, userId: string, add: boolean) {
+    const changed = changeReaction(channelId, id, emoji, userId, add);
+    if (changed) await broadcast(add ? 'MESSAGE_REACTION_ADD' : 'MESSAGE_REACTION_REMOVE', changed);
   }
 
   async function typing(channelId: string, userId: string) {
@@ -396,7 +555,7 @@ export function startFixture(options: FixtureOptions = {}) {
     const user = world.users.find(value => value.id === userId);
     if (!user) throw new HttpError(400, 'Unknown user');
     await broadcast('TYPING_START', { channel_id: channelId, user_id: userId,
-      timestamp: Math.floor(world.nextTimestamp / 1000), ...(destination.guild_id
+      timestamp: Math.floor(nowMs() / 1000), ...(destination.guild_id
         ? { guild_id: destination.guild_id, member: world.guilds.find(guild => guild.id === destination.guild_id)
           ?.members.find(member => member.user.id === userId) } : {}) });
   }
@@ -406,7 +565,7 @@ export function startFixture(options: FixtureOptions = {}) {
     const rule = options.rateLimits?.routes?.[route] ?? (/^POST \/channels\/[^/]+\/messages$/.test(route)
       ? options.rateLimits?.messages ?? { limit: 5, windowMs: 5000 }
       : options.rateLimits?.default ?? { limit: 1000, windowMs: 5000 });
-    const now = Date.now();
+    const now = nowMs();
     let bucket = buckets.get(route);
     if (!bucket || now >= bucket.reset) {
       bucket = { ...rule, used: 0, reset: now + rule.windowMs };
@@ -438,12 +597,26 @@ export function startFixture(options: FixtureOptions = {}) {
       connection_details: [...sockets].map(socket => ({ id: socket.data.id,
         session_id: socket.data.session?.id ?? null, compressed: socket.data.compressed })),
       session_details: [...sessions.values()].map(session => ({ id: session.id, seq: session.seq,
-        dispatches: session.dispatches.length })), requests: [...requests], frames: [...frames],
+        dispatches: session.dispatches.length, capabilities: session.capabilities,
+        subscribed_guilds: [...session.subscribedGuilds], subscriptions: session.subscriptions,
+        passive_updates: session.passiveUpdates, pending_reaction_batches: session.reactions.size })),
+      requests: [...requests], frames: [...frames], passive_updates: passiveUpdateCount,
+      now_ms: nowMs(), clock_offset_ms: clockOffsetMs,
+      nonce_window_ms: nonceWindowMs, reaction_debounce_ms: reactionDebounceMs,
       stop_acks: stopAcks, ready_bytes: readyBytes, login_bytes: loginBytes, split_parts: frameParts };
   }
 
   async function control(name: string, body: any) {
     switch (name) {
+      case 'clock':
+        clockOffsetMs += integer(body.advance_ms, 0, 8640000000000000 - nowMs());
+        await flushReactions();
+        return { ok: true, now_ms: nowMs(), clock_offset_ms: clockOffsetMs };
+      case 'subscribe': {
+        const guildId = textField(body, 'guild_id');
+        for (const session of sessions.values()) session.subscribedGuilds.add(guildId);
+        break;
+      }
       case 'burst': {
         const channelId = textField(body, 'channel_id');
         const destination = channel(channelId);
@@ -464,10 +637,11 @@ export function startFixture(options: FixtureOptions = {}) {
               burstTimers.set(timer, resolve);
             });
             if (!elapsed) break;
-            world.nextTimestamp += interval;
           }
           const history = world.messages[channelId];
-          const created = generate(history, world.nextTimestamp++, body.author_id);
+          const { ms, id } = nextMessage();
+          const created = generate(history, ms, body.author_id);
+          created.id = id;
           history.push(created);
           destination.last_message_id = created.id;
           ids.push(created.id);
@@ -486,13 +660,29 @@ export function startFixture(options: FixtureOptions = {}) {
         if (typeof body.add !== 'boolean') throw new HttpError(400, 'add must be a boolean');
         await react(textField(body, 'channel_id'), textField(body, 'message_id'), parseEmoji(body.emoji),
           textField(body, 'user_id'), body.add); break;
+      case 'react-many': {
+        const channelId = textField(body, 'channel_id'), id = textField(body, 'message_id');
+        const emoji = parseEmoji(body.emoji);
+        message(channelId, id);
+        if (!Array.isArray(body.user_ids) || body.user_ids.some((id: unknown) => typeof id !== 'string'
+          || !world.users.some(user => user.id === id))) throw new HttpError(400, 'user_ids must name known users');
+        const adds: ReactionAdd[] = [];
+        for (const userId of body.user_ids) {
+          const changed = changeReaction(channelId, id, emoji, userId, true);
+          if (changed) adds.push(changed);
+        }
+        await broadcastReactionAdds(adds, true);
+        break;
+      }
       case 'typing': await typing(textField(body, 'channel_id'), textField(body, 'user_id')); break;
+      case 'heartbeat-request': await Promise.all([...sockets].map(socket => send(socket, { op: 1, d: null }))); break;
       case 'reconnect': await Promise.all([...sockets].map(socket => send(socket, { op: 7, d: null }))); break;
       case 'invalidate': {
         const resumable = body.resumable === true;
         await Promise.all([...sockets].map(socket => send(socket, { op: 9, d: resumable })));
         if (!resumable) {
           sessions.clear();
+          scheduleReactions();
           for (const socket of sockets) socket.data.session = undefined;
         }
         break;
@@ -528,6 +718,8 @@ export function startFixture(options: FixtureOptions = {}) {
         burstTimers.clear();
         for (const socket of sockets) { socket.data.closed = true; socket.close(1000, 'Fixture reset'); }
         sockets.clear(); sessions.clear(); buckets.clear(); reactionUsers.clear();
+        clearTimeout(reactionTimer); reactionTimer = undefined;
+        clockOffsetMs = messageTimestamp = messageSequence = passiveUpdateCount = 0;
         forced.length = requests.length = frames.length = 0;
         connectionCounter = sessionCounter = identifyCount = resumeCount = loginsDone = 0;
         readyBytes = loginBytes = 0; frameParts = 1; stopAcks = false; syntheticCounter = 10000;
@@ -571,9 +763,11 @@ export function startFixture(options: FixtureOptions = {}) {
       const body = await readBody(request), content = textField(body, 'content');
       if (body.nonce !== undefined && !['string', 'number'].includes(typeof body.nonce)) throw new HttpError(400, 'Invalid nonce');
       if (body.enforce_nonce && body.nonce !== undefined) {
-        const previous = world.messages[channelId].findLast(value => value.author.id === world.me.id
-          && value.nonce !== undefined && String(value.nonce) === String(body.nonce));
-        if (previous) return { status: 200, body: previous };
+        const now = nowMs();
+        for (const history of Object.values(world.messages)) {
+          const previous = recentNonceMessage(history, world.me.id, body.nonce, now, nonceWindowMs);
+          if (previous) return { status: 200, body: previous };
+        }
       }
       const created = createMessage(channelId, content, world.me.id, body);
       await broadcast('MESSAGE_CREATE', created);
@@ -671,13 +865,14 @@ export function startFixture(options: FixtureOptions = {}) {
         void send(socket, { op: 10, d: { heartbeat_interval: heartbeatInterval } }).catch(() => {});
       },
       message(socket, message) {
-        void receive(socket, message).catch(() => { socket.close(1011, 'Fixture gateway failed'); });
+        return receive(socket, message).catch(() => { socket.close(1011, 'Fixture gateway failed'); });
       },
       close(socket, code) {
         socket.data.closed = true;
         sockets.delete(socket);
         if ([1000, 1001, 4007, 4009].includes(code) && socket.data.session) {
           if (sessions.get(socket.data.session.id) === socket.data.session) sessions.delete(socket.data.session.id);
+          scheduleReactions();
         }
         void socket.data.encoder?.close();
       },
@@ -691,6 +886,7 @@ export function startFixture(options: FixtureOptions = {}) {
     origin, gatewayUrl, control: `${origin}/control`, get world() { return world; },
     async close() {
       closed = true;
+      clearTimeout(reactionTimer); reactionTimer = undefined;
       for (const [timer, resolve] of burstTimers) { clearTimeout(timer); resolve(); }
       burstTimers.clear();
       const encoders = [...sockets].map(socket => {

@@ -5,7 +5,7 @@ import { startFixture } from './server.ts';
 
 let fixture: ReturnType<typeof startFixture>;
 let current: Drive | null = null;
-beforeAll(() => { fixture = startFixture({ port: 0, heartbeatInterval: 150 }); });
+beforeAll(() => { fixture = startFixture({ port: 0, heartbeatInterval: 150, subscribeAll: true }); });
 afterAll(async () => { await fixture.close(); });
 afterEach(async () => {
   current?.close();
@@ -133,4 +133,29 @@ test('plan §6 sizes: a 3 MiB READY, one wire frame over 1 MiB, and a login burs
   await d.until(c => c.filter(x => x.kind === 'dispatch').length > before, 'the oversize frame', 20_000);
   expect(d.dispatches().at(-1)!.t).toBe('GUILD_CREATE');
   expect(d.state.phase).toBe('ready');
+});
+
+test('server heartbeat requests are answered and never mistaken for a dead connection', async () => {
+  const d = start();
+  await d.until(has('GUILD_CREATE'), 'login');
+  for (let i = 0; i < 5; i++) {
+    const beats = d.sent.filter(f => f.op === 1).length;
+    await control(fixture.origin, 'heartbeat-request');
+    await d.until(() => d.sent.filter(f => f.op === 1).length > beats && !d.state.awaitingAck, `request ${i} answered and acked`);
+  }
+  // Two more periodic intervals with no requests: still the same connection.
+  const at = Date.now();
+  await d.until(() => Date.now() - at > 320 && !d.state.awaitingAck, 'two quiet intervals');
+  expect(d.changes.some(c => c.kind === 'status' && c.detail === 'heartbeat ACK missing')).toBe(false);
+  expect(d.dispatches('RESUMED')).toHaveLength(0);
+  expect((await fixtureState(fixture.origin)).connections).toBe(1);
+});
+
+test('a 1000 close from the server ends the session: the client identifies fresh', async () => {
+  const d = start();
+  await d.until(has('GUILD_CREATE'), 'login');
+  await control(fixture.origin, 'close', { code: 1000 });
+  await d.until(has('READY', 2), 'a second READY', 15_000);
+  expect(d.sent.filter(f => f.op === 6)).toHaveLength(0);
+  expect(d.sent.filter(f => f.op === 2)).toHaveLength(2);
 });
