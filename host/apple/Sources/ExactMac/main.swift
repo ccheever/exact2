@@ -104,10 +104,12 @@ final class Adapter: ExactSessionDelegate {
 
     /// A followed link. One that names a local file or directory is a
     /// document for this app (a Markdown link to the file beside it); one
-    /// that names a page goes to whatever handles pages. Nothing else opens:
-    /// a link comes out of a document this app did not write, and handing an
-    /// arbitrary scheme to Launch Services is handing it whatever is
-    /// registered for that scheme (LLP 0382 — fail closed, loudly).
+    /// that names a page goes to whatever handles pages, and one of a scheme
+    /// the app declares (`open_url.schemes`, OpenURL.swift) to what Launch
+    /// Services registered for it. Nothing else opens: a link comes out of a
+    /// document this app did not write, and handing an arbitrary scheme to
+    /// Launch Services is handing it whatever is registered for that scheme
+    /// (LLP 0382 — fail closed, loudly).
     private func open(_ target: String, from session: ExactSession) {
         guard !target.isEmpty else { return }
         // A link beside a document the person chose (LLP 1069.010 D1).
@@ -128,6 +130,7 @@ final class Adapter: ExactSessionDelegate {
             ExactDocuments.deliver([local], to: session, keep: false)
             return
         }
+        if let url, session.openDeclaredScheme(url, open: { url, done in done(NSWorkspace.shared.open(url)) }) { return }
         guard let url, ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") else {
             FileHandle.standardError.write(Data("exact: refused to open \(target)\n".utf8))
             return
