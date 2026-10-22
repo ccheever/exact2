@@ -371,7 +371,12 @@ function recoverDevice() {
 // task that rendered ends, which is when the browser presents the canvases.
 function flush(module = gpu) {
   if (trapped()) return;
-  if (module && (module !== gpu || !terminalDevice) && !module.gpu_flush()) console.error("exact gpu:", module.gpu_error());
+  if (!module || (module === gpu && terminalDevice)) return;
+  if (!module.gpu_flush()) console.error("exact gpu:", module.gpu_error());
+  // A submitted callback can publish after render drained the surface's output.
+  if (module === gpu) for (const entry of [...surfaces.values()]) {
+    if (entry.id && !entry.terminal && live(entry.view) === entry) messages(entry, false);
+  }
 }
 
 // An HDR surface's headroom (LLP 1100 D12b). The web has no headroom query:
