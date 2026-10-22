@@ -168,6 +168,11 @@ test('release identity: every source compared and identical in every run, but li
   // An app not in the tree at either end of a run (added since) has nothing to compare there.
   const later = releaseIdentity(file([row('apps/a/app.contract', 'identical'), row('apps/expose/app.contract', 'both failed')]), [...sources, 'apps/later/app.contract'], ['a..b'], (rev, src) => src !== 'apps/later/app.contract');
   expect([later.status, later.evidence.join('\n').includes('apps/later')]).toEqual(['PASS', false]);
+  // In the tree at either end, it must be compared.
+  for (const end of ['a', 'b']) {
+    const once = releaseIdentity(file([row('apps/a/app.contract', 'identical'), row('apps/expose/app.contract', 'both failed')]), [...sources, 'apps/later/app.contract'], ['a..b'], (rev, src) => src !== 'apps/later/app.contract' || rev === end);
+    expect([end, once.status, once.evidence.join('\n').includes('NOT COMPARED apps/later/app.contract over a..b')]).toEqual([end, 'FAIL', true]);
+  }
   expect(short.evidence.join('\n')).toContain('NOT A RUN OF STAGE 12 E c..d');
   // A run the history has that the file leaves out fails; so does a row with no commits.
   const ok = [row('apps/a/app.contract', 'identical'), row('apps/expose/app.contract', 'both failed')];
@@ -381,3 +386,13 @@ test.skipIf(process.env.EXACT_GATE_DRIVES !== '1')('an s13c plan boots on librar
   const d = drivePlan('web-wasm', plan, null, [], null, (h, p, _png, ids, a) => inspectDrive(h, p, ids, a));
   expect(d.tree.nodes.some(n => n.props?.testId === 'profile-header-ph-base')).toBe(true);
 }, 900_000);
+
+test('a shot scrolled past the top mark takes the viewport from the unscrolled shot, and only then', () => {
+  const img = { width: 100, height: 300, data: new Uint8Array(100 * 300 * 4) };
+  const scrolled = { viewport: { w: 100, h: 200 }, nodes: [{ testId: 'gate-top', x: 0, y: -500, w: 40, h: 12 }] };
+  expect(viewportTop(img, scrolled, 37)).toBe(37);
+  expect(() => viewportTop(img, scrolled, null)).toThrow(/top mark/);
+  // The mark on screen is read where it is, never the calibration (here: not found, so it fails).
+  const unscrolled = { viewport: { w: 100, h: 200 }, nodes: [{ testId: 'gate-top', x: 0, y: 0, w: 40, h: 12 }] };
+  expect(() => viewportTop(img, unscrolled, 37)).toThrow(/top mark/);
+});
