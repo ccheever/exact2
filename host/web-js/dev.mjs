@@ -928,13 +928,17 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     if (url.pathname === '/__dev/page') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
       const opened = tamber?.channel.open(frame => res.write(`data: ${JSON.stringify(frame)}\n\n`));
-      req.on('close', () => opened?.close());
+      // Ended once, by whichever close comes first: under Bun a request on a socket handed to the server
+      // (emit('connection'): the TLS door's, an old [::1] door's) never fires req 'close'; its res 'close' does.
+      let done = false;
+      const end = () => { if (done) return; done = true; opened?.close(); clients.delete(res); };
+      req.on('close', end);
+      res.on('close', end);
       res.write(`data: ${JSON.stringify({ ...(error ? { error } : {}), reload: seq, revision: logicRevision, ...(opened ? { nonce: opened.nonce } : {}) })}\n\n`);
       // The design the pages run, after value-only edits since the build.
       if (snapshot) res.write(`data: ${JSON.stringify(notice(snapshot))}\n\n`);
       clients.add(res);
       console.log(`page connected (${clients.size})`);
-      req.on('close', () => clients.delete(res));
       return;
     }
     if (url.pathname === '/__dev/design' && (req.method === 'GET' || req.method === 'HEAD')) {
