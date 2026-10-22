@@ -73,6 +73,11 @@ impl Executor {
                 std::sync::Arc::new(ibex2::host::Host::new)
             },
         );
+        // Linux starts programs for data code, and so does this host where it
+        // runs on a Mac; Android and Windows do not yet (LLP 1133.007 §8).
+        if cfg!(any(target_os = "linux", target_os = "macos")) {
+            core.allow_processes();
+        }
         Self { core, wake, note }
     }
     /// Where the app's files are, for a request whose body is one of them
@@ -144,5 +149,9 @@ impl Executor {
     /// Each open socket's buffered bytes, by its stream ticket, live.
     pub fn socket_reader(&self) -> exact_runner::SocketReader {
         self.core.socket_reader()
+    }
+    /// The clock its process work keeps under the agent (LLP 1133.007 §7).
+    pub fn work_clock(&self) -> Option<std::sync::Arc<dyn exact_runner::WorkClock>> {
+        self.core.work_clock()
     }
 }

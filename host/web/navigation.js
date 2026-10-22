@@ -1246,9 +1246,10 @@ const networkGrants = new Set(['fetch', 'fetch-subdomains', 'websocket']);
 // A scheme-wide line (`net.fetch https:`, a CSP scheme source) admits every origin of these schemes.
 const schemeGrants = { 'fetch-scheme': ['http', 'https'], 'websocket-scheme': ['ws', 'wss'] };
 const pathGrants = new Set(['fs-read', 'fs-write', 'sqlite-open']);
-const nameGrants = new Set(['env-read', 'secret-keep', 'storage-kv']);
-const validGrantName = name => typeof name === 'string' && name.length >= 1 && name.length <= 64
-  && /^[a-z0-9._-]+$/.test(name) && !/^\.+$/.test(name);
+const nameGrants = new Set(['env-read', 'secret-keep', 'storage-kv', 'secret-hold']);
+const pathNamespaces = ['', 'app:', 'doc:', 'home:', 'bundle:']; // `home:` and `bundle:` (LLP 1133.007 D6) a host resolves
+const spawnName = name => typeof name === 'string' && !!name && name !== '.' && name !== '..' && !/[/\\\u0000-\u001f\u007f-\u009f]/.test(name);
+const validGrantName = name => typeof name === 'string' && name.length >= 1 && name.length <= 64 && /^[a-z0-9._-]+$/.test(name) && !/^\.+$/.test(name);
 // Rust `str::trim`/`split_whitespace` use Unicode White_Space, which differs
 // from JavaScript's `\s` at U+0085 and U+FEFF.
 const rustSpace = '[\\u0009-\\u000d\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]';
@@ -1274,8 +1275,9 @@ const grantTupleValid = grant => {
     && (grant[0] !== 'fetch-subdomains' || !address && !grant[2].endsWith('.') && grant[2].split('.').filter(Boolean).length >= 2);
   }
   if (Object.hasOwn(schemeGrants, grant[0])) return grant.length === 2 && schemeGrants[grant[0]].includes(grant[1]);
-  if (pathGrants.has(grant[0])) return grant.length >= 2
-    && (['', 'app:', 'doc:'].includes(grant[1]) || nativeNamespace(grant[1]))
+  if (grant[0] === 'process-spawn' && grant[1] === 'path:') return grant.length === 3 && spawnName(grant[2]);
+  if (pathGrants.has(grant[0]) || grant[0] === 'process-spawn') return grant.length >= 2
+    && (pathNamespaces.includes(grant[1]) && (grant[0] !== 'process-spawn' || grant[1] !== 'doc:') || nativeNamespace(grant[1]))
     && grant.slice(2).every(component => nativeNamespace(grant[1]) ? nativeLeaf(component)
       : typeof component === 'string' && component && component !== '.' && component !== '..' && !component.includes('/'));
   if (!nameGrants.has(grant[0]) || grant.length !== 2 || typeof grant[1] !== 'string') return false;
@@ -1289,7 +1291,7 @@ const pathTuple = (kind, target) => {
   }
   const at = target.indexOf(':/');
   const namespace = at < 0 ? target.startsWith('/') ? '' : null : target.slice(0, at) + ':';
-  if (namespace == null || !['', 'app:', 'doc:'].includes(namespace)) return null;
+  if (namespace == null || !pathNamespaces.includes(namespace)) return null;
   const rest = at < 0 ? target.slice(1) : target.slice(at + 2);
   const parts = rest.split('/').filter(Boolean);
   return parts.some(part => part === '.' || part === '..') ? null : [kind, namespace, ...parts];
@@ -1335,8 +1337,9 @@ const sourceTuple = source => {
   if (capability === 'fs.write') return pathTuple('fs-write', target);
   if (capability === 'sqlite.open') return pathTuple('sqlite-open', target);
   if (capability === 'env.read') return ['env-read', target];
-  if (capability === 'secret.keep') return ['secret-keep', target];
+  if (capability === 'secret.keep' || capability === 'secret.hold') return [capability.replace('.', '-'), target];
   if (capability === 'storage.kv') return ['storage-kv', target];
+  if (capability === 'process.spawn') return target.startsWith('path:') ? ['process-spawn', 'path:', target.slice(5)] : pathTuple('process-spawn', target);
   return null;
 };
 const exactOnly = source => /^(#|surface\.read |surface\.write |device\.|runtime\.|auth\.|doc\.keep$)/.test(source);
@@ -1359,10 +1362,7 @@ function validateGrantSet(set) {
   return (!hasError || set.error !== null) && grantFNV(grantBody(set)) === set.seal;
 }
 const freezeGrantSet = set => {
-  for (const entry of set.entries) {
-    if (entry[2]) Object.freeze(entry[2]);
-    Object.freeze(entry);
-  }
+  for (const entry of set.entries) { if (entry[2]) Object.freeze(entry[2]); Object.freeze(entry); }
   Object.freeze(set.entries);
   return Object.freeze(set);
 };
@@ -1439,7 +1439,7 @@ function grantPathParts(path) {
   if (typeof path !== 'string') return null;
   const at = path.indexOf(':/');
   const namespace = at < 0 ? path.startsWith('/') ? '' : null : path.slice(0, at) + ':';
-  if (namespace == null || !['', 'app:', 'doc:'].includes(namespace)) return null;
+  if (namespace == null || !pathNamespaces.includes(namespace)) return null;
   const rest = at < 0 ? path.slice(1) : path.slice(at + 2);
   const parts = rest.split('/').filter(Boolean);
   return parts.some(part => part === '.' || part === '..' || part.includes('\0')) ? null : [namespace, ...parts];

@@ -83,7 +83,8 @@ impl<D: DataSource> Runner<D> {
         let ops = self.address(staged)?;
         let mutation = self.plan.str(self.plan.mutations[m].name).to_string();
         let origin = SocketOrigin::Mutation(mutation);
-        self.sockets.push(SocketSend { origin, ops });
+        let turn = self.current_turn();
+        self.sockets.push(SocketSend { origin, turn, ops });
         Ok(())
     }
 
@@ -115,14 +116,14 @@ impl<D: DataSource> Runner<D> {
     /// goes out once the commit that ran the turn stands, whatever the
     /// turn's answer was ([`Runner::refuse_batches`]); a batch with an
     /// operation on a socket that is not open is refused whole, and said.
-    pub(super) fn stage_answer(&mut self, target: Target) {
+    pub(super) fn stage_answer(&mut self, target: Target, turn: crate::process::TurnOrigin) {
         let staged = self.store.take_answer_sockets();
         if staged.is_empty() {
             return;
         }
         let origin = SocketOrigin::Answer(self.target_name(target));
         match self.address(staged) {
-            Ok(ops) => self.sockets.push(SocketSend { origin, ops }),
+            Ok(ops) => self.sockets.push(SocketSend { origin, turn, ops }),
             Err(why) => self.log(refused(&origin, &why)),
         }
     }
@@ -166,7 +167,9 @@ impl<D: DataSource> Runner<D> {
             .map(|(_, op)| (p.ticket, name.clone(), op))
             .collect();
         let origin = SocketOrigin::Mapper(name);
-        self.sockets.push(SocketSend { origin, ops });
+        // A mapper's turn has the origin of the turn that opened the stream.
+        let turn = p.turn;
+        self.sockets.push(SocketSend { origin, turn, ops });
         Ok(())
     }
 
@@ -214,6 +217,11 @@ impl<D: DataSource> Runner<D> {
                 name
             ));
         }
+        for (ticket, _, op) in &batch.ops {
+            if let SocketOp::Process { op, .. } = op {
+                self.note_child_sent(*ticket, op.size() as u64);
+            }
+        }
         for (ticket, sent, buffered) in sockets {
             let socket = self
                 .pending
@@ -247,10 +255,12 @@ pub(super) fn stream_count(request: &crate::Request) -> Option<StreamCount> {
     })
 }
 
-/// A delivered message's effect on its socket's state: `open` opens it.
+/// A delivered message's effect on its socket's state: `open` opens it, as
+/// a child's first `spawn` does (LLP 1133.007 D2), which stays open across
+/// its restarts.
 pub(super) fn socket_message(count: &mut StreamCount, message: &crate::Message) {
     if let Some(socket) = count.socket.as_mut() {
-        if message.event == "open" {
+        if message.event == "open" || message.event == "spawn" {
             socket.ready_state = 1;
         }
     }

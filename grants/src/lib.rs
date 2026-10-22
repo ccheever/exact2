@@ -71,11 +71,17 @@ impl PathPrefix {
             return Some(Self(native.grant_components()));
         }
         // `doc:/` names the documents a person chose (Exact patch: LLP
-        // 1069.010 D1), a namespace beside `app:/` resolved by the host.
+        // 1069.010 D1), `home:/` the person's home directory and `bundle:/`
+        // the app's installed bundle (LLP 1133.007 D6): namespaces beside
+        // `app:/`, each resolved by the host.
         let (namespace, path) = if let Some(path) = path.strip_prefix("app:/") {
             ("app:", path)
         } else if let Some(path) = path.strip_prefix("doc:/") {
             ("doc:", path)
+        } else if let Some(path) = path.strip_prefix("home:/") {
+            ("home:", path)
+        } else if let Some(path) = path.strip_prefix("bundle:/") {
+            ("bundle:", path)
         } else if path.starts_with('/') {
             ("", path)
         } else {
@@ -158,6 +164,22 @@ pub enum Operation {
     /// Capability `storage.kv` (LLP 0070 §1): keys are free within the
     /// scope, and the scope is the grant.
     StorageKv { scope: String },
+    /// Start a program, spelt as its grant line names it: `path:<name>`, or a
+    /// path (`/usr/bin/ssh`, `home:/…`, `app:/…`, `bundle:/…`). Capability
+    /// `process.spawn` (LLP 1133.007 D7).
+    ProcessSpawn { program: String },
+    /// Read and forget a field's held secret. Capability `secret.hold`
+    /// (LLP 1133.007 D8).
+    SecretHold { name: String },
+}
+
+/// What a `process.spawn` line names (LLP 1133.007 D7).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SpawnTarget {
+    /// A file, or every executable under a directory, by whole names.
+    Path(PathPrefix),
+    /// The first executable of this name on a `PATH` (`path:<name>`).
+    Name(String),
 }
 
 /// One grant. The parameter is the scope, and there is always a scope.
@@ -180,6 +202,10 @@ pub enum Grant {
     SqliteOpen(PathPrefix),
     SecretKeep(String),
     StorageKv(String),
+    /// `process.spawn <target>`: one program, or the programs under one path.
+    ProcessSpawn(SpawnTarget),
+    /// `secret.hold <name>`: a field's volatile secret.
+    SecretHold(String),
 }
 
 impl Grant {
@@ -205,6 +231,14 @@ impl Grant {
             (Grant::SqliteOpen(prefix), Operation::SqliteOpen { path }) => prefix.covers(path),
             (Grant::SecretKeep(granted), Operation::SecretKeep { name }) => granted == name,
             (Grant::StorageKv(granted), Operation::StorageKv { scope }) => granted == scope,
+            (
+                Grant::ProcessSpawn(SpawnTarget::Path(prefix)),
+                Operation::ProcessSpawn { program },
+            ) => prefix.covers(program),
+            (Grant::ProcessSpawn(SpawnTarget::Name(name)), Operation::ProcessSpawn { program }) => {
+                program.strip_prefix("path:") == Some(name.as_str())
+            }
+            (Grant::SecretHold(granted), Operation::SecretHold { name }) => granted == name,
             // Cross-kind pairs are not merely false, they are the whole point:
             // an `fs.read` grant admits no network operation, and the match
             // above is exhaustive over kinds so a new capability cannot be
@@ -247,11 +281,9 @@ impl GrantSet {
     /// (`stdlib::fs::realize`). Other families are unchanged.
     pub fn map_fs(&self, resolve: impl Fn(&str) -> String) -> GrantSet {
         let realize = |prefix: &PathPrefix| {
-            if prefix
-                .0
-                .first()
-                .is_some_and(|p| p == "app:" || p == "doc:" || p.starts_with("win:"))
-            {
+            if prefix.0.first().is_some_and(|p| {
+                matches!(p.as_str(), "app:" | "doc:" | "home:" | "bundle:") || p.starts_with("win:")
+            }) {
                 return prefix.clone();
             }
             let spelt = format!("/{}", prefix.0[1..].join("/"));
@@ -290,6 +322,28 @@ impl GrantSet {
             .iter()
             .filter_map(|grant| match grant {
                 Grant::SecretKeep(name) => Some(name.as_str()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The secrets fields of this app hold, in a stable order (LLP 1133.007 D8).
+    pub fn held_secrets(&self) -> Vec<&str> {
+        self.grants
+            .iter()
+            .filter_map(|grant| match grant {
+                Grant::SecretHold(name) => Some(name.as_str()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// What the `process.spawn` lines name, in a stable order.
+    pub fn spawn_targets(&self) -> Vec<&SpawnTarget> {
+        self.grants
+            .iter()
+            .filter_map(|grant| match grant {
+                Grant::ProcessSpawn(target) => Some(target),
                 _ => None,
             })
             .collect()
@@ -424,6 +478,7 @@ impl GrantSet {
                             index + 1
                         )
                     })?;
+                    whole_home(&prefix, index)?;
                     match capability {
                         "fs.read" => Grant::FsRead(prefix),
                         "fs.write" => Grant::FsWrite(prefix),
@@ -449,6 +504,16 @@ impl GrantSet {
                     }
                     Grant::StorageKv(target.to_string())
                 }
+                "process.spawn" => Grant::ProcessSpawn(spawn_target(target, index)?),
+                "secret.hold" => {
+                    if !valid_name(target) {
+                        return Err(format!(
+                            "line {}: `{target}` is not a secret name ([a-z0-9._-]{{1,64}})",
+                            index + 1
+                        ));
+                    }
+                    Grant::SecretHold(target.to_string())
+                }
                 other => return Err(format!("line {}: unknown capability `{other}`", index + 1)),
             };
             // One capability and one target per line. Anything after the
@@ -462,12 +527,66 @@ impl GrantSet {
             }
             set = set.with(grant);
         }
+        // A secret is kept or held, never both (LLP 1133.007 D8).
+        if let Some(name) = set
+            .held_secrets()
+            .into_iter()
+            .find(|held| set.kept_secrets().contains(held))
+        {
+            return Err(format!(
+                "`{name}` is both kept and held (secret-name-twice): a secret is `secret.keep` or `secret.hold`, not both"
+            ));
+        }
         Ok(set)
     }
 }
 
+/// `home:/` alone names every file the person has; a line names a subtree
+/// (LLP 1133.007 D6, `home-grant-whole`).
+fn whole_home(prefix: &PathPrefix, index: usize) -> Result<(), String> {
+    if prefix.0 == ["home:"] {
+        return Err(format!(
+            "line {}: `home:/` names the whole home directory (home-grant-whole): name a subtree, such as `home:/.ssh`",
+            index + 1
+        ));
+    }
+    Ok(())
+}
+
+/// A `process.spawn` target (LLP 1133.007 D7): `path:<name>`, or an
+/// absolute, `home:`, `app:` or `bundle:` path. A chosen document is no
+/// program.
+fn spawn_target(target: &str, index: usize) -> Result<SpawnTarget, String> {
+    if let Some(name) = target.strip_prefix("path:") {
+        if name.is_empty()
+            || matches!(name, "." | "..")
+            || name.contains(['/', '\\', '\0'])
+            || name.chars().any(char::is_control)
+        {
+            return Err(format!(
+                "line {}: `{target}`: a `path:` target is one program name, with no `/`",
+                index + 1
+            ));
+        }
+        return Ok(SpawnTarget::Name(name.to_string()));
+    }
+    let prefix = PathPrefix::new(target)
+        .filter(|p| p.0.first().is_some_and(|n| n != "doc:"))
+        .ok_or_else(|| {
+            format!(
+                "line {}: `{target}`: a program is `path:<name>` or an absolute, `home:/`, `app:/` or `bundle:/` path",
+                index + 1
+            )
+        })?;
+    whole_home(&prefix, index)?;
+    Ok(SpawnTarget::Path(prefix))
+}
+
 #[cfg(test)]
 mod quoted_tests;
+
+#[cfg(test)]
+mod process_tests;
 
 /// A CSP scheme source ([CSP3 `scheme-source`](https://www.w3.org/TR/CSP3/#grammardef-scheme-source)):
 /// a scheme and its colon, nothing else.

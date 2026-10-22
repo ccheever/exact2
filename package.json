@@ -20,6 +20,7 @@
     "@exact/actions": "workspace:*",
     "@exact/lists": "workspace:*",
     "@exact/cards": "workspace:*",
+    "@exact/child-process": "workspace:*",
     "@exact/geolocation": "workspace:*",
     "@exact/scale-fixture-notes": "workspace:*",
     "@exact/reading": "workspace:*"

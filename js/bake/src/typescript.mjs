@@ -881,10 +881,13 @@ export function configure(stage, incremental=false, parse) {
 // declaration says, an error as `{code, message}` (D1).
 function moduleBindings(stage, app) {
   const out=new Map();
-  for (const {name,declaration,implementations} of moduleInterfaces(app)) {
+  for (const {name,root,declaration,implementations} of moduleInterfaces(app)) {
     const file='__exact_modules/'+name.replace(/^@/,'').replace(/\//g,'__')+'.ts';
     mkdirSync(resolve(stage,'__exact_modules'),{recursive:true});
-    const text=moduleBinding(name,declaration,implementations.map(i=>i.json)), at=resolve(stage,file);
+    // An interface the executor implements (LLP 1133.007 D12: `@exact/child-process`) carries its own binding, which
+    // re-exports the prelude's functions and answers NotSupportedError where they are absent.
+    const own=typeof declaration.binding==='string' && Array.isArray(declaration.executor) ? readFileSync(resolve(root,declaration.binding),'utf8') : null;
+    const text=own ?? moduleBinding(name,declaration,implementations.map(i=>i.json)), at=resolve(stage,file);
     if (!existsSync(at) || readFileSync(at,'utf8')!==text) writeFileSync(at,text);
     out.set(name,'./'+file);
   }

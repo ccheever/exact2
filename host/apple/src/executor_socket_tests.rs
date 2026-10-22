@@ -196,7 +196,11 @@ fn batch(ops: Vec<SocketOp>) -> SocketSend {
 
 fn from(origin: SocketOrigin, ops: Vec<SocketOp>) -> SocketSend {
     let ops = ops.into_iter().map(|op| (1, "feed".into(), op)).collect();
-    SocketSend { origin, ops }
+    SocketSend {
+        origin,
+        turn: exact_runner::TurnOrigin::Person,
+        ops,
+    }
 }
 
 fn frame(data: &str) -> Result<Event, HostError> {

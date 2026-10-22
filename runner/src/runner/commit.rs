@@ -782,6 +782,8 @@ impl<D: DataSource> Runner<D> {
         let ticket = self.next_ticket;
         self.next_ticket += 1;
         let name = self.target_name(target);
+        let mut request = request;
+        self.stamp_process(&mut request);
         self.log(super::lines::enqueued(ticket, &name, &request));
         self.pending.push(PendingReq {
             refusal: None,
@@ -796,14 +798,15 @@ impl<D: DataSource> Runner<D> {
             grant: request
                 .stream
                 .then(|| {
-                    crate::grants::admitting(
+                    crate::grants::admitting_request(
                         self.data.grants(),
                         request.grants.as_deref(),
-                        &request.url,
+                        &request,
                     )
                 })
                 .flatten()
                 .map(str::to_string),
+            turn: self.current_turn(),
             ask_again: false,
             origin: self.writes.tick(),
             write: match target {
@@ -811,6 +814,7 @@ impl<D: DataSource> Runner<D> {
                 Target::Resource(_) => None,
             },
         });
+        self.note_child(ticket, &request);
         self.requests.push(RequestOut {
             ticket,
             target: name,
@@ -936,6 +940,8 @@ impl<D: DataSource> Runner<D> {
     /// clock waits on it. The module's background round is (LLP 1097 D9).
     pub fn has_pending(&self) -> bool {
         self.background_ticket().is_some()
+            // A child's outcomes its work owes on the agent's clock (LLP 1133.007 §7).
+            || self.work_owed()
             || self
                 .pending
                 .iter()
@@ -958,6 +964,11 @@ impl<D: DataSource> Runner<D> {
             .filter(|p| p.in_flight() && !self.held_for_agent(p))
             .map(|p| (self.target_name(p.target), p.ticket))
             .collect();
+        // Child processes' outcomes their work owes on the agent's clock
+        // (LLP 1133.007 §7), listed as `processes`.
+        if self.work_owed() {
+            out.push(("processes".into(), 0));
+        }
         out.extend(
             self.background_ticket()
                 .map(|t| (super::background::NAME.to_string(), t)),
@@ -1094,6 +1105,9 @@ impl<D: DataSource> Runner<D> {
             sockets::socket_message(count, m);
         }
         let p = p.clone();
+        if let Outcome::Message(m) = &outcome {
+            self.note_child_message(p.ticket, m);
+        }
         self.sync_pending_flags();
         let (ticket, target, name) = (p.ticket, p.target, self.target_name(p.target));
         let what = super::lines::fulfilling(ticket, &name, summary);
@@ -1126,7 +1140,21 @@ impl<D: DataSource> Runner<D> {
         result.map(Some)
     }
 
+    /// The turn that answers `p` keeps the origin of the turn that asked
+    /// (LLP 1133.007 D13): what it asks or sends is that origin's, whatever
+    /// the runner's own origin is now.
     pub(super) fn fulfill_inner(
+        &mut self,
+        p: PendingReq,
+        outcome: Outcome,
+    ) -> Result<CommitReceipt, RunnerError> {
+        let outer = self.processes.answering.replace(p.turn);
+        let result = self.fulfill_turn(p, outcome);
+        self.processes.answering = outer;
+        result
+    }
+
+    fn fulfill_turn(
         &mut self,
         p: PendingReq,
         outcome: Outcome,
@@ -1156,7 +1184,7 @@ impl<D: DataSource> Runner<D> {
         if !message {
             self.store.take_sockets();
         }
-        self.stage_answer(p.target);
+        self.stage_answer(p.target, p.turn);
         for line in self.data.take_logs() {
             self.log(line);
         }

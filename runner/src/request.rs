@@ -521,6 +521,15 @@ pub enum SocketOp {
         /// The close reason.
         reason: String,
     },
+    /// An operation on a resource's child process (LLP 1133.007 D2),
+    /// addressed to the incarnation whose handle made it: a host refuses it
+    /// once that incarnation has ended.
+    Process {
+        /// The incarnation, from 1.
+        incarnation: u32,
+        /// What it does.
+        op: crate::process::ProcessOp,
+    },
 }
 
 impl SocketOp {
@@ -530,13 +539,16 @@ impl SocketOp {
             SocketOp::Text(text) => text.len(),
             SocketOp::Binary(bytes) => bytes.len(),
             SocketOp::Close { .. } => 0,
+            SocketOp::Process { op, .. } => op.size(),
         }
     }
 
-    /// Its name in the journal: `send` or `close`.
+    /// Its name in the journal: `send` or `close`, or a child's `write`,
+    /// `end` or `kill`.
     pub fn name(&self) -> &'static str {
         match self {
             SocketOp::Close { .. } => "close",
+            SocketOp::Process { op, .. } => op.name(),
             _ => "send",
         }
     }
@@ -578,6 +590,9 @@ impl SocketOrigin {
 pub struct SocketSend {
     /// What staged them.
     pub origin: SocketOrigin,
+    /// Where the turn that staged them came from: a host refuses a child's
+    /// operation from a turn that is not a person's (LLP 1133.007 D13).
+    pub turn: crate::process::TurnOrigin,
     /// (stream ticket, resource name, operation), in order.
     pub ops: Vec<(u64, String, SocketOp)>,
 }
@@ -666,6 +681,9 @@ pub enum FailureKind {
     Aborted,
     /// Its deadline ([`Request::timeout_ms`]) passed; the host cancelled it.
     Timeout,
+    /// What it names does not exist: a program a spawn could not find
+    /// (`ENOENT`, LLP 1133.007 D2).
+    NotFound,
 }
 
 /// Where a module instance runs (LLP 1027.002 D1): on the runner's thread,
@@ -851,6 +869,7 @@ mod summary_tests {
             FailureKind::Unsupported,
             FailureKind::Aborted,
             FailureKind::Timeout,
+            FailureKind::NotFound,
         ] {
             // Every variant is listed: adding one breaks this match.
             match kind {
@@ -858,7 +877,8 @@ mod summary_tests {
                 | FailureKind::Refused
                 | FailureKind::Unsupported
                 | FailureKind::Aborted
-                | FailureKind::Timeout => {}
+                | FailureKind::Timeout
+                | FailureKind::NotFound => {}
             }
             let name = format!("{kind:?}");
             assert!(name.is_ascii(), "{name}");

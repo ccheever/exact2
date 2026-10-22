@@ -11,7 +11,9 @@ use exact_runner::{SocketOp, Store, Target};
 use serde_json::Value as Json;
 
 /// One operation as the prelude records it: `{"op":"text","data":…}`,
-/// `{"op":"binary","data":base64}` or `{"op":"close","code":…,"reason":…}`.
+/// `{"op":"binary","data":base64}` or `{"op":"close","code":…,"reason":…}`;
+/// a child's `{"op":"write","data":base64,"incarnation":n}`, `end` or
+/// `{"op":"kill","signal":…}`.
 pub(crate) fn op_from_json(text: &str) -> Result<SocketOp, String> {
     let j: Json = serde_json::from_str(text).map_err(|e| e.to_string())?;
     let data = || j.get("data").and_then(Json::as_str).unwrap_or("");
@@ -32,6 +34,26 @@ pub(crate) fn op_from_json(text: &str) -> Result<SocketOp, String> {
                 .unwrap_or("")
                 .to_string(),
         }),
+        // A child's (LLP 1133.007 D2; js/src/process.js), by incarnation.
+        Some(op @ ("write" | "end" | "kill")) => {
+            let incarnation = (j.get("incarnation").and_then(Json::as_u64))
+                .and_then(|n| u32::try_from(n).ok())
+                .ok_or("child: an operation with no incarnation")?;
+            let op = match op {
+                "write" => exact_runner::ProcessOp::Write(
+                    exact_runner::agent::unbase64(data())
+                        .ok_or("child: bytes that are not base64")?,
+                ),
+                "end" => exact_runner::ProcessOp::End,
+                _ => exact_runner::ProcessOp::Kill(
+                    j.get("signal")
+                        .and_then(Json::as_str)
+                        .unwrap_or("SIGTERM")
+                        .to_string(),
+                ),
+            };
+            Ok(SocketOp::Process { incarnation, op })
+        }
         _ => Err("socket: an operation that is not text, binary or close".into()),
     }
 }

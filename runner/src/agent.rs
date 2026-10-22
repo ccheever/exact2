@@ -44,9 +44,10 @@ pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         Some("tags") => tags(runner),
         Some("frames") => frames(runner, request, &|_| false),
         Some("holds") => holds(runner),
-        // @ref LLP 1103 D3 — the driver's fetch faults, a form of `prefer`:
-        // the network is the environment, as `online` is (LLP 1012 §1).
+        // @ref LLP 1103 D3 — fetch faults: the network is the environment, as `online` is (LLP
+        // 1012 §1); a turn's origin (LLP 1133.007 D13) is a `prefer` of the runner's too.
         Some("prefer") if after_key(request, "faults").is_some() => faults(runner, request),
+        Some("prefer") if after_key(request, "origin").is_some() => streams::turn(runner, request),
         // The module's storage still to land (LLP 1097 D10): what a host's
         // quit or suspension waits for, cheaper than `state`.
         Some("background") => format!("{{\"operations\":{}}}", runner.background_operations()),

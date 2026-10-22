@@ -288,12 +288,12 @@ public final class Agent {
             Agent.reply(tagged(r))
         case "reveal": Agent.reply(tagged(settling(reveal(req)))) // before a tap or a type: a target out of view, scrolled into it
         case "clock": let r = clock(req); session.tellAgentOffset(); Agent.reply(tagged(r))
-        // A fetch fault (LLP 1103) is the runner's, below; the device facts are this host's.
+        // A fetch fault (LLP 1103) and a turn's origin (LLP 1133.007 D13) are the runner's, below; the device facts are this host's.
         // @ref LLP 1125 §4 — the MIDI ports the agent names, and a message from one: the runner's.
         case "prefer" where req["midi"] != nil: Agent.reply(tagged(midi(req)))
         case "prefer" where req["extension"] != nil || req["permission"] != nil: Agent.reply(tagged(preferExtension(req)))
         case "midi": Agent.reply(tagged(midi(req)))
-        case "prefer" where req["faults"] == nil: Agent.reply(tagged(prefer(req)))
+        case "prefer" where req["faults"] == nil && req["origin"] == nil: Agent.reply(tagged(prefer(req)))
         case "screenshot": Agent.reply(tagged(screenshot(req)))
         // What is wrong with the presented screen, as observations the driver judges (LLP 1116.003 D8).
         case "check":
