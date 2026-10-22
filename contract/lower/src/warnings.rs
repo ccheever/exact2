@@ -67,10 +67,10 @@ pub(crate) struct TextStyle {
 pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> Vec<LowerError> {
     let root = &checked.expanded.root;
     let mut out = Vec::new();
-    // Each node, whether a navigation root (the outermost element with a
-    // `navigationKey`) encloses it, and the id that root's `navigationBack`
-    // names, when it is a literal: an element with a `navigationKey` inside
-    // a root is a route.
+    // Each node, whether a navigation root (the outermost element with a `navigationKey`)
+    // encloses it, and the id that root's `navigationBack` names, when it is a literal:
+    // an element with a `navigationKey` inside a root is a route.
+    crate::menu_rows::notes(&root.view, &mut out);
     let mut stack: Vec<(&Node, bool, Option<&str>)> =
         root.view.iter().rev().map(|n| (n, false, None)).collect();
     let (mut seen, mut platform) = (BTreeSet::new(), Vec::new());
@@ -290,10 +290,11 @@ fn part(node: &Node) -> Part {
     if role == Some("tablist") {
         return Part::Tablist;
     }
-    let opens =
-        has(attrs, "popovertarget") && literal(attrs, "popovertargetaction") != Some("hide");
-    // A link navigates; it is given the benefit, as a pressed thing.
-    if has(attrs, "press") || (tag == "button" && opens) || tag == "link" {
+    // A link navigates, given the benefit as a pressed thing; a disabled button is a dimmed item.
+    let disabled = |a: &Attr| a.name == "disabled" && !matches!(a.value, Expr::Bool(false, _));
+    let item = attrs.iter().any(disabled)
+        || (has(attrs, "popovertarget") && literal(attrs, "popovertargetaction") != Some("hide"));
+    if has(attrs, "press") || (tag == "button" && item) || tag == "link" {
         return Part::Pressable;
     }
     if role == Some("status") && tag != "header" {
@@ -402,8 +403,8 @@ const OR_NO_BAR: &str =
 /// iOS navigation bar does not place (LLP 1075.003 §9.10, LLP 1116 D6). The
 /// bar takes one heading as its title, the first text after it as the
 /// subtitle (a filled box before it as the avatar), one search field, one
-/// tablist, the buttons that press or open a popover and the readouts
-/// (`role="status"`, LLP 1075.003 §9.15); the rest of the header is hidden
+/// tablist, the buttons that press, open a popover or are disabled, and the
+/// readouts (`role="status"`, LLP 1075.003 §9.15); the rest of the header is hidden
 /// with it. With no heading or with two, the bar takes nothing and the
 /// header is shown as written: `lower-header-no-bar`'s (LLP 1116.003 D2.2).
 /// An `if` first among the route's children is read branch by branch: a branch's first node
@@ -448,7 +449,7 @@ fn route_header<'a>(children: &'a [Node], after: &[&'a Node], out: &mut Vec<Lowe
         out.push(LowerError {
             id: "lower-header-unplaced",
             message: format!(
-                "{what} in this route's `header` is not shown on iOS: the navigation bar there takes one heading as its title, the first text after it as the subtitle, one `input type=\"search\"`, one `role=\"tablist\"`, the buttons that press and the readouts (`role=\"status\"`), and hides the rest of the header. Move it below the `header`, into the route's content (the scroller's first row), make it a button that presses, or, if it is a status that nothing presses (a \"● Live\" beside the title), give it `role=\"status\"` (docs/contract-for-agents.md, \"Tabs and stacks\")"
+                "{what} in this route's `header` is not shown on iOS: the navigation bar there takes one heading as its title, the first text after it as the subtitle, one `input type=\"search\"`, one `role=\"tablist\"`, the buttons that press or are disabled and the readouts (`role=\"status\"`), and hides the rest of the header. Move it below the `header`, into the route's content (the scroller's first row), make it a button that presses, or, if it is a status that nothing presses (a \"● Live\" beside the title), give it `role=\"status\"` (docs/contract-for-agents.md, \"Tabs and stacks\")"
             ),
             span,
         });

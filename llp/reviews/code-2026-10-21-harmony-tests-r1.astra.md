@@ -1,0 +1,23 @@
+# Code review: Harmony's web tests against a Snapback server of their own (scripts/memory-backend-test.mjs, the async lane), round 1, 2026-10-21 (astra)
+
+- **Family:** OpenAI. GPT-6 Astra via `codex exec`, reasoning effort max, `-s read-only`, a throwaway worktree at `4927b2547f`.
+- **Method:** one brief (sha256 `78bc6a01f108431471ed4d61c712fb71a358433bfbbd564de795115725a7d7e7`), blind to the other reviewer; 2 rounds (the lead's 20:50Z), then narrow re-checks until clean. The author (Claude, reload1) is not a reviewer.
+- **Transcription:** the final message, unedited but for the worktree path prefix.
+
+I would block this commit on finding 1. This was read-only inspection; I ran no tests, servers, installs, or network commands.
+
+1. **blocker — [scripts/memory-backend-test.mjs:75](scripts/memory-backend-test.mjs:75): forwarded arguments can select the live backend.** Passing `--backend http://127.0.0.1:4400` overrides the wrapper’s environment in [app-cli.mjs:193](scripts/app-cli.mjs:193). The build then grants access to 4400, and `fresh` posts `/dev/reset` there: [agent-test.mjs:240](scripts/agent-test.mjs:240) requires a `storeId`, without checking `temporary`. The wrapper checked a different server. **Fix:** reject backend-selection overrides and enforce an owned-origin allowlist immediately before any reset. Add a regression proving this invocation is refused.
+
+2. **major — [scripts/memory-backend-test.mjs:57](scripts/memory-backend-test.mjs:57): port selection does not establish ownership.** `freePort()` releases its listener before Snapback binds. Another temporary server can claim that port and satisfy the status check while the launched process is still starting. Tests can then reset somebody else’s store. **Fix:** use Snapback’s supported `--port 0`, capture its `SNAPBACK4_READY` address, and verify `/dev/status` identifies the launched wrapper (`wrapperPid === server.pid`), alongside `temporary: true`.
+
+3. **major — [scripts/memory-backend-test.mjs:74](scripts/memory-backend-test.mjs:74): concurrent runs share the same dist.** Two runs for Harmony publish different backend origins into the same directory. Run A can read run B’s admission grants and reset B’s backend. The freshness check does not prevent that: `runTests` resets before opening the app, where freshness is checked. **Fix:** allocate a unique directory per invocation with `mkdtemp`, retain it throughout that run, and remove it during cleanup.
+
+4. **major — [scripts/memory-backend-test.mjs:75](scripts/memory-backend-test.mjs:75): cancellation cannot interrupt a hung test child.** `spawnSync` blocks the JavaScript signal handlers at lines 61–62. A SIGTERM sent only to this runner therefore cannot stop the test or backend until the child returns. Cleanup also has no termination deadline. Snapback’s wrapper correctly forwards signals and watches parent death, but the blocked parent remains alive. **Fix:** spawn asynchronously, track and terminate the test and server processes, await exit, and escalate after a bounded grace period. Use an elapsed-time startup deadline too: 600 one-second requests plus sleeps can take roughly 11 minutes, despite the “60 s” diagnostic.
+
+5. **major — [scripts/memory-backend-test.mjs:58](scripts/memory-backend-test.mjs:58): the test backend lacks Harmony’s live-feed endpoint.** Harmony fetches `${origin}/live?as=…`, but the pinned Snapback 0.4.33 dev server provides `/changes`; Harmony declares no `/live` route or worker. This setup returns 404 for the stream. The six tests can pass through explicit reads and account switches without detecting that. **Fix:** start the required live-feed adapter against the temporary backend, or use a supported backend protocol, and assert that a second client’s write arrives without navigation or polling.
+
+6. **minor — [scripts/memory-backend-test.mjs:56](scripts/memory-backend-test.mjs:56): introduces a Node prerequisite.** This fails on a supported Bun-only installation, although `snapback4/web/build.mjs` explicitly supports Bun. **Fix:** invoke it with `process.execPath`.
+
+For a single run without overriding arguments, backend precedence is correct: the environment overrides both `.exact/backend-origin` and the literal, including `/live`. The native `appOrigin` fallback is unused here and selects fault prefixes, not reset destinations. The lane supplies `EXACT_REQUIRED=1` and a two-hour process-group watchdog; although `checkEnv` does not sanitize this check, the wrapper overwrites inherited backend/dist variables.
+
+The `releaseSources` and `wasmCrates` path changes look correct. The new release test covers Harmony; the existing wasm test would also pass with the old regex, so it still needs a nested-layout regression fixture.

@@ -40,7 +40,7 @@ pub(crate) use block::{apply as apply_block, publication_start, Blocks};
 pub use block::{BlockAxis, HostBlock};
 pub use cover::HostCover;
 pub(crate) use cover::{
-    applied_padding as cover_padding, apply as apply_cover,
+    applied_padding as cover_padding, apply as apply_cover, chain_changed as cover_chain_changed,
     children_changed as cover_children_changed, published_extent,
     style_changed as cover_style_changed,
 };
@@ -114,6 +114,14 @@ impl<'a> NodeRef<'a> {
     /// state: a host composes them over [`Self::style`] on its own tracking.
     pub fn looks(&self) -> &'a [(u8, StyleProps)] {
         self.arena.looks(self.slot)
+    }
+
+    /// How the node is positioned for layout: its `position`, but absolute in
+    /// the top layer (an open or closed popover, unless its author wrote
+    /// `sticky`). A host's layout-side read goes through this, not
+    /// `style.position_type`.
+    pub fn layout_position(&self) -> crate::PositionType {
+        crate::style::top_layer::layout_position(self.arena, self.slot)
     }
 
     /// The editor content box in this native field's local frame (LLP 1104 D5).

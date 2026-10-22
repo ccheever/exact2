@@ -102,7 +102,8 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |dice, a shuffle, a random pick or name (Contract has no `random()`: copy the recipe's `roll`)|`random-rolls`, `random-and-shuffle`|
 |location, or anything the person must allow|`permissions`|
 |another wide layout, a chart|`web-look`, `responsive-columns`, `content-design`|
-|video, a map, the camera (drawing is boxes and SVG, not Swift)|`native-views`|
+|a video, a looping hero clip, a song (the `video` and `audio` elements, with a `poster`)|["Sound, MIDI and media"](contract-for-agents.md#sound-midi-and-media)|
+|a map, the camera (drawing is boxes and SVG, not Swift)|`native-views`|
 |a shared server (Snapback): wiring, tests, sign-in|`snapback`, `snapback-tests`, `snapback-auth`|
 |ports, Bun, Chrome and its stores|`ports-and-browsers`|
 |porting an app, a release build, helpers sharing a port|`porting-and-release`|

@@ -1,0 +1,7 @@
+{
+  "name": "@exact/lists",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Library components for lists (LLP 1139): a grouped list's native rows, a row that goes somewhere or does something and a row with a switch, restyled by their params and the package's tokens.",
+  "exports": { ".": "./index.contract" }
+}

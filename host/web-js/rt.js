@@ -204,7 +204,7 @@ export function commit(f, what = "commit") {
   unpark();
   const tail = () => { // the tree update; inside a view transition when it may hand on a shared element's name (LLP 1013.000 D7)
     for (const f of Before) f();
-    Pres?.before({ ops: [] }, Views); // presence measures what it tracks before the tree changes (LLP 1063)
+    Pres?.before({ ops: gains() }, Views); // presence measures what it tracks, and what may gain the row, before the tree changes (LLP 1063)
     try { flush(); openTabs(); } catch (e) { Poisoned = true; Why = why("updating the tree", String(e)); say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); Sched?.forget(); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
     settled(true); if (!ok) return Sched?.scan(false), false;
     clock.epoch++; Store.persist();
@@ -263,7 +263,7 @@ export function act(fn, types, skip = 0, names) {
 /** The host commands, by name; a loaded piece adds its own (list.js `scrollIntoView`). */
 export const Hosts = {
   focus: id => liveById(id)?.focus(),
-  blur: id => { const a = document.activeElement; if (a && a !== document.body && (id == null || a.id === id)) a.blur(); }, ...commands(say), // commands.js's: selectText, openURL, postMessage, reload, delivery's; `blur()` drops whatever holds focus; `blur(id)` only when that node holds it (navigation.js runFocusCommands)
+  blur: id => { const a = document.activeElement; if (a && a !== document.body && (id == null || a.id === id)) a.blur(); }, ...commands(say, () => agentMode()), // commands.js's: selectText, openURL, postMessage, reload, delivery's; `blur()` drops whatever holds focus; `blur(id)` only when that node holds it (navigation.js runFocusCommands)
   setScheme: s => heldOr("scheme", s, () => { document.documentElement.style.colorScheme = s === "system" ? "" : s; }), requestFullscreen: id => Media ? Media.requestFullscreen(id) : say(`requestFullscreen: refused: no video with id "${id}"`), // media.js's where a plan has media; without any, the same refusal
   copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), /* LLP 1077 D14: vibration where the browser has it */ scrollIntoView: (id, block, inline, behavior) => { const e = liveById(id); if (e) e.scrollIntoView({ block: block ?? "start", inline: inline ?? "nearest", behavior: behavior ?? "auto" }); else say(`scrollIntoView "${id}" refused: no live node with that id`); }, /* an element's, by id (minesweeper F3); list.js takes a row's */ scrollBy: (id, x, y) => { const e = liveById(id); if (e) e.scrollBy(x, y); else say(`scrollBy "${id}" refused: no live node with that id`); }, // LLP 1101.004 R3
 };
@@ -926,8 +926,8 @@ export const onValue = (e, kind, f, l) => { return l(kind, ev => {
 export const onBeforeInput = (e, kind, f, l) => l(kind, ev => { const outer = KeyEvent; KeyEvent = ev; try { f(inputRecord(e, e.value, false, ev)); } finally { KeyEvent = outer; } });
 export const onHover = (e, kind, f, l) => { l("pointerenter", () => f(true)); return l("pointerleave", () => f(false)); };
 export const onFocusWithin = (e, kind, f, l) => l(kind, ev => { if (ev.$stopped) return; const outer = KeyEvent; KeyEvent = ev; try { f([ev.target?.exactExitId ?? ev.target?.id ?? "", ev.relatedTarget?.exactExitId ?? ev.relatedTarget?.id ?? null]); } finally { KeyEvent = outer; } });
-// `keycapture` hears keydown outermost first, then `key` bubbles; `keyup` bubbles too (#140). An action taking one more parameter hears the KeyboardEvent record (contract/types selection.rs's order: code and repeat last). With nothing focused a key or a clipboard event targets `<body>`, outside the app, where the DOM's `window` listeners hear it: the first root's handlers hear any event whose target is outside `#exact-root` (`atBody`), on `<html>` as it bubbles, so after the shortcuts (input-glue's capture listener) and before the document's defaults (a sheet's Escape, a list's ⌘A), its `keycapture` before its `key`.
-let BodyHeard; const atBody = (e, kind, g) => { (e.$body ??= {})[kind] = g; BodyHeard ??= ["keydown", "keyup", "copy", "cut", "paste"].map(t => document.documentElement.addEventListener(t, ev => { const root = document.getElementById("exact-root"), h = root?.firstElementChild?.$body; if (!h || root.contains(ev.target)) return; if (t === "keydown") { h.keycapture?.(ev); h.key?.(ev); } else h[t]?.(ev); })); return g; };
+// `keycapture` hears keydown outermost first, then `key` bubbles; `keyup` bubbles too (#140). An action taking one more parameter hears the KeyboardEvent record (contract/types selection.rs's order: code and repeat last). With nothing focused a key or a clipboard event targets `<body>`, outside the app, where the DOM's `window` listeners hear it: the first root's handlers hear any event whose target is `<body>` or `<html>` (`atBody`; never a copy a flow forwards to a detached node), on `<html>` as it bubbles, so after the shortcuts (input-glue's capture listener) and before the document's defaults (a sheet's Escape, a list's ⌘A), its `keycapture` before its `key`.
+let BodyHeard; const atBody = (e, kind, g) => { (e.$body ??= {})[kind] = g; if (!globalThis.document?.documentElement) return g; BodyHeard ??= ["keydown", "keyup", "copy", "cut", "paste"].map(t => document.documentElement.addEventListener(t, ev => { const root = document.getElementById("exact-root"), h = root?.firstElementChild?.$body; if (!h || (ev.target !== document.body && ev.target !== document.documentElement)) return; if (t === "keydown") { h.keycapture?.(ev); h.key?.(ev); } else h[t]?.(ev); })); return g; };
 export const onKey = (e, kind, f, l) => { const type = kind === "keyup" ? "keyup" : "keydown"; if (!(e.exactFlowEvents ??= []).includes(type)) e.exactFlowEvents.push(type); return l(type, atBody(e, kind, ev => { if (ev.$stopped || kind === "keycapture" && ev.exactFlowCapture && !ev.exactFlowCapture.includes(e)) return; const outer = KeyEvent; KeyEvent = ev; try { f(ev.key, [ev.key, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey, ev.code, ev.repeat]); } finally { KeyEvent = outer; } }), kind === "keycapture"); };
 export const onMIDI = (e, kind, f) => { (Sounds.midi ??= new Set()).add([e, f]); }; // a MIDI input's message (LLP 1125 D8), heard by every connected element whose `midiinputs` lists the input (midi.js)
 // The window's, heard by every connected element that declares it (studio diary R17).
@@ -957,15 +957,11 @@ export const onClipboard = (e, kind, f, l) => { if (kind === "paste") OnHooks.pa
 export const onToggle = (e, kind, f, l) => l(kind, ev => f([ev.oldState, ev.newState]));
 export const onSelectionChange = (e, kind, f, l) => { return sourceField(e) ? l(kind, () => f(inputRecord(e, e.value, false))) : onSelection(e, (text, a, b, rects) => f([text, a, b, rects])); };
 // ---------------------------------------------------------------- presence (LLP 1063)
-// `-exact-exit-animation` and `-exact-layout-transition`: the web host's own
-// presence-glue.js, fetched after the first painted frame by a plan with
-// either row (its node calls `pr`), plays both. Each commit it measures the
-// views that declare a layout transition before the tree changes and plays
-// back each that moved after; a region's removed root that declares an exit
-// stays, out of flow at its last box, until its animations end, where it
-// was: `clear` passes over it.
-// Until the piece is here, rows jump and leave at once, as the wasm host's
-// do when it is unavailable.
+// `-exact-exit-animation` and `-exact-layout-transition`: the web host's own presence-glue.js, fetched after the first
+// painted frame by a plan with either row (its node calls `pr`; a bound layout transition's, `lt`), plays both. Each commit it
+// measures the views that declare a layout transition, or may gain one (a bound one's, as the wasm host's style op), before the
+// tree changes and plays back each that moved after; a region's removed root that declares an exit stays, out of flow at its
+// last box, until its animations end, where it was: `clear` passes over it. Until the piece is here, rows jump and leave at once.
 let Pres = null, Presence = null, Present = null, Leave = null, Sh = null; // Sh: shared.js, loaded with presence-glue.js, runs the commits that hand on a shared element's name in a view transition (LLP 1013.000 D7)
 /** The after-paint pieces on their way (the agent waits for them before an
  * operation, as glue.js's `agentSettled` waits for `pieces.pending()`). */
@@ -973,7 +969,11 @@ export const pieces = () => Promise.all([Motion, Inputs, Presence, Flow, Native,
 /** A view leaves with the exit animation `css` names (a virtualized list's
  * row wrapper, list.js): whether it stays, leaving, for presence-glue.js to remove. */
 export function exitView(el, css) { if (!Pres || !css) return false; Pres.exit(el, css); return exiting(el); }
-const Created = [];
+const Created = [], Bound = new Map(), LT = "--exact-layout-transition";
+export function lt(e, declaring, f) { Bound.set(e, () => { const d = node(null), [l, o] = [Listener, Owner]; Listener = Owner = d; try { return declaring.includes(f()); } catch { return false; } finally { Listener = l; Owner = o; drop(d); } }); onEnd(() => Bound.delete(e)); pr(e); } // a bound layout transition (GitHub #809): whether its binding names a value that declares it, read as its effect reads (the committed clock)
+// As wasm's ops: before the tree update a view gaining the row; after, each whose declaration changed (a create: not a restyle, as paint.js keeps a ghost parent's isolation).
+const gains = () => { const ops = []; for (const [e, will] of Bound) { e.$lt = !!e.style.getPropertyValue(LT); if (!e.$lt && e.isConnected && will()) ops.push({ op: "style", id: viewId(e), css: LT }); } return ops; };
+const restyled = () => { const ops = []; for (const e of Bound.keys()) { const now = !!e.style.getPropertyValue(LT); if (e.isConnected && e.$lt !== now) ops.push({ op: "create", id: viewId(e) }); e.$lt = now; } return ops; };
 export function pr(e) {
   Created.push(e);
   if (Presence || typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
@@ -985,7 +985,7 @@ export function pr(e) {
       Created.length = 0;
       // After a commit's tree: which views declare the row now (the created
       // ones), and every tracked one that moved plays back from where it was.
-      Present = () => Pres.after({ ops: Created.splice(0).filter(e => e.isConnected).map(e => ({ op: "create", id: viewId(e) })) }, Views);
+      Present = () => Pres.after({ ops: [...Created.splice(0).filter(e => e.isConnected).map(e => ({ op: "create", id: viewId(e) })), ...restyled()] }, Views);
       // A removed region node that declares an exit leaves with it (the
       // kernel's `exit`: a destroyed root whose parent stays).
       Leave = n => {

@@ -121,7 +121,7 @@ impl Reuse {
     pub(super) fn admits(&self, roots: &[Child]) -> bool {
         roots.iter().all(|c| match c {
             Child::Node(n) => {
-                n.collection.is_none()
+                n.collection().is_none()
                     && !self.refused.contains(&n.node)
                     && self.admits(&n.children)
             }

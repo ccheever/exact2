@@ -6,7 +6,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 
@@ -41,11 +41,19 @@ function executable() {
     const digest = new RegExp(`^exact-filesystem-([0-9a-f]{64})${suffix.replace('.', '\\.')}$`).exec(basename(inherited))?.[1];
     if (digest && existsSync(inherited) && createHash('sha256').update(readFileSync(inherited)).digest('hex') === digest) return binary = inherited;
   }
+  // A helper another process checked from these same inputs: a record named by the digest of what the build reads
+  // (`helperInputs`, never trusted by time), naming a capture whose bytes still have the digest its name gives.
+  const inputs = helperInputs(), record = inputs && resolve(directory, `checked-${inputs}`);
+  if (record) try {
+    const named = readFileSync(record, 'utf8').trim(), digest = new RegExp(`^exact-filesystem-([0-9a-f]{64})${suffix.replace('.', '\\.')}$`).exec(named)?.[1];
+    const captured = resolve(directory, named);
+    if (digest && createHash('sha256').update(readFileSync(captured)).digest('hex') === digest) return binary = captured;
+  } catch { /* none checked yet */ }
   const target = resolve(directory, `debug/exact-filesystem${suffix}`);
   // A separate tooling target also permits calls from an active app Cargo
   // build script: the helper has no compiler/app dependency and never waits
-  // on that app build directory lock. Once per Bun process, Cargo checks
-  // sources, lockfile and toolchain.
+  // on that app build directory lock. Otherwise Cargo checks sources, lockfile
+  // and toolchain, once per Bun process.
   // An mtime-only shortcut can silently reuse an obsolete helper dependency.
   // The host's deployment target always, whether a build script's (an app's macOS minimum) or not: its own target directory.
   const env = { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1', ...(process.platform === 'darwin' ? { MACOSX_DEPLOYMENT_TARGET: HOST_MACOS } : {}) };
@@ -85,8 +93,33 @@ function executable() {
       } finally { rmSync(temporary, { force: true }); }
     }
     binary = captured;
+    // Recorded only when the inputs are what they were before the build: an edit while it ran could be in either.
+    if (record && helperInputs() === inputs) {
+      const temporary = `${record}.${owner}.tmp`;
+      try { writeFileSync(temporary, basename(captured)); renameSync(temporary, record); } catch { rmSync(temporary, { force: true }); }
+    }
     return captured;
   } finally { release(); }
+}
+
+/** The digest of what building the helper reads: its crate's files, the workspace manifest, lock and toolchain pin,
+ * and Cargo's configuration (the checkout's, its parents', `CARGO_HOME`'s), with the platform it is built for; null
+ * where the checkout has no helper crate to read. */
+function helperInputs() {
+  const hash = createHash('sha256').update(`${process.platform} ${process.arch} ${HOST_MACOS}\n`);
+  const files = (dir) => readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))
+    .flatMap((entry) => entry.isDirectory() ? files(resolve(dir, entry.name)) : [resolve(dir, entry.name)]);
+  let crate;
+  try { crate = files(resolve(root, 'filesystem')); } catch { return null; }
+  const configs = [];
+  for (let at = root; ; at = dirname(at)) { configs.push(resolve(at, '.cargo/config.toml'), resolve(at, '.cargo/config')); if (at === dirname(at)) break; }
+  const home = process.env.CARGO_HOME ?? resolve(homedir(), '.cargo');
+  for (const path of [...crate, ...['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml'].map((f) => resolve(root, f)), ...configs, resolve(home, 'config.toml'), resolve(home, 'config')]) {
+    hash.update(`${path}\n`);
+    try { hash.update(readFileSync(path)); } catch { hash.update('missing'); }
+    hash.update('\n');
+  }
+  return hash.digest('hex').slice(0, 32);
 }
 
 /** The wait for the helper's build claim. It ends when the owner releases the claim, and

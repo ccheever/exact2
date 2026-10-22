@@ -9,8 +9,9 @@ use std::fmt::Write;
 /// expression (`dynamic`) or not, or another's: `dynamic`, `heading` (a
 /// heading's implied size or weight, LLP 1115.000 D12.2), `authored`, `style`
 /// with the node whose platform text style gives it (a weight or a leading,
-/// D12.2), `inherited` with the ancestor whose own row won (and the token it
-/// read), or `initial`; the row's object closed.
+/// D12.2), `inherited` with the ancestor whose own row won (its view, its plan
+/// site where it has one, and the token it read), or `initial`; the row's
+/// object closed.
 pub(super) fn write<D: DataSource>(
     runner: &Runner<D>,
     node: &NodeRef,
@@ -30,8 +31,12 @@ pub(super) fn write<D: DataSource>(
     } else {
         match node.source_of(row) {
             Some(from) => {
-                // And the token the ancestor's own row read, its link.
+                // And the token the ancestor's own row read, its link; and that ancestor's plan site, which the
+                // design server names by its source (tamber/1.16 `fromAt`).
                 let _ = write!(s, ",\"source\":\"inherited\",\"from\":{from}");
+                if let Some((site, _)) = runner.site_of(from) {
+                    let _ = write!(s, ",\"fromSite\":{}", site.0);
+                }
                 token_json(runner, from, row, s);
                 s.push('}');
             }

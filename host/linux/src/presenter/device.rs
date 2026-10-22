@@ -81,8 +81,12 @@ impl<D: DataSource> Presenter<D> {
             true => (exact_runner::Pointer::Coarse, exact_runner::Hover::None),
             false => (exact_runner::Pointer::Fine, exact_runner::Hover::Hover),
         };
+        // The device's locale, and no regional format apart from it: the
+        // shell reports none yet (`Locale.Category.FORMAT`), so
+        // `formatLocale` answers this locale, not the process's launch one.
         let place = exact_runner::time::Place {
             locale: device.locale.clone(),
+            format_locale: String::new(),
             ..runner.place().clone()
         };
         let mut error = self.set_preferences(preferences);

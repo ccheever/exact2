@@ -324,6 +324,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 ## Native presentation and navigation (iOS)
 
+- **A cold launch flashes the wrong colour, and no screenshot shows it.** The launch
+  screen is `host.ios.launchImage` centred on `background_color` (`background_color_dark`
+  in dark mode); unset, the platform's background (the grouped grey under a first route
+  that scrolls a grouped list). It is gone before a screenshot can be taken: record one
+  (`xcrun simctl io <udid> recordVideo launch.mp4`, then `simctl launch`) and read its
+  frames (the euxy port's white launch, 2026-10-21).
+
 - **Edge-swipe back does nothing.** Cause: the pop gesture presses the control named
   by the root's `navigationBack`, and a route that declares one that is disabled
   refuses it (the log says "back gesture refused" and why). A route with no such
@@ -501,6 +508,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   card and the separator, or make the row itself a `column`, which stacks its children
   (LLP 1116 D2); to choose that space write the row's `padding-top`/`padding-bottom`
   only, which replaces the column's. (Shelf recipe, 2026-10-10.)
+- **On iOS, a custom grouped row's leading symbol and line differ from a standard row's
+  right to left or at an accessibility size.** Cause: a row the platform's cell can't
+  express (a badge before its chevron) is its own views carried into the cell; iOS draws
+  its leading symbol as a standard cell's image and starts its line under its content,
+  but right to left its views are not mirrored, so the line stays UIKit's own, and at an
+  accessibility size the sheet's symbol slot (24 by 20) doesn't grow, so the symbol keeps
+  its slot's size. Both are QUEUE'd; nothing to write differently. (Harmony, 2026-10-21.)
 - **A text field or `textarea` in a grouped-list row written `appearance="none"` reads
   as plain text on the web.** Cause: `appearance="none"` is the author's bare box on
   every host: on a desktop page an 18 px line with no border or background, a small

@@ -90,6 +90,30 @@ final class TitleBarAreaMacTests: XCTestCase {
         view.syncInsets()
         XCTAssertEqual(session.presenter.titlebarArea, [x, 0, 900 - x, band.frame.height])
 
+        // `window-controls-overlay`'s empty unified toolbar (LLP 1039 D8): the
+        // area is its taller band beside the traffic lights, and the display
+        // mode is the overlay's
+        let bare = band.frame.height
+        window.toolbar = NSToolbar(identifier: "titlebar-area-overlay")
+        window.toolbarStyle = .unified
+        view.controlsOverlay = true
+        view.layoutSubtreeIfNeeded()
+        view.syncInsets()
+        let row = try XCTUnwrap(close.superview)
+        XCTAssertGreaterThan(row.frame.height, bare, "the unified toolbar's row is taller than the bare title bar")
+        let overlayX = zoom.frame.maxX + close.frame.minX
+        XCTAssertEqual(session.presenter.titlebarArea, [overlayX, 0, 900 - overlayX, row.frame.height])
+        XCTAssertEqual(DisplayPreferences.displayMode(view), 4, "window-controls-overlay")
+        view.controlsOverlay = false
+        view.syncInsets()
+        XCTAssertEqual(session.presenter.titlebarArea, [0, 0, 0, 0], "a route's toolbar: zero")
+        XCTAssertEqual(DisplayPreferences.displayMode(view), 0)
+        window.toolbar = nil
+        window.toolbarStyle = .automatic
+        view.layoutSubtreeIfNeeded()
+        view.syncInsets()
+        XCTAssertEqual(session.presenter.titlebarArea, [x, 0, 900 - x, band.frame.height])
+
         // The page below the title bar: undefined, so each fallback applies
         window.styleMask.remove(.fullSizeContentView)
         view.syncInsets()

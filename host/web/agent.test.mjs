@@ -231,7 +231,7 @@ function fixture(agentMode = true) {
     INHERITED_CSS: {}, getComputedStyle: () => ({}), inertAncestor: () => false,
     viewBox: element => element.getBoundingClientRect(),
     navigation: { observation: () => ({ location: '/' }), reset() {} },
-    presence: { live: null },
+    presence: { live: null, pending: () => null, landed: async () => true },
     ask: req => req.op === 'state' ? state : req.op === 'logs' ? logs : req.op === 'node' ? { id: req.id, type: 'Text' }
       : req.op === 'tags' ? { epoch: 2, incarnation: 1, clock: 0 } : { error: 'unknown op' },
     tree: () => outline, now: () => 0, environment: () => ({}),
@@ -484,7 +484,7 @@ test('launch setup supplies fixed defaults and carries CLI overrides to every ho
   expect(launchFacts({env:launchEnvironment(facts)})).toEqual(facts);
   const params = new URLSearchParams({agent:'1', ...facts});
   const report = placeReporter(params, new Proxy({}, {get() { throw new Error('agent read the platform'); }}));
-  expect([report(), report()]).toEqual(Array(2).fill(['fr-CA', 'America/Toronto', 4294967295].join('\0')));
+  expect([report(), report()]).toEqual(Array(2).fill(['fr-CA', 'America/Toronto', 4294967295, ''].join('\0')));
   for (const seed of [-1, 0.5, NaN, Infinity, 4294967296]) for (const f of [() => launchFacts({seed}), () => placeReporter(new URLSearchParams({agent:'1', seed:String(seed)}))()]) expect(f).toThrow('seed: a whole number from 0 through 2^32 - 1'); // below 2^32 on every host (LLP 1116.005 D5): refused by the driver and the page,
   for (let i = 0, drawn; i < 64; i++) expect([(drawn = placeReporter(new URLSearchParams()))(), Number(drawn().split('\0')[2]) < 2 ** 32]).toEqual([drawn(), true]); // and drawn below it, once a launch
   expect(() => launchFacts({locale:'en_US'})).toThrow();

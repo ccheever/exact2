@@ -201,3 +201,78 @@ fn a_literal_size_of_zero_and_a_string_are_refused_by_the_compiler() {
         );
     }
 }
+
+/// LLP 1021 §5.3: the Mac's View ▸ Zoom In multiplies the root size last,
+/// over the host's and over the app's own, as a browser's page zoom is over
+/// `html { font-size: 20px }`; `px` lengths stay.
+#[test]
+fn a_hosts_zoom_multiplies_whichever_root_size_stands() {
+    let plan = contract::bake(contract::compile(APP).unwrap(), NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(r.set_root_font_size(13.0).unwrap().is_some());
+    assert!(r.set_root_font_zoom(1.25).unwrap().is_some());
+    assert_eq!(r.root_font_size(), 16.25);
+    assert_eq!(font(&r, "px"), 24.0, "px never scales");
+    assert_eq!(r.host_root_font_size(), 13.0, "what a new runner is told");
+    assert!(
+        r.set_root_font_zoom(1.25).unwrap().is_none(),
+        "the same zoom"
+    );
+    // The host's size moves beneath the zoom.
+    assert!(r.set_root_font_size(16.0).unwrap().is_some());
+    assert_eq!(r.root_font_size(), 20.0);
+    // The app's own px stands over the host's, and the zoom over it.
+    r.act("pick", vec![Value::Number(20.0)]).unwrap();
+    assert_eq!(r.root_font_size(), 25.0);
+    assert_eq!(font(&r, "label"), 37.5);
+    assert!(r.set_root_font_zoom(1.0).unwrap().is_some());
+    assert_eq!(r.root_font_size(), 20.0, "actual size: the app's own");
+    assert!(r.set_root_font_zoom(1.5).unwrap().is_some());
+    r.act("reset", vec![]).unwrap();
+    assert_eq!(r.root_font_size(), 24.0, "the host's again, zoomed");
+    // A level that is no exact binary fraction keeps the host's size exact.
+    assert!(r.set_root_font_zoom(1.15).unwrap().is_some());
+    assert_eq!(r.host_root_font_size(), 16.0);
+    assert!(r.set_root_font_zoom(1.5).unwrap().is_some());
+    // Refused, changing nothing.
+    for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+        assert!(r.set_root_font_zoom(bad).is_err());
+    }
+    assert_eq!(r.root_font_zoom(), 1.5);
+    assert_eq!(r.root_font_size(), 24.0);
+}
+
+/// The app's percentage follows the host's size under a zoom, and the zoom
+/// multiplies the share: 125% of 16, at 120%.
+#[test]
+fn a_zoom_multiplies_the_apps_share_of_the_hosts_size() {
+    let plan = contract::bake(contract::compile(SHARE).unwrap(), NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(r.set_root_font_zoom(1.2).unwrap().is_some());
+    r.act("larger", vec![]).unwrap();
+    assert!((r.root_font_size() - 24.0).abs() < 1e-4);
+    assert_eq!(r.host_root_font_size(), 16.0);
+    assert!(r.set_root_font_size(20.0).unwrap().is_some());
+    assert!((r.root_font_size() - 30.0).abs() < 1e-4);
+    r.act("reset", vec![]).unwrap();
+    assert!(
+        (r.root_font_size() - 24.0).abs() < 1e-4,
+        "the host's 20, zoomed"
+    );
+    assert!(r.set_root_font_zoom(1.0).unwrap().is_some());
+    assert_eq!(r.root_font_size(), 20.0);
+}

@@ -1,6 +1,6 @@
 // @ref LLP 1007 §3: the app is the wasm; this is its DOM host.
-import { sheetLeaves, liveById, sourceField, popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, commitGuestOrigin, guestMessageAuthorized, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, modalLayers, editMenu, navigation, afterPaintPieces, afterPaint, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, frameURL, dataURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, typeControl, settleValue, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle, storeInPage } from "./navigation.js";
-let guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll, agentInputLoading;
+import { sheetLeaves, liveById, sourceField, popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, commitGuestOrigin, guestMessageAuthorized, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, modalLayers, editMenu, navigation, afterPaintPieces, afterPaint, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, frameURL, dataURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, settleValue, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle, storeInPage } from "./navigation.js";
+let guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll, typeControl, agentInputLoading;
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule, notifyModule, frameModule; // the file picker (LLP 1069.002), documents (LLP 1069.010) and notifications, loaded on first use
 const picker = (at = incarnation) => (pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, generation: () => incarnation, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }))).then(m => m.at(at)); // its operations answer generation `at`, the one that asked
@@ -18,7 +18,7 @@ const pieces = afterPaintPieces(loadAfterPaint, { root, views, applyBatch, agent
   replayed() { motion.commit(); arrange.commit(); if (agentMode) { register(agentClock); seek(agentClock); } else motion.followTimelines(); },
   wasm(name, bytes) { if (!wasm) return null; new Uint8Array(memory.buffer, wasm.exact_in(bytes.length), bytes.length).set(bytes); return JSON.parse(readOut(wasm[name](bytes.length))); } });
 const { collections, motion, arrange } = pieces, retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
-const presence = presenceLoader(loadAfterPaint, root, batch => applyBatch(batch), log); // -exact-exit-animation and -exact-layout-transition, after paint at first use (LLP 1063)
+const presence = presenceLoader(loadAfterPaint, root, batch => applyBatch(batch), log); /* -exact-exit-animation and -exact-layout-transition, after paint at first use (LLP 1063) */ afterPaint(() => loadAfterPaint('./menu-rows.js', 'menuRows').then(install => install(), console.error)); // a menu row's popover opens from the menu's invoker (LLP 1021)
 let mediaModule, mediaAttaching = new Set(), sizes = new Set(), soundModule, soundOut, midiModule, midiOut, imageHold, geometry = null, geometryLoading = null, resizes = null, intersects = null; // the voice table's output (sound-glue.js, LLP 1096 D7); animated images held to the agent's clock (image-glue.js, LLP 1011.000); geometry reads (geometry-glue.js, LLP 1051.000 D4); the element resize event (resize-glue.js)
 let wakeLock = null; const holdWake = () => (wakeLock ??= loadAfterPaint('./wakelock-glue.js', 'wakeLockGlue')).then(w => w.hold(w.holders(root).length > 0, log)); // LLP 1125 D11: loaded at the first `wakelock`, then asked after each batch
 function syncMedia(el, set = {}, clear = []) {
@@ -520,7 +520,7 @@ function attach(el, id, handlers) {
   if (handlers.includes("message")) messageViews.add(id);
   const on = (event, handle, capture = false) => { const heard = (e) => {
     if (((views.get(id) === el && !retiredViews.has(el)) || (event === "focusout" && focus.detached(el, e))) && (inputReady || event === "load" || event === "error" && el instanceof HTMLIFrameElement) && !(page?.restoringFocus && ["focus", "blur", "focusin", "focusout"].includes(event))) handle(e);
-  }; el.addEventListener(event, heard, capture); return heard; }, atBody = (kind, heard) => { (el.exactBody ??= {})[kind] = heard; bodyHeard ??= ["keydown", "keyup", "copy", "cut", "paste"].map(t => document.documentElement.addEventListener(t, e => { const h = root.firstElementChild?.exactBody; if (!h || root.contains(e.target)) return; if (t === "keydown") { h.keycapture?.(e); h.key?.(e); } else h[t]?.(e); })); }; // with nothing focused a key or a clipboard event targets `<body>`, outside the app, where the DOM's `window` listeners hear it: the first root's handlers hear any event whose target is outside `#exact-root`, on `<html>` as it bubbles, so after the shortcuts and before the document's defaults, its `keycapture` before its `key` (rt.js `atBody`)
+  }; el.addEventListener(event, heard, capture); return heard; }, atBody = (kind, heard) => { (el.exactBody ??= {})[kind] = heard; bodyHeard ??= ["keydown", "keyup", "copy", "cut", "paste"].map(t => document.documentElement.addEventListener(t, e => { const h = root.firstElementChild?.exactBody; if (!h || (e.target !== document.body && e.target !== document.documentElement)) return; if (t === "keydown") { h.keycapture?.(e); h.key?.(e); } else h[t]?.(e); })); }; // with nothing focused a key or a clipboard event targets `<body>`, outside the app, where the DOM's `window` listeners hear it: the first root's handlers hear any event whose target is `<body>` or `<html>` (never a node a flow forwards a copy to, detached), on `<html>` as it bubbles, so after the shortcuts and before the document's defaults, its `keycapture` before its `key` (rt.js `atBody`)
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) { on("compositionstart", () => { clearTimeout(compositionFlush.get(el)); composing.add(el); });
     on("compositionend", () => { compositionFlush.set(el, setTimeout(() => { composing.delete(el); if (views.get(id) !== el || retiredViews.has(el)) return; if (heldValues.has(el)) writeValue(el, heldValues.get(el)); markupPending.delete(el); syncMarkup(el); }, 0)); }); }
   if (el.localName === "img" && (handlers.includes("load") || handlers.includes("error"))) imageEvents(el, failure => { // kind 8, or a media `error` (kind 19) with its message
@@ -1087,7 +1087,7 @@ function gpuPendingReply(request, pending) { const names = pending.map(item => i
 function agentInputReady() {
   if (viewBox) return Promise.resolve();
   return agentInputLoading ??= loadAfterPaint('./input-glue.js', 'agentInput').then(helpers => {
-    ({ guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll } = helpers);
+    ({ guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll, typeControl } = helpers);
   });
 }
 // Synchronous once inspection and the agent's input helpers are ready (LLP 1043.000 D7/D8).
@@ -1171,7 +1171,7 @@ function agentReply(request) {
           const batch = globalThis.exact.navigate(request.text ?? "");
           return { typed: request.id, delivery: "recognized", handled: true, ...(batch.error ? { error: batch.error } : {}) };
         }
-        return typedControl(frame) && request.key == null ? typeControl(frame, request) : frame instanceof HTMLIFrameElement ? guestType(frame, request) : { guest: false }; // a control's value (LLP 1069.001 D9)
+        return typedControl(frame) && request.key == null ? typeControl(frame, request, inertAncestor, settleValue) : frame instanceof HTMLIFrameElement ? guestType(frame, request) : { guest: false }; // a control's value (LLP 1069.001 D9)
       }
       case "clock": // then the offset at the new virtual date, in case it crossed a DST change (LLP 1069.007 D2)
         return clock(request).then((r) => { if (!r.error) followOffset(agentClock); return tagged(r); });
@@ -1191,7 +1191,7 @@ function agentReply(request) {
 // @ref LLP 1043.000 §3 D7/D8 — reads keep the last settled facts (LLP 1012).
 // Await flow only when requested; ordinary agent calls retain their return types.
 async function agentSettled(request) {
-  const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; if (markupModule) await markupModule; if (decorationsModule) await decorationsModule; if (liveTimeModule) await liveTimeModule;
+  const begun = performance.now(), pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; if (presence.pending() && !(await presence.landed(Math.max(0, 10_000 - (performance.now() - begun))))) return { error: "the presence module did not load within 10 s" }; /* inside an agent call's 15 s carrier deadline */ if (markupModule) await markupModule; if (decorationsModule) await decorationsModule; if (liveTimeModule) await liveTimeModule;
   if (flowLoading) await flowLoading;
   if (textflow) await textflow.settle();
   return agent(request);
@@ -1229,7 +1229,7 @@ async function clock(request) {
   let world = {};
   const reply = (settled, requests) => ({ clock: agentClock, ...(settled === undefined ? {} : { settled }), ...world.reply, ...(settled === false && world.pending ? { reason: "world" } : settled === false && requests ? { reason: "requests" } : {}) });
   for (let rounds = 0; ; rounds++) {
-    if (settle && !(await waitForInflight(deadline) && await mediaAttached(deadline))) return reply(false, true); const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; if (settle) collections.settle(); // rows a list shows are built at this clock, before it moves (as the JS agent does): their animations start here
+    if (settle && !(await waitForInflight(deadline) && await mediaAttached(deadline))) return reply(false, true); const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; if (presence.pending() && !(await presence.landed(Math.max(0, deadline - performance.now())))) return reply(false, true); if (settle) collections.settle(); // rows a list shows are built at this clock, before it moves (as the JS agent does): their animations start here
     if (gpuInPlay()) { const pending = await settleGpu(); if (pending.length) return gpuPendingReply(request, pending); }
     const to = settle ? Math.max(settleCandidate(), world.settleAt ?? agentClock) : request.to;
     if (!(to >= agentClock)) return { error: `the clock cannot go backwards (${agentClock} → ${to})` };
@@ -1321,7 +1321,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
     len = wasm.exact_boot(innerWidth, innerHeight, launch.length, preferences() | foldBits());
   }
   const batch = JSON.parse(readOut(len));
-  if (batch.error) throw new Error(batch.error);
+  if (batch.error) throw new Error(batch.error); if (wasm.exact_presence?.()) presence.preload(); // after first paint, where the plan names a presence row (navigation.js)
   frameSampler?.reset(); // a new runner numbers its transactions afresh (LLP 1079 D3)
   if (module) { activeModule?.realm?.dispose(); activeModule = module; setInputReady(true); if (left.length) { const writes = left.filter(p => p.write).map(p => p.write); log(`module replacement let go of ${left.length} request${left.length === 1 ? '' : 's'} still in flight after ${REPLACE_SETTLE_MS} ms${writes.length ? `; aborted writes the server may or may not have seen: ${writes.join(', ')}` : ''}`); } }
   navigation.reset(batch.ops.find(op => op.op === "router"));

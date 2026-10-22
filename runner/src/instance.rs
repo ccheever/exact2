@@ -1,7 +1,6 @@
 //! The instance tree, and the ops that keep the kernel equal to it.
 //!
-//! @ref LLP 0485 §8.2 (keyed instance management, never reconciliation of
-//! trees; research)
+//! @ref LLP 0485 §8.2 (keyed instance management, never reconciliation of trees; research)
 //!
 //! The plan's nodes and regions are *sites*. An instance realizes a site as a
 //! kernel view, an active `if`/`match` arm, or a `for` row per key. Updates
@@ -13,12 +12,14 @@
 //! preserves its views across reorders.
 
 /// Variable-height viewport collections and their portable host feedback seam.
+mod bound;
 pub mod collection;
 mod deps;
 mod document;
 mod find;
 mod foresee;
 pub mod looks;
+mod rare;
 mod region;
 pub mod tabs;
 mod text;
@@ -139,21 +140,20 @@ pub struct NodeInst {
     pub node: NodesId,
     /// The kernel view.
     pub view: ViewId,
-    /// Last emitted value per binding, in binding order.
+    /// Last emitted value per binding that can change, in binding order
+    /// ([`NodeInst::slot`]); a constant binding's is the site index's.
     last: Box<[Option<Value>]>,
-    /// Last published surface inputs (a canvas node).
-    last_surface: Option<Box<[Value]>>,
     /// Ordered children: static nodes and regions interleaved by `order`.
     children: Vec<Child>,
     /// Last emitted child list.
     last_children: Box<[ViewId]>,
-    collection: Option<Box<collection::Collection>>,
+    /// What few nodes keep, behind one pointer: `Child` is 112 bytes, a
+    /// class of Apple's allocator, and most child vectors hold one.
+    rare: Option<Box<rare::Rare>>,
     /// The app tuple its rows and children are in (LLP 1121 D5).
     tuple: u32,
     /// Which of its bindings' text read a token.
     themed: theme::Themed,
-    /// A mode boundary's implied rows, by [`theme::INHERITED`] (D7).
-    implied: Option<Box<[Option<Value>; 8]>>,
     /// One of its inherited colour rows was set since its children last
     /// took the text they inherit (D7): they are visited again.
     colour_moved: bool,
@@ -892,14 +892,13 @@ impl NodeInst {
         let mut inst = NodeInst {
             node,
             view,
-            last: vec![None; row.bindings.len as usize].into_boxed_slice(),
-            last_surface: None,
+            last: vec![None; Self::slot(u.sites, &row, row.bindings.len as usize)]
+                .into_boxed_slice(),
             children: Vec::new(),
             last_children: Box::default(),
-            collection: None,
+            rare: None,
             tuple: u.theme.tuple,
             themed: theme::Themed::default(),
-            implied: None,
             colour_moved: false,
             around: u.theme.tuple,
         };
@@ -910,11 +909,10 @@ impl NodeInst {
         let lists = u.env.lists;
         let realized = (|| {
             let wait = tabs::wait(u, node, view);
-            inst.collection = match lists {
-                Some(lists) if !wait => (lists.create)(u, node, view, frames)?,
-                _ => None,
-            };
-            if !wait && inst.collection.is_none() {
+            if let Some(lists) = lists.filter(|_| !wait) {
+                inst.set_collection((lists.create)(u, node, view, frames)?);
+            }
+            if !wait && inst.collection().is_none() {
                 inst.children = realize(u, Some(node), row.arm, frames)?;
                 inst.emit_children(u);
             }
@@ -922,34 +920,6 @@ impl NodeInst {
         })();
         u.theme = saved;
         realized.map(|()| inst)
-    }
-
-    /// The value a style binding last emitted.
-    pub(super) fn bound_style(&self, plan: &Plan, style: exact_kernel::StyleId) -> Option<&Value> {
-        plan.node(self.node)
-            .bindings
-            .iter()
-            .enumerate()
-            .find_map(|(i, b)| {
-                let b = plan.binding(b);
-                (b.kind == BindingKind::Style && b.id == style as u16)
-                    .then(|| self.last[i].as_ref())
-                    .flatten()
-            })
-    }
-
-    /// The value a prop binding last emitted.
-    pub(super) fn bound_prop(&self, plan: &Plan, prop: exact_kernel::PropId) -> Option<&Value> {
-        plan.node(self.node)
-            .bindings
-            .iter()
-            .enumerate()
-            .find_map(|(i, b)| {
-                let b = plan.binding(b);
-                (b.kind == BindingKind::Prop && b.id == prop as u16)
-                    .then(|| self.last[i].as_ref())
-                    .flatten()
-            })
     }
 
     fn emit_bindings(
@@ -986,8 +956,8 @@ impl NodeInst {
         for i in order {
             let b = exact_plan::BindingsId(row.bindings.start + i as u32);
             if !tuned && Some(i) != mode {
-                self.tuple =
-                    theme::tuple_of(plan, mode.and_then(|m| self.last[m].as_ref()), around);
+                let pin = mode.and_then(|m| self.emitted(plan, u.sites, m));
+                self.tuple = theme::tuple_of(plan, pin.as_ref(), around);
                 bridge::set_tuple(self.tuple);
                 force = !fresh && (u.theme.retheme || self.tuple != before);
                 tuned = true;
@@ -1017,9 +987,14 @@ impl NodeInst {
                 u.work.bindings_evaluated += 1;
                 u.eval_binding(b, binding.expr, frames)?
             };
-            let unchanged = self.last[i]
-                .as_ref()
-                .is_some_and(|last| crate::compare::equal(last, &value) == Some(true));
+            // A constant's value is the one it was created with.
+            let slot = (!reads.is_constant()).then(|| Self::slot(u.sites, &row, i));
+            let unchanged = match slot {
+                None => !fresh,
+                Some(slot) => self.last[slot]
+                    .as_ref()
+                    .is_some_and(|last| crate::compare::equal(last, &value) == Some(true)),
+            };
             if u.work.bindings_evaluated != evaluated {
                 u.ids.evaluated(self.node, unchanged);
             }
@@ -1034,7 +1009,9 @@ impl NodeInst {
                 {
                     u.text_styled = true;
                 }
-                self.last[i] = Some(value);
+                if let Some(slot) = slot {
+                    self.last[slot] = Some(value);
+                }
                 continue;
             }
             // A binding is a declaration whose value is computed from state, as a `var()` reference
@@ -1148,10 +1125,13 @@ impl NodeInst {
                     }
                 }
             }
-            self.last[i] = Some(value);
+            if let Some(slot) = slot {
+                self.last[slot] = Some(value);
+            }
         }
         if !tuned {
-            self.tuple = theme::tuple_of(plan, mode.and_then(|m| self.last[m].as_ref()), around);
+            let pin = mode.and_then(|m| self.emitted(plan, u.sites, m));
+            self.tuple = theme::tuple_of(plan, pin.as_ref(), around);
         }
         if themed_plan && theme::boundary(plan, &row) {
             bridge::set_tuple(self.tuple);
@@ -1183,7 +1163,7 @@ impl NodeInst {
             for a in s.args.iter() {
                 values.push(u.eval(plan.surface_arg(a).expr, frames)?);
             }
-            if self.last_surface.as_deref() != Some(&values[..]) {
+            if self.rare.as_ref().and_then(|r| r.last_surface.as_ref()) != Some(&values) {
                 u.surfaces.push(SurfaceUpdate {
                     view: self.view,
                     name: plan.str(s.name).to_string(),
@@ -1197,7 +1177,7 @@ impl NodeInst {
                         .collect(),
                     values: values.clone(),
                 });
-                self.last_surface = Some(values.into_boxed_slice());
+                self.rare().last_surface = Some(values);
             }
         }
         Ok(())
@@ -1229,25 +1209,23 @@ impl NodeInst {
         u: &mut Update<'_>,
         frames: &[Frame],
     ) -> Result<(), InstanceError> {
-        if let Some(collection) = &mut self.collection {
+        let plan = u.env.plan;
+        let follow = self.collection().is_some()
+            && plan
+                .node(self.node)
+                .bindings
+                .iter()
+                .position(|b| {
+                    let b = plan.binding(b);
+                    b.kind == BindingKind::Prop
+                        && b.id == exact_kernel::PropId::ScrollFollowEnd as u16
+                })
+                .is_some_and(|i| self.emitted(plan, u.sites, i) == Some(Value::Bool(true)));
+        if let Some(collection) = self.collection_mut() {
             collection.around = theme::Around {
                 retheme: false,
                 ..u.theme.clone()
             };
-            let follow = u
-                .env
-                .plan
-                .node(self.node)
-                .bindings
-                .iter()
-                .enumerate()
-                .find_map(|(i, b)| {
-                    let b = u.env.plan.binding(b);
-                    (b.kind == BindingKind::Prop
-                        && b.id == exact_kernel::PropId::ScrollFollowEnd as u16)
-                        .then_some(self.last[i] == Some(Value::Bool(true)))
-                })
-                .unwrap_or(false);
             (u.env.lists.ok_or_else(unlinked)?.update)(collection, u, frames, follow)?;
         } else if update_all(u, &mut self.children, frames)? {
             self.emit_children(u);
@@ -1431,7 +1409,7 @@ impl NodeInst {
         if self.view == view {
             return Some((self.node, self.tuple));
         }
-        if let Some(collection) = &self.collection {
+        if let Some(collection) = self.collection() {
             if let Some(found) = collection.site(view, path) {
                 return Some(found);
             }
