@@ -22,7 +22,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // spaced or split access all count) or its row id `StyleId::PositionType`
 // (spaced or split across lines), in code outside comments, strings and
 // tests; in Swift the row's name, in code outside comments.
-const RUST = /\bposition_type\b|\bStyleId\s*::\s*PositionType\b/g;
+const RUST = /\bposition_type\b|\b(?:StyleId|Self)\s*::\s*PositionType\b/g;
 // The row id reached any other way is refused outright, as no read may
 // hide behind it: a `use` group naming it, a rename in a `use` of StyleId
 // (`PositionType as P`, `self as Ids`, `StyleId as S`), a type alias of
@@ -32,16 +32,19 @@ const RUST = /\bposition_type\b|\bStyleId\s*::\s*PositionType\b/g;
 const REFUSED = [
   [/\buse\b[^;]*\bStyleId\s*::\s*\{[^;]*\bPositionType\b[^;]*;/g, 'a `use` group naming StyleId::PositionType: write it out'],
   [/\buse\b[^;]*\bStyleId\b[^;]*\bas\b[^;]*;/g, 'a rename in a `use` of StyleId'],
-  [/\btype\s+\w+\s*=\s*[\w:]*\bStyleId\b/g, 'a type alias of StyleId'],
+  [/\btype\s+\w+\s*(?:<[^>]*>\s*)?=\s*[\w:\s]*?\bStyleId\b/g, 'a type alias of StyleId'],
+  [/\buse\b[^;]*\bPositionType\s+as\b[^;]*;/g, 'a rename of PositionType'],
+  [/^use\b[^;]*\bStyleId\s*::\s*(?:\*|\{)[^;]*;/gm, "a module-wide glob or group of StyleId's rows (a child's `use super::*` would take them bare): import them in the function"],
+  [/\bpub(?:\s*\([^)]*\))?\s+use\b[^;]*\bStyleId\s*::\s*(?:\*|\{|PositionType\b)[^;]*;/g, "a re-export of StyleId's rows"],
 ];
-const GLOB = /\bStyleId\s*::\s*\*/;
+const GLOB = /\bStyleId\s*::\s*(?:\*|\{[^}]*\*[^}]*\})/;
 const BARE = /(?<!::\s*)\bPositionType\b(?!\s*::)/g;
 
 const SCOPES = [
   { dir: 'kernel/src', ext: '.rs', read: RUST },
   { dir: 'host/apple/src', ext: '.rs', read: RUST },
   { dir: 'host/linux/src', ext: '.rs', read: RUST },
-  { dir: 'host/apple/Sources', ext: '.swift', read: /"position_type"/g },
+  { dir: 'host/apple/Sources', ext: '.swift', read: /"position_type"|"{3}\s*position_type\s*"{3}/g },
 ];
 
 // The reads that mean the author's value, each with why. An entry matches
@@ -258,8 +261,16 @@ test('the scan finds a new read in any form, and skips comments, strings and tes
       'use crate::StyleId::{PositionType as P};',
       'use crate::StyleId::{self as Ids};',
       'type Id = crate::StyleId;',
+      'type Ids2<T> = crate ::',
+      '    StyleId;',
+      '    use crate::StyleId::{self, *};',
+      'fn e(s: &Row) { s.get(PositionType); }',
+      '    use PositionType as Q;',
+      '    pub use crate::StyleId::*;',
+      'impl StyleId { fn f(s: &Row) { s.get(Self::PositionType); } }',
       'fn d(s: &Row) { s.get(P); s.get(Ids::Top); }',
     ].join('\n'));
+    writeFileSync(join(root, 'kernel/src/parent.rs'), ['use crate::StyleId::*;', 'mod child;'].join('\n'));
     writeFileSync(join(root, 'host/linux/src/scan_tests.rs'), 'fn t(s: &StyleProps) { s.position_type; }');
     writeFileSync(join(root, 'host/apple/Sources/New.swift'), [
       'let p = view.style["position_type"]?.string',
@@ -276,12 +287,16 @@ test('the scan finds a new read in any form, and skips comments, strings and tes
       'let raw2 = #"x \\#"# /* still a string "#; let v = view.style["position_type"]',
       'let marker3 = "\\(/* ) */ "/*")"',
       'let w = view.style["position_type"]',
+      'let x = view.style["""',
+      'position_type',
+      '"""]',
     ].join('\n'));
     assert.deepEqual(directReads(root).map(r => `${r.file}:${r.line}`).sort(), [
       ...[2, 3, 6, 9, 10, 22, 23, 24, 26, 27, 29, 33].map(line => `kernel/src/new.rs:${line}`),
-      ...[2, 4].map(line => `kernel/src/glob.rs:${line}`),
-      ...[1, 2, 3].map(line => `kernel/src/rename.rs:${line}`),
-      ...[1, 4, 5, 9, 10, 11, 12, 14].map(line => `host/apple/Sources/New.swift:${line}`),
+      ...[1, 2, 4].map(line => `kernel/src/glob.rs:${line}`),
+      'kernel/src/parent.rs:1',
+      ...[1, 2, 3, 4, 7, 8, 9, 10].map(line => `kernel/src/rename.rs:${line}`),
+      ...[1, 4, 5, 9, 10, 11, 12, 14, 15].map(line => `host/apple/Sources/New.swift:${line}`),
     ].sort());
   } finally {
     rmSync(root, { recursive: true, force: true });
