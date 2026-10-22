@@ -90,6 +90,43 @@ final class ContextMenuMacTests: XCTestCase {
         XCTAssertEqual(heard, [1, 1, 1, 1], "inert still suppresses the menu")
     }
 
+    /// HTML nests a popover shown with a source inside an open popover in
+    /// that popover: a context menu asked for in one leaves it open, and
+    /// the menu's close leaves it open too.
+    func testAContextMenuInAnOpenPopoverLeavesThatPopoverOpen() throws {
+        let p = presenter(), window = try XCTUnwrap(windows.last)
+        defer { p.menus.reset() }
+        p.apply(wireBatch([["op": "create", "id": 20, "kind": "view", "props": ["popover": "auto", "id": "list"]],
+                           ["op": "children", "id": 20, "ids": [1]], ["op": "children", "id": 9, "ids": [20, 2]],
+                           ["op": "frame", "id": 20, "x": 0, "y": 0, "w": 200, "h": 100]]))
+        let source = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[2]), outer = try XCTUnwrap(p.views[20])
+        window.orderFrontRegardless()
+        p.menus.show(outer, from: nil)
+        XCTAssertTrue(p.menus.isOpen(outer))
+        var openWhileTracking: Bool?
+        let observer = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu else { return }
+            openWhileTracking = p.menus.isOpen(outer)
+            RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTracking() }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        p.menus.context(source, at: .zero)
+        turn()
+        if ExactEnv.agentMode {
+            XCTAssertEqual([p.menus.isOpen(outer), p.menus.isOpen(pop)], [true, true], "the painted menu nests in the open popover")
+            p.menus.close(pop)
+        } else {
+            XCTAssertEqual(openWhileTracking, true, "the popover holding the source stays open under its menu")
+        }
+        XCTAssertEqual([p.menus.isOpen(outer), p.menus.isOpen(pop)], [true, false], "the menu's close leaves it open")
+        // A source outside it closes it, as a click outside would.
+        p.apply(wireBatch([["op": "create", "id": 21, "kind": "view", "handlers": ["contextmenu"], "props": ["contextPopover": "m"]],
+                           ["op": "children", "id": 9, "ids": [20, 2, 21]], ["op": "frame", "id": 21, "x": 300, "y": 300, "w": 80, "h": 30]]))
+        p.menus.context(try XCTUnwrap(p.views[21]), at: .zero)
+        turn()
+        XCTAssertFalse(p.menus.isOpen(outer))
+    }
+
     func testTheContextMenuIsItsPopoversItemsWithoutThePreview() throws {
         let p = presenter()
         let pop = try XCTUnwrap(p.views[2])
