@@ -21,10 +21,10 @@ component ProfileHeader
     banner: color = "cards.banner" control = "token" group = "Color" priority = 1 label = "Banner"
     surface: color = "cards.profile-surface" control = "token" group = "Color" priority = 2 label = "Surface"
     meta: color = "cards.meta" control = "token" group = "Color" priority = 2 label = "Meta text"
-    alert: color = "cards.alert" control = "token" group = "Color" priority = 3 label = "Alert"
-    alertGround: color = "cards.alert-ground" control = "token" group = "Color" priority = 3 label = "Alert ground"
     badge: color = "cards.badge" control = "token" group = "Color" priority = 3 label = "Badge"
     badgeMark: color = "cards.badge-mark" control = "token" group = "Color" priority = 3 label = "Badge mark"
+    alert: color = "cards.alert" control = "token" group = "Color" priority = 3 label = "Alert"
+    alertGround: color = "cards.alert-ground" control = "token" group = "Color" priority = 3 label = "Alert ground"
   props
     id: string
     bannerSrc: string
