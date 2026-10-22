@@ -184,15 +184,18 @@ const isRole = (v: string) => /^-exact-/i.test(v.trim()) || SYSTEM.has(v.trim().
  * reads that token's cells as the grid paints them (a residual by its fallback). The words follow the token: what the
  * app's row for it follows (its dials) or its value, the platform's role where that is a role (or the token is one
  * the app does not set), Exact's base for a base name the app leaves unset. */
-export function lookOf(columns: { label: string; tuple: number; dark: boolean }[], stored: ReadonlyMap<string, { css: string; srgb?: string; residual?: boolean }[][]>, rows: { name: string; start?: string; follows?: string }[]) {
+export function lookOf(columns: { label: string; tuple: number; dark: boolean }[], stored: ReadonlyMap<string, { css: string; srgb?: string; residual?: boolean; value?: unknown }[][]>, rows: { name: string; start?: string; follows?: string }[]) {
   return (token: string, p: Param) => {
     const cells = !p.set && token ? stored.get(token) : undefined;
     const swatches = columns.map(c => {
       const v = cells?.[c.tuple]?.[c.dark ? 1 : 0];
       const css = v ? (v.residual ? v.srgb ?? '' : v.css) : sides(String(p.values?.[c.tuple] ?? ''))[c.dark ? 1 : 0];
       return { label: c.label, css };
-    }).filter(s => s.css && !/^-exact-/i.test(s.css));
-    const row = rows.find(r => r.name === token), written = row?.follows || row?.start || '';
+    // (A role the page alone paints, Exact's or a system colour, has no colour to show here: its words say it.)
+    }).filter(s => s.css && !isRole(s.css));
+    // What the app's row follows (its dials), else its value where every column shares it; else that it differs.
+    const row = rows.find(r => r.name === token), same = new Set((stored.get(token) ?? []).map(t => String(t[0]?.value ?? ''))).size <= 1;
+    const written = row?.follows || (same ? row?.start : 'its value by mode, in its row') || '';
     const def = typeof p.default === 'string' ? p.default : '';
     const words = p.set ? `set for this app: ${p.set.value}`
       : token ? `${token} → ${row ? (isRole(written) ? "the platform's role" : written || "Exact's base") : isRole(token) ? "the platform's role" : "Exact's base"}`
