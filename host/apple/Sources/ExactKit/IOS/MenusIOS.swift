@@ -183,8 +183,11 @@ final class MenuHost {
             }
             // A custom invoker's popover that is no menu opens as itself, from
             // the invoker, as a native button's does (LLP 1021 D3: only a menu
-            // is the platform's pull-down); its tap invokes after its press (`invoke`).
+            // is the platform's pull-down); its tap invokes after its press
+            // (`activating`, `invoke`). tvOS's remote has no such path: the overlay stays.
+            #if os(iOS)
             if !pullsDown(pop) { continue }
+            #endif
             live.insert(v.id)
             if isConfirmation(pop) {
                 let button = overlays[v.id] ?? InvokerButton(type: .custom)
