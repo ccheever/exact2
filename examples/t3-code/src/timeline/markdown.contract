@@ -16,6 +16,7 @@ use SidebarProjectGlyph from "../sidebar/sidebar-icons-kit.contract"
 use hoverTipAtFrame from "../shell/hover-layer.contract" // a pull request link's card
 use kmArrow from "../shared/menu-keys.contract"
 use heldModifiers from "../shared/press-modifiers.contract"
+use LinkMenuRow, FileLinkButton from "./link-menus.contract"
 use EditorMenuIcon from "../composer/composer-editor.contract" // a pull request chip's state glyph
 shape ChatRun
   id: string
@@ -125,6 +126,8 @@ shape ChipView
   icon: string
   target: string
   owner: string
+  // A file link's menu rows (file-link-menu.ts); [] for every other chip.
+  menu: LinkMenuRow[]
 shape MarkdownLabels
   id: string
   chips: ChipView[]
@@ -545,14 +548,18 @@ component ChatRuns
   view
     for run in runs key=run.id
       if run.mono and (run.kind == "link" or run.kind == "link-start") and webLink(run.href)
-        text href=run.href press=open(run.href) contextmenu=linkMenu(run.href) font-family="ui-monospace" font-size="0.75rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+        text href=run.href press=open(run.href) contextmenu=linkMenu(run.href) contextPopover="chat-link-menu" font-family="ui-monospace" font-size="0.75rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
           FindParts(parts=run.findParts)
       if run.mono and not ((run.kind == "link" or run.kind == "link-start") and webLink(run.href))
         text href=(run.kind == "link" or run.kind == "link-start" ? run.href : "") font-family="ui-monospace" font-size="0.75rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
           FindParts(parts=run.findParts)
       if not run.mono
-        if (run.kind == "link" or run.kind == "link-start") and run.href != ""
-          text href=run.href press=open(run.href) contextmenu=linkMenu(run.href) font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)" text-decoration-line=(run.strike ? "line-through" : "none")
+        // A mailto, irc or xmpp link or a fragment leaves its right-click to the shell, as the anchor's onContextMenu does.
+        if (run.kind == "link" or run.kind == "link-start") and webLink(run.href)
+          text href=run.href press=open(run.href) contextmenu=linkMenu(run.href) contextPopover="chat-link-menu" font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)" text-decoration-line=(run.strike ? "line-through" : "none")
+            FindParts(parts=run.findParts)
+        if (run.kind == "link" or run.kind == "link-start") and run.href != "" and not webLink(run.href)
+          text href=run.href press=open(run.href) font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)" text-decoration-line=(run.strike ? "line-through" : "none")
             FindParts(parts=run.findParts)
         if (run.kind == "link" or run.kind == "link-start") and run.href == ""
           text font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)" text-decoration-line=(run.strike ? "line-through" : "none")
@@ -627,32 +634,27 @@ component FlowRuns
         // A link's first run (ChatMarkdown's `<a>`): one link node per link, named with the whole link (`run.label`), on its
         // first word or code span; the link's other words and code spans follow as nodes hidden from assistive tech (their
         // `label` is the same), so a reader meets one link with its URL, not words. A press anywhere
-        // opens it. Only a web link leads with its favicon and has the app's menu (ChatMarkdown's faviconHost); a mailto,
-        // irc or xmpp link's press opens nothing, as the desktop shell's window-open handler opens none of them, and a
-        // fragment's scrolls to its heading (fragmentJump); their menu is the shell's, at the click or, for the ContextMenu
-        // key, at the focused link (external-link-menu.ts). A code span is part of its link (`.chat-markdown
-        // code` inside the `<a>`, after the favicon).
-        if run.kind == "link-start" and linkRun(run, chips)
-          link href=run.href press=open(run.href) contextmenu=linkMenu(run.href) aria-label=run.label cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=0 align-items="flex-start" title=""
-            if webLink(run.href)
-              box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
-                TimelineIcon(name="globe", size=14, color="light-dark(#1447e6, #50a2ff)")
-            if not run.mono
-              text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color="light-dark(#1447e6, #50a2ff)"
-                FindParts(parts=run.findParts)
-            else
-              text margin-top="0.153125rem" font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)" text-decoration-line=(run.strike ? "line-through" : "none")
-                FindParts(parts=run.findParts)
+        // opens it. Only a web link leads with its favicon and has the app's menu (ChatMarkdown's faviconHost, the
+        // `chat-link-menu` popover); a mailto, irc or xmpp link's press opens nothing, as the desktop shell's window-open
+        // handler opens none of them, and a fragment's scrolls to its heading (fragmentJump); their right-click is the
+        // shell's, as the anchor's onContextMenu returns before preventDefault for them. A code span is part of its link
+        // (`.chat-markdown code` inside the `<a>`, after the favicon).
+        if run.kind == "link-start" and linkRun(run, chips) and webLink(run.href)
+          link href=run.href press=open(run.href) contextmenu=linkMenu(run.href) contextPopover="chat-link-menu" aria-label=run.label cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=0 align-items="flex-start" title=""
+            box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
+              TimelineIcon(name="globe", size=14, color="light-dark(#1447e6, #50a2ff)")
+            LinkRunWords(run=run, size=size, weight=weight, top="0.153125rem")
+        if run.kind == "link-start" and linkRun(run, chips) and not webLink(run.href)
+          link href=run.href press=open(run.href) aria-label=run.label cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=0 align-items="flex-start" title=""
+            LinkRunWords(run=run, size=size, weight=weight, top="0.153125rem")
         // A web or fragment link's later word or code span: its press and menu are the link's. Only a web link's is a Tab
         // stop (as it was); a fragment's is not, the `<a>` being one stop (its link node above).
-        if run.kind == "link" and linkRun(run, chips) and pressLink(run.href)
-          box press=open(run.href) contextmenu=linkMenu(run.href) tabindex=(webLink(run.href) ? 0 : -1) aria-hidden=(run.label != "") cursor="pointer" height="1.421875rem" padding-top=(run.mono ? "0.153125rem" : "0px") box-sizing="border-box" flex-shrink=0
-            if not run.mono
-              text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color="light-dark(#1447e6, #50a2ff)"
-                FindParts(parts=run.findParts)
-            else
-              text font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)" text-decoration-line=(run.strike ? "line-through" : "none")
-                FindParts(parts=run.findParts)
+        if run.kind == "link" and linkRun(run, chips) and webLink(run.href)
+          box press=open(run.href) contextmenu=linkMenu(run.href) contextPopover="chat-link-menu" tabindex=0 aria-hidden=(run.label != "") cursor="pointer" height="1.421875rem" padding-top=(run.mono ? "0.153125rem" : "0px") box-sizing="border-box" flex-shrink=0
+            LinkRunWords(run=run, size=size, weight=weight, top="0px")
+        if run.kind == "link" and linkRun(run, chips) and pressLink(run.href) and not webLink(run.href)
+          box press=open(run.href) tabindex=-1 aria-hidden=(run.label != "") cursor="pointer" height="1.421875rem" padding-top=(run.mono ? "0.153125rem" : "0px") box-sizing="border-box" flex-shrink=0
+            LinkRunWords(run=run, size=size, weight=weight, top="0px")
         // Any other code span (one in a pull request link too); a mailto, irc or xmpp link's later one is hidden as its
         // words are, and shows the link's pointer (the `<a>`'s `cursor: pointer` covers all of it).
         if run.mono and not inlineFile(run, chips) and not (linkRun(run, chips) and (run.kind == "link-start" or pressLink(run.href)))
@@ -681,10 +683,12 @@ component FlowRuns
           for chip in chips.filter((chip) => chip.kind == "media" and chip.href == run.href) key=chip.id
             MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"), link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`)
         // With no media chip (a pull request's text) an image inside a link's text is the link's word, its alt text.
-        if run.kind == "media" and run.link != "" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length == 0
-          link href=run.link press=open(run.link) contextmenu=linkMenu(run.link) aria-label=(run.label != "" ? run.label : run.text) cursor="pointer" text-decoration-line="none" flex-shrink=0 title=""
-            text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color="light-dark(#1447e6, #50a2ff)"
-              FindParts(parts=run.findParts)
+        if run.kind == "media" and run.link != "" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length == 0 and webLink(run.link)
+          link href=run.link press=open(run.link) contextmenu=linkMenu(run.link) contextPopover="chat-link-menu" aria-label=(run.label != "" ? run.label : run.text) cursor="pointer" text-decoration-line="none" flex-shrink=0 title=""
+            LinkRunWords(run=run, size=size, weight=weight, top="0px")
+        if run.kind == "media" and run.link != "" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length == 0 and not webLink(run.link)
+          link href=run.link press=open(run.link) aria-label=(run.label != "" ? run.label : run.text) cursor="pointer" text-decoration-line="none" flex-shrink=0 title=""
+            LinkRunWords(run=run, size=size, weight=weight, top="0px")
         // A pull request link in a pull request's text (its chip names the card's target).
         if not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and ((run.kind == "link" or run.kind == "link-start") and chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href).length > 0)
           for chip in chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href) key=chip.id
@@ -699,6 +703,21 @@ component FlowRuns
           else
             text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre-wrap" overflow-wrap="anywhere" max-width="100%" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
               MarkedText(value=run.text, at=runAt(runs, run.id), ms=ms, me=me)
+
+// A link's word or code span in a line (FlowRuns), link-coloured; `top` is a code span's offset from the line's top.
+component LinkRunWords
+  props
+    run: ChatRun
+    size: number
+    weight: number
+    top: string
+  view
+    if not run.mono
+      text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color="light-dark(#1447e6, #50a2ff)"
+        FindParts(parts=run.findParts)
+    else
+      text margin-top=top font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)" text-decoration-line=(run.strike ? "line-through" : "none")
+        FindParts(parts=run.findParts)
 
 // Whether a run starts its link: the run before it is not the same link's word or image.
 fn linkLeads(runs: ChatRun[], id: string, link: string): bool = runs.slice(max(0, runs.map((r) => r.id).indexOf(id) - 1), max(0, runs.map((r) => r.id).indexOf(id))).filter((r) => r.href == link or r.link == link).length == 0
@@ -736,7 +755,7 @@ component PrLinkRun
       local("pr-link-open", "", `${chip.detail}\n${chip.target}\n${run.href}\nmiddle`)
     middleDown = false
   view
-    button id=`pr-link-${chip.id}` press=open pointerdown=down pointerup=up contextmenu=linkMenu(run.href) hover=hover role="link" aria-label=run.text testId=`pr-link-${chip.id}` padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="flex-start" flex-shrink=0 cursor="pointer" title=""
+    button id=`pr-link-${chip.id}` press=open pointerdown=down pointerup=up contextmenu=linkMenu(run.href) contextPopover="chat-link-menu" hover=hover role="link" aria-label=run.text testId=`pr-link-${chip.id}` padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="flex-start" flex-shrink=0 cursor="pointer" title=""
       if run.kind == "link-start" and chip.detail == ""
         box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
           TimelineIcon(name="globe", size=14, color="light-dark(#1447e6, #50a2ff)")
@@ -812,7 +831,7 @@ component InlineFileChip
   view
     row height="1.421875rem" flex-shrink=0 align-items="center" padding-left=1 padding-right=1
       CodeTip(label=chip.tip, side="top", offset=21)
-        button press=local("surface-file-link", chip.tip, chip.target) contextmenu=local("surface-files-link-menu", chip.tip, chip.target) aria-label=chip.tip padding=0 border-width=0 background-color="#00000000" testId=`inline-file-${run.id}` title=""
+        FileLinkButton(tip=chip.tip, target=chip.target, menu=chip.menu, local=local, testId=`inline-file-${run.id}`)
           FileChipFace(run=run, label=chip.label, icon=chip.icon)
 
 component ResolvedChip
@@ -830,7 +849,7 @@ component ResolvedChip
         CodeTip(label=chip.tip, side="top", offset=21)
           // A file link opens in the Files surface (rightPanelStore.openFile), at the file a bare name or a repeated
           // project prefix means (`chip.target`, ChatMarkdown openFileInPanel).
-          button press=local("surface-file-link", chip.tip, chip.target) contextmenu=local("surface-files-link-menu", chip.tip, chip.target) aria-label=chip.tip padding=0 border-width=0 background-color="#00000000" testId=`chip-open-${run.id}` title=""
+          FileLinkButton(tip=chip.tip, target=chip.target, menu=chip.menu, local=local, testId=`chip-open-${run.id}`)
             FileChipFace(run=run, label=run.text, icon=chip.icon)
       if chip.kind == "mention"
         Tip(label=chip.tip, side="top", align="center", offset=21)

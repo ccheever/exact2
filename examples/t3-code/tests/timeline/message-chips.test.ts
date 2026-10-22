@@ -13,7 +13,7 @@ describe('sent-message context chips', () => {
     const chips = messageChips(item('see [notes.md](t3-context://v1/file/file_abc) ok',
       [{ version: 1, kind: 'file', contextId: 'file_abc', label: 'notes.md', attachmentId: 'att-1', name: 'notes.md', mimeType: 'text/markdown', sizeBytes: 812 }],
       [{ type: 'file', id: 'att-1', name: 'notes.md', mimeType: 'text/markdown', sizeBytes: 812 }]), '/w', [], 'm1');
-    expect(chips).toEqual([{ id: 'chip-0', href: 't3-context://v1/file/file_abc', kind: 'file', label: 'notes.md', size: '1 KB', tip: 'notes.md\n1 KB', detail: '', icon: 'markdown', target: 'att-1', owner: 'm1' }]);
+    expect(chips).toEqual([{ id: 'chip-0', href: 't3-context://v1/file/file_abc', kind: 'file', label: 'notes.md', size: '1 KB', tip: 'notes.md\n1 KB', detail: '', icon: 'markdown', target: 'att-1', owner: 'm1', menu: [] }]);
     expect([...chippedAttachmentIds(chips)]).toEqual(['att-1']);
   });
   test('a reference without its record, or whose attachment is gone, reads "This context is no longer available."', () => {

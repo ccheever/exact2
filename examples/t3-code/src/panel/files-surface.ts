@@ -30,16 +30,17 @@ import { openFileInPreview } from '../browser/browser-links'; // "Open file in p
 import { activeRef } from '../terminal/terminal-drawer-view';
 import { ensureDraftThreadId } from '../composer/draft-thread-id';
 import { crumbsMounting, loadBegin, loadEnd, missingFolders, noteReveal, revealStale } from './files-crumbs-mount'; // a mounting preview settles at the end
-import { canUseMarkdownFileShellActions, loadSshAliases, openInEditorHere, openInView, remoteOpenFor } from '../connections/remote-open'; // remote Open (OpenInPicker)
+import { loadSshAliases, openInEditorHere, openInView, remoteOpenFor } from '../connections/remote-open'; // remote Open (OpenInPicker)
 import { fileComment, fileCommentLines, fileCommentOpen, focusedFileDraft, type FileLine } from '../diff/diff-file-comments'; // diff-review: line comments on the preview
 import { filesMediaView, markdownMediaChips, markdownMediaUrls, NO_MEDIA, type MediaView } from '../media/media-views'; // image and video files with their menu
 import { letGo } from '../client/let-go';
-import { filesTreeChoice, filesTreeMenuRows, showContextMenu } from './context-menu-actions';
+import { filesTreeChoice, filesTreeMenuRows } from './context-menu-actions';
+import { markdownFileMenuRows, withFileLinkMenus, type FileLinkMenuContext } from '../timeline/file-link-menu';
 import type { MenuRow } from '../sidebar/sidebar-menu';
-import { availableEditorIds, markdownFileMenuItems, revealLabelFor } from '../shared/context-menus';
-import { isWorkspaceImagePreviewPath, isWorkspaceVideoPreviewPath, mediaMimeTypeFromExtension } from '../media/media-source';
+import { availableEditorIds } from '../shared/context-menus';
+import { isWorkspaceImagePreviewPath, isWorkspaceVideoPreviewPath } from '../media/media-source';
 import { openMarkdownMediaPreview } from '../timeline/timeline-attachments';
-import { fileLinkCopyPaths, fileLinkEditorTarget, resolveFileLinkHostPath, splitPosition, workspaceRelativeFilePath } from '../timeline/workspace-file-lookup'; // the file a chat link means
+import { fileLinkCopyPaths, fileLinkEditorTarget, resolveFileLinkHostPath } from '../timeline/workspace-file-lookup'; // the file a chat link means
 
 export type TreeRow = { id: string; path: string; name: string; depth: number; directory: boolean; expanded: boolean; selected: boolean; token: string; ignored: boolean; loading: boolean; guides: { id: string; left: number }[] };
 /** A crumb: `navigable` moves the browser to its folder (FolderBreadcrumb), `descendant` is below the current one (kept
@@ -328,7 +329,7 @@ async function navigateCrumb(client: T3Client, native: Native, crumbPath: string
 
 /** `shelllocal:surface-files-*`. */
 export async function filesLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
-  if (op === 'link-menu') { await markdownFileMenu(client, native, id, { lookup: value }); return ''; }
+  if (op === 'link-pick') { const newline = value.indexOf('\n'); await markdownFilePick(client, native, id, value.slice(0, newline), { lookup: value.slice(newline + 1) }); return ''; } // link-menus.contract
   if (op === 'row-pick') { await filesTreeChoice(client, native, id, value); return ''; } // context-menu-actions.ts
   const state = filesState(client), preferences = prefsOf(client);
   // A host folder's rows carry host paths (FileBrowserPanel panelPath); its tree is keyed by the folder's own entries.
@@ -396,26 +397,17 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
 }
 
 /**
- * ChatMarkdown's file-link menu (context-menus.ts markdownFileMenuItems): "Preview media" for a
- * media file, the open item named for the preferred editor and the server-worded reveal only for
- * a resolved local environment, then the copies (the relative one for a file inside the thread's
- * workspace). Open, reveal and the copies act on the file a bare name or a repeated project prefix
- * means (`lookup`, workspace-file-lookup.ts), and a copy says what it copied.
+ * A row of ChatMarkdown's file-link menu (file-link-menu.ts markdownFileMenuRows) for the link `target` (its full path),
+ * acted on only while the menu, built again now, still offers it. Open, reveal and the copies act on the file a bare
+ * name or a repeated project prefix means (`lookup`, workspace-file-lookup.ts), and a copy says what it copied.
  */
-export async function markdownFileMenu(client: T3Client, native: Native, target: string, context: { cwd?: string; previewMedia?: boolean; lookup?: string } = {}): Promise<void> {
+export async function markdownFilePick(client: T3Client, native: Native, target: string, picked: string, context: FileLinkMenuContext & { lookup?: string } = {}): Promise<void> {
   if (!target) return;
-  const environment = client.environmentId, origin = client.origin;
+  const environment = client.environmentId;
   await loadSshAliases(native);
-  const remote = remoteOpenFor(client);
-  const canOpen = canUseMarkdownFileShellActions(environment || null, remote.state.mode, remote.resolved);
-  const available = availableEditorIds(client.config);
-  const editor = preferredEditor(available, lastEditor(client)) || null;
-  const filePath = splitPosition(target).path, name = baseName(filePath), dot = name.lastIndexOf('.');
+  if (!markdownFileMenuRows(client, target, context).some(row => row.id === picked)) return;
+  const editor = preferredEditor(availableEditorIds(client.config), lastEditor(client)) || null;
   const cwd = context.cwd ?? workspaceOf(client).cwd;
-  const canPreviewMedia = context.previewMedia !== false && !!client.threadId && dot >= 0 && mediaMimeTypeFromExtension(name.slice(dot)) !== null;
-  const items = markdownFileMenuItems({ canPreviewMedia, canOpen, preferredEditor: editor, revealLabel: revealLabelFor(client.config, environment || null), canCopyRelative: workspaceRelativeFilePath(filePath, cwd) !== null });
-  const picked = await showContextMenu(client, native, items);
-  if (!picked || client.environmentId !== environment || client.origin !== origin) return;
   // openMarkdownMedia: the expanded media dialog with the link's media (timeline-attachments.ts).
   if (picked === 'preview-media') {
     try { await openMarkdownMediaPreview(client, native, target, cwd); }
@@ -423,10 +415,7 @@ export async function markdownFileMenu(client: T3Client, native: Native, target:
     return;
   }
   const hostPath = () => resolveFileLinkHostPath(client, native, target, context.lookup ?? '', cwd);
-  // Recheck after the native menu closes; a menu from another route cannot execute there.
-  const current = remoteOpenFor(client);
   if (picked === 'open' || picked === 'reveal') {
-    if (!canUseMarkdownFileShellActions(environment || null, current.state.mode, current.resolved)) return;
     const failed = (description: string): void => { pushToast(client, { kind: 'error', title: picked === 'open' ? 'Unable to open file' : 'Unable to reveal file', description, stacked: true }); };
     try {
       const host = await hostPath();
@@ -619,7 +608,7 @@ async function renderedMarkdown(client: T3Client, native: Native, path: string, 
   const diagrams = filesMermaid(client, text);
   return {
     markdownSource: [{ id: `file:${path}`, kind: editable ? 'file' : 'assistant', title: '', body: text }],
-    md: { ...markdownEnv(client), chips: messageChips({ text }, folder, [], `files:${absolute}`, scope, client) }, // the owner names the document
+    md: { ...markdownEnv(client), chips: withFileLinkMenus(client, messageChips({ text }, folder, [], `files:${absolute}`, scope, client)) }, // the owner names the document
     code: messageCodeBlocks(text), diagrams, mdUrls: urls.map(entry => ({ ...entry, fill: '', hover: '', border: '', ink: '' })),
     codeCopied: copied ? copy.text : '', codeCopyNonce: copied ? copy.nonce : 0,
   };

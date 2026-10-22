@@ -237,7 +237,7 @@ export async function linkFromPicker(client: T3Client, native: Native, storage: 
 
 // ── Link previews (PullRequestLinkPreview) and their click ─────────────────
 
-export type LinkChip = { id: string; href: string; kind: string; label: string; size: string; tip: string; detail: string; icon: string; target: string; owner: string };
+export type LinkChip = { id: string; href: string; kind: string; label: string; size: string; tip: string; detail: string; icon: string; target: string; owner: string; menu: never[] };
 type Preview = { key: string; detail: Obj | null; error: string; read: boolean };
 const previews = new WeakMap<object, Map<string, Preview>>();
 const previewsOf = (client: object) => { let map = previews.get(client); if (!map) { map = new Map(); previews.set(client, map); } return map; };
@@ -265,7 +265,7 @@ export function linkChips(client: T3Client, environmentId: string, links: { href
       pullRequestsEnabled: readsPullRequests(environment), url: candidate }) : null;
     if (!target && link.kind !== 'commit') return [];
     const ref = target ? JSON.stringify({ ...target.input, ...(environment.focused ? {} : { environmentId: environment.id }) }) : '';
-    return [{ id: `pr-link-${seen.size}`, href: link.href, kind: 'pr-link', label: '', size: '', tip: link.href, detail: link.kind, icon: '', target: ref, owner: candidate ?? '' }];
+    return [{ id: `pr-link-${seen.size}`, href: link.href, kind: 'pr-link', label: '', size: '', tip: link.href, detail: link.kind, icon: '', target: ref, owner: candidate ?? '', menu: [] }];
   });
 }
 

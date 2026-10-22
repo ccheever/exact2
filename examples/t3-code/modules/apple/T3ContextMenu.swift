@@ -5,9 +5,8 @@
 // What still asks for it: the branch picker's Copy branch name, whose rows sit in
 // the open branch popup, which the reference's native menu leaves open and a
 // Contract context popover would close (the host closes every popover before it
-// shows one, MenusMac `context`); and the chat's file and web link menus, whose
-// rows depend on the link (its thread link, SSH aliases) and are computed when the
-// menu opens. The other row menus are Contract context popovers.
+// shows one, MenusMac `context`). The other row menus, the chat's file and web
+// link menus among them, are Contract context popovers.
 import AppKit
 import UniformTypeIdentifiers
 
