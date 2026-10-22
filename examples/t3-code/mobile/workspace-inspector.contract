@@ -61,7 +61,10 @@ shape InspectorPresentation
   showFiles: bool
   showChanges: bool
   showGit: bool
-  configuration: string
+  subtitle: string
+  query: string
+  owner: string
+  interactive: bool
 component MobileInspectorContent
   props
     gitColors: GitColors
@@ -96,5 +99,5 @@ component MobileInspectorContent
                 text file.path line-clamp=2 font-size=data.navigator.labelSize line-height=`${data.navigator.labelLine}px`
                   font-weight=(file.path == data.reviewSelected ? 700 : 500) color=(file.path == data.reviewSelected ? colors.foreground : colors.secondary)
                 row margin-top=3.5 gap=7
-                  text `+${file.additions}` color=data.navigator.addition font-size=data.navigator.countSize line-height=`${data.navigator.countLine}px` font-weight=700
-                  text `-${file.deletions}` color=data.navigator.deletion font-size=data.navigator.countSize line-height=`${data.navigator.countLine}px` font-weight=700
+                  text `+${file.additions}` font-variant-numeric="tabular-nums" color=data.navigator.addition font-size=data.navigator.countSize line-height=`${data.navigator.countLine}px` font-weight=700
+                  text `-${file.deletions}` font-variant-numeric="tabular-nums" color=data.navigator.deletion font-size=data.navigator.countSize line-height=`${data.navigator.countLine}px` font-weight=700

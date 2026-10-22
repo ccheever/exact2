@@ -1,5 +1,6 @@
 // Independent integration regressions for the root-owned adapter, using isolated clients.
 import { expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import { T3Client } from './shared/client';
 import { obj } from './shared/domain';
 import type { Native } from './shared/protocol';
@@ -56,7 +57,7 @@ test('outgoing capture survives a new selected workspace and temporary unsupport
   const returned = f.step(unsupported, f.context(true), 340);
   expect(workspaceInspectorSnapshot(returned.serialized)).toMatchObject({ mounted: true, active: false, exitAt: 600 });
   expect(f.presentation(returned).files.rows.map(row => row.path)).toEqual(['old.ts']);
-  expect(JSON.parse(f.presentation(returned).configuration).visible).toBe(false);
+  expect(f.presentation(returned).interactive).toBe(false);
   const exit = workspaceInspectorSnapshot(returned.serialized);
   const closed = f.step(returned, f.context(true), 600, 'deadline', exit.exitToken);
   expect(closed.content).toBe(''); expect(f.presentation(closed).showFiles).toBe(false);
@@ -93,4 +94,20 @@ test('Review navigator uses semantic count colors and scaled label/caption roles
   const theme = await import('./themes/light.json');
   expect(light.addition).toBe(theme.default['--color-adaptive-emerald-700-300']);
   expect(light.deletion).toBe(theme.default['--color-adaptive-rose-700-300']);
+});
+
+
+test('inline inspector presentation matches its Contract reply and disables controls for absent or outgoing captures', () => {
+  const f = fixture(), opened = f.open();
+  const declaration = readFileSync(new URL('./workspace-inspector.contract', import.meta.url), 'utf8')
+    .split('shape InspectorPresentation\n')[1]!.split('component MobileInspectorContent')[0]!;
+  const keys = [...declaration.matchAll(/^  (\w+):/gm)].map(match => match[1]).sort();
+  const visible = f.presentation(opened);
+  expect(Object.keys(visible).sort()).toEqual(keys);
+  expect(visible).toMatchObject({ title: 'Files', query: '', interactive: true,
+    owner: JSON.parse(workspaceInspectorSnapshot(opened.serialized).registrationJSON).token });
+  const absent = f.presentation({ ...opened, content: '' });
+  expect(absent.interactive).toBe(false);
+  const outgoing = f.step(opened, f.context(true), 100);
+  expect(f.presentation(outgoing)).toMatchObject({ title: 'Files', interactive: false, owner: visible.owner });
 });

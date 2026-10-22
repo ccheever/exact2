@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { contractComponent } from '../tests/support/contract-action-fixture';
 import { mobileWorkspaceEvent, mobileWorkspace, mobileWorkspaceEntries, mobileWorkspaceLocation, mobileWorkspaceThreadSelection,
   mobileWorkspaceFileSelection, mobileWorkspaceOverlay, type MobileWorkspaceOptions } from './mobile-workspace';
 const home = { id: 0, name: 'home', url: '/', params: {} };
@@ -28,21 +29,24 @@ test('source overlay families preserve underlying workspace even when they are n
   expect(mobileWorkspaceOverlay('threadMedia')).toBe(false);
 });
 
-test('actual native geometry JSON matches scalar panes and reserves no invented inspector', () => {
+test('the one stack gives Home and workspace the full width until native split presentation exists', () => {
   const projected = mobileWorkspace([home, thread], options), config = JSON.parse(projected.configuration);
-  expect(projected).toMatchObject({ usesSplitView: true, sidebarTargetWidth: 328, contentSettledWidth: 696,
+  expect(projected).toMatchObject({ usesSplitView: true, sidebarMounted: false, sidebarVisible: false,
+    sidebarTargetWidth: 0, sidebarContentWidth: 0, contentSettledWidth: 1024,
     workspaceRouteId: '7', environmentId: 'env', threadId: 'a', inspectorTargetWidth: 0 });
-  expect(config).toEqual({ inspectorRouteKey: 't3-workspace-inspector', inspectorOwner: '', inspectorExitToken: '', inspectorContentWidth: 0, inspectorVisible: false, inspectorResizing: false, dividerColor: '#808080', dividerActiveColor: '#808080', sidebarRouteKey: 't3-workspace-sidebar', viewportWidth: 1024, viewportHeight: 768, usesSplitView: true, sidebarVisible: true,
-    sidebarContentWidth: 328, sidebarTargetWidth: 328, contentSettledWidth: 696, inspectorTargetWidth: 0,
-    reducedMotion: false, appearance: 'dark', background: '#111111' });
-  expect(mobileWorkspace([home], { ...options, primarySidebarPreferredVisible: false })).toMatchObject({ sidebarVisible: true, emptyWorkspaceDetail: true });
+  expect(config).toEqual({ inspectorOwner: '', inspectorContentWidth: 0, inspectorVisible: false, inspectorResizing: false,
+    dividerColor: '#808080', dividerActiveColor: '#808080', viewportWidth: 1024, viewportHeight: 768 });
+  for (const width of [402, 719, 720, 744, 819, 820, 1366]) {
+    expect(mobileWorkspace([home], { ...options, width, primarySidebarPreferredVisible: false }))
+      .toMatchObject({ sidebarMounted: false, sidebarVisible: false, emptyWorkspaceDetail: false, contentSettledWidth: width });
+  }
   expect(mobileWorkspace([home, thread], { ...options, width: 932, height: 430 })).toMatchObject({ usesSplitView: false, sidebarTargetWidth: 0, contentSettledWidth: 932 });
 });
 
 test('real file registration reserves inspector; leaving focus retains content only for exit', () => {
   const visible = mobileWorkspace([home, files], { ...options, inspector, fileInspectorPreferredVisible: true });
-  expect(visible).toMatchObject({ inspectorMounted: true, inspectorVisible: true, inspectorTargetWidth: 260,
-    contentSettledWidth: 764, sidebarSuppressedByAuxiliary: true, inspectorMain: 'chat', inspectorCandidate: 'files' });
+  expect(visible).toMatchObject({ inspectorMounted: true, inspectorVisible: true, inspectorTargetWidth: 287,
+    contentSettledWidth: 737, sidebarSuppressedByAuxiliary: false, inspectorMain: 'chat', inspectorCandidate: 'files' });
   const exiting = mobileWorkspace([home, files, settings], { ...options, inspector, fileInspectorPreferredVisible: true });
   expect(exiting).toMatchObject({ workspaceRouteId: '12', topRouteId: '14', inspectorMounted: true, inspectorVisible: false, inspectorTargetWidth: 0, inspectorToken: 'registration-1' });
   expect(mobileWorkspace([home, files], { ...options, inspector: { ...inspector, renderable: false } })).toMatchObject({ inspectorMounted: false, inspectorToken: '', inspectorTargetWidth: 0 });
@@ -93,7 +97,7 @@ test('replacement identity and reconnect cannot reuse an active inspector regist
   expect(mobileWorkspace([home, files], { ...options, inspector, generation: 4 })).toMatchObject({ inspectorMounted: false, inspectorToken: '' });
   const automatic = mobileWorkspace([home, files], { ...options, inspector, fileInspectorPreferredVisible: true, width: 1600, fileInspectorPreferredWidth: 0 });
   expect(automatic.auxiliaryPaneWidth).toBe(mobileWorkspace([home, files], { ...options, inspector, fileInspectorPreferredVisible: true, width: 1600 }).auxiliaryPaneWidth);
-  expect(JSON.parse(mobileWorkspace([home], { ...options, width: NaN, height: Infinity }).configuration).contentSettledWidth).toBe(0);
+  expect(mobileWorkspace([home], { ...options, width: NaN, height: Infinity }).contentSettledWidth).toBe(0);
 });
 
 
@@ -151,4 +155,40 @@ test('global Arrange preserves the workspace and retained New Task visit beneath
     expect(mobileWorkspace(retained.slice(0, -1), options)).toEqual(before);
   }
   expect(mobileWorkspaceOverlay('homeArrange')).toBe(true);
+});
+
+
+test('ordinary inspector support follows the viewport without changing route or preference owners', () => {
+  const routes = [home, files], before = structuredClone(routes);
+  const preferences = { ...options, inspector, fileInspectorPreferredVisible: true, fileInspectorPreferredWidth: 300 };
+  for (const [width, height, supported] of [[719, 600, false], [720, 599, false], [720, 600, false],
+    [819, 900, false], [820, 900, true], [1366, 1024, true], [932, 430, false]] as const) {
+    const projected = mobileWorkspace(routes, { ...preferences, width, height });
+    expect(projected).toMatchObject({ workspaceRouteId: '12', topRouteId: '12', environmentId: 'env', threadId: 'a',
+      inspectorToken: 'registration-1', inspectorRouteId: '12', inspectorMounted: supported, inspectorVisible: supported });
+    expect(projected.contentSettledWidth + projected.inspectorTargetWidth).toBe(width);
+  }
+  expect(routes).toEqual(before);
+  expect(preferences.fileInspectorPreferredWidth).toBe(300);
+  expect(preferences.primarySidebarPreferredVisible).toBe(true);
+  expect(mobileWorkspace(routes, { ...preferences, width: 1366 })).toMatchObject({ inspectorTargetWidth: 300, contentSettledWidth: 1066 });
+});
+
+
+test('inline inspector controls execute only for the current interactive owner and preserve draft/navigation state', () => {
+  const root = contractComponent('mobile/app.contract', 'App');
+  const nav = { id: 'thread-visit', url: '/threads/env/a' };
+  const state = { fileUi: { query: '', preview: 'src/a.ts' }, fileInspectorPreferredVisible: true, inspectorResizing: true,
+    draft: 'unsent draft', nav };
+  const scope = { workspace: { inspectorToken: 'content:4' }, inspectorPresentation: { interactive: true },
+    FileUi: (current: object, changes: object) => ({ ...current, ...changes }) };
+  root.call('inspectorControl', state, scope, ['content:old', 'search', 'stale']);
+  expect(state.fileUi.query).toBe('');
+  root.call('inspectorControl', state, { ...scope, inspectorPresentation: { interactive: false } }, ['content:4', 'close', '']);
+  expect(state.fileInspectorPreferredVisible).toBe(true);
+  root.call('inspectorControl', state, scope, ['content:4', 'search', 'src']);
+  expect(state.fileUi).toEqual({ query: 'src', preview: 'src/a.ts' });
+  root.call('inspectorControl', state, scope, ['content:4', 'close', '']);
+  expect(state).toMatchObject({ fileInspectorPreferredVisible: false, inspectorResizing: false, draft: 'unsent draft', nav });
+  expect(state.nav).toBe(nav);
 });
