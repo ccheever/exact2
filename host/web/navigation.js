@@ -712,11 +712,11 @@ function followScroll(el, enabled) {
 // One scheme allowlist for every URL the page can navigate to: a link's `href` (an authored `link`, an inline run bound
 // to data, a Markdown link), an iframe's `src`, and `openURL`. A `javascript:` URL in any of them runs in this page's
 // origin. The browser's own parser reads the scheme, past the whitespace and control characters it may hide behind.
+// `openURL` alone also takes a scheme app.json's `open_url` declares (`exact.openSchemes`, `declaredScheme`), never one
+// that runs or reads content.
+export const declaredScheme = protocol => !/^(javascript|vbscript|data|file|filesystem|blob|about|view-source|jar|intent|content):$/.test(protocol) && (globalThis.exact?.openSchemes ?? []).includes(protocol.slice(0, -1));
 export function navigableURL(href, base = document.baseURI) {
-  try {
-    const url = new URL(href, base);
-    return ["http:", "https:", "mailto:", "tel:"].includes(url.protocol) ? url.href : null;
-  } catch { return null; }
+  try { const url = new URL(href, base); return ["http:", "https:", "mailto:", "tel:"].includes(url.protocol) ? url.href : null; } catch { return null; }
 }
 export const navigates = (el, name) => name === "href" || (name === "src" && el.localName === "iframe");
 // A present sandbox without `allow-same-origin` gives an opaque origin; tokens use ASCII whitespace and ignore case.

@@ -410,6 +410,8 @@ writeFileSync(resolve(gen, 'main.js'), [
     "Clocked.push(() => { const o = reportTime(clock.now)[1]; if (o === told) return; told = o; commit(() => { for (const r of Resources) if (r.source === 'exactTime') R(r); }, 'time'); });",
   ] : []),
   ...(ts ? ["import { install as ts } from './ts-data.js';", `ts(data, ${mixed}${pageModules ? ", () => import('./native.js')" : ''});`] : []),
+  // The schemes `openURL` may hand to the browser beyond its own (app.json `open_url`, navigation.js `declaredScheme`).
+  ...(manifest.open_url?.schemes?.length ? [`globalThis.exact = Object.assign(globalThis.exact ?? {}, { openSchemes: ${JSON.stringify(manifest.open_url.schemes)} });`] : []),
   "const start = () => {",
   "  const state = app();",
   ...(devReload ? ["  finishDev();"] : []),
