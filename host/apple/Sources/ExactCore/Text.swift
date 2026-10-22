@@ -853,6 +853,12 @@ package final class TextEngine {
             if length > 0 { s.setAttributes(a, range: NSRange(location: offset, length: length)) }
             offset += length
         }
+        if spec.lineClamp > 0, s.length > 0, let block = spec.strut ?? spec.runs.first {
+            var a: [NSAttributedString.Key: Any] = [.font: font(block)]
+            if block.letterSpacing != 0 { a[.kern] = block.letterSpacing }
+            presentation?.attributes(block, color: spec.color, attributes: &a)
+            s.addAttribute(.exactClampStyle, value: a, range: NSRange(location: 0, length: s.length))
+        }
         TextEngine.setBaseDirection(s, direction: spec.direction)
         presentation?.finish(s)
         if spec.preserves, s.string.contains("\t"), let first = spec.strut ?? spec.runs.first {
@@ -1235,8 +1241,8 @@ package final class TextEngine {
     }
 
     /// A `line-clamp`'s last line: its text as it broke, then "…", truncated
-    /// to `width`. Pure over `source`, so painting (a raster worker, the
-    /// region worker) makes the same line layout made.
+    /// to `width`, with the block container's style (CSS Overflow 4 §5.2).
+    /// Pure over `source`, so raster workers make the same line as layout.
     package static func clampedLine(_ source: NSAttributedString, range: NSRange, width: Double) -> CTLine? {
         let string = source.string as NSString
         var end = NSMaxRange(range)
@@ -1244,7 +1250,9 @@ package final class TextEngine {
         // CoreText to make room for it, removing the line's trailing break/space.
         while end > range.location && [9, 10, 13, 32, 0x2028, 0x2029].contains(Int(string.character(at: end - 1))) { end -= 1 }
         let candidate = NSMutableAttributedString(attributedString: source.attributedSubstring(from: NSRange(location: 0, length: end)))
-        candidate.append(NSAttributedString(string: "…", attributes: truncation(source.attributes(at: max(range.location, end - 1), effectiveRange: nil))))
+        let block = source.attribute(.exactClampStyle, at: 0, effectiveRange: nil) as? [NSAttributedString.Key: Any]
+            ?? source.attributes(at: 0, effectiveRange: nil)
+        candidate.append(NSAttributedString(string: "…", attributes: truncation(block)))
         let typesetter = CTTypesetterCreateWithAttributedString(candidate)
         let line = CTTypesetterCreateLine(typesetter, CFRange(location: range.location, length: end - range.location + 1))
         // Keep paragraph-global indices, including the token, for AppKit hits.
