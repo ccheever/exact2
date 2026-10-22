@@ -118,28 +118,28 @@ struct TextRasterJob {
     /// The bitmap's space and its colours' peak (LLP 1100 D2, D8): extended
     /// sRGB (at half float) for a colour past SDR white, Display P3 for a
     /// wide one, else sRGB.
-    private var format: (space: CGColorSpace, headroom: Float, deep: Bool) {
+    private func format(_ runs: [CTRun]) -> (space: CGColorSpace, headroom: Float, deep: Bool) {
         var wide = false, deep = false, headroom: Float = 0
         // ColorSync round-off at gamut boundaries must not widen ordinary white.
         let outside = { (color: CGColor) in
             color.components?.prefix(3).contains { $0 < -0.00001 || $0 > 1.00001 } == true
         }
-        let all = NSRange(location: 0, length: source.length)
-        for key in [NSAttributedString.Key.foregroundColor, .strokeColor, .exactBackground, .exactShadow] {
-            source.enumerateAttribute(key, in: all) { value, _, _ in
-                let ref = value.map { $0 as CFTypeRef }
-                let cg = (value as? InlineBackground)?.color ?? (value as? TextRunShadow)?.color ?? (value as? PlatformColor)?.cgColor
-                    ?? ref.flatMap { CFGetTypeID($0) == CGColor.typeID ? ($0 as! CGColor) : nil }
+        for run in runs {
+            let attributes = CTRunGetAttributes(run) as NSDictionary
+            guard attributes[NSAttributedString.Key.exactHidden] as? Bool != true else { continue }
+            for key in [NSAttributedString.Key.foregroundColor, .strokeColor, .underlineColor, .strikethroughColor, .exactBackground, .exactShadow] {
+                let value = attributes[key]
+                let cg = Self.paintColor(value)
                 // A run's HDR shadow is in the cast, not these pixels.
-                if value is TextRunShadow, ColorRange.isHDR(cg) { return }
+                if value is TextRunShadow, ColorRange.isHDR(cg) { continue }
                 headroom = max(headroom, ColorRange.headroom(cg))
-                guard let cg else { return }
+                guard let cg else { continue }
                 if let srgb = cg.converted(to: Self.extended, intent: .relativeColorimetric, options: nil) {
                     wide = wide || outside(srgb)
                 }
                 if let p3 = CGColorSpace(name: CGColorSpace.extendedDisplayP3),
-                   let converted = cg.converted(to: p3, intent: .relativeColorimetric, options: nil) {
-                    deep = deep || outside(converted)
+                   let p3Color = cg.converted(to: p3, intent: .relativeColorimetric, options: nil) {
+                    deep = deep || outside(p3Color)
                 }
             }
         }
@@ -234,8 +234,10 @@ struct TextRasterJob {
               pixelWidth > 0, pixelHeight > 0,
               pixelWidth < CGFloat(Int.max), pixelHeight < CGFloat(Int.max) else { return nil }
         let width = Int(pixelWidth), height = Int(pixelHeight)
-        let (space, headroom, deep) = format
-        if let tint = tints && headroom == 0 && !deep ? oneColor(lines) : nil {
+        // Truncation inserts runs whose paint need not occur in the source.
+        let runs = lines.flatMap { CTLineGetGlyphRuns($0) as! [CTRun] }
+        let (space, headroom, deep) = format(runs)
+        if let tint = tints && headroom == 0 && !deep ? oneColor(runs) : nil {
             guard let mask = bitmap(width: width, height: height, space: Self.srgb, headroom: 0, deep: false, alphaOnly: true, paint: {
                 paint(lines, positions, frame: frame, height: height, scale: scale, pass: .ink, into: $0)
             }) else { return nil }
@@ -246,8 +248,8 @@ struct TextRasterJob {
         }
         // Runs' own HDR shadows, each once.
         var casters: [TextRunShadow] = []
-        source.enumerateAttribute(.exactShadow, in: NSRange(location: 0, length: source.length)) { value, _, _ in
-            if let s = value as? TextRunShadow, ColorRange.isHDR(s.color), !casters.contains(s) { casters.append(s) }
+        for run in runs where (CTRunGetAttributes(run) as NSDictionary)[NSAttributedString.Key.exactHidden] as? Bool != true {
+            if let s = TextRunShadow.of(run), ColorRange.isHDR(s.color), !casters.contains(s) { casters.append(s) }
         }
         guard let ink = bitmap(width: width, height: height, space: space, headroom: headroom, deep: deep, keepsImage: shadow != nil, paint: {
             paint(lines, positions, frame: frame, height: height, scale: scale, pass: .ink, into: $0)
@@ -285,32 +287,33 @@ struct TextRasterJob {
     /// The colour every glyph and decoration paints in, when nothing else in
     /// the paragraph has one (no stroke, inline background, run shadow or
     /// decoration of another colour) and no glyph brings its own (an emoji's).
-    private func oneColor(_ lines: [CTLine]) -> CGColor? {
-        var color: CGColor?, other = false
-        let all = NSRange(location: 0, length: source.length)
-        source.enumerateAttributes(in: all) { attributes, _, stop in
-            if attributes[.exactHidden] != nil {
-                return
-            }
-            let ink = (attributes[.foregroundColor] as? PlatformColor)?.cgColor
+    private func oneColor(_ runs: [CTRun]) -> CGColor? {
+        var color: CGColor?
+        for run in runs {
+            let attributes = CTRunGetAttributes(run) as NSDictionary
+            if attributes[NSAttributedString.Key.exactHidden] as? Bool == true { continue }
+            let ink = Self.paintColor(attributes[NSAttributedString.Key.foregroundColor])
             guard let ink, color == nil || color == ink,
-                  attributes[.exactBackground] == nil, attributes[.exactShadow] == nil, attributes[.shadow] == nil,
-                  attributes[.strokeColor] == nil, ((attributes[.strokeWidth] as? NSNumber)?.doubleValue ?? 0) == 0,
+                  attributes[NSAttributedString.Key.exactBackground] == nil, attributes[NSAttributedString.Key.exactShadow] == nil,
+                  attributes[NSAttributedString.Key.shadow] == nil, attributes[NSAttributedString.Key.strokeColor] == nil,
+                  ((attributes[NSAttributedString.Key.strokeWidth] as? NSNumber)?.doubleValue ?? 0) == 0,
                   [NSAttributedString.Key.underlineColor, .strikethroughColor].allSatisfy({ key in
-                      attributes[key].map { ($0 as? PlatformColor)?.cgColor == ink } ?? true
+                      attributes[key].map { Self.paintColor($0) == ink } ?? true
                   })
-            else { other = true; stop.pointee = true; return }
+            else { return nil }
             color = ink
-        }
-        guard !other, let color else { return nil }
-        for line in lines {
-            for run in CTLineGetGlyphRuns(line) as! [CTRun] {
-                let value = (CTRunGetAttributes(run) as NSDictionary)[kCTFontAttributeName] as CFTypeRef?
-                if let value, CFGetTypeID(value) == CTFontGetTypeID(),
-                   CTFontGetSymbolicTraits(value as! CTFont).contains(.traitColorGlyphs) { return nil }
-            }
+            let value = attributes[kCTFontAttributeName] as CFTypeRef?
+            if let value, CFGetTypeID(value) == CTFontGetTypeID(),
+               CTFontGetSymbolicTraits(value as! CTFont).contains(.traitColorGlyphs) { return nil }
         }
         return color
+    }
+
+    private static func paintColor(_ value: Any?) -> CGColor? {
+        if let color = (value as? InlineBackground)?.color ?? (value as? TextRunShadow)?.color ?? (value as? PlatformColor)?.cgColor { return color }
+        guard let value else { return nil }
+        let ref = value as CFTypeRef
+        return CFGetTypeID(ref) == CGColor.typeID ? (ref as! CGColor) : nil
     }
 
     #if os(iOS) || os(tvOS)
