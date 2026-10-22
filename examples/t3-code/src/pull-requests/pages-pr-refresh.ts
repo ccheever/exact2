@@ -60,10 +60,12 @@ export function prRefreshEvent(client: object, entry: Obj): void {
 
 /**
  * A surface opened or closed (`surface` is "detail" or "list"). While any is open the stream is
- * held; when the last closes it is let go, as an atom family entry nobody reads goes idle.
+ * held; when the last closes it is let go, as an atom family entry nobody reads goes idle. The first
+ * to open is useLiveRefresh's first watcher, which counts as an interaction at `now` (watchInteraction).
  */
-export async function holdPullRequestRefreshes(client: T3Client, native: Native, surface: string, open: boolean): Promise<void> {
+export async function holdPullRequestRefreshes(client: T3Client, native: Native, surface: string, open: boolean, now = 0): Promise<void> {
   const state = refreshState(client);
+  if (open && !state.surfaces.size && now > 0) noteInteraction(client, now, false);
   if (open) state.surfaces.add(surface); else state.surfaces.delete(surface);
   if (state.generation !== client.generation) { state.generation = client.generation; state.id = ''; state.tried = false; state.last = null; }
   if (!state.surfaces.size) {
