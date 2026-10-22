@@ -136,7 +136,7 @@ component T3Code
   // or ends (a connect, a retry or a disconnect changes it inside an answer, which nothing else reads), and once
   // whenever the delivering answer reports a table the tick has not published (a socket closed, a slot's attempt got
   // its URL).
-  derive transportAnswering = `${pending(threadFind)}${pending(threadFindMaintained)}${pending(serverBrowserUploaded)}${pending(data)}${pending(balanceLoaded)}${pending(attachmentUrls)}${pending(home)}${pending(usage)}${pending(usageShortcuts)}${pending(prList)}${pending(prDetail)}${pending(welcome)}${pending(timelineDisclosureChanged)}${pending(timelineReadsRefreshed)}${pending(timelineReadsRefreshedNext)}${pending(workspaceDiscovery)}${pending(workspaceRefreshed)}${pending(palette)}${pending(paletteChanged)}${pending(providerAuthChanged)}${pending(providerUpdateRun)}${pending(changed)}${pending(localChanged)}${pending(filesAdded)}${pending(inlineDocumentChanged)}${pending(prQuickChanged)}${pending(prConfirmChanged)}${pending(secretAnswered)}${pending(prHandoffChanged)}${pending(draftLeft)}${pending(terminalFocusChanged)}${pending(fileCommentChanged)}${pending(lineDragChanged)}${pending(terminalChanged)}${pending(fragmentChanged)}${pending(providerPage)}${pending(providerWizard)}${pending(connectionsPage)}${pending(acpAgents)}${pending(bindings)}${pending(scheduled)}${pending(shortcuts)}${pending(sourceControl)}${pending(integrations)}${pending(storageSettings)}${pending(archives)}${pending(licenses)}${pending(diagnostics)}${pending(snapshotSettings)}${pending(settingsNavigation)}${pending(settingsCore)}${pending(settings)}${pending(projectsSettings)}${pending(sbSshHosts)}${pending(sshPrompt)}${pending(sshAnswered)}${pending(pairFields)}${pending(sbPicker)}${pending(catalog)}${pending(editor)}${pending(chip)}${pending(branches)}${pending(sidebarLaunch)}${pending(automationRecordingServed0)}${pending(automationRecordingServed1)}${pending(automationRecordingServed2)}${pending(automationRecordingServed3)}${pending(themeLive)}${pending(shell)}${pending(details)}${pending(canvas)}${pending(terminalDrawer)}`
+  derive transportAnswering = `${pending(threadFind)}${pending(threadFindMaintained)}${pending(serverBrowserUploaded)}${pending(data)}${pending(balanceLoaded)}${pending(attachmentUrls)}${pending(home)}${pending(usage)}${pending(usageShortcuts)}${pending(prList)}${pending(prDetail)}${pending(welcome)}${pending(timelineDisclosureChanged)}${pending(timelineReadsRefreshed)}${pending(timelineReadsRefreshedNext)}${pending(workspaceDiscovery)}${pending(workspaceRefreshed)}${pending(palette)}${pending(paletteChanged)}${pending(providerAuthChanged)}${pending(providerUpdateRun)}${pending(changed)}${pending(localChanged)}${pending(filesAdded)}${pending(inlineDocumentChanged)}${pending(prQuickChanged)}${pending(prConfirmChanged)}${pending(secretAnswered)}${pending(prHandoffChanged)}${pending(draftLeft)}${pending(terminalFocusChanged)}${pending(fileCommentChanged)}${pending(lineDragChanged)}${pending(frameReported)}${pending(terminalChanged)}${pending(fragmentChanged)}${pending(providerPage)}${pending(providerWizard)}${pending(connectionsPage)}${pending(acpAgents)}${pending(bindings)}${pending(scheduled)}${pending(shortcuts)}${pending(sourceControl)}${pending(integrations)}${pending(storageSettings)}${pending(archives)}${pending(licenses)}${pending(diagnostics)}${pending(snapshotSettings)}${pending(settingsNavigation)}${pending(settingsCore)}${pending(settings)}${pending(projectsSettings)}${pending(sbSshHosts)}${pending(sshPrompt)}${pending(sshAnswered)}${pending(pairFields)}${pending(sbPicker)}${pending(catalog)}${pending(editor)}${pending(chip)}${pending(branches)}${pending(sidebarLaunch)}${pending(automationRecordingServed0)}${pending(automationRecordingServed1)}${pending(automationRecordingServed2)}${pending(automationRecordingServed3)}${pending(themeLive)}${pending(shell)}${pending(details)}${pending(canvas)}${pending(terminalDrawer)}`
   task transportAnswered key=transportAnswering
     after(1, transportPump)
   task transportRepublish when transportInbox.table > transportTable.rev key=transportInbox.table
@@ -523,11 +523,11 @@ component T3Code
   action prFindFocusField
     focus("pr-code-find-query")
     selectText("pr-code-find-query")
-  resource markdown = renderMarkdown(data.messages, data.markdownSkills, threadFind.highlight, threadFind.entry, threadFind.occurrence, data.messages.map((message) => MarkdownLabels(id=message.id, chips=message.md.chips))) as shape TranscriptMarkdown
+  resource markdown = renderMarkdown(data.messages, data.markdownSkills, threadFind.highlight, threadFind.entry, threadFind.occurrence, data.messages.map((message) => MarkdownLabels(id=message.id, chips=message.md.chips)), data.look.math) as shape TranscriptMarkdown
   resource questionMarkdown = renderQuestionMarkdown(data.questions) as shape TranscriptMarkdown
   derive questionDocuments = questionMarkdown.documents
   // ReasoningTraceContent: an open thought's trace is Markdown, its single newlines kept as UserMessageBody keeps them.
-  resource traceMarkdown = renderFileMarkdown(data.messages.map((message) => message.activities.filter((a) => a.reasoning and a.detailOpen).map((a) => MarkdownSource(id=`trace:${a.id}`, kind="user", title="", body=a.output))).flat()) as shape TranscriptMarkdown
+  resource traceMarkdown = renderFileMarkdown(data.messages.map((message) => message.activities.filter((a) => a.reasoning and a.detailOpen).map((a) => MarkdownSource(id=`trace:${a.id}`, kind="user", title="", body=a.output))).flat(), false) as shape TranscriptMarkdown
   derive traceDocuments = traceMarkdown.documents
   resource attachmentUrls = timelineAttachments(data.threadId, wallTime.epochAtZero + elapsed, data.revision, scheme) as shape TimelineAttachmentUrls // Signed preview URLs for the thread's sent images (timeline-attachments.ts).
   // Its read also brings the open documents up to date (a theme change); what it queues for them reaches them with the
@@ -993,6 +993,7 @@ component T3Code
   mutation terminalFocusChanged as shape Change refreshes data
   mutation fileCommentChanged as shape Change queue refreshes data // the Files preview's line comments (chatLocal)
   mutation lineDragChanged as shape Change queue refreshes data // a diff gutter drag's press, moves and release, each in turn
+  mutation frameReported as shape Change queue refreshes data // each Mermaid and math page's report, in turn (chatLocal)
   mutation terminalChanged as shape Change refreshes data then terminalCompleted
   action terminalCompleted
     match terminalChanged
@@ -1912,6 +1913,8 @@ component T3Code
         send terminalChanged = command(op, id, value, n)
       else if op == "draft" or op == "search" or op == "sidebar" or op == "answer" or op == "choice" or op == "dismiss-error" or op == "close-diff" or op == "diff-view" or op == "favorite-model"
         send localChanged = command(op, id, value, n)
+      else if op == "chatlocal:diagram-frame" or op == "chatlocal:math-frame"
+        send frameReported = command(op, id, value, n) // a page's report is never dropped while a command runs
       else
         if not commandPending
           commandPending = true
@@ -2470,6 +2473,8 @@ component T3Code
       send fileCommentChanged = command(`chatlocal:${op}`, id, value, 0)
     else if op == "pr-code-drag" or op == "pr-code-begin"
       send lineDragChanged = command(`chatlocal:${op}`, id, value, 0) // the Code tab's gutter drags and "+", in turn
+    else if op == "diagram-frame" or op == "math-frame"
+      send frameReported = command(`chatlocal:${op}`, id, value, 0)
     else if op == "link-open" and value.startsWith("#")
       send fragmentChanged = command(`chatlocal:${op}`, id, value, 0) // fragmentOpened
     else
@@ -2493,7 +2498,7 @@ component T3Code
   state shellOpenHandled = ""
   resource page = exactPage() as shape Page // the window's focus and visibility (document.hasFocus(), exact2 #219): thread notifications and activity reports
   resource shell = shellView(data.revision, wallTime.epochAtZero + shellClock, toastDismissed, toastHover, viewport.width <= 980, page.hasFocus, page.visibilityState, not settingsOpen and not pageCover and not welcome.show) as shape ShellView // the last: the chat view is shown (proactive panels)
-  resource filesMarkdown = renderFileMarkdown(shell.panel.files.markdownSource.concat(shell.panel.attachment.markdownSource).concat(shell.composerFile.file.markdownSource)) as shape TranscriptMarkdown
+  resource filesMarkdown = renderFileMarkdown(shell.panel.files.markdownSource.concat(shell.panel.attachment.markdownSource).concat(shell.composerFile.file.markdownSource), data.look.math) as shape TranscriptMarkdown
   state rightPanelAt = ""
   derive rightPanel = (rightPanelAt != "" and rightPanelAt == shell.panel.key) or shell.panel.launcher
   state detailsOpen = false
