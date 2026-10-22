@@ -30,7 +30,7 @@ component ComposeFrame
     track: color = "actions.compose-track" control = "token" group = "Counter" priority = 3 label = "Ring track"
     arc: color = "actions.compose-arc" control = "token" group = "Counter" priority = 3 label = "Ring arc"
   props
-    // Names its body's testId: compose-body, or compose-body-<id> beside others.
+    // Names its bar's testId: compose-bar, or compose-bar-<id> beside others.
     id: string
     cancelLabel: string
     drafts: bool
@@ -58,12 +58,11 @@ component ComposeFrame
   slot
   parts
     bar: paint space
-    body: space
     toolbar: paint space
     counter: text space
   derive over = count > limit
   view
-    header part="bar"
+    header part="bar" testId=(id == "" ? "compose-bar" : `compose-bar-${id}`)
       display="flex"
       flex-direction="row"
       align-items="center"
@@ -80,21 +79,23 @@ component ComposeFrame
         height="actions.compose-text-height"
         text cancelLabel font-size="actions.compose-text-size" font-weight=500 color="param.tint"
       text "" role="heading" aria-level=2 flex=1
-      // Drafts, not for a reply.
-      button testId="compose-drafts"
-        aria-label=draftsLabel
-        press=openDrafts
-        disabled=busy
-        display=((drafts and not reply) ? "flex" : "none")
-        padding-left="actions.compose-drafts-pad"
-        padding-right="actions.compose-drafts-pad"
-        margin-left="actions.compose-drafts-gap"
-        margin-right="actions.compose-drafts-gap"
-        height="actions.compose-text-height"
-        text draftsLabel font-size="actions.compose-text-size" font-weight=500 color="param.tint"
+      // Drafts, not for a reply: left out, not hidden, as a host projects a
+      // screen's header buttons into its own bar.
+      if drafts and not reply
+        button testId="compose-drafts"
+          aria-label=draftsLabel
+          press=openDrafts
+          disabled=busy
+          padding-left="actions.compose-drafts-pad"
+          padding-right="actions.compose-drafts-pad"
+          margin-left="actions.compose-drafts-gap"
+          margin-right="actions.compose-drafts-gap"
+          height="actions.compose-text-height"
+          text draftsLabel font-size="actions.compose-text-size" font-weight=500 color="param.tint"
       PostButton(id="", label=postLabel, reply=reply, disabled=postDisabled, press=post)
-    column part="body" flex=1 min-height=0 testId=(id == "" ? "compose-body" : `compose-body-${id}`)
-      children
+    // The app's body, the header's next sibling as a screen's scroller is
+    // (a host runs it under its bar).
+    children
     // The toolbar, its ground under the home indicator too.
     column part="toolbar"
       border-top-width="actions.compose-hairline"
@@ -182,7 +183,7 @@ component ComposeFrame
                   fill="none"
                   stroke="param.over"
                   stroke-width=11
-                  stroke-dasharray=`${34.56 * min(count - limit, limit) / limit} 34.56`
+                  stroke-dasharray=`${34.56 * min(count - limit, max(limit, 1)) / max(limit, 1)} 34.56`
                   transform="rotate(-90 15 15)"
               else
                 circle cx=15 cy=15 r=14.5 fill="none" stroke="param.track" stroke-width=1
@@ -192,6 +193,6 @@ component ComposeFrame
                   fill="none"
                   stroke="param.arc"
                   stroke-width=3
-                  stroke-dasharray=`${78.54 * count / limit} 78.54`
+                  stroke-dasharray=`${78.54 * min(max(count, 0), max(limit, 1)) / max(limit, 1)} 78.54`
                   transform="rotate(-90 15 15)"
       box height="env(safe-area-inset-bottom)"
