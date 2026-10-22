@@ -1277,6 +1277,7 @@ fn image_cancellation_orders_publication_and_the_consumer_reads_only_success() {
                 max_dimension: 1,
                 max_bytes: 100,
                 format: Default::default(),
+                max_pixels: 0,
             },
         )
         .unwrap()

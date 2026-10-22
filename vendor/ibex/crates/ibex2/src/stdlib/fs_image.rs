@@ -40,9 +40,14 @@ pub enum ImageFormat {
 }
 #[derive(Debug, Clone, Copy)]
 pub struct ImageRequest {
+    /// Exact patch 16 (exact2 LLP 1133.006 D1): 0 keeps the image's own
+    /// size, a PNG only, at most the service's `max_dimension` a side.
     pub max_dimension: u32,
     pub max_bytes: u64,
     pub format: ImageFormat,
+    /// Exact patch 16: the most source pixels this request admits, below
+    /// the codec's own bound; 0 is the codec's.
+    pub max_pixels: u64,
 }
 /// Provider declarations used for preallocation checks and Ibex admission.
 /// The provider must check decoded pixels before decoding, bound retained encoded
@@ -473,7 +478,8 @@ impl ImageJob {
         {
             return Err(failed("requires bounded app:/ paths"));
         }
-        if request.max_dimension == 0
+        let keeps_size = request.max_dimension == 0 && request.format == ImageFormat::Png;
+        if (request.max_dimension == 0 && !keeps_size)
             || request.max_dimension > service.limits.max_dimension
             || request.max_bytes == 0
             || request.max_bytes > service.limits.max_output_bytes
@@ -499,6 +505,14 @@ impl ImageJob {
     }
     pub fn handle(&self) -> WorkHandle {
         self.handle.clone()
+    }
+    /// The longest side the codec may answer: the request's, or, for one
+    /// that keeps the image's size, the service's (Exact patch 16).
+    fn max_side(&self) -> u32 {
+        match self.request.max_dimension {
+            0 => self.service.limits.max_dimension,
+            n => n,
+        }
     }
     pub fn execute(self) -> WorkOutcome {
         self.execute_with_commit_observer(|_| {})
@@ -541,8 +555,8 @@ impl ImageJob {
             .ok_or_else(|| failed("invalid codec dimensions"))?;
         if image.width == 0
             || image.height == 0
-            || image.width > self.request.max_dimension
-            || image.height > self.request.max_dimension
+            || image.width > self.max_side()
+            || image.height > self.max_side()
             || pixels > self.service.codec_limits.max_pixels
             || image.bytes.len() as u64 > self.request.max_bytes
         {
@@ -625,6 +639,7 @@ mod tests {
                     max_dimension: 16,
                     max_bytes: 32,
                     format: ImageFormat::Jpeg,
+                    max_pixels: 0,
                 },
             )
             .unwrap()
@@ -884,6 +899,7 @@ mod tests {
                 max_dimension: 16,
                 max_bytes: 32,
                 format: ImageFormat::Jpeg,
+                max_pixels: 0,
             }
         )
         .is_err());
@@ -947,6 +963,7 @@ mod tests {
                 max_dimension: 16,
                 max_bytes: 32,
                 format: ImageFormat::Jpeg,
+                max_pixels: 0,
             }
         )
         .is_err());
@@ -983,6 +1000,7 @@ mod tests {
                 max_dimension: 16,
                 max_bytes: 32,
                 format: ImageFormat::Jpeg,
+                max_pixels: 0,
             }
         )
         .is_err());
@@ -1003,6 +1021,7 @@ mod tests {
                 max_dimension: 1,
                 max_bytes: 1,
                 format: ImageFormat::Jpeg,
+                max_pixels: 0,
             },
         )
         .err()
@@ -1032,6 +1051,7 @@ mod tests {
                 max_dimension: 1,
                 max_bytes: 1,
                 format: ImageFormat::Jpeg,
+                max_pixels: 0,
             },
         )
         .err()
@@ -1077,6 +1097,7 @@ mod tests {
                     max_dimension: 2,
                     max_bytes: 32,
                     format: ImageFormat::Jpeg,
+                    max_pixels: 0,
                 },
             )
             .unwrap();

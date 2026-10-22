@@ -334,9 +334,24 @@ pub(super) fn compress(
     } else {
         (width as u32, height as u32)
     };
+    // An image kept at its own size has at most the service's side.
+    if max_dimension == super::KEEP_SIZE
+        && (width > super::MAX_KEPT_DIMENSION || height > super::MAX_KEPT_DIMENSION)
+    {
+        return Err(failure(
+            "too-large",
+            format!(
+                "{width}×{height} keeps more than {} pixels a side",
+                super::MAX_KEPT_DIMENSION
+            ),
+        ));
+    }
     // Refuse before the first decode, using component depth rather than
     // assuming every accepted PNG/TIFF/HEIC source has 8-bit channels.
-    let target = super::contain(width, height, max_dimension);
+    let target = match max_dimension {
+        super::KEEP_SIZE => (width, height),
+        max => super::contain(width, height, max),
+    };
     let scratch = u32::try_from(depth)
         .ok()
         .and_then(|depth| scratch_bytes(source.len(), source_size, depth, target, max_bytes));

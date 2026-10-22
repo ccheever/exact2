@@ -93,6 +93,10 @@ ExactRasterStats exact_raster_stats(uint64_t session);
 uint32_t exact_svg_image_header(const uint8_t *bytes, size_t len, double *size);
 uint8_t *exact_svg_image_scene(const uint8_t *bytes, size_t len, double width, double height, size_t *out_len, uint32_t *flags);
 void exact_svg_image_free(uint8_t *ptr, size_t len);
+/* storage.fs.compressImage's SVG input (LLP 1133.006 D1): render draws an SVG
+ * file at width x height pixels into a PNG, in a buffer of *out_len bytes it
+ * allocated with malloc, or returns NULL. Set once. */
+void exact_set_svg_renderer(uint8_t *(*render)(const uint8_t *bytes, size_t len, uint32_t width, uint32_t height, size_t *out_len));
 
 /* Width/height offers below zero mean "as the content wants". */
 #define EXACT_MAX_CONTENT (-1.0f)

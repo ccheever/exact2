@@ -3,7 +3,7 @@
 // `exact_data::image::search` is checked against. `bun test ./host/web/storage-image.test.mjs`.
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { compress, contain, headerSize, limits, search, searchLossless } from './storage-image.js';
+import { compress, contain, headerSize, limits, search, searchLossless, KEEP_SIZE, MAX_SOURCE_PIXELS, pngFirstFrame, svgSize, svgText } from './storage-image.js';
 
 const recorded = JSON.parse(readFileSync(new URL('../../scripts/fixtures/picker/compress-trials.json', import.meta.url), 'utf8'));
 const models = {
@@ -45,8 +45,12 @@ test('a PNG shrinks by 0.8 until it fits, at most four times (A1.11)', async () 
 });
 
 test('limits are integers in range, else a TypeError', () => {
-  expect(limits({ maxDimension: 4000, maxBytes: 2e6 })).toEqual({ maxDimension: 4000, maxBytes: 2000000, type: 'image/jpeg' });
-  expect(limits({ maxDimension: 8, maxBytes: 9, type: 'image/png' })).toEqual({ maxDimension: 8, maxBytes: 9, type: 'image/png' });
+  expect(limits({ maxDimension: 4000, maxBytes: 2e6 })).toEqual({ maxDimension: 4000, maxBytes: 2000000, type: 'image/jpeg', maxPixels: MAX_SOURCE_PIXELS });
+  expect(limits({ maxDimension: 8, maxBytes: 9, type: 'image/png' })).toEqual({ maxDimension: 8, maxBytes: 9, type: 'image/png', maxPixels: MAX_SOURCE_PIXELS });
+  // LLP 1133.006 D1: a PNG with no maxDimension keeps its size; maxPixels bounds the source.
+  expect(limits({ maxBytes: 9, type: 'image/png', maxPixels: 64e6 })).toEqual({ maxDimension: KEEP_SIZE, maxBytes: 9, type: 'image/png', maxPixels: 64e6 });
+  for (const bad of [{ maxBytes: 9 }, { maxBytes: 9, type: 'image/png', maxPixels: 0 }, { maxBytes: 9, type: 'image/png', maxPixels: 67108865 }, { maxDimension: 0, maxBytes: 9, type: 'image/png' }])
+    expect(() => limits(bad)).toThrow(TypeError);
   for (const type of ['image/webp', 'png', null, 7]) expect(() => limits({ maxDimension: 8, maxBytes: 9, type })).toThrow(TypeError);
   for (const bad of [undefined, null, 7, {}, { maxDimension: 0, maxBytes: 1 }, { maxDimension: 8193, maxBytes: 1 },
     { maxDimension: 1.5, maxBytes: 1 }, { maxDimension: 1, maxBytes: 0 }, { maxDimension: 1, maxBytes: 67108865 }, { maxDimension: '10', maxBytes: 1 }])
@@ -103,4 +107,31 @@ test('a deadline already past decodes nothing', async () => {
     const error = await compress(fixture, 4000, 2_000_000, 0).then(() => null, e => e);
     expect([error?.code, decodes]).toEqual(['timeout', 0]);
   } finally { globalThis.createImageBitmap = before; }
+});
+
+// LLP 1133.006 D1: a kept PNG is tried once at its own size; an APNG is cut to its frame 0; an SVG is sized as an img is.
+test('a kept PNG is tried once at its own size, and refuses rather than shrinks', async () => {
+  const sizes = [];
+  const fit = await searchLossless(16000, 1000, KEEP_SIZE, 100, async (w, h) => { sizes.push([w, h]); return { size: 10, value: 'v' }; });
+  expect(sizes).toEqual([[16000, 1000]]);
+  expect(fit).toEqual({ value: 'v', width: 16000, height: 1000 });
+  expect(await searchLossless(800, 600, KEEP_SIZE, 1, async () => ({ size: 2, value: 'v' }))).toBeNull();
+});
+test('an APNG whose default image is not part of its animation is cut to its frame 0', () => {
+  const b64 = readFileSync(new URL('../../packages/clipboard/test/fixture/images.ts', import.meta.url), 'utf8').match(/apng = '([^']+)'/)[1];
+  const apng = Uint8Array.from(atob(b64), c => c.charCodeAt(0)), still = pngFirstFrame(apng);
+  const text = String.fromCharCode(...still);
+  expect(text.includes('acTL') || text.includes('fcTL') || text.includes('fdAT')).toBe(false);
+  expect(text.split('IDAT').length - 1).toBe(1);
+  const plain = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  expect(pngFirstFrame(plain)).toBe(plain);
+});
+test('an SVG is sniffed as a browser does and sized as an img with no CSS size', () => {
+  const enc = t => new TextEncoder().encode(t);
+  expect(svgText(enc('﻿<?xml version="1.0"?>\n<!-- c --><!DOCTYPE svg><svg viewBox="0 0 4 2">'))).not.toBeNull();
+  expect(svgText(enc('<svgx>'))).toBeNull();
+  expect(svgSize('<svg width="40" height="20">')).toEqual([40, 20]);
+  expect(svgSize('<svg width="1in" viewBox="0 0 2 1">')).toEqual([96, 48]);
+  expect(svgSize('<svg viewBox="0 0 30 10">')).toEqual([30, 10]);
+  expect(svgSize('<svg width="50%">')).toEqual([300, 150]);
 });

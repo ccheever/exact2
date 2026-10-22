@@ -284,11 +284,14 @@ function storageOf(grants) {
     const api = 'storage.fs.compressImage()', d = options?.maxDimension, b = options?.maxBytes;
     if (typeof from !== 'string' || typeof to !== 'string') return Promise.reject(new TypeError(`${api}: from and to must be app:/ paths`));
     if (!options || typeof options !== 'object') return Promise.reject(new TypeError(`${api}: options must be {maxDimension, maxBytes}`));
-    if (!Number.isInteger(d) || d < 1 || d > 8192) return Promise.reject(new TypeError(`${api}: maxDimension must be an integer from 1 to 8192`));
-    if (!Number.isInteger(b) || b < 1 || b > 67108864) return Promise.reject(new TypeError(`${api}: maxBytes must be an integer from 1 to 67108864`));
-    const type = options.type === undefined ? 'image/jpeg' : options.type;
+    const type = options.type === undefined ? 'image/jpeg' : options.type, p = options.maxPixels;
     if (type !== 'image/jpeg' && type !== 'image/png') return Promise.reject(new TypeError(`${api}: type must be "image/jpeg" or "image/png"`));
-    const limits = { maxDimension: d, maxBytes: b, type };
+    // A PNG with no `maxDimension` keeps its size (LLP 1133.006 D1).
+    const keep = d === undefined && type === 'image/png';
+    if (!keep && (!Number.isInteger(d) || d < 1 || d > 8192)) return Promise.reject(new TypeError(`${api}: maxDimension must be an integer from 1 to 8192${type === 'image/png' ? ', or left out to keep the size' : ''}`));
+    if (!Number.isInteger(b) || b < 1 || b > 67108864) return Promise.reject(new TypeError(`${api}: maxBytes must be an integer from 1 to 67108864`));
+    if (p !== undefined && (!Number.isInteger(p) || p < 1 || p > 67108864)) return Promise.reject(new TypeError(`${api}: maxPixels must be an integer from 1 to 67108864`));
+    const limits = { ...(keep ? {} : { maxDimension: d }), maxBytes: b, type, ...(p === undefined ? {} : { maxPixels: p }) };
     return (admitted ? queued(`compressImage ${from}`, () => files().then(f => f.compressImage(from, to, limits))) : denied('fs.compressImage')).catch(refused);
   };
   // `fs.watch(path, {recursive})` (LLP 1069.010.000 D1): the answer depends

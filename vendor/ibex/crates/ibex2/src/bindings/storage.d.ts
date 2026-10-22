@@ -77,13 +77,28 @@ export interface WriteOptions {
   readonly expect?: Pick<FileStat, "modifiedMs" | "size">;
 }
 
-export interface CompressImageOptions {
+/** Exact patch 16 (exact2 LLP 1133.006 D1): a PNG may leave `maxDimension`
+ * out and keep its own size, and any call may bound the source's pixels. */
+export type CompressImageOptions = CompressImageScaled | CompressImageKept;
+
+export interface CompressImageScaled {
   /** An integer from 1 to 8192: the longer side's limit, in pixels. */
   readonly maxDimension: number;
   /** An integer from 1 to 67108864: the encoded file's limit. */
   readonly maxBytes: number;
   /** What to write; `"image/jpeg"` when absent. */
   readonly type?: "image/jpeg" | "image/png";
+  /** An integer from 1 to 67108864: the most source pixels, by the header. */
+  readonly maxPixels?: number;
+}
+
+/** A PNG at the image's own size, at most 16384 pixels a side: `maxBytes`
+ * refuses (`unfit`) rather than shrinks. */
+export interface CompressImageKept {
+  readonly maxDimension?: undefined;
+  readonly maxBytes: number;
+  readonly type: "image/png";
+  readonly maxPixels?: number;
 }
 
 export interface CompressedImage {

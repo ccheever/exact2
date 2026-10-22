@@ -38,6 +38,52 @@ pub fn header(bytes: &[u8]) -> Option<(f32, f32)> {
     exact_svg_file::natural(bytes).map(|n| n.size())
 }
 
+/// Swift's renderer of an SVG file at `w` × `h` pixels into a PNG, in a
+/// buffer of `*out_len` bytes it allocated with `malloc`; null when it did
+/// not render (`SvgRasterizer.swift`).
+pub type Render = unsafe extern "C" fn(*const u8, usize, u32, u32, *mut usize) -> *mut u8;
+static RENDER: std::sync::OnceLock<Render> = std::sync::OnceLock::new();
+
+/// Swift's renderer, set once: from then on `storage.fs.compressImage`
+/// reads SVG (LLP 1133.006 D1, "SVG input").
+pub fn set_renderer(render: Render) {
+    let _ = RENDER.set(render);
+    exact_data::image::set_svg_rasterizer(rasterize);
+}
+
+/// An SVG file as a PNG at its natural size, as an `img` with no CSS size
+/// draws it (LLP 1011.001 D1), refused past `max_pixels` before drawing.
+#[allow(unsafe_code)]
+fn rasterize(bytes: &[u8], max_pixels: u64) -> Result<Vec<u8>, String> {
+    use exact_data::image::failure;
+    let (w, h) =
+        header(bytes).ok_or_else(|| failure("undecodable", "not an SVG this host reads"))?;
+    let side = |n: f32| (n.round() as u32).max(1);
+    let (w, h) = (side(w), side(h));
+    if u64::from(w) * u64::from(h) > max_pixels {
+        return Err(failure(
+            "too-large",
+            format!("{w}×{h} pixels is over {max_pixels}"),
+        ));
+    }
+    let render = RENDER
+        .get()
+        .ok_or_else(|| failure("undecodable", "this host rasterizes no SVG"))?;
+    let mut len = 0usize;
+    // SAFETY: `bytes` is live for the call; the renderer writes `len`.
+    let ptr = unsafe { render(bytes.as_ptr(), bytes.len(), w, h, &mut len) };
+    if ptr.is_null() {
+        return Err(failure("undecodable", "the SVG did not render"));
+    }
+    unsafe extern "C" {
+        fn free(ptr: *mut std::ffi::c_void);
+    }
+    // SAFETY: the renderer gave `len` bytes it allocated with malloc, freed once here.
+    let png = unsafe { std::slice::from_raw_parts(ptr, len) }.to_vec();
+    unsafe { free(ptr.cast()) };
+    Ok(png)
+}
+
 /// A buffer the caller frees with `free`.
 #[allow(unsafe_code)]
 fn leak(bytes: Vec<u8>, out_len: *mut usize) -> *mut u8 {
@@ -129,6 +175,12 @@ macro_rules! svg_image_exports {
                     $crate::svg_image::leak_message(why, out_len)
                 }
             }
+        }
+        /// Swift's SVG renderer for `storage.fs.compressImage` (LLP
+        /// 1133.006 D1), set once.
+        #[no_mangle]
+        pub extern "C" fn exact_set_svg_renderer(render: $crate::svg_image::Render) {
+            $crate::svg_image::set_renderer(render)
         }
         /// Free a buffer `exact_svg_image_scene` gave out.
         /// # Safety

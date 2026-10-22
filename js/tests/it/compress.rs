@@ -141,6 +141,26 @@ fn compress_image_writes_a_png_with_alpha_or_refuses_by_name() {
     );
 }
 
+/// LLP 1133.006 D1 through TypeScript: no `maxDimension` keeps a PNG's own
+/// size (Ibex's host operation takes 0), and `maxPixels` refuses a source
+/// with more pixels before decoding.
+#[test]
+fn a_png_keeps_its_size_and_max_pixels_refuses() {
+    let root = Root::new();
+    let mut m = root.module();
+    m.activate().unwrap();
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
+    std::fs::write(root.0.join("data/in.png"), half_clear_png(16, 16)).unwrap();
+    let text = call(&mut m, &mut s, "compress-kept", "64000000");
+    let lines: Vec<&str> = text.lines().collect();
+    if cfg!(target_vendor = "apple") {
+        assert_eq!(lines[0], "app:/data/kept.png image/png 16 16", "{text}");
+        assert!(lines[1].starts_with("Error too-large "), "{text}");
+    } else {
+        assert!(lines[0].starts_with("Error unsupported "), "{text}");
+    }
+}
+
 /// A `w × h` RGBA PNG, clear on its left half and opaque red on its right,
 /// in stored (uncompressed) deflate blocks.
 fn half_clear_png(w: u32, h: u32) -> Vec<u8> {

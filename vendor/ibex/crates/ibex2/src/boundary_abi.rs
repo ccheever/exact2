@@ -879,14 +879,15 @@ pub unsafe extern "C" fn ibex2_async_begin(
         return 1;
     };
     if op == AsyncOp::FsCompressImage {
-        // Exact patch 9 (exact2 LLP 1069.002 A1.11): a fifth, the media type.
-        if !(4..=5).contains(&raw.len()) {
+        // Exact patch 9 (exact2 LLP 1069.002 A1.11): a fifth, the media type;
+        // Exact patch 16 (exact2 LLP 1133.006 D1): a sixth, the pixel bound.
+        if !(4..=6).contains(&raw.len()) {
             return 1;
         }
         for (index, value) in raw.iter().enumerate() {
             match (index, value.borrow()) {
                 (0 | 1, Ok(HostArg::Str(text))) if text.len() <= 32_768 => {}
-                (2 | 3, Ok(HostArg::Number(_))) => {}
+                (2 | 3 | 5, Ok(HostArg::Number(_))) => {}
                 (4, Ok(HostArg::Str(text))) if text.len() <= 32 => {}
                 _ => return 1,
             }
@@ -986,9 +987,25 @@ fn prepare_image_args(
             ))
         }
     };
+    // Exact patch 16 (exact2 LLP 1133.006 D1): a PNG's dimension may be 0,
+    // its own size; an optional source pixel bound follows the media type.
+    let keeps_size = *dimension == 0.0 && format == crate::stdlib::fs_image::ImageFormat::Png;
+    let max_pixels = match args.get(5) {
+        None => 0.0,
+        Some(HostValue::Number(n))
+            if n.is_finite() && n.fract() == 0.0 && *n >= 1.0 && *n <= 9_007_199_254_740_991.0 =>
+        {
+            *n
+        }
+        Some(_) => {
+            return Err(HostError::InvalidArgument(
+                "invalid image pixel bound".into(),
+            ))
+        }
+    };
     if !dimension.is_finite()
         || dimension.fract() != 0.0
-        || *dimension <= 0.0
+        || (*dimension <= 0.0 && !keeps_size)
         || *dimension > u32::MAX as f64
         || !bytes.is_finite()
         || bytes.fract() != 0.0
@@ -1006,6 +1023,7 @@ fn prepare_image_args(
             max_dimension: *dimension as u32,
             max_bytes: *bytes as u64,
             format,
+            max_pixels: max_pixels as u64,
         },
     )
 }
