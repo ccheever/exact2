@@ -14,7 +14,7 @@ import { componentsOf, levelsOf } from './components';
 import { baseColumns, groupOf, shippedOf, sourceOf, writable } from './base';
 import { pageOf } from './origins';
 import { pairingSources } from './pairing';
-import { gridSources } from './grid'; import { refusalOf, refusalRows, refuse, restoreRefusals, takeRefusals } from './refusals';
+import { gridSources } from './grid'; import { canvasRefusal } from './canvas-check'; import { refusalOf, refusalRows, refuse, restoreRefusals, takeRefusals } from './refusals';
 import { GONE, wire, type Reply } from './wire';
 import { heldEvent, holdingOf, holdNote, letGo, type Holding } from './holds';
 import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
@@ -632,7 +632,7 @@ async function rescopeFor(file: string, op: Record<string, unknown>, token: stri
 
 const sources: Sources = {
   ...pairingSources(call, pairWith, remote),
-  ...gridSources(call, () => buildsNow, () => selectionNow, () => designAxes),
+  ...gridSources(call, () => buildsNow, () => selectionNow, () => designAxes), loadCanvasCheck: () => canvasRefusal(API),
   loadHello: async () => {
     const { error, reply } = await call('/__tamber', { method: 'hello' });
     if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [], page: '', frame: '', live: false, scope: '', local: false, client: '', epoch: '' };

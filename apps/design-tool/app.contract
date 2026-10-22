@@ -7,6 +7,10 @@ shape FileDigest
   path: string
   digest: string
 
+// The dev loop's page refusing this tool's frame, in words; empty when it lets it or can't be asked (canvas-check.ts).
+shape CanvasCheck
+  refused: string
+
 shape Hello
   ok: bool
   error: string
@@ -781,6 +785,8 @@ component DesignTool
   state proposeAt = ""
   state asks = 0
   resource hello = loadHello() as shape Hello else empty(ok=true)
+  // Asked again with hello, so a loop restarted with EXACT_TOOL_PORT clears it.
+  resource canvasCheck = loadCanvasCheck() as shape CanvasCheck else empty(refused="")
   // Pairing (LLP 1122 D12, T6), the local tool's alone: the scope a code is
   // minted at, the code, the paired clients, and a revoke.
   state pairScope = "propose"
@@ -988,6 +994,7 @@ component DesignTool
     // missed than the server keeps, or no answer: read the files again.
     if changes.missed or not hello.ok or not changes.ok or changes.paced != pacedAt
       refresh hello
+      refresh canvasCheck
     if not design.ok
       refresh design
     since = changes.seq
@@ -1038,6 +1045,7 @@ component DesignTool
       send revoked = revokeClient(c)
   action reconnect
     refresh hello
+    refresh canvasCheck
     // A poll still held answers for itself; a second would race it. One
     // answered goes on from where it got to, as `advance` would.
     if not pending(changes)
@@ -1622,6 +1630,8 @@ component DesignTool
                   row gap=4 align-items="center"
                     input type="checkbox" checked=galleryOn change=toggleGallery aria-label="Variant gallery" testId="canvas-gallery"
                     text "Gallery"
+              if canvasCheck.refused != ""
+                text canvasCheck.refused color="-exact-system-orange" font="-exact-footnote" testId="canvas-refused"
               if galleryOn and hello.local and hello.page != "" and canvasView != "states"
                 text "The variant gallery: each library component the app uses, once per variant value, on the app's design. It follows each kept edit, not each scrub frame. It runs on the JS dev loop; another loop says so in the frame." color="-exact-secondary-label" font="-exact-footnote" testId="gallery-note"
               if not hello.local
