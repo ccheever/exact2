@@ -3,6 +3,10 @@
 import type { Answer, Result, Sources } from './app.contract.d.ts';
 
 export const appId = 'com.exact.excord';
+// Where Discord is: the fixture (`bun apps/excord/fixture/server.ts`) unless the bake says otherwise.
+// `EXACT_BACKEND_ORIGIN=https://discord.com` (or `.exact/backend-origin`) replaces this literal at
+// bake; only Charlie makes that build, by hand (llp/0001 §2). Every other build talks to the fixture.
+export const origin = 'http://127.0.0.1:4790';
 export const grants = '';
 
 type Message = Result<'loadChannel'>[number];
