@@ -9,12 +9,12 @@ const allows = (csp, tool = TOOL, page = PAGE) => framesAllowed(csp, tool, page)
 test('frame-ancestors: the tool by its origin, another port, none, self, wildcards, schemes, several policies', () => {
   // The loop's own header: the tool named, or the default port's tool only.
   expect(allows(`frame-ancestors 'self' ${TOOL}`)).toBe(true);
-  expect(framesAllowed("frame-ancestors 'self' http://127.0.0.1:7740", TOOL, PAGE)).toEqual({ allowed: false, origins: [PAGE, 'http://127.0.0.1:7740'] });
+  expect(framesAllowed("frame-ancestors 'self' http://127.0.0.1:7740", TOOL, PAGE)).toEqual({ allowed: false, origins: [PAGE, 'http://127.0.0.1:7740'], portFixes: true });
   // None at all: allowed, nothing to say. Another directive only: the same.
   expect(allows(null)).toBe(true);
   expect(allows("default-src 'self'")).toBe(true);
   // 'none'; 'self' is the page's origin (a tool on it would be allowed).
-  expect(framesAllowed("frame-ancestors 'none'", TOOL, PAGE)).toEqual({ allowed: false, origins: [] });
+  expect(framesAllowed("frame-ancestors 'none'", TOOL, PAGE)).toEqual({ allowed: false, origins: [], portFixes: false });
   expect(allows("frame-ancestors 'self'", 'http://localhost:17978')).toBe(true);
   expect(allows("frame-ancestors 'self'")).toBe(false);
   // A port wildcard, a host wildcard, `*`, a scheme; a host source with no scheme takes the page's (http allows https).
@@ -38,8 +38,16 @@ test('frame-ancestors: the tool by its origin, another port, none, self, wildcar
   expect(allows("frame-ancestors 'self'", 'https://example.test', 'http://example.test')).toBe(true);
   // A bracketed IPv6 literal isn't a CSP source (a browser ignores it): it allows nothing.
   expect(allows('frame-ancestors http://[::1]:17977', 'http://[::1]:17977')).toBe(false);
-  // A refusal names origins, never a source's path.
+  // A refusal names origins, never a source's path; a schemeless source by the page's scheme.
   expect(framesAllowed('frame-ancestors https://example.test/private/path', TOOL, PAGE).origins).toEqual(['https://example.test']);
+  expect(framesAllowed('frame-ancestors 127.0.0.1:9999/private', TOOL, PAGE).origins).toEqual(['http://127.0.0.1:9999']);
+  // A port is a number: 07740 is 7740.
+  expect(allows('frame-ancestors http://127.0.0.1:017977')).toBe(true);
+  // The port advice rests on the sources, not the names: a loopback tool at a port, no path past `/`, by scheme or
+  // the page's.
+  expect(framesAllowed('frame-ancestors http://127.0.0.1:7740/private', TOOL, PAGE).portFixes).toBe(false);
+  expect(framesAllowed('frame-ancestors 127.0.0.1:7740', TOOL, PAGE).portFixes).toBe(true);
+  expect(framesAllowed('frame-ancestors https://127.0.0.1:7740', TOOL, PAGE).portFixes).toBe(false);
   // Several policies (headers joined by commas): every one with the directive must allow; the most restrictive wins.
   expect(allows(`frame-ancestors ${TOOL}, frame-ancestors 'none'`)).toBe(false);
   expect(allows(`frame-ancestors ${TOOL}, default-src 'self'`)).toBe(true);
@@ -53,7 +61,7 @@ test('the canvas check: asked of the page, said once each time it starts refusin
   const via = `http://127.0.0.1:${loop.address().port}`;
   try {
     const refused = await canvasCheck(via, TOOL);
-    expect(refused).toEqual({ via, allowed: false, origins: [via.replace('127.0.0.1', 'localhost'), 'http://127.0.0.1:7740'] });
+    expect(refused).toEqual({ via, allowed: false, origins: [via.replace('127.0.0.1', 'localhost'), 'http://127.0.0.1:7740'], portFixes: true });
     // The terminal: once, not on each check; again only after it allowed in between.
     let said = '', lines = [];
     for (const c of [refused, refused]) ({ said } = ((r) => (r.line && lines.push(r.line), r))(canvasLine(c, TOOL, said)));
@@ -76,7 +84,7 @@ test('the canvas check: asked of the page, said once each time it starts refusin
       return out;
     };
     const own = await answer({ 'sec-fetch-site': 'same-origin' });
-    expect([own.status, own.headers['cache-control'], JSON.parse(own.body)]).toEqual([200, 'no-store', { via, allowed: true, origins: [] }]);
+    expect([own.status, own.headers['cache-control'], JSON.parse(own.body)]).toEqual([200, 'no-store', { via, allowed: true, origins: [], portFixes: false }]);
     expect((await answer({})).status).toBe(200);
     expect((await answer({ origin: 'http://localhost:17978' })).status).toBe(404);
     expect((await answer({ 'sec-fetch-site': 'cross-site' })).status).toBe(404);
