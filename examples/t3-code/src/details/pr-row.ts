@@ -1,6 +1,6 @@
 // The pull request row of the details card with the host's detail (MIT
 // reference, see LICENSE-T3, upstream 9c161462c9: chat/ThreadDetailsPrRow.tsx,
-// pullRequest/PullRequestChecksPopover.tsx): the title takes the whole first
+// pullRequest/PullRequestChecksPopover.tsx; the card's change breakdown at 74541bab17): the title takes the whole first
 // line; the second carries the number, the checks (rollup glyph, then
 // "completed/total" while runs are in flight or "N failed") with the popover they
 // open, and the one action ranked by what unblocks the merge next. The tooltip
@@ -8,6 +8,7 @@
 import type { T3Client } from '../client/client';
 import { arr, num, str, type Obj } from '../client/domain';
 import { isActing, normalRef, prState } from './pr-row-actions';
+import type { PrBreakdown } from '../pull-requests/pr-change-breakdown';
 import { CHECKS_HEADLINE, allowedMergeMethods, checksCount, checksList, checksRollup, emptyCard, prCard, rowAction, selectedMergeMethod, summarizeChecks, trailingAction, width12, type CheckRow, type PrCard } from './pr-row-logic';
 
 export type RowExtra = {
@@ -44,7 +45,7 @@ export function checksTail(rightOfTrigger: number, count: string): number {
   return rightOfTrigger + trigger >= 320 + 5 ? 0 : Math.round(rightOfTrigger * 10) / 10;
 }
 
-export function rowExtra(client: T3Client, detail: Obj, reference: Obj, input: { key: string; lifecycleKey: string; rightGap: number; inline: boolean }) {
+export function rowExtra(client: T3Client, detail: Obj, reference: Obj, input: { key: string; lifecycleKey: string; rightGap: number; inline: boolean; breakdown?: PrBreakdown }) {
   const state = prState(client), checks = arr(detail.checks), rollup = checksRollup(checks);
   const conflicting = detail.state === 'open' && detail.mergeability === 'conflicting';
   // Counts beat the rollup's own wording where they are known.
@@ -61,7 +62,7 @@ export function rowExtra(client: T3Client, detail: Obj, reference: Obj, input: {
     tail: checksTail(rowRight + rowWidth - checksTriggerLeft(num(detail.number)) - checksTrigger(count), count), popId: `pr-checks-${num(detail.number)}`, method,
     checksTitle: CHECKS_HEADLINE[rollup] ?? '', checksSummary: summary, checksList: list.rows, checksLabels: list.labels, checksDetails: list.details, collapsible: list.collapsible, expanded: state.showAll.has(input.key),
     // The title's line is the whole row wide.
-    card: prCard(detail, input.lifecycleKey, rowWidth + rowRight, { width: rowWidth, linkRight: rowWidth }),
+    card: prCard(detail, input.lifecycleKey, rowWidth + rowRight, input.breakdown),
   };
   return {
     // The plain tooltip only stands in where the card cannot (no state); the card is the row's tooltip.
