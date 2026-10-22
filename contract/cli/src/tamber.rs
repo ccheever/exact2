@@ -188,17 +188,23 @@ pub fn run(args: &[String]) -> ExitCode {
                 .or_else(|| path.parent().map(Path::to_path_buf))
         }
     };
-    let assets = home.map(|d| d.join("assets"));
-    let mut svgs: Vec<&str> = folding
+    // Each SVG where the build reads it: beside the design file it is
+    // written in (a package's under its root, stage 13), by its path there.
+    let mut svgs: Vec<(PathBuf, &str)> = folding
         .icons
         .iter()
-        .filter_map(|i| i.svg.as_deref())
+        .filter_map(|i| {
+            let svg = i.svg.as_deref()?;
+            let at =
+                contract_lower::icons::Home::of(i, home.as_deref(), &app.packages, &app.tokens);
+            Some((at.svg(svg)?, svg))
+        })
         .collect();
     svgs.sort_unstable();
     svgs.dedup();
     let refused = match admission(
         &src,
-        (assets.as_deref(), &svgs),
+        &svgs,
         (!params.is_empty() || app.failed || !app.packages.is_empty()).then_some(built),
     ) {
         Ok(refused) => refused,
@@ -273,7 +279,7 @@ pub fn run(args: &[String]) -> ExitCode {
 #[allow(clippy::type_complexity)]
 fn admission(
     src: &str,
-    (assets, svgs): (Option<&Path>, &[&str]),
+    svgs: &[(PathBuf, &str)],
     app: Option<PathBuf>,
 ) -> Result<Vec<(Option<PathBuf>, u32, u32, String, String)>, String> {
     if let Some(app) = app {
@@ -307,10 +313,10 @@ fn admission(
         // its build reads them: each one it names copied there (one the app
         // lacks is not, and is refused as the build refuses it).
         .and_then(|()| {
-            for svg in svgs {
-                let Some(from) = assets.map(|a| a.join(svg)).filter(|f| f.is_file()) else {
+            for (from, svg) in svgs {
+                if !from.is_file() {
                     continue;
-                };
+                }
                 let to = dir.join("assets").join(svg);
                 if let Some(parent) = to.parent() {
                     std::fs::create_dir_all(parent)?;
