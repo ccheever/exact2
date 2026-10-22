@@ -14,7 +14,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createServer, request } from 'node:http';
-import { copyFileSync, existsSync, lstatSync, readFileSync, realpathSync, renameSync, rmSync, statSync, utimesSync, watch, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, utimesSync, watch, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { acceptsHTML, appDocumentPath, webRequestURL } from '../../scripts/origin.mjs';
 import { compilerWarnings, INPUT_TREE, OUTPUT, listenOn } from '../../scripts/agent-launch.mjs';
@@ -1012,8 +1012,11 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
       const internal = probe.address().port;
       probe.close(() => {
         console.log(`native client: starting the resident loop's producers (loopback :${internal})`);
+        // (one per dist, as the stage: its parent made here, since the publication's lock sits beside it)
+        const residentDist = resolve(app.target, 'web-dist-resident', createHash('sha256').update(resolve(dist)).digest('hex').slice(0, 16));
+        mkdirSync(dirname(residentDist), { recursive: true });
         residentChild = spawn(process.execPath, [resolve(root, 'host/web/dev.mjs'), '--app', app.name, '--wasm', '--port', String(internal), '--serve-as', String(port), ...(lan ? ['--lan'] : []), ...allowHosts.flatMap((name) => ['--allow-host', name])],
-          { cwd: root, env: { ...process.env, EXACT_WEB_DIST: resolve(app.target, 'web-dist-resident', createHash('sha256').update(resolve(dist)).digest('hex').slice(0, 16)), EXACT_LAUNCHER_PID: String(process.pid), EXACT_MAP_FD: '3' }, stdio: ['ignore', 'pipe', 'inherit', 'pipe'] });
+          { cwd: root, env: { ...process.env, EXACT_WEB_DIST: residentDist, EXACT_LAUNCHER_PID: String(process.pid), EXACT_MAP_FD: '3' }, stdio: ['ignore', 'pipe', 'inherit', 'pipe'] });
         // Its plans and their maps' cards, on the pipe given for that alone.
         let cards = '';
         residentChild.stdio[3].on('data', (d) => {
