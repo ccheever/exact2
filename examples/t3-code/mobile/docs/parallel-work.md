@@ -131,6 +131,23 @@ Before concurrent implementation starts, the coordination task must verify a
 shared ownership mechanism, serialized publishing and storage cleanup across
 independent threads. Instruction files alone do not enforce locks.
 
+### Ordinary native acceptance
+
+Exact's `timing: 'platform'` preserves UIKit animation timing. The agent carrier
+still controls runner scheduling; external Argent touches alone can leave
+mutation continuations and tasks waiting. A driver `clock data` or `clock settle`
+result is diagnostic evidence, not ordinary app acceptance. Preserve the exact
+operation history before attributing a timing failure to the app or framework.
+
+For an ordinary comparison, launch the admitted artifact through Argent without
+`EXACT_AGENT` or its socket. Development builds may need the task's computed
+`EXACT_ASSETS` path and an explicit plan only if the normal launcher uses one.
+Record and restore only environment values the task changes. Named
+`EXACT_AGENT_STORAGE` isolates storage only while `EXACT_AGENT` is present;
+`EXACT_AGENT=0` is not a substitute. Audit and claim the dedicated task-created
+simulator's app container and Keychain scope before using them without the agent.
+Preserve their initial contents and identities, and use only task test data.
+
 ## Storage and cleanup
 
 The coordinator checks free space and owned storage before dispatch, before a

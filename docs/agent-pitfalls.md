@@ -413,6 +413,12 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `EXACT_AGENT=1` and `EXACT_AGENT_FAIL_FETCH`, no socket) shows the native bars
   and menus, its fetches still failing. (Signal Clone, builds 5 and 10; Splitter,
   rough 4 and 11; Recipe Finder, round 27.)
+- **An external touch needs a second tap under the agent.** `timing: 'platform'`
+  keeps UIKit animations natural; the agent still controls runner scheduling.
+  External gestures can leave mutation continuations or tasks waiting for a
+  clock advance. Use the driver's clock for a diagnostic, then compare an
+  ordinary launch without `EXACT_AGENT` before calling this an app defect.
+  T3 Code's first Home tap worked in that ordinary comparison.
 - **The iOS app renders but the agent handshake times out.** A deeply nested
   task-private `TMPDIR` can make the agent's Unix socket path exceed the host's
   length limit. Use a short, task-owned temporary directory, such as
