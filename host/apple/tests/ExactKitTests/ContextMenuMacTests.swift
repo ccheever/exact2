@@ -354,6 +354,46 @@ final class ContextMenuMacTests: XCTestCase {
         p.viewport.mouseMoved(with: moved)
         XCTAssertEqual(heard.last, "hover 20 true", "hover follows the pointer once the menu has closed")
     }
+    func testAPointerUpThatInvalidatesTheMenuPreventsNativeTracking() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent presents painted popovers")
+        for change in ["hide", "remove", "retarget"] {
+            let p = presenter(), window = try XCTUnwrap(windows.last)
+            let source = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[2])
+            defer { p.menus.reset() }
+            source.handlers.formUnion(["pointerdown", "pointerup"])
+            window.orderFrontRegardless()
+            var released = false, tracked = false, finished = false
+            p.onPointer = { _, phase, _ in
+                guard phase == .up else { return }
+                released = true
+                switch change {
+                case "hide": p.menus.action("hidePopover", ["m"])
+                case "remove": p.apply(wireBatch([["op": "children", "id": 9, "ids": [1]], ["op": "destroy", "id": 2]]))
+                default: p.apply(wireBatch([["op": "props", "id": 1, "set": ["contextPopover": "other"]]]))
+                }
+            }
+            let center = NotificationCenter.default
+            let observer = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+                guard let menu = note.object as? NSMenu else { return }
+                tracked = true
+                RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTracking() }
+            }
+            defer { center.removeObserver(observer) }
+            let down = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: source.convert(NSPoint(x: 10, y: 10), to: nil),
+                modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                eventNumber: 1, clickCount: 1, pressure: 1))
+            source.rightMouseDown(with: down)
+            RunLoop.main.perform(inModes: [.common]) { finished = true }
+            let deadline = Date(timeIntervalSinceNow: 5)
+            while !finished && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+            XCTAssertTrue(finished)
+            XCTAssertTrue(released)
+            XCTAssertFalse(tracked, "pointerup must be allowed to \(change) the pending menu")
+            XCTAssertFalse(p.menus.isOpen(pop))
+            XCTAssertTrue(source.window === window, "the source survived the callback")
+        }
+    }
+
     /// The frame, in screen points, of this process's open menu. AppKit's
     /// menu window is not in `NSApp.windows`; the window server lists it at
     /// the pop-up menu level, from the primary screen's top left.
