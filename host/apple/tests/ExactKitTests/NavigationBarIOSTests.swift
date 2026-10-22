@@ -438,12 +438,18 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertGreaterThan(frame.minY, bar.minY, "from the item in the bar: \(frame) \(bar)")
         XCTAssertLessThan(frame.minY, bar.maxY + 20, "beside the item, not centred on the page: \(frame)")
         XCTAssertGreaterThan(frame.maxX, bar.midX, "on the item's side, the trailing one: \(frame)")
+        // A real touch light-dismisses before the item acts (PopoverTouch):
+        // a touch on the bar leaves the item's popover to the item's tap.
+        session.presenter.menus.lightDismiss(nav.navigationBar)
+        XCTAssertTrue(session.presenter.menus.isOpen(pop), "a touch on the bar is not outside it")
         try tap(about)
         until("a second tap closes it") { !session.presenter.menus.isOpen(pop) }
-        // The agent's tap on its button lands the same way.
+        // The agent's tap on its button lands the same way, opening and closing.
         let invoker = try node(session, "about-plain")
-        XCTAssertEqual(session.presenter.navigation.activateChrome(invoker)?["popover"] as? String, "lifted")
+        XCTAssertNil(agent.tap(["id": Int(invoker.id)])["error"])
         until("the agent's tap opens it") { session.presenter.menus.isOpen(pop) }
+        XCTAssertNil(agent.tap(["id": Int(invoker.id)])["error"])
+        until("and its second tap closes it") { !session.presenter.menus.isOpen(pop) }
     }
 
     /// LLP 1075.003 §9.6: a header's `input type="search"` is the item's

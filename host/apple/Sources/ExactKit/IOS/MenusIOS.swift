@@ -284,9 +284,11 @@ final class MenuHost {
         // opens a popover is its pull-down (`pullDown`), never this.
         let barModal = !eligible(source) && eligible(source, inBar: true)
             && presenter?.invocation(of: source)?.action == .showModal
-        // A bar item's popover that is no menu (one with a press of its own;
-        // without one the bar opens it, `openFromBar`).
-        if !eligible(source), let invocation = presenter?.invocation(of: source), invocation.opensPopover, !pullsDown(invocation.target) {
+        // A bar item's popover that was no menu when its item was made (a
+        // pull-down item opens its own): with a press of its own, after it,
+        // whatever the press made it; without one the bar opens it (`openFromBar`).
+        if !eligible(source), eligible(source, inBar: true), let invocation = presenter?.invocation(of: source), invocation.opensPopover,
+           !isConfirmation(invocation.target) {
             _ = openFromBar(source)
             return
         }
@@ -809,6 +811,7 @@ final class MenuHost {
             entry.popover.map { touched === $0 || touched.isDescendant(of: $0) } ?? false
         }?.key
         while let name = inside, !kept.contains(name) { kept.insert(name); inside = agentOpen[name]?.ancestor }
+        let inBar = sequence(first: touched, next: { $0.superview }).contains { $0 is UINavigationBar }
         // Its DOM ancestors: out of a dialog's sheet or a lifted popover to the authored parent.
         var touchedNodes: [NodeView] = [], at: UIView? = touched
         while let view = at {
@@ -820,7 +823,9 @@ final class MenuHost {
             // A touch on an eligible button that invokes it now is not outside
             // it (HTML's light dismiss); the button that opened it may since
             // name something else.
-            if let pop = entry.popover, touchedNodes.contains(where: { eligible($0) && presenter?.invocation(of: $0)?.target === pop }) { continue }
+            if let pop = entry.popover, touchedNodes.contains(where: { (eligible($0) || eligible($0, inBar: true)) && presenter?.invocation(of: $0)?.target === pop }) { continue }
+            // A touch on the bar leaves what a bar item opened: the item's own tap toggles it (`openFromBar`).
+            if inBar, let id = entry.source, let source = presenter?.views[id], case .success? = presenter?.navigation.barItem(source) { continue }
             drop(name)
         }
     }
