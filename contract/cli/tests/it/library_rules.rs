@@ -662,7 +662,7 @@ fn a_package_is_its_own_name_and_base_names_are_no_packages() {
 fn a_library_button_is_named_and_says_the_state_its_look_shows() {
     let id = "lower-library-control";
     let card = |body: &str| {
-        format!("component Card\n  props\n    selected: bool\n    small: bool\n    go: action\n  derive lit = selected\n  derive spoken = (selected ? \"Selected\" : \"Select\")\n  view\n    column\n{body}")
+        format!("component Card\n  props\n    selected: bool\n    small: bool\n    go: action\n  derive lit = selected\n  derive spoken = (selected ? \"Selected\" : \"Select\")\n  derive fade = (selected ? 1 : 0.5)\n  view\n    column\n{body}")
     };
     let app = "use Card from \"@acme/lib\"\n\ncomponent App\n  action go\n  view\n    Card(selected=true, small=false, go=go)\n";
     for (name, body, said) in [
@@ -700,6 +700,31 @@ fn a_library_button_is_named_and_says_the_state_its_look_shows() {
             "derived-look",
             "      button press=go aria-label=\"Home\" opacity=(lit ? 1 : 0.5)\n        box width=4 height=4\n",
             "its look reads `selected`",
+        ),
+        (
+            "derived-fade",
+            "      button press=go aria-label=\"Home\" opacity=fade\n        box width=4 height=4\n",
+            "its look reads `selected`",
+        ),
+        (
+            "derive-under-binding",
+            "      for selected in [\"a\"] key = selected\n        button press=go aria-label=\"Row\" opacity=(lit ? 1 : 0.5)\n          box width=4 height=4\n",
+            "its look reads `selected`",
+        ),
+        (
+            "text-one-arm",
+            "      button press=go opacity=(selected ? 1 : 0.5)\n        if small\n          text (selected ? \"On\" : \"Off\")\n        else\n          text \"Home\"\n",
+            "doesn't say aloud",
+        ),
+        (
+            "label-wins",
+            "      button press=go aria-label=\"Home\" opacity=(selected ? 1 : 0.5)\n        text (selected ? \"On\" : \"Off\")\n",
+            "doesn't say aloud",
+        ),
+        (
+            "hidden-text-says",
+            "      button press=go opacity=(selected ? 1 : 0.5)\n        text \"Home\"\n        text (selected ? \"On\" : \"Off\") aria-hidden=true\n",
+            "doesn't say aloud",
         ),
         (
             "unsaid-inside",
