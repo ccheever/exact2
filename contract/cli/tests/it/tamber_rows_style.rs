@@ -64,8 +64,7 @@ fn a_used_styles_row_is_refused_where_the_build_refuses_it() {
 }
 
 /// A style row two elements apply and the write breaks at both is one
-/// refusal, the build's (theme2's condition 2); applied with each element's
-/// own font-family, it is judged at each.
+/// refusal, the build's (theme2's condition 2).
 #[test]
 fn a_style_row_broken_at_two_elements_is_refused_once() {
     let dir = reading("rows-style-two");
@@ -128,15 +127,46 @@ fn an_unused_an_overridden_and_a_chosen_style_row_are_not_judged() {
 
 /// A style applied under a `for` is the build's there (the row's scope is
 /// the region's), and judged at an element outside it: one refusal, the
-/// column's, in the build's words.
+/// column's, in the build's words. Applied only under a `for` or a `match`,
+/// it is the build's alone: accepted here.
 #[test]
-fn a_style_row_under_a_for_is_left_to_the_build_there() {
+fn a_style_row_under_a_for_or_match_is_left_to_the_build_there() {
     let contract = "use Card from \"@acme/reading\"\nstyle Pad\n  padding=\"gap\"\ncomponent App\n  state items = [1]\n  view\n    column class=Pad\n      for i in items key=i\n        row class=Pad\n          Card()\n";
+    let op = json!({"op": "set-token", "name": "gap", "value": "#444444"});
+    let dir = reading("rows-style-each");
+    assert_eq!(
+        refusals(&dir, DESIGN, contract, op.clone()).map(|r| r.len()),
+        Some(1)
+    );
     same_words(
-        &reading("rows-style-each"),
+        &dir,
         DESIGN,
         contract,
-        json!({"op": "set-token", "name": "gap", "value": "#444444"}),
+        op.clone(),
         &DESIGN.replace("gap = 8px", "gap = #444444"),
     );
+    for (name, contract) in [
+        ("rows-style-only-each", "use Card from \"@acme/reading\"\nstyle Pad\n  padding=\"gap\"\ncomponent App\n  state items = [1]\n  view\n    column\n      for i in items key=i\n        row class=Pad\n          Card()\n"),
+        ("rows-style-only-match", "use Card from \"@acme/reading\"\nstyle Pad\n  padding=\"gap\"\ncomponent App\n  state picked: number? = 1\n  view\n    column\n      match picked\n        some p\n          row class=Pad\n            Card()\n        none\n          text \"none\"\n"),
+    ] {
+        let dir = reading(name);
+        assert_eq!(refusals(&dir, DESIGN, contract, op.clone()), None, "{name}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// A `button`'s class rows are the build's (`button_appearance` reads them
+/// first, and a native button refuses rows of its own), and so are a grouped
+/// list's (`grouped::style` rewrites its rows first): neither refused here.
+#[test]
+fn a_buttons_and_a_grouped_lists_style_rows_are_left_to_the_build() {
+    let op = json!({"op": "set-token", "name": "gap", "value": "#444444"});
+    for (name, contract) in [
+        ("rows-style-button", "use Card from \"@acme/reading\"\nstyle Pad\n  padding=\"gap\"\ncomponent App\n  action go\n  view\n    column\n      button class=Pad press=go appearance=\"auto\"\n        text \"Go\"\n      Card()\n"),
+        ("rows-style-grouped", "use Card from \"@acme/reading\"\nstyle Pad\n  padding=\"gap\"\ncomponent App\n  view\n    column\n      list class=Pad appearance=\"auto\" listStyle=\"grouped\"\n        section\n          text \"a\"\n      Card()\n"),
+    ] {
+        let dir = reading(name);
+        assert_eq!(refusals(&dir, DESIGN, contract, op.clone()), None, "{name}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

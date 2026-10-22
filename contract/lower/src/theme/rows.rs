@@ -186,11 +186,11 @@ pub struct Place {
     pub at: Span,
     /// The literal.
     pub literal: Span,
-    /// For a style's row, the element that applies it (its span), where the
-    /// build judges it: one row written in a style is judged, and passes or
-    /// fails, per element (theme2's 02:08 Q1). The default for a row of
-    /// the element's own.
-    pub element: Span,
+    /// For a style's row, the element that applies it, numbered in the order
+    /// lowering lowers elements (`scan`), where the build judges it: one row
+    /// written in a style is judged, and passes or fails, per element
+    /// (theme2's 02:08 Q1). 0 for a row of the element's own.
+    pub element: usize,
 }
 
 impl Place {
@@ -200,7 +200,7 @@ impl Place {
             row: span,
             at: span,
             literal: span,
-            element: Span::default(),
+            element: 0,
         }
     }
 }
@@ -429,8 +429,8 @@ pub(crate) struct Said {
     pub fonts: Option<Fonts>,
     pub computed: Option<(contract_types::Ty, Typing)>,
     pub within: Option<Arc<Vec<Fonts>>>,
-    /// The element applying a style's row (`Place::element`).
-    pub element: Span,
+    /// The element applying a style's row (`Place::element`), 0 for its own.
+    pub element: usize,
 }
 
 /// Leave `rows` for [`rows`] (the design server's build reads it).
@@ -537,7 +537,7 @@ pub fn check(
     // A place is its authored row and, for a style's row, the element
     // applying it (theme2's 02:08 Q1): passes before, fails after, per key.
     let key = |p: &Place| (p.row, p.element);
-    let authored: std::collections::HashSet<(Span, Span)> = failing
+    let authored: std::collections::HashSet<(Span, usize)> = failing
         .iter()
         .flat_map(|(r, _)| r.places.iter().map(key))
         .collect();
@@ -548,7 +548,7 @@ pub fn check(
     let Some(was) = judged(&before, None, &theirs, exprs, params) else {
         return Vec::new();
     };
-    let failed_before: std::collections::HashSet<(Span, Span)> = theirs
+    let failed_before: std::collections::HashSet<(Span, usize)> = theirs
         .iter()
         .zip(&was)
         // Failing, or not judged here (a `font` naming no type token, the
@@ -561,6 +561,7 @@ pub fn check(
     // row newly failing at several elements is one refusal, the build's
     // (theme2's 02:08 condition 2): at the row, said once.
     let mut out: Vec<Broken> = Vec::new();
+    let mut style: BTreeMap<(u32, u32, u32, u32), (usize, Broken)> = BTreeMap::new();
     for (row, error) in failing {
         let first = row.places[0];
         for p in row
@@ -575,12 +576,7 @@ pub fn check(
             } else {
                 error.span
             };
-            if out.iter().any(|b| {
-                b.row.span == p.row && b.error.span == at && b.error.message == error.message
-            }) {
-                continue;
-            }
-            out.push(Broken {
+            let broken = Broken {
                 row: Attr {
                     span: p.row,
                     ..row.attr.clone()
@@ -589,9 +585,20 @@ pub fn check(
                     span: at,
                     ..error.clone()
                 },
-            });
+            };
+            // A style's row, refused once: for the first element applying
+            // it that the build lowers, in that one's words.
+            if p.element != 0 {
+                let k = (p.row.source_id, p.row.line, p.row.col, p.row.end_col);
+                if style.get(&k).is_none_or(|(e, _)| p.element < *e) {
+                    style.insert(k, (p.element, broken));
+                }
+                continue;
+            }
+            out.push(broken);
         }
     }
+    out.extend(style.into_values().map(|(_, b)| b));
     out
 }
 
@@ -825,12 +832,7 @@ mod tests {
                 written: true,
             },
             places: vec![Place {
-                element: Span {
-                    line: element,
-                    col: 5,
-                    end_col: 11,
-                    source_id: 0,
-                },
+                element: element as usize,
                 ..Place::plain(row)
             }],
             fonts: None,
@@ -839,7 +841,7 @@ mod tests {
         };
         let design = |gap: &str| {
             tamber::parse(&format!(
-                "tamber t\n\ntheme\n  gap = {gap}\n  bad = #222222\n"
+                "tamber t\n\ntheme\n  gap = {gap}\n  wide = {gap}\n  bad = #222222\n"
             ))
             .unwrap()
         };
@@ -858,12 +860,13 @@ mod tests {
             &[],
         );
         assert_eq!(broken.len(), 1, "{broken:?}");
-        assert!(broken[0].error.message.contains("gap"), "{broken:?}");
-        // Newly broken at two elements: one refusal, at the row.
-        let rows = [at(6, "gap"), at(8, "gap")];
+        assert!(broken[0].error.message.contains("\"gap\""), "{broken:?}");
+        // Newly broken at two elements, in other words at each: one refusal,
+        // at the row, the first element's (the one the build lowers first).
+        let rows = [at(8, "wide"), at(6, "gap")];
         let broken = check(
             &rows,
-            &["gap"],
+            &["gap", "wide"],
             &after,
             &folded,
             || Some(design("8px")),
@@ -872,6 +875,7 @@ mod tests {
         );
         assert_eq!(broken.len(), 1, "{broken:?}");
         assert_eq!(broken[0].row.span, row);
+        assert!(broken[0].error.message.contains("\"gap\""), "{broken:?}");
     }
 
     /// A font file the build read that has changed since leaves the font
