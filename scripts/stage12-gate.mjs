@@ -490,11 +490,17 @@ export function drivePlan(host, plan, png, steps = [], app = null, driver = scal
     return driver('web', plan, png, steps, app);
   }
   if (host === 'web-wasm') {
-    const dist = wasmDist();
-    if (!existsSync(join(dist, '.exact-build.json')) || jsTargetBuild(dist)) throw new Error(`${dist} is not a wasm build (EXACT_WEB_DIST=${dist} bun host/web/build.mjs <app> --wasm)`);
-    const was = process.env.EXACT_WEB_DIST;
-    process.env.EXACT_WEB_DIST = dist;
-    try { return driver('web', plan, png, steps, app); } finally { if (was === undefined) delete process.env.EXACT_WEB_DIST; else process.env.EXACT_WEB_DIST = was; }
+    // library-gate's own artifact (apps/library-gate/web, theme2 13:47): a
+    // wasm links what its own plan uses, so another app's refuses a cell
+    // using what that app doesn't (Unlinked).
+    const dist = wasmDist(), build = `EXACT_APP_DIR=${LIBRARY_GATE} EXACT_WEB_DIST=${dist} bun host/web/build.mjs library-gate --wasm`;
+    if (!existsSync(join(dist, '.exact-build.json')) || jsTargetBuild(dist)) throw new Error(`${dist} is not a wasm build (${build})`);
+    if (JSON.parse(readFileSync(join(dist, '.exact-build.json'), 'utf8')).app?.id !== 'com.exact.library-gate') throw new Error(`${dist} is not library-gate's wasm build (${build})`);
+    const was = { dist: process.env.EXACT_WEB_DIST, app: process.env.EXACT_APP_DIR };
+    Object.assign(process.env, { EXACT_WEB_DIST: dist, EXACT_APP_DIR: LIBRARY_GATE });
+    try { return driver('web', plan, png, steps, app); } finally {
+      for (const [k, v] of [['EXACT_WEB_DIST', was.dist], ['EXACT_APP_DIR', was.app]]) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
   }
   return driver(host, plan, png, steps, app);
 }
@@ -949,6 +955,15 @@ export function readExact(host, exact, plans, app, drive = (plan, ids) => driveP
  * length; its case, set and removed, read on `host`. The reads that fail:
  * the case catches the swap only if they are the width's, naming
  * actions.header-slot. */
+/** library-gate's plan with token case `name` set (its lines in the
+ * design), built inside this checkout so the packages resolve. */
+export function s13cPlan(name) {
+  const c = exactCases().find(x => x.name === name);
+  const design = readFileSync(join(LIBRARY_GATE, 'app.tamber'), 'utf8').trimEnd();
+  const lines = c.set.map(t => (c.param ? null : `  ${t.name}${t.kind === 'color' ? '' : `: ${t.kind}`} = ${t.value}`)).filter(Boolean);
+  return restylePlan(join(ROOT, 'target', 'stage12-gate', 'boot', name.replace(/\W+/g, '-')), `${design}\n${lines.join('\n')}\n`);
+}
+
 export const MUTATION = { file: 'header-button.contract', from: 'width="actions.header-slot"', to: 'width="actions.header-icon"', token: 'actions.header-slot', row: 'width', case: 'HeaderButton tokens' };
 export function mutationFails(dir, host = 'linux', drive = undefined) {
   rmSync(dir, { recursive: true, force: true });
