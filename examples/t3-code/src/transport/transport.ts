@@ -262,8 +262,6 @@ export class Transport {
     const reply = await this.focused.perform(request);
     const presented = obj(await module.later({ op: 'status' }).catch(passLetGo));
     const facts = obj(presented.value);
-    const at = Number(facts.activityLastInteraction);
-    if (Number.isFinite(at) && at > 0) this.activity.interaction(at, this.clock);
     if (reply.ok) reply.value = { ...obj(reply.value), presentation: obj(facts.presentation) };
     await this.pushLinks(module);
     return reply;

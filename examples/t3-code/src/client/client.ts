@@ -65,13 +65,12 @@ import { codexHandoffEvent } from '../providers/codex-handoff-events'; // the ha
 import { adoptTerminalPrefs } from '../terminal/terminal-ui-state';
 import { obj, str, num, arr, initialShell, applyShell, threadSnapshot, applyThread, mergeHistory,
   readyCheckpoint, type Obj, type Shell, type ThreadState } from './domain';
-import { ClientError, bridgeReply, reply, providerAvailable, applyConfig, type BridgeReply, type Native, type Files } from './protocol';
+import { ClientError, PREFERENCE_PATH, bridgeReply, reply, providerAvailable, applyConfig, type BridgeReply, type Native, type Files } from './protocol';
 import { detachDraftLaunch, isDraftLaunch, launchId, restoreDetachedLaunch } from '../composer/draft-launch';
 import { clampInterfaceFontSize } from '../appearance/appearance-fonts';
 import { windowAppearanceMode } from '../appearance/settings-appearance-look'; // the window draws in the resolved mode
 import { heldImageIds } from '../composer/composer-copied-chips'; // the latest composer copy's images keep their bytes
 
-const localPath = 'app:/data/t3-code.json';
 type Selection = { projectId: string; threadId: string };
 export type Pending = { method: string; payload: Obj; description: string; threadId: string; text: string; uncertain: boolean;
   /** A draft's launch a new-thread flow left while it was in flight, with the sent images the composer gave up (draft-launch.ts). */
@@ -233,7 +232,7 @@ export class T3Client {
   private async load(storage: Files): Promise<void> {
     if (this.loaded) return;
     let text = '';
-    try { text = new TextDecoder().decode(await storage.fs.readFile(localPath)); }
+    try { text = new TextDecoder().decode(await storage.fs.readFile(PREFERENCE_PATH)); }
     catch (error) {
       if (error instanceof ClientError) throw error;
       // Files adapters may report a missing first-launch file as an exception.
@@ -306,9 +305,7 @@ export class T3Client {
   }
   async persist(storage: Files): Promise<void> {
     if (this.environmentId) this.local.selections[this.environmentId] = { projectId: this.projectId, threadId: this.threadId };
-    // The native adapter serializes writes inside this app's transport queue.
-    // A later answer must never await an abandoned answer's promise.
-    await storage.fs.atomicWriteFile(localPath, new TextEncoder().encode(JSON.stringify({ version: 1, ...this.local })));
+    await storage.fs.atomicWriteFile(PREFERENCE_PATH, new TextEncoder().encode(JSON.stringify({ version: 1, ...this.local })));
   }
   /** shell-prefs.ts: whether the saved preferences were read, and a save outside a command (a toast's dismissal). */
   get preferencesLoaded(): boolean { return this.loaded; }

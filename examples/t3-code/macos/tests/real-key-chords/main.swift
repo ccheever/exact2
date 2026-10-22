@@ -10,7 +10,7 @@ import XCTest
 // path can lose a chord. Every ⌘ chord of the reference's defaults that holds in an open thread is sent here as the
 // window server sends it (a CGEvent-backed NSEvent through NSApp.sendEvent), from the composer and with nothing
 // focused, past the clone's own monitors (T3Menus, T3Composer with its launcher-letter guard, T3LatinChords,
-// T3TextContextMenu, T3ComposerIntent, RightPanelTabsInput, T3ActivityInput) and its menu bar
+// T3TextContextMenu, T3ComposerIntent) and its menu bar
 // (T3Menus.augment, T3MenuBar.arrange) over the host's, and must reach the host's monitor and the host's item for
 // that chord, leaving the composer's text and the focus alone. The host's parts are stand-ins, as in menu-bar: its bar
 // (DevMenuMac.makeMenu's items), a session monitor that only records (the host's presses and consumes), and
@@ -166,7 +166,6 @@ final class Fixture {
     let composer = T3Composer(), menus = T3Menus()
     let latinChords = T3LatinChords(agent: false)
     let textMenu = T3TextContextMenu(agent: false), intent = T3ComposerIntent()
-    let panelTabs = RightPanelTabsInput(), activity = T3ActivityInput(changed: { _ in })
     var elements: [ExactElement] = []
     /// What the host's session monitor saw: each keydown's key code and modifiers.
     var session: [(UInt16, NSEvent.ModifierFlags)] = []
@@ -183,10 +182,9 @@ final class Fixture {
             return event
         }
         let transcript = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 280)), send = NSButton(frame: NSRect(x: 580, y: 384, width: 40, height: 24))
-        let tab = NSView(frame: NSRect(x: 600, y: 0, width: 20, height: 20))
         composerText.isEditable = true
         composerText.allowsUndo = true
-        for view in [transcript, composerText, send, tab] { content.addSubview(view) }
+        for view in [transcript, composerText, send] { content.addSubview(view) }
         func element(_ hatch: ExactHatchKey, _ id: String, _ node: UInt32, _ view: NSView, _ data: [String: String] = [:]) -> ExactElement {
             let element = ExactElement(hatch: hatch, id: id, node: node, hatches: hooks)
             element.view = view; element.platform = view; element.data = ExactData(data)
@@ -195,13 +193,12 @@ final class Fixture {
         }
         let composerElement = element(.t3Composer, "composer", 3, composerText, ["snapshot-owner": "t1"])
         let sendElement = element(.t3Send, "send", 4, send)
-        let tabElement = element(.t3Anchor, "", 6, tab, ["anchor": "tab-editor:files"])
         activate()
         menus.updatesDisabledReason = { "no feed" }
         textMenu.install()
         // T3Module.element's order.
-        for element in [composerElement, sendElement, tabElement] {
-            panelTabs.install(element); composer.install(element); menus.install(element)
+        for element in [composerElement, sendElement] {
+            composer.install(element); menus.install(element)
         }
         tick(0.2)
         // The next plan batch files the window's commands over the clone's bar.
@@ -233,7 +230,7 @@ final class Fixture {
     func destroy() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
-        composer.destroy(); latinChords.destroy(); panelTabs.destroy(); textMenu.destroy(); activity.destroy()
+        composer.destroy(); latinChords.destroy(); textMenu.destroy()
         window.orderOut(nil)
         NSApp.mainMenu = nil
     }

@@ -52,6 +52,7 @@ fn tcpAxisKey(cur: number, k: string, shift: bool): number = k == "Home" ? 0 : (
 component ThemeColorSwatch
   inject
     rem: number
+    interacted: action
   props
     row: EditorRow
     select: action
@@ -142,6 +143,7 @@ component ThemeColorSwatch
       focus(`theme-color-${row.id}-saturation`)
       push(hh, ns, nv, false)
   action planeMove(e: PointerEvent)
+    interacted()
     if drag == "plane" and e.pointerId == pid
       let ns = tcpClamp(e.offsetX / planeW)
       let nv = 1 - tcpClamp(e.offsetY / planeH)
@@ -170,6 +172,7 @@ component ThemeColorSwatch
       focus(`theme-color-${row.id}-hue`)
       push(nh, ss, vv, false)
   action hueMove(e: PointerEvent)
+    interacted()
     if drag == "hue" and e.pointerId == pid
       let nh = tcpClamp(e.offsetX / planeW) * 360
       h = nh

@@ -164,6 +164,8 @@ component DiffFileHeader
 // first column (CDP: the number cell's right minus 1ch + 2pt). The number itself is DiffNumber's,
 // drawn over this cell's gutter after the row's code.
 component DiffCell
+  inject
+    interacted: action
   props
     family: string
     tone: string
@@ -192,6 +194,7 @@ component DiffCell
       overId = `dl:${side}:${line}:${path}`
       command("diffreview", (gutter ? `gutter:${side}` : e.shiftKey ? `drag:${side}:shift` : `drag:${side}`), path, line)
   action move(e: PointerEvent)
+    interacted()
     // A held pointer's moves carry its button; a hover after an up this node never heard ends the drag.
     if dragging and e.buttons == 0
       dragging = false

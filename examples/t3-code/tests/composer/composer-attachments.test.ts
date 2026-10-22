@@ -104,7 +104,7 @@ describe('the shelf\'s references and videos in the client', () => {
   });
   test('Play opens the preview at the first frame\'s size, Close ends it, Remove takes the file, its chips and its staged copy', async () => {
     const { client, native, file } = draftClient(`see [clip.mov](t3-context://v1/file/${file_ctx()}) please`);
-    const { removed } = memoryFiles({ [`${STAGED}/${vid}`]: text('moov'), [`${STAGED}/${vid}.mov`]: text('moov'), [`${DRAFTS}/${vid}.png`]: text('poster') });
+    const { removed, store } = memoryFiles({ [`${STAGED}/${vid}`]: text('moov'), [`${STAGED}/${vid}.mov`]: text('moov'), [`${DRAFTS}/${vid}.png`]: text('poster') });
     rememberVideoFrame(client, { id: vid, videoWidth: 1080, videoHeight: 1920 });
     expect(composerVideoSnapshot(client)).toEqual({ composerVideos: [{ id: vid, name: 'clip.mov' }], composerVideoPreview: [] });
     await videoOp(client, native, 'shelf-video-play', vid);
@@ -114,7 +114,8 @@ describe('the shelf\'s references and videos in the client', () => {
     await videoOp(client, native, 'shelf-video-remove', vid);
     expect(composerVideoSnapshot(client).composerVideos).toEqual([]);
     expect(client.local.drafts['env:t']).toBe('see please');
-    expect(native.requests.map(request => request.op)).toEqual(['editorEdit', 'writePreferences']);
+    expect(native.requests.map(request => request.op)).toEqual(['editorEdit']);
+    expect(JSON.parse(new TextDecoder().decode(store.get('app:/data/t3-code.json'))).composerFiles).toEqual([]); // the draft's files, saved without it
     // The staged copy, its typed link and its first frame (composer-staged-copies.ts).
     expect(removed.sort()).toEqual([`${STAGED}/${vid}`, `${STAGED}/${vid}.mov`, `${DRAFTS}/${vid}.png`].sort());
     await expect(videoOp(client, native, 'shelf-video-play', vid)).rejects.toThrow('That video is no longer attached.');
