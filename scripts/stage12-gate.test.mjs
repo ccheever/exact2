@@ -302,8 +302,15 @@ test('a read\'s node by path, and a value matched, kept and apart', () => {
   expect(locate(tree, 'nope', '.')).toBe(null);
   expect(matches(304, 304, 'length') && matches('304px', 304, 'length') && !matches(306, 304, 'length')).toBe(true);
   expect(matches(0.35, 0.35, 'number') && !matches(0.45, 0.35, 'number')).toBe(true);
-  expect(matches('#1a2b3cff', '#1a2b3c', 'color') && matches('#1a2b3c', '#1a2b3c', 'color') && !matches('#1a2b3c80', '#1a2b3c', 'color') && matches('linear-gradient(180deg, #1a2b3cff 0%, #00000000 100%)', '#1a2b3c', 'color')).toBe(true);
-  expect(matches('var(--exact-label, light-dark(#000000ff, #ffffffff))', '#1a2b3c', 'color')).toBe(false);
+  // A colour is exactly the one set, opaque: the runner's #rrggbb or
+  // #rrggbbff, the browser's rgb(); a gradient's first stop for its image.
+  expect(matches('#1a2b3cff', '#1a2b3c', 'color') && matches('#1a2b3c', '#1a2b3c', 'color') && matches('rgb(26, 43, 60)', '#1a2b3c', 'color')).toBe(true);
+  expect(matches('#1a2b3c80', '#1a2b3c', 'color') || matches('rgba(26, 43, 60, 0.5)', '#1a2b3c', 'color')).toBe(false);
+  expect(matches('light-dark(#000000, #1a2b3c)', '#1a2b3c', 'color') || matches('var(--exact-label, light-dark(#000000ff, #ffffffff))', '#1a2b3c', 'color')).toBe(false);
+  expect(matches('linear-gradient(180deg, #1a2b3cff 0%, #00000000 100%)', '#1a2b3c', 'color', 'background_image')
+    && matches('linear-gradient(rgb(26, 43, 60) 0%, rgba(0, 0, 0, 0) 100%)', '#1a2b3c', 'color', 'background_image')).toBe(true);
+  expect(matches('linear-gradient(180deg, #000000ff 0%, #1a2b3cff 100%)', '#1a2b3c', 'color', 'background_image')).toBe(false);
+  expect(matches('0.15', 0.15, 'number') && matches('301px', 301, 'length')).toBe(true);
   expect(same(16, '16px') && same('label', 'label') && !same(16, 18)).toBe(true);
   expect(apart(16, 304, 'length') && !apart(303, 304, 'length') && apart('label', '#1a2b3c', 'color') && !apart('#1a2b3cff', '#1a2b3c', 'color')).toBe(true);
 });
