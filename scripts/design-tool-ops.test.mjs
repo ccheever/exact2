@@ -41,9 +41,10 @@ test('expressions are kept unless pinned, "only this mode" adds a when, redo wri
       'clock +1', 'clock data', 'type new-name surface.raised', 'type new-value light-dark(#ffffff, #202020)', 'tap add-token', 'clock data', 'tap apply', 'clock data',
       'clock +1', 'clock data', 'tap cell-surface.raised-0-light', 'clock data', 'type rename-to surface.lifted', 'tap rename', 'clock data', 'tap apply', 'clock data',
       'clock +1', 'clock data', 'tap cell-surface.lifted-0-light', 'clock data',
-      // Settled before the dialog opens: a settle runs the tool's follow task (a commit later), whose read of a file
-      // the rename wrote reloads the branch panel, and with it the dialog, were it open.
-      'clock settle', 'clock data', 'tap remove', 'tap confirm-remove-yes', 'clock settle', 'clock data', 'tap apply', 'clock data',
+      // The tool's follow task (a commit later) run and its read landed before the dialog opens: that read of the file
+      // the rename wrote reloads the branch panel, and with it the dialog, were it open. (Not `clock settle`: follow
+      // re-arms on each answer of the changes poll, so a settle spends its 16 rounds on it, about 25 s each.)
+      'clock +1', 'clock data', 'tap remove', 'tap confirm-remove-yes', 'clock +1', 'clock data', 'tap apply', 'clock data',
       // The unformatted line itself, edited and undone.
       'clock +1', 'clock data', 'tap cell-text.primary-0-light', 'clock data', 'type branch-value light-dark(#000000, #e7e9ea)', 'type branch-value key Enter', 'clock data', 'tap apply', 'clock data',
       'clock +1', 'clock data', 'tap undo', 'clock data', 'state',
