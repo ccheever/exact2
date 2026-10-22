@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactMarkdown
 
 /// #125 on UIKit: a text view's or text field's paste:, copy: and cut: (the
 /// edit menu, a hardware keyboard's ⌘V, ⌘C, ⌘X) are DOM's `paste`, `copy`
@@ -110,6 +111,46 @@ final class FieldClipboardIOSTests: XCTestCase {
         XCTAssertEqual(heard, ["9001:33:"])
         XCTAssertFalse(p.keyDown(at: p.keyRoot, "a"))
         XCTAssertEqual(keys, ["9001 a"])
+    }
+
+    func testMarkdownMatchStyleDropsSourceAttributesAndDeliversOnePaste() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "pasteboard reads need an app identity") }
+        ExactMarkdown.install()
+        let p = presenter()
+        defer { UIPasteboard.general.items = [] }
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["markup": "markdown", "value": ""]]]))
+        let editor = try XCTUnwrap(p.views[2]?.textArea)
+        XCTAssertNil(editor.pasteDelegate)
+        XCTAssertFalse(editor.allowsEditingTextAttributes)
+        XCTAssertTrue(editor.becomeFirstResponder())
+        let rich = NSAttributedString(string: "Bold", attributes: [.font: UIFont.boldSystemFont(ofSize: 31), .foregroundColor: UIColor.magenta])
+        let data = try rich.data(from: NSRange(location: 0, length: rich.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
+        UIPasteboard.general.items = [["public.rtf": data, "public.utf8-plain-text": Data("Bold".utf8)]]
+        let inserted = expectation(description: "the markdown editor inserted the paste")
+        var pastedAttributes: [NSAttributedString.Key: Any] = [:]
+        p.onInput = { id, _ in
+            if id == 2 {
+                pastedAttributes = editor.textStorage.attributes(at: 0, effectiveRange: nil)
+                inserted.fulfill()
+            }
+        }
+        editor.pasteAndMatchStyle(nil)
+        wait(for: [inserted], timeout: 5)
+        XCTAssertEqual(editor.text, "Bold")
+        XCTAssertEqual(heard, ["1:34:Bold"])
+        XCTAssertFalse((pastedAttributes[.font] as? UIFont)?.fontDescriptor.symbolicTraits.contains(.traitBold) ?? false)
+        XCTAssertNotEqual(pastedAttributes[.foregroundColor] as? UIColor, .magenta)
+
+        let richEditor = UITextView(frame: editor.frame)
+        richEditor.allowsEditingTextAttributes = true
+        window.addSubview(richEditor)
+        XCTAssertTrue(richEditor.becomeFirstResponder())
+        let richInserted = expectation(forNotification: UITextView.textDidChangeNotification, object: richEditor)
+        richEditor.paste(nil)
+        wait(for: [richInserted], timeout: 5)
+        let font = try XCTUnwrap(richEditor.textStorage.attribute(.font, at: 0, effectiveRange: nil) as? UIFont)
+        XCTAssertTrue(font.fontDescriptor.symbolicTraits.contains(.traitBold), "the same payload carries rich text")
+        XCTAssertEqual(richEditor.textStorage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor, .magenta)
     }
 
     /// Both edit-menu variants deliver one paste before the editor inserts text.
