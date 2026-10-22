@@ -408,6 +408,27 @@ final class TextGeometryTests: XCTestCase {
         XCTAssertEqual(ellipses(engine.paragraph(narrow, width: 6).lines[0]), 0)
     }
 
+    func testClampTokenUsesTheBlockStyleBesideABoldRedRun() throws {
+        var value = spec("First\n")
+        value.strut = value.runs[0]
+        var red = value.runs[0]
+        red.text = "Second colored link with more words to hide"
+        red.color = [255, 0, 0, 255]; red.weight = 700; red.href = "example.md"
+        value.runs.append(red)
+        value.lineClamp = 2
+        let paragraph = engine.paragraph(value, width: 145)
+        let line = try XCTUnwrap(paragraph.lines.last)
+        let token = try XCTUnwrap((CTLineGetGlyphRuns(line) as! [CTRun]).first {
+            (CTRunGetAttributes($0) as NSDictionary)[NSAttributedString.Key.exactTruncation] != nil
+        })
+        let actual = CTRunGetAttributes(token) as NSDictionary
+        let block = engine.attributed(Spec(runs: [value.strut!], align: 0, lineClamp: 0, color: value.color)).attributes(at: 0, effectiveRange: nil)
+        XCTAssertTrue((actual[NSAttributedString.Key.font] as AnyObject).isEqual(block[.font]))
+        XCTAssertTrue((actual[NSAttributedString.Key.foregroundColor] as AnyObject).isEqual(block[.foregroundColor]))
+        XCTAssertNil(actual[NSAttributedString.Key.link], "the block's token is outside the inline link")
+        XCTAssertLessThanOrEqual(CTLineGetTypographicBounds(line, nil, nil, nil), 145)
+    }
+
     func testClampedInlineRunsKeepOriginalIndicesAndRecomputeAfterWidening() {
         var value = spec("First\nSecond colored link with more words to hide")
         let first = value.runs[0]

@@ -17,6 +17,8 @@ package protocol TextPresentation: AnyObject {
 package extension NSAttributedString.Key {
     /// A truncated line's "…" (`TextEngine.ellipsis`, `clampedLine`).
     static let exactTruncation = NSAttributedString.Key("ExactTruncation")
+    /// The block container's token style, shared by layout and raster workers.
+    static let exactClampStyle = NSAttributedString.Key("ExactClampStyle")
 }
 
 extension TextPresentation {
