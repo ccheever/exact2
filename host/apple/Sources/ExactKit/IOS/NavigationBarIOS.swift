@@ -1215,7 +1215,8 @@ extension NavigationHost {
     /// dialog given back to layout to show in Exact's views counts as laid out.
     static func inFlow(_ v: NodeView) -> Bool {
         if v.props["popover"] != nil, v.style["position_type"]?.string != "sticky" { return false }
-        let dialog = v.props["semanticTag"] == "dialog"
+        // A sticky popover is in flow while laid out, as a dialog is (`MenuHost.layOut`).
+        let dialog = v.props["semanticTag"] == "dialog" || v.props["popover"] != nil
         return v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
             && (!dialog || v.presenter?.menus.isLaidOut(v) == true)
     }
