@@ -78,7 +78,7 @@ async function readEvents(response, limit, message, controller) {
 // stream. Reads join until the page's next task delivers them as one
 // message, an ArrayBuffer, so the mapper's turns follow its pace and no byte
 // is dropped or reordered. What waits is bounded by the ceiling, at most
-// 1 MiB (D7's receive bound): a read that would pass it delivers what waits
+// 1 MiB: a read that would pass it delivers what waits
 // and ends the stream refused. `received` is the oldest read's time, as a socket
 // frame's is its arrival's, for the development page's stream timing
 // (ts-stream.js).
@@ -194,7 +194,7 @@ export function readSocket(url, limit, message, controller, protocol) {
         return end(failed(2, 'a message exceeds the response ceiling'));
       }
       if (protocol) {
-        if (queue.length >= MAX_FRAMES || bytes + size > MAX_BYTES) {
+        if (queue.length >= MAX_FRAMES || bytes + size > MAX_BYTES + limit) {
           flush();
           return end(failed(2, 'socket receive queue exceeds 256 frames or 1 MiB'));
         }

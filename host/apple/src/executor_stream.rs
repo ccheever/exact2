@@ -28,7 +28,7 @@ use ibex2::stdlib::{
 enum Opened {
     Events(StreamingResponse, usize),
     Bytes(StreamingResponse, usize),
-    Socket(Box<dyn MessageSource>),
+    Socket(Box<dyn MessageSource>, usize),
 }
 pub(super) use socket::{close as close_sockets, release, Socket};
 
@@ -94,10 +94,10 @@ pub(super) fn run(
         Ok((Opened::Bytes(response, limit), _bindings)) => {
             bytes::read(shared, ticket, response, limit, abort)
         }
-        Ok((Opened::Socket(socket), _bindings)) if two_way => {
-            socket::read(shared, ticket, socket, abort)
+        Ok((Opened::Socket(socket, limit), _bindings)) if two_way => {
+            socket::read(shared, ticket, socket, limit, abort)
         }
-        Ok((Opened::Socket(socket), _bindings)) => read_socket(shared, ticket, socket, abort),
+        Ok((Opened::Socket(socket, _), _bindings)) => read_socket(shared, ticket, socket, abort),
         Err(outcome) => complete(shared, ticket, outcome),
     }
 }
@@ -114,7 +114,7 @@ fn open_socket(
     };
     b.websocket
         .open(&request.url, limit, &abort.signal())
-        .map(Opened::Socket)
+        .map(|socket| Opened::Socket(socket, limit))
         .map_err(|e| fetch_failure(e, abort))
 }
 
