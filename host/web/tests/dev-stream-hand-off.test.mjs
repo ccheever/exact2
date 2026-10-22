@@ -16,8 +16,9 @@ test('a wasm page stream on a socket handed to the loop\'s server ends with its 
   const dist = mkdtempSync(join(tmpdir(), 'exact-wasm-hand-off-dist-'));
   const port = await free(), handOff = await free();
   const dev = spawnOwned(process.execPath, ['--preload', resolve(ROOT, 'host/web-js/hand-off.preload.mjs'), resolve(ROOT, 'host/web/dev.mjs'), '--app', 'theme-fixture', '--wasm', '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist, EXACT_TEST_HAND_OFF: `${port}:${handOff}` }, stdio: ['ignore', 'pipe', 'pipe'] });
-  let said = '', socket;
-  const hear = d => { said = (said + d).slice(-8000); };
+  let said = '', socket, heard = false;
+  // (heard in what has come so far, so a line split across chunks still counts)
+  const hear = d => { said = (said + d).slice(-8000); heard ||= /plan ready:|module generation ready/.test(said); };
   dev.stdout.on('data', hear);
   dev.stderr.on('data', hear);
   const until = async (pass, ms, what) => { const end = Date.now() + ms; while (!(await pass())) { if (Date.now() > end || dev.exitCode !== null) throw new Error(`${what}: not seen in ${said.slice(-2000)}`); await Bun.sleep(100); } };
@@ -27,9 +28,7 @@ test('a wasm page stream on a socket handed to the loop\'s server ends with its 
     const hello = await (await fetch(`${base}/__tamber`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-exact-tamber-token': token }, body: '{"method":"hello"}' })).json();
     return hello.ok.builds.length;
   };
-  let heard = false;
   try {
-    dev.stdout.on('data', d => { heard ||= /plan ready:|module generation ready/.test(String(d)); });
     await until(() => said.includes(`127.0.0.1:${port}/`) && heard, 900_000, 'the first generation');
     // The page's stream, by the hand-off: its hello gives the nonce a build registers with.
     let got = '';
