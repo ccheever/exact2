@@ -712,11 +712,11 @@ function followScroll(el, enabled) {
 // One scheme allowlist for every URL the page can navigate to: a link's `href` (an authored `link`, an inline run bound
 // to data, a Markdown link), an iframe's `src`, and `openURL`. A `javascript:` URL in any of them runs in this page's
 // origin. The browser's own parser reads the scheme, past the whitespace and control characters it may hide behind.
+// `openURL` alone also takes a scheme app.json's `open_url` declares (`exact.openSchemes`, `declaredScheme`), never one
+// that runs or reads content.
+export const declaredScheme = protocol => !/^(javascript|vbscript|data|file|filesystem|blob|about|view-source|jar|intent|content):$/.test(protocol) && (globalThis.exact?.openSchemes ?? []).includes(protocol.slice(0, -1));
 export function navigableURL(href, base = document.baseURI) {
-  try {
-    const url = new URL(href, base);
-    return ["http:", "https:", "mailto:", "tel:"].includes(url.protocol) ? url.href : null;
-  } catch { return null; }
+  try { const url = new URL(href, base); return ["http:", "https:", "mailto:", "tel:"].includes(url.protocol) ? url.href : null; } catch { return null; }
 }
 export const navigates = (el, name) => name === "href" || (name === "src" && el.localName === "iframe");
 // A present sandbox without `allow-same-origin` gives an opaque origin; tokens use ASCII whitespace and ignore case.
@@ -1081,10 +1081,10 @@ export function placeReporter(params, platform = globalThis) {
     if (AGENT_ADMITTED && params.has('agent')) {
       const value = Number(params.get('seed') ?? 1);
       if (!Number.isSafeInteger(value) || value < 0 || value >= 2 ** 32) throw new Error('seed: a whole number from 0 through 2^32 - 1 (4294967295)');
-      return [params.get('locale') ?? 'en-US', params.get('timeZone') ?? 'UTC', value].join('\0');
+      return [params.get('locale') ?? 'en-US', params.get('timeZone') ?? 'UTC', value, params.get('formatLocale') ?? ''].join('\0');
     }
     if (seed === undefined) seed = platform.crypto.getRandomValues(new Uint32Array(1))[0];
-    return [platform.navigator.language, platform.Intl.DateTimeFormat().resolvedOptions().timeZone, seed].join('\0');
+    return [platform.navigator.language, platform.Intl.DateTimeFormat().resolvedOptions().timeZone, seed, platform.Intl.DateTimeFormat().resolvedOptions().locale].join('\0'); // the last: ECMA-402's default locale, which a browser's formatters use
   };
 }
 // @ref LLP 1027.000.000 D3 — under the agent the date at the clock's zero is the drive's epoch (default
