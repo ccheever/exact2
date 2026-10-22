@@ -902,18 +902,21 @@ if (es) {
   // `{select: {up, sites}}` (tamber/1.16): the selection moves to the ancestor `up` call sites above it, as a click
   // on it would; `sites` are that copy's plan sites by the server's map, and the outermost above the selected node
   // is it (past the root, the root).
-  const selectUp = async ({ sites }) => {
+  const selectUp = async ({ levels, plan, from }) => {
     const id = inspecting.selected?.id;
-    if (!inspecting.on || id == null || !Array.isArray(sites)) { report({ kind: "unsupported", what: "inspect", detail: "no node is selected on this page to move up from" }); return; }
-    // (A selection from another generation: its view may be another now, and the sites are the plan's now.)
-    if (inspecting.selected.generation !== globalThis.exact.generation) { report({ kind: "unsupported", what: "inspect", detail: "the selection is from before a rebuild: select a node again" }); return; }
-    const want = new Set(sites);
-    // Its ancestors and their sites, in one read with no node's rows (the runner's `ancestors`).
-    const line = ask({ op: "ancestors", id });
-    let found = null;
-    for (const [view, site] of line.ancestors ?? []) if (want.has(site)) found = view;
-    if (found == null) { report({ kind: "unsupported", what: "inspect", detail: "no node of that copy is above the selected one on this page" }); return; }
-    await select(found);
+    if (!inspecting.on || id == null || !Array.isArray(levels)) { report({ kind: "unsupported", what: "inspect", detail: "no node is selected on this page to move up from" }); return; }
+    // (Only the selection, generation and plan the server took its sites from: another since is selected again first.)
+    if (inspecting.selected.generation !== globalThis.exact.generation || plan !== inspecting.selected.plan || from !== inspecting.selected.site) { report({ kind: "unsupported", what: "inspect", detail: "the selection moved or the page was rebuilt since: select a node again" }); return; }
+    // Its ancestors and their sites, in one read with no node's rows (the runner's `ancestors`), the selection itself
+    // left out; the first level with one of them, and in it the outermost.
+    const above = (ask({ op: "ancestors", id }).ancestors ?? []).slice(1);
+    for (const level of levels) {
+      const want = new Set(level);
+      let found = null;
+      for (const [view, site] of above) if (want.has(site)) found = view;
+      if (found != null) { await select(found); return; }
+    }
+    report({ kind: "unsupported", what: "inspect", detail: "no node above the selected one on this page is one of that copy's" });
   };
   const inspect = async (frame) => {
     if (frame.select) { await selectUp(frame.select); return; }

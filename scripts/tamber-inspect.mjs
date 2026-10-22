@@ -639,18 +639,19 @@ export function staleMap(map, read = readFileSync, app = null) {
   return '';
 }
 
-/** The plan sites of the node `n` call sites up from `site` (tamber/1.16 `inspect` `select`): those whose call-site
- * chain is the site's with its innermost `n` calls taken off, so the nodes of that enclosing component's copy; past
- * the outermost call, the app's own (the root). */
-export function sitesUp(map, site, n) {
+/** The plan sites a move `n` call sites up from `site` may land on (tamber/1.16 `inspect` `select`), as levels, nearest
+ * first: the nodes of each enclosing copy from the `n`th call out to the app's own, whose call-site chain is the
+ * site's with its innermost calls taken off, each level that owns a node. A page selects in the first level that has a
+ * node above its selection, by its own tree: a component that only renders another, or one whose nodes are beside the
+ * selection, is passed over, and past the outermost call it lands on the root. */
+export function levelsUp(map, site, n) {
   const chain = map.nodes?.[site]?.chain;
   if (!Array.isArray(chain)) return [];
   const key = c => `${c.file}:${c.line}:${c.col}`, chainOf = node => (node?.chain ?? []).map(key).join('>');
-  // A component that only renders another owns no node of its own: the next copy out that does (and past the
-  // outermost, the app's own).
+  const levels = [];
   for (let k = Math.min(n, chain.length); k <= chain.length; k++) {
     const want = chain.slice(k).map(key).join('>'), found = map.nodes.flatMap((node, i) => (chainOf(node) === want ? [i] : []));
-    if (found.length) return found;
+    if (found.length) levels.push(found);
   }
-  return [];
+  return levels;
 }
