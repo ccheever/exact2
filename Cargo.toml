@@ -163,6 +163,15 @@ debug = false
 incremental = true
 panic = "abort"
 
+# With debug off Cargo strips debuginfo, which Xcode 27 leaves a build script or
+# proc macro unloadable under a deployment target (release's, above), and the
+# filesystem helper gives every Mac cargo call one (scripts/filesystem.mjs).
+# Dependencies' are under dev's `package."*"`, which outranks a build override.
+[profile.logic-dev.build-override]
+strip = false
+[profile.logic-dev.package."*"]
+strip = false
+
 # Fast surface module rebuilds; dependencies stay optimized, the game links cheaply.
 [profile.gpu-dev]
 inherits = "dev"
@@ -173,8 +182,12 @@ panic = "abort"
 lto = false
 incremental = true
 
+[profile.gpu-dev.build-override]
+strip = false
+
 [profile.gpu-dev.package."*"]
 opt-level = 3
+strip = false
 
 # The wildcard excludes workspace members; this runtime is one in the root.
 [profile.gpu-dev.package.exact-gpu]
