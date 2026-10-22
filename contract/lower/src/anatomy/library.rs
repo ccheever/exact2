@@ -612,10 +612,13 @@ pub(crate) fn control(c: &Component) -> Controls {
         })
         .map(|p| p.name.as_str())
         .collect();
+    let mut labels = std::collections::HashMap::new();
+    texts_by_id(&c.view, &mut labels);
     let cx = Buttons {
         comp: &c.name,
         states: &states,
         derives: &c.derives,
+        labels,
     };
     walk_buttons(&c.view, &cx, &mut Vec::new(), &mut out.refused);
     out
@@ -637,12 +640,46 @@ const SAID: [&str; 5] = [
     "aria-expanded",
 ];
 
+/// Each `text` of `nodes` with a literal `id`, by that id: its words.
+fn texts_by_id<'a>(nodes: &'a [Node], out: &mut std::collections::HashMap<&'a str, &'a Expr>) {
+    for n in nodes {
+        match n {
+            Node::Element {
+                tag,
+                attrs,
+                positional,
+                children,
+                ..
+            } => {
+                if let (true, Some(id), Some(words)) = (tag == "text", text(attrs, "id"), positional.first()) {
+                    out.insert(id, words);
+                }
+                texts_by_id(children, out);
+            }
+            Node::Use { children, .. } | Node::Each { body: children, .. } => texts_by_id(children, out),
+            Node::When {
+                then, otherwise, ..
+            } => {
+                texts_by_id(then, out);
+                texts_by_id(otherwise, out);
+            }
+            Node::Match { some, none, .. } => {
+                texts_by_id(&some.1, out);
+                texts_by_id(none, out);
+            }
+            Node::Children { .. } => {}
+        }
+    }
+}
+
 /// What the button rules read of a component: its name, its state props,
 /// and its derives, through which a look or a label may read a state.
 struct Buttons<'a> {
     comp: &'a str,
     states: &'a [&'a str],
     derives: &'a [contract_syntax::Binding],
+    /// Each text of the view with a literal `id`: what `aria-labelledby` names.
+    labels: std::collections::HashMap<&'a str, &'a Expr>,
 }
 
 impl Buttons<'_> {
@@ -671,18 +708,18 @@ impl Buttons<'_> {
         super::reads(e, bound, false, &mut inside);
         let mut all = Vec::new();
         super::reads(e, bound, true, &mut all);
+        // `seen`: the derives being followed now, a stack (a cycle stops; the
+        // same derive met again elsewhere is followed again).
         for name in all {
             let Some(d) = self.derives.iter().find(|d| d.name == name) else { continue };
-            if seen.contains(&name) {
-                continue;
-            }
-            seen.push(name.clone());
             if inside.contains(&name) {
                 let mut through = vec![name.clone()];
                 self.expand(&mut through);
                 out.extend(through);
-            } else {
+            } else if !seen.contains(&name) {
+                seen.push(name.clone());
                 self.look_names(&d.expr, &mut Vec::new(), out, seen);
+                seen.pop();
             }
         }
         out.extend(inside);
@@ -785,9 +822,16 @@ fn check_button(
                 .filter(|a| a.name == name)
                 .any(|a| cx.mentions(&a.value, state, bound))
         };
-        // Its text names it only when no label does (a label wins).
-        let named_by_text = !has(attrs, "aria-label") && !has(attrs, "aria-labelledby");
-        if !SAID.iter().any(|a| says(a)) && !says("aria-label") && !(named_by_text && text_says(children, cx, state, &mut bound.to_vec())) {
+        // What names it says it: `aria-labelledby` first (the texts its ids
+        // name in this view; one the view doesn't settle is taken as saying
+        // it), else a non-empty `aria-label`, else its own text.
+        let name_says = match text(attrs, "aria-labelledby") {
+            Some(ids) => ids.split_whitespace().any(|id| cx.labels.get(id).is_none_or(|e| cx.mentions(e, state, bound))),
+            None if has(attrs, "aria-labelledby") => true,
+            None if has(attrs, "aria-label") && text(attrs, "aria-label").is_none_or(|t| !t.trim().is_empty()) => says("aria-label"),
+            None => text_says(children, cx, state, &mut bound.to_vec()),
+        };
+        if !SAID.iter().any(|a| says(a)) && !name_says {
             out.push(error(format!(
                 "{what} whose look says a state it doesn't say aloud: its look reads `{state}`, so say it through `aria-selected`, `aria-pressed`, `aria-current`, `aria-checked` or `aria-expanded` from `{state}`, or a label that reads it"
             )));
