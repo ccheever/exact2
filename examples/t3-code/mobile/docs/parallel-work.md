@@ -172,6 +172,200 @@ discard reproducible build output after preserving its diagnostics and source.
 Old age alone never proves a build, worktree or simulator is safe to delete.
 Existing worktrees require an ownership audit before reclamation.
 
+## Shared coordination commands
+
+Run from the repository root with the pinned Bun:
+
+```sh
+export PATH=/Users/nate/.bun-1.4.2/bin:/Users/nate/.cargo/bin:$PATH
+coord=examples/t3-code/tools/coordination/coordination.mjs
+bun "$coord" help
+bun test examples/t3-code/tools/coordination/coordination.test.mjs
+```
+
+The helper stores machine-wide claims and receipts in
+`~/.local/state/exact-t3-coordination/v1`. All worktrees and separate framework
+checkouts on this machine use that location. Repository identity comes from the
+real Git common directory. Do not copy the state into a worktree or override it.
+The fixture transport uses private state only for disposable tests.
+
+Claims use atomic directory creation and an atomic state-file replacement.
+No claim expires. A dead PID, old timestamp or booted device does not grant
+ownership. A failed state write or incomplete process launch requires an audit.
+This helper coordinates cooperating workers; commands run outside it bypass its
+claims. Use it for every publishing turn, native build and task fixture process.
+
+Initialize once, then register each worker from its own worktree. Retain the
+returned task ID in Linear. Repeating registration with the same issue, thread
+and worktree returns the same ID; another owner is refused.
+
+```sh
+bun "$coord" init --thread 628aac75-8ba2-4cdc-a567-4b7e160f700a
+bun "$coord" register --issue ENG-28497 --thread "$worker_thread"
+bun "$coord" status
+```
+
+The coordinator grants a turn using the worker's returned task ID. The worker
+then runs `publish` from its clean task branch, supplying its affected check as
+arguments after `--`. The helper holds the turn through fetch, rebase, that
+check and an ordinary push to PR216's head. It never force-pushes. A failed
+rebase leaves the source available for resolution in the same worktree.
+
+```sh
+bun "$coord" grant-publish --task "$task_id" --thread 628aac75-8ba2-4cdc-a567-4b7e160f700a
+bun "$coord" publish --task "$task_id" --thread "$worker_thread" -- bun test examples/t3-code/tools/coordination/coordination.test.mjs
+```
+
+`release-publish` returns an unused turn. Launched operations require
+`process-audit` when their ownership remains held. Return cross-owner conflicts
+to the coordinator and request a new turn before retrying.
+
+### Allocate a device and build
+
+The coordinator audits an unused shutdown simulator or creates one using the
+T3 device tooling, then enrolls it. Do not infer ownership from inventory alone.
+The inventory file is a fresh normalized array with `host`, `udid` and `state`
+for every device on that host, with states such as `Shutdown` and `Booted`.
+Record the same host identifier that T3 returned. A device is identified by
+host and UDID together. `--origin audited-unused` attests an explicit ownership
+audit; use `created` only for a device this effort created.
+
+```sh
+bun "$coord" device-enroll --thread 628aac75-8ba2-4cdc-a567-4b7e160f700a --host "$device_host" --udid "$udid" --class phone --runtime "$runtime" --inventory "$inventory_file" --origin created
+bun "$coord" device-claim --task "$task_id" --thread "$worker_thread" --host "$device_host" --class phone --runtime "$runtime"
+```
+
+Use `ipad` for an iPad. Claiming returns one compatible released device. If none
+is available, queue the work or have the coordinator audit/create and enroll
+another; the helper never takes an unknown device. After claiming, call T3
+`device_list` and `device_open`. Boot or drive only the claimed host/UDID, keeping
+the exact launcher, host configuration and session arguments from `device_open`.
+The helper records ownership; it does not issue simulator lifecycle commands.
+
+Allocate fresh disposable output with a declared upper estimate in GiB. The
+receiving volume must have that estimate plus 50 GiB available. The check runs
+before allocation and every build. It is admission control, not a disk quota;
+stop and preserve diagnostics if a build grows beyond its estimate.
+
+```sh
+bun "$coord" build --task "$task_id" --thread "$worker_thread" --output target/clone-build --budget-gib 20 -- cargo check --manifest-path examples/t3-code/Cargo.toml -p t3-code-ios
+```
+
+The build wrapper sets `CARGO_TARGET_DIR` to the owned output and holds the
+machine-wide native-build slot. Use `--existing-output target/clone-build` for a
+later build in the same receipt. `allocate` reserves a fresh ignored directory
+without starting a command. Allowed output roots are `target`, the app and
+mobile `target` directories, mobile `dist` and mobile `assets/browser-mobile`.
+Existing output cannot be adopted. Put disposable fixture homes under an owned
+target directory. Unknown output and shared caches remain untouched.
+
+Claim ports and Exact storage names before launching a fixture. Use a host and
+identifier together, and verify that the actual port is unused before binding.
+A claim excludes other cooperating tasks; it does not reserve an operating
+system socket. Run fixtures in the foreground through `run`, which records their
+PID and launch identity. Never detach or daemonize a command.
+
+```sh
+bun "$coord" resource-claim --task "$task_id" --thread "$worker_thread" --kind port --value "$device_host:49161"
+bun "$coord" resource-claim --task "$task_id" --thread "$worker_thread" --kind storage --value "$device_host:t3-$task_id"
+bun "$coord" run --task "$task_id" --thread "$worker_thread" -- bun path/to/owned-fixture.mjs
+```
+
+### Release processes and clean output
+
+An exited build or fixture launcher does not prove its descendants exited. Its
+lease remains held until `process-audit`. Commands run in a dedicated process
+group; the helper records surviving members and refuses release while recorded
+processes are live or unknown. `stop` signals only an individually recorded PID
+whose host and launch identity still match. It never kills by pattern or group.
+
+Save the operation ID from the build/run result. Supply an explicit audit file:
+
+```json
+{
+  "taskId": "the returned task ID",
+  "worktree": "/absolute/owned/worktree",
+  "auditorThreadId": "the worker or coordinator thread ID",
+  "operation": "the returned operation ID",
+  "processes": [],
+  "noUnrecordedDescendants": true
+}
+```
+
+`processes` contains any additional descendants recorded at launch or found by
+an ownership audit, each with `pid`, `host` and `started` as returned by the
+helper's `processIdentity(pid)`. Live entries are retained as receipts and keep
+the lease held. Do not assert `noUnrecordedDescendants` when lifetime is uncertain.
+A process that creates a new session can escape its group. The helper cannot
+prove that such a process exited; record its individual identity and stop it,
+or leave ownership held for investigation. A terminal thread proof alone never
+releases a launched native-build or fixture operation.
+
+```sh
+bun "$coord" process-audit --task "$task_id" --thread "$worker_thread" --proof "$process_audit_file"
+bun "$coord" stop --task "$task_id" --thread "$worker_thread" --pid "$recorded_pid"
+bun "$coord" resource-release --task "$task_id" --thread "$worker_thread" --kind port --value "$device_host:49161"
+bun "$coord" resource-release --task "$task_id" --thread "$worker_thread" --kind storage --value "$device_host:t3-$task_id"
+```
+
+Repeat the audit after the recorded processes exit. Shut down the owned simulator
+through T3's device tooling, then release it with fresh inventory. Source and
+evidence must be preserved before deleting output:
+
+```sh
+bun "$coord" device-release --task "$task_id" --thread "$worker_thread" --host "$device_host" --udid "$udid" --inventory "$inventory_file"
+bun "$coord" preserve --task "$task_id" --thread "$worker_thread" --evidence /absolute/path/outside/output/checks.log
+bun "$coord" cleanup --task "$task_id" --thread "$worker_thread"
+```
+
+`preserve` keeps HEAD under `refs/t3-coordination/<task-id>` and copies each
+supplied evidence file into shared state. Repeat it for additional files.
+`cleanup` requires current committed source, preserved evidence, no live or
+unknown processes and no leases. It deletes only recorded disposable directories
+whose device/inode still match, refusing symlinks and nested Git repositories.
+It reports removed KiB, free space before/after and retained paths. Other ignored
+files block worktree retirement and require a separate ownership audit.
+
+After the worker stops, the coordinator reads fresh `t3_thread_read` state and
+saves its `structuredContent` or `{ "thread": ... }` response to a proof file.
+`recover` requires a terminal status, matching thread/worktree, no active run or
+pending requests and no live/unknown recorded process. It does not infer safety
+from age. The coordinator audits any held operation before cleanup, then retires
+the clean worktree from a different worktree:
+
+```sh
+bun "$coord" recover --task "$task_id" --thread 628aac75-8ba2-4cdc-a567-4b7e160f700a --proof "$terminal_proof_file"
+bun "$coord" retire --task "$task_id" --thread 628aac75-8ba2-4cdc-a567-4b7e160f700a --proof "$terminal_proof_file"
+```
+
+Retirement uses ordinary `git worktree remove` and retains the source ref and
+evidence. It refuses uncommitted, untracked or ignored files. Never remove your
+own running worktree. For a crashed state mutex, inspect `mutex/owner.json` and
+use `recover-mutex` only when that exact recorded process is dead. Missing or
+unknown identity requires investigation, never a timestamp-based override.
+
+At most one released task-created phone and one iPad per host remain `idle`.
+Surplus released devices become `retiring` and cannot be claimed. The coordinator
+captures their needed evidence, deletes only those exact devices through T3,
+then runs `device-retire` with host, UDID and fresh inventory proving absence.
+
+### Recover the continuation without duplicate work
+
+Keep the existing coordinator schedule ID in Linear. On restart, call
+`list_scheduled_tasks` and locate that ID and its bound coordinator thread.
+Do not create another timer. Read Linear, `t3_thread_read` for every owned thread,
+retained delegated task IDs and `coordination.mjs status` before dispatching.
+An interrupted worker with unresolved receipts remains owned until audited;
+recover it before creating a replacement. Provision worktrees sequentially.
+
+Send each checkpoint/completion with `t3_thread_send` to
+`628aac75-8ba2-4cdc-a567-4b7e160f700a`. Use a stable `clientRequestId` for that
+logical message and reuse it on transport retries. Retain the returned
+`messageId`; a retry must return the same ID. Include worker thread ID/link,
+issue, commit, actual checks/evidence and cleanup receipts. The coordinator
+reconciles that checkpoint against live ownership and the shared head before
+assigning more work. A recovered task retains its correction-round count.
+
 ## Framework defects
 
 A suspected framework defect starts an investigation child task with the failing
