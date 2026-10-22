@@ -828,7 +828,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     async find(target, required = true, named = true, tree = null) {
       if (target == null) throw new MalformedOperation(`no view matches ${target}`);
       const byId = typeof target === 'number' || /^\d+$/.test(String(target));
-      const t = tree ? { nodes: tree } : required ? await s.op({op:'tree', target, shallow:true}).catch((e) => { if (byId || !/no view matches/.test(e.message)) throw e; return null; }) : null;
+      const t = tree ? { nodes: tree } : required ? await s.op({op:'tree', target: byId ? Number(target) : target, shallow:true}).catch((e) => { if (byId || !/no view matches/.test(e.message)) throw e; return null; }) : null;
       const nodes = t?.nodes ?? (await s.op({op:'tree'})).nodes;
       const matches = byId ? nodes.filter((n) => n.id === Number(target)) : nodes.filter((n) => n.props.testId === target);
       const node = matches.find((n) => !n.inactive) ?? matches[0] ?? (byId || !named ? undefined : nodeNamed(nodes, String(target)) ?? undefined);
