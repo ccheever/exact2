@@ -461,15 +461,28 @@ export class Coordination {
       return this.event(s, task, 'retired', { checkpoint: task.checkpoint, evidence: task.evidence });
     });
   }
-  enroll(thread, device, inventory, created = false) {
+  enroll(thread, device, inventory, created = false, taskId) {
     return this.transaction(s => {
       this.coordinator(s, thread);
+      const task = taskId === undefined ? null : this.task(s, taskId);
+      if (task) {
+        if (task.status !== 'active') fail('inactive task');
+        if (created !== true) fail('direct assignment requires a newly created simulator');
+        if (Object.values(s.devices).some(d => d.task === task.id)) fail('task already owns a simulator');
+        const matches = Array.isArray(inventory) ? inventory.filter(d => d?.host === device.host && d?.udid === device.udid) : [];
+        if (![device.host, device.udid, device.runtime].every(v => typeof v === 'string' && v.trim()) ||
+            matches.length !== 1 || matches[0].class !== device.class || matches[0].runtime !== device.runtime) fail('fresh inventory must match the exact simulator host, UDID, class and runtime');
+      }
       const found = inventory.find(d => d.host === device.host && d.udid === device.udid);
       if (!found || found.state !== 'Shutdown' || !['phone', 'ipad'].includes(device.class) || !device.runtime) fail('audited shutdown simulator and compatible class/runtime required');
       const key = `${device.host}:${device.udid}`;
       if (s.devices[key]) fail('device already registered');
       s.devices[key] = { ...device, created, status: 'idle', repo: this.repo, enrolledBy: thread };
-      this.limitIdle(s, device.host, device.class);
+      if (task) {
+        const assigned = s.devices[key];
+        assigned.status = 'owned'; assigned.task = task.id; assigned.thread = task.thread; assigned.worktree = task.worktree;
+        this.event(s, task, 'device-claimed', { device: assigned, grantedBy: thread });
+      } else this.limitIdle(s, device.host, device.class);
       return s.devices[key];
     });
   }
