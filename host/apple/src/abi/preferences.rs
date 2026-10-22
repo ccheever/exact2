@@ -264,6 +264,16 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// The host's zoom over the root size (LLP 1021 §5.3): a relayout. Told
+    /// after boot; before it, nothing to zoom.
+    pub fn set_root_font_zoom(&mut self, factor: f64) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_root_font_zoom(factor));
+        self.emit(out)
+    }
+
     /// The display's scale (LLP 1115.000 D10.3): a relayout where a row is a
     /// hairline.
     pub fn set_display_scale(&mut self, scale: f64) -> u32 {

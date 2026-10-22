@@ -350,6 +350,13 @@ OK for now". The coding-agent desktop app (#141) is the consumer (LLP 1021
 §5.3). Take: none named; Charlie's approval admits this bounded extension.
 Built 2026-10-12: placement and root removal of the fixed standard-item ids
 in LLP 1021 §5.3. Develop remains in development builds.
+**Expanded (2026-10-21; built 2026-10-22):** the menu bar's own items for the
+T3 Code clone (LLP 1021 §5.3.1): app-menu and Help items enabled outside the
+key window and under a sheet or modal; `-exact-menu="about"` and `"none"`;
+removal ids for Go ▸ Back, Develop (its chords stay), Edit's template items,
+Help's book item and View's zoom; View ▸ Actual Size, Zoom In and Zoom Out
+over the root font size. Take: none; still Mac-only hints other hosts ignore,
+with no dock menu, status item or Windows menu bar.
 
 ## Surfaces
 

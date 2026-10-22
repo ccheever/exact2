@@ -24,6 +24,17 @@ pub(crate) fn check_menu_remove(attrs: &[Attr], root: bool) -> Result<(), LowerE
         "show-next-tab",
         "move-tab-to-new-window",
         "merge-all-windows",
+        "back",
+        "develop",
+        "paste-and-match-style",
+        "find",
+        "spelling-and-grammar",
+        "substitutions",
+        "transformations",
+        "app-help",
+        "actual-size",
+        "zoom-in",
+        "zoom-out",
     ];
     for attr in attrs.iter().filter(|a| a.name == "-exact-menu-remove") {
         if !root
