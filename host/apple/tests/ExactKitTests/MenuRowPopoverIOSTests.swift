@@ -56,9 +56,10 @@ final class MenuRowPopoverIOSTests: XCTestCase {
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
         UIButton().sendAction(react)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
-        XCTAssertEqual(pressed, [3], "the row's own press")
         let picker = try XCTUnwrap(p.views[5])
+        let end = Date(timeIntervalSinceNow: 5) // the picker opens a turn after the press
+        while !p.menus.isOpen(picker) && Date() < end { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+        XCTAssertEqual(pressed, [3], "the row's own press")
         XCTAssertTrue(p.menus.isOpen(picker), "then the picker opens")
         // From the message the menu opened on: beside it, not where the menu's row was.
         let at = picker.convert(picker.bounds, to: window), message = try XCTUnwrap(p.views[1]).convert(p.views[1]!.bounds, to: window)

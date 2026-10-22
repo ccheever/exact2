@@ -1,7 +1,8 @@
 //! exact2's menu rule's build note (LLP 1021; theme2 2026-10-21 19:47,
 //! 22:05): a row of a menu whose `popovertarget` names a popover that is no
-//! menu is noted, saying where it opens; a submenu, a row that hides its
-//! menu and a button outside a menu are not.
+//! menu is noted, saying where it opens (`commandfor` too); a submenu, a
+//! hide (any case), a confirmation, a role the source doesn't settle and a
+//! button outside a menu are not.
 
 const APP: &str = r#"component App
   view
@@ -15,9 +16,24 @@ const APP: &str = r#"component App
           text "More"
         button popovertarget="message-menu" popovertargetaction="hide"
           text "Close"
+        button commandfor="picker" command="show-popover"
+          text "Pick (command)"
+        button popovertarget="picker" popovertargetaction="HIDE"
+          text "Hide the picker"
+        button popovertarget="confirm"
+          text "Delete…"
+        button popovertarget="unsure"
+          text "Unsure"
       column id="more" popover="auto" role="menu"
         button
           text "Deep"
+      column id="confirm" popover="auto" role="alertdialog" aria-label="Delete?"
+        text "Delete?"
+        button popovertarget="confirm" popovertargetaction="hide"
+          text "Cancel"
+      column id="unsure" popover="auto" role=(1 > 0 ? "menu" : "list")
+        button
+          text "x"
       column id="picker" popover="auto"
         button popovertarget="picker" popovertargetaction="hide"
           text "Done"
@@ -35,8 +51,11 @@ fn a_menu_rows_popover_that_is_no_menu_is_noted_where_it_opens() {
         .collect();
     assert_eq!(
         notes,
-        vec![("lower-menu-row-popover".to_string(), 7)],
-        "{warnings:?}"
+        vec![
+            ("lower-menu-row-popover".to_string(), 7),
+            ("lower-menu-row-popover".to_string(), 13)
+        ],
+        "the picker's two rows, by popovertarget and by commandfor: {warnings:?}"
     );
     let message = &warnings[0].message;
     assert!(

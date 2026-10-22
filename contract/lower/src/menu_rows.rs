@@ -2,8 +2,9 @@
 //! `popovertarget` names a popover that is no menu. exact2's menu rule
 //! (LLP 1021; theme2 2026-10-21 19:47, 22:05) opens it as if by the menu's
 //! own invoker, so the menu closing as its row is chosen doesn't take it
-//! along: the note says where it opens, and blames nothing. Only what the
-//! source shows: literal ids, roles and targets.
+//! along: the note says where it opens, and blames nothing. Only rows the
+//! source settles: literal ids, roles, targets and actions (`commandfor` as
+//! well as `popovertarget`); a confirmation is the platform's own.
 
 use crate::LowerError;
 use contract_syntax::{Attr, Expr, Node};
@@ -26,15 +27,37 @@ fn literal<'a>(attrs: &'a [Attr], name: &str) -> Option<&'a str> {
     }
 }
 
-/// Each popover's literal id, and whether it is a menu.
-fn popovers<'a>(nodes: &'a [Node], out: &mut BTreeMap<&'a str, bool>) {
+/// What a popover is, as far as its source says.
+#[derive(Clone, Copy, PartialEq)]
+enum Kind {
+    /// A literal `role="menu"`, or a confirmation (`alertdialog`, a `dialog`): the platform's own.
+    Menu,
+    /// No role, or a literal one of another kind: the rule's.
+    Other,
+    /// A role the source doesn't settle: no note.
+    Unknown,
+}
+
+/// Each popover's literal id, and what it is.
+fn popovers<'a>(nodes: &'a [Node], out: &mut BTreeMap<&'a str, Kind>) {
     for n in nodes {
         let children: Vec<&Node> = match n {
             Node::Element {
-                attrs, children, ..
+                tag,
+                attrs,
+                children,
+                ..
             } => {
-                if let (true, Some(id)) = (has(attrs, "popover"), literal(attrs, "id")) {
-                    out.insert(id, literal(attrs, "role") == Some("menu"));
+                if let (true, Some(id)) = (
+                    has(attrs, "popover") || tag == "dialog",
+                    literal(attrs, "id"),
+                ) {
+                    let kind = match (tag.as_str(), has(attrs, "role"), literal(attrs, "role")) {
+                        ("dialog", ..) | (_, _, Some("menu" | "alertdialog")) => Kind::Menu,
+                        (_, false, _) | (_, true, Some(_)) => Kind::Other,
+                        (_, true, None) => Kind::Unknown,
+                    };
+                    out.insert(id, kind);
                 }
                 children.iter().collect()
             }
@@ -52,6 +75,24 @@ fn popovers<'a>(nodes: &'a [Node], out: &mut BTreeMap<&'a str, bool>) {
     }
 }
 
+/// The literal id a button opens, as HTML resolves its invocation:
+/// `commandfor` with a showing `command` before `popovertarget` without
+/// `hide`; none for a hide, a value the source doesn't settle, or neither.
+fn opens(attrs: &[Attr]) -> Option<&str> {
+    if has(attrs, "commandfor") {
+        let command = literal(attrs, "command")?.to_ascii_lowercase();
+        return matches!(command.as_str(), "show-popover" | "toggle-popover")
+            .then(|| literal(attrs, "commandfor"))
+            .flatten();
+    }
+    if has(attrs, "popovertargetaction")
+        && literal(attrs, "popovertargetaction")?.eq_ignore_ascii_case("hide")
+    {
+        return None;
+    }
+    literal(attrs, "popovertarget")
+}
+
 /// The notes for `nodes`, the root's view.
 pub(crate) fn notes(nodes: &[Node], out: &mut Vec<LowerError>) {
     let mut ids = BTreeMap::new();
@@ -59,7 +100,7 @@ pub(crate) fn notes(nodes: &[Node], out: &mut Vec<LowerError>) {
     walk(nodes, false, &ids, out);
 }
 
-fn walk(nodes: &[Node], in_menu: bool, ids: &BTreeMap<&str, bool>, out: &mut Vec<LowerError>) {
+fn walk(nodes: &[Node], in_menu: bool, ids: &BTreeMap<&str, Kind>, out: &mut Vec<LowerError>) {
     for n in nodes {
         match n {
             Node::Element {
@@ -68,13 +109,11 @@ fn walk(nodes: &[Node], in_menu: bool, ids: &BTreeMap<&str, bool>, out: &mut Vec
                 children,
                 ..
             } => {
-                let target = literal(attrs, "popovertarget")
-                    .filter(|_| literal(attrs, "popovertargetaction") != Some("hide"));
-                if let (true, "button", Some(target)) = (in_menu, tag.as_str(), target) {
-                    if ids.get(target) == Some(&false) {
+                if let (true, "button", Some(target)) = (in_menu, tag.as_str(), opens(attrs)) {
+                    if ids.get(target) == Some(&Kind::Other) {
                         out.push(LowerError {
                             id: "lower-menu-row-popover",
-                            message: format!("note: this menu row's `{target}` opens from the menu's own invoker (the button that opened the menu, or the node its context menu opened on), not nested in the menu, so it stays open as the menu closes on choose: exact2's menu rule (docs/contract-for-agents.md)"),
+                            message: format!("note: this menu row's `{target}` opens from the menu's own invoker (the button that opened the menu, or the node its context menu opened on), not nested in the menu, so it stays open as the menu closes on choose, unless it is written inside the menu: exact2's menu rule (docs/contract-for-agents.md)"),
                             span: n.span(),
                         });
                     }
