@@ -226,6 +226,19 @@ final class ClickFocusMacTests: XCTestCase {
         XCTAssertEqual(heard, ["change 2 \(typed)b", "blur 2"])
     }
 
+    func testAClickOnAFieldsPlainLabelKeepsItsEditor() throws {
+        let p = fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 14, "kind": "text", "props": ["text": "Name"]],
+            ["op": "frame", "id": 14, "x": 10, "y": 420, "w": 200, "h": 30],
+            ["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6, 7, 8, 10, 12, 13, 14]],
+        ]))
+        let editor = try edit(p)
+        click(try XCTUnwrap(p.views[14]))
+        XCTAssertTrue(window.firstResponder === editor)
+        XCTAssertTrue(p.views[2]?.field?.currentEditor() === editor)
+    }
+
     func testAClickWithNothingFocusedFocusesNoButton() throws {
         let p = fixture()
         var pressed: [UInt32] = []
