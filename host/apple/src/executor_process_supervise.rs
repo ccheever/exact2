@@ -24,7 +24,7 @@ pub(crate) enum Seen {
     Out(bool, Vec<u8>),
     Exit(Option<i64>, Option<String>),
     Eof(Option<bool>),
-    #[allow(dead_code)] // the real transport's writer (stage 1)
+    #[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
     Drained,
 }
 
@@ -136,6 +136,13 @@ struct Ended {
     sent: Vec<String>,
 }
 
+/// The shortest restart delay: systemd's `RestartSec=` default. With the
+/// doubling of each consecutive restart it bounds a crash loop's rate.
+const RESTART_FLOOR_MS: f64 = 100.0;
+/// An incarnation that runs this long resets the doubling, as one that
+/// becomes ready does: systemd's `StartLimitIntervalSec=` default.
+const STEADY_MS: f64 = 10_000.0;
+
 /// One spawn's supervision.
 pub(crate) struct Supervisor<'a> {
     shared: &'a Arc<Shared>,
@@ -219,9 +226,12 @@ impl<'a> Supervisor<'a> {
             // Let go before its first event landed: the incarnation starts
             // by releasing its group, which then runs to its close.
             let gone = !deliver(self.shared, self.ticket, event("spawn", spawned), false);
+            let began = self.clock.now();
             let (ended, ready) = self.incarnation(n, child, gone);
             self.ctl.end();
-            if ready {
+            // A child that became ready, or ran long enough, failed alone:
+            // its restart waits only the delay again.
+            if ready || self.clock.now() - began >= STEADY_MS {
                 consecutive = 0;
             }
             let close = json!({ "code": ended.code, "signal": ended.signal, "drained": ended.drained, "incarnation": n });
@@ -242,8 +252,9 @@ impl<'a> Supervisor<'a> {
                     was_clean: ended.drained,
                 };
             };
+            let base = restart.delay.max(RESTART_FLOOR_MS);
             let delay =
-                (restart.delay * 2f64.powi(consecutive.min(30) as i32)).min(restart.max_delay);
+                (base * 2f64.powi(consecutive.min(30) as i32)).min(restart.max_delay.max(base));
             if !deliver(self.shared, self.ticket, event("close", close), false) {
                 return failed(FailureKind::Aborted, "the stream was let go");
             }
@@ -418,7 +429,8 @@ impl<'a> Supervisor<'a> {
                 }
             }
             let closed = eof[0] && eof[1] && exit.is_some();
-            if closed && !child.group_alive() && escalate.is_none() {
+            // Its group is gone: nothing is left to escalate on.
+            if closed && !child.group_alive() {
                 break;
             }
             if closed && child.group_alive() && escalate.is_none() {

@@ -320,5 +320,11 @@
   {"spec":"process.spawn path:bin/ssh", "ok":false},
   {"spec":"process.spawn doc:/chosen", "ok":false},
   {"spec":"secret.hold a\nsecret.keep a", "ok":false},
-  {"spec":"secret.hold Bad", "ok":false}
+  {"spec":"secret.hold Bad", "ok":false},
+  {"spec":"env.read login:SSH_AUTH_SOCK\nenv.read login:_X1", "ok":true},
+  {"spec":"env.read login:X;touch", "ok":false},
+  {"spec":"env.read login:X''{touch,/tmp/x}", "ok":false},
+  {"spec":"env.read login:1PATH", "ok":false},
+  {"spec":"env.read login:", "ok":false},
+  {"spec":"env.read login:A-B", "ok":false}
 ]

@@ -1336,7 +1336,7 @@ const sourceTuple = source => {
   if (capability === 'fs.read') return pathTuple('fs-read', target);
   if (capability === 'fs.write') return pathTuple('fs-write', target);
   if (capability === 'sqlite.open') return pathTuple('sqlite-open', target);
-  if (capability === 'env.read') return ['env-read', target];
+  if (capability === 'env.read') return /^login:(?![A-Za-z_]\w*$)/.test(target) ? null : ['env-read', target];
   if (capability === 'secret.keep' || capability === 'secret.hold') return [capability.replace('.', '-'), target];
   if (capability === 'storage.kv') return ['storage-kv', target];
   if (capability === 'process.spawn') return target.startsWith('path:') ? ['process-spawn', 'path:', target.slice(5)] : pathTuple('process-spawn', target);

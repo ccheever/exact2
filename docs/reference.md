@@ -1325,14 +1325,30 @@ ends or signals a child: a tool, wake or headless one fails
 and the web reject every name with `NotSupportedError`, and
 `processStatus()` says which (`{available, state}`).
 
+A child starts in a process group of its own with the default signal
+dispositions and only its three pipes; releasing its resource, a `kill`, the
+app's quit and the next launch after a crash end the whole group, so a
+grandchild that holds the pipes after its parent exits ends too. `storage.fs`
+reads and writes `home:/…` (the user's home, under a grant narrower than
+`home:/`) and reads `bundle:/…` (the app bundle, read-only), and gains
+`lstat`, `readlink`, `access`, `chmod`, `symlink`, `digest(path, "SHA-256")`
+and `flock(path, {timeout})`, held until its answer's `unlock()` or the end
+of the answer that took it (a TypeScript source's only, for now); `stat`
+answers `mode` and `isSymbolicLink`. An `env.read login:<NAME>` name is a
+shell variable's (`[A-Za-z_][A-Za-z0-9_]*`).
+
 Under the agent nothing runs unless the drive names it: `--process
-<target>=script:<file.json>` answers from a script with no process (the
-format is `host/apple/src/executor_process_script.rs`'s), and its events,
-restart delays and readiness move with `clock`. `prefer origin tool` makes
-later inputs a tool's, to see the refusal. `packages/child-process/test/`
-holds a fixture app and its script. Real programs (`--process
-<target>=real`, or a substitute executable) need the process transport,
-LLP 1133.007's stage 1.
+<target>=<executable>` runs that file in the target's place,
+`--process <target>=script:<file.json>` answers from a script with no process
+(the format is `host/apple/src/executor_process_script.rs`'s), and
+`--process <target>=real` runs the granted program itself. A script's events,
+restart delays and readiness move with `clock`; a real child's run on the
+wall, which `clock +<ms> real` waits for. `--login-env NAME=value`
+(repeated) stands in for the login shell and `--home <dir>` for the home
+directory. `prefer origin
+tool` makes later inputs a tool's, to see the refusal.
+`packages/child-process/test/` holds a fixture app, its script and a helper
+program that starts a grandchild.
 
 ### Apple Health
 

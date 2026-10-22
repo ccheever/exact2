@@ -99,3 +99,22 @@ fn a_secret_is_kept_or_held_never_both() {
     assert!(twice.contains("secret-name-twice"), "{twice}");
     assert!(GrantSet::parse("secret.hold Bad").is_err());
 }
+
+#[test]
+fn a_login_variable_is_named_as_a_shell_names_one() {
+    assert!(GrantSet::parse("env.read login:SSH_AUTH_SOCK\nenv.read login:_X1").is_ok());
+    // Each name reaches the login shell's command line (D5): nothing else may.
+    for bad in [
+        "login:X;touch",
+        "login:X''{touch,/tmp/x}",
+        "login:1PATH",
+        "login:",
+        "login:A-B",
+        "login:$(id)",
+    ] {
+        let why = GrantSet::parse(&format!("env.read {bad}")).unwrap_err();
+        assert!(why.contains("login variable"), "{bad}: {why}");
+    }
+    // The app's own variable keeps its rule.
+    assert!(GrantSet::parse("env.read NODE_ENV").is_ok());
+}

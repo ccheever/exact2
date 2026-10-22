@@ -33,6 +33,8 @@ mod host_opcodes;
 pub mod kv;
 #[cfg(feature = "bindings")]
 pub mod pool;
+#[cfg(unix)]
+pub mod process;
 pub mod secrets;
 pub mod stdlib;
 #[cfg(feature = "bindings")]
