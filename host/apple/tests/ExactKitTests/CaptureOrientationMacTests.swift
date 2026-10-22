@@ -226,14 +226,26 @@ final class CaptureOrientationMacTests: XCTestCase {
         views[2].layer?.display()
         views[3].needsDisplay = true; views[3].displayIfNeeded()
         views[4].layer?.setNeedsDisplay(); views[4].layer?.displayIfNeeded()
-        views[5].wantsLayer = false; views[5].wantsLayer = true; views[5].display()
+        let previousBacking = try XCTUnwrap(views[5].layer)
+        let previousContents = try XCTUnwrap(previousBacking.contents) as AnyObject
+        // AppKit keeps inherited backing while the view has a backed ancestor.
+        views[5].removeFromSuperview()
+        views[5].wantsLayer = false; views[5].layer = nil
+        XCTAssertNil(views[5].layer)
+        views[5].wantsLayer = true
+        root.addSubview(views[5]); views[5].display()
+        let replacementBacking = try XCTUnwrap(views[5].layer)
+        XCTAssertFalse(previousBacking === replacementBacking, "history case 5 must install a new backing layer")
+        XCTAssertFalse(previousContents === (try XCTUnwrap(replacementBacking.contents) as AnyObject), "the new layer has a new drawing store")
         views[6].layer?.setNeedsDisplay(); root.displayIfNeeded()
         views[7].layer?.isGeometryFlipped = true; views[7].display()
         views[7].layer?.isGeometryFlipped = false
+        CATransaction.flush()
         let drawn = views.map { ($0.draws, $0.drawnCTM) }
         let layer = try XCTUnwrap(root.layer)
         let copy = try XCTUnwrap(Capture.paintOrderBitmap(of: root, scale: 1))
         let original = NSBitmapImageRep(cgImage: try XCTUnwrap(Capture.picture(of: layer, size: root.bounds.size, scale: 1)))
+        XCTAssertEqual(marker(copy, 5), "flipped", "the newly installed store reproduces the subtree inversion")
         CATransaction.flush()
         let presented = try layer.presentation().map { NSBitmapImageRep(cgImage: try XCTUnwrap(Capture.picture(of: $0, size: root.bounds.size, scale: 1))) }
         let cache = try XCTUnwrap(root.bitmapImageRepForCachingDisplay(in: root.bounds))
