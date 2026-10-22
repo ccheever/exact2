@@ -187,7 +187,11 @@ export function galleryLoop({ app, root, appDist, channel = () => null, client, 
     res.write(json({ ...(failed ? { error: failed } : {}), reload: seq, revision: null, ...(opened?.nonce ? { nonce: opened.nonce } : {}) }));
     clients.add(res);
     quiet();
-    req.on('close', () => { clients.delete(res); opened?.close(); quiet(); });
+    // Ended once, by whichever close comes first (under Bun a request on a handed-off socket never fires req 'close').
+    let done = false;
+    const end = () => { if (done) return; done = true; clients.delete(res); opened?.close(); quiet(); };
+    req.on('close', end);
+    res.on('close', end);
   }
 
   const send = (req, res, found, body) => sendStaticBody(req, res, body ?? readFileSync(found.path), { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });
