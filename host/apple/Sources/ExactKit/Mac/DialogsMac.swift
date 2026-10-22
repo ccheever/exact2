@@ -322,6 +322,9 @@ final class DialogHost {
         if entries.contains(where: { $0.sheet?.window === window }) { return true }
         return owner === viewport || owner.isDescendant(of: viewport) || owner === presenter?.session?.view
     }
+    /// Dismissal belongs to the sheet's modal segment; its title-row Back belongs to the pushed route.
+    func dismissalOwner(of dialog: NodeView) -> NodeView { entry(ofRoute: dialog)?.routeBase ?? dialog }
+
     /// Shared by real key delivery and the agent's direct NSWindow delivery.
     func key(_ event: NSEvent) -> Bool {
         guard let dialog = active, event.window === dialog.window else { return false }
@@ -332,7 +335,7 @@ final class DialogHost {
         let period = event.type == .keyDown && event.keyCode == 47
             && event.modifierFlags.intersection([.command, .control, .option, .shift]) == .command
         if event.keyCode == 53 || period {
-            if event.type == .keyDown, !event.isARepeat, dialog.props["closedby"] != "none" { dismiss(dialog) }
+            if event.type == .keyDown, !event.isARepeat, dismissalOwner(of: dialog).props["closedby"] != "none" { dismiss(dialog) }
             return true
         }
         // Return is the default button's, when the dialog has one (LLP 1115.000 D7.3).
@@ -370,7 +373,7 @@ final class DialogHost {
         return false
     }
     func outside() {
-        if let dialog = active, dialog.props["closedby"] == "any" { dismiss(dialog) }
+        if let dialog = active, dismissalOwner(of: dialog).props["closedby"] == "any" { dismiss(dialog) }
     }
     /// The platform's dismissal (Escape, Command-period, a click behind a
     /// `closedby="any"` sheet): a dialog closes; a modal route goes back as
