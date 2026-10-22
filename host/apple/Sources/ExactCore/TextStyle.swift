@@ -55,7 +55,7 @@ package enum TextStyle {
         spec.textBoxUnder = edge.hasSuffix("alphabetic") ? 1 : 0
         spec.balance = style["text_wrap_style"]?.string == "balance"
         // The kernel's measurer hyphenates by the same document language.
-        if spec.hyphens == 2 { spec.language = language }
+        if spec.automaticHyphens { spec.language = language }
         spec.hyphenateAuto()
         return spec
     }

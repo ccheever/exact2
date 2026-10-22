@@ -214,6 +214,17 @@ extension Paragraph {
 }
 
 extension Spec {
+    package var emergencyHyphens: Bool { hyphens == 0 && automaticHyphens }
+    package var automaticHyphens: Bool { Self.insertsHyphens(hyphens, wrap: overflowWrap) }
+    package static func insertsHyphens(_ hyphens: Int, wrap: Int) -> Bool {
+        if hyphens == 2 { return true }
+        #if os(iOS)
+        return hyphens == 0 && wrap == 1
+        #else
+        return false
+        #endif
+    }
+
     /// CSS `hyphens: auto`: a soft hyphen at each of the language's own
     /// hyphenation points (CoreFoundation's dictionaries, as Safari's), which
     /// then break and show as authored ones do. Chrome's limits: a word of 5
@@ -222,7 +233,7 @@ extension Spec {
     /// default `lang="en"`; one CoreFoundation cannot hyphenate is left as
     /// `manual`. The source map takes the inserted characters back out.
     package mutating func hyphenateAuto() {
-        guard hyphens == 2 else { return }
+        guard automaticHyphens, source.inserted.isEmpty else { return }
         let locale = CFLocaleCreate(nil, CFLocaleCreateCanonicalLocaleIdentifierFromString(nil, (language.isEmpty ? "en" : language) as CFString))
         guard CFStringIsHyphenationAvailableForLocale(locale) else { return }
         var shaped = 0
@@ -234,7 +245,7 @@ extension Spec {
             while at < text.length {
                 guard let scalar = UnicodeScalar(text.character(at: at)), CharacterSet.letters.contains(scalar) else { at += 1; continue }
                 var end = at
-                while end < text.length, let s = UnicodeScalar(text.character(at: end)), CharacterSet.letters.contains(s) { end += 1 }
+                while end < text.length, let s = UnicodeScalar(text.character(at: end)), CharacterSet.letters.contains(s) || s.value == 0xAD { end += 1 }
                 let word = CFRange(location: at, length: end - at)
                 if word.length >= 5, text.range(of: "\u{AD}", range: NSRange(location: at, length: end - at)).location == NSNotFound {
                     var limit = end - 2
@@ -256,5 +267,6 @@ extension Spec {
             shaped += value.length
         }
         source.inserted = inserted
+        emergencyBreaks = emergencyHyphens ? inserted : []
     }
 }

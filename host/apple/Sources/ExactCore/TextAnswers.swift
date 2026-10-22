@@ -69,10 +69,12 @@ package enum TextAnswerKey {
         }
         paragraph(spec.align, spec.lineClamp, spec.overflowWrap, spec.direction, spec.whiteSpace,
                   single(spec.textIndent), spec.hyphens, &out)
-        if spec.hyphens == 2 { out.append(contentsOf: Array(spec.language.utf8)) }
+        if spec.automaticHyphens { out.append(contentsOf: Array(spec.language.utf8)) }
         // CSS `text-box`: a trimmed paragraph's height and baselines differ.
         out.append(contentsOf: [UInt8(truncatingIfNeeded: spec.textBoxTrim), UInt8(truncatingIfNeeded: spec.textBoxOver), UInt8(truncatingIfNeeded: spec.textBoxUnder)])
         out.append(spec.balance ? 1 : 0)
+        put(UInt32(spec.emergencyBreaks.count), &out)
+        for point in spec.emergencyBreaks { put(UInt32(point), &out) }
         return finish(out)
     }
     /// The same bytes from the kernel's request, before any `String` is made
@@ -96,8 +98,9 @@ package enum TextAnswerKey {
         run(request.strut)
         paragraph(Int(request.align), Int(request.line_clamp), Int(request.overflow_wrap), Int(request.direction),
                   Int(request.white_space), Double(request.text_indent), Int(request.hyphens), &out)
-        if request.hyphens == 2, let lang = request.lang { out.append(contentsOf: UnsafeBufferPointer(start: lang, count: request.lang_len)) }
+        if Spec.insertsHyphens(Int(request.hyphens), wrap: Int(request.overflow_wrap)), let lang = request.lang { out.append(contentsOf: UnsafeBufferPointer(start: lang, count: request.lang_len)) }
         out.append(contentsOf: [request.text_box_trim, request.text_box_over, request.text_box_under, request.text_wrap_style])
+        put(UInt32(0), &out)
         return finish(out)
     }
     /// A length at the kernel's precision.
