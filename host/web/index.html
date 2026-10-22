@@ -44,10 +44,12 @@
   /* LLP 1115.000 D4.12: the resets a careful web app ships. A phone does not inflate the text in landscape (normalize.css
      and Tailwind's preflight say the same). A control answers a tap at once: a second quick tap on it is a second tap,
      not the browser's zoom (panning and pinching from it are unchanged). And a shell that scrolls inside itself (every
-     page but a `scroll document` one, where the document is the scroller and keeps the browser's own ends) does not
-     hand a scroller's end to the page: a list at its top does not pull the page to refresh or drag the window. */
+     page but a `scroll document` one, where the document is the scroller and keeps the browser's own ends) stays put,
+     as an app's window does: a list at its top does not pull the page to refresh, and a drag no scroller takes (on a
+     bar, or over content that fits or is still loading) does not move the page and its bars. `contain` would still let
+     the page bounce, a local boundary default action (CSS Overscroll Behavior). */
   html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-  html:not([data-scrolldocument]), html:not([data-scrolldocument]) body { overscroll-behavior: contain; }
+  html:not([data-scrolldocument]), html:not([data-scrolldocument]) body { overscroll-behavior: none; }
   #exact-root :is(button, a[href], input, select, textarea, summary, [data-exact-on~="press"]) { touch-action: manipulation; }
   /* LLP 1115.000 D4.14: a symbol, and an image in something pressable, is part of the control, not content: no long-press
      callout and no image drag (the navigation glue cancels the drag where the engine has no property for it). */
