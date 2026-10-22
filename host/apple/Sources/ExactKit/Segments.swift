@@ -15,18 +15,23 @@ struct ViewportFold: Equatable {
     var rects: [CGRect] = []
     static let flat = ViewportFold()
 
-    /// The fold under a keyboard that ends the viewport at `viewport`
-    /// (`resizes-content`; LLP 1078, "As built (the keyboard)"): the posture,
-    /// the count and each segment's top and left stay the window's, and every
-    /// segment ends where the viewport does if it ends first, never below
-    /// zero, as Chrome ends its segments at the visible viewport. Chrome also
-    /// clips the band to the viewport, moving the lower segment up to its end
-    /// or dropping the fold; this keeps the band where the hinge is (LLP 1001).
-    func ending(at viewport: CGSize) -> ViewportFold {
+    /// The fold under a keyboard that ends the viewport at `viewport` (LLP
+    /// 1078, "As built (the keyboard)"): the posture, the count and each
+    /// segment's top and left stay the window's, and each segment (with
+    /// `lastRow`, each of the last row) ends where the viewport does if it
+    /// ends first, never below zero, as Chrome ends its segments at the
+    /// visible viewport. Under `resizes-content`
+    /// `viewport` is the layout viewport and every segment ends there; Chrome
+    /// also clips the band to it, moving the lower segment up to its end or
+    /// dropping the fold, where this keeps the band at the hinge (LLP 1001).
+    /// Under `resizes-visual` it is the visual viewport and, as in Chrome,
+    /// only the last row ends there (`lastRow`).
+    func ending(at viewport: CGSize, lastRow: Bool = false) -> ViewportFold {
         var fold = self
-        fold.rects = rects.map { r in
-            CGRect(x: r.minX, y: r.minY, width: max(0, min(r.maxX, viewport.width) - r.minX),
-                   height: max(0, min(r.maxY, viewport.height) - r.minY))
+        let first = lastRow ? max(0, rects.count - cols) : 0
+        fold.rects = rects.enumerated().map { i, r in
+            i < first ? r : CGRect(x: r.minX, y: r.minY, width: max(0, min(r.maxX, viewport.width) - r.minX),
+                                   height: max(0, min(r.maxY, viewport.height) - r.minY))
         }
         return fold
     }

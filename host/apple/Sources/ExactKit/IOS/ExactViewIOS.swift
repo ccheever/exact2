@@ -473,9 +473,11 @@ public final class ExactView: UIView {
         // partially open. Below 27.1 there are none.
         let bent = hingeStatus == 2
         // The window's, not a sheet's (LLP 1075.003 §9.11), its segments
-        // ending where the keyboard ends the viewport.
+        // ending where the keyboard ends the viewport, or under
+        // `resizes-visual` its last row at the visual viewport's end.
         let fold = Self.fold(of: self, viewport: screenFrame, size: screen ?? size, hingeBent: bent)
-        let segments = fold.fold.ending(at: size)
+        let visual = !["resizes-content", "overlays-content"].contains(presenter.keyboardPolicy)
+        let segments = fold.fold.ending(at: visual ? CGSize(width: size.width, height: size.height - presenter.keyboardInset) : size, lastRow: visual)
         if fold.hasFold { presenter.hasFold = true }
         // The regions can trail the hinge's update by a frame (the handler
         // runs before UIKit flips `isActive`), so a reading that disagrees
