@@ -195,8 +195,14 @@ final class PopoverSurfaceIOSTests: XCTestCase {
         XCTAssertNil(uneven.materialView, "an uneven authored corner")
         let (_, oneSquare, _) = try paint(["defaultSurface": "true", "defaultSurfaceRadius": "30"], dark: false, style: ["border_radius_top_left": 0.0])
         XCTAssertNotNil(oneSquare.materialView, "one corner written 0, the others unwritten (0): one square, the glass square")
-        let (_, percent, _) = try paint(["defaultSurface": "true", "defaultSurfaceRadius": "30"], dark: false, style: ["border_radius": "10%"])
+        // A percentage as the wire carries one, a row a corner (`{"pct":10}`),
+        // on a scrolling popover: neither the glass nor its circular clip.
+        let pct: [String: Any] = ["pct": 10.0]
+        let (_, percent, _) = try paint(["defaultSurface": "true", "defaultSurfaceRadius": "30"], dark: false, at: CGRect(x: 40, y: 200, width: 200, height: 100),
+                                        style: ["border_radius_top_left": pct, "border_radius_top_right": pct, "border_radius_bottom_right": pct,
+                                                "border_radius_bottom_left": pct, "overflow_y": "scroll"], filled: true)
         XCTAssertNil(percent.materialView, "a percentage: an ellipse on this box")
+        XCTAssertEqual(percent.scroll?.layer.cornerRadius ?? 0, 0, "no circular clip for an elliptical corner")
         // An authored circle on a scrolling popover: its scroll view takes that corner.
         let (_, roundScroll, _) = try paint(["defaultSurface": "true", "defaultSurfaceRadius": "30"], dark: false, style: ["border_radius": 12.0, "overflow_y": "scroll"], filled: true)
         XCTAssertEqual(roundScroll.scroll?.layer.cornerRadius, 12, "the author's corner on its scroll view")
