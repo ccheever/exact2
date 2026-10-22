@@ -37,6 +37,14 @@ fn folded(import: &Import) -> exact_tamber::Folding {
 /// axis), a variable's value is its last entry whose `theme` holds (none
 /// always holds); an alias (`"$x"`) is `x`'s in the same context.
 fn pencil(doc: &Value, name: &str, context: &[(&str, &str)]) -> Value {
+    pencil_within(doc, name, context, 256)
+}
+
+/// [`pencil`], an alias chain followed at most `left` deep (a cycle is no value).
+fn pencil_within(doc: &Value, name: &str, context: &[(&str, &str)], left: usize) -> Value {
+    if left == 0 {
+        return Value::Null;
+    }
     let entries: Vec<(Value, Option<&serde_json::Map<String, Value>>)> =
         match &doc["variables"][name]["value"] {
             Value::Array(all) => all
@@ -60,7 +68,7 @@ fn pencil(doc: &Value, name: &str, context: &[(&str, &str)]) -> Value {
         .map(|(v, _)| v.clone())
         .unwrap_or(Value::Null);
     match won.as_str().and_then(|s| s.strip_prefix('$')) {
-        Some(target) => pencil(doc, target, context),
+        Some(target) => pencil_within(doc, target, context, left - 1),
         None => won,
     }
 }
@@ -420,6 +428,122 @@ fn round_2_the_schemas_properties_dark_listed_first_and_what_no_token_can_hold()
         ),
         (hex("#020202"), hex("#030303"))
     );
+    assert_eq!(
+        import.counted.source,
+        import.counted.mapped + import.counted.reported
+    );
+}
+
+#[test]
+fn round_3_names_shapes_and_contexts_a_hostile_file_uses_are_bounded() {
+    let design = parse(EMPTY).unwrap();
+    let go = |text: &str| pen::import_with("x.pen", text, "pen", &design, &vocab());
+    // An axis or value named past 64 characters: refused (a report would say it in every tuple's words).
+    let long = "a".repeat(65);
+    let why = go(&format!(
+        r#"{{"version":"2.21","themes":{{"{long}":["x","y"]}}}}"#
+    ))
+    .unwrap_err()[0]
+        .message
+        .clone();
+    assert!(why.contains("more than 64 characters"), "{why}");
+    // A 64 KiB `type` named by many aliases: each report says it in 20 characters.
+    let ty = "t".repeat(64 * 1024);
+    let aliases: Vec<String> = (0..2000)
+        .map(|i| format!(r#""c{i}":{{"type":"color","value":"$s"}}"#))
+        .collect();
+    let text = format!(
+        r#"{{"version":"2.21","variables":{{"s":{{"type":"{ty}","value":"x"}},{}}}}}"#,
+        aliases.join(",")
+    );
+    let import = go(&text).unwrap();
+    assert!(
+        import.unmapped.iter().all(|u| u.why.len() < 200),
+        "a report's words are bounded"
+    );
+    // 100,000 entries of no shape: each reported, in no more than a moment (no square of them).
+    let entries = vec!["7"; 100_000].join(",");
+    let t = std::time::Instant::now();
+    let import = go(&format!(
+        r#"{{"version":"2.21","variables":{{"v":{{"type":"color","value":[{entries}]}}}}}}"#
+    ))
+    .unwrap();
+    assert_eq!(import.counted.reported, 100_000);
+    assert!(
+        t.elapsed() < std::time::Duration::from_secs(5),
+        "{:?}",
+        t.elapsed()
+    );
+    // A value that is an object (DTCG's `$ref`) is no Pencil value: reported, never followed.
+    let import = go(r##"{"version":"2.21","variables":{"s":{"type":"string","value":"#ff0000"},"c":{"type":"color","value":{"$ref":"#/s"}}}}"##).unwrap();
+    assert!(
+        import.unmapped.iter().any(|u| u.name == "c"
+            && u.why == "a value of no Pencil shape (a colour, number, string or boolean)"),
+        "{:?}",
+        import.unmapped
+    );
+}
+
+#[test]
+fn round_3_binding_context_duplicates_and_two_proposed_axes() {
+    let design = parse(EMPTY).unwrap();
+    let text = r##"{
+      "version": "2.21",
+      "themes": { "density": ["roomy", "tight"], "brand": ["blue", "red"] },
+      "variables": {
+        "scale": { "type": "number", "value": 2 },
+        "meta": { "type": "number", "value": 3 },
+        "uniformsId": { "type": "number", "value": 4 },
+        "gap": { "type": "number", "value": 8 },
+        "nudge": { "type": "number", "value": 5 },
+        "kept": { "type": "number", "value": [ { "value": 1 }, { "value": "$leading" } ] },
+        "leading": { "type": "number", "value": 1.5 },
+        "kept": { "type": "number", "value": 16 },
+        "ink": { "type": "color", "value": [ { "value": "#000000" }, { "value": "#111111", "theme": { "density": "tight" } }, { "value": "#222222", "theme": { "brand": "red" } } ] }
+      },
+      "children": [ { "type": "script", "inputs": { "gap": "$scale" }, "metadata": { "type": "x", "width": "$meta" },
+        "descendants": { "uniforms": { "width": "$uniformsId" } }, "id": "$gap", "gap": "$gap", "padding": "$kept",
+        "children": [ { "type": "frame", "offset": { "x": "$nudge" }, "lineHeight": "$leading", "fill": "$ink" } ] } ]
+    }"##;
+    let import = pen::import_with("x.pen", text, "pen", &design, &vocab()).unwrap();
+    let f = folded(&import);
+    // A script's inputs and metadata are the author's names; a descendant's id is no property; `id` binds nothing;
+    // an `offset` that is no shadow's is no pixel offset.
+    for (name, css) in [
+        ("scale", "2"),
+        ("meta", "3"),
+        ("uniformsId", "4px"),
+        ("gap", "8px"),
+        ("nudge", "5"),
+    ] {
+        assert_eq!(
+            f.value(&format!("pen.{name}"), 0)
+                .unwrap_or_else(|| panic!("{name}"))
+                .css(),
+            css,
+            "{name}"
+        );
+    }
+    // A name declared twice: the one that stands decides its kind (the discarded alias joins nothing), and every
+    // entry of the discarded one is counted.
+    assert_eq!(f.value("pen.kept", 0).unwrap().css(), "16px");
+    assert_eq!(
+        import.unmapped.iter().filter(|u| u.name == "kept").count(),
+        2
+    );
+    // Two proposed axes and no scheme: each tuple as Pencil says.
+    let doc: Value = serde_json::from_str(text).unwrap();
+    for d in ["roomy", "tight"] {
+        for b in ["blue", "red"] {
+            let t = f.tuple(&[("density", d), ("brand", b)]).unwrap();
+            let want = pencil(&doc, "ink", &[("density", d), ("brand", b)]);
+            assert_eq!(
+                hex(&f.value("pen.ink", t).unwrap().css()),
+                hex(want.as_str().unwrap()),
+                "{d} {b}"
+            );
+        }
+    }
     assert_eq!(
         import.counted.source,
         import.counted.mapped + import.counted.reported
