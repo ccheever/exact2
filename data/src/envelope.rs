@@ -217,8 +217,10 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
         body: json["body"].as_str().and_then(unbase64).unwrap_or_default(),
         stream: json["stream"].as_bool().unwrap_or(false),
         // A worker's stream only listens: its handle is the main thread's
-        // (LLP 1016.000 D7, worker-placed streams).
+        // (LLP 1016.000 D7, worker-placed streams). Nor does it read a byte
+        // stream: a body that is not events is its one answer.
         socket: false,
+        bytes: false,
         timeout_ms: match &json["timeout_ms"] {
             Json::Null => None,
             value => Some(
@@ -294,6 +296,21 @@ mod tests {
         match apply(outcome, &mut live, &mut logs).unwrap() {
             Answer::Later(r) => assert_eq!(r, storage),
             _ => panic!("a storage yield"),
+        }
+    }
+
+    #[test]
+    fn a_worker_stream_is_neither_a_socket_nor_a_byte_stream() {
+        let request = Request {
+            stream: true,
+            socket: true,
+            bytes: true,
+            ..Request::get("https://x.test/screen.avcc").independent_http(4096)
+        };
+        let outcome = encode(Ok(Answer::Later(request)), &mut Store::default(), vec![]);
+        match apply(outcome, &mut Store::default(), &mut Vec::new()).unwrap() {
+            Answer::Later(r) => assert!(r.stream && !r.socket && !r.bytes, "{r:?}"),
+            _ => panic!("a yield"),
         }
     }
 

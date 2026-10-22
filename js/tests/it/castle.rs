@@ -370,6 +370,7 @@ fn a_stream_answer_maps_each_event_and_its_end() {
     let args = [Value::str("0")];
     let request = later(m.answer(&mut s, "events", &args).unwrap());
     assert!(request.stream, "the host is told it streams");
+    assert!(request.bytes, "and that a body that is not events is bytes");
     assert_eq!(request.url, "https://api.castle.xyz/events?since=0");
     assert_eq!(
         request.http,
@@ -405,6 +406,62 @@ fn a_stream_answer_maps_each_event_and_its_end() {
         .is_err());
 }
 
+/// LLP 1016.000's byte stream: a binary message reaches the mapper as an
+/// `ArrayBuffer` of its bytes.
+#[test]
+fn a_byte_stream_maps_each_message_as_an_array_buffer() {
+    let mut m = module();
+    m.bind(
+        &contract::compile(
+            "component App\n  resource screen = bytes() as shape string\n  view\n    text screen\n",
+        )
+        .unwrap(),
+    );
+    let mut s = store();
+    let request = later(m.answer(&mut s, "bytes", &[]).unwrap());
+    assert!(request.stream && request.bytes && !request.socket);
+    let bytes = |b: &[u8]| {
+        Outcome::Message(exact_runner::Message {
+            binary: Some(b.to_vec()),
+            ..exact_runner::Message::default()
+        })
+    };
+    assert_eq!(
+        now(m
+            .parse(&mut s, "bytes", &[], bytes(&[0, 0, 1, 255]))
+            .unwrap()),
+        Value::str("message:0,0,1,255")
+    );
+    let ended = Outcome::Failed {
+        kind: FailureKind::Network,
+        message: "the byte stream ended".into(),
+    };
+    assert_eq!(
+        now(m.parse(&mut s, "bytes", &[], ended).unwrap()),
+        Value::str("ended: the byte stream ended")
+    );
+}
+
+/// LLP 1133.003 §9: the prelude installs the gate's stub decode under the
+/// agent alone.
+#[test]
+fn the_gate_stub_decode_is_installed_under_the_agent_alone() {
+    let plan = contract::compile(
+        "component App\n  resource g = gate() as shape string\n  view\n    text g\n",
+    )
+    .unwrap();
+    for (seed, kind) in [(None, "undefined"), (Some(7), "function")] {
+        let mut m = unloaded().with_agent_seed(seed);
+        m.load().expect("the fixture loads");
+        m.bind(&plan);
+        assert_eq!(
+            now(m.answer(&mut store(), "gate", &[]).unwrap()),
+            Value::str(kind),
+            "seed {seed:?}"
+        );
+    }
+}
+
 /// LLP 1069.004 slice 3: the spelling of a socket is its URL. A text frame
 /// is a `message` event; the far side's close is the end.
 #[test]
@@ -414,7 +471,7 @@ fn a_socket_answer_is_a_stream_to_a_wss_url() {
     let mut s = store();
     let args = [Value::str("7")];
     let request = later(m.answer(&mut s, "socket", &args).unwrap());
-    assert!(request.stream);
+    assert!(request.stream && !request.bytes);
     assert_eq!(request.url, "wss://jetstream.castle.xyz/subscribe?cursor=7");
     assert_eq!(
         now(m

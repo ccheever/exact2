@@ -365,37 +365,37 @@ function imageEvents(el, fire) {
   el.addEventListener("load", () => settle(false)); el.addEventListener("error", () => settle(true)); if (el.complete && el.getAttribute("src")) setTimeout(() => el.complete && settle(!el.naturalWidth));
 }
 function refreshSymbols() {
-  for (const el of views.values()) {
-    if (!(el instanceof HTMLImageElement)) continue; if (!el.hasAttribute("data-symbol-path")) { tintFit(el); continue; }
-    if (el.parentElement?.matches("button[data-button-style]")) {
-      const title = el.parentElement.querySelector(":scope > [data-exact-text]"), own = getComputedStyle(el);
-      if (title) {
-        const font = getComputedStyle(title); el.style.color = font.color;
-        if (own.getPropertyValue("--exact-symbol-size-authored").trim() !== "1") el.style.fontSize = font.fontSize;
-        if (own.getPropertyValue("--exact-symbol-weight-authored").trim() !== "1") el.style.fontWeight = font.fontWeight;
-      }
-    }
-    const cs = getComputedStyle(el), point = parseFloat(cs.fontSize) * (parseFloat(cs.getPropertyValue("--exact-symbol-scale")) || 1), weight = Number(cs.fontWeight);
+  const rasters = [], symbols = [...views.values()].filter(el => { if (!(el instanceof HTMLImageElement)) return false; if (el.hasAttribute("data-symbol-path")) return true; rasters.push(el); return false; });
+  // Batch reads before writes; computed styles are live, so keep only scalar values.
+  const titles = symbols.flatMap(el => {
+    const title = el.parentElement?.matches("button[data-button-style]") && el.parentElement.querySelector(":scope > [data-exact-text]"); if (!title) return [];
+    const own = getComputedStyle(el), font = getComputedStyle(title), style = { color: font.color };
+    for (const [axis, prop] of [["size", "fontSize"], ["weight", "fontWeight"]]) if (own.getPropertyValue(`--exact-symbol-${axis}-authored`).trim() !== "1") style[prop] = font[prop];
+    return [[el, style]]; });
+  for (const [el, style] of titles) Object.assign(el.style, style);
+  const configs = symbols.map(el => { const cs = getComputedStyle(el);
+    return { el, point: parseFloat(cs.fontSize) * (parseFloat(cs.getPropertyValue("--exact-symbol-scale")) || 1), weight: Number(cs.fontWeight), objectFit: cs.objectFit }; });
+  for (const { el, point, weight } of configs) {
     const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), box = el.getAttribute("data-symbol-viewbox") || "0 0 24 24", key = `${path}:${filled}:${point}:${weight}:${box}:${el.hasAttribute("data-symbol-nonzero")}`;
     if (!path && !el.dataset.symbolSource?.startsWith("symbol:sf/") && el.dataset.symbolSource !== "symbol:" && el.symbolRefusal !== el.dataset.symbolSource) {
       log(`image ${el.dataset.symbolSource} refused: unknown symbol role`); el.symbolRefusal = el.dataset.symbolSource;
     }
     if (el.symbolKey !== key) {
-      el.symbolKey = key;
-      const stroke = 1.1 + (Math.max(100, Math.min(900, weight)) - 100) / 400;
+      el.symbolKey = key; const stroke = 1.1 + (Math.max(100, Math.min(900, weight)) - 100) / 400;
       const paint = filled ? `fill="black" fill-rule="${el.hasAttribute("data-symbol-nonzero") ? "nonzero" : "evenodd"}"` : `fill="none" stroke="black" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round"`;
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}" viewBox="${box}">${path.split(";").map(d => `<path d="${d}" ${paint}/>`).join("")}</svg>`;
-      el.symbolMask = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+      el.symbolMask = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}" viewBox="${box}">${path.split(";").map(d => `<path d="${d}" ${paint}/>`).join("")}</svg>`)}")`;
       el.symbolPlaceholder = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}"/>`)}`;
     }
-    if (el.getAttribute("src") !== el.symbolPlaceholder) el.src = el.symbolPlaceholder;
-    el.style.setProperty("--exact-symbol-mask", el.symbolMask);
-    const paddingX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight), paddingY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
-    const fits = point <= el.clientWidth - paddingX && point <= el.clientHeight - paddingY;
-    // `fill`, CSS's initial `object-fit`, keeps a symbol's aspect, as on the Apple hosts (LLP 1011 §4).
-    const fit = cs.objectFit === "none" || (cs.objectFit === "scale-down" && fits) ? `${point}px ${point}px` : cs.objectFit === "scale-down" || cs.objectFit === "fill" ? "contain" : cs.objectFit;
-    el.style.setProperty("--exact-symbol-fit", fit);
+    if (el.getAttribute("src") !== el.symbolPlaceholder) el.src = el.symbolPlaceholder; el.style.setProperty("--exact-symbol-mask", el.symbolMask);
   }
+  // Sources can set intrinsic size synchronously; percentage padding must resolve against the resulting layout.
+  const fits = configs.map(({ el, point, objectFit }) => {
+    const cs = getComputedStyle(el), fits = point <= el.clientWidth - (parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)) && point <= el.clientHeight - (parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom));
+    // `fill`, CSS's initial `object-fit`, keeps a symbol's aspect, as on the Apple hosts (LLP 1011 §4).
+    return [el, objectFit === "none" || (objectFit === "scale-down" && fits) ? `${point}px ${point}px` : objectFit === "scale-down" || objectFit === "fill" ? "contain" : objectFit];
+  });
+  for (const [el, fit] of fits) el.style.setProperty("--exact-symbol-fit", fit);
+  for (const el of rasters) tintFit(el);
 }
 // The app's `value` into an editor as a person types: the changed middle only (`setRangeText` keeps the selection where a whole assignment throws the caret to the end), never mid-composition — held, applied at compositionend. LLP 1045 D5.
 const composing = new WeakSet(), heldValues = new WeakMap(), compositionFlush = new WeakMap(); for (const [type, on] of [["compositionstart", true], ["compositionend", false]]) addEventListener(type, e => { e.target.exactComposing = on; }, true); // which field composes, for a piece loaded later (LLP 1114.007)

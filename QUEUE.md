@@ -1,5 +1,7 @@
 # Queue
 
+- **`scripts/agent.mjs` is at 1,499 of its 1,500 lines** (2026-10-23, PR #961's review). An operation added to it now has to move code out first. Its carriers (`openWebUnlocked`, `openStdio`, `openIOS`) or the session object's input methods (`tap`, `type`) are each a file's worth: move one out, as `agent-inspect.mjs`, `agent-keys.mjs` and `agent-launch.mjs` were.
+- **`__exact_gate_decode` goes when `VideoDecoder` comes** (2026-10-23, LLP 1133.003 §15 stage 0). The throughput gate's stub decode is a global under the agent only, natively (`js/src/binary.js`, installed by `js/src/prelude.js`; bytes door op 8, `js/src/crypto.rs`) and on the web JS target (`host/web-js/agent.js`), called by `apps/stream-fixture/app.ts`. Stage 1 (the web) and stage 2 (Apple) replace it with `@exact/webcodecs`'s `VideoDecoder.decode`; delete the global, op 8 and the fixture's declaration then, and point the fixture and `gate.mjs` at the module's names. Until then a native production binary launched with `EXACT_AGENT=1` has the stub too: the runtime knows the agent flag, not the build's trust.
 - **The root workspace needs Snapback's private repository since Harmony moved in** (2026-10-22, a Linux box with no GitHub access to `expo/snapback`). c7522f3002 made `apps/harmony/app/{web,apple,linux}` root members, so the root `Cargo.lock` carries `snapback4-core` and `snapback4-device` (through `exact-snapback4`, which `app-apple` and `app-linux` depend on) from `git+https://github.com/expo/snapback.git?rev=3653cae8…`, and every cargo command in the root workspace (the gate's first check included) fails on a machine that cannot fetch it: "revision 3653cae… not found … failed to authenticate". `snapback4/Cargo.toml` says those sources resolve "outside exact2's root lock" and is excluded for that reason, and `docs/reference.md` says root Cargo commands need no Snapback access. Either keep Harmony's crates out of the root workspace (`exclude`, a lock of their own as `snapback4/` has) or accept that the gate needs that access; with the commit in a local Snapback clone, `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=url.file://<clone>.insteadOf GIT_CONFIG_VALUE_0=https://github.com/expo/snapback.git CARGO_NET_GIT_FETCH_WITH_CLI=true cargo fetch --locked` seeds the cache once. Even then a clean checkout's workspace check (`cargo check --workspace --all-targets`, ceeb9276a3) fails Harmony's three build scripts: `snapback4/ts/web.ts(18,39): error TS2307: Cannot find module './generated/device.ts'`, which `snapback4/ts/.gitignore` ignores and only `snapback4/web/build.mjs` writes, though c7522f3002 committed `apps/harmony/snapback/generated/` so that a clean checkout's workspace would build.
 - **iOS: a custom invoker with no press of its own shows no pressed look while it opens a popover that is no menu** (2026-10-22, theme2 06:53's in-page invokers, Grok's and Astra's round 2). Its UIKit pull-down overlay used to hold the look (`InvokerButton.isHighlighted`); a non-menu popover has no overlay now, and setting `pressed` on the handlerless invoker in `PointerIOS.touchesBegan` takes the press from an ancestor's handler (it would no longer forward to `pressResponder`). The fix: a look-only press state the pointer sets on the invoker while it forwards the press as before. An invoker with a press handler, a native one, and a menu's invoker keep their look.
 - **iOS and the Mac: scroll anchoring doesn't register a box's `popover` prop set or cleared as a change into or out of flow** (2026-10-22, the popover out-of-flow change's round 3, Astra). `ScrollAnchoring.Changes.note` (host/apple/Sources/ExactKit/ScrollAnchoring.swift) suppresses an anchor correction when a box becomes or stops being out of flow; it reads `NodeView.layoutPosition`'s static form with the box's popover flag, but only on a style change, and a popover is out of flow by its prop (the kernel's top layer), so opening a popover whose prop is set in the same batch as a sibling moves can make one unwanted correction. Linux's `out_of_flow` reads the prop. The fix: note a popover prop change as a positioned change.
@@ -35,7 +37,6 @@
 - **A bound `transition`'s spring on the web JS target plays only on the five spring properties** (2026-10-20, LLP 1019 §13 D10). `TRANSITION_ENTRIES` (`host/web-js/src/style.rs`) drops every entry with `spring(` and leaves it to `motion.js`, which drives `translate`, `scale`, `rotate`, `opacity` and `height`. Any other property under a bound spring (`font-weight`, a colour) lands at once on the web, where native hosts and a static row play the spring's curve from rest as `linear()` (`Transition::governing`). The fix is `SpringConfig::easing` in JS beside `transition-paint.js`, writing the entry as CSS's `linear()`.
 - **The compiler's check of a bundled SVG image, and the icon reader on the parser crate** (2026-10-20, LLP 1011.001 stages 4 and 1). Every host now draws an `.svg` image source (`host/svg-file`; Apple's `RasterImage.decodeSVG`, Linux's `image/svg.rs`), and the `lower-image-svg` warning is retired, so a file the parser refuses or trims (a DOCTYPE entity, an external `image`, a `script`) is known only from the host's log at run time. Stage 4: the compiler parses a bundled `.svg` a literal source names (`contract/lower`, where `icons.rs` already reads asset SVGs) and names what the parser drops. Stage 1's leftover: `icon_svg.rs` onto the crate's tokenizer.
 - **Linux and Windows do not read the neutral look's symbol scales or button image gap** (2026-10-20, LLP 1011 §3; LLP 1115.000 D17). The web draws a symbol for an SF Symbol in a 1.2em box (`symbol-scale`), and on a button's face in a 1.5em one (`button-symbol-scale`). Linux lays a symbol out in a box its font size square (`host/linux/src/host.rs:1081-1082`, and `image.rs:237-239` when it syncs an image) and paints it at that size (`paint/svg.rs:140-141`): five sixths of the web's size, and two thirds on a button's face. Nor does it read `button-image-gap`, the 8 px the web puts between a button's image and title: it puts a space in the title's type there (`paint/button.rs:308-315`, whose comment says the page does). Windows paints with Linux's painter (`host/windows/Cargo.toml`).
-- **The web's symbol painters' first pass is quadratic in a page's symbols** (2026-10-21, origin/main `73171d25be`). `refreshSymbols` (`host/web/glue.js`) and `refresh` (`host/web-js/symbols.js`) write each symbol's style and source, then read the next one's computed style and `clientWidth`, so each symbol lays the page out again. In headless Chromium a column of titled buttons, each with a symbol and a bare symbol after it, takes 0.5 s for 100 symbols, 2 s for 200, 7 s for 400 and 30 to 40 s for 800. Reading every symbol before writing any would lay the page out once.
 - **A native button whose title is empty is laid out on the web as a titled face** (2026-10-21, LLP 1069.011.001 D3; LLP 1011 §3). A title bound to `""` keeps the face's title column, the image padding and the symbol's full width: a symbol beside an empty title is 69.5 by 38.25 px at 17 px in Chromium and WebKit (57.22 on origin/main), where the same symbol alone is 38.25 square. iOS lays an empty title out as a symbol alone (`host/apple/Sources/ExactKit/IOS/ButtonConfigurationIOS.swift:238`, `face.title?.isEmpty ?? true`).
 - **One-colour text rasters on the Mac, and wide lines' rasters** (2026-10-20, after iOS's alpha-only rasters). (1) iOS and tvOS paint a one-colour paragraph as coverage alone and show it through a template image in its colour (`TextRasterJob.tints`, `TintInk`), as a `UILabel` does: a 13-row poster of ~97 pt type whose weight changes every frame went from 7,410 to 3,019 main-thread samples in 10 s, UIKit's 3,045. The Mac paints into IOSurfaces (`TextRasterMac.swift`) and still uses four bytes a pixel, on purpose (measured 2026-10-20, weight bench's poster on this Mac, Time Profiler 10 s): its rasters run on workers through Core Animation's CG queue, where the glyph copy that cost iOS's main thread 65% (`CGSColorMaskCopyARGB8888`) is 2.2% of worker samples; the main thread's raster cost is IOSurface creation and registration and the commit. AppKit's public tint (a template image in an `NSImageView` with `contentTintColor`, shown with a multiply colour and no mask, and honoured by `cacheDisplay` and `render(in:)`) works only for an image view in the view tree, never its layer alone (probe: ~/bench/weightbench/a8mac), and shows a `CGImage`: a subview per paragraph, and the main-thread copy at commit that the IOSurface path exists to avoid. Not worth it unless a Mac profile shows the glyph copy on the main thread. (2) A raster is cut to a band vertically for a tall paragraph, never horizontally: a nowrap line wider than what shows (a marquee's) is painted whole every time it changes. Cutting it to the visible width needs the visible rect under a running animation, which `Presenter.textBand` reads from the model layer, so a row a keyframe animation slides would show blank past its cut. Not built: since (1) the weight bench's poster, rows about five times the screen's width, matches UIKit (119 fps, about 10 late frames in 10 s, 4.3 against 4.2 ms of main-thread work a frame), and a `UILabel`'s backing store also covers its whole width. The rows that would gain are the ones a keyframe slides, whose cut would have to cover the range the animation sweeps.
 - **The Linux and Windows painter washes a plain or borderless button** (2026-10-20, after the web's plain-button fade). `host/web/neutral.css` draws a `plain` or `borderless` button with no wash, hovered or held, and fades its face to `button-pressed-alpha` (0.75, UIKit's highlighted alpha) while it is held. The painter's `text` look (`host/linux/src/paint/button.rs`, the `"text"` arm) washes it, against LLP 1115.000 D17's one designed look; it should draw no wash and fade its ink to `button-pressed-alpha` while pressed.
@@ -79,7 +80,7 @@
 - **Mac: an untinted path icon beside an untinted SF Symbol may draw in two greys** (2026-10-19, LLP 1121 stage 9 B on A, theme2 and the lead). A path icon with no tint and no written colour draws in its inherited colour (stage 9 A's rule), an SF Symbol in the platform's unsaid symbol colour (`unsaidSymbolTint`, `secondaryLabelColor` on the Mac; stage 9 B's), so one toolbar or row holding both can show two greys. Measure it on the Mac; if they differ visibly, untinted path icons on Apple take the platform's unsaid symbol colour too, or rule why not.
 - **If the decorations editor stays: a decorated textarea's agent inspection on the web** (2026-10-19, the synthetic-decorations fix's review, Astra and Grok; LLP 1114.007 is under rework, Charlie bbcaf15d49, and the contentEditable editor may go). The JS target's tree reads a disabled editor (a div) as `accessibilityDisabled`, reports the editor's own `role="textbox"` as authored, and the wasm page's focus does not count the editor as the field (fixes reviewed and kept on branch `x2/deco-polish`). Neither web target reports applied ranges and provisional state in `state` (Linux's `state.decorations` does); the JS tree leaves out the `decorations` record; `select()` on the editor waits out the agent's 2 s select-all fallback; both contentEditable editors overwrite an authored `aria-disabled`.
 - **Warm Beacons Rust-edit proof budgets** (LLP 1127.001, 2026-10-18): instrumented warm before/after samples were Linux 2.697 / 4.823 s and web 17.861 / 17.933 s, with maximum loads 38.18 / 39.86 and 35.93 / 37.63 respectively (sampled throughout, all below 50). The <3 s / <10 s budgets remain open; the earlier 4.362 / 25.396 s observations remain misses. Reusing the JS target's existing input-checked editor/text-flow products removes repeated Cargo/wasm-opt work: that phase fell from 1.038 to 0.170 s, without changing proof steps. There is no demonstrated full-loop speedup. Web's receipt/build span is 7.256 s (GPU 1.565, host 0.275, host wasm-opt 2.106, bindgen 0.174, input scans 0.402, shared leaves 0.170; the remaining 2.564 is tool/bake/packaging balance). Its proof is 10.518 s, including two browser opens 1.364 s (Chrome 0.846, page ready 0.149), 23 typing steps 6.868 s, 13 settles 0.274 s, other clock steps 0.158 s, taps 0.661 s and screenshots 0.564 s. Nested spans must not be added twice. Linux's receipt/build is 2.244 s (GPU 1.462, scans 0.501), proof 2.403 s; first Play varied from 0.177 to 1.805 s, with no cause established. Profile typing and first Play next; do not weaken the proof or change the budgets without Charlie's amendment.
-- **App-supplied highlight ranges on LLP 1045's Markdown editor, for T3 Code's composer** (2026-10-18, LLP 1114.007 r3, Charlie's ruling). T3 Code's composer moves to `textarea markup="markdown"`, which refuses `decorations`; what it needs from app-computed ranges there (a language tag, a mention) is LLP 1045's to design, over that editor's own styling, never a second editor. Chips are LLP 1045.000's inline atoms (accepted 2026-10-23), built in its stages: 0, the TextKit 2 gate (an attachment only in a delegate-supplied paragraph, and atom accessibility elements beside native editing; failure sends the Apple plan back to review); 1, crates, Contract, kernel and the web editor and reader; 2, the Apple editor and reader; 3, the clone's adoption.
+- **App-supplied highlight ranges on LLP 1045's Markdown editor, for T3 Code's composer** (2026-10-18, LLP 1114.007 r3, Charlie's ruling). T3 Code's composer moves to `textarea markup="markdown"`, which refuses `decorations`; what it needs from app-computed ranges there (a language tag, a mention) is LLP 1045's to design, over that editor's own styling, never a second editor. Chips are LLP 1045.000's inline atoms (accepted 2026-10-23), built in its stages: 0, the TextKit 2 gate, measured 2026-10-23 (its §5.1: the view provider fails its lifecycle check on macOS, so the Apple plan waits on a ruling between the routes §5.1 proposes); 1, crates, Contract, kernel and the web editor and reader; 2, the Apple editor and reader, after that ruling; 3, the clone's adoption.
 - **Paint a textarea's decorations on Android and the terminal** (2026-10-18, LLP 1114.007 r3 D5). Both keep the source and editing and paint nothing; Android as Compose `SpanStyle` colour over the field's `TextFieldValue` without changing its text, the terminal as each cell's colour and underline. Waits for a consumer on either.
 - **`text-shadow` in a decoration on native hosts** (2026-10-18, LLP 1114.007 r3 D5). Only the web paints it. Check whether TextKit 2 draws a `.shadow` rendering attribute (iOS, macOS); the Linux field painter has no shadow for a run.
 - **Status-lock recovery reads the lock's inode and its owner in two steps** (2026-10-18, LLP 1132 lane A, round 3). Between the reads an owner can release, another acquire and die, so the observer pairs the old inode with the new dead pid and can tombstone a live successor under another name. One immutable acquisition token (or the OS lock helper `withProofBuild` uses) would close it; test a generation change between the two reads.
@@ -507,7 +508,14 @@
 - **The JS target's development `perf` costs about 3.7 µs a commit** (2026-10-03, LLP 1079 §As built). 800 caltrain hover commits took 9.7 ms against 6.7 ms with `perf.js` stubbed out. Two-thirds is the mutation observer that gives `authored`/`created`/`retired`, the rest the `pf` wrappers; production carries neither. A cheaper count would need `rt.js` to stamp its own writes, which every production bundle would then carry.
 - **JS-target grant parity, what is left** (2026-10-02, landed from `web/grants` (c4e02b00, 207c2c04, dcd938ed) after three review rounds; both final reviews still mark these). Unicode spellings the Rust parser accepts and the web treats differently: U+0085 in a module's grant text is refused at `host/web/module-glue.js` prepare; with a U+FEFF line a parser-accepted `auth.session` never installs on the JS target, and the wasm page's surface check admits a U+FEFF line native refuses. A `Response` with an empty URL (an opaque, `no-cors` answer) skips the final-origin check, so an ungranted redirect can succeed there. A redirect whose hop the browser itself rejects reports `Network`, not native's `Refused` (a declared deviation, LLP 1071 §7: the page cannot see the destination). A Rust-only page exposes its file commands before its grant set is installed. Two `Store` facade differences from native in `host/web-js/ts-data.js`. `apps/fieldnotes/web/tests/worker.rs` is not migrated to grant-set arguments. Out of scope by Charlie's ruling (grants on the web are parity, not a sandbox: the page's own code can always reach the browser's fetch): forged, self-sealed or accessor-backed grant objects, and app code replacing the fetch late host modules use.
 - **Native bars, what Signal Clone still needs a module for** (2026-10-02, LLP 1075.003 in an outside app; its DIARY.md "build 5"; title views, `hidesBottomBarWhenPushed`, the barless route and content under the bar landed as §9.10). The tab bar's tint from the selected tab's authored `-exact-tint-color`; a symbol beside the heading in a drawn title (Signal's verified seal).
-- **Held contacts on iOS** (2026-10-03, [LLP 1080.000](llp/1080.000-real-touches-on-ios.rfc.md) P3, §11). No touch stays down across requests: XCTest's public calls press and lift in one call, and its private event records lift at their end. Whole gestures are drivable now (`tap … drag`, §11: drags, holds, the edge pop, swipe to reply, with reads `during` the hold), but a move after a read, a reversal and the glass press with a screenshot mid-swell are not. Needs a continuation API in a later Xcode, or Charlie's call (Q2). Owed by §11: the native swipe-action reveal driven on Messages, and the edge-swipe fix on a phone.
+- **Scripted iOS gesture paths** (Mac; Charlie, 2026-10-22; LLP 1035.003 §3,
+  LLP 1080.000 Q2). Extend `tap … drag` in `scripts/agent-drag.mjs` and
+  `host/apple/touches.mjs` / `touches.swift` to carry down, move, hold,
+  reverse and up in one XCTest synthesizer record, with reads at checkpoints.
+  No contact stays down across separate requests; buffered still presses and
+  their reads already play at the lift (§14). Done when a drag can be read
+  while held, reversed, then released with the same touch identity. Keep §11's
+  native swipe-action reveal drive on Messages and edge-swipe fix on a phone.
 - **A collection list has no "start at the end" mode** (2026-10-02, the Signal Clone app's transcript; LLP 1010 §6 says end-follow "only applies when the user was already at the end", and nothing positions a new collection there). A chat transcript opens bottom-anchored (Signal's `ConversationViewLayout` with exact sizes). On `list virtualized=true scrollFollowEnd=true`, the app needs `scrollTop=(1000000 + n)` to reach the end, which lands short by the estimate error of the rows it has not built (84 pt with `estimated-item-height=52`); the app then calls `scrollIntoView("transcript", lastKey, block="end")` after its first command lands. A first-class initial position (`scroll-start: end`, or `scrollFollowEnd` meaning "start following") that builds the last rows first and anchors the end through measurement would remove both.
 - **Keyboard as a content inset, not a relayout** (2026-10-02, the Signal Clone app, `~/.tuft/projects/signal-exact2/DIARY.md` "scrolling"). With `interactive-widget="resizes-content"` every keyboard frame, including each frame of an interactive dismissal, resizes the root and the kernel lays out the whole screen. Signal-iOS pins its toolbar to `keyboardLayoutGuide` and changes only the collection view's `contentInset.bottom` (skipped while dragging; at-bottom stays at bottom). A mode that overlays the keyboard and gives the app a `keyboard-inset` env() that the host applies as the scroller's `contentInset` would keep the transcript's layout untouched.
 - **Animated scroll to the end on send, what is left** (2026-10-02, Signal Clone; iOS, macOS and the web host built 2026-10-03, LLP 1070.000 §11). Linux and the JS web target land a smooth correction at once. A plain `scroll` still jumps on a `scrollTop` write followed to the end.
@@ -787,14 +795,13 @@ sits on that list carries the trade it would take.
   and validate partial blank/stale content during fast scrolling. Current
   identities, methods and limits are in `apps/markdown/README.md`.
 
-- **Text around shapes** (LLP 1043.000 §8, as built 2026-09-19): `wrap-flow` / `shape-outside` exclusions flowed on
-  both sides per frame on Linux, Apple and web through one shared walker (`textflow/`), demo `apps/textflow` (six
-  scenes); vendored Taffy is upstream 0.14 (patches 3, 4, 5 retained). Owed: **auto-height flow** — M8's probe found
-  `BlockContext` offsets are provisional at measure time (sibling margin collapse y=100 → 90, auto margins x=0 → 50,
-  descendant collapse y=110 → 150), so stable offsets and wrapping-context identity must be settled before measurement
-  sees them, or bounded re-layout used instead (Charlie's call; LLP 1043.000 §8 "Stage 0"); the wasm cost is ~+77 KiB against the ruled ~64 KB;
-  Euclidean `shape-margin` for ellipse/polygon; `justify` in fragments; iOS hit-testing and any iOS run at all;
-  Safari/Firefox; `shape-outside: <image>`.
+- **Text around shapes** (LLP 1043.000 §8): auto-height flow is built
+  (Stage 2, 2026-09-26) and accepted (Charlie, 2026-09-27, d788c0f396).
+  The web breaker is `textflow.wasm`, loaded on demand (`host/web-js/flow.js`).
+  Owed: Euclidean `shape-margin` for ellipse/polygon; `justify` in fragments;
+  iOS fragment-aware hit-testing and the remaining scene drives (Stage 2's
+  Article scene was driven on the simulator); Safari/Firefox flow drives
+  beyond the line-break corpora; `shape-outside: <image>`.
 
 - **Native verification gaps** (2026-09-15): Messages debug native tests can
   exceed their 100 ms data-call budget during workspace validation (105–241 ms
@@ -832,14 +839,18 @@ sits on that list carries the trade it would take.
   follows when measured heights move the landing (5 ms), then visible paragraphs
   paint. Shorten the per-row work before spreading the fill across frames, which
   would expose blank rows.
-- **The Mac's page viewport takes legacy scrollers' gutters** (2026-09-27, found fixing the
-  smoke on a Mac with a mouse): a `scroll` node now keeps overlay scrollers (LLP 1010's
-  zero `scrollbar_width`), but `PageScrollView` follows the system style, so the scroll
-  fixture reads `viewport 405×845` over a root laid out 420 wide — a sideways page scroll
-  in every app on such a Mac. `PageScrollMacTests` hold the legacy gutters on purpose;
-  decide whether the page follows LLP 1010 too. (The macOS canvas reference at 2x was
-  re-recorded on 2026-10-03, with the Label placeholder and color-matched sky.) The Markdown motion
-  fixture's 8-in-24 failure (2026-09-19) did not recur in 5 runs.
+- **The Mac's page viewport takes legacy scrollers' gutters** (Mac;
+  Charlie, 2026-10-22; LLP 1115.000 D8.3). `PresenterMac` currently sets the
+  page to overlay. Make it follow the system style and re-layout at the
+  visible clip width whenever the style or gutter changes (`PageScrollView`,
+  `PresenterMac`); pin overlay in the agent and smoke. Done when switching
+  between legacy and overlay leaves a fitting page with no sideways scroll,
+  and attaching a mouse does not change an agent or smoke viewport's width.
+- **The Mac's inner scrollers need the kernel gutter** (Mac; LLP 1115.000
+  D8.3). `ChainingScrollView` forces overlay and `kernel/src/style.rs` sets
+  `scrollbar_width = 0.0`. Land system-style scrollers and the measured kernel
+  gutter together, with D8.3's conformance pin. Done when legacy and overlay
+  give matching visible and laid-out widths, including a style change.
 
 - **Router and viewport follow-ups** (2026-09-15; LLP 1038/1039): core, Contract
   routes, host projections, browser history and native URL entry points are implemented.
@@ -850,8 +861,9 @@ sits on that list carries the trade it would take.
 - **LLP 1035 follow-ups** (2026-09-09): landed the same day — inherited rows
   (1035.000 slice 1), `layout <node>` (1035.002 slice 1), a contact's phases on
   the web and macOS carriers (1035.003). Next, in the umbrella's order: the
-  Simulator contact backend (1035.003 §3; the backend is Charlie's call — the held-read gate now passes at two placements after common-mode agent scheduling, `/tmp/messages-held-inspection/`), 1035.001
-  slice 1 (XCTest units for the navigation/modal rules, journal lines for
+  scripted iOS gesture path (1035.003 §3; XCTest is built under
+  LLP 1080.000, Charlie's ruling of 2026-10-22), 1035.001 slice 1 (XCTest
+  units for the navigation/modal rules, journal lines for
   refused intents, a session-scoped blur in the two-session host), 1035.004's
   six symbol roles, 1035.005's remaining Messages responsibility extraction and
   three-task authoring comparisons (§3). The formatter, symbols, source-aware
@@ -951,19 +963,15 @@ sits on that list carries the trade it would take.
   and dev/prod controls are implemented. Next: physical-phone size/latency and
   20-edit/50-replacement measurements, normalized native-baseline reuse, and
   custom out-of-tree host composition; independent multi-module routing stays later.
-  Parent **LLP 1029** (Draft RFC, 2026-09-03), mixed by default and optional
-  executors, builds on LLP 1028 (the measurements: wasmtime runtime +0.49 MB / +Pulley
-  +0.58 / wasmi +1.0 / Cranelift +5.6, never shipped). Charlie's three rulings of
-  2026-09-03 — wasmtime optional, never mandatory even for Rust logic, the default app
-  mixed TS + Rust — are its Summary; §7 stages it (phone numbers first), §8 asks
-  Pulley-or-wasmi and four more. Awaits Charlie; the 1026/1027 amendment notes land at
-  acceptance. **LLP 1032** (Research, 2026-09-04) measured Charlie's "does wasm make
-  Hermes unnecessary?": QuickJS inside a wasm module on the same twin and seam is
-  1.5–3× the lean Hermes VM with precompiled desktop code, 40–134× under Pulley and
-  17–64× under wasmi (an interpreter inside an interpreter), and 1.5–2.1 MB as a
-  Pulley artifact against Hermes's 1.8 MB; 20/20 bytes on every engine. Feeds 1029 §8
-  and stage 0's phone afternoon (the iOS Pulley host builds; the phone was not
-  connected).
+  Parent **LLP 1029** is superseded for development and engine choice
+  (Charlie, 2026-10-22); wasmi is ratified, per-source routing deferred, and
+  Q5/Q7 remain open with no work waiting. Its Summary keeps the mixed-language
+  rulings. LLP 1032's engine comparisons remain research for phone measurements.
+- **The compatibility executor still says `wasmtime`** (LLP 1029 §8;
+  Charlie, 2026-10-22). `bake/src/compat.rs` emits that label for `Swappable`
+  and reads it to admit wasm. Rename it once, deliberately, including its
+  readers: the compatibility ids containing the label change. Done when receipts name
+  the actual executor and classification accounts for the changed ids.
 
 - **Delivery, unified** — LLP 1030 r2 and LLP 1030.000 r2. Landed: stage 1 (the
   asset row), stage 2 (the manifest), the compatibility id, the `delivery`
@@ -1106,14 +1114,18 @@ sits on that list carries the trade it would take.
   early), retirement versus a reading reader, unwind in a start or a reader, two drops under the
   lock, three tests. Only worth doing if §5's gate passes.
 - **Gaps the Bluesky clone's workers hit** (bsky5, b28–b31, 2026-10-12), as reported:
-  - **A dynamic exit animation fails the web build only** (`exit-animation=(reduced ? "none" :
-    "…")`: "a dynamic `exit_animation` is not one declaration", `host/web-js/src/style.rs`). iOS
-    builds it and `contract build` says nothing. Reporting it at compile time is not cheap
-    (x2-perf3, 2026-10-13): the JS target's refusals are spread through `host/web-js` (emit.rs,
-    rows.rs, style.rs), and `exact-web-js` depends on the `contract` package, so `contract build`
-    cannot run its emitter. Either the `contract` binary moves to a package of its own that depends
-    on both (callers run `cargo run -q -p contract --`), or the refusals become one
-    registry in `contract` that the emitter reads. Then the dynamic declaration.
+  - **A dynamic exit animation fails the web build only** (Linux; Charlie,
+    2026-10-22, C and D). Support dynamic `-exact-exit-animation` on the JS
+    target as ce583715bd (#809) supports state-dependent
+    `-exact-layout-transition` (`host/web-js/src/style.rs`, rows and runtime).
+    Make `bun exact.mjs contract build` run the JS emitter check for every
+    app, including apps without `app.ts` + `app.json` and entries not named
+    `app.contract` (`scripts/exact.mjs`, `checkTypes` / `typeDiagnostics`).
+    Report emitter refusals as target refusals, not TypeScript errors on
+    `app.ts`. Done when the dynamic exit runs on the JS target and a refused
+    row fails each of those build forms with a target diagnostic. Not taken:
+    moving the `contract` binary to its own package (compiler dependence on
+    the web host), or a refusal registry in `contract` (a second authority).
   - **Contract tests:** `back` reports "back refused" on a sheet over a sheet while the route does
     pop; a test can't fake a data source, or open a URL.
   - **Vocabulary:** no vertical scroll snap (the clone hand-built a pager); no direction hand-off
@@ -1139,13 +1151,11 @@ sits on that list carries the trade it would take.
 - **iOS long-press on an inline text run** (bsky5): a menu on a run inside a paragraph (a hashtag:
   See #tag posts, Mute #tag) acts as a tap. `NodeViewIOS.updateContextGestures` gives a long-press
   recognizer to node views only; runs get a menu on macOS (X77) and on the web.
-- **The kept-answer cap** (LLP 1027 D4; bsky5's b30 journal): `explore`, `feedSources`,
-  `composerPrefs`, `following` and `homeFeeds` are each "too big to keep" at 4 KiB of arguments
-  and answer, so the clone keeps its own device cache. The cap is small because every kept entry
-  is read in one listing before the first frame. Recommendation (x2-perf3): measure that read on a
-  phone for 32 entries at 4, 16 and 64 KiB; then let a resource declare its own budget (`keep 64kb`)
-  up to 256 KiB, under a launch total of about 1 MiB that refuses the least recent, with 4 KiB the
-  default. That is an LLP 1027 D4 amendment for Charlie.
+- **The kept-answer cap** (device; LLP 1027 D4; Charlie, 2026-10-22).
+  Measure the launch read on a physical phone at the current 256 KiB per
+  answer and 512 KiB total (`runner/src/runner/kept.rs`). Record the read
+  time in D4. Raise the total toward 1 MiB only if a real app needs it and
+  that phone's read stays about 3 ms or less. No per-resource `keep <size>`.
 - **Darwin WebSocket close failures under load** (2026-10-16): ibex2's
   `the_darwin_transport_holds_the_whole_conversation`, whose body is `conversation()` in
   `vendor/ibex/crates/ibex2/src/transport/websocket_tests.rs`, failed 3/100 unmodified runs
@@ -1221,18 +1231,6 @@ sits on that list carries the trade it would take.
   past the root, as `scrollHeight` does (LLP 1010 §3's declared deviation).
 - The untested-but-built list in LLP 1010 §5: horizontal scroll on macOS, `overflow:
   hidden` on the web, `hidden`/`visible` on a `ScrollView` on macOS — each a fixture.
-
-## Open decisions (Charlie's)
-
-- **LLP 1009** is `Review` while the canvas is built. Its §5 trades: the three
-  gradient rows leave `schema.json` (done under LLP 1014 §5); amend DEFERRED's "compiles no shaders at
-  runtime" to "compiles nothing on the boot path"; the refine-loop take. Then the
-  1009.000 spec transcribes the landing.
-- **Linux painter: decided 2026-08-29 — vello on the GPU** (Charlie), with tiny-skia
-  kept as the CPU fallback and the pixel oracle (LLP 1015 §7). What it owes: the
-  DEFERRED wording "compiles no shaders at runtime" now needs the clause "the GPU
-  painter compiles its shaders on the first launch on a machine and reads them from
-  the pipeline cache after" beside LLP 1009 §5's — Charlie's to write.
 
 ## Declared gaps, by system (each spec's "Not in v1")
 
@@ -1327,17 +1325,19 @@ sits on that list carries the trade it would take.
   photo editor's trackpad (macOS) and UIKit (iOS) gestures, which the agent cannot
   yet deliver there (the iOS carrier's contact needs Accessibility permission).
 
-- LLP 1026 (dynamic delivery: the app over the wire from a cloud that builds it) is
-  Draft r2 (2026-09-02), Charlie's exploration, no implementer. r2 is "both worlds": one
-  bake emits the native archive the binary embeds and a signed static update bundle;
-  a client keeps an on-disk store and selects at launch; native by digest identity, so
-  the interpreter runs only in the update window (D10); wgpu moves to the host so the
-  app's surfaces travel as wasm against WebGPU imports (D6); native modules stay in the
-  binary (D7). Level A is plan + assets at zero binary cost; Level B adds the app module
-  and +1.0 MB of wasmi. Measured: 72 KB module, ~1 ms to instantiate, byte-identical
-  answers, 8–10× on microsecond calls. Waits on §8's trades (the update economy comes
-  off DEFERRED; the take is the file poll + two dev-only loaders, and Stage 3's DNS-SD)
-  and §10's eight questions, the binary size first. 1025's link left `current/` for it.
+- **A phone's dev loop beyond the LAN** (LLP 1026 §10 Q5; Charlie,
+  2026-10-22). LLP 1026 is a record overtaken by LLP 1029.000 and LLP 1030;
+  its trades and questions no longer wait on Charlie. Integrate the existing
+  pairing model (`scripts/tamber-pairing.mjs`, `tamber-remote.mjs` and the
+  canvas gateway) with phone dev-loop loading: scoped, revocable tokens over
+  TLS; a QR may carry a one-time pairing grant. Nothing is built for that
+  integration. Done when a paired phone loads beyond the LAN and revoked,
+  expired and out-of-scope tokens are refused; no bearer capability URL.
+- **The launcher's Keychain admission** (LLP 1026 §10 Q3; Charlie,
+  2026-10-22). When the launcher is built (LLP 1026 §9 stage 5), refuse
+  `secret.keep` unconditionally. Done when an app requesting that grant is
+  refused before loading; only its own dev client and release binary may
+  admit it.
 
 - LLP 1027 (TypeScript data sources) is **Accepted** (Charlie, 2026-09-03, every
   recommendation; implementer Claude, stage 1 landed the same day: the `sources` table in
@@ -1367,10 +1367,10 @@ sits on that list carries the trade it would take.
   1.2–41 µs a call (7.5–29× native, mostly JSON), the linked lean engine +1.81 MB
   stripped (+785 KB gz), TS→bytecode 20 ms. D9 answers "split ibex2 in two": it is three
   — `ibex2::host` (linked today), the engine build as a `-sys` crate (proposed), ibex2's
-  JS runtime layer (never linked). Waits on §8's trades (D4's sentence, "HBC
-  compilation" for the bake, 1026's wasm data module leaves its staging so a phone
-  carries one interpreter) and §10's eight questions — 1.8 MB on iOS and the
-  one-frame `pending` first. 1019's link (Accepted, landed) left `current/` for it.
+  JS runtime layer (never linked). §8's trades and §10's recommendations were
+  accepted on 2026-09-03; none waits on Charlie. The 2026-10-22 amendment
+  permits at most one interpreter per language used (Hermes and wasmi for
+  TypeScript with a Rust module).
 
 - macOS text controls: align focus/blur notifications with first-responder changes; AppKit editing-began delegates currently wait for the first edit, so a focus command can move the caret before a Contract focus handler runs.
 
@@ -1424,7 +1424,27 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 
 
-- Continuous release loop (LLP 1030.003 r2, 2026-09-12): release id + signed `published` and the `use`-able version screen (Caltrain first), one hosted Interview release on the directory origin behind its tunnel, `--watch`, iOS through TestFlight (the archive verb, upload, `--status`, version/build numbers), safe activation + the web page's own check, the EAS macOS-worker spike for the Apple lanes (D8, Charlie's 2026-09-12 ask), then the EAS Hosting spike. D6a install pages and D6b's Mac-local development build/install are landed; distributable native artifacts and providers remain pending. §6's six questions await Charlie; other slices await an implementer.
+- **Continuous release loop: signed publication time** (LLP 1030.003 §6 Q1;
+  Charlie, 2026-10-22). Keep `defaultRelease`'s `r-<iso>-<sha7>-<nonce>`.
+  Add `published` to the signed head, carry it through `update/` and
+  `runner/src/delivery.rs`, and show it on D3's version screen, Caltrain first.
+  Done when the screen shows the verified head's time and tampering refuses
+  the head. Prove one hosted Interview release on the directory origin or
+  AppDrop; D6a install pages and D6b local development installs are built.
+- **Continuous release loop: bundle-only deploy rows** (LLP 1030.003 §6 Q2;
+  Charlie, 2026-10-22). Make `scripts/deploy.mjs` classify against a signed
+  head's cohort using `push.mjs`'s path. Done when a Linux publisher updates
+  an existing iOS stream without an Apple bake and reports a binary change
+  as needing a binary. AppDrop is the remote tester-install lane; TestFlight
+  is later. EAS Hosting is dropped; EAS as builder waits for a Mac-less publisher.
+- **Continuous release loop: foreground interval checks** (LLP 1030.003 §6
+  Q5; Charlie, 2026-10-22). In `ExactUpdates/Updates.swift` and the other
+  update clients, check about every fifteen minutes while foregrounded under
+  every activation policy, with `deploy.check.interval` overriding it.
+  Discovery stays separate from activation. Done when each policy discovers
+  a new head without relaunching, stops polling in the background, and applies
+  only under its activation rule. Keep D5's safe-activation work and D4's
+  web-page check; `immediate` alone currently repeats on Apple, every two seconds.
 
 - Shared-target filesystem helper: the ada0b93 workspace sweep failed with `spawnSync .../exact-filesystem ENOENT`; the working checkout’s async reader also intermittently returned 404 when its helper exited after one request. Reproduce helper executable identity/lifecycle across worktrees before claiming a full green sweep; evidence in `/tmp/interview-snapback4-20260913/exact2-checks/` and `/tmp/interview-snapback4-20260913/ui/`.
   LLP 1039's web smoke passed every assertion but retained its `exact-filesystem --serve-reads` child after printing success; closing that recorded child let Bun exit 0. Close the helper at the end of a finite bake/smoke process (`/tmp/lane-router/1039/smoke-web.log`, `launched-pids.txt`).

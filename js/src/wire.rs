@@ -44,6 +44,7 @@ pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
         },
         stream: j.get("stream").and_then(Json::as_bool).unwrap_or(false),
         socket: j.get("socket").and_then(Json::as_bool).unwrap_or(false),
+        bytes: j.get("bytes").and_then(Json::as_bool).unwrap_or(false),
         timeout_ms: match j.get("timeout_ms") {
             None | Some(Json::Null) => None,
             Some(value) => Some(
@@ -62,6 +63,24 @@ pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
         },
         redirect: Redirect::parse(j.get("redirect").and_then(Json::as_str))?,
     })
+}
+
+/// A stream's outcome for its mapper, as [`outcome_to_json`] spells it but
+/// with a binary message's bytes handed back beside it, its JSON naming
+/// only their `size`: the prelude copies them into an ArrayBuffer through
+/// the bytes door (op 9), where base64 would cost a byte-by-byte decode in
+/// the interpreter.
+pub(crate) fn message_to_json(outcome: Outcome) -> (String, Vec<u8>) {
+    match outcome {
+        Outcome::Message(m) if m.binary.is_some() => {
+            let bytes = m.binary.unwrap_or_default();
+            let text = json!({
+                "message": { "event": m.event, "id": m.id, "data": "", "coalesced": m.coalesced, "size": bytes.len() }
+            });
+            (text.to_string(), bytes)
+        }
+        other => (outcome_to_json(&other).to_string(), Vec::new()),
+    }
 }
 
 pub(crate) fn outcome_to_json(outcome: &Outcome) -> Json {
