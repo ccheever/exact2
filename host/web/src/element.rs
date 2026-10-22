@@ -633,24 +633,7 @@ pub(super) fn css_style<'a>(
     kernel: &Kernel,
     node: &NodeRef<'a>,
 ) -> std::borrow::Cow<'a, exact_kernel::StyleProps> {
-    css_style_named(kernel, node, true)
-}
-
-/// [`css_style`], with a platform text style's weight and leading where it
-/// is named (LLP 1115.000 D12.2), which the page's descendants inherit as
-/// CSS does: a `font` shorthand's always, a bare `font-size`'s with `bare`
-/// (the live host, whose kernel sees an ancestor's weight arrive and writes
-/// the node again; the JS target, which keeps no kernel, writes CSS's
-/// nothing for one).
-pub(super) fn css_style_named<'a>(
-    kernel: &Kernel,
-    node: &NodeRef<'a>,
-    bare: bool,
-) -> std::borrow::Cow<'a, exact_kernel::StyleProps> {
     let style = css_style_of(&|from, id| kernel.resolve_id(from, id), &node.facts());
-    if !bare && !node.names_text_style_through_font() {
-        return style;
-    }
     with_style_rows(style, node)
 }
 

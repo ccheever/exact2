@@ -6,18 +6,19 @@ import { createDocument } from './dom.js';
 import { open } from '../../scripts/agent.mjs';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 
-async function renderedPages(source, check, files = {}, manifest = {}) {
+async function renderedPages(source, check, files = {}, manifest = {}, renderer = 'js') {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
   const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/head-render-test-'));
   try {
-    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Head Render Test', app: { id: 'test.heads', name: 'Head Render Test' }, host: { web: {} }, ...manifest }));
+    if (renderer === 'js') writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Head Render Test', app: { id: 'test.heads', name: 'Head Render Test' }, host: { web: {} }, ...manifest }));
     writeFileSync(resolve(dir, 'app.contract'), source);
     for (const [name, text] of Object.entries(files)) {
       mkdirSync(dirname(resolve(dir, name)), { recursive: true });
       writeFileSync(resolve(dir, name), text);
     }
-    const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'head-render-test', '--out', resolve(dir, 'dist'), '--render', 'js'], {
-      cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, stdout: 'pipe', stderr: 'pipe',
+    const app = renderer === 'rust' ? ['caltrain', '--contract', resolve(dir, 'app.contract')] : ['head-render-test'];
+    const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', ...app, '--out', resolve(dir, 'dist'), '--render', renderer], {
+      cwd: root, env: { ...process.env, ...(renderer === 'js' ? { EXACT_APP_DIR: dir } : {}) }, stdout: 'pipe', stderr: 'pipe',
     });
     const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
     expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
@@ -28,6 +29,51 @@ async function renderedPages(source, check, files = {}, manifest = {}) {
     }, html, resolve(dir, 'dist'));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
+
+test('bare text styles keep their fills and inherited rows through server adoption', async () => {
+  const source = 'routes nav\n  home "/" render=build\n\n' + readFileSync(new URL('./conformance/bare-text-style.contract', import.meta.url), 'utf8');
+  for (const renderer of ['rust', 'js']) for (const weighted of [false, true]) await renderedPages(source.replace('state weighted = false', `state weighted = ${weighted}`), async (_, html, dist) => {
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    let suite, browser;
+    try {
+      const measure = `Object.fromEntries(['alone','bound','clear-above','clear-own','nested','relative','shorthand-child','heading-child','control-child','control-own','dynamic','dynamic-own','dynamic-shorthand-child','cleared-shorthand-child','removed-style-inherits','removed-style-fills'].map(id => {
+        const e = document.querySelector('[data-testid="'+id+'"]'), s = getComputedStyle(e);
+        return [id, [s.fontWeight, s.lineHeight]];
+      }))`;
+      suite = await suiteBrowser();
+      const page = await suite.newPage({ javaScriptEnabled: false });
+      await page.goto(server.url.href);
+      const before = await page.evaluate(measure);
+      const changing = on => ({ bound: on ? ['700', '40px'] : ['600', 'normal'],
+        dynamic: [on ? '400' : '600', 'normal'], 'dynamic-own': on ? ['700', '40px'] : ['600', 'normal'],
+        'dynamic-shorthand-child': on ? ['700', '40px'] : ['600', 'normal'], 'cleared-shorthand-child': [on ? '400' : '600', 'normal'],
+        'removed-style-inherits': on ? ['700', '40px'] : ['300', '24px'], 'removed-style-fills': on ? ['600', 'normal'] : ['300', '24px'] });
+      expect(before).toEqual({
+        alone: ['600', 'normal'], 'clear-above': ['600', 'normal'],
+        'clear-own': ['400', 'normal'], nested: ['400', 'normal'], relative: ['700', '40px'],
+        'shorthand-child': ['600', 'normal'], 'heading-child': ['700', 'normal'], 'control-child': ['500', '20px'], 'control-own': ['500', '20px'], ...changing(weighted),
+      });
+      // Static fills must become classes, so adoption cannot leave a stale inline weight.
+      const alone = html('').match(/<[^>]*data-testid="alone"[^>]*>/)?.[0];
+      expect(alone).toContain('class=');
+      expect(alone).not.toContain('style=');
+      browser = await open({ host: 'web', url: server.url.href });
+      expect(await browser.carrier.evaluate(`globalThis.exact.journal.some(l => l.endsWith('adopted the document'))`)).toBe(true);
+      expect(await browser.carrier.evaluate(measure)).toEqual(before);
+      await browser.tap('flip');
+      expect(await browser.carrier.evaluate(measure)).toMatchObject(changing(!weighted));
+      await browser.tap('flip');
+      expect(await browser.carrier.evaluate(measure)).toEqual(before);
+      if (weighted) await browser.tap('flip');
+      expect(await browser.carrier.evaluate(`document.querySelector('[data-testid="bound"]').parentElement.style.cssText`)).not.toContain('--exact-said-');
+    } finally {
+      await browser?.close(); await suite?.close(); server.stop(true);
+    }
+  }, {}, {}, renderer);
+}, 180000);
 
 test('JavaScript-rendered strings use the document language with an English translation available', async () => {
   await renderedPages(`routes nav

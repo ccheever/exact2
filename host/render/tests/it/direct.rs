@@ -68,6 +68,47 @@ fn the_fixture_s_pages_are_the_same_without_a_kernel() {
 #[derive(Default)]
 struct Nowhere;
 
+#[test]
+fn direct_documents_keep_text_row_presence_and_clears() {
+    let plan = contract::compile(
+        "component App\n  view\n    column font-weight=700 line-height=2\n      text font-weight=\"unset\" line-height=\"unset\" \"Inherited\"\n",
+    ).unwrap();
+    let render = |projection| {
+        render_with_at(
+            &plan,
+            &|| Nowhere,
+            Default::default(),
+            "/",
+            &SITE,
+            Duration::from_secs(2),
+            Ids::Any,
+            projection,
+            1_700_000_000_000.0,
+        )
+        .unwrap()
+    };
+    let (kernel, direct) = (render(Projection::Kernel), render(Projection::Direct));
+    same(&kernel, &direct, "text row presence");
+    for row in ["font-weight", "line-height"] {
+        assert!(
+            direct
+                .document
+                .root
+                .contains(&format!("--exact-said-{row}: ;")),
+            "{}",
+            direct.document.root
+        );
+        assert!(
+            direct
+                .document
+                .root
+                .contains(&format!("--exact-said-{row}:inherit;")),
+            "{}",
+            direct.document.root
+        );
+    }
+}
+
 impl DataSource for Nowhere {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
         Err(DataError::UnknownSource(source.into()))

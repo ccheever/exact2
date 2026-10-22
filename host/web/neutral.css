@@ -48,7 +48,7 @@
      the unsaid button are an outline in the label's ink; `gray` a neutral fill; `filled` the accent under the ink that
      reads on it; `tinted` and `plain` the accent as ink. `destructive` is the red as the button's accent, so an outline
      or a grey button takes red ink. */
-  #exact-root button[data-button-style] { min-height: 2.25em; min-width: 2.25em; border: 1px solid transparent; padding: .4375em 1em; line-height: 1.25; }
+  #exact-root button[data-button-style] { min-height: 2.25em; min-width: 2.25em; border: 1px solid transparent; padding: .4375em 1em; line-height: 1.25; --exact-said-line-height: ; }
   #exact-root button[data-button-style]:has(> img:only-child):not([navigationPresentation="modal"] > header button[aria-label]) { padding-inline: .5em; }
   /* A mini or small button writes `--exact-touch-floor: 0px` (LLP 1069.011.001 D8), so on a touch device it keeps the
      floor it has under a mouse, as UIKit's does. The look takes that answer on Android too, where Material keeps a
@@ -187,10 +187,10 @@
      and ink (the page's `color` does not tint a surface the host paints; the node's own, inline or its class's,
      still wins; the ground and ink are the design's Field and FieldText where it overrides them, LLP 1121 D9). */
   #exact-root input[data-native], #exact-root textarea[data-native], #exact-root select:not([multiple]), #exact-root input[data-exact-field] { border-color: var(--exact-line); background-color: var(--exact-field, var(--exact-secondary-grouped-background)); color: var(--exact-field-text); }
-  #exact-root input[data-native], #exact-root textarea[data-native] { padding: .4375em .75em; line-height: 1.25; }
+  #exact-root input[data-native], #exact-root textarea[data-native] { padding: .4375em .75em; line-height: 1.25; --exact-said-line-height: ; }
   #exact-root input[data-exact-field] { height: 2.25em; }
   #exact-root :is(input, textarea)::placeholder { color: var(--exact-placeholder-color, var(--exact-placeholder)); opacity: 1; }
-  @media (any-pointer: coarse) { #exact-root input[data-native] { padding-block: .6875em; } #exact-root input[data-exact-field] { height: 44px; } #exact-root select:not([multiple]) { line-height: 2.625; } }
+  @media (any-pointer: coarse) { #exact-root input[data-native] { padding-block: .6875em; } #exact-root input[data-exact-field] { height: 44px; } #exact-root select:not([multiple]) { line-height: 2.625; --exact-said-line-height: ; } }
   #exact-root input[data-native]:disabled, #exact-root textarea[data-native]:disabled, #exact-root select:not([multiple]):disabled, #exact-root input[data-exact-field]:disabled { color: var(--exact-gray-text); background-color: var(--exact-field, var(--exact-secondary-background)); border-color: var(--exact-separator); }
   /* The select's caret, in the secondary label's ink, at the inline end. */
   #exact-root select:not([multiple]) { background-image: linear-gradient(45deg, #0000 50%, var(--exact-secondary-label) 50%), linear-gradient(135deg, var(--exact-secondary-label) 50%, #0000 50%); }
@@ -217,7 +217,7 @@
   #exact-root input[data-exact-control][type="range"]::-moz-range-thumb { box-sizing: border-box; width: 1.25em; height: 1.25em; border: 2px solid var(--exact-secondary-grouped-background); border-radius: 50%; background-color: var(--exact-accent, AccentColor); }
   /* A file field keeps the browser's words; its button is the outline button. */
   #exact-root input[data-exact-control][type="file"] { color: var(--exact-secondary-label); }
-  #exact-root input[data-exact-control][type="file"]::file-selector-button { box-sizing: border-box; min-height: 2.25em; margin-inline-end: .75em; padding: .375em 1em; border: 1px solid var(--exact-line); border-radius: 8px; background-color: transparent; color: var(--exact-label); font: inherit; font-weight: 500; }
+  #exact-root input[data-exact-control][type="file"]::file-selector-button { box-sizing: border-box; min-height: 2.25em; margin-inline-end: .75em; padding: .375em 1em; border: 1px solid var(--exact-line); border-radius: 8px; background-color: transparent; color: var(--exact-label); font: inherit; font-weight: 500; --exact-said-font-weight: ; }
   @media (hover: hover) { #exact-root input[data-exact-control][type="file"]:enabled::file-selector-button:hover { background-image: linear-gradient(var(--exact-quaternary-fill) 0 0); } }
   @media (any-pointer: coarse) { #exact-root input[data-exact-control][type="file"]::file-selector-button { min-height: 44px; } }
 
@@ -295,7 +295,7 @@
      which it beats by coming later. */
   :where(#exact-root [navigationkey]:not(:is([navigationPresentation="modal"], [navigationPresentation="fullscreen"]), :is([navigationPresentation="modal"], [navigationPresentation="fullscreen"]):not([data-exiting]) ~ *, :is([navigationPresentation="modal"], [navigationPresentation="fullscreen"]) ~ [data-exiting]) > header:first-child) :is(h1, h2, h3, h4, h5, h6, span):where([role="heading"][aria-level="1"]:not([popover] *, dialog *)) { min-height: 1lh; margin-block: max(0px, (2.0625rem * 1.2 - 1lh) / 2); }
   #exact-root [navigationkey] > header button[data-button-style="bordered"]:not([role="tab"], [role="radio"]) { border-color: transparent; }
-  #exact-root [navigationkey] > header::part(back) { box-sizing: border-box; min-height: 2.25em; padding: 0 .625em 0 .375em; font-weight: 500; cursor: default; --exact-back-press: 1; }
+  #exact-root [navigationkey] > header::part(back) { box-sizing: border-box; min-height: 2.25em; padding: 0 .625em 0 .375em; font-weight: 500; --exact-said-font-weight: ; cursor: default; --exact-back-press: 1; }
   #exact-root [navigationkey] > header::part(back):focus-visible { outline: revert; outline-offset: 2px; }
   @media (hover: hover) { #exact-root [navigationkey] > header::part(back):hover { background-color: var(--exact-quaternary-fill); } }
   #exact-root [navigationkey] > header::part(back):active { background-color: var(--exact-tertiary-fill); } /* after :hover, which a held pointer matches too */
@@ -375,7 +375,7 @@
   @position-try --exact-context-start { left: auto; right: calc(100% - var(--exact-context-x)); }
   @position-try --exact-context-up { top: auto; bottom: calc(100% - var(--exact-context-y)); }
   @position-try --exact-context-up-start { left: auto; right: calc(100% - var(--exact-context-x)); top: auto; bottom: calc(100% - var(--exact-context-y)); }
-  #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style] { min-height: 2em; border: none; border-radius: 8px; padding: .25em .625em; background-color: transparent; color: var(--exact-label); font-weight: 400; justify-content: start; text-align: start; --exact-button-space-width: .5em; }
+  #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style] { min-height: 2em; border: none; border-radius: 8px; padding: .25em .625em; background-color: transparent; color: var(--exact-label); font-weight: 400; --exact-said-font-weight: ; justify-content: start; text-align: start; --exact-button-space-width: .5em; }
   #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style][data-destructive="true"] { color: var(--exact-accent); }
   #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style]:disabled { color: var(--exact-gray-text); }
   #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style]:focus-visible { outline-offset: -2px; }
