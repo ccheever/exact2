@@ -80,6 +80,20 @@ test('a package SVG its design reads, edited, is announced as a change of the de
   expect(drawn.client).toBe(null);
 }, 120_000);
 
+test('a package with no design whose SVG the build reads, edited, is announced (stage 13)', async () => {
+  const star = d => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="${d}"/></svg>`;
+  const notes = join(dir, 'node_modules/@acme/notes');
+  mkdirSync(join(notes, 'assets'), { recursive: true });
+  writeFileSync(join(notes, 'assets/pin.svg'), star('M1 1h22v22H1Z'));
+  let { seq } = await post({ after: 0, wait: false }, '/__tamber/events');
+  writeFileSync(join(notes, 'index.contract'), 'component NotesCard\n  params\n    glyph: icon = "icon(svg \\"pin.svg\\")"\n  view\n    image "symbol:param.glyph"\n');
+  await until(async () => (await post({ after: seq, wait: false }, '/__tamber/events')).events?.find(e => e.event === 'changed' && e.edited?.includes('@acme/notes/assets/')));
+  ({ seq } = await post({ after: 0, wait: false }, '/__tamber/events'));
+  writeFileSync(join(notes, 'assets/pin.svg'), star('M2 2h20v20H2Z'));
+  await until(async () => (await post({ after: seq, wait: false }, '/__tamber/events')).events?.find(e => e.event === 'changed' && e.edited?.includes('@acme/notes/assets/')));
+  writeFileSync(join(notes, 'index.contract'), 'component NotesCard\n  view\n    text "n"\n');
+}, 120_000);
+
 test('a package design made where none was is announced; a client\'s hello never carries paths', async () => {
   const hello = await post({ method: 'hello', paths: true });
   expect(hello.ok.watch).toBeUndefined();

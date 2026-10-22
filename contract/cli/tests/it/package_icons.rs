@@ -2,7 +2,7 @@
 //! package's `icons` block names its icons under its namespace; one may name
 //! its own package's icons and no other; the app overrides one by full name,
 //! whole; D7 keeps one only when it is read. An SVG path is relative to the
-//! `assets/` of the design file it is written in, so a package's reads the
+//! `assets/` of the root whose file writes it, so a package's reads the
 //! package's, and must be a one-colour template in v1 (theme2's Q2 (a)).
 //! describe's and explain's icon rows name a package icon's package and
 //! file, and explain gives `package_value` under an app override.
@@ -604,6 +604,116 @@ fn a_package_svg_edit_moves_its_assets_digest() {
     let mut s = Serve::start(&dir, &[]);
     let (hello, _) = s.ask(json!({"method": "hello", "paths": true}));
     assert!(hello["ok"].get("packages").is_none(), "{hello}");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Round 2, Astra 1: a vendored package's assets are its own, whichever
+/// route reached it: inside another package, by that package's relative
+/// `use`, and inside the app, by the app's; each beside a same-named SVG
+/// of the package around it and of the app, drawn otherwise.
+#[test]
+fn a_vendored_packages_icon_default_reads_its_own_assets() {
+    const SHELF: &str = "M5 5h1v1H5Z";
+    let write = |path: &Path, text: &str| {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    };
+    let manifest = |name: &str| {
+        format!(r#"{{"name":"{name}","version":"1.0.0","exports":{{".":"./index.contract"}}}}"#)
+    };
+    let card = "component Card\n  params\n    glyph: icon = \"icon(svg \\\"pin.svg\\\")\"\n  view\n    column\n      image \"symbol:param.glyph\"\n";
+    let glyph = |dir: &Path| {
+        let plan = build(dir);
+        let g = plan
+            .icons
+            .iter()
+            .find(|i| plan.str(i.name).ends_with(".Card.glyph"))
+            .unwrap_or_else(|| panic!("{:?}", plan.icons));
+        plan.str(g.path).to_string()
+    };
+    for inside_package in [true, false] {
+        let dir = app(&format!("pkgicon-vendored-{inside_package}"), APP);
+        std::fs::write(
+            dir.join("app.json"),
+            r#"{"app": {"id": "dev.test.pkgicons", "name": "Icons"}, "host": {"web": {}}}"#,
+        )
+        .unwrap();
+        write(&dir.join("assets/pin.svg"), &shape(APP_STAR));
+        let vendor = match inside_package {
+            true => {
+                let shelf = dir.join("node_modules/@acme/shelf");
+                write(&shelf.join("package.json"), &manifest("@acme/shelf"));
+                write(&shelf.join("index.contract"), "use Card from \"./vendor/reading/index.contract\"\ncomponent Shelf\n  view\n    column\n      Card()\n");
+                write(&shelf.join("assets/pin.svg"), &shape(SHELF));
+                write(&dir.join("app.contract"), "use Shelf from \"@acme/shelf\"\ncomponent App\n  view\n    column\n      Shelf()\n");
+                shelf.join("vendor/reading")
+            }
+            false => {
+                write(&dir.join("app.contract"), "use Card from \"./vendor/reading/index.contract\"\ncomponent App\n  view\n    column\n      Card()\n");
+                dir.join("vendor/reading")
+            }
+        };
+        write(&vendor.join("package.json"), &manifest("@acme/reading"));
+        write(&vendor.join("index.contract"), card);
+        write(&vendor.join("assets/pin.svg"), &shape(PACKAGE_STAR));
+        assert_eq!(
+            glyph(&dir),
+            PACKAGE_STAR,
+            "inside a package: {inside_package}"
+        );
+        let graph = contract::source_graph(&dir.join("app.contract"));
+        let pins: Vec<_> = graph
+            .sources
+            .iter()
+            .filter(|s| s.path.ends_with("assets/pin.svg"))
+            .collect();
+        assert!(
+            pins.len() == 1 && pins[0].path.ends_with("vendor/reading/assets/pin.svg"),
+            "{:?}",
+            graph.sources
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// Round 2, R2-3: a dangling link in a package's `assets/` leaves it (it
+/// can't be told inside), not missing.
+#[test]
+fn a_dangling_link_in_a_packages_assets_leaves_it() {
+    let dir = reading("pkgicon-dangling", APP, "reading.star", STAR);
+    let assets = dir.join("node_modules/@acme/reading/assets");
+    std::fs::remove_file(assets.join("star.svg")).unwrap();
+    std::os::unix::fs::symlink(dir.join("nowhere.svg"), assets.join("star.svg")).unwrap();
+    let e = refused(&dir);
+    assert!(e.message.contains("leaves the package"), "{e}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Round 2, R2-4: a package with no design whose SVGs the build reads (a
+/// Contract component's icon param) is listed in `watch.assets`, its
+/// digest moved by an edit.
+#[test]
+fn a_contract_only_packages_svgs_are_watched() {
+    let dir = reading("pkgicon-contract-watch", APP, "reading.star", STAR);
+    let package = dir.join("node_modules/@acme/reading");
+    std::fs::remove_file(package.join("reading.tamber")).unwrap();
+    std::fs::write(
+        package.join("index.contract"),
+        "component Card\n  params\n    glyph: icon = \"icon(svg \\\"star.svg\\\")\"\n  view\n    column\n      image \"symbol:param.glyph\"\n",
+    )
+    .unwrap();
+    let listed = |s: &mut Serve| {
+        let (hello, _) = s.ask(json!({"method": "hello", "paths": true}));
+        hello["ok"]["watch"]["assets"].clone()
+    };
+    let mut s = Serve::start(&dir, &[]);
+    let before = listed(&mut s);
+    assert_eq!(before[0]["package"], "@acme/reading", "{before}");
+    assert_eq!(before[0]["file"], "@acme/reading/assets/", "{before}");
+    std::fs::write(package.join("assets/star.svg"), shape("M2 2h20v20H2Z")).unwrap();
+    let after = listed(&mut s);
+    assert_ne!(after[0]["assets"], before[0]["assets"], "{after}");
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -2,7 +2,7 @@
 //! `icons` block's tokens, each naming a symbol that is not a role by a
 //! source per platform, `icon(sf "bubble.left", material "chat_bubble",
 //! svg "icons/reply.svg")`: an SF Symbol on Apple, an SVG under the
-//! `assets/` beside the design file it is written in (the app's, or a
+//! `assets/` of the root whose file writes it (the app's, or a
 //! package's: LLP 1121 D11, stage 13) everywhere else, and a Material
 //! Symbol's name kept as an annotation. What the files hold, and which
 //! targets need which source, is the build's to check: this module reads
@@ -20,9 +20,9 @@ pub struct Icon {
     pub sf: Option<String>,
     /// A Material Symbol's name: an annotation, which nothing resolves.
     pub material: Option<String>,
-    /// The SVG other hosts draw, relative to the `assets/` beside the
-    /// design file its sources are written in (the app's, or a package's:
-    /// LLP 1121 D11, stage 13).
+    /// The SVG other hosts draw, relative to the `assets/` of the root
+    /// whose file writes its sources (the app's directory, or a package's
+    /// root: LLP 1121 D11, stage 13).
     pub svg: Option<String>,
     /// Where it was declared.
     pub line: u32,

@@ -890,7 +890,8 @@ app's definition wins). A token keeps its name in the one table; its source is
 `<package>/<file>#<token>` (stage 11 A2), as D15 names components. A package's design holds a
 `theme` block and its components' params (stage 12 B1: `component … params`, named
 `<package>/<file>#Name`): axes, dials, `params` lines, icon tokens and `exports` are refused
-(`tamber-package-block`; icons QUEUE). Its tokens join the
+(`tamber-package-block`; icons QUEUE; *superseded for icons by stage 13's amendment below*: a
+package's design declares icons). Its tokens join the
 app's design in the one fold; a token the app's design defines is the app's, whole (all its
 `when` lines). What a package token names, as the fold resolves it (its values and its `pair=`),
 is a token its own design declares, a role or one of the base scale's nine names (`space.xs`,
@@ -901,7 +902,9 @@ A refusal in a package's design points at its line there (a token's, a `when`'s,
 block's); one about the file (unreadable, a namespace taken twice) names the file.
 
 *Amended 2026-10-22 (stage 13, package icon tokens; theme2's 03:22 ruling):* **an SVG path is
-relative to the `assets/` of the design file it is written in.** A package's design may declare
+relative to the `assets/` of the root whose file writes it**: the app's directory for the app's
+lines, the package's root for a package's (its design wherever its `"tamber"` puts it, or its
+Contract; a vendored package is the named package its identity names). A package's design may declare
 `icons`, each named under its namespace (`reading.star`; else `tamber-package-name`) and naming
 only its own package's icons (an app's or another package's is `tamber-unknown-token`, as for its
 tokens). The app's design overrides one by its full name under its own `icons`, whole, and D7
@@ -5787,6 +5790,25 @@ design can't do yet" (1). D11 is amended (above).
     `a_package_svg_linked_out_of_its_package_is_refused` (a linked file, a linked `assets/`, the graph, `draws`,
     a write), `a_package_only_design_lists_its_svgs`, `a_package_svg_edit_moves_its_assets_digest`; the module test
     in `scripts/tamber-package-designs.test.mjs` (an SVG edit announced); `icon_svg`'s `color` cases.
+- **After review round 2 (Astra, Grok: RIGHT WITH CHANGES; every round 1 item confirmed).**
+  - A component's assets are the named package its identity names (Astra 1): `named_home` (now in
+    contract/cli/src/sources/home.rs, beside `home`) gives the package's name and directory with the identity, so
+    a package vendored inside another, or inside the app, reached by a relative `use`, reads its own `assets/`.
+  - A `color` makes an SVG no template only where a path paints `currentColor` (Astra 2); a `color` nothing paints
+    in is ignored again, as on main.
+  - A package's SVG is read at the canonical path its confinement checked (both, R2-3), and an entry that can't
+    be resolved (a dangling link) leaves; so for the assets digest and `tamber check`'s copy.
+  - A package with no design whose SVGs the build reads (a Contract component's icon param) is in the local
+    wire's `watch.assets`, `{package, file: "<package>/assets/", assets}`, which the watcher compares as a
+    design's, so an edit announces `changed` naming `<package>/assets/` (Astra, R2-4).
+  - A `style`'s property names match in any case (R2-5).
+  - The wording: an SVG path is relative to the `assets/` of the root whose file writes it, the app's directory
+    or the package's root (R2-6, here, D11's amendment and contract-for-agents); D11's older paragraph marks the
+    icons refusal superseded (R2-7).
+  - Tests: `a_vendored_packages_icon_default_reads_its_own_assets` (inside a package and inside the app, each
+    beside the surrounding package's and the app's same-named SVG), `a_dangling_link_in_a_packages_assets_leaves_it`,
+    `a_contract_only_packages_svgs_are_watched`, the module test of a design-less package's SVG edit, and
+    `icon_svg`'s cases (main's `color` with a black fill a template; `COLOR`/`Color` names).
 - **Unchanged:** every app's plan and `tamber check` output (no app has a package icon), and `@exact/cards` and
   `@exact/actions`, whose icons are still path functions (their move to icon tokens is the follow-up).
 - **Tests:** `contract/cli/tests/it/package_icons.rs` (the namespace and its refusal; an alias within the package
