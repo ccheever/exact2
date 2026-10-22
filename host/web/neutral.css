@@ -1,7 +1,8 @@
   /* The neutral look (LLP 1115.000 D4 part B): what the web draws where the author says nothing, the same in every
      browser and on every operating system. A web build takes this sheet after the shell's browser resets
      (host/web/look.mjs). The browser keeps its system font, the reader's text size and the focus ring.
-     Like the shell's, every rule is `:where()` or sits under one #exact-root, so the author's rows win.
+     Like the shell's, every rule is `:where()` or sits under one #exact-root, so the author's rows win, except where
+     a rule says the platform decides whatever is written (a modal sheet's frame, a bar item's symbol).
 
      The rules the look follows:
      - Colour is Apple's: a build lays Apple's pairs over this sheet's roles (host/web/look.mjs, LLP 1115.000 D4). A
@@ -299,6 +300,22 @@
   @media (hover: hover) { #exact-root [navigationkey] > header::part(back):hover { background-color: var(--exact-quaternary-fill); } }
   #exact-root [navigationkey] > header::part(back):active { background-color: var(--exact-tertiary-fill); } /* after :hover, which a held pointer matches too */
   @media (any-pointer: coarse) { #exact-root [navigationkey] > header::part(back) { min-height: 44px; } }
+  /* LLP 1115.000 D4.15: a symbol alone on a bar item's face is the bar's symbol size whatever size the app writes on
+     the symbol or the item, as UIKit draws a bar button item's image (NavigationBarIOS.swift `barItemMade`): at the
+     large scale of the bar's 17-point body, 22 points (measured 21.7, LLP 1121), here 22/17 of the web's body, the
+     root's font size. A symbol drawn for an SF Symbol keeps its 1.2em box (above), on a native button's face too,
+     since the bar's size is already the large scale `button-symbol-scale` gives a face elsewhere; an icon of the
+     app's own has its em. On a native button the symbol overhangs the button's 1em place, as a face's does, so the
+     button is as tall as one with a word. The bar is a header navigation.js or document.rs marks `data-exact-bar`,
+     where iOS makes one; an item is a pressable in it, not a tab of its tablist, nor in a popover, a dialog, a
+     readout or another item (the title's pressable, around the heading, is no item; one inside it is). A symbol
+     beside words (a title's chevron, a chip's) or inside a box of the item's keeps its size (the LLP says how iOS
+     draws those). */
+  #exact-root [navigationkey] > header[data-exact-bar] :is(button, [data-exact-on~="press"]):not(:is([role="tablist"], [role="status"], [popover], dialog, :is(button, [data-exact-on~="press"]):not(:has([data-exact-text][role="heading"]))) *, :has(> :not(img[data-symbol-path]))) {
+    & > img[data-symbol-path] { font-size: 1.2941rem !important; width: calc(var(--exact-symbol-scale, 1) * 1em) !important; height: calc(var(--exact-symbol-scale, 1) * 1em) !important; }
+    & > img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"]) { --exact-symbol-scale: 1.2; }
+    &[data-button-style] > img[data-symbol-path] { margin: calc((1rem - var(--exact-symbol-scale, 1) * 1em) / 2); }
+  }
   /* A pressable nobody styled in a bar dims where a pointer hovers, as a bar button dims under a finger on iOS, in
      place of the unsaid wash, which would fill a box the button does not show (around a chevron or a word). It dims
      to the shell's press dim, at once as a press does, so a press shows nothing more. The rule weighs no more than

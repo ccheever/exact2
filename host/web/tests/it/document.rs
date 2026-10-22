@@ -490,6 +490,55 @@ component App
     );
 }
 
+// LLP 1115.000 D4.15 — a route's header iOS makes its bar of is marked as
+// navigation.js marks it (`appBarBack`), by the kernel's rule
+// (`exact_kernel::bars::header_bar`): its first child, holding one heading
+// text, on a route that does not say `navigationBar="none"`, unless its
+// author wrote `appearance: none`. A row whose role is `heading` is no
+// heading text. So a page built ahead of time sizes its bar's symbols as
+// the glue will.
+#[test]
+fn a_header_that_is_its_routes_bar_is_marked() {
+    let src = r#"
+routes nav
+  tab home "/"
+    full "/full"
+    bare "/bare"
+    row "/row"
+    own "/own"
+component App
+  action back
+    nav = back(nav)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationBar=(e.name == "full" ? "none" : "auto")
+          header testId=`header-${e.name}` appearance=(e.name == "own" ? "none" : "auto")
+            if e.name == "row"
+              row role="heading" aria-level=1
+                text "Row"
+            else
+              if e.name != "bare"
+                text e.name role="heading" aria-level=1
+"#;
+    let tag = |launch: &str, test_id: &str| {
+        let doc = host(src, Says(""), launch).document().unwrap().root;
+        let at = doc.find(&format!("data-testid=\"{test_id}\"")).unwrap();
+        let start = doc[..at].rfind('<').unwrap();
+        doc[start..at + doc[at..].find('>').unwrap() + 1].to_owned()
+    };
+    for (launch, header, bar) in [
+        ("/", "header-home", true),
+        ("/full", "header-full", false),
+        ("/bare", "header-bare", false),
+        ("/row", "header-row", false),
+        ("/own", "header-own", false),
+    ] {
+        let tag = tag(launch, header);
+        assert_eq!(tag.contains("data-exact-bar"), bar, "{tag}");
+    }
+}
+
 // @ref LLP 1075.003 §3.3, §3.7 — with tabs, each tab's panel holds its own
 // stack, built when the tab is first selected: the unselected panel is
 // hidden and inert; an app's data-* words are attributes of their own. Both are linked
