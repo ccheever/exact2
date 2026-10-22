@@ -3261,8 +3261,9 @@ pads with them stays under the status bar
 ([pitfall](agent-pitfalls.md#native-presentation-and-navigation-ios)).
 Sizes, padding and radii clamp negative results to zero; margins and insets keep
 them. `env(titlebar-area-x|y|width|height)` is the title bar beside a Mac window's
-traffic lights under `viewport-fit="cover"` and is undefined elsewhere, so give it a
-fallback (`contract vocab titlebar-area`). Unsupported: `rem`/`em`, a unitless number where a length goes
+traffic lights under `viewport-fit="cover"` (in the tall title row an app without routes
+gets from `"display_override": ["window-controls-overlay"]` in `app.json`) and is undefined
+elsewhere, so give it a fallback (`contract vocab titlebar-area`). Unsupported: `rem`/`em`, a unitless number where a length goes
 (write `0px`, not `0`), `var()`, more than 32 values or 32 levels (LLP 1001 §2,
 "Comparisons").
 
