@@ -902,9 +902,9 @@ if (es) {
     if (r.reason) end(revision, at.epoch);
     report(r.reason ? { kind: "held", state: null, reason: r.reason, revision } : { kind: "held", state: h.state, revision });
   };
-  // `{select: {up, sites}}` (tamber/1.16): the selection moves to the ancestor `up` call sites above it, as a click
-  // on it would; `sites` are that copy's plan sites by the server's map, and the outermost above the selected node
-  // is it (past the root, the root).
+  // `{select: {up, levels, plan, from}}` (tamber/1.16): the selection moves up its call sites, as a click on the node
+  // it lands on would; it lands in the first of `levels` (each enclosing copy's plan sites, nearest first, by the
+  // server's map for the selection at `from` under `plan`) with a node above the selection, on the outermost there.
   const selectUp = async ({ levels, plan, from }) => {
     const id = inspecting.selected?.id;
     if (!inspecting.on || id == null || !Array.isArray(levels)) { report({ kind: "unsupported", what: "inspect", detail: "no node is selected on this page to move up from" }); return; }

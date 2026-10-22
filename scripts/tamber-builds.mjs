@@ -775,7 +775,8 @@ export function selectRequest(channel, request, sitesOf) {
   // The plan sites it may land on, level by level, by the last selection's map, and the plan and site they were taken
   // from: the page moves only that selection, under that plan, choosing by its own tree.
   const at = sitesOf(request.build, up);
-  if (!at?.levels?.length) return { status: 409, error: { message: `\`${request.build}\` has no selection with a source map to move up from: select a node first` } };
+  if (!at) return { status: 409, error: { message: `\`${request.build}\` has no selection with a source map to move up from: select a node first` } };
+  if (!at.levels.length) return { status: 409, error: { message: 'nothing above the selected node owns a node of its own to move to' } };
   const done = channel.selectUp(request.client, request.build, up, at);
   return done.error ? { status: 409, error: { message: done.error } } : { ok: done };
 }
