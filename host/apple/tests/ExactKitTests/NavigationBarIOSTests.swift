@@ -1,6 +1,7 @@
 #if os(iOS)
 import UIKit
 import XCTest
+import CExact
 @testable import ExactKit
 
 /// LLP 1075.003 Stage 1 over the native fixture's own plan and hatch module,
@@ -335,6 +336,218 @@ final class NavigationBarIOSTests: XCTestCase {
         let hit = try XCTUnwrap(window?.hitTest(point, with: nil))
         XCTAssertTrue(hit.isDescendant(of: nav.navigationBar), "the bar takes the touch: \(hit)")
         XCTAssertEqual(aim["hit"] as? Int, TouchLog.landing(hit)["node"] as? Int, "the dispatch log must see it land where the bar is: \(aim)")
+    }
+
+    func testAPhotoBadgeRefreshesAfterItsImageLoads() throws {
+        let session = try fixture("bar-photo", module: false), p = session.presenter
+        let nav = try XCTUnwrap(p.navigation.primaryNavigation)
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        let button = try node(session, "compose-home")
+        let box = UInt32.max - 1024, picture = box + 1
+        let corners: [String: Any] = ["background_color": [100, 100, 100, 255], "border_radius_top_left": 16,
+            "border_radius_top_right": 16, "border_radius_bottom_right": 16, "border_radius_bottom_left": 16]
+        p.apply(wireBatch([
+            ["op": "props", "id": button.id, "set": ["backgroundMaterial": "glass"]],
+            ["op": "create", "id": box, "kind": "view", "props": ["faceBoxSize": "32x32"], "style": corners],
+            ["op": "create", "id": picture, "kind": "image", "props": ["imageSource": "avatar.png"], "style": ["object_fit": "contain"]],
+            ["op": "children", "id": box, "ids": [picture]],
+            ["op": "children", "id": button.id, "ids": [box]],
+        ]))
+        let placeholder = try XCTUnwrap(route.navigationItem.rightBarButtonItems?.first?.image)
+        XCTAssertEqual(placeholder.size, CGSize(width: 32, height: 32), "a photo has its authored face before its bitmap arrives")
+        XCTAssertEqual(placeholder.renderingMode, .alwaysOriginal)
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("exact-bar-photo-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        let loader = session.rasters, resolver = AssetResolver(root: root)
+        let image = try XCTUnwrap(p.views[picture])
+        var extra: [NodeView] = []
+        defer {
+            loader.testRequest = nil; loader.shutdown(); image.raster = nil; extra.forEach { $0.raster = nil }
+            try? FileManager.default.removeItem(at: root); withExtendedLifetime(resolver) {}
+        }
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.preferredRange = .standard
+        let photo = UIGraphicsImageRenderer(size: CGSize(width: 512, height: 256), format: format).image { context in
+            UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 128, height: 256))
+            UIColor.green.setFill(); context.fill(CGRect(x: 128, y: 0, width: 256, height: 256))
+            UIColor.blue.setFill(); context.fill(CGRect(x: 384, y: 0, width: 128, height: 256))
+        }
+        try XCTUnwrap(photo.pngData()).write(to: root.appendingPathComponent("avatar.png"))
+        var foreground = false, requested: UInt32 = 0
+        loader.testRequest = { [unowned loader] demand in
+            if demand.view == UInt64(picture) { foreground = demand.priority == 0; requested = max(requested, demand.width) }
+            return (exact_raster_request(loader.id, demand), nil)
+        }
+        XCTAssertEqual(image.bounds.size, .zero, "a lifted header supplies no ordinary image frame")
+        image.loadGeneration += 1
+        loader.load(image, source: "avatar.png", resolver: resolver)
+        until("the loaded photo replaces the projected bar item without a data batch") {
+            image.raster != nil && route.navigationItem.rightBarButtonItems?.first?.image !== placeholder
+        }
+        func shown() throws -> UIImage { try XCTUnwrap(route.navigationItem.rightBarButtonItems?.first?.image) }
+        func pixel(_ image: UIImage, _ x: CGFloat, _ y: CGFloat) throws -> [UInt8] {
+            let bitmap = try XCTUnwrap(image.cgImage)
+            var pixel = [UInt8](repeating: 0, count: 4)
+            try pixel.withUnsafeMutableBytes { bytes in
+                let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                    space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue))
+                context.draw(bitmap, in: CGRect(x: -x, y: -y, width: 32, height: 32))
+            }
+            return pixel
+        }
+        for fit in ["contain", "cover", "fill", "none", "scale-down"] {
+            p.apply(wireBatch([["op": "style", "id": picture, "style": ["object_fit": fit]]]))
+            let face = try shown(), top = try pixel(face, 16, 2), side = try pixel(face, 3, 16)
+            if fit == "contain" || fit == "scale-down" {
+                XCTAssertEqual(Int(top[0]), 100, accuracy: 2, "\(fit) leaves the box visible above the photo")
+                XCTAssertGreaterThan(side[0], 230, "\(fit) keeps the left red band")
+            } else {
+                XCTAssertGreaterThan(top[1], 230, "\(fit) fills the top with the middle green band")
+                XCTAssertLessThan(top[0], 20)
+                if fit == "fill" { XCTAssertGreaterThan(side[0], 230) }
+                else { XCTAssertGreaterThan(side[1], 230, "\(fit) crops to the middle green band") }
+            }
+            XCTAssertEqual(try pixel(face, 0, 0)[3], 0, "the authored round corners clip the photo")
+        }
+        p.apply(wireBatch([["op": "style", "id": picture, "style": ["display": "none"]]]))
+        XCTAssertNil(route.navigationItem.rightBarButtonItems?.first?.image, "an authored display:none photo must not appear in the native item")
+        p.apply(wireBatch([["op": "style", "id": picture, "style": ["display": "block"]]]))
+        p.apply(wireBatch([["op": "style", "id": picture, "style": ["visibility": "hidden"]]]))
+        XCTAssertNil(route.navigationItem.rightBarButtonItems?.first?.image, "an authored visibility:hidden photo must not appear in the native item")
+        p.apply(wireBatch([["op": "style", "id": picture, "style": ["visibility": "visible"]]]))
+        XCTAssertTrue(foreground, "the native photo is on screen even though its authored header is hidden")
+        XCTAssertGreaterThanOrEqual(requested, UInt32(ceil(32 * image.traitCollection.displayScale)), "decode for the native face, not a zero-sized hidden node")
+        if #available(iOS 26.0, *) {
+            XCTAssertFalse(try XCTUnwrap(route.navigationItem.rightBarButtonItems?.first).hidesSharedBackground)
+            let dark = try shown().imageAsset?.image(with: UITraitCollection(traitsFrom: [UITraitCollection(userInterfaceStyle: .dark), UITraitCollection(displayScale: image.traitCollection.displayScale)]))
+            XCTAssertEqual(dark?.size, CGSize(width: 32, height: 32), "the dark variant keeps its point size")
+        }
+        func pressure() throws {
+            let source = "pressure-\(extra.count).png"
+            let large = UIGraphicsImageRenderer(size: CGSize(width: 1200, height: 1200), format: format).image { context in
+                UIColor(red: CGFloat(extra.count + 1) / 4, green: 0.5, blue: 0, alpha: 1).setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 1200, height: 1200))
+            }
+            try XCTUnwrap(large.pngData()).write(to: root.appendingPathComponent(source))
+            let item = NodeView(id: picture + 1 + UInt32(extra.count), kind: "image", presenter: p)
+            let scale = item.traitCollection.displayScale
+            item.frame = CGRect(x: 0, y: 300, width: 1200 / scale, height: 1200 / scale)
+            item.loadGeneration = 1; p.views[item.id] = item; p.viewport.addSubview(item); extra.append(item)
+            loader.fit(size: .zero, scale: 1)
+            loader.load(item, source: source, resolver: resolver)
+            until("the large visible image is admitted under pressure") { item.raster != nil }
+        }
+        try pressure(); try pressure()
+        XCTAssertNotNil(image.raster, "a visible native photo must not be parked as an offscreen authored node")
+        p.navigation.prepareRoutes([route], in: nav)
+        XCTAssertGreaterThan(try pixel(shown(), 16, 16)[1], 230, "an ordinary reprojection keeps the photo after pressure")
+        p.press(try node(session, "detail").id)
+        until("the photo's route is in the back stack") { nav.topViewController !== route && nav.transitionCoordinator == nil }
+        try pressure()
+        XCTAssertNil(image.raster, "a photo in a hidden back-stack route may be parked")
+        XCTAssertEqual(p.navigation.agentBack(), "")
+        until("the photo is restored after returning to its route") {
+            nav.topViewController === route && nav.transitionCoordinator == nil && image.raster != nil
+        }
+        XCTAssertGreaterThan(try pixel(shown(), 16, 16)[1], 230)
+    }
+
+    func testATitlePhotoDoesNotRetainItsViewsSourceBitmap() throws {
+        let session = try fixture("title-photo-budget", module: false), p = session.presenter
+        let nav = try XCTUnwrap(p.navigation.primaryNavigation)
+        p.press(try node(session, "chat").id)
+        until("the title's route appears") { nav.transitionCoordinator == nil }
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        let group = try node(session, "title-group")
+        let box = try XCTUnwrap(group.container.subviews.compactMap { $0 as? NodeView }.first)
+        let picture = UInt32.max - 1024
+        p.apply(wireBatch([
+            ["op": "create", "id": picture, "kind": "image", "props": ["imageSource": "title.png"], "style": ["object_fit": "none"]],
+            ["op": "children", "id": box.id, "ids": [picture]],
+        ]))
+        let image = try XCTUnwrap(p.views[picture])
+        let title = try XCTUnwrap(route.titleView)
+        let placeholder = title.avatar.image
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("exact-title-photo-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        let loader = session.rasters, resolver = AssetResolver(root: root)
+        defer {
+            loader.shutdown(); image.raster = nil
+            try? FileManager.default.removeItem(at: root); withExtendedLifetime(resolver) {}
+        }
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.preferredRange = .standard
+        try autoreleasepool {
+            let photo = UIGraphicsImageRenderer(size: CGSize(width: 1200, height: 1200), format: format).image { context in
+                UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 1200, height: 1200))
+            }
+            try XCTUnwrap(photo.pngData()).write(to: root.appendingPathComponent("title.png"))
+        }
+        loader.fit(size: .zero, scale: 1)
+        image.loadGeneration += 1
+        autoreleasepool {
+            loader.load(image, source: "title.png", resolver: resolver)
+            until("the loaded title photo is projected") { image.raster != nil && title.avatar.image !== placeholder }
+            XCTAssertEqual(image.raster?.image.image.width, 1200)
+            // Release the node's lease and layer as parking does, while UIKit
+            // keeps its cached title. Only the small rendered face should remain.
+            loader.cancel(image.id); image.raster = nil; image.applyImageLayer()
+            loader.trimCold()
+        }
+        XCTAssertEqual(exact_raster_stats(loader.id).resident_bytes, 0, "the cached title must release its source before another decode needs the budget")
+        XCTAssertEqual(title.avatar.image?.size, CGSize(width: 32, height: 32))
+    }
+
+    func testADirectPhotoRefreshesItsNativeMenuItemAfterLoading() throws {
+        let session = try fixture("bar-direct-photo", module: false), p = session.presenter
+        let nav = try XCTUnwrap(p.navigation.primaryNavigation)
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        let button = try node(session, "menu-item"), picture = UInt32.max - 1024
+        p.apply(wireBatch([
+            ["op": "create", "id": picture, "kind": "image", "props": ["imageSource": "league.png", "faceBoxSize": "26x26"], "style": ["object_fit": "contain"]],
+            ["op": "children", "id": button.id, "ids": [picture]],
+        ]))
+        func item() throws -> UIBarButtonItem {
+            try XCTUnwrap(route.navigationItem.leftBarButtonItems?.first { $0.accessibilityIdentifier == "menu-item" })
+        }
+        let placeholder = try XCTUnwrap(try item().image, "an image-only invoker has a face before its bitmap arrives")
+        XCTAssertEqual(placeholder.size, CGSize(width: 26, height: 26))
+        XCTAssertNotNil(try item().menu)
+        XCTAssertEqual(try item().accessibilityLabel, "More")
+        let image = try XCTUnwrap(p.views[picture])
+        XCTAssertEqual(p.navigation.headerPhotoSize(image), CGSize(width: 26, height: 26))
+        XCTAssertEqual(image.bounds.size, .zero, "the projected header supplies no ordinary image frame")
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("exact-bar-direct-photo-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        let loader = session.rasters, resolver = AssetResolver(root: root)
+        defer {
+            loader.shutdown(); image.raster = nil
+            try? FileManager.default.removeItem(at: root); withExtendedLifetime(resolver) {}
+        }
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.preferredRange = .standard
+        let photo = UIGraphicsImageRenderer(size: CGSize(width: 52, height: 52), format: format).image { context in
+            UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 52, height: 52))
+        }
+        try XCTUnwrap(photo.pngData()).write(to: root.appendingPathComponent("league.png"))
+        image.loadGeneration += 1
+        loader.load(image, source: "league.png", resolver: resolver)
+        until("the direct photo refreshes the menu item without a data batch") {
+            image.raster != nil && (try? item().image) !== placeholder
+        }
+        let loaded = try XCTUnwrap(try item().image)
+        XCTAssertEqual(loaded.size, CGSize(width: 26, height: 26))
+        XCTAssertEqual(loaded.renderingMode, .alwaysOriginal)
+        let bitmap = try XCTUnwrap(loaded.cgImage)
+        var pixel = [UInt8](repeating: 0, count: 4)
+        try pixel.withUnsafeMutableBytes { bytes in
+            let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(bitmap, in: CGRect(x: -13, y: -13, width: 26, height: 26))
+        }
+        XCTAssertGreaterThan(pixel[0], 230, "the photo keeps its colour")
+        XCTAssertLessThan(pixel[1], 20)
+        XCTAssertNotNil(try item().menu, "the photo stays a native menu invoker")
+        XCTAssertEqual(try item().accessibilityLabel, "More")
+        XCTAssertNil(try item().action)
+        if #available(iOS 26.0, *) { XCTAssertFalse(try item().hidesSharedBackground) }
     }
 
     /// A bar item takes the colour its author wrote on its button, or the

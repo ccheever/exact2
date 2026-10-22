@@ -274,8 +274,8 @@ struct HeaderShape: Equatable {
     }
 }
 
-/// A bar item's face drawn from a button whose one child is a filled box
-/// holding a text or a symbol (an avatar, a badge): CSS's colours and
+/// A bar item's face drawn from a button whose one child is a photo or a
+/// filled box holding text, a symbol or a photo: CSS's colours and
 /// corners at the bar's image size, light and dark, as UIKit draws a
 /// raster item image (`.alwaysOriginal`).
 struct BadgeFace: Equatable {
@@ -285,32 +285,52 @@ struct BadgeFace: Equatable {
     let text: String, symbol: String?
     let light: [[Double]], dark: [[Double]]
     let corners: [CGSize]
+    // Cached title faces borrow the node's bitmap so parking can release it.
+    private weak var photoNode: NodeView?
+    var photo: CGImage? { photoNode?.raster?.image.image }
+    let photoID: UInt32?
+    let photoSize: CGSize
+    let photoFit: String
+    let photoKey: String
+    var glass = false
     init?(_ button: NodeView) {
         let kids = button.container.subviews.compactMap { $0 as? NodeView }
         guard kids.count == 1, let box = kids.first else { return nil }
-        self.init(box: box)
+        let glass = Materials.glass(button.props["backgroundMaterial"])
+        self.init(box: box, authored: glass)
+        self.glass = glass || box.kind == "image"
     }
-    /// The face of a filled box holding a text or a symbol (a title's
-    /// avatar, §9.10, too). `authored`: draw it at the size the author gave
-    /// the box (`faceBoxSize`, the authored points a replaced header has no frame for), between 20
-    /// and 44, as a title's avatar is; otherwise at a bar item's 36.
+    /// A direct photo or a filled box, including a title's avatar (§9.10).
+    /// `faceBoxSize` carries authored points when the replaced header has no
+    /// frame. Direct photos and `authored` boxes use it, clamped to 20 to 44;
+    /// otherwise a bar item's 36.
     init?(box: NodeView, authored: Bool = false) {
-        guard box.channels("background_color") != nil else { return nil }
-        var text = "", symbol: String?, ink: NodeView?
+        guard box.style["display"]?.string != "none" else { return nil }
+        let direct = box.kind == "image" && box.faceSymbol == nil && !box.cssVisibilityHidden &&
+            (box.imageSource ?? box.props["imageSource"]).map { !$0.hasPrefix("symbol:") } == true
+        guard direct || box.channels("background_color") != nil else { return nil }
+        var text = "", symbol: String?, ink: NodeView?, pictured: NodeView? = direct ? box : nil
         func walk(_ node: NodeView) {
             for case let child as NodeView in node.container.subviews {
+                guard child.style["display"]?.string != "none" else { continue }
                 if child.kind == "image", let name = child.faceSymbol { symbol = symbol ?? name; ink = ink ?? child }
+                else if child.kind == "image", !child.cssVisibilityHidden, let source = child.imageSource ?? child.props["imageSource"], !source.hasPrefix("symbol:") { pictured = pictured ?? child }
                 else if child.isParagraph, text.isEmpty { text = child.accessibleText; ink = ink ?? child }
                 else { walk(child) }
             }
         }
         walk(box)
-        guard !text.isEmpty || symbol != nil else { return nil }
+        guard !text.isEmpty || symbol != nil || pictured != nil else { return nil }
+        photoNode = pictured
+        photoID = pictured?.id
+        photoSize = pictured?.raster?.image.naturalSize ?? .zero
+        photoFit = pictured?.style["object_fit"]?.string ?? "fill"
+        photoKey = pictured.map { "\($0.imageSource ?? $0.props["imageSource"] ?? "")|\($0.raster.map { ObjectIdentifier($0.image).hashValue } ?? 0)" } ?? ""
         let key = symbol == nil ? "text_color" : "tint_color"
         func colours(_ dark: Bool) -> [[Double]] {
             [box.channels("background_color", dark: dark) ?? [0, 0, 0, 0], ink?.channels(key, dark: dark) ?? (dark ? [1, 1, 1, 1] : [0, 0, 0, 1])]
         }
-        let given = authored ? box.props["faceBoxSize"].flatMap { s -> CGFloat? in
+        let given = authored || direct ? box.props["faceBoxSize"].flatMap { s -> CGFloat? in
             let parts = s.split(separator: "x").compactMap { Double($0) }
             return parts.count == 2 ? CGFloat(min(parts[0], parts[1])) : nil
         } : nil
@@ -323,21 +343,26 @@ struct BadgeFace: Equatable {
     // every batch builds each route's source.
     var source: String {
         let rgba = { (c: [[Double]]) in c.map { $0.map { String($0) }.joined(separator: ",") }.joined(separator: ";") }
-        return "\(text)|\(symbol ?? "")|\(rgba(light))|\(rgba(dark))|\(corners.map { "\($0.width)x\($0.height)" }.joined(separator: ","))|\(size)"
+        return "\(text)|\(symbol ?? "")|\(rgba(light))|\(rgba(dark))|\(corners.map { "\($0.width)x\($0.height)" }.joined(separator: ","))|\(size)|\(photoKey)|\(photoFit)|\(glass)"
     }
 
     var image: UIImage {
         let light = draw(self.light).withRenderingMode(.alwaysOriginal)
-        light.imageAsset?.register(draw(self.dark).withRenderingMode(.alwaysOriginal), with: UITraitCollection(userInterfaceStyle: .dark))
+        let dark = draw(self.dark).withRenderingMode(.alwaysOriginal)
+        light.imageAsset?.register(dark, with: UITraitCollection(traitsFrom: [UITraitCollection(displayScale: dark.scale), UITraitCollection(userInterfaceStyle: .dark)]))
         return light
     }
     private func draw(_ c: [[Double]]) -> UIImage {
         let rect = CGRect(x: 0, y: 0, width: size, height: size)
         return UIGraphicsImageRenderer(size: rect.size).image { _ in
             TextEngine.color(c[0]).setFill()
-            UIBezierPath(cgPath: BorderPaint.roundedRect(rect, corners, shape: nil)).fill()
+            let outline = UIBezierPath(cgPath: BorderPaint.roundedRect(rect, corners, shape: nil))
+            outline.fill()
             let ink = TextEngine.color(c[1])
-            if let symbol, let glyph = FaceSymbol.image(symbol, points: size * 0.42, configuration: UIImage.SymbolConfiguration(pointSize: size * 0.42))?.withTintColor(ink, renderingMode: .alwaysOriginal) {
+            if let photo {
+                outline.addClip()
+                UIImage(cgImage: photo).draw(in: RasterGeometry.rect(natural: photoSize, content: rect, fit: photoFit))
+            } else if let symbol, let glyph = FaceSymbol.image(symbol, points: size * 0.42, configuration: UIImage.SymbolConfiguration(pointSize: size * 0.42))?.withTintColor(ink, renderingMode: .alwaysOriginal) {
                 glyph.draw(at: CGPoint(x: (rect.width - glyph.size.width) / 2, y: (rect.height - glyph.size.height) / 2))
             } else {
                 let attrs: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: size * 0.42, weight: .medium), .foregroundColor: ink]
@@ -622,6 +647,26 @@ extension NavigationHost {
         !ExactEnv.authoredChrome && stacks[ObjectIdentifier(nav)]?.showsBar == true
     }
 
+    /// A projected photo is visible at its native face's size even though
+    /// the authored header is hidden and has no layout box.
+    func headerPhotoSize(_ image: NodeView) -> CGSize? {
+        for nav in allNavigations {
+            guard barShows(nav), !nav.isNavigationBarHidden, nav.navigationBar.window != nil,
+                  let c = nav.topViewController as? RouteController,
+                  c.lifted.map({ image.isDescendant(of: $0) }) == true || c.barNodes.contains(where: { image.isDescendant(of: $0) }) else { continue }
+            var ancestor: UIView? = nav.navigationBar
+            while let view = ancestor, !view.isHidden, view.alpha > 0 { ancestor = view.superview }
+            guard ancestor == nil,
+                  let shape = HeaderShape.bar(of: c.node, back: container?.props["navigationBack"], backIsUIKits: c.pushed) else { continue }
+            let faces = (shape.leading + shape.trailing).compactMap(\.badge)
+                + [HeaderShape.presented(shape.group, segments: shape.segments)?.avatar].compactMap { $0 }
+            if let face = faces.first(where: { $0.photoID == image.id }) {
+                return CGSize(width: face.size, height: face.size)
+            }
+        }
+        return nil
+    }
+
     /// The agent's tap on an authored control a native bar stands for, under
     /// `--chrome platform`: a tab the tab bar shows, or a control in the
     /// header a shown bar replaces (its items, its back button). Pressed as
@@ -824,6 +869,7 @@ extension NavigationHost {
         if let nav, nav.transitionCoordinator == nil, let top = nav.topViewController as? RouteController, routes.contains(top) {
             showBar(nav, animated: nav.view.window != nil)
         }
+        presenter.session?.rasters.displayChanged()
     }
 
     /// The header a bar stands for takes no room from the turn it is lifted,
@@ -1291,9 +1337,9 @@ extension NavigationHost {
         }
         if #available(iOS 26.0, tvOS 26.0, *) {
             if i.prominent { item.style = .prominent }
-            // A drawn face is its own shape: no glass capsule around it.
+            // An opaque face supplies its shape; authored glass keeps UIKit's capsule.
             #if !os(tvOS)
-            if i.badge != nil { item.hidesSharedBackground = true }
+            if let badge = i.badge, !badge.glass { item.hidesSharedBackground = true }
             else if i.ownGlass { item.sharesBackground = false }
             #endif
         }

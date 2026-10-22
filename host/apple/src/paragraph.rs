@@ -47,19 +47,22 @@ impl<D: DataSource> Host<D> {
         false
     }
 
-    /// A drawn face's box (a title's avatar, LLP 1075.003 §9.10): a View
-    /// with a fill and authored width and height in points. Its points go as
+    /// A drawn face (a title's avatar, LLP 1075.003 §9.10): an image or a
+    /// View with a fill and authored width and height in points. Its points go as
     /// `faceBoxSize` `"WxH"`, because a header the bar replaces is laid out
     /// as `display: none`, so no frame tells the host the size the author
-    /// gave it. The test reads the node alone, never its ancestors, and of
-    /// its children only that there are some: a box moved into or out of a
+    /// gave it. The test reads the node alone, never its ancestors; a View
+    /// must have children. A face moved into or out of a
     /// header needs no recomputation, and initials beside a status dot are
     /// still a face.
     fn face_box_size(&self, id: ViewId) -> Option<String> {
         let kernel = self.runner.kernel();
         let node = kernel.node(id)?;
-        // A childless box is decoration (a dot), not a face.
-        if node.node_type != NodeType::View || kernel.arena().children(node.key.index).is_empty() {
+        // A childless View is decoration (a dot); an image is its own face.
+        if node.node_type != NodeType::Image
+            && (node.node_type != NodeType::View
+                || kernel.arena().children(node.key.index).is_empty())
+        {
             return None;
         }
         let env = kernel.arena().env();
@@ -69,6 +72,9 @@ impl<D: DataSource> Host<D> {
         ) else {
             return None;
         };
+        if node.node_type == NodeType::Image {
+            return Some(format!("{w}x{h}"));
+        }
         // No `background-color` is `currentcolor`: the text colour fills it.
         let fill = node
             .style

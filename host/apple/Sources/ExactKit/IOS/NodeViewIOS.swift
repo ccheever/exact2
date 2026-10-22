@@ -556,6 +556,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         guard loadGeneration == generation, let presenter, presenter.views[id] === self else { return nil }
         raster = lease; AnimatedRasters.shared.attach(self); applyImageLayer()
         self.setNeedsDisplay()
+        presenter.navigation.headerImageLoaded(self)
         if let c = canvasAbove { c.needsCapture = true; canvases?.scheduleCapture() }
         return lease.image.naturalSize
     }
