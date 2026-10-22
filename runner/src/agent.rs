@@ -912,7 +912,6 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     }
     schedule::tasks(runner, &mut s);
     schedule::queued(runner, &mut s);
-    crate::notify::state(runner, &mut s);
     // What a module's declared substitute keeps (LLP 1133.004 §7).
     runner.declared_state_json(&mut s);
     sound::state(runner, request, &mut s);

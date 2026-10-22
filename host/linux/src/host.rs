@@ -258,6 +258,9 @@ impl<D: DataSource> Host<D> {
             launch,
         )
         .map_err(HostError::Runner)?;
+        // No module has an implementation here: outside the agent its names
+        // are refused, not substituted (LLP 1133 D8).
+        runner.refuse_unbound_modules(!crate::picker::agent());
         if let Some(action) = region.and_then(|r| r.activate) {
             runner.act(action, Vec::new()).map_err(HostError::Runner)?;
         }

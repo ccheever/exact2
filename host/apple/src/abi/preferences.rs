@@ -220,6 +220,9 @@ impl<D: DataSource> Bridge<D> {
         let names: Vec<&str> = text.lines().filter(|l| !l.is_empty()).collect();
         if let Some(h) = self.host.as_mut() {
             h.runner_mut().bind_extensions(&names);
+            // Outside the agent the rest have no implementation here: refused, not substituted (LLP 1133 D8).
+            h.runner_mut()
+                .refuse_unbound_modules(std::env::var_os("EXACT_AGENT").is_none());
         }
     }
 
