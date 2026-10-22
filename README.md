@@ -654,7 +654,10 @@ else here was admitted because a real app needed it.
   renderer, then adopted in place instead of hydrated
   ([LLP 1048](llp/1048-rendering-across-the-curve.rfc.md)).
 - **Delivery.** `scripts/deploy.mjs` publishes the web root and signed update bundles,
-  which installed apps fetch after first pixel. TypeScript and Rust logic can be
+  which installed apps fetch after first pixel. Apple apps check every fifteen
+  minutes while active under every activation policy; `deploy.check.interval`
+  overrides the interval in seconds. Checks stage a candidate; `deploy.activate`
+  controls when it applies. TypeScript and Rust logic can be
   replaced live in development. Every web build gets an install page, and
   `exact release` signs and notarizes a Mac app
   ([LLP 1030](llp/1030-delivery-unified.rfc.md)).
