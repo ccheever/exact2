@@ -1111,7 +1111,7 @@ package final class Presenter {
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
                 let color = v.style["text_color"], old = v.style
                 v.applyStyle(v.presented(op.style))
-                anchorChanges.note(id, from: old, to: v.style)
+                anchorChanges.note(id, from: old, to: v.style, popover: v.props["popover"] != nil)
                 if v.surface != nil { v.applySurface() }
                 // Paint motion re-sends a style per frame (LLP 1055.000 D6);
                 // a view that paints in an appearance of its own says so
@@ -1326,7 +1326,7 @@ package final class Presenter {
                   let source = views.values.first(where: { $0.props["id"] == target }),
                   source.window != nil else { continue }
             var ancestor = preview.superview as? NodeView
-            while let node = ancestor, node.style["position_type"]?.string != "absolute" {
+            while let node = ancestor, node.layoutPosition != "absolute" {
                 ancestor = node.superview as? NodeView
             }
             guard let panel = ancestor, let parent = panel.superview else { continue }
@@ -1336,9 +1336,7 @@ package final class Presenter {
             // nearest positioned ancestor, expressed in the parent coordinates.
             var containing = parent
             while containing !== root && containing.superview !== root {
-                if let node = containing as? NodeView,
-                   node.style["position_type"]?.string != nil,
-                   node.style["position_type"]?.string != "static" { break }
+                if let node = containing as? NodeView, node.layoutPosition != "static" { break }
                 guard let ancestor = containing.superview else { break }
                 containing = ancestor
             }
