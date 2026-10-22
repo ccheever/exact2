@@ -3,6 +3,7 @@ import { removeAttachmentReferences } from '../../src/composer/composer-attachme
 import { prGuideTaskHandoff } from '../../src/pull-requests/pages-pr-handoffs';
 import { snapshotOps } from '../../src/client/client-ops-snapshot';
 import type { Files } from '../../src/client/protocol';
+import { adoptAppFiles } from '../../src/media/save-file';
 import { expect, test } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
@@ -126,6 +127,8 @@ test('image removal preserves shelf/bytes before ACK and on refusal; applied ACK
   for (const applied of [false,true]) {
     const f=setup('![shot](t3-context://v1/image/image_shot)');
     f.client.local.snapshotDrafts[f.client.draftKey]=[{id:'shot',name:'shot.png'}];
+    // The app's storage (Exact's storage.fs): its save of the preference file is recorded among the acknowledgment's requests.
+    adoptAppFiles({fs:{async readFile(){return new ArrayBuffer(0);},async writeFile(){},async mkdir(){},async atomicWriteFile(){f.acknowledgments.push({op:'savePreferences'});}}});
     const out={message:'',id:'',value:''};
     await snapshotOps.call(f.client,'remove-snapshot','shot','next-image',0,f.native,{} as Files,out);
     expect(f.client.snapshotDrafts).toHaveLength(1);expect(f.acknowledgments).toEqual([]);expect(out.message).toBe('');
@@ -133,7 +136,8 @@ test('image removal preserves shelf/bytes before ACK and on refusal; applied ACK
     expect(f.client.snapshotDrafts).toHaveLength(applied?0:1);
     const ops=f.acknowledgments.map(request=>(request as {op:string}).op);
     if(applied) {
-      expect(ops.indexOf('writePreferences')).toBeLessThan(ops.indexOf('snapshotDraftRemove'));
+      expect(ops.indexOf('savePreferences')).toBeGreaterThanOrEqual(0);
+      expect(ops.indexOf('savePreferences')).toBeLessThan(ops.indexOf('snapshotDraftRemove'));
       expect(ack).toMatchObject({focus:'next-image',removedImage:'shot',inputSerial:1});
     } else { expect(ops).toEqual([]);expect(ack.focus).toBe(''); }
   }

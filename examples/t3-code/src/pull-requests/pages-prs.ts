@@ -13,7 +13,7 @@ import { pagesPrefs } from '../pages/pages-prefs';
 import { projectIdentity } from '../client/presentation';
 import type { T3Client } from '../client/client';
 import { letGo } from '../client/let-go';
-import { holdPullRequestRefreshes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, viewRefreshedAt } from './pages-pr-refresh';
+import { holdPullRequestRefreshes, interactionResumes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, viewRefreshedAt } from './pages-pr-refresh';
 import { listRelist, overrideListEntries, settleListOverrides } from './pages-pr-actions'; // the panel's onActed
 import { emptyChecksPopover, emptyStackPopover, quickPopovers, quickRow, flushQuickInvalidations } from './pages-pr-quick';
 import { pullRequestEntryKey, pullRequestEntryViewer } from './pages-pr-routing'; // several servers' rows
@@ -286,10 +286,10 @@ type LiveInput = { open: boolean; now: number; visible?: boolean; returns?: numb
 /**
  * The page's facts noted; what to ask liveRefreshDue, or null when nothing is asked (no wait then). `returns` counts
  * the window focused again (app.contract `windowReturned`, which reads the clock at that moment, so the 10 s rule is
- * measured from then, not from the last minute tick).
+ * measured from then, not from the last minute tick) and the reader back from six idle minutes (interactionResumes).
  */
 function listLiveAsk(client: object, input: LiveInput): { visible: boolean; now: number; arrival: boolean } | null {
-  const visible = input.visible !== false, returns = input.returns ?? 0;
+  const visible = input.visible !== false, returns = (input.returns ?? 0) + interactionResumes(client);
   let live = listLives.get(client);
   if (!live) { live = { open: false, visible: true, returns, due: false }; listLives.set(client, live); }
   const was = { ...live };
@@ -423,10 +423,10 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   if (!view.hasProjects) { view.empty = 'No projects in this workspace'; view.emptyDetail = 'Add a project, and the pull requests from its repository appear here.'; view.emptyAction = 'add-project'; return view; }
   const payload = listPayload(prefs, query);
   // The server's announcements read the list again (its refreshTrigger), the rows staying meanwhile.
-  await holdPullRequestRefreshes(client, native, 'list', true);
+  await holdPullRequestRefreshes(client, native, 'list', true, input.now);
   // A due live read stays due until a read lands: a later run (a tick, a revision) overtakes this one's answer.
   const ask = listLiveAsk(client, input), live = listLives.get(client)!;
-  if (ask !== null && await liveRefreshDue(client, native, LIST_VIEW, ask)) live.due = true;
+  if (ask !== null && liveRefreshDue(client, LIST_VIEW, ask)) live.due = true;
   let cached = lists.get(client);
   // Every server that reads pull requests, a page at a time (pages-pr-paging.ts). A refresh
   // (Refresh, an announcement, a live read, a relist) reads the whole visible list again, never only the last slice.

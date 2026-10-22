@@ -27,8 +27,7 @@ export class Fake implements Native {
   emit(key: string, value: Obj) { this.events.push({ seq: ++this.seq, generation: this.generation, key, subscriptionId: this.subs[key], value }); }
   async later(input: unknown): Promise<unknown> {
     const request = obj(input), op = request.op;
-    if (op === 'readPreferences') return this.ok({ text: '' });
-    if (op === 'writePreferences' || op === 'devicePresentation' || op === 'unsubscribe') return this.ok({});
+    if (op === 'devicePresentation' || op === 'unsubscribe') return this.ok({});
     if (op === 'status') return this.ok({ state: 'connected', origin: 'http://127.0.0.1:3773', environmentId: 'env1', message: '', descriptor: this.config.environment });
     // The connected server is this Mac's embedded server: the primary environment (local-primary.ts).
     if (op === 'localBackendStatus') return this.ok({ state: 'ready', enabled: true, httpBaseUrl: 'http://127.0.0.1:3773', wsBaseUrl: 'ws://127.0.0.1:3773', bearerReady: true, environmentId: 'env1', label: 'This Mac' });

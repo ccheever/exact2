@@ -383,6 +383,8 @@ component FilePreview
 // number only (#d5e6ff / #254566, the number #20649e / #72b6ff, which is the diff's; the code row and the comment card
 // under it stay the surface's, and there is no bar).
 component FilesCodeRow
+  inject
+    interacted: action
   props
     family: string
     line: FilesCodeLine
@@ -405,6 +407,7 @@ component FilesCodeRow
   // The release lets go of the focus the press gave the gutter cell (a pressable node takes it on macOS), so the draft
   // that opens takes it (DiffDraftCard's autofocus), as FilePreviewPanel's beginComment blurs and focuses the draft.
   action move(e: PointerEvent)
+    interacted()
     // A held pointer's moves carry its button; a hover after an up this node never heard ends the drag.
     if dragging and e.buttons == 0
       dragging = false

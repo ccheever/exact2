@@ -40,6 +40,7 @@ component ComposerImageDialog
     dialogEntered: action
     dialogFallback: action
     rem: number
+    interacted: action
   props
     preview: ComposerImagePreview
     windowWidth: number
@@ -125,6 +126,7 @@ component ComposerImageDialog
     downLeft = seenLeft
     downTop = seenTop
   action move(e: PointerEvent)
+    interacted()
     if downX >= 0 and e.buttons == 1
       dragged = dragged or (e.clientX - downX) * (e.clientX - downX) + (e.clientY - downY) * (e.clientY - downY) > 16
       place(downLeft - (e.clientX - downX), downTop - (e.clientY - downY), z)

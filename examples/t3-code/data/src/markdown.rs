@@ -13,6 +13,8 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
         javascript,
         exact_data::Placed::new(Markdown, placement),
         &[
+            "activityInteraction",
+            "activityResumed",
             "snapshot",
             "snapshotSettings",
             "modelCatalog",

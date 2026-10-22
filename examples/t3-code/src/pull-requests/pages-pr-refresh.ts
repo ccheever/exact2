@@ -9,7 +9,8 @@
 //   when it lands absorbs it (the readers note the epoch when their read completes).
 // - apps/web/src/hooks/useLiveRefresh.ts: when each view last read (kept outside the panel, so a
 //   view reopened later is an arrival, not a first read), and the reader's last interaction (the
-//   module's input monitor, T3ActivityInput.swift, asked through `activityLastInteraction`).
+//   window's, app.contract `interacted`, to the second); the first after six idle minutes resumes
+//   the views as an arrival (`watchInteraction`).
 // - pullRequestDetail.logic.ts read/writePullRequestDetailSnapshot (74541bab17): the snapshots live in
 //   the app's versioned preference file (t3-code.json, `prDetailSnapshots`), bounded to the 20 most
 //   recently written.
@@ -18,9 +19,8 @@
 // the request-id order). A new connection carries no streams, so the next read subscribes again.
 import type { T3Client } from '../client/client';
 import { obj, str, type Obj } from '../client/domain';
-import { bridgeReply, type Native } from '../client/protocol';
+import type { Native } from '../client/protocol';
 import { subscriptionSerial } from '../details/shell-vcs';
-import { isEpoch } from '../shared/wall-clock';
 import { LIVE_REFRESH_IDLE_AFTER_MS, LIVE_REFRESH_INTERVAL_MS, shouldRefreshOnArrival, shouldRefreshOnInterval, type SnapshotStorage } from './pages-pr-logic';
 import { letGo } from '../client/let-go';
 
@@ -60,10 +60,12 @@ export function prRefreshEvent(client: object, entry: Obj): void {
 
 /**
  * A surface opened or closed (`surface` is "detail" or "list"). While any is open the stream is
- * held; when the last closes it is let go, as an atom family entry nobody reads goes idle.
+ * held; when the last closes it is let go, as an atom family entry nobody reads goes idle. The first
+ * to open is useLiveRefresh's first watcher, which counts as an interaction at `now` (watchInteraction).
  */
-export async function holdPullRequestRefreshes(client: T3Client, native: Native, surface: string, open: boolean): Promise<void> {
+export async function holdPullRequestRefreshes(client: T3Client, native: Native, surface: string, open: boolean, now = 0): Promise<void> {
   const state = refreshState(client);
+  if (open && !state.surfaces.size && now > 0) noteInteraction(client, now, false);
   if (open) state.surfaces.add(surface); else state.surfaces.delete(surface);
   if (state.generation !== client.generation) { state.generation = client.generation; state.id = ''; state.tried = false; state.last = null; }
   if (!state.surfaces.size) {
@@ -94,16 +96,25 @@ export function noteViewRefreshed(client: object, view: string, now: number): vo
   views.set(view, now);
 }
 
+const interactions = new WeakMap<object, { at: number; resumes: number }>();
 /**
- * When the reader last pointed, typed or scrolled, from the activity reporter, or null when it
- * cannot be compared with `now`: the window's time is an instant only where the host told the
- * date (agent mode counts from zero), so the idle rule then stands aside rather than guess.
+ * The window's interaction (app.ts, from app.contract `interacted`), on the views' clock. `resumed`: the first after six
+ * idle minutes, which useLiveRefresh's watchers take as an arrival.
  */
-export async function lastInteraction(native: Native, now: number): Promise<number | null> {
-  if (!isEpoch(now)) return null;
-  const reply = await bridgeReply(native, { op: 'activityLastInteraction' }).catch((error: unknown) => { if (letGo(error)) throw error; return null; });
-  const at = Number(obj(reply?.value).at);
-  return reply?.ok && Number.isFinite(at) && at > 0 ? at : null;
+export function noteInteraction(client: object, at: number, resumed: boolean): void {
+  const entry = interactions.get(client) ?? { at: 0, resumes: 0 };
+  if (at > entry.at) entry.at = at;
+  if (resumed) entry.resumes += 1;
+  interactions.set(client, entry);
+}
+/** How many times the reader came back from six idle minutes: a view that sees it change has an arrival. */
+export function interactionResumes(client: object): number { return interactions.get(client)?.resumes ?? 0; }
+/** When the reader last pointed, typed or scrolled; before any, the first view's ask, as the hook's first watcher notes it. */
+function lastInteraction(client: object, now: number): number {
+  const entry = interactions.get(client);
+  if (entry && entry.at > 0) return entry.at;
+  noteInteraction(client, now, false);
+  return now;
 }
 
 /**
@@ -112,10 +123,10 @@ export async function lastInteraction(native: Native, now: number): Promise<numb
  * focused); otherwise the clock's minute tick asks whether the five-minute interval is due. Both wait out the
  * 10 s minimum and a hidden window; both stop once the reader has been idle for six minutes.
  */
-export async function liveRefreshDue(client: object, native: Native, view: string, input: { visible: boolean; now: number; arrival: boolean }): Promise<boolean> {
+export function liveRefreshDue(client: object, view: string, input: { visible: boolean; now: number; arrival: boolean }): boolean {
   const { visible, now, arrival } = input, lastRefreshedAt = viewRefreshedAt(client, view);
   if (!liveRefreshAsked(client, view, input)) return false;
-  const interacted = (await lastInteraction(native, now)) ?? now;
+  const interacted = lastInteraction(client, now);
   const read = arrival ? now - interacted < LIVE_REFRESH_IDLE_AFTER_MS && shouldRefreshOnArrival({ visible, now, lastRefreshedAt })
     : shouldRefreshOnInterval({ visible, now, lastRefreshedAt: lastRefreshedAt!, lastInteractedAt: interacted });
   if (read) noteViewRefreshed(client, view, now);
