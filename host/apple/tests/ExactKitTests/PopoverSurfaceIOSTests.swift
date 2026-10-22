@@ -193,6 +193,10 @@ final class PopoverSurfaceIOSTests: XCTestCase {
         // A corner the glass can't take (not one circle): no default surface rather than a square one.
         let (_, uneven, _) = try paint(["defaultSurface": "true", "defaultSurfaceRadius": "30"], dark: false, style: ["border_radius_top_left": 20.0])
         XCTAssertNil(uneven.materialView, "an uneven authored corner")
+        let (_, oneSquare, _) = try paint(["defaultSurface": "true", "defaultSurfaceRadius": "30"], dark: false, style: ["border_radius_top_left": 0.0])
+        XCTAssertNotNil(oneSquare.materialView, "one corner written 0, the others unwritten (0): one square, the glass square")
+        let (_, percent, _) = try paint(["defaultSurface": "true", "defaultSurfaceRadius": "30"], dark: false, style: ["border_radius": "10%"])
+        XCTAssertNil(percent.materialView, "a percentage: an ellipse on this box")
         // An authored circle on a scrolling popover: its scroll view takes that corner.
         let (_, roundScroll, _) = try paint(["defaultSurface": "true", "defaultSurfaceRadius": "30"], dark: false, style: ["border_radius": 12.0, "overflow_y": "scroll"], filled: true)
         XCTAssertEqual(roundScroll.scroll?.layer.cornerRadius, 12, "the author's corner on its scroll view")
