@@ -61,7 +61,7 @@ test('tamber/1.16 on both web pages: an inherited row\'s fromAt, and select up t
       expect([flags.join(''), color.source, color.fromAt?.component, color.fromAt?.line, String(color.fromAt?.file).endsWith('app.contract')]).toEqual([flags.join(''), 'inherited', 'App', 15, true]);
       expect('fromSite' in color).toBe(false);
       // (#7) While the selection's copies are outlined, the banner says what the dashed boxes are.
-      await until(async () => (await page.locator('#exact-inspect').innerText()).includes('dashed boxes mark every copy of this source'), 30_000, 'the legend');
+      await until(async () => (await page.locator('#exact-inspect').innerText()).includes('outlined in dashes (the selection\'s every copy, or what the tool outlined)'), 30_000, 'the legend');
       // Up one call site: the fixture has one component, so the root, its outermost node, as a click there selects it.
       seen = events.length;
       expect((await post({ method: 'inspect', client: 'tool', build: build.id, select: { up: 1 } })).ok).toEqual({ builds: [build.id] });
