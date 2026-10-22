@@ -965,7 +965,7 @@ On a button, `-exact-menu` is a literal `about` (directly under About), `app`,
 stays a shortcut). It adds an item even without a chord and overrides
 `aria-keyshortcuts` chord filing. The item's label is the button's accessible
 label or text; `disabled` disables it. An item in the app menu or Help is the
-app's: enabled with no key window, under a sheet and under a modal dialog.
+app's: enabled with no key window, under a sheet and under a Contract modal dialog.
 Hidden/removed buttons leave the menu. Other hosts keep the ordinary button
 and ignore the hint. The agent taps the button. A root
 `-exact-menu-remove="show-tab-bar autofill close-all"` removes selected

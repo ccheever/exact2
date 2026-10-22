@@ -1225,12 +1225,16 @@ values and declarations below a root fail with `lower-menu-remove`, naming the
 whole accepted set. The view has one root node, as elsewhere in Contract. This
 removes menu affordances, not window capabilities or app-declared buttons.
 There is no Format menu in this host's standard bar; no speculative Format ids
-are accepted. The other standard items, Help and development Develop remain.
+are accepted. The other standard items, Help and development Develop remain
+(§5.3.1 adds ids for Go ▸ Back, Develop, Edit's template items, Help's book
+item and View's zoom).
 
 AppKit identifies commands by their selectors and AutoFill by the installed
 item's identifier (`_NSMenuItemAutoFillIdentifier`, observed on macOS 27.0.1), never
 by localized titles. Selected items are hidden with hidden key equivalents
-disallowed, including items AppKit inserts after installation or on update.
+disallowed, including items AppKit inserts after installation or on update;
+since §5.3.1 the host's menus also take their chords out of the key lookup,
+because AppKit sends a hidden item's chord whatever that flag says.
 The host retains the objects so removing the declaration restores them; each
 window installs its own session's menu when it becomes key. Other hosts ignore
 this macOS-only presentation hint, just as they ignore `-exact-menu`.
@@ -1246,8 +1250,10 @@ host still ignores both hints.
 **App-wide items.** An item in the application menu or Help (`about`, `app`,
 `help`, and the ⌘, item filed as Settings…) is the app's, not its window's:
 it is enabled whatever window is key, with no window key at all, under a
-sheet, and under a modal dialog (not inside a route behind a modal route,
-which is the route's own inertness), as a hand-built app's Settings… and
+sheet, and under a Contract modal dialog (not inside a route behind a modal
+route, which is the route's own inertness; an app-modal panel, which
+`NSApp.runModal` shows, disables them as AppKit disables every item whose
+target does not work when modal), as a hand-built app's Settings… and
 Sparkle's Check for Updates… are, and as Electron's are. Its chord works then
 too. `disabled` and an authored `inert` still disable it; inertness that a
 modal dialog lends the rest of the page does not, as a page's modal never
@@ -1286,7 +1292,8 @@ an event built without the layout's characters (the agent's) misses it, so a
 hidden ⌘= item answers that one. The steps are Safari's page zoom
 levels (50, 75, 85, 100, 115, 125, 150, 175, 200, 250, 300%); T3 Code's are
 Electron's half levels (1.2^0.5, about 110%), a difference of step only. The
-zoom is the key window's session's, kept across a reload and not across a
+zoom is the main window's session's (the key window's, or the window under a
+key panel, as AppKit sends a nil-targeted action), kept across a reload and not across a
 launch, and the runner applies it last: the root font size, the app's own
 `setRootFontSize` included, times the zoom (`Runner::set_root_font_zoom`,
 `exact_set_root_font_zoom`), as a browser's page zoom is over an author's

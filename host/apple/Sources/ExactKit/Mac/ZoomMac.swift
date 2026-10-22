@@ -1,5 +1,5 @@
 // View ▸ Actual Size ⌘0, Zoom In ⌘+ and Zoom Out ⌘- (LLP 1021 §5.3), as
-// Safari, Preview and Electron's default menu have them. The zoom is the key
+// Safari, Preview and Electron's default menu have them. The zoom is the main
 // window's, one per session, and multiplies the root font size last, over
 // the app's own `setRootFontSize` as a browser's page zoom is over an
 // author's `html { font-size }` (`Runner::set_root_font_zoom`). Declared
@@ -32,8 +32,11 @@ extension ExactSession {
 }
 
 final class ZoomMenuTarget: NSObject, NSMenuItemValidation {
+    /// The main window's session, as AppKit sends a nil-targeted action to
+    /// the key window and then the main one: the session whose window became
+    /// key last (`DevMenu.select`), while that window is key or main.
     private var session: ExactSession? {
-        guard let session = DevMenu.session, session.view?.window != nil else { return nil }
+        guard let session = DevMenu.session, let window = session.view?.window, window.isKeyWindow || window.isMainWindow else { return nil }
         return session
     }
     @objc func actualSize(_ sender: Any?) { session?.rootZoom = 1 }
