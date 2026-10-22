@@ -10,13 +10,16 @@ import { arr, obj, str } from '../client/domain';
 import type { T3Client } from '../client/client';
 
 /** What one theme's page reported: "loading" until it answers, then "rendered" (the drawn size) or "error". */
-export interface MermaidFrame { diagram: string; message: string; retryable: boolean; width: number; height: number }
-/** markdown.contract MermaidDiagram: one settled fence, matched to its parsed block by its text, in both themes. */
+export interface MermaidSize { drawnFor: number; width: number; height: number }
+export interface MermaidFrame { diagram: string; message: string; retryable: boolean; width: number; height: number; sizes: MermaidSize[] }
+/** mermaid-frame.contract MermaidDiagram: one settled fence, matched to its parsed block by its text, in both themes. */
 export interface MermaidDiagramView { id: string; code: string; srcLight: string; srcDark: string; light: MermaidFrame; dark: MermaidFrame }
 export const MERMAID_FONT = '-apple-system, "system-ui", "Segoe UI", system-ui, sans-serif';
 /** The Mermaid page under the app's assets (LLP 1020.001: served at exact-app://app/ on Apple). */
 export const MERMAID_PAGE = 'assets/mermaid/index.html';
-const LOADING: MermaidFrame = Object.freeze({ diagram: 'loading', message: '', retryable: false, width: 0, height: 0 }) as MermaidFrame;
+const LOADING: MermaidFrame = Object.freeze({ diagram: 'loading', message: '', retryable: false, width: 0, height: 0, sizes: [] }) as MermaidFrame;
+/** Widths kept per report: one fence drawn at several widths (a resized window) keeps each one's height. */
+const MAX_SIZES = 8;
 /** Reports kept, oldest dropped first. */
 const MAX_CACHED_RENDERS = 64;
 
@@ -77,19 +80,21 @@ export function messageDiagrams(markdown: string): MermaidDiagramView[] {
 }
 
 /**
- * `diagram-frame`: a Mermaid page's report, the JSON it posts to its parent, percent-encoded (assets/mermaid/render.js). A report for a
+ * `diagram-frame`: a Mermaid page's report, the JSON it posts to its parent (assets/mermaid/render.js). A report for a
  * source and theme no fence asked for still lands: the page renders only what its fragment names.
  */
 export function noteMermaidFrame(payload: string): string {
   let report;
-  try { report = obj(JSON.parse(payload.startsWith('%') ? decodeURIComponent(payload) : payload)); } catch { return ''; }
+  try { report = obj(JSON.parse(payload)); } catch { return ''; }
   const theme: Theme = report.theme === 'dark' ? 'dark' : 'light', source = str(report.source), view = str(report.view, 'chat');
   if (!source.trim() || view === 'preview') return '';
-  const frame: MermaidFrame = report.status === 'rendered'
-    ? { diagram: 'rendered', message: '', retryable: false, width: Number(report.width) || 0, height: Number(report.height) || 0 }
-    : { diagram: 'error', message: str(report.message, 'The diagram could not be rendered.'), retryable: report.retryable === true, width: 0, height: 0 };
-  if (frame.diagram === 'rendered' && (!(frame.width > 0) || !(frame.height > 0))) return '';
   const at = key(theme, view, source);
+  const width = Number(report.width) || 0, height = Number(report.height) || 0, drawnFor = Math.round(Number(report.drawnFor) || 0);
+  const kept = (reports.get(at)?.sizes ?? []).filter(size => size.drawnFor !== drawnFor);
+  const frame: MermaidFrame = report.status === 'rendered'
+    ? { diagram: 'rendered', message: '', retryable: false, width, height, sizes: [...kept, { drawnFor, width, height }].slice(-MAX_SIZES) }
+    : { diagram: 'error', message: str(report.message, 'The diagram could not be rendered.'), retryable: report.retryable === true, width: 0, height: 0, sizes: [] };
+  if (frame.diagram === 'rendered' && (!(frame.width > 0) || !(frame.height > 0))) return '';
   reports.delete(at);
   reports.set(at, frame);
   while (reports.size > MAX_CACHED_RENDERS) reports.delete(reports.keys().next().value!);

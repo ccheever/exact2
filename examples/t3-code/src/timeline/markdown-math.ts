@@ -12,10 +12,10 @@ export interface MathFrame { theme: string; size: number; tex: string; status: s
 const MAX_FRAMES = 256;
 const frames = new Map<string, MathFrame>();
 
-/** `math-frame`: a math page's report, the JSON it posts to its parent, percent-encoded (assets/math/render.js). */
+/** `math-frame`: a math page's report, the JSON it posts to its parent (assets/math/render.js). */
 export function noteMathFrame(payload: string): string {
   let report;
-  try { report = obj(JSON.parse(payload.startsWith('%') ? decodeURIComponent(payload) : payload)); } catch { return ''; }
+  try { report = obj(JSON.parse(payload)); } catch { return ''; }
   const tex = str(report.tex), theme = report.theme === 'dark' ? 'dark' : 'light', size = Number(report.size) || 0;
   if (!tex.trim() || !(size > 0)) return '';
   const width = Number(report.width) || 0, height = Number(report.height) || 0;

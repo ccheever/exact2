@@ -29,9 +29,9 @@ describe('Render math', () => {
       { theme: 'dark', size: 14, tex, status: 'rendered', width: 80.5, height: 24 },
       { theme: 'light', size: 14, tex: '\\frac{', status: 'error', width: 0, height: 0 },
     ]);
-    // The page percent-encodes its report, which keeps the TeX's backslashes intact.
+    // TeX keeps its backslashes through the report.
     const sum = '\\sum_{k=1}^{n} k = \\frac{n(n+1)}{2}';
-    noteMathFrame(encodeURIComponent(JSON.stringify({ status: 'rendered', width: 130, height: 56, theme: 'light', size: 14, tex: sum })));
+    noteMathFrame(JSON.stringify({ status: 'rendered', width: 130, height: 56, theme: 'light', size: 14, tex: sum }));
     expect(mathFrames().find(frame => frame.tex === sum)).toMatchObject({ status: 'rendered', width: 130 });
     // A report that is not JSON, names no TeX or size, or a rendered one with no size changes nothing.
     const before = mathFrames().length;

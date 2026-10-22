@@ -2,9 +2,8 @@
 // MermaidDiagram's "Expand diagram" opens the diagram on the page's background
 // at its own size, never larger, up to 92% of the window (less the arrows' 96pt)
 // and min(86vh, 100vh − 160pt) high, named "Mermaid diagram". The diagram is the
-// fence's Mermaid page again (markdown.contract MermaidFrameView), laid out as its opener drew it, at that size.
-use MermaidDiagram from "./markdown.contract"
-use MermaidFrameView from "./markdown.contract"
+// fence's Mermaid page again (mermaid-frame.contract MermaidFrameView), laid out as its opener drew it, at that size.
+use MermaidDiagram, MermaidFrameView from "./mermaid-frame.contract"
 use Icon from "../shared/icons.contract"
 use FocusGuard from "../shared/dialog-trap.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"

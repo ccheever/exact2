@@ -242,7 +242,7 @@ describe('mermaid fences', () => {
     noteMermaidFrame(JSON.stringify({ status: 'rendered', width: 120.5, height: 80, theme: 'light', source: code }));
     expect(diagramFor('0', code)).toMatchObject({ light: { diagram: 'rendered', width: 120.5, height: 80 }, dark: { diagram: 'loading' } });
     noteMermaidFrame(JSON.stringify({ status: 'error', message: 'Mermaid failed to load.', retryable: true, theme: 'dark', source: code }));
-    expect(diagramFor('0', code).dark).toEqual({ diagram: 'error', message: 'Mermaid failed to load.', retryable: true, width: 0, height: 0 });
+    expect(diagramFor('0', code).dark).toEqual({ diagram: 'error', message: 'Mermaid failed to load.', retryable: true, width: 0, height: 0, sizes: [] });
     const before = diagramFor('0', code).srcDark;
     retryMermaid(code, 'dark');
     expect(diagramFor('0', code).dark.diagram).toBe('loading');
@@ -256,6 +256,11 @@ describe('mermaid fences', () => {
     noteMermaidFrame(JSON.stringify({ status: 'rendered', width: 30, height: 400, theme: 'light', source: code, view: 'preview' }));
     expect(diagramFor('0', code).light).toMatchObject({ width: 120.5, height: 80 });
     expect(diagramFor('0', code, 'file').light).toMatchObject({ width: 60, height: 200 });
+    // One fence drawn at two widths keeps each width's height; the frame picks its own (mermaid-frame.contract).
+    const wide = 'graph LR\n  W --> V';
+    noteMermaidFrame(JSON.stringify({ status: 'rendered', width: 700, height: 90, drawnFor: 736, theme: 'light', source: wide }));
+    noteMermaidFrame(JSON.stringify({ status: 'rendered', width: 300, height: 240, drawnFor: 320, theme: 'light', source: wide }));
+    expect(diagramFor('0', wide).light).toMatchObject({ width: 300, height: 240, sizes: [{ drawnFor: 736, width: 700, height: 90 }, { drawnFor: 320, width: 300, height: 240 }] });
   });
   test('a user message with a mermaid fence presents its diagram beside its code highlights', () => {
     const value = client([user('u', 0, markdown)]);

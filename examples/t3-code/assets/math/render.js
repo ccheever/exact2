@@ -11,17 +11,8 @@ const size = Number(params.get('size')) || 14;
 const tex = params.get('tex') || '';
 const round = value => Math.round(value * 1000) / 1000;
 
-// The report is percent-encoded: a backslash in the message did not reach the app intact, so a TeX or diagram source
-// that has one broke the JSON. The app's reports from every page share one command slot, where a newer send can drop
-// an older one still in flight, so the latest report goes again a few times; a repeat changes nothing in the app.
-let resend = 0;
 function tell(result) {
-  const post = () => parent.postMessage(encodeURIComponent(JSON.stringify({ ...result, theme, size, tex })), '*');
-  post();
-  clearTimeout(resend);
-  let wait = 300;
-  const again = () => { resend = setTimeout(() => { post(); wait *= 2; if (wait <= 4800) again(); }, wait); };
-  again();
+  parent.postMessage(JSON.stringify({ ...result, theme, size, tex }), '*');
 }
 
 async function render() {

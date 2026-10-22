@@ -4,8 +4,8 @@
 // MermaidBlock) the lane wide, with `theme`, `font`, `source`, `view` and the preview's `width` in the fragment.
 // Pele lays the diagram out for the page's width, as for the reference's lane, and lays it out again when that
 // width changes. The page tells the app, as a JSON string posted to its parent, what came of it: `rendered` with the
-// drawn diagram's size, again whenever that size changes, or `error` with pele's message and whether Retry may help
-// (timeline-mermaid.ts).
+// drawn diagram's size and the width it was drawn for, again whenever that size changes, or `error` with pele's
+// message and whether Retry may help (timeline-mermaid.ts).
 
 const params = new URLSearchParams(location.hash.slice(1));
 const theme = params.get('theme') === 'dark' ? 'dark' : 'light';
@@ -16,17 +16,8 @@ const view = params.get('view') || '';
 const drawnWidth = Number(params.get('width')) || 0;
 const round = value => Math.round(value * 1000) / 1000;
 
-// The report is percent-encoded: a backslash in the message did not reach the app intact, so a TeX or diagram source
-// that has one broke the JSON. The app's reports from every page share one command slot, where a newer send can drop
-// an older one still in flight, so the latest report goes again a few times; a repeat changes nothing in the app.
-let resend = 0;
 function tell(result) {
-  const post = () => parent.postMessage(encodeURIComponent(JSON.stringify({ ...result, theme, source, view })), '*');
-  post();
-  clearTimeout(resend);
-  let wait = 300;
-  const again = () => { resend = setTimeout(() => { post(); wait *= 2; if (wait <= 4800) again(); }, wait); };
-  again();
+  parent.postMessage(JSON.stringify({ ...result, theme, source, view }), '*');
 }
 
 // MathML element types KaTeX emits, without annotation (the resolver removes it),
@@ -132,10 +123,12 @@ async function render() {
     if (!svg) return;
     const box = svg.getBoundingClientRect();
     if (!(box.width > 0) || !(box.height > 0)) return;
-    const next = `${round(box.width)}x${round(box.height)}`;
+    // The width pele laid the diagram out for: the frame's, which the app matches to its own.
+    const drawnFor = Math.round(host.clientWidth);
+    const next = `${drawnFor}:${round(box.width)}x${round(box.height)}`;
     if (next === reported) return;
     reported = next;
-    tell({ status: 'rendered', width: round(box.width), height: round(box.height) });
+    tell({ status: 'rendered', width: round(box.width), height: round(box.height), drawnFor });
   };
   new ResizeObserver(report).observe(host);
   pele.mount(host, source, {
