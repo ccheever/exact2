@@ -431,6 +431,8 @@ export function parseFlags(argv) {
   argv = selection.argv;
   const flags = { json: false, ...(selection.widget ? { widget: selection.widget } : {}), ...(selection.activity ? { activity: selection.activity } : {}) };
   const rest = [];
+  // Only this drive's flags say what a child is (LLP 1133.007 §7), never an inherited environment.
+  for (const key of ['EXACT_AGENT_PROCESS', 'EXACT_AGENT_LOGIN_ENV', 'EXACT_AGENT_HOME']) delete process.env[key];
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--json') flags.json = true;
     else if (argv[i] === '--world') flags.world = resolve(argv[++i]);

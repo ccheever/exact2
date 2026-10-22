@@ -617,7 +617,7 @@ impl<D: DataSource> Runner<D> {
             };
             // What its turn sent as an answer (LLP 1016.000 D7, the amendment
             // of 2026-10-18).
-            self.stage_answer(target);
+            self.stage_answer(target, self.current_turn());
             let refused = match answer {
                 Ok(super::Answer::Now(value))
                     if self.conforms(&value, self.plan.mutations[m].ty) =>

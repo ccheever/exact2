@@ -97,7 +97,7 @@ impl<D: DataSource> Runner<D> {
                 .answer_for(super::Target::Resource(i), &mut self.store, &source, args);
         // What its turn sent on its module's sockets (LLP 1016.000 D7, the
         // amendment of 2026-10-18), whatever it answered.
-        self.stage_answer(super::Target::Resource(i));
+        self.stage_answer(super::Target::Resource(i), self.current_turn());
         for line in self.data.take_logs() {
             self.log(line);
         }

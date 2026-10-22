@@ -275,6 +275,10 @@ impl Spec {
 /// [`Core::socket`] checks them against.
 pub(crate) struct ChildCtl {
     tx: Mutex<mpsc::Sender<Input>>,
+    /// Held while the incarnation changes and while [`send`] hands an
+    /// operation over, so an operation never reaches the next incarnation's
+    /// stdin state.
+    turn: Mutex<()>,
     /// The incarnation running now; 0 between incarnations.
     incarnation: AtomicU32,
     /// Its stdin was ended, or is ignored.
@@ -292,6 +296,7 @@ impl ChildCtl {
     pub(crate) fn detached(tx: mpsc::Sender<Input>) -> ChildCtl {
         ChildCtl {
             tx: Mutex::new(tx),
+            turn: Mutex::new(()),
             incarnation: AtomicU32::new(1),
             ended: AtomicBool::new(false),
             queued: AtomicU64::new(0),
@@ -300,6 +305,7 @@ impl ChildCtl {
 
     /// Incarnation `n` runs now, its stdin open unless ignored.
     pub(crate) fn begin(&self, n: u32, stdin: bool) {
+        let _turn = self.turn.lock().unwrap();
         self.queued.store(0, Ordering::Release);
         self.ended.store(!stdin, Ordering::Release);
         self.incarnation.store(n, Ordering::Release);
@@ -307,7 +313,17 @@ impl ChildCtl {
 
     /// The incarnation has ended: its handle's operations are refused.
     pub(crate) fn end(&self) {
+        let _turn = self.turn.lock().unwrap();
         self.incarnation.store(0, Ordering::Release);
+    }
+
+    /// The child took `bytes` of its stdin queue.
+    pub(crate) fn consumed(&self, bytes: u64) {
+        if bytes > 0 {
+            let _ = (self.queued).fetch_update(Ordering::AcqRel, Ordering::Acquire, |q| {
+                Some(q.saturating_sub(bytes))
+            });
+        }
     }
 }
 
@@ -346,8 +362,10 @@ pub(super) fn run(
         answer(shared, ticket, &request, grants, host, &abort, &mut leave)
     }))
     .unwrap_or_else(|_| failed(FailureKind::Aborted, "the process work panicked"));
-    shared.processes.children.lock().unwrap().remove(&ticket);
+    // Completed before it leaves the children, so the agent's clock never
+    // sees it as neither running nor owed.
     complete(shared, ticket, outcome);
+    shared.processes.children.lock().unwrap().remove(&ticket);
     // The agent's advance that woke the stream waits until its end is queued.
     drop(leave);
 }
@@ -461,6 +479,7 @@ fn answer(
             let (tx, rx) = mpsc::channel();
             let ctl = Arc::new(ChildCtl {
                 tx: Mutex::new(tx),
+                turn: Mutex::new(()),
                 incarnation: AtomicU32::new(0),
                 ended: AtomicBool::new(!spec.pipes[0]),
                 queued: AtomicU64::new(0),
@@ -689,6 +708,11 @@ pub(crate) fn send(shared: &Shared, ops: &[(u64, &SocketOp)]) -> Vec<(u64, u64, 
         else {
             continue;
         };
+        // Checked whole, then the incarnation ended: it goes nowhere.
+        let _turn = child.turn.lock().unwrap();
+        if child.incarnation.load(Ordering::Acquire) != *incarnation {
+            continue;
+        }
         match op {
             ProcessOp::Write(data) => {
                 child.queued.fetch_add(data.len() as u64, Ordering::AcqRel);
@@ -805,10 +829,18 @@ impl exact_runner::WorkClock for Work {
         self.shared.processes.clock.due()
     }
 
+    /// Whether a child stream's outcome waits for the runner. A stream
+    /// neither running nor waiting is dropped from the set here, so it stays
+    /// as small as the children alive.
     fn owed(&self) -> bool {
-        let streams = self.shared.processes.streams.lock().unwrap().clone();
-        let state = self.shared.state.lock().unwrap();
-        (state.completed.iter().flatten()).any(|done| streams.contains(&done.ticket))
+        let processes = &self.shared.processes;
+        let live: Vec<u64> = processes.children.lock().unwrap().keys().copied().collect();
+        let waiting: Vec<u64> = (self.shared.state.lock().unwrap().completed.iter().flatten())
+            .map(|done| done.ticket)
+            .collect();
+        let mut streams = processes.streams.lock().unwrap();
+        streams.retain(|t| live.contains(t) || waiting.contains(t));
+        waiting.iter().any(|t| streams.contains(t))
     }
 }
 

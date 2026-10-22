@@ -11,7 +11,11 @@ use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 /// How long an advance waits for the work it woke: real children answer on
-/// the wall, and a waiter that never returns must not hold the agent.
+/// the wall, and a waiter that never returns must not hold the agent. A
+/// supervisor blocked on delivery also holds it until this bound: a script
+/// step that writes more than the runner's 1 MiB of undelivered output
+/// waits for the runner to take some, which it does only after the advance
+/// returns, so such a step costs the drive up to 3 s of wall time.
 const ADVANCE_BOUND: Duration = Duration::from_secs(3);
 
 /// One supervisor's wait.

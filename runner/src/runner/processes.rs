@@ -14,6 +14,9 @@ pub(super) struct Processes {
     /// or headless turn yet (LLP 1111, 1114.001); the agent's `prefer
     /// origin` stands in for one so the rule can be driven.
     origin: AtomicU8,
+    /// The origin of the answer turn running now, which is that of the
+    /// turn that asked ([`Runner::fulfill_inner`]).
+    pub(super) answering: Option<TurnOrigin>,
     /// The host's process work under the agent ([`Runner::set_work_clock`]).
     pub(super) clock: Option<Arc<dyn WorkClock>>,
     /// Each child stream's facts as its messages told them, by ticket.
@@ -73,10 +76,18 @@ impl<D: DataSource> Runner<D> {
         self.processes.origin.store(index as u8, Ordering::Relaxed);
     }
 
+    /// The origin of the turn running now: an answer's is that of the turn
+    /// that asked, any other the runner's.
+    pub(super) fn current_turn(&self) -> TurnOrigin {
+        self.processes
+            .answering
+            .unwrap_or_else(|| self.turn_origin())
+    }
+
     /// Stamp a process request with the origin of the turn that made it,
     /// for the host's check (D13).
     pub(super) fn stamp_process(&self, request: &mut Request) {
-        let origin = self.turn_origin();
+        let origin = self.current_turn();
         if request.is_process() && origin != TurnOrigin::Person {
             request.headers.retain(|(name, _)| name != ORIGIN_HEADER);
             request

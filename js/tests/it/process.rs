@@ -213,6 +213,41 @@ fn a_turn_that_is_not_a_persons_carries_its_origin() {
 }
 
 #[test]
+fn an_answer_keeps_the_origin_of_the_turn_that_asked() {
+    let mut m = Module::new(HBC.to_vec(), "test.process", "process.spawn path:t3\n");
+    m.load().unwrap();
+    let src = "component App\n  mutation asked as shape string\n  action ask\n    send asked = twice()\n  view\n    text \"x\"\n";
+    let plan = contract::compile(src).unwrap();
+    let mut r = Runner::boot(plan, m, Kernel::with_monospace(), Default::default(), "/").unwrap();
+    r.take_requests();
+    let reply = |out: &str| {
+        let body = serde_json::json!({ "stdout": out, "stderr": "", "code": 0, "signal": null, "timedOut": false, "overflow": null });
+        Outcome::Response(Response {
+            status: 200,
+            headers: vec![],
+            body: body.to_string().into_bytes(),
+        })
+    };
+    r.set_turn_origin(TurnOrigin::Tool);
+    r.act("ask", vec![]).unwrap();
+    let first = r.take_requests();
+    assert_eq!(first[0].request.process_origin(), TurnOrigin::Tool);
+    // A person acts before the tool's answer lands: the turn that answers
+    // the first one-shot asks the second as the tool.
+    r.set_turn_origin(TurnOrigin::Person);
+    r.fulfill(first[0].ticket, reply("1.0")).unwrap();
+    let second = r.take_requests();
+    assert_eq!(second.len(), 1, "{second:?}");
+    assert_eq!(second[0].request.process_origin(), TurnOrigin::Tool);
+    r.fulfill(second[0].ticket, reply("usage")).unwrap();
+    let asked = match r.slot("asked") {
+        Some(Value::Option(Some(v))) => v.as_str().unwrap_or("").to_string(),
+        other => format!("{other:?}"),
+    };
+    assert_eq!(asked, "1.0 usage");
+}
+
+#[test]
 fn exec_file_answers_from_the_process_request_and_refused_options_reject() {
     let mut m = Module::new(HBC.to_vec(), "test.process", "process.spawn path:t3\n");
     m.load().unwrap();

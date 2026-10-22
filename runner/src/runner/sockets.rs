@@ -83,7 +83,7 @@ impl<D: DataSource> Runner<D> {
         let ops = self.address(staged)?;
         let mutation = self.plan.str(self.plan.mutations[m].name).to_string();
         let origin = SocketOrigin::Mutation(mutation);
-        let turn = self.turn_origin();
+        let turn = self.current_turn();
         self.sockets.push(SocketSend { origin, turn, ops });
         Ok(())
     }
@@ -116,16 +116,12 @@ impl<D: DataSource> Runner<D> {
     /// goes out once the commit that ran the turn stands, whatever the
     /// turn's answer was ([`Runner::refuse_batches`]); a batch with an
     /// operation on a socket that is not open is refused whole, and said.
-    pub(super) fn stage_answer(&mut self, target: Target) {
+    pub(super) fn stage_answer(&mut self, target: Target, turn: crate::process::TurnOrigin) {
         let staged = self.store.take_answer_sockets();
         if staged.is_empty() {
             return;
         }
         let origin = SocketOrigin::Answer(self.target_name(target));
-        // An answer's turns keep the origin of the commit that asked it.
-        let turn = (self.pending.iter())
-            .find(|p| p.target == target)
-            .map_or_else(|| self.turn_origin(), |p| p.turn);
         match self.address(staged) {
             Ok(ops) => self.sockets.push(SocketSend { origin, turn, ops }),
             Err(why) => self.log(refused(&origin, &why)),
