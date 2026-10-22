@@ -13,7 +13,7 @@
 // scripts/library-gate.test.mjs holds the cells to the compiler's IR. No
 // `if`, `for` or `match` in this view: every cell renders.
 use PostCard, AtCard, ProfileHeader, ProfileAlert from "@exact/cards"
-use ActionRow, PostButton from "@exact/actions"
+use ActionRow, PostButton, ComposeFrame from "@exact/actions"
 use ListRow, SwitchRow from "@exact/lists"
 
 component App
@@ -96,6 +96,32 @@ component App
             text glyph
         ProfileHeader(id="sample-ph-note", bannerSrc="", avatarSrc="", avatarFlight="", name="Ada Lindqvist", handle="ada.fixture.invalid", badge="none", followsYou=false, followers="1.2K", followersNoun="followers", follows="210", posts="3.4K", alerts=[], note="This account couldn't be loaded.", blocked=false, compact=false, pull=0, openAvatar=press, openFollowers=press, openFollows=press, openAlert=pick)
           box testId="marker-sample-ph-note" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        // The composer's frame: each variant value, one at a time, then the
+        // ring near and over its limit (with a post to add) as samples.
+        ComposeFrame(id="cf-base", cancelLabel="Cancel", drafts=false, draftsLabel="Drafts", busy=false, postLabel="Post", postDisabled=false, reply=false, gallery=false, camera=false, gif=false, canAdd=false, langLabel="English", count=40, limit=300, cancel=press, openDrafts=press, post=press, choose=press, openCamera=press, gifs=press, addPost=press, languages=press)
+          box testId="marker-cf-base" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ComposeFrame(id="cf-drafts", cancelLabel="Cancel", drafts=true, draftsLabel="Drafts", busy=false, postLabel="Post", postDisabled=false, reply=false, gallery=false, camera=false, gif=false, canAdd=false, langLabel="English", count=40, limit=300, cancel=press, openDrafts=press, post=press, choose=press, openCamera=press, gifs=press, addPost=press, languages=press)
+          box testId="marker-cf-drafts" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ComposeFrame(id="cf-reply", cancelLabel="Cancel", drafts=false, draftsLabel="Drafts", busy=false, postLabel="Post", postDisabled=false, reply=true, gallery=false, camera=false, gif=false, canAdd=false, langLabel="English", count=40, limit=300, cancel=press, openDrafts=press, post=press, choose=press, openCamera=press, gifs=press, addPost=press, languages=press)
+          box testId="marker-cf-reply" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ComposeFrame(id="cf-gallery", cancelLabel="Cancel", drafts=false, draftsLabel="Drafts", busy=false, postLabel="Post", postDisabled=false, reply=false, gallery=true, camera=false, gif=false, canAdd=false, langLabel="English", count=40, limit=300, cancel=press, openDrafts=press, post=press, choose=press, openCamera=press, gifs=press, addPost=press, languages=press)
+          box testId="marker-cf-gallery" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ComposeFrame(id="cf-camera", cancelLabel="Cancel", drafts=false, draftsLabel="Drafts", busy=false, postLabel="Post", postDisabled=false, reply=false, gallery=false, camera=true, gif=false, canAdd=false, langLabel="English", count=40, limit=300, cancel=press, openDrafts=press, post=press, choose=press, openCamera=press, gifs=press, addPost=press, languages=press)
+          box testId="marker-cf-camera" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ComposeFrame(id="cf-gif", cancelLabel="Cancel", drafts=false, draftsLabel="Drafts", busy=false, postLabel="Post", postDisabled=false, reply=false, gallery=false, camera=false, gif=true, canAdd=false, langLabel="English", count=40, limit=300, cancel=press, openDrafts=press, post=press, choose=press, openCamera=press, gifs=press, addPost=press, languages=press)
+          box testId="marker-cf-gif" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ComposeFrame(id="sample-cf-near", cancelLabel="Cancel", drafts=true, draftsLabel="Drafts", busy=false, postLabel="Post", postDisabled=false, reply=false, gallery=true, camera=true, gif=true, canAdd=true, langLabel="English", count=290, limit=300, cancel=press, openDrafts=press, post=press, choose=press, openCamera=press, gifs=press, addPost=press, languages=press)
+          box testId="marker-sample-cf-near" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ComposeFrame(id="sample-cf-over", cancelLabel="Cancel", drafts=true, draftsLabel="Drafts", busy=false, postLabel="Post", postDisabled=false, reply=false, gallery=true, camera=true, gif=true, canAdd=true, langLabel="English", count=320, limit=300, cancel=press, openDrafts=press, post=press, choose=press, openCamera=press, gifs=press, addPost=press, languages=press)
+          box testId="marker-sample-cf-over" press=toggle width=24 height=24 align-items="center" justify-content="center"
             text glyph
         // The lists' rows sit in a grouped list's section, as the platform's
         // list cells do (LLP 1084): each accessory and a destructive row are
