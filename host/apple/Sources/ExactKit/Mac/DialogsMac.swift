@@ -200,6 +200,7 @@ final class DialogHost {
         presenter?.syncAccessibility()
         presenter?.shortcuts.sync()
         if notify, !entry.route { dialog.queueDialogClose() }
+        presenter?.afterBatch { [weak presenter] in presenter?.toolbar.sync() }
     }
     func reset() {
         presenter?.alerts.reset()
