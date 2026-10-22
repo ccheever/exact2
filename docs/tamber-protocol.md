@@ -1102,7 +1102,9 @@ list is unchanged: it keeps its own.
     is its dark side and the other its light one, the default the host's whichever Pencil lists
     first; any other is a proposed axis. As every kind's, a value other than a colour that differs
     between the scheme's sides has no token and is reported (only a colour has a dark side). More than
-    16 axes, or 64 values of one, refuse the import, as do more contexts than a design takes.
+    16 axes, 64 values of one, or an axis or value named in more than 64 characters refuse the
+    import, as do more contexts than a design takes. A value is a scalar; an object or a list is
+    reported.
   - **Values.** Each entry of a variable's `value` (a scalar is one) is a layer active where its
     `theme` holds, every axis it names at once. Later entries win, as Pencil's "the last whose
     theme is satisfied" does. An entry whose `theme` names an axis or value `themes` doesn't declare
@@ -1112,10 +1114,11 @@ list is unchanged: it keeps its own.
     identifier can't hold (a leading `--`), so `--x` and `x` collide, and the second is reported.
   - **Kinds.** A `color` is a colour. A `number` is a length (px) when every node reading it, or
     any number it aliases or that aliases it, reads it as a pixel property (`cornerRadius`, `gap`,
-    `padding`, `fontSize`, `letterSpacing`, `strokeWidth`, `thickness`, `width`, `height`, an
-    effect's `radius` and `blur`, a side or corner of one, a shadow's `offset`), else a number
-    (`lineHeight` is a multiplier, anything inside a gradient a fraction of the box, a shader's
-    `uniforms` the author's own names); each number's `notes` line names the properties that decided it. A
+    `padding`, `fontSize`, `letterSpacing`, `strokeWidth`, `width`, `height`, an effect's `radius`
+    and `blur`, a side or corner of one, a shadow's `offset`), else a number (`lineHeight` is a
+    multiplier, anything inside a gradient a fraction of the box, a typed object's `uniforms`,
+    `inputs` and `metadata` the author's own names; an `id`, `name`, `ref`, URL or the like binds no
+    variable); each number's `notes` line names the properties that decided it. A
     `string` every node reads as `fontFamily` is a family. A note says the file's frames and
     components are not imported.
   - **Reported.** Any other string, a boolean, an unknown `type`, a variable whose `value` holds no
