@@ -827,7 +827,7 @@ final class TextSelectionMacTests: XCTestCase {
             ("a light-dark() pair", [[153, 0, 0, 255], [255, 153, 153, 255]], false, true),
             // No catalogue here: its fallback pair is what draws, and the kind is still the name's.
             ("a colour from the asset catalogue", ["sys": "named:Brand", "c": [[0, 0, 153, 255], [153, 153, 255, 255]]] as [String: Any], false, true),
-            ("a role", role, false, false),
+            ("a role", role, true, false),
             ("nothing written", nil, false, false),
         ]
         var ops: [[String: Any]] = []
