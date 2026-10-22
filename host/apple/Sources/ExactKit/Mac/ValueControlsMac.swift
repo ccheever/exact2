@@ -21,6 +21,7 @@ extension ControlHost {
         if let picker = control as? NSDatePicker { configureDate(picker, owner, accent: accent); return }
         guard let popup = control as? NSPopUpButton else { return }
         (popup as? SelectField)?.owner = owner
+        popup.bezelStyle = owner.inGroupedForm ? .inline : .push
         let menu = presenter.selectOptions?(owner.id) ?? SelectMenu()
         guard menus[owner.id] != menu else { return }
         menus[owner.id] = menu
