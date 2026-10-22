@@ -604,6 +604,11 @@ impl Em<'_> {
             && parts.props.get("data-exact-ink").is_some_and(|w| w != "b"))
         .then(|| format!("()=>{{const v=({f})();{e}.$ink=v!=null;return v}}"));
         let f = inked.as_deref().unwrap_or(f);
+        // A blank text row clears its start; `none` leaves that start exposed.
+        let clear = matches!(id, StyleId::FontWeight | StyleId::LineHeight).then(|| {
+            format!("()=>{{const v=({f})();return typeof v===\"string\"&&!v.trim()?\"unset\":v}}")
+        });
+        let f = clear.as_deref().unwrap_or(f);
         for (name, unit, map) in writes {
             let modes = crate::modes::active(plan);
             let channel = crate::modes::CHANNELS

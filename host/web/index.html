@@ -289,12 +289,14 @@
      its box keeps the recorded rules (kernel/tests/it/browser_controls.rs);
      its chevron is drawn in its ink, at its inline end. A date, time or local date-time control
      whose appearance is the platform's (`data-exact-field`) is a border box
-     the same way (LLP 1116.001 D1); the browser keeps its picker and icon. */
+     the same way (LLP 1116.001 D1); the browser keeps its picker and icon.
+     This leading is not a kernel start. The conditional shell property is
+     invalid without an inherited said marker, letting a bare text style fill it. */
   #exact-root input[data-native], #exact-root textarea[data-native] { border: 1px solid; border-radius: 8px; }
-  #exact-root select:not([multiple]) { appearance: none; font: inherit; letter-spacing: inherit; color: inherit; line-height: 2.125; --exact-said-line-height: ; padding-block: 0; padding-inline: .75em 2em; border: 1px solid; border-radius: 8px; background: linear-gradient(45deg, #0000 50%, var(--exact-secondary-label) 50%) right calc(.75em + 4px) center / 4px 4px no-repeat, linear-gradient(135deg, var(--exact-secondary-label) 50%, #0000 50%) right .75em center / 4px 4px no-repeat, transparent; }
+  #exact-root select:not([multiple]) { appearance: none; font: inherit; letter-spacing: inherit; color: inherit; line-height: var(--exact-control-line-height); --exact-control-line-height: 2.125; --exact-shell-line-height: var(--exact-said-line-height) var(--exact-control-line-height); padding-block: 0; padding-inline: .75em 2em; border: 1px solid; border-radius: 8px; background: linear-gradient(45deg, #0000 50%, var(--exact-secondary-label) 50%) right calc(.75em + 4px) center / 4px 4px no-repeat, linear-gradient(135deg, var(--exact-secondary-label) 50%, #0000 50%) right .75em center / 4px 4px no-repeat, transparent; }
   /* LLP 1115.000 D4.14: the chevron is at the inline end, so on a right-to-left page it is at the left. */
   #exact-root select:not([multiple]):dir(rtl) { background-position: left .75em center, left calc(.75em + 4px) center, 0 0; }
-  #exact-root input[data-exact-field] { box-sizing: border-box; line-height: 2; --exact-said-line-height: ; padding: 0 .75em; border: 1px solid; border-radius: 8px; }
+  #exact-root input[data-exact-field] { box-sizing: border-box; line-height: var(--exact-control-line-height); --exact-control-line-height: 2; --exact-shell-line-height: var(--exact-said-line-height) var(--exact-control-line-height); padding: 0 .75em; border: 1px solid; border-radius: 8px; }
   /* LLP 1116.005 D8: a field the author marks invalid (`aria-invalid=true`,
      beside its error text's `aria-describedby`) is outlined in the system
      red, and focused its ring is red too, as a well-made web form marks

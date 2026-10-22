@@ -75,6 +75,107 @@ test('bare text styles keep their fills and inherited rows through server adopti
   }, {}, {}, renderer);
 }, 180000);
 
+async function textStylePage(ids, check, weighted = false) {
+  const source = 'routes nav\n  home "/" render=build\n\n' + readFileSync(new URL('./conformance/bare-text-style.contract', import.meta.url), 'utf8').replace('state weighted = false', `state weighted = ${weighted}`);
+  for (const renderer of ['rust', 'js']) await renderedPages(source, async (_, _html, dist) => {
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    let suite, browser;
+    const measure = `Object.fromEntries(${JSON.stringify(ids)}.map(id => {
+      const e = document.querySelector('[data-testid="'+id+'"]'), s = getComputedStyle(e);
+      return [id, [s.fontWeight, s.lineHeight]];
+    }))`;
+    try {
+      suite = await suiteBrowser();
+      const page = await suite.newPage({ javaScriptEnabled: false });
+      await page.goto(server.url.href);
+      const before = await page.evaluate(measure);
+      browser = await open({ host: 'web', url: server.url.href });
+      expect(await browser.carrier.evaluate(`globalThis.exact.journal.some(l => l.endsWith('adopted the document'))`)).toBe(true);
+      await check(before, () => browser.carrier.evaluate(measure), id => browser.tap(id), browser);
+    } finally { await browser?.close(); await suite?.close(); server.stop(true); }
+  }, {}, {}, renderer);
+}
+
+test('keyed text styles track independent shorthand and longhand fields', async () => {
+  await textStylePage(['keyed-child'], async (before, read, tap, browser) => {
+    expect(before['keyed-child']).toEqual(['400', 'normal']);
+    expect(await read()).toEqual(before);
+    await tap('style-item');
+    expect((await read())['keyed-child']).toEqual(['600', 'normal']);
+    expect(await browser.carrier.evaluate(`['font-weight','line-height'].map(row => document.querySelector('[data-testid="keyed-child"]').parentElement.style.cssText.includes('--exact-said-'+row+':'))`)).toEqual([true, true]);
+    await tap('bold-item');
+    expect((await read())['keyed-child']).toEqual(['700', 'normal']);
+    await tap('lead-item');
+    expect((await read())['keyed-child']).toEqual(['700', '48px']);
+    await tap('style-item');
+    expect((await read())['keyed-child']).toEqual(['700', '48px']);
+    await tap('bold-item');
+    expect((await read())['keyed-child']).toEqual(['400', '48px']);
+    await tap('lead-item');
+    expect(await read()).toEqual(before);
+    await tap('style-item');
+    expect((await read())['keyed-child']).toEqual(['600', 'normal']);
+    await tap('style-item');
+    expect(await read()).toEqual(before);
+    expect(await browser.carrier.evaluate(`document.querySelector('[data-testid="keyed-child"]').parentElement.style.cssText`)).not.toContain('--exact-said-');
+  });
+}, 60000);
+
+test('an unnamed dynamic text style inherits its ancestor rows', async () => {
+  await textStylePage(['no-style'], async (before, read, tap) => {
+    expect(before['no-style']).toEqual(['600', '40px']);
+    expect(await read()).toEqual(before);
+    await tap('flip');
+    expect((await read())['no-style']).toEqual(['700', '48px']);
+    await tap('flip');
+    expect(await read()).toEqual(before);
+  });
+}, 60000);
+
+test('blank text rows clear a shorthand start through adoption', async () => {
+  await textStylePage(['blank-child'], async (before, read, tap) => {
+    expect(before['blank-child']).toEqual(['600', 'normal']);
+    expect(await read()).toEqual(before);
+    await tap('flip');
+    expect((await read())['blank-child']).toEqual(['400', '40px']);
+    await tap('flip');
+    expect(await read()).toEqual(before);
+  });
+}, 60000);
+
+test('select and date text styles preserve shell leading only under a said row', async () => {
+  const ids = ['select-said','select-bound-said','date-said','time-bound-said','select-unsaid','select-bound-unsaid','date-unsaid','time-bound-unsaid'];
+  for (const weighted of [false, true]) await textStylePage(ids, async (before, read, tap, browser) => {
+    const expected = (small, coarse = false) => Object.fromEntries(ids.map(id => {
+      const size = small && id.includes('bound') ? 11 : 16;
+      return [id, ['400', id.endsWith('unsaid') ? 'normal' : `${size * (id.startsWith('select') ? (coarse ? 2.625 : 2.125) : 2)}px`]];
+    }));
+    expect(before).toEqual(expected(weighted));
+    expect(await read()).toEqual(before);
+    await tap('flip');
+    expect(await read()).toEqual(expected(!weighted));
+    await tap('flip');
+    expect(await read()).toEqual(before);
+    await browser.prefer({ pointer: 'coarse' });
+    expect(await read()).toEqual(expected(weighted, true));
+  }, weighted);
+}, 60000);
+
+test('removing a control style and its bound leading restores the shell', async () => {
+  const expected = removed => ({ 'select-removed': ['400', removed ? '34px' : '24px'], 'datetime-removed': ['400', removed ? '32px' : '24px'] });
+  for (const weighted of [false, true]) await textStylePage(['select-removed', 'datetime-removed'], async (before, read, tap) => {
+    expect(before).toEqual(expected(weighted));
+    expect(await read()).toEqual(before);
+    await tap('flip');
+    expect(await read()).toEqual(expected(!weighted));
+    await tap('flip');
+    expect(await read()).toEqual(before);
+  }, weighted);
+}, 60000);
+
 test('JavaScript-rendered strings use the document language with an English translation available', async () => {
   await renderedPages(`routes nav
   home "/" render=build
