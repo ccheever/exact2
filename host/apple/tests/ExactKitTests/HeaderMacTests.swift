@@ -190,11 +190,41 @@ final class HeaderMacTests: XCTestCase {
         XCTAssertEqual(window.title, "Shelf")
     }
 
+    func testSubtitleAndAvatarProjectAndFollowTheRoute() throws {
+        let p = fixture(extra: view(16, "text", ["text": "3 books"])
+            + view(17, "button", ["accessibilityLabel": "Profile"], press: true)
+            + view(170) + view(171, "text", ["text": "AB"])
+            + [["op": "style", "id": 170, "style": ["background_color": [40, 100, 200, 255], "border_radius": 18]],
+               children(170, [171]), children(17, [170]), children(10, [11, 12, 16, 13, 14, 17])])
+        window.subtitle = "Original subtitle"
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        XCTAssertEqual(window.title, "Library")
+        XCTAssertEqual(window.subtitle, "3 books")
+        XCTAssertTrue(try node(p, 10).isHidden)
+        let avatar = try XCTUnwrap(p.toolbar.items[17])
+        XCTAssertEqual(avatar.label, "Profile")
+        XCTAssertEqual(avatar.title, "", "the initials are already in the image")
+        XCTAssertNotNil(avatar.image)
+        XCTAssertFalse(try XCTUnwrap(avatar.image).isTemplate, "the avatar keeps its authored colours")
+        var pressed: UInt32?
+        p.onPress = { pressed = $0 }
+        XCTAssertTrue(p.toolbar.activate(try node(p, 17)) == true)
+        XCTAssertEqual(pressed, 17)
+        p.apply(wireBatch([["op": "props", "id": 16, "set": ["text": "4 books"]]]))
+        XCTAssertEqual(window.subtitle, "4 books")
+        select("b", in: p)
+        XCTAssertEqual(window.subtitle, "")
+        XCTAssertNil(p.toolbar.items[17])
+        select("a", in: p)
+        XCTAssertEqual(window.subtitle, "4 books")
+        p.toolbar.detach()
+        XCTAssertEqual(window.subtitle, "Original subtitle")
+    }
+
     func testAHeaderTheBarCannotShowWholeStaysPaintedWhole() throws {
         // Each of these in Library's header is something a toolbar has no place for.
         let cases: [(String, [[String: Any]], [Int])] = [
             ("a picture", view(16, "image", ["imageSource": "assets/logo.png"]), [11, 12, 13, 14, 16]),
-            ("a second line of text", view(16, "text", ["text": "3 books"]), [11, 12, 13, 14, 16]),
             ("a field", view(16, "input", ["type": "text"]), [11, 12, 13, 14, 16]),
             ("a button drawn as a filled box", view(16, "button", ["accessibilityLabel": "Profile"], press: true) + view(160) + view(161, "text", ["text": "AB"]) + [children(160, [161]), children(16, [160])], [11, 12, 13, 14, 16]),
             ("a pressable around the heading", view(16, "view", [:], press: true) + [children(16, [12])], [11, 16, 13, 14]),
