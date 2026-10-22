@@ -1316,7 +1316,7 @@ bound, and an empty target is no target. `href`, `action` and swipe attributes
 remain refused. `-exact-enabled` transitions are not available.
 
 **Exact2's menu rule** (LLP 1021): a row of a menu (`popover role="menu"`)
-whose `popovertarget` (or `commandfor` with `command="show-popover"`) names a
+whose `popovertarget` (or `commandfor` with `command="show-popover"` or `"toggle-popover"`) names a
 popover that is no menu opens it as if by the menu's own invoker (the button
 that opened the menu, or the node its context menu opened on), as
 `showPopover(id, source=)` does: not nested in the menu, so it stays open as the

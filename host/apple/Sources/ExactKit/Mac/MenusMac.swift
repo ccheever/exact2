@@ -299,9 +299,10 @@ final class MenuHost: NSObject {
         // A row of a menu opens a popover that is no menu as the menu's own invoker would (LLP 1021's
         // menu rule): an open menu's, or the native menu's it was chosen from, which has closed by now.
         let menuRow = { (menu: NodeView?) in menu?.props["accessibilityRole"] == "menu" && row.map { self.contains(menu!, $0) } == true }
-        let holding = pop.props["accessibilityRole"] == "menu" ? nil : entries.last { menuRow($0.popover) }
-        let picked = holding == nil && pop.props["accessibilityRole"] != "menu" && menuOpener.pops.contains(where: { menuRow($0.pop) }) ? menuOpener.opener : nil
-        let source = holding.map { $0.source } ?? picked ?? row
+        let picked = pop.props["accessibilityRole"] != "menu" && menuOpener.pops.contains(where: { menuRow($0.pop) }) ? menuOpener.opener : nil
+        var source = row, hops = 0 // past any open submenu, to what opened the outermost menu
+        while pop.props["accessibilityRole"] != "menu", hops < 8, let e = entries.last(where: { e in e.popover.props["accessibilityRole"] == "menu" && source.map { s in contains(e.popover, s) } == true }) { source = e.source; hops += 1 }
+        if source === row, let picked { source = picked }
         let bubbled = bubbled && source.map { presenter?.dialogs.isBehindModal($0) == true } == true
         guard let presenter, !isOpen(pop), live(pop), source.map(live) ?? true, pop.props["popover"] != nil,
               connected(pop), source.map(connected) ?? true, !pop.inert,

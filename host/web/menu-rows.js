@@ -22,7 +22,14 @@ function invoked(row) {
   return target?.hasAttribute("popover") ? { target, action: ["show", "hide"].includes(action) ? action : "toggle" } : null;
 }
 
-/** Does what `row` invokes now, as HTML would, but opens a popover that is no menu from `menu`'s own invoker. */
+/** What opened `menu`, past any submenu: the button or node the outermost menu came from. */
+function opener(menu) {
+  let source = popoverSource(menu);
+  for (let seen = new Set([menu]), outer; source && (outer = source.closest('[popover][role="menu"]')) && !seen.has(outer); seen.add(outer)) source = popoverSource(outer);
+  return source;
+}
+
+/** Does what `row` invokes now, as HTML would, but opens a popover that is no menu from its menu's own invoker. */
 function act(row, menu) {
   const now = row.isConnected && !row.disabled && row.closest('[popover][role="menu"]') === menu ? invoked(row) : null;
   if (!now) return;
@@ -31,7 +38,7 @@ function act(row, menu) {
     if (action === "hide" || action === "toggle" && open) { if (open) target.hidePopover(); return; }
     if (open) return;
     const nested = target === menu || target.getAttribute("role") === "menu"; // a submenu, nested as HTML nests it
-    const source = nested ? row : popoverSource(menu);
+    const source = nested ? row : opener(menu);
     target.showPopover({ source: source?.isConnected ? source : undefined });
   } catch {}
 }
