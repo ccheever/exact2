@@ -374,7 +374,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   const inspectTable = (digest) => {
     if (!tables.has(digest)) {
       tables.set(digest, new Promise((done) => {
-        const out = resolve(app.target, `inspect-${digest}.json`);
+        // (this loop's own: another loop on one target/ may make the same plan's table, and removes its own)
+        const out = resolve(app.target, `inspect-${digest}-${process.pid}.json`);
         const compiler = toolFresh() ? { cmd: tool.path, pre: [], done() {} } : webCompiler();
         const child = spawn(compiler.cmd, [...compiler.pre, 'inspect-table', resolve(dist, 'app.plan'), out], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'] });
         let err = '';
@@ -1012,7 +1013,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
       probe.close(() => {
         console.log(`native client: starting the resident loop's producers (loopback :${internal})`);
         residentChild = spawn(process.execPath, [resolve(root, 'host/web/dev.mjs'), '--app', app.name, '--wasm', '--port', String(internal), '--serve-as', String(port), ...(lan ? ['--lan'] : []), ...allowHosts.flatMap((name) => ['--allow-host', name])],
-          { cwd: root, env: { ...process.env, EXACT_WEB_DIST: resolve(app.target, 'web-dist-resident'), EXACT_LAUNCHER_PID: String(process.pid), EXACT_MAP_FD: '3' }, stdio: ['ignore', 'pipe', 'inherit', 'pipe'] });
+          { cwd: root, env: { ...process.env, EXACT_WEB_DIST: resolve(app.target, 'web-dist-resident', createHash('sha256').update(resolve(dist)).digest('hex').slice(0, 16)), EXACT_LAUNCHER_PID: String(process.pid), EXACT_MAP_FD: '3' }, stdio: ['ignore', 'pipe', 'inherit', 'pipe'] });
         // Its plans and their maps' cards, on the pipe given for that alone.
         let cards = '';
         residentChild.stdio[3].on('data', (d) => {
