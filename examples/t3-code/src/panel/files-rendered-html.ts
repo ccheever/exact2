@@ -6,7 +6,8 @@
 // numbered source and back, and the choice is a preference, not a property of one file. The page
 // is read from a signed asset URL (`assets.createUrl`: `workspace-file` for a thread,
 // `draft-workspace-file` for a draft's workspace), suffixed with the workspace revision so an edit
-// reloads it, and shown by the app module's sandboxed WebKit body (T3MediaPreview.swift,
+// reloads it. A renewed signature keeps the URL the page opened with until that revision changes, so a page's form
+// input and scroll survive it (BrowserDocumentFrame's `documentKey`). It is shown by the app module's sandboxed WebKit body (T3MediaPreview.swift,
 // as the attachment's HTML preview; siblings load only from the token directory), never in the app's own session.
 import type { T3Client } from '../client/client';
 import { obj, str } from '../client/domain';
@@ -42,7 +43,7 @@ export function contentRevision(text: string): string {
 /** The page URL with its revision (WorkspaceBrowserPreview's `revisionSuffix`). */
 export const revisedUrl = (url: string, revision: string) => (url && revision ? `${url}${url.includes('?') ? '&' : '?'}workspace-revision=${encodeURIComponent(revision)}` : url);
 
-type Minted = { key: string; url: string; at: number; error: string };
+type Minted = { key: string; url: string; at: number; error: string; shown?: { revision: string; url: string } };
 const minted = new WeakMap<T3Client, Map<string, Minted>>();
 const STALE_URL_MS = 5 * 60_000; // signed URLs live an hour; re-mint after five minutes, as the attachment does
 
@@ -54,6 +55,7 @@ export async function htmlPage(client: T3Client, native: Native | null | undefin
   if (!map) { map = new Map(); minted.set(client, map); }
   const key = `${client.environmentId}|${client.threadId}|${cwd}|${absolutePath}`;
   let entry = map.get(key);
+  const previous = entry;
   const stale = !!entry && !entry.error && now > 0 && entry.at > 0 && now - entry.at > STALE_URL_MS;
   if ((!entry || stale) && native?.available && client.ready) {
     try {
@@ -64,10 +66,12 @@ export async function htmlPage(client: T3Client, native: Native | null | undefin
       if (letGo(error)) throw error;
       entry = { key, url: '', at: now, error: 'Unable to load file preview.' };
     }
+    if (previous?.shown) entry.shown = previous.shown;
     map.set(key, entry);
   }
-  if (!entry) return { url: '', error: '' };
-  return { url: revisedUrl(entry.url, revision), error: entry.error };
+  if (!entry || entry.error) return { url: '', error: entry?.error ?? '' };
+  if (entry.shown?.revision !== revision) entry.shown = { revision, url: revisedUrl(entry.url, revision) };
+  return { url: entry.shown.url, error: '' };
 }
 
 /** Forget a refused mint so a later view tries again (the panel's refresh). */

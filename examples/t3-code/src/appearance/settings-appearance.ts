@@ -200,6 +200,8 @@ export function appearanceSections(prefs: ClientPrefs, artworkVisible: boolean, 
     row('persistComposerContextStrip', 'composer-context', 'Composer context', 'Keep branch and worktree controls below the composer after a thread starts.', 'switch'),
     row('chatWidth', 'chat-width', 'Chat width', 'Set how wide messages and the composer can grow on large screens.', 'select',
       select('chatWidth', [['comfortable', 'Comfortable (default)'], ['wide', 'Wide'], ['full', 'Full']], { comfortable: 'Comfortable', wide: 'Wide', full: 'Full' }[prefs.chatWidth])),
+    row('mathRenderingEnabled', 'math-rendering', 'Render math', 'Typeset LaTeX math, such as $x^2$ or \\[x^2\\], in messages and Markdown previews. The composer keeps TeX source editable.', 'switch',
+      { resetLabel: 'math rendering' }),
   ];
   const motion = [row('panelAnimationDurationMs', 'panel-animations', 'Panel animations', 'Set how fast panels open and close.', 'slider', { ...slider('panelAnimationDurationMs', 0, 400, 25, ' ms'), info: 'preview' })];
   const font = (familyKey: 'fontFamilySans' | 'fontFamilyCode' | 'fontFamilyComposer' | 'fontFamilyTerminal', sizeKey: 'fontSizeInterface' | 'fontSizeCode' | 'fontSizePrompt' | 'fontSizeTerminal',

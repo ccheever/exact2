@@ -598,12 +598,24 @@ async function openInPreviewBrowser(client: T3Client, native: Native, path: stri
  * the thread, or a draft's own id (FilePreviewPanel's `threadRef` is the draft's), and their references are relative
  * to the workspace (`cwd`), not the folder.
  */
+/**
+ * ChatView's workspaceMutationId: the newest settled file change or command (a command can change files without naming
+ * them) and the newest checkpoint's capture time, or null before either. A rendered Markdown file's images sign again
+ * when it changes.
+ */
+export function workspaceMutationId(client: T3Client): string | null {
+  const projection = obj(client.projection), items = arr(projection.visibleTurnItems).map(row => obj(row.item));
+  const settled = items.findLast(item => (item.type === 'command_execution' || item.type === 'file_change') && !['pending', 'running', 'waiting'].includes(str(item.status)));
+  const checkpoint = arr(projection.checkpoints).findLast(entry => entry.appRunOrdinal != null && entry.runId != null);
+  const itemId = settled ? str(settled.id) : null, capturedAt = checkpoint ? str(checkpoint.capturedAt) || null : null;
+  return itemId === null && capturedAt === null ? null : JSON.stringify([itemId, capturedAt]);
+}
 async function renderedMarkdown(client: T3Client, native: Native, path: string, absolute: string, text: string, editable: boolean, now: number) {
   const folder = absolute.slice(0, Math.max(0, absolute.lastIndexOf('/'))) || '/', scope = { cwd: workspaceOf(client).cwd };
   const copy = timelineView(client).codeCopy, copied = copy.threadId === client.threadId;
   const signs = markdownMediaChips(text, folder, scope).some(chip => chip.icon === 'environment');
   const threadId = client.threadId || (signs && client.draftKey && client.ready ? await ensureDraftThreadId(client, native).catch(error => { if (letGo(error)) throw error; return ''; }) : '');
-  const urls = await markdownMediaUrls(client, native, folder, now, [text], { ...scope, threadId });
+  const urls = await markdownMediaUrls(client, native, folder, now, [text], { ...scope, threadId, mutationId: workspaceMutationId(client) });
   const diagrams = filesMermaid(client, text);
   return {
     markdownSource: [{ id: `file:${path}`, kind: editable ? 'file' : 'assistant', title: '', body: text }],
