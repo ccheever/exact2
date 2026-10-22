@@ -12,8 +12,13 @@ test "it asks for the person's name once, then shows the server's hello"
   expect text "person" == "design-tool:Ada"
   expect text "app" == "/stub/theme-fixture"
   expect text "protocol" == "tamber/1.13 · IR format 1"
+  // The files folded behind one line (below the canvas and the tokens), opened on asking.
+  expect tree missing "file-app.tamber"
+  expect text "toggle-files" == "Files (2)"
+  tap "toggle-files"
   expect tree has "file-app.tamber"
   expect tree has "file-brand.tamber"
+  expect text "toggle-files" == "Hide files"
   reload
   expect text "person" == "design-tool:Ada"
 
@@ -33,6 +38,7 @@ test "another client's write arrives on the long poll, attributed"
   type "name" "Ada"
   tap "save-name"
   clock data
+  tap "toggle-files"
   expect text "digest-app.tamber" == "aaaaaaaaaaaa"
   request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "surface.card"}], "files": {"app.tamber": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}} as ada
   clock +1
@@ -513,7 +519,7 @@ test "another design file is read when chosen, and a refused one shows its error
   expect tree missing "design-error"
   expect tree has "dial-accent-color"
 
-test "while a scrub is open a build's status reads no commit scope again, and the scrub's end does"
+test "a commit's dry run is read again only when what a commit could take moves: not on each answer, a build's status or a scrub"
   type "name" "Ada"
   tap "save-name"
   clock data
@@ -524,21 +530,25 @@ test "while a scrub is open a build's status reads no commit scope again, and th
   clock +1
   clock data
   expect disabled "commit"
-  request POST "/__stub/event" {"events": [{"event": "builds", "builds": [{"id": "ios-1", "host": "ios", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]}, {"event": "scrub", "client": "agent:codex", "scrub": "scrub-7", "reason": "opened"}]} as ada
-  clock +1
-  clock data
-  clock +1
-  clock data
-  // A dry commit read now would find an edit, and turn Commit on.
+  // From here a dry run would find an edit and turn Commit on: nothing below but a file's change asks it.
   request POST "/__stub/refuse-commit" {"nothing": false} as ada
-  request POST "/__stub/event" {"events": [{"event": "build-status", "build": {"id": "ios-1", "host": "ios", "design": "d1", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}}, {"event": "build-status", "build": {"id": "ios-1", "host": "ios", "design": "d2", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}}]} as ada
+  // Answers with nothing in them (the hands-on pass: a dry commit polled with each, 400 "nothing to commit").
   clock +1
   clock data
   clock +1
   clock data
   expect disabled "commit"
-  // Its end (another opened in the same answer still counts) reads it again.
-  request POST "/__stub/event" {"events": [{"event": "scrub", "client": "agent:codex", "scrub": "scrub-7", "reason": "cancelled"}, {"event": "scrub", "client": "agent:codex", "scrub": "scrub-8", "reason": "opened"}]} as ada
+  request POST "/__stub/event" {"events": [{"event": "builds", "builds": [{"id": "ios-1", "host": "ios", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]}, {"event": "scrub", "client": "agent:codex", "scrub": "scrub-7", "reason": "opened"}]} as ada
+  clock +1
+  clock data
+  request POST "/__stub/event" {"events": [{"event": "build-status", "build": {"id": "ios-1", "host": "ios", "design": "d1", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}}, {"event": "scrub", "client": "agent:codex", "scrub": "scrub-7", "reason": "cancelled"}]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect disabled "commit"
+  // A file's change reads it again.
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": []} as ada
   clock +1
   clock data
   clock +1
@@ -917,6 +927,7 @@ test "a scrub, chosen explicitly: each value previews, the files unchanged, and 
   clock +1
   clock data
   // What was written is the last value previewed (the stub's digest names it).
+  tap "toggle-files"
   expect text "digest-app.tamber" == "220000000000"
   tap "undo"
   clock data
