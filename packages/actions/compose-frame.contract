@@ -149,7 +149,7 @@ component ComposeFrame
                 -exact-tint-color="param.tint"
           row testId="selectLangBtn"
             role="button"
-            aria-label="Post language selection"
+            aria-label=`Post language selection: ${langLabel}`
             press=languages
             flex-shrink=0
             padding="actions.compose-lang-pad"
