@@ -3,9 +3,11 @@
 // theme2's 04:40 ruling). The library never wraps the platform's tabs or
 // header routes, which stay the platform's. A column over and under its
 // icon, held smaller while pressed; its icon filled when selected, which it
-// says aloud (aria-selected); a count's pill or a dot over the icon's right
-// half. Its one slot follows the icon, for what an item shows instead (the
-// Profile button's avatar, with no icon).
+// says aloud as the bar's current item (aria-current="page", the selected
+// trait on iOS); a count's pill or a dot over the icon's right half. Its one
+// slot follows the icon, for what an item shows instead (the Profile
+// button's avatar, with no icon); an item held for more (the Profile
+// button's account switcher) puts its long press on that fill, the app's.
 style BarItemLook
   padding-top="actions.bar-item-top"
   padding-bottom="actions.bar-item-bottom"
@@ -31,8 +33,6 @@ component BarItem
     badge: string
     dot: bool
     press: action
-    // A long press, or a right click (the Profile button's account switcher).
-    hold: action
   slot
   parts
     surface: paint shape space
@@ -42,9 +42,8 @@ component BarItem
     button part="surface" class=BarItemLook
       testId=id
       aria-label=label
-      aria-selected=selected
+      aria-current=(selected ? "page" : "false")
       press=press
-      contextmenu=hold
       position="relative"
       flex=1
       display="flex"
