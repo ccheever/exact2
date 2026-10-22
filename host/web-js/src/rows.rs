@@ -1044,6 +1044,42 @@ pub(crate) fn pressed_transition_map() -> String {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn data_names_added_by_attribute_and_canvas_writers_are_reserved() {
+        let plan = contract::compile(
+            "component App\n  view\n    canvas bitmap-width=16 bitmap-height=16 color-space=\"display-p3\" color-type=\"float16\"\n",
+        )
+        .unwrap();
+        let mut attrs = Vec::new();
+        for node in plan.nodes.iter() {
+            attrs.extend(crate::style::canvas_bitmap(&plan, &node).unwrap());
+        }
+        let mut props = exact_kernel::SortedMap::default();
+        props.insert("src".into(), "app:/movie.mp4".into());
+        props.insert("poster".into(), "app:/poster.png".into());
+        props.insert("autofocus".into(), "false".into());
+        for tag in ["img", "video", "audio", "iframe", "input"] {
+            attrs.extend(super::attributes(tag, &props).0);
+        }
+        let names: std::collections::BTreeSet<_> = attrs
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .filter(|name| name.starts_with("data-"))
+            .collect();
+        for name in ["data-app-poster", "data-color-space", "data-color-type"] {
+            assert!(names.contains(name), "writer did not emit {name}");
+        }
+        let mut unreserved = Vec::new();
+        for name in names {
+            let source = format!("component App\n  view\n    column {name}=\"x\"\n");
+            match contract::compile(&source) {
+                Err(error) if error.id == "lower-data-word" => {}
+                _ => unreserved.push(name),
+            }
+        }
+        assert!(unreserved.is_empty(), "not reserved: {unreserved:?}");
+    }
+
+    #[test]
     fn a_native_buttons_bound_display_preserves_the_semantic_grid() {
         let plan = contract::compile(
             r#"component App
