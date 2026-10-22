@@ -13,10 +13,11 @@ final class CustomInvokerIOSTests: XCTestCase {
     }
     private final class Touch: UITouch {
         let target: UIView
+        var point: CGPoint?
         init(_ target: UIView) { self.target = target; super.init() }
         override var view: UIView? { target }
         override func location(in view: UIView?) -> CGPoint {
-            target.convert(CGPoint(x: target.bounds.midX, y: target.bounds.midY), to: view)
+            target.convert(point ?? CGPoint(x: target.bounds.midX, y: target.bounds.midY), to: view)
         }
     }
     private final class Key: UIKey {
@@ -114,6 +115,51 @@ final class CustomInvokerIOSTests: XCTestCase {
         ]))
         p.viewport.layoutIfNeeded()
         return p
+    }
+
+    func testAHandlerlessPopoverInvokerShowsItsPressWhileForwardingTheContact() throws {
+        let p = page(), source = try XCTUnwrap(p.views[2]), parent = try XCTUnwrap(p.views[1])
+        let pop = try XCTUnwrap(p.views[4])
+        XCTAssertFalse(p.menus.pullsDown(pop))
+        XCTAssertNil(source.subviews.first { $0 is InvokerButton })
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        let touch = Touch(source)
+        source.touchesBegan([touch], with: nil)
+        XCTAssertFalse(source.pressed, "the invoker does not take its ancestor's press")
+        XCTAssertTrue(parent.pressed)
+        XCTAssertNotNil(source.press.dimmedAt, "the custom invoker still shows the platform's press")
+        touch.point = CGPoint(x: source.bounds.maxX + 20, y: source.bounds.midY)
+        source.touchesMoved([touch], with: nil)
+        XCTAssertNil(source.press.dimmedAt, "the finger left the invoker")
+        touch.point = nil
+        source.touchesMoved([touch], with: nil)
+        XCTAssertNotNil(source.press.dimmedAt, "the finger came back")
+        source.touchesEnded([touch], with: nil)
+        delivered()
+        XCTAssertEqual(presses, [1], "the ancestor hears the press once")
+        XCTAssertFalse(parent.pressed)
+        XCTAssertFalse(source.pressed)
+        XCTAssertNil(source.press.dimmedAt)
+        XCTAssertTrue(p.menus.isOpen(pop))
+    }
+
+    func testACancelledInvokerContactClearsItsLookAndTheForwardedPress() throws {
+        let p = page(), source = try XCTUnwrap(p.views[2]), parent = try XCTUnwrap(p.views[1])
+        var presses = 0
+        p.onPress = { _ in presses += 1 }
+        let touch = Touch(source)
+        source.touchesBegan([touch], with: nil)
+        XCTAssertNotNil(source.press.dimmedAt)
+        source.touchesCancelled([touch], with: nil)
+        XCTAssertNil(source.press.dimmedAt)
+        XCTAssertFalse(parent.pressed)
+        XCTAssertEqual(presses, 0)
+        source.touchesBegan([touch], with: nil)
+        XCTAssertNotNil(source.press.dimmedAt)
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["disabled": "true"]]]))
+        XCTAssertNil(source.press.dimmedAt, "disabling retires the look with its contact")
+        XCTAssertFalse(parent.pressed)
     }
 
     /// The activation target is the nearest button naming a target, resolved
