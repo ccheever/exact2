@@ -2135,7 +2135,11 @@ An `autofocus` mounted later takes the focus only when nothing holds it, as in C
 `tabindex` button a tap focused keeps it when a timer remounts an `autofocus` element.
 The tap's own work is the exception on the web and iOS: a field it shows, or the
 `autofocus` field of a sheet, dialog or popover it opens, takes the focus from the control
-tapped ([LLP 1035.000](../llp/1035.000-dependable-host-semantics.rfc.md) D9).
+tapped ([LLP 1035.000](../llp/1035.000-dependable-host-semantics.rfc.md) D9). On macOS and
+iOS a click or touch whose press mounts an `autofocus` text field or textarea begins editing
+it as the platform's click-to-edit does: on the Mac the field takes the focus from any field
+that held it, and on both the caret goes under the press (the end below the text). The web
+puts the caret where its focus does, at the end.
 
 `aria-disabled=true` (or `aria-disabled="true"`) reports an unavailable control
 to accessibility while keeping its focus and Tab behavior. It accepts a bound

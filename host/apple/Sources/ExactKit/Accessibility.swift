@@ -631,13 +631,16 @@ extension Presenter {
                   node.accessibilityVisible, !node.disabled, node.bounds.width > 0, node.bounds.height > 0 else { continue }
             #if os(macOS)
             guard let window = node.window else { continue }
-            let current = window.firstResponder
+            let current = window.firstResponder, click = pressMount(node, in: window)
             if (current as? NodeView)?.returnsPointerFocusToCanvas != true { autofocusProcessed.insert(ObjectIdentifier(node)) }
-            guard current == nil || current === window || current === window.contentView || current === viewport || current === session?.view || (current as? NodeView)?.canvasInput != nil else { continue }
+            guard click != nil || current == nil || current === window || current === window.contentView || current === viewport || current === session?.view || (current as? NodeView)?.canvasInput != nil else { continue }
             // Blocked autofocus stays pending until the pointer hands focus back.
             autofocusProcessed.insert(ObjectIdentifier(node))
             let target = keyView(of: node)
-            if target.acceptsFirstResponder { _ = window.makeFirstResponder(target) }
+            if target.acceptsFirstResponder, window.makeFirstResponder(target), let click,
+               let editor = node.textArea ?? (node.field?.currentEditor() as? NSTextView) {
+                editor.setSelectedRange(NSRange(location: Self.caret(in: editor, at: click), length: 0))
+            }
             #else
             // Any focus a node holds stays, however it came (Charlie, 2026-10-17), except: the session's own
             // view holding it for its shortcuts (ShortcutsIOS), a surface control's from its touch, which the
@@ -648,9 +651,10 @@ extension Presenter {
             guard let window = node.window else { continue }
             autofocusProcessed.insert(ObjectIdentifier(node))
             guard !hasFocus(window) else { continue }
-            let target: UIResponder = node.textArea ?? node.field ?? node
+            let target: UIResponder = node.textArea ?? node.field ?? node, caret = pressCaret(in: node)
             autofocused(node) // the app's focus now, as Tab's and focus(id)'s
             if target.becomeFirstResponder() {
+                if let (input, at) = caret { input.selectedTextRange = input.textRange(from: at, to: at) }
                 autofocusedThisTurn = node
                 DispatchQueue.main.async { [weak self] in self?.autofocusedThisTurn = nil }
             }

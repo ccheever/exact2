@@ -185,6 +185,32 @@ extension Presenter {
         commitEdit(id, value, change: node.handlers.contains("change"))
     }
 
+    /// The click being dispatched as a press, when `field` is an `autofocus`
+    /// text field or textarea that press's own work mounted in its window:
+    /// the field takes the focus from whatever holds it, and its caret goes
+    /// under the click, as AppKit's click-to-edit begins editing a cell
+    /// under the pointer (`NSCell.edit(withFrame:in:editor:delegate:event:)`).
+    /// A press from the keyboard or an agent's plain tap carries no click.
+    func pressMount(_ field: NodeView, in window: NSWindow) -> NSPoint? {
+        guard let click = pressClick, [.leftMouseDown, .leftMouseUp].contains(click.type), click.window === window,
+              field.field != nil || field.textArea != nil else { return nil }
+        return click.locationInWindow
+    }
+
+    /// Where a click at `point` (window coordinates) puts the caret in
+    /// `editor`: the end below the text or outside it, else the insertion
+    /// point nearest it, as a click in an `NSTextView` does.
+    static func caret(in editor: NSTextView, at point: NSPoint) -> Int {
+        let end = (editor.string as NSString).length
+        guard let manager = editor.layoutManager, let container = editor.textContainer else { return end }
+        let local = editor.convert(point, from: nil)
+        guard editor.visibleRect.contains(local) else { return end }
+        manager.ensureLayout(for: container)
+        let used = manager.usedRect(for: container).offsetBy(dx: editor.textContainerOrigin.x, dy: editor.textContainerOrigin.y)
+        if editor.isFlipped ? local.y >= used.maxY : local.y <= used.minY { return end }
+        return min(end, editor.characterIndexForInsertion(at: local))
+    }
+
     /// A key that is not a shortcut chord (Tab and Shift-Tab included): the
     /// focus is visible from here, as Chrome's `:focus-visible` matches at a
     /// focus the keyboard moved, or used after a click had moved it.
