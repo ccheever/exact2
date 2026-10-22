@@ -482,6 +482,21 @@ native hosts has it; D7 lists the host deviations and what remains. D7's
 amendments let the mapper answer its own frames (2026-10-16) and an answer
 in flight send its own requests (2026-10-18).
 
+**Expanded (Daehyeon Mun, 2026-10-23; LLP 1133.005):** a local listener,
+`exactListen("unix:<path>", options)`: a data capability in `fetch`'s shape
+whose connections reach the stream mapper with LLP 1016.000 D7's sends, under
+a `net.listen` grant, on macOS (Linux built with a fixture, accepted with a
+Linux consumer); a loopback callback `http://127.0.0.1:<port>/<path>` with a
+fixed port for `openAuthSession` on macOS (RFC 8252 §7.3), through the default
+browser; and a bare `focus()` for the window, best effort. Unblocks T3 Code's
+`t3 app <dir>` handoff and its Codex sign-in, and the 1,038 lines of the
+clone's Swift that do them. Take: waived (Daehyeon Mun, 2026-10-23): the
+listener is a transport the runner's streams own, as `fetch` is, and no
+doing-list item is in this area. Still out: listening beyond loopback, binary
+framing and raw byte streams, Rust replies, peer credentials and abstract
+sockets, the ephemeral-port callback, an HTTP server for content, and `tcp:`
+and `http:` addresses, which are written down only (LLP 1133.005 §11, D5).
+
 
 **Expanded (Charlie, 2026-10-08, issue #283; focus lane, 2026-10-12):**
 DOM `focusin`/`focusout` with target and related target information bubble to
