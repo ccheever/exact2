@@ -146,7 +146,7 @@ final class BubbledPress {
         validate()
         guard !cancelled else { return }
         node.pressed = false
-        presenter.press(node.id, held: KeyCodes.held(event.modifierFlags), bubbled: true)
+        presenter.press(node.id, held: KeyCodes.held(event.modifierFlags), bubbled: true, click: event)
     }
 }
 
