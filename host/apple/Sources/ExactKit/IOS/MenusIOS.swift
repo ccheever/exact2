@@ -886,15 +886,18 @@ final class MenuHost {
         presenter.controls.syncShown()
         if let field = Self.autofocus(in: pop) { presenter.focusNode(field) }
     }
-    /// Under the agent, a context menu (LLP 1021 §5.1) is its popover painted
-    /// in the top layer, anchored to `node`, as an invoker's (D4): its
-    /// preview row and menu rows are nodes the agent reads and taps. Called
-    /// after `node`'s own `contextmenu` has been delivered.
-    /// Whether it opened one.
+    /// Paint the context popover after its source's handler ran. Read the
+    /// live run's props because the handler may replace it.
     @discardableResult
-    func agentContext(_ node: NodeView) -> Bool {
+    func agentContext(_ node: NodeView, inline inlineID: UInt32? = nil) -> Bool {
         // Its own action may have unmounted or disabled it, or renamed its popover.
-        guard ExactEnv.agentMode, let presenter, let name = node.props["contextPopover"], eligible(node, contextMenu: true) else { return false }
+        guard ExactEnv.agentMode, let presenter, eligible(node, contextMenu: true) else { return false }
+        let props: [String: String]
+        if let inlineID {
+            guard presenter.textHost(inlineID) === node, !presenter.inlineInert(inlineID), let run = presenter.inlineText(inlineID) else { return false }
+            props = run.props
+        } else { props = node.props }
+        guard let name = props["contextPopover"] else { return false }
         // `agentShow` nests it in the open popovers holding `node`, as HTML's
         // stack does, and closes every other auto popover, as a tap outside
         // them would; a manual one stays.

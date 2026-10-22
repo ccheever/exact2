@@ -206,7 +206,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if stopsAtPress(gestureRecognizer), pressBoundary(touch, presses: gestureRecognizer !== layoutPanRecognizer) { return false } // LLP 1057.001 rule 3
         #if os(iOS)
         if gestureRecognizer === contextRecognizer {
-            guard presenter?.menus.eligible(self, contextMenu: true) == true else { return false }
+            guard presenter?.menus.eligible(self, contextMenu: true) == true,
+                  hasOwnContextMenu || inlineContextTarget(at: touch.location(in: self)) != nil else { return false }
+            if !ExactEnv.agentMode {
+                let run = inlineContextTarget(at: touch.location(in: self))
+                if (run?.props["contextPopover"] ?? (run == nil ? props["contextPopover"] : nil))?.isEmpty == false { return false }
+            }
             if let hit = touch.view as? NodeView, let source = hit.contextMenuSource, source !== self { return false }
         }
         #endif
@@ -236,46 +241,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// takes its own touches (`CanvasInputs`), or a native editor.
     static func nativeInputOwns(_ view: UIView?, below boundary: UIView) -> Bool {
         CanvasInputs.owns(view) || nativeEditor(view, below: boundary)
-    }
-    func updateContextGestures() {
-        if handlers.contains("contextmenu"), contextRecognizer == nil {
-            let g = UILongPressGestureRecognizer(target: self, action: #selector(openContext(_:)))
-            g.delegate = self
-            // Recognition and scroll arbitration remain UIKit's.
-            g.delaysTouchesEnded = false
-            addGestureRecognizer(g)
-            contextRecognizer = g
-        }
-        if !handlers.contains("contextmenu"), let g = contextRecognizer {
-            removeGestureRecognizer(g)
-            contextRecognizer = nil
-        }
-        if handlers.contains("dblclick"), doubleRecognizer == nil {
-            let g = UITapGestureRecognizer(target: self, action: #selector(doubleClicked(_:)))
-            g.delegate = self
-            // The web's order (LLP 1057.001 §1 rule 5): the second tap still presses.
-            g.numberOfTapsRequired = 2; g.delaysTouchesEnded = false; g.cancelsTouchesInView = false
-            addGestureRecognizer(g)
-            doubleRecognizer = g
-        }
-        if !handlers.contains("dblclick"), let g = doubleRecognizer {
-            removeGestureRecognizer(g)
-            doubleRecognizer = nil
-        }
-        syncPointerRecognizer()
-    }
-    @objc func openContext(_ gesture: UILongPressGestureRecognizer) {
-        guard gesture.state == .began, !formDisabled else { return }
-        // Where the press is, as a touch's `PointerEvent` (studio diary R22).
-        let point = gesture.location(in: self), box = contentBox()
-        let client = presenter?.client(gesture.location(in: nil)) ?? .zero
-        let sample = PointerSample(x: Double(point.x - box.minX), y: Double(point.y - box.minY), buttons: 1, pressure: 0.5, type: "touch", id: 2,
-                                   clientX: Double(client.x), clientY: Double(client.y))
-        presenter?.contextmenu(id, line: sample.line); presenter?.menus.agentContext(self) // then, under the agent, its popover (LLP 1021 §5.1)
-    }
-    @objc func doubleClicked(_ gesture: UITapGestureRecognizer) {
-        guard gesture.state == .ended, !disabled else { return } // then after this touch's own press
-        DispatchQueue.main.async { [weak self, token = incarnation] in if let self, self.incarnation == token, !self.disabled, self.presenter?.views[self.id] === self { self.presenter?.dblclick(self.id) } }
     }
     weak package var presenter: Presenter?
     /// The actual scroll port; a native list supplies its collection view.
