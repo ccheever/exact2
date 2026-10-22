@@ -149,8 +149,8 @@ export const PHOTO_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAUAAAADICAIAAAAWZq/8AAAD2UlEQV
   'KGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAI' +
   'EzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGJ66vgMQpb77qSizrgAAAABJRU5ErkJggg==';
 
-/** The app's files in memory; compressImage "scales" by writing `scaled`, or fails `undecodable` when it is null. */
-export function memoryFiles(scaled: Uint8Array | null) {
+/** The app's files in memory; compressImage "scales" by writing `scaled`, or fails with `failure` when it is null. */
+export function memoryFiles(scaled: Uint8Array | null, failure = 'undecodable') {
   const files = new Map<string, Uint8Array>(), scaledFrom: string[] = [];
   adoptAppFiles({ fs: {
     async readFile(path: string) { const found = files.get(path); if (!found) throw new Error('ENOENT'); return found.slice().buffer; },
@@ -160,7 +160,7 @@ export function memoryFiles(scaled: Uint8Array | null) {
     async compressImage(from: string, to: string, options: { maxDimension: number; type: string }) {
       if (!files.has(from)) throw new Error('ENOENT');
       scaledFrom.push(`${options.maxDimension} ${options.type}`);
-      if (!scaled) throw Object.assign(new Error('compressImage: undecodable: not an image'), { code: 'undecodable' });
+      if (!scaled) throw Object.assign(new Error(`compressImage: ${failure}`), { code: failure });
       files.set(to, scaled);
       return { path: to, type: options.type, size: scaled.length, width: 128, height: 80 };
     },

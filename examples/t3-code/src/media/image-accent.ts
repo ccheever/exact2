@@ -35,15 +35,20 @@ export function averageAccent(rgba: Uint8Array): string {
 
 /** The accent of the PNG `bytes`, "" when they are not one or are fully transparent. */
 export function pngAccent(bytes: Uint8Array): string {
-  const pixels = decodePng(bytes);
+  const pixels = decodePng(bytes, ACCENT_SIDE * ACCENT_SIDE);
   return pixels ? averageAccent(pixels.rgba) : '';
 }
 
+/** compressImage's refusals that a later read would repeat (docs/reference.md, "Shrink a picked image for upload"). */
+const LASTING = new Set(['too-large', 'undecodable', 'unfit', 'unsupported']);
+
 /**
- * The accent of the image at the http(s) `url`: "" when it cannot be fetched or read, so the chip keeps the image kind's
- * own tone. A let-go answer's rejection goes on up (client/let-go.ts).
+ * The accent of the image at the http(s) `url`, or "" when it has none that a later read would find: a non-2xx reply,
+ * bytes compressImage cannot decode, or a fully transparent picture (the chip keeps the image kind's own tone). Null
+ * when this read failed for a passing reason (a timeout, the network, a full storage queue), so the caller may ask
+ * again. A let-go answer's rejection goes on up (client/let-go.ts).
  */
-export async function imageAccent(url: string, isLetGo: (error: unknown) => boolean): Promise<string> {
+export async function imageAccent(url: string, isLetGo: (error: unknown) => boolean): Promise<string | null> {
   if (!/^https?:\/\//i.test(url)) return '';
   const fs = files(), base = `${ACCENT_SCRATCH}/${++serial}`, from = `${base}.image`, to = `${base}.png`;
   try {
@@ -52,11 +57,13 @@ export async function imageAccent(url: string, isLetGo: (error: unknown) => bool
     const bytes = new Uint8Array(await response.arrayBuffer());
     await fs.mkdir(ACCENT_SCRATCH, { recursive: true }).catch(() => undefined);
     await fs.writeFile(from, bytes);
-    const scaled = await fs.compressImage(from, to, { maxDimension: ACCENT_SIDE, maxBytes: 1024 * 1024, type: 'image/png' });
+    let scaled: { path: string };
+    try { scaled = await fs.compressImage(from, to, { maxDimension: ACCENT_SIDE, maxBytes: 1024 * 1024, type: 'image/png' }); }
+    catch (error) { if (LASTING.has(String((error as { code?: unknown } | null)?.code ?? ''))) return ''; throw error; }
     return pngAccent(new Uint8Array(await fs.readFile(scaled.path || to)));
   } catch (error) {
     if (isLetGo(error)) throw error;
-    return '';
+    return null;
   } finally {
     await fs.rm(from).catch(() => undefined);
     await fs.rm(to).catch(() => undefined);
