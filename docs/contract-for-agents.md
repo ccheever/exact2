@@ -3768,7 +3768,10 @@ for them). Its names are its API: an app line or a Contract row naming a
 name under its namespace that it doesn't define, or a param line naming one
 it lacks, fails the build (`tamber-package-unknown`; the nine base names are
 no package's), and its params are named in full, a short name that names
-none too (`tamber-param-short-library`).
+none too (`tamber-param-short-library`). The in-repo `@exact/actions`'
+`BarItem` and `HeaderButton` are for an app's own authored bar and header (a
+design's, as Bluesky's are); the platform's `tabs` and `header` routes stay
+the platform's, and no library component wraps them.
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
 `contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust|swift|kotlin .` writes bindings into
