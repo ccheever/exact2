@@ -20,11 +20,14 @@ export const refusalOf = (b: any, was?: Refusing) => {
 /** The refusals the Inspector says (at most three, then a count): each as the Builds list names its build (the
  * Inspector names a grid copy by its tile, which it reads as it draws). */
 export const refusalRows = (builds: Iterable<Refusing>) => {
-  const refused = [...builds].filter(b => b.inspectRefused != null);
+  const all = [...builds], refused = all.filter(b => b.inspectRefused != null);
   return {
     refusals: refused.slice(0, 3).map(b => ({ id: b.id, host: b.host, name: `${b.host} · ${b.id}${b.page === 'gallery' ? ' · the gallery' : ''}`,
       tail: ` could not turn Inspect on${b.inspectRefused ? `: ${b.inspectRefused}` : ''}. Stop inspecting and Inspect again to retry.` })),
     refusedMore: Math.max(0, refused.length - 3),
+    // Every refusal event counted, on every build (each moves a build's count, the same words again included): what a
+    // move up the chain waits to see change (tamber/1.16 `select`).
+    refusalCount: all.reduce((n, b) => n + (b.refusalSeq ?? 0), 0),
   };
 };
 
