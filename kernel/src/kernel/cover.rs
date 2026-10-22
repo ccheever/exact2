@@ -284,7 +284,7 @@ fn scroller_insets_bottom(arena: &NodeArena, slot: u32) -> bool {
             s.display != crate::Display::None
                 && s.position_type != crate::PositionType::Absolute
                 && arena.cover(c) != Some(HostCover::Whole)
-                // A popover is out of flow, open or closed (`style::taffy_style`).
+                // A popover is out of flow, open or closed (`style::top_layer`).
                 && !crate::style::top_layer::top_layer(arena, c)
         };
         let Some(&last) = arena.children(at).iter().rev().find(flowing) else {
@@ -384,8 +384,14 @@ pub(crate) fn chain_changed(arena: &NodeArena, layout: &mut dyn LayoutMirror, sl
 /// cleared included, so the caller says when).
 pub(crate) fn positioned_children(arena: &NodeArena, slot: u32) -> Vec<u32> {
     (arena.children(slot).iter().copied())
-        .filter(|&c| arena.style(c).position_type == crate::PositionType::Absolute)
+        .filter(|&c| positioned(arena, c))
         .collect()
+}
+
+/// Whether `slot` lays out absolute: authored so, or a popover (`style::top_layer`).
+fn positioned(arena: &NodeArena, slot: u32) -> bool {
+    arena.style(slot).position_type == crate::PositionType::Absolute
+        || crate::style::top_layer::top_layer(arena, slot)
 }
 
 /// The points a cover adds to the box's padding as layout pads it (`apply`):
@@ -456,7 +462,7 @@ pub(crate) fn children_changed(
         // no longer (`apply`): a child attached, or moved here from a
         // covered box, is derived again.
         for &c in arena.children(slot) {
-            if arena.style(c).position_type == crate::PositionType::Absolute {
+            if positioned(arena, c) {
                 if let Some(node) = arena.taffy(c) {
                     layout.restyle(arena, c, node);
                 }
