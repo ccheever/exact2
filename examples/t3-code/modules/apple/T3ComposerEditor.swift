@@ -231,15 +231,13 @@ final class T3ComposerEditor {
         return false
     }
 
-    /// ⇧⌘V (isPasteAsTextShortcut) or the host's Paste and Match Style, ⌥⇧⌘V: the text view's `pasteAsPlainText:`
-    /// runs inside the key's event, as the composer's `key` handler arms Paste as Text on it (composer.contract
-    /// `richKey`). Paste as Text chosen with the pointer has no key, so its large text folds as a Paste's does.
-    /// A key that types no ASCII letter is its physical key's (Korean 2-Set's ㅍ on V), as the clone's chords match.
+    /// ⇧⌘V with no ⌥ or ⌃ (isPasteAsTextShortcut): the text view's `pasteAsPlainText:` runs inside the key's event, as
+    /// the composer's `key` handler arms Paste as Text on it (composer.contract `richKey`, the same rule). Paste as
+    /// Text chosen with the pointer has no key, so its large text folds as a Paste's does.
     static func isPasteAsTextKey(_ event: NSEvent?) -> Bool {
         guard let event, event.type == .keyDown,
-              event.modifierFlags.intersection([.command, .control, .shift]) == [.command, .shift] else { return false }
-        let typed = event.charactersIgnoringModifiers?.lowercased() ?? ""
-        return typed == "v" || (!typed.unicodeScalars.allSatisfy(\.isASCII) && event.keyCode == 9)
+              event.modifierFlags.intersection([.command, .control, .option, .shift]) == [.command, .shift] else { return false }
+        return event.charactersIgnoringModifiers?.lowercased() == "v"
     }
 
     static func isPaste(_ text: String) -> Bool {
