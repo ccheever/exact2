@@ -1139,18 +1139,7 @@ public final class ExactSession {
                         fputs("exact: copyText requires one string\n", stderr)
                         continue
                     }
-                    #if os(tvOS)
-                    // tvOS has no pasteboard.
-                    fputs("exact: copyText: no pasteboard\n", stderr)
-                    _ = text
-                    #elseif canImport(UIKit)
-                    UIPasteboard.general.string = text
-                    #else
-                    NSPasteboard.general.clearContents()
-                    if !NSPasteboard.general.setString(text, forType: .string) {
-                        fputs("exact: copyText failed\n", stderr)
-                    }
-                    #endif
+                    AgentPasteboard.copy(text, log: log)
                     continue
                 }
                 if name == "reload" {

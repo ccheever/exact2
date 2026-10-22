@@ -1,0 +1,17 @@
+{
+  "kind": "interface",
+  "name": "@exact/clipboard",
+  "version": "1.0.0",
+  "substitute": "implementation",
+  "shapes": {
+    "ClipboardItem": {
+      "record": "string",
+      "of": "string | bytes | path",
+      "keys": { "text/plain": "string", "image/png": "bytes | path" }
+    }
+  },
+  "names": [
+    { "send": "write", "params": { "items": "ClipboardItem[]" }, "answers": null, "origin": "person", "sequence": "write" },
+    { "send": "writeText", "params": { "text": "string" }, "answers": null, "origin": "person", "sequence": "write" }
+  ]
+}
