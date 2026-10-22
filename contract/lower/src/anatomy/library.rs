@@ -599,7 +599,159 @@ pub(crate) struct Controls {
 pub(crate) fn control(c: &Component) -> Controls {
     let mut out = Controls::default();
     walk_controls(&c.view, &c.name, &mut out);
+    let states: Vec<&str> = c
+        .props
+        .iter()
+        .filter(|p| STATES.contains(&p.name.as_str()))
+        .filter(|p| matches!(&p.ty, Some(contract_syntax::TypeExpr::Named(n, _)) if n == "bool"))
+        .map(|p| p.name.as_str())
+        .collect();
+    walk_buttons(&c.view, &c.name, &states, &mut out.refused);
     out
+}
+
+/// The bool props a pressable's look may show as a state a person needs
+/// said (theme2 2026-10-22 04:40): a button whose look reads one must say
+/// it aloud (`walk_buttons`). Others (a size, an ink) are presentation.
+pub(crate) const STATES: [&str; 7] = [
+    "selected", "current", "pressed", "checked", "on", "active", "expanded",
+];
+
+/// The attributes a button says a state through, besides its label.
+const SAID: [&str; 5] = [
+    "aria-selected",
+    "aria-pressed",
+    "aria-current",
+    "aria-checked",
+    "aria-expanded",
+];
+
+/// Each button of a library view (a `button`, or a node of
+/// `role="button"`), named (`aria-label`, `aria-labelledby` or a text of
+/// its own), and saying each state of `states` its look reads (a `?:` or
+/// `match` in a row, a class, or a used component's argument) through
+/// one of [`SAID`] or a label that reads it (theme2 2026-10-22 04:40,
+/// LLP 1139 D9's condition (b)).
+fn walk_buttons(nodes: &[Node], comp: &str, states: &[&str], out: &mut Vec<LowerError>) {
+    for n in nodes {
+        match n {
+            Node::Element {
+                tag,
+                attrs,
+                children,
+                span,
+                ..
+            } => {
+                let button = tag == "button"
+                    || leaf_texts(attrs, "role").is_some_and(|r| r.iter().any(|r| r == "button"));
+                if button {
+                    check_button(tag, attrs, children, comp, states, *span, out);
+                }
+                walk_buttons(children, comp, states, out);
+            }
+            Node::Use { children, .. } | Node::Each { body: children, .. } => {
+                walk_buttons(children, comp, states, out)
+            }
+            Node::When {
+                then, otherwise, ..
+            } => {
+                walk_buttons(then, comp, states, out);
+                walk_buttons(otherwise, comp, states, out);
+            }
+            Node::Match { some, none, .. } => {
+                walk_buttons(&some.1, comp, states, out);
+                walk_buttons(none, comp, states, out);
+            }
+            Node::Children { .. } => {}
+        }
+    }
+}
+
+fn check_button(
+    tag: &str,
+    attrs: &[Attr],
+    children: &[Node],
+    comp: &str,
+    states: &[&str],
+    span: Span,
+    out: &mut Vec<LowerError>,
+) {
+    let error = |message: String| LowerError {
+        id: "lower-library-control",
+        message: format!("{message} in library component `{comp}` (LLP 1139 D9)"),
+        span,
+    };
+    let labelled = has(attrs, "aria-label") || has(attrs, "aria-labelledby");
+    if !labelled && !texted(children) {
+        out.push(error(format!(
+            "a `{tag}` without a name: write `aria-label` (or `aria-labelledby`), or give it a text, which assistive technology reads as the control it stands in for"
+        )));
+    }
+    // The states its look reads: inside a `?:` or `match` anywhere in it but
+    // the attributes that say things aloud.
+    let mut look = Vec::new();
+    looks(attrs, children, &mut look);
+    for state in states.iter().filter(|s| look.iter().any(|l| l == *s)) {
+        let says = |name: &str| {
+            attrs
+                .iter()
+                .filter(|a| a.name == name)
+                .any(|a| mentions(&a.value, state))
+        };
+        if !SAID.iter().any(|a| says(a)) && !says("aria-label") {
+            out.push(error(format!(
+                "a `{tag}` whose look says a state it doesn't say aloud: its look reads `{state}`, so say it through `aria-selected`, `aria-pressed`, `aria-current`, `aria-checked` or `aria-expanded` from `{state}`, or a label that reads it"
+            )));
+        }
+    }
+}
+
+/// Whether `nodes` hold a text of their own (not one a used component draws).
+fn texted(nodes: &[Node]) -> bool {
+    nodes.iter().any(|n| match n {
+        Node::Element { tag, children, .. } => tag == "text" || texted(children),
+        Node::Each { body, .. } => texted(body),
+        Node::When {
+            then, otherwise, ..
+        } => texted(then) || texted(otherwise),
+        Node::Match { some, none, .. } => texted(&some.1) || texted(none),
+        Node::Use { .. } | Node::Children { .. } => false,
+    })
+}
+
+/// The names read inside a `?:` or `match` by `attrs` (but `aria-*`'s) and
+/// everything under `children`, a used component's arguments included.
+fn looks(attrs: &[Attr], children: &[Node], out: &mut Vec<String>) {
+    for a in attrs.iter().filter(|a| !a.name.starts_with("aria-")) {
+        super::reads(&a.value, &mut Vec::new(), false, out);
+    }
+    for n in children {
+        match n {
+            Node::Element {
+                attrs, children, ..
+            } => looks(attrs, children, out),
+            Node::Use { args, children, .. } => looks(args, children, out),
+            Node::Each { body, .. } => looks(&[], body, out),
+            Node::When {
+                then, otherwise, ..
+            } => {
+                looks(&[], then, out);
+                looks(&[], otherwise, out);
+            }
+            Node::Match { some, none, .. } => {
+                looks(&[], &some.1, out);
+                looks(&[], none, out);
+            }
+            Node::Children { .. } => {}
+        }
+    }
+}
+
+/// Whether `e` reads the name `name` anywhere.
+fn mentions(e: &Expr, name: &str) -> bool {
+    let mut read = Vec::new();
+    super::reads(e, &mut Vec::new(), true, &mut read);
+    read.iter().any(|r| r == name)
 }
 
 fn walk_controls(nodes: &[Node], comp: &str, out: &mut Controls) {
