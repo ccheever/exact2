@@ -31,20 +31,30 @@ pub(crate) fn of(style: &crate::StyleProps, props: &crate::PropList) -> Position
     }
 }
 
-/// A top-layer box's engine style: absolute, out of flow. Its containing
-/// block stays its positioned ancestor, not the viewport (QUEUE). One its
-/// author made `sticky` keeps its own machinery (`cover::scroller_insets_bottom`).
+/// A top-layer box's engine style: absolute, out of flow, its insets
+/// offsets (a platform start's sticky row had laid them out as `auto`). Its
+/// containing block stays its positioned ancestor, not the viewport
+/// (QUEUE). One its author made `sticky` keeps its own machinery
+/// (`cover::scroller_insets_bottom`).
 pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
     if layout_position(arena, slot) == PositionType::Absolute {
         s.position = taffy::style::Position::Absolute;
+        let (style, env) = (arena.effective_style(slot), arena.env());
+        s.inset = taffy::geometry::Rect {
+            top: style.top.to_lpa(env),
+            right: style.right.to_lpa(env),
+            bottom: style.bottom.to_lpa(env),
+            left: style.left.to_lpa(env),
+        };
     }
 }
 
 /// A box's `popover` prop set or cleared: it moves in or out of its
-/// parent's flow, so its engine style is derived again, and it joins or
-/// leaves its covered box's bottom-edge chain (`cover::chain_changed`).
+/// parent's flow, so its engine style is derived again, it joins or leaves
+/// its covered box's bottom-edge chain (`cover::chain_changed`), and the
+/// sticky machinery takes it or lets it go (a platform start's sticky).
 pub(crate) fn prop_changed(
-    arena: &NodeArena,
+    arena: &mut NodeArena,
     layout: &mut dyn crate::layout::LayoutMirror,
     slot: u32,
     prop: crate::PropId,
@@ -52,6 +62,7 @@ pub(crate) fn prop_changed(
     if prop != crate::PropId::Popover {
         return false;
     }
+    arena.refresh_sticky(slot);
     if let Some(node) = arena.taffy(slot) {
         layout.restyle(arena, slot, node);
     }
