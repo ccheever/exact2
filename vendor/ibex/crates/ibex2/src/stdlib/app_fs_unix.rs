@@ -570,7 +570,7 @@ fn at_parent(op: FsOp, parent: &File, leaf: &str, data: &[u8]) -> Result<FsResul
                     is_file: kind == libc::S_IFREG,
                     is_directory: kind == libc::S_IFDIR,
                     modified_ms: u64::try_from(st.st_mtime).unwrap_or(0).saturating_mul(1000),
-                    mode: u32::from(st.st_mode) & 0o7777,
+                    mode: mode_bits(st.st_mode),
                     is_symlink: kind == libc::S_IFLNK,
                 }))
             }
@@ -745,7 +745,7 @@ pub(crate) fn document(
         FsOp::Stat => {
             let meta = document_metadata(parent, leaf)?;
             Ok(FsResult::Stat(Stat {
-                mode: u32::from(meta.st_mode) & 0o7777,
+                mode: mode_bits(meta.st_mode),
                 is_symlink: false,
                 size: u64::try_from(meta.st_size).unwrap_or(0),
                 is_file: meta.st_mode & libc::S_IFMT == libc::S_IFREG,
@@ -1168,4 +1168,11 @@ mod tests {
         assert!(resolve_sqlite(&grants, Some(&f.dirs), "app:/cache/db").is_err());
         assert!(resolve_sqlite(&grants, Some(&f.dirs), "app:/data/../cache/db").is_err());
     }
+}
+
+/// A `stat`'s permission bits: `st_mode` is a `u16` on Apple platforms and
+/// a `u32` on Linux.
+#[allow(clippy::useless_conversion)]
+fn mode_bits(mode: libc::mode_t) -> u32 {
+    u32::from(mode) & 0o7777
 }

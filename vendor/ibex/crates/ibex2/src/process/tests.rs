@@ -1,5 +1,7 @@
 use super::*;
 use std::io::{Read, Write};
+#[cfg(target_vendor = "apple")]
+use std::os::fd::AsRawFd;
 
 fn sh(script: &str, stdin: Stdio) -> Child {
     let args = vec!["-c".to_string(), script.to_string()];
