@@ -520,7 +520,14 @@ names no take; `:focus-within` remains out.
   does — we design nothing that closes it: an owned-pixel surface is a leaf node
   with a kernel-owned box (like `NativeView`), GPU content never influences layout,
   the host owns the frame, and animatable properties are extensible (CSS
-  `@property`). When it is built, it compiles no shaders at runtime (LLP 0559 F8).
+  `@property`). **Ruled (Charlie, 2026-10-22):** it compiles nothing on the
+  boot path (LLP 1009 D4, D5): a GPU module compiles its shaders at a canvas's
+  first use, after the first pixel, and Canvas 2D's module on Apple ships
+  them compiled (LLP 1056 §8.5). The exception is the Linux host's GPU
+  painter (LLP 1015 §7), which compiles its shaders on the first launch on
+  a machine and reads them from a pipeline cache after. That first launch
+  is accepted over the cold-start budget: on RADV, device creation and
+  shaders alone cost 170 ms (93 + 77 ms; LLP 1015 §6).
 - ~~Server generation in every form: SSR, streaming, static export, progressive
   forms, hydration, route payloads, response caching.~~ Moved 2026-09-23 (Charlie,
   LLP 1048): static and per-request pages, streaming, adoption in place of
@@ -1106,7 +1113,11 @@ This half matters more than the feature half.
   expected — the deciding already happened upstream. Specifying something nobody is
   assigned to build is not written at all. The old corpus is 330 RFCs of deliberation
   against 52 specs of conclusion; the new repo imports conclusions.
-- **No refine loops.** No dual-family review rounds, no READY verdicts, no revision ledgers.
+- **No refine loops** (narrowed by Charlie, 2026-10-22). No rounds repeated
+  until every reviewer says READY, no reviewer verdict deciding whether work
+  lands, no revision ledgers, and no scope growth because a review asked for
+  it. Blind review by two model families is allowed within `RULES.md`
+  §Loop shape's fix-round limit.
 - **No per-PR ceremony.** No framework decision log, no lane debt ledger, no provenance
   headers on hand-written files.
 - **No blocking check the author did not run locally in under a minute.**
@@ -1150,7 +1161,7 @@ an app to AppDrop without a stub profile; refused for apps with GPU modules,
 whose baked digests a re-signer would break. No AppDrop adapter is added; the
 distributable IPA and EAS/AppDrop adapter above stay deferred otherwise.
 
-**AppDrop lane, 2026-10-14 (Eliot; Charlie's waiver or a take still owed):**
+**AppDrop lane, 2026-10-14 (Eliot; Charlie, waiver, 2026-10-22: "for decisions, recs are ok"):**
 `deploy.appdrop` makes an iOS binary row of `exact deploy --yes` build the
 `--archive --unsigned` `.ipa` against the stream's release record and publish it
 to AppDrop (creating the link the first time, writing it to app.json), and the
