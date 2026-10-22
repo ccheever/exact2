@@ -326,8 +326,9 @@ public final class ExactView: NSView {
                 if Inspect.on || InspectHost.draining { return event }
                 #endif
                 // AppKit can route an up to no view after the pressed subtree leaves its window.
-                if [.leftMouseUp, .rightMouseUp, .otherMouseUp].contains(event.type) {
-                    self.session.presenter.pointerSource?.pointerReleased(event)
+                if [.leftMouseUp, .rightMouseUp, .otherMouseUp].contains(event.type),
+                   let source = self.session.presenter.pointerSource, source.window == nil {
+                    source.pointerReleased(event)
                 }
                 guard self.session.presenter.hosts(event.window) else { return event }
                 // A modifier pressed is a keydown on the web (`"Shift"`), and
