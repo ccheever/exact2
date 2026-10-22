@@ -26,7 +26,7 @@ impl<D: DataSource> Runner<D> {
         let carried = &self.ids.tabs.carried;
         self.tree.as_ref().map_or_else(
             || carried.clone(),
-            |tree| tree.carry_panels(&self.plan, carried),
+            |tree| tree.carry_panels(&self.plan, &self.sites, carried),
         )
     }
 }

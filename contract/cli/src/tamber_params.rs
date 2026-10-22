@@ -228,9 +228,11 @@ fn packaged(e: contract_lower::LowerError, app: &AppParams) -> exact_tamber::Dia
 }
 
 /// The package tokens a fold of the app's design joins (LLP 1121 D11), as
-/// the build numbers them: what the design server's plans fold beside it.
-pub fn joined(app: &AppParams) -> Vec<exact_tamber::Token> {
-    contract_lower::with_package_designs(None, &app.packages).map_or_else(Vec::new, |d| d.tokens)
+/// the build numbers them: what the design server's plans fold beside it;
+/// and the package icons beside them (stage 13), which an app icon may name.
+pub fn joined_all(app: &AppParams) -> (Vec<exact_tamber::Token>, Vec<exact_tamber::Token>) {
+    contract_lower::with_package_designs(None, &app.packages)
+        .map_or_else(Default::default, |d| (d.tokens, d.icons))
 }
 
 /// The words of `text` a token name may be.

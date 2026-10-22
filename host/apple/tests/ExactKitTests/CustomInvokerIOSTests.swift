@@ -378,6 +378,9 @@ final class CustomInvokerIOSTests: XCTestCase {
         let p = page(session: session)
         let source = try XCTUnwrap(p.views[2])
         source.handlers = ["press"]
+        // A menu's invoker keeps the pull-down overlay (a text popover has none, LLP 1021 D3).
+        p.apply(wireBatch([["op": "create", "id": 7, "kind": "button", "props": [String: String](), "handlers": ["press"]],
+                           ["op": "children", "id": 4, "ids": [7]]]))
         p.menus.sync()
         let overlay = try XCTUnwrap(source.subviews.compactMap { $0 as? InvokerButton }.first, "\(source.subviews)")
         overlay.isHighlighted = true

@@ -19,6 +19,8 @@ struct LaunchPlace: Equatable {
     let locale: String
     let timeZone: String
     let seed: UInt64
+    /// The Region's format (`Locale.current`; English in Korea is `en-KR`), else empty (the locale).
+    let formatLocale: String
     /// Under the agent, the Unix milliseconds at the clock's zero (LLP
     /// 1027.000.000 D3; default 2026-01-01T00:00:00Z); nil reads the machine.
     let epoch: Double?
@@ -27,12 +29,14 @@ struct LaunchPlace: Equatable {
             locale = environment["EXACT_AGENT_LOCALE"] ?? "en-US"
             timeZone = environment["EXACT_AGENT_TIME_ZONE"] ?? "UTC"
             seed = UInt32(environment["EXACT_AGENT_SEED"] ?? "1").map(UInt64.init) ?? 1 // below 2^32 (LLP 1116.005 D5); else 1, as exact_data::crypto takes it
+            formatLocale = environment["EXACT_AGENT_FORMAT_LOCALE"] ?? ""
             epoch = Double(environment["EXACT_AGENT_EPOCH"] ?? "1767225600000") ?? 1_767_225_600_000
         } else {
             epoch = nil
             locale = Locale.preferredLanguages.first ?? Locale.current.identifier(.bcp47)
             timeZone = TimeZone.current.identifier
             seed = UInt64(UInt32.random(in: .min ... .max))
+            formatLocale = Locale.current.identifier(.bcp47)
         }
     }
 }
@@ -398,6 +402,10 @@ public final class ExactSession {
     var clockTimer: Timer?
     /// The runner deadline `clockTimer` fires for.
     var clockDue: Double?
+    /// The last two timer advances changed nothing the presenter shows,
+    /// and no batch has applied since (`scheduleClock`).
+    var timersQuiet: Bool { quietTimerAdvances >= 2 }
+    private(set) var quietTimerAdvances = 0
     /// An advance of a deadline already due is running (`advanceIfDue`)
     var advancingDue = false
     /// The agent's clock (milliseconds) when the driver owns time; nil runs
@@ -435,7 +443,7 @@ public final class ExactSession {
     private var afterFill: [(generation: Int, work: () -> Void, cancelled: (() -> Void)?)] = []
     private let published = NSLock()
     /// What the owner committed without main waiting.
-    private enum Published { case fill(UInt32), tick, canvas }
+    enum Published { case fill(UInt32), tick, canvas, notice }
     /// Batches the owner committed without main waiting, in its order: a
     /// slice's (with its list), a frame's tick's and a canvas draw's.
     private var publishedQueue: [(kind: Published, batch: Batch, generation: Int)] = []
@@ -445,6 +453,12 @@ public final class ExactSession {
     /// the last batch applied says whether one is owed, one is in flight
     /// at a time, and one is asked for once per main-queue turn.
     private(set) var canvasInFlight = false
+    /// A system notice's batches on the owner (`tellSoon`), each landing in its order.
+    var noticesInFlight = 0
+    /// Owner work main did not wait for, whose batches land before any made later (T4).
+    var ownerInFlight: Bool { fillInFlight || tickInFlight || canvasInFlight || noticesInFlight > 0 }
+    /// Whether this generation's plan reads `onLine`, learned by a synchronous `tellPage`.
+    var readsOnLineKnown: (generation: Int, value: Bool)?
     private var canvasOwed = false
     private var canvasAsked = false
     private(set) var landing = false
@@ -542,8 +556,8 @@ public final class ExactSession {
         }
         pressure.resume(); textPressure = pressure
         wire()
-        preferenceObservers = DisplayPreferences.observe { [weak self] in self?.tellPreferences() }
-        pageObservers = PageFacts.observe { [weak self] in self?.tellPage() }
+        preferenceObservers = DisplayPreferences.observe { [weak self] in self?.tellPreferencesSoon() }
+        pageObservers = PageFacts.observe { [weak self] in self?.tellPageSoon() }
         #if os(macOS)
         // @ref LLP 1095 D5 — the accent or another system colour changed:
         // what was resolved goes, the report is made again, and every view
@@ -634,7 +648,7 @@ public final class ExactSession {
     }
 
     /// On the owner: queue a batch for main, in the owner's order.
-    private func publish(_ kind: Published, _ batch: Batch, _ generation: Int) {
+    func publish(_ kind: Published, _ batch: Batch, _ generation: Int) {
         published.lock()
         publishedQueue.append((kind, batch, generation))
         published.unlock()
@@ -665,6 +679,7 @@ public final class ExactSession {
             case .fill: fillInFlight = false
             case .tick: tickInFlight = false
             case .canvas: canvasInFlight = false
+            case .notice: noticesInFlight -= 1
             }
             guard state != .destroyed, next.generation == generation else {
                 // A replaced runtime's slice: its waiters go, the current runtime's run
@@ -696,7 +711,7 @@ public final class ExactSession {
     /// Wait for the slice in flight and land it: what shows, the agent and
     /// every read that must see it (T5, T7, T9).
     public func drainFill() {
-        guard fillInFlight || tickInFlight || canvasInFlight || hasPublished else { return }
+        guard ownerInFlight || hasPublished else { return }
         Owner.shared.sync {}
         landFill()
     }
@@ -980,11 +995,13 @@ public final class ExactSession {
     }
 
     /// A batch that changes nothing the presenter shows: no ops, no error,
-    /// no control's viewless contents (`controls`, LLP 1069.011 §9), and the
-    /// motion, spatial, frame-task, canvas and owed-draw state as they stand.
-    /// Its timer deadline is the caller's to compare.
+    /// no control's viewless contents (`controls`, LLP 1069.011 §9), no
+    /// page facts the app moved (`setMode`, `setRootFontSize`) or wake lock,
+    /// and the motion, spatial, frame-task, canvas and owed-draw state as
+    /// they stand. Its timer deadline is the caller's to compare.
     func changesNothing(_ batch: Batch) -> Bool {
         batch.ops.isEmpty && !batch.controls && batch.error == nil && batch.canvasImages.isEmpty
+            && !batch.facts && batch.wakelock == nil
             && batch.motion == frames.motion && batch.spatial == frames.spatial && batch.canvasOwed == canvasOwed
             && batch.canvas == frames.canvas2d && batch.frames == frames.tasks
     }
@@ -999,17 +1016,20 @@ public final class ExactSession {
     /// before its handler ran is reconciled by the pass (a refused tab), and
     /// the agent's clock seeks native animations through it. Slices published
     /// before it land first (T4), and it is asked again (a fling's fills).
-    func applyUnlessEmpty(_ batch: Batch, scrolled: Bool = false) {
+    /// `timer`: a clock advance's, which `timersQuiet` counts.
+    func applyUnlessEmpty(_ batch: Batch, scrolled: Bool = false, timer: Bool = false) {
         guard !batch.busy else { return }
         guard !applying else { apply(batch); return }
-        if !landing, fillInFlight || tickInFlight || canvasInFlight, hasPublished {
+        if !landing, ownerInFlight, hasPublished {
             // What the slices leave owed is asked after this batch, as in `apply`.
             holdingReports = true; landFill(); holdingReports = false
             guard state != .destroyed else { return }
         }
-        guard !(fillInFlight || tickInFlight || canvasInFlight), changesNothing(batch) else { apply(batch); return }
+        guard !ownerInFlight, changesNothing(batch) else { apply(batch); return }
         // Its transactions are reported once (LLP 1079 D3): account for them, at no presentation cost.
         sampler?.batch(batch.seq, ms: 0)
+        if let q = batch.seq { natives.hatchClock.seq = q.1 } // its commits are the hatches' latest
+        if timer { quietTimerAdvances = min(quietTimerAdvances + 1, 2) }
         timerDue = batch.timerDueMs
         scheduleClock(due: batch.timerDueMs)
         // What the pass did that a scroll moves (`scrolledWithoutPass`).
@@ -1039,8 +1059,9 @@ public final class ExactSession {
     package func apply(_ batch: Batch) {
         guard state != .destroyed, !batch.busy else { return }
         appliedBatches += 1
+        quietTimerAdvances = 0
         // A slice the owner committed before this batch applies first (T4).
-        if !applying, !landing, fillInFlight || tickInFlight || canvasInFlight, hasPublished {
+        if !applying, !landing, ownerInFlight, hasPublished {
             // What the landed slices leave owed is asked after this batch,
             // which the owner made after them (T4; LLP 1034 §8).
             holdingReports = true; landFill(); holdingReports = false
@@ -1260,7 +1281,7 @@ public final class ExactSession {
         _ = runtime.setPreferences(preferenceBits())
     }
     var displayModeOverride: UInt32?
-    private func preferenceBits() -> UInt32 {
+    func preferenceBits() -> UInt32 {
         #if os(iOS) || os(tvOS)
         // The scene owns system appearance; a window's app override does not.
         if let scene = view?.window?.windowScene {
@@ -1276,7 +1297,16 @@ public final class ExactSession {
     public func resize(_ size: CGSize) { guard booted, state != .destroyed else { return }; apply(runtime.resize(width: size.width, height: size.height)) }
     public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) { guard booted, state != .destroyed else { return }; apply(runtime.insets(top: top, right: right, bottom: bottom, left: left)) }
     /// What changed of the view (`Runtime.ViewChange`); the window's size is what every viewport unit resolves against everywhere (LLP 1075.003 §9.11).
-    func view(_ change: Runtime.ViewChange) { guard booted, state != .destroyed, !change.isEmpty else { return }; if let screen = change.screen { screenSize = screen }; apply(runtime.view(change)) }
+    /// `fold`: a fold on the kernel's grid whose rects go with the change (a keyboard's), kept as `segments` keeps one.
+    func view(_ change: Runtime.ViewChange, fold: ViewportFold? = nil) {
+        var change = change
+        change.segments = fold?.rects
+        guard booted, state != .destroyed, !change.isEmpty else { return }
+        if let screen = change.screen { screenSize = screen }
+        let batch = runtime.view(change)
+        if let fold, batch.error == nil { presenter.fold = fold }
+        apply(batch)
+    }
     private(set) var screenSize: CGSize? // the screen last told, for the agent's synthetic segments
     /// The device's posture and the viewport segments a fold makes (LLP 1078 D4, D5): the view's reading,
     /// kept for the agent's `layout.env` and told to the kernel and the runner in one batch.
@@ -1331,7 +1361,8 @@ public final class ExactSession {
     /// The appearance last reported for the session, and each node view found painting motion in another (a sheet's override, say), by id.
     private(set) var schemeDark: Bool?
     private(set) var viewDark: [UInt32: Bool] = [:]
-    private var pendingViewDark: [(UInt32, Bool)] = [], colorsOwed = false
+    private var pendingViewDark: [(UInt32, Bool)] = []
+    var colorsOwed = false
     fileprivate(set) var awaitingTree = false // committed to a new runner whose tree is not in: a report would reach the old views
     private func treeIsIn() { awaitingTree = false; if colorsOwed { colorsOwed = false; reportColors() } } // only the replacement batch, not a reset's cleanup
     /// A view painting motion: when its own appearance is not the one its node's colours resolve by, say so after

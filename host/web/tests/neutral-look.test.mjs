@@ -9,6 +9,8 @@ import { glueDeclarations } from './glue-fixture.mjs';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const shell = read('../index.html'), neutral = read('../neutral.css');
+// How both runtimes draw a symbol: its mask in its tint, `--exact-tint`.
+const symbolStyle = read('../glue.js').match(/symbolStyle\.textContent = '([^']*)'/)[1];
 // The neutral look alone, its roles the neutral column's: the Apple colours a build lays over it, in every
 // browser, are apple-colors.test.mjs's
 const sheet = () => withLook(shell).match(/<style>([\s\S]*?)<\/style>/)[1].replace(appleColors(), '');
@@ -51,7 +53,8 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
   // A row's neutral value is its third cell when it has three, else its sixth; a row whose neutral value is unset is
   // another look's own (Android's Material rows) and no sheet's here.
   const neutralCell = (row) => (row.length === 3 ? row[2] : row[5]);
-  const rows = JSON.parse(read('../../../kernel/tables/schema.json')).metrics
+  const schema = JSON.parse(read('../../../kernel/tables/schema.json'));
+  const rows = schema.metrics
     .filter((row) => !row[1].startsWith('style') && neutralCell(row) !== 'unset'); // `style` and `style length`: the grouped sheet's
   const value = new Map(rows.map((row) => [row[0], neutralCell(row)]));
   const length = (name) => { const v = value.get(name); return typeof v === 'number' ? `${v}px` : v.replace(/^0\./, '.'); };
@@ -69,9 +72,10 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'segmented-padding': ['padding'], 'segment-padding-block': ['padding'], 'segment-padding-inline': ['padding'], 'segment-height-coarse': ['min-height'],
     'segment-shadow-y': ['box-shadow'], 'segment-shadow-blur': ['box-shadow'],
     'tabbar-height': ['min-height'], 'tabbar-padding-block': ['padding'], 'tabbar-padding-inline': ['padding'], 'tabbar-font': ['font-size'],
+    'button-image-gap': ['--exact-button-column-gap', '--exact-button-row-gap'],
     'tabbar-symbol': ['width', 'height'], 'tabbar-gap': ['--exact-button-space-height'],
     'sidebar-row-height': ['min-height'], 'sidebar-symbol': ['width', 'height'], 'sidebar-gap': ['--exact-button-space-width'],
-    'back-padding-start': ['padding'], 'back-padding-end': ['padding'],
+    'back-padding-start': ['padding'], 'back-padding-end': ['padding'], 'bar-symbol-size': ['font-size'],
     'alert-width': ['width'], 'alert-margin': ['width'], 'alert-padding': ['padding'], 'alert-gap': ['gap'], 'alert-action-gap': ['gap'],
     'alert-title': ['font-size'], 'alert-message-gap': ['margin-bottom', 'margin-top'], 'alert-scroll-gutter': ['padding-inline-end'],
     'menu-min-width': ['min-width'], 'menu-max-width': ['max-width'], 'menu-margin': ['max-width'], 'menu-padding': ['padding'], 'menu-offset': ['margin'],
@@ -84,6 +88,8 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
   const SHELL = { 'select-padding-end': ['padding-inline'] };
   // What follows from rows, or is no metric.
   const half = (name, unit) => `${value.get(name) / 2}${unit}`.replace(/^0\./, '.');
+  // The large title's size at the web's 16 px root, from the text style table.
+  const largeTitle = schema.textStyles.find(([name]) => name === 'large-title')[5][schema.textStyleBodies.indexOf(16)];
   const DERIVED = {
     'min-height': [`${2 * value.get('segmented-padding')}px`], // a segment is the control's height less the track's padding either side
     'border-radius': ['1em', half('range-track', 'px')], // the switch is a pill (any radius of half its height or more); the track's ends are round
@@ -91,6 +97,10 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'background-position': ['1em'], // the thumb travels the track's width less its height
     'box-shadow': ['64px'], // a hovered row's wash reaches the card's edge, past any inset a row has
     'font-size': ['1em'], // an alert's message is the body size
+    'margin-block': [`${largeTitle / 16}rem`], // a bar's level-1 title takes the large title's line
+    'margin': ['.5em', '1rem', '1em'], '--exact-symbol-away': ['.5em'], '--exact-symbol-toward': ['.5em'], // a button's symbol overhangs its 1em place by half its growth (a bar item's, its 1rem place)
+    'padding-block': ['.125em'], // a written height keeps room for a titled button's symbol's ink past its place
+    'width': ['1em'], 'height': ['1em'], // a bar item's symbol is its em square times its scale, as a button face's is
   };
   const lengths = (text) => [...text.matchAll(/(?<![\w.#])(\d*\.?\d+)(px|rem|em)\b/g)].map((m) => m[0]).filter((token) => parseFloat(token) !== 0);
   const declarations = (css) => [...css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/url\("[^"]*"\)/g, '').matchAll(/\{([^{}]*)\}/g)]
@@ -122,8 +132,9 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'button-tint-alpha': `{ background-color: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-tint-alpha')}, transparent); }`,
     'button-hover-tinted': `:hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-tint-alpha')}, transparent); background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-hover-tinted')}, transparent) 0 0); }`,
     'button-hover-filled': `:hover { background-color: var(--exact-accent, AccentColor); background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-hover-filled')}, transparent) 0 0); }`,
-    'button-pressed-tinted': `[data-button-style="bordered-tinted"])[data-pressed] { background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-pressed-tinted')}, transparent) 0 0); }`,
-    'button-pressed-filled': `[data-button-style="bordered-prominent"])[data-pressed] { background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-pressed-filled')}, transparent) 0 0); }`,
+    'button-pressed-tinted': `[data-button-style="bordered-tinted"])[data-pressed]:not(:disabled) { background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-pressed-tinted')}, transparent) 0 0); }`,
+    'button-pressed-alpha': [`{ background-color: light-dark(color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-pressed-alpha')}, transparent),`, `& > :not(img), &::after { opacity: ${alpha('button-pressed-alpha')}; }`, `& > img { --exact-tint: color-mix(in srgb, currentColor ${percent('button-pressed-alpha')}, transparent); }`],
+    'button-pressed-lighten': [`color-mix(in srgb, var(--exact-accent, AccentColor), #fff ${percent('button-pressed-lighten')})); background-image: none; }`, `{ background-image: linear-gradient(color-mix(in srgb, #fff ${percent('button-pressed-lighten')}, transparent) 0 0); }`],
     'bar-hover-alpha': `{ opacity: var(--exact-hover-dim, ${alpha('bar-hover-alpha')}); }`,
     'select-line-height-coarse': `select:not([multiple]) { line-height: ${value.get('select-line-height-coarse')}; }`,
     'switch-thumb': `radial-gradient(circle closest-side, currentColor ${percent('switch-thumb')},`,
@@ -131,13 +142,20 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'raised-shadow-alpha': `--exact-raised: 0 0 0 1px var(--exact-separator), 0 4px 12px rgb(0 0 0 / ${alpha('raised-shadow-alpha')});`,
     'modal-shadow-alpha': `--exact-modal: 0 0 0 1px var(--exact-separator), 0 16px 48px rgb(0 0 0 / ${alpha('modal-shadow-alpha')});`,
     'scrim-alpha': `--exact-scrim: rgb(0 0 0 / ${alpha('scrim-alpha')});`,
+    'symbol-scale': `{ --exact-symbol-scale: ${value.get('symbol-scale')}; }`,
+    'button-symbol-scale': `{ --exact-symbol-scale: ${value.get('button-symbol-scale')}; margin: calc(`,
   };
-  for (const [name, spelled] of Object.entries(RATIO)) expect([name, neutral.includes(spelled)]).toEqual([name, true]);
+  for (const [name, spelled] of Object.entries(RATIO)) expect([name, [spelled].flat().every((s) => neutral.includes(s))]).toEqual([name, true]);
+  // The one ratio the table does not hold: iOS's large-title line height, about 41 pt for 34 pt, which a bar's
+  // level-1 title takes at the large title's size.
+  expect(neutral.includes(`margin-block: max(0px, (${largeTitle / 16}rem * 1.2 - 1lh) / 2);`)).toBe(true);
   expect(shell.includes(`select:not([multiple]) { appearance: none; font: inherit; letter-spacing: inherit; color: inherit; line-height: ${value.get('select-line-height')};`)).toBe(true);
   // A control's line is one height and its title one weight, wherever the sheets write them: a select's own line
   // aside, and a menu's rows, which are regular.
   const all = (css, property) => [...new Set(declarations(css).filter(([p]) => p === property).map(([, v]) => v.trim()))];
   expect(all(neutral, 'line-height').sort()).toEqual([String(value.get('control-line-height')), String(value.get('select-line-height-coarse'))]);
+  // Every symbol's scale is one of the two rows: a bar item's restates the image's.
+  expect(all(neutral, '--exact-symbol-scale').sort()).toEqual([String(value.get('symbol-scale')), String(value.get('button-symbol-scale'))]);
   expect(all(neutral, 'font-weight').sort()).toEqual(['400', String(value.get('control-weight'))]);
   expect(shell.includes(`font-weight: ${value.get('control-weight')}; border-radius: var(--exact-control-radius, ${length('control-radius')});`)).toBe(true);
   expect(rows.filter(([name, kind]) => kind === 'number' && !RATIO[name] && !['control-line-height', 'control-weight', 'select-line-height'].includes(name)).map(([name]) => name)).toEqual([]);
@@ -166,6 +184,10 @@ const fixture = `
     <button type="button" data-native data-button-style="bordered" id="bordered" style="display:grid"><span data-exact-text>Button</span></button>
     <button type="button" data-native data-button-style="filled" id="filled" style="display:grid"><span data-exact-text>Button</span></button>
     <button type="button" data-native data-button-style="gray" id="gray" style="display:grid"><span data-exact-text>Button</span></button>
+    <button type="button" data-native data-button-style="plain" id="plain" style="display:grid"><span data-exact-text>Manage</span></button><button type="button" data-native data-button-style="borderless" id="borderless" style="display:grid"><span data-exact-text>Manage</span></button><button type="button" data-native data-button-style="plain" id="plain-paint" style="display:grid;--exact-press-opacity-to:.5"><span data-exact-text>Manage</span></button><button type="button" data-native data-button-style="plain" id="plain-scale" style="display:grid;--exact-press:.9"><span data-exact-text>Manage</span></button><button type="button" data-native data-button-style="plain" disabled id="plain-off" style="display:grid"><span data-exact-text>Manage</span></button>
+    <button type="button" data-native data-button-style="gray" id="small" style="display:grid;--exact-control-font-size:0.875rem;--exact-touch-floor:0px"><span data-exact-text>Small</span></button>
+    <button type="button" data-native data-button-style="gray" id="medium" style="display:grid;--exact-control-font-size:1rem"><span data-exact-text>Medium</span></button>
+    <button type="button" data-native data-button-style="gray" id="large" style="display:grid;--exact-control-font-size:1.125rem"><span data-exact-text>Large</span></button>
     <button type="button" data-native data-button-style="bordered" data-destructive="true" id="destructive" style="display:grid"><span data-exact-text>Delete</span></button>
     <button type="button" data-native data-button-style="filled" disabled id="disabled" style="display:grid"><span data-exact-text>Button</span></button>
     <div style="accent-color:rgb(255, 221, 0);--exact-accent:rgb(255, 221, 0)"><button type="button" data-native data-button-style="filled" id="authored" style="display:grid"><span data-exact-text>Button</span></button></div>
@@ -226,6 +248,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
         page: [color('exact-root'), rgba(getComputedStyle(document.documentElement).backgroundColor)],
         bordered: [color('bordered'), color('bordered', 'backgroundColor'), color('bordered', 'borderTopColor'), css('bordered', 'borderTopWidth'), box('bordered')[3]],
         gray: [color('gray'), css('gray', 'borderTopStyle'), box('gray')[3]],
+        small: [css('small', 'fontSize'), Math.round(box('small')[3])],
         destructive: color('destructive'),
         accent: [color('filled', 'backgroundColor'), color('filled'), color('tab')],
         authored: [color('authored', 'backgroundColor'), color('authored')],
@@ -247,6 +270,9 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       // The unsaid button: an outline in the label's ink, whatever the page's `color`; 36 px.
       expect([at('bordered'), got.bordered]).toEqual([at('bordered'), [INK[scheme], [0, 0, 0, 0], LINE[scheme], '1px', 36]]);
       expect([at('gray'), got.gray]).toEqual([at('gray'), [INK[scheme], 'solid', 36]]);
+      // A small control: the subheadline's 14 px on a 31.75 px box (Firefox's is 31.77: it lays out in 60ths of a
+      // pixel). The fixture writes css.rs's properties inline, so this checks the sheet; css_tests.rs checks the mapping.
+      expect([at('small'), got.small]).toEqual([at('small'), ['14px', 32]]);
       expect([at('destructive'), got.destructive]).toEqual([at('destructive'), RED[scheme]]);
       // The accent is the browser's hue, so its numbers are each engine's own; what holds in all of them is that it
       // reads as text on the page (a selected tab's label) and that the ink on a fill of it reads.
@@ -315,6 +341,68 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       await page.mouse.move(1, 1);
       // A press with no hover (a finger) dims and comes back at once, as the shell's press does.
       expect([at('bar press'), await press('bar-plain')]).toEqual([at('bar press'), ['0.65', 0, '1', 0]]);
+
+      // Held, a plain, borderless, filled or glass button shows UIKit's highlight. Its face fades: a title, the name a
+      // sheet's bar draws in place of a symbol (LLP 1116.020 D2), and a symbol, by its tint, unless the symbol's colour
+      // is its own, written inline (as the wasm runtime writes it) or in a class (the JS target's). The button itself,
+      // and so its focus ring, keeps its opacity. A plain or borderless button takes no wash, hovered or held. A filled
+      // one's fill is at 75% in light and mixed 20% with white in dark, the same for an opaque accent and a translucent
+      // one, with no wash, hovered or not; glass takes a white wash. An authored press (a paint, a scale) adds to the
+      // highlight, as on iOS (NativeButtonsIOS.swift highlights whatever press is written); a disabled button takes
+      // none, and a menu's or a chooser's row keeps its own look.
+      await page.evaluate((symbols) => {
+        document.head.insertAdjacentHTML('beforeend', `<style>${symbols} #exact-root#exact-root .own-tint { --exact-tint: rgb(52, 199, 89); }</style>`);
+        const symbol = (id, own = '') => `<img data-symbol-path="M0 0h1v1H0z" alt="" id="${id}" ${own}>`;
+        document.getElementById('item').insertAdjacentHTML('afterend', '<button type="button" data-native data-button-style="plain" id="item-plain" style="display:grid"><span data-exact-text>Plain</span></button><button type="button" data-native data-button-style="filled" id="item-filled" style="display:grid"><span data-exact-text>Filled</span></button>');
+        document.getElementById('said').insertAdjacentHTML('beforeend', `<div data-exact-chooser id="choices"><button type="button" data-native data-button-style="plain" data-exact-on="press" id="choice-plain" style="display:grid"><span data-exact-text>Plain</span></button></div><div id="held-looks"><button type="button" data-native data-button-style="filled" id="opaque" style="display:grid;--exact-accent:var(--exact-secondary-grouped-background)"><span data-exact-text>Lock</span></button><button type="button" data-native data-button-style="filled" id="translucent" style="display:grid;--exact-accent:var(--exact-quaternary-fill)"><span data-exact-text>Lock Trunk</span>${symbol('unsaid')}${symbol('own-inline', 'style="--exact-tint:rgb(52, 199, 89)"')}${symbol('own-class', 'class="own-tint"')}</button><button type="button" data-native data-button-style="glass" id="glass" style="display:grid"><span data-exact-text>Last Parked</span></button><button type="button" data-native data-button-style="filled" id="filled-own" style="display:grid;--exact-accent:var(--exact-secondary-grouped-background);--exact-press-opacity:.5"><span data-exact-text>Own</span></button><button type="button" data-native data-button-style="tinted" id="tinted" style="display:grid"><span data-exact-text>Tinted</span></button></div>`);
+        document.querySelector('#sheet > header').insertAdjacentHTML('beforeend', '<button type="button" data-native data-button-style="plain" aria-label="Cancel" id="sheet-cancel"><img data-symbol-source="symbol:sf/xmark" alt=""></button>');
+      }, symbolStyle);
+      // A button's fill, its image's colour ('none' for none), its opacity and its face's (its first child's, or the
+      // name its `::after` draws), and its symbols' ink, at rest and held.
+      const highlight = (id, pseudo) => page.evaluate(([id, pseudo]) => {
+        const b = document.getElementById(id), seen = [];
+        for (const on of [false, true]) {
+          b.toggleAttribute('data-pressed', on);
+          const image = css(id, 'backgroundImage');
+          seen.push([color(id, 'backgroundColor'), image === 'none' ? image : rgba(image.match(/rgba?\([^)]*\)|color\([^)]*\)/)[0]), css(id, 'opacity'), getComputedStyle(pseudo ? b : b.firstElementChild, pseudo).opacity, [...b.querySelectorAll('img')].map((img) => [rgba(getComputedStyle(img).backgroundColor), getComputedStyle(img).opacity])]);
+        }
+        b.removeAttribute('data-pressed');
+        return seen;
+      }, [id, pseudo]);
+      const NONE = [0, 0, 0, 0];
+      for (const id of ['plain', 'borderless']) {
+        expect([at(id), await highlight(id)]).toEqual([at(id), [[NONE, 'none', '1', '1', []], [NONE, 'none', '1', '0.75', []]]]);
+        await page.hover(`#${id}`);
+        expect([at(`${id} hover`), (await highlight(id))[0]]).toEqual([at(`${id} hover`), [NONE, 'none', '1', '1', []]]);
+      }
+      await page.mouse.move(1, 1);
+      expect([at('sheet symbol'), (await highlight('sheet-cancel', '::after')).map((seen) => seen[3])]).toEqual([at('sheet symbol'), ['1', '0.75']]);
+      // The highlight of a fill: the same colour at 75% in light; in dark a fifth white over it.
+      const lit = ([r, g, b, a]) => page.evaluate((c) => rgba(c), scheme === 'light' ? `rgb(${r} ${g} ${b} / ${a * 0.75})`
+        : `rgb(${[r, g, b].map((v) => (0.8 * a * v + 0.2 * 255) / (0.8 * a + 0.2)).join(' ')} / ${0.8 * a + 0.2})`);
+      for (const id of ['opaque', 'translucent', 'filled-own']) {
+        const [rest, down] = await highlight(id);
+        expect([at(id), rest.slice(1, 4), down.slice(0, 4)]).toEqual([at(id), ['none', '1', '1'], [await lit(rest[0]), 'none', '1', '0.75']]);
+        await page.hover(`#${id}`);
+        expect([at(`${id} hovered`), (await highlight(id))[1]]).toEqual([at(`${id} hovered`), down]);
+        await page.mouse.move(1, 1);
+      }
+      // Its symbols, each its ink and opacity: one in the button's ink fades with the title, and one in a colour of its
+      // own keeps it.
+      const OWN = [[52, 199, 89, 1], '1'], [inks, heldInks] = (await highlight('translucent')).map((seen) => seen[4]);
+      expect([at('symbols'), inks, heldInks]).toEqual([at('symbols'), [[inks[0][0], '1'], OWN, OWN], [[[...inks[0][0].slice(0, 3), 0.75], '1'], OWN, OWN]]);
+      // A tinted button held shows its stronger wash under a pointer too.
+      await page.hover('#tinted');
+      expect([at('tinted hovered'), (await highlight('tinted')).map((seen) => seen[1][3])]).toEqual([at('tinted hovered'), [0.08, 0.16]]);
+      await page.mouse.move(1, 1);
+      const glass = await highlight('glass');
+      expect([at('glass'), glass.map((seen) => seen.slice(1, 4))]).toEqual([at('glass'), [['none', '1', '1'], [[255, 255, 255, 0.2], '1', '0.75']]]);
+      for (const id of ['plain-paint', 'plain-scale']) expect([at(id), (await highlight(id))[1][3]]).toEqual([at(id), '0.75']);
+      for (const id of ['plain-off', 'item-plain', 'choice-plain']) expect([at(id), (await highlight(id))[1][3]]).toEqual([at(id), '1']);
+      const [rest, down] = await highlight('disabled');
+      expect([at('disabled'), down]).toEqual([at('disabled'), rest]);
+      expect([at('menu row'), (await highlight('item-filled'))[1].slice(0, 2)]).toEqual([at('menu row'), [NONE, scheme === 'light' ? [0, 0, 0, 0.14] : [255, 255, 255, 0.16]]]);
+      await page.evaluate(() => { for (const id of ['item-plain', 'item-filled', 'choices', 'held-looks', 'sheet-cancel']) document.getElementById(id).remove(); });
 
       // A list's rows (LLP 1115.000 D16): under each row but the last one line in the separator's role, inside the
       // row's box (a row keeps its height); none beside a row whose author wrote its own top or bottom edge; a
@@ -402,11 +490,15 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       expect([at('alert'), alert]).toEqual([at('alert'), ['416px', 'start', '12px', SURFACE[scheme], 178, 178, true, false]]);
       await context.close();
     }
-    // A touch device: a control is 44 px. (A narrow window's sheet is below.)
+    // A touch device: a control is 44 px, but for a small one, which keeps its own box as UIKit's does. (A narrow
+    // window's sheet is below.)
     const narrow = await browser.newContext({ viewport: { width: 390, height: 700 }, hasTouch: true, ...(engine === 'chromium' ? { isMobile: true } : {}) });
     const page = await narrow.newPage();
     await page.setContent(`<meta name="viewport" content="width=device-width, initial-scale=1"><style>${sheet()}</style>${fixture}<script>${helpers}</script>`);
-    expect([engine, await page.evaluate(() => [matchMedia('(any-pointer: coarse)').matches, box('bordered')[3], box('field')[3], box('select')[3], box('check')[3]])]).toEqual([engine, [true, 44, 44, 44, 24]]);
+    expect([engine, await page.evaluate(() => [matchMedia('(any-pointer: coarse)').matches, box('bordered')[3], box('field')[3], box('select')[3], box('check')[3], Math.round(box('small')[3]), css('small', 'minWidth')])]).toEqual([engine, [true, 44, 44, 44, 24, 32, '31.5px']]);
+    // A control size's title follows the root as a text style does, so small, medium and large keep their order at a
+    // root the app (`setRootFontSize`) or the agent (`prefer root-font-size`) sets.
+    expect([engine, await page.evaluate(() => { document.documentElement.style.fontSize = '24px'; return ['small', 'medium', 'large'].map((id) => css(id, 'fontSize')); })]).toEqual([engine, ['21px', '24px', '27px']]);
   } finally { await browser.close(); }
 }, 90000);
 
@@ -665,6 +757,62 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a sheet
   } finally {
     await browser.close();
   }
+}, 90000);
+
+// A bar's level-1 title takes at least the large title's line, 33 px at 1.2 (neutral.css): the bar keeps that height
+// with a smaller title, a tighter line or no text, and the title stays centred beside a button. The sheet reads the
+// role and level, not the tag: the JS target makes a level chosen between literals an `h2`.
+for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a bar's level-1 title keeps the large title's line`, async () => {
+  const browser = await launch(engine);
+  try {
+    const page = await browser.newPage({ viewport: { width: 600, height: 2400 }, colorScheme: 'light' });
+    const title = (tag, level, style = 'font-size:27px', text = 'Inbox') => `<${tag} role="heading" aria-level="${level}" style="${style};font-weight:700">${text}</${tag}>`;
+    const route = (id, header, attributes = '', before = '') => `<div navigationKey="${id}" id="${id}"${attributes}>${before}<header>${header}</header></div>`;
+    // A row as a bar with a button lays it out (`display: flex`, centred). Each text's baseline is the bottom of the
+    // empty inline-block after it.
+    const mark = '<i style="display:inline-block"></i>';
+    const row = (id, style) => `<div navigationKey="${id}" id="${id}"><header style="display:flex;align-items:center;gap:8px">${title('h1', 1, style, `Inbox${mark}`)}<button style="font-size:17px">Edit${mark}</button></header></div>`;
+    const clamp = 'font-size:27px;width:80px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden';
+    const routes = [
+      route('page', title('h1', 1)), route('computed', title('h2', 1)),
+      route('small', title('h1', 1, 'font-size:17px')), route('tight', title('h1', 1, 'font-size:27px;line-height:1')),
+      route('boxed', `<div>${title('h1', 1)}</div>`), route('empty', title('h1', 1, undefined, '')), route('space', title('h1', 1, undefined, ' ')),
+      route('clamped', title('h1', 1, clamp, 'Inbox of every')), route('tall', title('h1', 1, 'font-size:27px;height:44px')),
+      route('tapped', `<button style="display:flex;padding:0;border:0;background:none;font:inherit">${title('span', 1)}</button>`),
+      route('own', title('h1', 1, 'font-size:27px;margin:0')), route('short', title('h1', 1, 'font-size:27px;height:20px;overflow:hidden')), route('second', title('h2', 2)), route('later', title('h1', 1), '', '<div></div>'),
+      route('dialog', `<dialog open>${title('h1', 1)}</dialog>`), route('popover', `<div popover>${title('h1', 1)}</div>`),
+      row('row-large', 'font-size:33px'), row('row-page', 'font-size:27px'), row('row-small', 'font-size:17px'),
+    ];
+    // Each presented route and the routes pushed after it are a stack of their own.
+    const presented = ['modal', 'fullscreen'].map((p) => `<div>${route(p, title('h1', 1), ` navigationPresentation="${p}"`)}${route(`${p}-pushed`, title('h1', 1))}</div>`).join('')
+      + `<div>${route('leaving', title('h1', 1), ' navigationPresentation="modal" data-exiting')}${route('after-leaving', title('h1', 1))}</div>`
+      + `<div>${route('closing', title('h1', 1), ' navigationPresentation="modal" data-exiting')}${route('closing-pushed', title('h1', 1), ' data-exiting')}</div>`;
+    // In standards mode, as the shell's page is.
+    await page.setContent(`<!doctype html><style>${sheet()}</style><div id="exact-root"><main navigationKey="page">${routes.join('')}</main>
+      ${presented}<div id="line" style="font-size:27px;font-weight:700">Inbox</div></div>`);
+    // Each bar's height, its heading's height and top margin, and the centre of each cap height in the bar from its
+    // top (a cap height is 0.7 of the size).
+    const got = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('[id] > header')].map((bar) => {
+      const top = bar.getBoundingClientRect().top, heading = bar.querySelector('[role="heading"]'), round = (v) => Math.round(v * 10) / 10;
+      const caps = [...bar.querySelectorAll('i')].map((i) => i.getBoundingClientRect().bottom - top - 0.35 * parseFloat(getComputedStyle(i).fontSize));
+      return [bar.parentElement.id, { bar: round(bar.getBoundingClientRect().height), heading: round(heading.getBoundingClientRect().height), margin: getComputedStyle(heading).marginTop, caps }];
+    })));
+    const line = await page.evaluate(() => Math.round(document.getElementById('line').getBoundingClientRect().height * 10) / 10);
+    // The shell's bar is 6 px of padding either side of its line and a 1 px edge; the large title's line is 33 px at 1.2.
+    const large = Math.round((33 * 1.2 + 13) * 10) / 10;
+    for (const id of ['page', 'computed', 'small', 'tight', 'boxed', 'empty', 'space', 'clamped', 'tapped', 'after-leaving', 'row-page', 'row-small']) expect([engine, id, got[id].bar]).toEqual([engine, id, large]);
+    // Beside a button the title's caps stay centred on the button's, within the pixel a 33 px title's are.
+    for (const id of ['row-large', 'row-page', 'row-small']) expect([engine, id, Math.abs(got[id].caps[0] - got[id].caps[1]) <= 1]).toEqual([engine, id, true]);
+    // The heading's box is its own but at least a line: one clamped line, the author's 44 px, a line for 20 px.
+    expect([engine, got.clamped.heading, got.tall.heading, got.short.heading]).toEqual([engine, line, 44, line]);
+    // The rest are the shell's bar around one line of their own.
+    for (const id of ['own', 'second', 'later', 'modal', 'modal-pushed', 'fullscreen', 'fullscreen-pushed', 'closing-pushed']) expect([engine, id, got[id].bar]).toEqual([engine, id, line + 13]);
+    expect([engine, got.dialog.margin, got.popover.margin]).toEqual([engine, '0px', '0px']);
+    // At a 20 px root, with the size in `rem` as the JS target writes `title1`, the line is the large title's there.
+    await page.setContent(`<!doctype html><style>${sheet()} html { font-size: 20px; }</style><div id="exact-root"><main navigationKey="page">
+      ${route('page', title('h1', 1, 'font-size:1.6875rem'))}</main></div>`);
+    expect([engine, await page.evaluate(() => Math.round(document.querySelector('#page > header').getBoundingClientRect().height * 10) / 10)]).toEqual([engine, Math.round((2.0625 * 20 * 1.2 + 13) * 10) / 10]);
+  } finally { await browser.close(); }
 }, 90000);
 
 // What the author writes wins (LLP 1115). In CSS a minimum outranks a size and a border box is never narrower than

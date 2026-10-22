@@ -54,6 +54,7 @@ pub struct Bridge<D: DataSource> {
 mod clock;
 mod midi;
 mod mode;
+mod presence;
 
 #[cfg(test)]
 mod refusal_tests;
@@ -773,7 +774,7 @@ impl<D: DataSource> Bridge<D> {
 
     /// The locale and time zone, as `locale NUL timeZone` in the input buffer.
     pub fn set_place(&mut self, len: usize) -> u32 {
-        // `locale NUL timeZone`, then `NUL seed` at launch.
+        // `locale NUL timeZone`, then `NUL seed` and `NUL formatLocale`.
         let text = std::str::from_utf8(&self.input[..len.min(self.input.len())]).unwrap_or("");
         let mut fields = text.split('\0');
         let (Some(locale), Some(zone)) = (fields.next(), fields.next()) else {
@@ -783,7 +784,7 @@ impl<D: DataSource> Bridge<D> {
         let (locale, zone) = (locale.to_owned(), zone.to_owned());
         let out = self.host.as_mut().map_or_else(
             || exact_runner::agent::error("not booted"),
-            |h| h.set_place(&locale, &zone, seed),
+            |h| h.set_place(&locale, &zone, seed, fields.next()),
         );
         self.emit(out)
     }
@@ -1199,6 +1200,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_fonts() -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().fonts())
+        }
+
+        /// Whether the booted plan needs the presence module (`presence::needed`): 1 or 0.
+        #[no_mangle]
+        pub extern "C" fn exact_presence() -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow().presence())
         }
 
         /// Dispatch an event; returns the batch's length.

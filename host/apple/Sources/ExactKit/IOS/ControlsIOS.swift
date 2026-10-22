@@ -139,11 +139,15 @@ final class ControlHost: NSObject {
     var spinners: [UInt32: UIActivityIndicatorView] = [:]
     /// Each determinate `progress`'s bar (LLP 1116 D8), beside them.
     var bars: [UInt32: UIProgressView] = [:]
-    /// Each native button's face as the runner last gave it. A face is the
-    /// control's viewless contents, which change only in a batch that says
-    /// so (`Batch.controls`), and its own props, which change only in a
-    /// batch that touches it: every other batch keeps it, and asks the
-    /// runner nothing.
+    /// Each native button's face as the runner last gave it: what its
+    /// control shows, and what `NodeView.face` tells every other reader (a
+    /// tab bar or navigation bar item, a menu row, an accessibility label).
+    /// A face is the button's viewless contents, which change only in a
+    /// batch that says so (`Batch.controls`), and its own props, which
+    /// change only in a batch that touches it: `Presenter.apply` drops it as
+    /// that batch or op arrives, and the next read asks the runner. Every
+    /// other batch keeps it, so a commit that changes no button waits on
+    /// the owner thread for none.
     private var faces: [UInt32: ButtonFace] = [:]
     func face(_ id: UInt32) -> ButtonFace {
         if let face = faces[id] { return face }
@@ -216,14 +220,17 @@ final class ControlHost: NSObject {
         if waiting.contains(where: { presenter.views[$0].map { !unshown($0) } ?? false }) { sync(contents: false) }
     }
 
-    /// Asks for the face of `id` again at the next sync.
+    /// Asks for the face of `id` again at its next read.
     func faceChanged(_ id: UInt32) { faces.removeValue(forKey: id) }
+    /// Asks for every face again at its next read.
+    func facesChanged() { faces.removeAll() }
 
-    /// `contents`: a control's viewless contents may have changed (a batch
-    /// with `controls`, or a sync outside any batch); `touched`, the nodes
-    /// the batch changed.
-    func sync(contents: Bool = true, touched: [UInt32] = []) {
-        if contents { faces.removeAll() } else { for id in touched { faces.removeValue(forKey: id) } }
+    /// `contents`: a sync outside any batch, which reads every face again;
+    /// a batch has already dropped the faces it changes (`Presenter.apply`).
+    func sync(contents: Bool = true) {
+        if contents { faces.removeAll() }
+        // A face read with no control (a tab's, a menu row's) goes with its view.
+        for id in faces.keys where controls[id] == nil && presenter.views[id] == nil { faces.removeValue(forKey: id) }
         let all = ControlKinds.indexed.flatMap { presenter.carrying($0) }.filter { $0.kind == "control" }
         let owners = all.filter { !($0.isNativeButton && unshown($0)) }
         let live = Set(owners.map(\.id))

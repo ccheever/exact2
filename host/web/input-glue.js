@@ -157,7 +157,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     for (const el of root.querySelectorAll("button[aria-keyshortcuts]")) {
       if (modal && !modal.contains(el)) continue;
       if (activates && focus !== el && (event.key === "Enter" || event.key === " ") && !(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)) continue;
-      if (!el.isConnected || !el.getClientRects().length || inertAncestor(el) || getComputedStyle(el).visibility !== "visible") continue;
+      // A Back control the bar stands for is not shown, and keeps its shortcut (navigation.js `appBarBack`).
+      if (!el.isConnected || !(el.getClientRects().length || el.hasAttribute("data-exact-bar-back")) || inertAncestor(el) || getComputedStyle(el).visibility !== "visible") continue;
       if (!(el.getAttribute("aria-keyshortcuts") ?? "").split(/\s+/).some(matches)) continue;
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -225,7 +226,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // browser eases a separate factor, multiplied into CSS `scale`, so
   // authored transforms, transitions and keyframes keep their values. A
   // native button is pressed by the same rule with or without a row or a
-  // handler of its own, as a UIButton highlights (the shell dims its face).
+  // handler of its own, as a UIButton highlights (neutral.css draws the
+  // highlight: a wash, or a plain button's fading face).
   const feedback = new WeakMap();
   // @ref LLP 1061 D7 — the author's pressed paint, shown by the same rule
   // and on the same ease as the scale. The shell's important rules
@@ -904,8 +906,11 @@ const folded = el => { const d = getComputedStyle(el).display; return d === "con
 
 // A view's box as the agent reports it. A folded text has no block box of its own: its box is the anonymous block its
 // text is, as a style-less block child's was — its line boxes along the main axis, and its box's content box across
-// when the box stretches its items (a block, or a flex or grid box that stretches).
+// when the box stretches its items (a block, or a flex or grid box that stretches). A Back control its route's bar
+// stands for (index.html) is where that bar's Back is, so a tap that names it presses that Back, as a person does.
 export function viewBox(el) {
+  const back = el.hasAttribute("data-exact-bar-back") && el.closest("[navigationkey] > header")?.shadowRoot?.querySelector('button[part="back"]:not([hidden])');
+  if (back) return back.getBoundingClientRect();
   if (!folded(el)) return el.getBoundingClientRect();
   const range = document.createRange();
   range.selectNodeContents(el);
@@ -975,5 +980,40 @@ export function selectAll(el) {
   if (was === null || now === null) requestAnimationFrame(() => requestAnimationFrame(heard));
   return event;
 }
-export const agentInput = { guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll };
+// LLP 1069.001 D9: `type <id> <value>` sets a control's value as the platform would on a choice or a release: HTML's
+// `input`, then `change`. A select takes one of its enabled options by value, else by its one label (Playwright's
+// `selectOption`, the diaries' kanban F17 and shop F10); a checkbox takes `true` or `false` and is clicked when that
+// differs, as a person would. The page's `inertAncestor` and `settleValue` (navigation.js) are passed in.
+export function typeControl(el, request, inertAncestor, settleValue) {
+  let text = String(request.text ?? "");
+  const id = request.id;
+  if (el.disabled || inertAncestor(el)) return { handled: true, error: `view ${id} is disabled or inert` };
+  // A read-only field takes no value a person could enter. HTML's `readonly` applies to a textarea and the
+  // text-like and date/time inputs only; a checkbox, range, color or select ignores it.
+  if (el.readOnly && (el instanceof HTMLTextAreaElement || /^(text|search|url|tel|email|password|date|month|week|time|datetime-local|number)$/.test(el.type))) return { handled: true, error: `view ${id} is read-only` };
+  if (el.type === "checkbox") {
+    if (text !== "true" && text !== "false") return { handled: true, error: `checkbox ${id} takes true or false, not ${JSON.stringify(text)}` };
+    if (el.checked !== (text === "true")) el.click();
+    return { typed: id, checked: el.checked, delivery: "recognized", handled: true };
+  }
+  // A radio is checked by choosing it, and unchecked only by checking another (x2apps survey #2).
+  if (el.type === "radio") {
+    if (text !== "true") return { handled: true, error: text === "false" ? `radio ${id} is unchecked by checking another of its group` : `radio ${id} takes true, not ${JSON.stringify(text)}` };
+    if (!el.checked) el.click();
+    return { typed: id, checked: el.checked, delivery: "recognized", handled: true };
+  }
+  if (el instanceof HTMLSelectElement) {
+    const enabled = [...el.options].filter((o) => !o.disabled), labelled = enabled.filter((o) => o.label.trim() === text.trim());
+    if (!enabled.some((o) => o.value === text) && labelled.length === 1) text = labelled[0].value;
+    else if (!enabled.some((o) => o.value === text))
+      return { handled: true, error: `select ${id} has no enabled option ${JSON.stringify(text)}${labelled.length > 1 ? " (that label is on more than one option: choose by value)" : ""} (options: ${enabled.map((o) => `${JSON.stringify(o.value)} ${JSON.stringify(o.label)}`).join(", ")})` };
+  }
+  if (el.type === "range" && !(text.trim() !== "" && Number.isFinite(Number(text)))) return { handled: true, error: `${JSON.stringify(text)} is not a number` };
+  el.value = text;
+  if (el.value !== text && el instanceof HTMLInputElement && el.type !== "range") return settleValue(el), { handled: true, error: `${JSON.stringify(text)} is not a value an input type=${el.type} takes; it sanitized to ${JSON.stringify(el.value)}` };
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  return { typed: id, value: el.value, delivery: "recognized", handled: true };
+}
+export const agentInput = { guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll, typeControl };
 if (globalThis.exact) Object.assign(globalThis.exact, { createInputHandlers, agentInput });

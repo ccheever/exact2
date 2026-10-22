@@ -105,13 +105,19 @@ struct Index {
 }
 
 impl Index {
-    fn of(plan: &Plan, children: &[Child]) -> Index {
+    fn of(plan: &Plan, sites: &SiteIndex, children: &[Child]) -> Index {
         let mut index = Index::default();
-        index.visit(plan, children, None);
+        index.visit(plan, sites, children, None);
         index
     }
 
-    fn visit(&mut self, plan: &Plan, children: &[Child], parent: Option<ViewId>) {
+    fn visit(
+        &mut self,
+        plan: &Plan,
+        sites: &SiteIndex,
+        children: &[Child],
+        parent: Option<ViewId>,
+    ) {
         for c in children {
             match c {
                 Child::Node(n) => {
@@ -120,13 +126,16 @@ impl Index {
                     for (i, b) in row.bindings.iter().enumerate() {
                         let b = plan.binding(b);
                         let read = READ.iter().any(|p| *p as u16 == b.id);
-                        if let (BindingKind::Prop, true, Some(v)) = (b.kind, read, &n.last[i]) {
-                            if let Ok((prop, value)) = bridge::prop_value(b.id, v) {
+                        if let (BindingKind::Prop, true) = (b.kind, read) {
+                            let Some(v) = n.emitted(plan, sites, i) else {
+                                continue;
+                            };
+                            if let Ok((prop, value)) = bridge::prop_value(b.id, &v) {
                                 props.set(prop, bridge::icon_source(plan, prop, value));
                             }
                         }
                     }
-                    let kids = match n.collection {
+                    let kids = match n.collection() {
                         Some(_) => Vec::new(),
                         None => roots_of(&n.children),
                     };
@@ -135,13 +144,13 @@ impl Index {
                     if let Some(p) = parent {
                         self.parent.insert(n.view, p);
                     }
-                    self.visit(plan, &n.children, Some(n.view));
+                    self.visit(plan, sites, &n.children, Some(n.view));
                 }
                 Child::Region(r) => match &r.active {
-                    Active::Arm { roots, .. } => self.visit(plan, roots, parent),
+                    Active::Arm { roots, .. } => self.visit(plan, sites, roots, parent),
                     Active::Rows { rows } => {
                         for row in rows {
-                            self.visit(plan, &row.roots, parent);
+                            self.visit(plan, sites, &row.roots, parent);
                         }
                     }
                 },
@@ -253,7 +262,7 @@ impl Tree {
             return Ok(());
         }
         loop {
-            let index = Index::of(u.env.plan, &self.children);
+            let index = Index::of(u.env.plan, u.sites, &self.children);
             let tabs = &mut u.ids.tabs;
             tabs.panels.retain(|w| index.nodes.contains_key(w));
             let open = to_open(&index, &tabs.panels);
@@ -368,7 +377,8 @@ fn open_panel(
         _ => return realize(u, Some(n.node), arm, frames),
     };
     let id = n
-        .bound_prop(plan, PropId::Id)
+        .bound_prop(plan, u.sites, PropId::Id)
+        .as_ref()
         .and_then(Value::as_str)
         .map(str::to_owned);
     let mut frame = ArmFrame::default();
@@ -414,14 +424,20 @@ fn open_panel(
 impl Tree {
     /// The state of each built tab panel's contents, for a reload to carry,
     /// with what an earlier reload carried for panels not built since.
-    pub(crate) fn carry_panels(&self, plan: &Plan, left: &CarriedPanels) -> CarriedPanels {
+    pub(crate) fn carry_panels(
+        &self,
+        plan: &Plan,
+        index: &SiteIndex,
+        left: &CarriedPanels,
+    ) -> CarriedPanels {
         let sites = panel_sites(plan);
         let mut out = Vec::new();
         let mut stack: Vec<&Child> = self.children.iter().collect();
         while let Some(c) = stack.pop() {
             match c {
                 Child::Node(n) => {
-                    let id = n.bound_prop(plan, PropId::Id).and_then(Value::as_str);
+                    let id = n.bound_prop(plan, index, PropId::Id);
+                    let id = id.as_ref().and_then(Value::as_str);
                     if let ([Child::Region(r)], Some(id)) = (n.children.as_slice(), id) {
                         if let Active::Arm {
                             frame:
@@ -475,17 +491,17 @@ fn open_in(
                     // rows now, as it would have when made.
                     match u.env.lists {
                         Some(lists) => (lists.create)(u, n.node, n.view, frames)
-                            .map(|made| n.collection = made),
+                            .map(|made| n.set_collection(made)),
                         None => Ok(()),
                     }
-                    .and_then(|()| match n.collection {
+                    .and_then(|()| match n.collection() {
                         Some(_) => Ok(()),
                         None => open_panel(u, n, frames).map(|made| {
                             n.children = made;
                             n.emit_children(u);
                         }),
                     })
-                } else if n.collection.is_none() {
+                } else if n.collection().is_none() {
                     open_in(u, &mut n.children, frames, open, left)
                 } else {
                     Ok(())

@@ -90,27 +90,27 @@ import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { developmentGate, installBrowserOrigins } from './install-page.mjs';
 import { stageTool, TOOL_DIST, TOOL_ORIGIN, TOOL_PORT } from './tamber-tool-port.mjs';
 export { stageTool, TOOL_DIST, TOOL_ORIGIN, TOOL_PORT } from './tamber-tool-port.mjs';
-import { buildChannel, navigateRequest } from './tamber-builds.mjs';
+import { buildChannel, navigateRequest, selectRequest } from './tamber-builds.mjs';
 import { scrubSessions } from './tamber-scrub.mjs';
-import { correspondingSite, current, join, paramsOf, published, sitesAt, staleMap } from './tamber-inspect.mjs';
+import { correspondingSite, current, join, levelsUp, paramsOf, published, sitesAt, staleMap } from './tamber-inspect.mjs';
 import { designSession } from './tamber-commit.mjs';
 import { designCommit, designLog } from './tamber-history.mjs';
 import { openRemote, pluginOnLoopback, remoteArgs } from './tamber-remote.mjs';
 import { planAlone, stopImports } from './tamber-isolate.mjs';
 import { designPath, manifestTamber } from './tamber-design-path.mjs'; export { designPath };
 import { importReview, marked } from './tamber-import-review.mjs'; export { importTheme } from './tamber-import-review.mjs';
-import { canvasGateway } from './tamber-canvas.mjs';
+import { canvasGateway } from './tamber-canvas.mjs'; import { answerCanvasCheck, canvasCheck, canvasLine } from './tamber-frame.mjs';
 import { packageDesigns } from './tamber-package-designs.mjs';
 import { serveTool } from './tamber-tool-files.mjs';
 export { serveTool, serveToolFiles } from './tamber-tool-files.mjs';
 import { allows, needs, pairing, PAIR_TTL_MS, parseDuration, refusal } from './tamber-pairing.mjs';
-import { readBody, parseRequest as parse, tooDeep, viaDoor } from './tamber-request.mjs';
+import { earlyAnswer, readBody, parseRequest as parse, tooDeep, viaDoor } from './tamber-request.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 // The server's own line limit, less room for the id this adds and an import's `recognised` digests (64, stage 10b).
 const LINE_LIMIT = 1 << 20;
 const BODY_LIMIT = LINE_LIMIT - 64 - 64 * 72;
-const body = req => readBody(req, BODY_LIMIT);
+const body = (req, res) => readBody(req, BODY_LIMIT, res); // over it, answered before the connection closes
 const ANSWER_MS = 120_000, POLL_MS = 25_000, KEPT = 256, HOLD_MS = 15 * 60_000, HELD = 64;
 // A paired client's name (scripts/tamber-pairing.mjs): no local client takes one.
 const REMOTE = 'remote:';
@@ -531,12 +531,15 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (url.pathname !== '/__tamber' && !allows(scope, stream)) { const r = refusal(url.pathname.slice('/__tamber/'.length), scope, stream); json(res, r.status, { error: r.error }); return true; }
     // A remote door's request is read whole first: its connection deadline
     // (tamber-remote.mjs) clears only once the body has ended.
-    const early = access.remote ? body(req) : null;
+    const early = access.remote ? body(req, res) : null;
+    // Over the limit, answered at once (not behind a server still starting, past refuseBody's 5 s); a client gone, nothing.
+    const first = early && await earlyAnswer(early, ready);
+    if (first === 'over' || first === 'gone') { if (first === 'over' && !res.destroyed) json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); return true; }
     await ready;
     // The client left while the server started.
     if (res.destroyed || res.writableEnded) return true;
-    const text = await (early ?? body(req));
-    if (text == null) { json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); return true; }
+    const text = await (early ?? body(req, res));
+    if (text == null) { if (text === null) json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); return true; } // (undefined: the client left)
     const request = parse(text);
     // Nested past 64 levels: refused before anything of it is kept, since a
     // value kept (a held proposal's review) is sent on to every stream.
@@ -652,7 +655,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // Limited before its body is read or parsed: a flood costs no parsing.
     const limited = pairs.admit(peer);
     if (limited) { res.setHeader('retry-after', String(limited.retry)); json(res, 429, { error: limited.error }); return; }
-    const request = parse((await body(req)) ?? '');
+    const request = parse((await body(req, res)) ?? '');
     if (!request) { json(res, 400, { error: { message: 'pairing is `{"code": "…", "name"?: "…"}`' } }); return; }
     const reply = pairs.pair(request, peer, { admitted: true });
     if (!reply.ok) {
@@ -789,6 +792,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
    * (`selections`), asking no build again, since a build's answer outlines
    * on the developer's screens. */
   function inspect(request, scope) {
+    // (tamber/1.16 `select`, tamber-builds.mjs: the sites n call sites up from the last selection, by its map; write, as `on` is.)
+    if (request.select !== undefined) return !allows(scope, 'write') ? refusal('inspect', scope, 'write') : selectRequest(channel, request, (id, up) => { const s = lastSelection.get(id), plan = channel.list().find(b => b.id === id)?.planDigest, map = plan ? mapOf(plan) : null; return map && Number.isSafeInteger(s?.site) ? { levels: levelsUp(map, s.site, up), plan, from: s.site, instance: s.instance ?? [] } : null; });
     if (!allows(scope, 'write')) {
       const build = request.build ?? null;
       if (build !== null && typeof build !== 'string') return { status: 400, error: { message: '`build` is a registered build\'s id' } };
@@ -1308,7 +1313,7 @@ export async function toolAnswers(origin = TOOL_ORIGIN, tries = 1) { // `{app, e
     let got; for (let i = 1; !got; i++) try { got = await fetch(`${origin}/__tamber/token`, { redirect: 'error', signal: AbortSignal.timeout(2000) }); } catch (e) { if (e?.name !== 'TimeoutError' || i >= tries) throw e; }
     if (!got.ok) return { app: null };
     const { token } = await got.json();
-    const hello = await (await fetch(`${origin}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}', signal: AbortSignal.timeout(10_000) })).json();
+    const hello = await (await fetch(`${origin}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}', signal: AbortSignal.timeout(tries > 1 ? 120_000 : 10_000) })).json(); // (a loop that gave its token is up: one loaded starts its design server late)
     return { app: hello.ok?.app ?? null, epoch: hello.ok?.epoch ?? null };
   } catch { return null; }
 }
@@ -1369,7 +1374,7 @@ export async function toolCommand(argv) {
     try { same = upstream?.app != null && realpathSync(upstream.app) === realpathSync(dir); } catch { /* gone */ }
     if (!same) { console.error(`tamber tool: ${target} ${upstream ? `serves ${upstream.app ? `the design of ${upstream.app}` : 'no design server'}` : 'does not answer'}, not ${dir}'s`); return 1; }
     if (!(await listenOn(port, () => listen({ host: '127.0.0.1', port, handle: (req, res, url, access) => forward(req, res, url, access, target), stop: async () => {} })))) return 1;
-    console.log(`${url}\n  (the design tool, through the dev loop at ${target}; ctrl-c to stop)`);
+    console.log(`${url}\n  (the design tool, through the dev loop at ${target}; ctrl-c to stop)`); tellCanvas(await canvasCheck(target, TOOL_ORIGIN));
   } else {
     // The design server up (or refused) before the port is taken, so a
     // refusal leaves nothing listening.
@@ -1393,6 +1398,8 @@ export async function toolCommand(argv) {
   await new Promise(() => {});
 }
 
+// Whether the loop's page lets this tool frame it, said on the terminal once each time it starts refusing (tamber-frame.mjs).
+let canvasSaid = ''; const tellCanvas = check => { const { line, said } = canvasLine(check, TOOL_ORIGIN, canvasSaid); canvasSaid = said; if (line) console.error(line); };
 /** `listening()`, false and said when the tool's port is another's. */
 async function listenOn(port, listening) {
   try { await listening(); return true; } catch (e) {
@@ -1412,7 +1419,8 @@ async function listenOn(port, listening) {
 /** `--via`: the tool's files from here, every other `/__tamber` request to
  * the dev loop at `target` as it came (the token only to a local request,
  * which the loop judges again by this request from loopback). */
-async function forward(req, res, url, access, target) {
+export async function forward(req, res, url, access, target) {
+  if (url.pathname === '/__tamber/tool/canvas-check') { await answerCanvasCheck(req, res, access, target, TOOL_ORIGIN, tellCanvas); return true; }
   if (url.pathname === '/__tamber/tool' || url.pathname.startsWith('/__tamber/tool/')) { serveTool(req, res, url, access); return true; }
   if (url.pathname !== '/__tamber' && !url.pathname.startsWith('/__tamber/')) return false;
   if (!access.local) { notFound(res); return true; }
@@ -1421,15 +1429,10 @@ async function forward(req, res, url, access, target) {
   const gone = new AbortController();
   res.on('close', () => gone.abort());
   try {
-    // A body within the server's own limit, read here before it is sent on.
-    const chunks = [];
-    let size = 0;
-    for await (const chunk of req) {
-      size += chunk.length;
-      if (size > BODY_LIMIT) { json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); req.destroy?.(); return true; }
-      chunks.push(chunk);
-    }
-    const answer = await fetch(`${target}${url.pathname}`, { method: req.method, headers, redirect: 'error', signal: gone.signal, ...(req.method === 'GET' || req.method === 'HEAD' ? {} : { body: Buffer.concat(chunks) }) });
+    // A body within the server's own limit, read here (its bytes) before it is sent on; over it, answered 413 first.
+    const bytes = await readBody(req, BODY_LIMIT, res, true); // a GET's or a HEAD's too (none is sent on), whatever its content-length
+    if (bytes == null) { if (bytes === null && !res.destroyed) json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); return true; } // (undefined: the client left)
+    const answer = await fetch(`${target}${url.pathname}`, { method: req.method, headers, redirect: 'error', signal: gone.signal, ...(req.method === 'GET' || req.method === 'HEAD' ? {} : { body: bytes }) });
     res.writeHead(answer.status, { 'content-type': answer.headers.get('content-type') ?? 'application/json', 'cache-control': 'no-store' });
     for await (const chunk of answer.body ?? []) {
       if (!res.write(chunk)) await new Promise(ok => {

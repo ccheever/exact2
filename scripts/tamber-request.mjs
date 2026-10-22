@@ -1,21 +1,54 @@
 // A design server request's body and its JSON (scripts/tamber-server.mjs):
 // read whole up to a limit, parsed to an object, and how deep it nests.
 
-/** The body as text; null when over `limit` bytes (the connection is cut)
- * or when the client left. */
-export const readBody = (req, limit) => new Promise(done => {
-  if (req.destroyed) return done(null);
-  if (Number(req.headers['content-length']) > limit) { req.destroy?.(); return done(null); }
+/** A request whose body is refused: answered first (a 413), its connection
+ * closing after. Until the answer has gone out the rest goes unread; then it
+ * is read and dropped, and the connection closed when it ends, so the client's
+ * last bytes meet no reset that could cost it the answer (closing with its
+ * bytes unread resets the connection); 5 s at most, whatever the client does.
+ * The design server's and the canvas gateway's. */
+export const refuseBody = (req, res, answer = () => {}) => {
+  req.pause();
+  res.setHeader('connection', 'close');
+  const fallback = setTimeout(() => req.destroy?.(), 5000);
+  fallback.unref?.();
+  // (Its socket's close, not the response's or the request's: Bun's node:http fires those before the answer is out.)
+  (req.socket ?? res.socket)?.once?.('close', () => clearTimeout(fallback));
+  res.once('finish', () => {
+    req.on('data', () => {});
+    req.once('end', () => { clearTimeout(fallback); req.destroy?.(); });
+    req.resume();
+  });
+  answer();
+};
+
+/** The body as text (`raw`: its bytes); null when over `limit` bytes,
+ * undefined when the client left (`== null` for either). Over it, with `res`, refused (`refuseBody`: the caller's
+ * answer goes out first); without `res`, the connection is cut. */
+export const readBody = (req, limit, res = null, raw = false) => new Promise(done => {
+  if (req.destroyed) return done(undefined);
+  const over = () => (res ? refuseBody(req, res) : req.destroy?.());
+  if (Number(req.headers['content-length']) > limit) { over(); return done(null); }
   const chunks = []; let size = 0, settled = false;
   const finish = v => { if (!settled) { settled = true; done(v); } };
   req.on('data', chunk => {
+    if (settled) return;
     size += chunk.length;
-    if (size > limit) { finish(null); req.destroy?.(); } else chunks.push(chunk);
+    if (size > limit) { chunks.length = 0; finish(null); over(); } else chunks.push(chunk);
   });
-  req.on('end', () => finish(Buffer.concat(chunks).toString('utf8')));
-  req.on('error', () => finish(null));
-  req.on('close', () => finish(null));
+  req.on('end', () => finish(raw ? Buffer.concat(chunks) : Buffer.concat(chunks).toString('utf8')));
+  req.on('error', () => finish(undefined));
+  req.on('close', () => finish(undefined));
 });
+
+/** A remote door's body, read while the server may still be starting (`ready`):
+ * 'over' (refuse it now: refuseBody's 5 s would otherwise run out behind a
+ * slow start), 'gone' (the client left: answer nothing, hold nothing), or
+ * 'go' (the body, or the server ready first). */
+export const earlyAnswer = async (early, ready) => {
+  const first = await Promise.race([early, ready.then(() => '')]);
+  return first === null ? 'over' : first === undefined ? 'gone' : 'go';
+};
 
 /** Whether `v` nests deeper than `max` arrays or objects (iterative, so a
  * deep value can't exhaust the stack here; stage 10 A2). */

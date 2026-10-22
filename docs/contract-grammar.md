@@ -179,9 +179,13 @@ The title-bar area is
 of the title bar beside the window's controls. On the Mac, under `viewport-fit="cover"`,
 it is AppKit's title bar less the traffic lights and their margins (`78 0 822×32` in a
 900-point window); all zero in full screen and while a toolbar fills the title bar (an
-app with routes has one, LLP 1115.002 D2). Everywhere else it is undefined, as in a browser
-tab: `env(titlebar-area-height, 0px)` takes its fallback, and without one the row takes
-its initial value.
+app with routes has one, LLP 1115.002 D2). An app without routes whose manifest's
+`display_override` puts `window-controls-overlay` first gets the platform's tall title row,
+an empty unified toolbar over the page, whatever its `viewport-fit`, and the area is that
+row's beside the traffic lights; `exactViewport().displayMode` is then
+`window-controls-overlay`. Chrome gives the same names to the installed app. Everywhere
+else it is undefined, as in a browser tab: `env(titlebar-area-height, 0px)` takes its
+fallback, and without one the row takes its initial value.
 
 `-exact-fit="shrink"` on a `text` (CSS has no such property; LLP 1116.001 D1.4) draws
 a line too wide for its content box at the scale that fits: its whole line under
@@ -1599,7 +1603,14 @@ macOS; touch hosts show none.
 Windows and Linux keyboards, the Edit menu, an iPad's hardware keyboard) with
 the focus at a node or inside it are heard by the nearest node with the
 handler, itself or an ancestor — so a node with one takes the focus, as a
-`key` node does. An action that takes one more parameter gets a
+`key` node does. With nothing focused they go to the first root, as the
+DOM's go to `<body>` (web, macOS and iOS; the Edit menu's item is enabled
+while the root has the handler; a Mac sheet's own window holds none). On the web and macOS Paste and Match Style
+(⌥⇧⌘V on the Mac) is a `paste` too, as Chrome's is: an app that treats it
+apart tells by the key before it, as a page does. In a field whose node or
+an ancestor hears `paste`, Paste is enabled on the Mac while the clipboard
+holds only files or image data, which the field cannot take itself; the
+paste carries them as `files` and inserts nothing. An action that takes one more parameter gets a
 `ClipboardEvent` whose `text` is the clipboard's plain text: what is pasted,
 and empty on `copy` and `cut`, as the DOM's is until a listener sets it — the
 action writes the clipboard with `copyText`. Its `files` is the paste's
@@ -1862,7 +1873,16 @@ macOS, iOS and iPadOS with a hardware keyboard, Linux):
   handler (such an element takes the focus, as `tabindex="0"` gives it, and
   is in the Tab order), or with a `tabindex`. It then bubbles: the
   focused element's handler hears it first, then every ancestor's, innermost
-  first. With nothing focused, only `aria-keyshortcuts` buttons hear keys.
+  first. With nothing focused (at load, or after the focused element is
+  removed) the path is the first root, the app's outermost node: its
+  `keycapture`, `key` and `keyup` handlers hear the key after the
+  `aria-keyshortcuts` buttons, as the DOM's `window` listeners hear a key
+  whose target is `<body>`, and a `preventDefault()` there cancels the key's
+  default (Tab's move to the first stop; the terminal's scroll). The root
+  takes no focus by it: no `focus` event, no ring, no Tab stop. So on the
+  web, macOS, iOS, Linux and Windows. The terminal's root hears `key` alone,
+  and first, as its focused node's handler does: before the shortcuts and a
+  dialog's Escape. Android hands keys only to a focused field.
   On the Mac a click on a `button`, or on a box that is only pressable, leaves
   the focus where it is, as a click on an AppKit button does: a field beside
   it keeps its caret, and its pending `change` is committed before the `press`
@@ -1882,9 +1902,13 @@ macOS, iOS and iPadOS with a hardware keyboard, Linux):
   field's `input` heard as it was composed (the commit is not heard again). A
   composer's ⌘Enter `key` action sends what was typed. On macOS such a chord
   presses no `aria-keyshortcuts` button, as the web's skip a key that came
-  composing. On the web, Chrome hands the `key` handlers every key while
-  composing (`isComposing`, which Contract does not carry) and commits
-  nothing first.
+  composing. On macOS a press outside the field (a mouse-down anywhere else
+  in its window) commits the composition before the press runs, as
+  Chrome's mousedown ends one, where AppKit would leave it marked: a Send
+  button's action reads committed text, and no syllable stays with the
+  input method once the action clears the field. On the web, Chrome hands
+  the `key` handlers every key while composing (`isComposing`, which
+  Contract does not carry) and commits nothing before a chord's handlers.
 - **Modifiers.** An action that takes one more parameter, typed
   `KeyboardEvent`, hears the event too: the record `{ key: string, shiftKey:
   bool, ctrlKey: bool, altKey: bool, metaKey: bool, code: string, repeat:
@@ -1995,7 +2019,8 @@ the virtual clock).
   macOS, iPadOS (a hardware keyboard's chord; the session's view holds
   the focus when nothing else does) and Linux. While a modal is shown — a modal
   `dialog`, or an `aria-modal` view, the last shown — only the buttons
-  inside it hear their chords, and Enter or Space with the focus on a
+  inside it hear their chords (on the Mac, an item of the app menu or Help
+  still does, as below), and Enter or Space with the focus on a
   control they activate (a button, a pressable, a checkbox) is that
   control's, whatever button declares it. A chord's key is one character,
   a named key, or F1–F35; the paste chord (⌘V, Control+V off the Mac) is a
@@ -2018,25 +2043,62 @@ the virtual clock).
   diary R16). Edit also holds Speech ▸ Start Speaking and Stop Speaking, which
   read the selected text aloud, in a field or out of one (#141).
 
-  Explicit placement: `button "Check for Updates…" -exact-menu="app"
+  Explicit placement: `button "Check for Updates…" -exact-menu="about"
   press=checkUpdates` also becomes a menu item without a shortcut. The literal
-  ids are `app`, `file`, `edit`, `view`, `go`, `window`, `help`; they are
-  independent of localized menu titles and override chord filing. The label
-  remains the button's `aria-label` or text. `disabled`/inert disable the item;
-  hidden or removed buttons leave the menu. The agent uses `tap` on that same
-  button. Help retains the system search field; standard menus and Develop in
-  development builds remain. Other hosts keep the ordinary button and ignore
-  this Mac presentation hint. On a top-level root,
+  ids are `about` (the app menu, directly under About, as apps that update
+  themselves place Check for Updates…), `app` (after About's separator, with
+  Settings…), `file`, `edit`, `view`, `go`, `window`, `help`, and `none`, which
+  shows no item and keeps the chord a shortcut (a host item with that chord
+  keeps its place without it); they are independent of localized menu titles
+  and override chord filing. The label remains the button's `aria-label` or
+  text. `disabled`/inert disable the item; hidden or removed buttons leave the
+  menu. An item in the app menu or Help (`about`, `app`, `help`, and Settings…)
+  is the app's, not its window's: it stays enabled, and its chord works, while
+  no window is key, under a sheet and under a Contract modal dialog, as in a
+  hand-built Mac app; an authored `inert`, or a route behind a modal route,
+  still disables it, and an app-modal panel (`NSApp.runModal`) disables it
+  as AppKit disables every item then. The agent uses `tap` on that
+  same button. Help retains the system search field; the standard menus, and
+  Develop in a development build, remain unless removed. Other hosts keep the ordinary button
+  and ignore this Mac presentation hint. On a top-level root,
   `-exact-menu-remove="show-tab-bar autofill close-all"` suppresses the named
   standard items and their menu equivalents. The literal whitespace-separated
-  ids are `close-all`, `autofill`, `show-tab-bar`, `show-all-tabs`, `enter-full-screen`,
-  `minimize`, `zoom`, `bring-all-to-front`, `show-previous-tab`, `show-next-tab`,
-  `move-tab-to-new-window`, `merge-all-windows`.
+  ids are `close-all`, `autofill`, `show-tab-bar`, `show-all-tabs`,
+  `enter-full-screen`, `minimize`, `zoom`, `bring-all-to-front`,
+  `show-previous-tab`, `show-next-tab`, `move-tab-to-new-window`,
+  `merge-all-windows`, `back` (Go ▸ Back), `develop` (the Develop menu),
+  `paste-and-match-style`, `find`, `spelling-and-grammar`, `substitutions`,
+  `transformations`, `app-help` (Help ▸ *App* Help), `actual-size`, `zoom-in`
+  and `zoom-out`. A removed submenu (`find`) takes its items' chords with it,
+  and an app command that would stand in there follows Select All instead.
   Empty removes nothing; duplicates are harmless. Unknown ids, expressions and
   non-root use fail with `lower-menu-remove`, which names the accepted set.
   Removing the root declaration restores the items; the policy follows the
-  active window. It never removes an app button or Develop;
+  active window. It never removes an app button; `develop` takes the Develop
+  menu off the bar and leaves its chords (Save Trace's ⌥⌘T among them);
   other hosts ignore it ([LLP 1021 §5.3](../llp/1021-menus.rfc.md#53-contract-extensions-to-the-mac-menu-bar-2026-10-12)).
+
+  View holds Actual Size ⌘0, Zoom In ⌘+ (⌘= too) and Zoom Out ⌘-, as Safari's
+  and Preview's View does, stepping through Safari's zoom levels (50% to 300%)
+  for the main window (the key one, or the one under a key panel). The zoom
+  multiplies the root font size last, over the
+  app's own `setRootFontSize` as a browser's page zoom is over
+  `html { font-size }`, so every `rem` and inherited text size grows; it is
+  per window and not kept across a launch. Declared deviation: a browser's
+  zoom scales `px` lengths too, and this one leaves them, as it leaves the
+  platform's own controls at their size; an app that sizes in `px` alone
+  removes the three items (`actual-size zoom-in zoom-out`). An app's own ⌘0,
+  ⌘= or ⌘- command takes the host item's place.
+
+  A held ⌘Q, as Chrome's Warn Before Quitting asks for: a root `key` handler
+  that calls `preventDefault()` on ⌘Q (match `code == "KeyQ"`: under a
+  non-Latin input source `key` is that source's letter) hears its press, each
+  auto-repeat (`repeat`) and its `keyup`, and the menu's Quit never runs; the
+  app calls `close()` to end a one-window app when the hold completes. Quit
+  chosen with the pointer still quits at once, after `beforeunload`. The
+  host's own items (Copy, Quit, Minimize, …) match a ⌘ chord under a
+  non-Latin input source as AppKit matches them in any Mac app: the event's
+  characters with ⌘ are the key's Latin letter (measured under Korean 2-Set).
 
 ### Focus order: `tabindex`
 
@@ -2077,7 +2139,11 @@ An `autofocus` mounted later takes the focus only when nothing holds it, as in C
 `tabindex` button a tap focused keeps it when a timer remounts an `autofocus` element.
 The tap's own work is the exception on the web and iOS: a field it shows, or the
 `autofocus` field of a sheet, dialog or popover it opens, takes the focus from the control
-tapped ([LLP 1035.000](../llp/1035.000-dependable-host-semantics.rfc.md) D9).
+tapped ([LLP 1035.000](../llp/1035.000-dependable-host-semantics.rfc.md) D9). On macOS and
+iOS a click or touch whose press mounts an `autofocus` text field or textarea begins editing
+it as the platform's click-to-edit does: on the Mac the field takes the focus from any field
+that held it, and on both the caret goes under the press (the end below the text). The web
+puts the caret where its focus does, at the end.
 
 `aria-disabled=true` (or `aria-disabled="true"`) reports an unavailable control
 to accessibility while keeping its focus and Tab behavior. It accepts a bound
@@ -2114,9 +2180,9 @@ argument validation. Use the working implementation when selecting arguments:
 | `setSelectionRange(id, start, end[, direction])`: a text field's or text's selection, by its `id` ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [radios conformance](../host/web-js/conformance/radios.contract), [control tests](../contract/cli/tests/it/controls.rs) |
 | `setRangeText(id, text[, start, end[, selectionMode]])`: a field's range replacement, one `input`, preserve selection by default; no undo step on a plain field, one on the Markdown editor ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [Chrome comparison](../host/web/tests/field-range.test.mjs) |
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |
-| `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js) |
+| `openURL(url)`: an absolute `http`, `https`, `mailto` or `tel` URL, or one of a scheme app.json's `open_url.schemes` declares (`"open_url": {"schemes": ["vscode", "zed"]}`, an editor's deep link), opened by whatever the system registered for it; the web's JS target, macOS and iOS open declared schemes (a browser asks first) and journal one nothing could open, and under the agent journal them instead (`openURL vscode: …`). A link's `href` of a declared scheme opens on macOS and iOS, which hand followed links to `openURL`; the web writes no such `href` (its link policy keeps the four schemes). `file`, `javascript`, `data` and the other schemes that run or read content cannot be declared. Any other scheme is refused in the journal ([LLP 1133.000](../llp/1133.000-the-roster.rfc.md) §2) | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js), [`OpenURL.swift`](../host/apple/Sources/ExactKit/OpenURL.swift) |
 | `setScheme(scheme)`: the app's scheme, `"light"`, `"dark"` or `"system"` (follow the system's appearance) | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |
-| `setRootFontSize(px)`, `setRootFontSize("125%")`, `setRootFontSize("medium")`: CSS's `:root { font-size }`, the root font size every `rem` follows, in px above 0, laid out in the action's own commit; `px` lengths stay. It stands over the host's own size (the browser's setting, iOS Dynamic Type, 16 on macOS and Linux), as an author's `html { font-size: 20px }` stands over a browser's font-size setting, and `"medium"` hands the size back to the host. A percentage (CSS's number syntax, above 0) is that share of the host's size and follows it as the host's changes (LLP 1121 D6). A literal of 0 or less is refused here, a computed one in the log when it runs. Not kept across a launch: set it again from a mount task (LLP 1069.000 D3) | [rem tests](../contract/cli/tests/it/rem.rs) |
+| `setRootFontSize(px)`, `setRootFontSize("125%")`, `setRootFontSize("medium")`: CSS's `:root { font-size }`, the root font size every `rem` follows, in px above 0, laid out in the action's own commit; `px` lengths stay. It stands over the host's own size (the browser's setting, iOS Dynamic Type, 16 on macOS and Linux), as an author's `html { font-size: 20px }` stands over a browser's font-size setting, and `"medium"` hands the size back to the host. The Mac's View ▸ Zoom In multiplies whichever size stands ([The Mac's menu bar](#keys)). A percentage (CSS's number syntax, above 0) is that share of the host's size and follows it as the host's changes (LLP 1121 D6). A literal of 0 or less is refused here, a computed one in the log when it runs. Not kept across a launch: set it again from a mount task (LLP 1069.000 D3) | [rem tests](../contract/cli/tests/it/rem.rs) |
 | `share(title=, text=, url=, files=)`: the system share sheet by the Web Share API's names, at least one of `text`, `url` and `files`, each its own item of the sheet (pass a picture alone to share only it, as a Share Card button does; `contract vocab share`); `url` absolute `http(s)`. `files=` lists `app:/` files, each behind the app's `fs.read` grant (on Apple a regular file of at most 64 MB, reached through no symbolic link), and `"#id"` entries: a PNG of that element as it is drawn now, at the display's scale, named by the share's `title` (else by the id) (iOS and macOS; the web refuses it, `share: refused: a picture of an element is not available on the web`; Android and Linux refuse files). A literal `#id` no element carries is refused here (`lower-share-picture`), a missing one at run time in the journal. Offer it where `exactPage()`'s `canShareFiles` and `canSharePictures` hold (LLP 1125 D12). The outcome is a journal line | [share corpus](../contract/corpus/share.contract), [Metronome](../apps/metronome/app.contract) |
 | `showNotification(title=, body=, tag=, showTrigger=, navigate=)`, `closeNotification(tag)`: a local notification by the Notification API's names, now or at `showTrigger` (epoch milliseconds); a click opens `navigate=` through the navigation root, cold or warm. A newer one with the same `tag` replaces it, and `closeNotification` takes it away, shown or waiting. Needs the grant `device.notifications <strings key>`; see [notifications](reference.md#notifications) | [notify corpus](../contract/corpus/notify.contract) |
 | `showPicker(id)`, export `saveFile(id, from, suggestedName)`: the host copies the `app:/` file `from` to where the person chooses; `change` at `id` carries the chosen name, `cancel` a dismissal. `saveFile(id, text=…, suggestedName=…)` saves the text itself (UTF-8), no file written first and no grant, so "export what's on screen" is one press | [picker tests](../contract/cli/tests/it/picker.rs), [Fieldnotes](../apps/fieldnotes/app.contract), [Linux's save tests](../host/linux/src/presenter/save_tests.rs) |

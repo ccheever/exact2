@@ -121,4 +121,14 @@ fn a_header_button_that_presses_nothing_is_named() {
         "{says}"
     );
     assert!(says.contains("give it `role=\"status\"`"), "{says}");
+    // A disabled one is UIKit's disabled bar item, shown dimmed: no warning.
+    let disabled = src.replace("button aria-label", "button disabled=true aria-label");
+    let (result, warnings) = contract::compile_warned(&disabled);
+    result.unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    // One that says it is not disabled is still no item.
+    let enabled = src.replace("button aria-label", "button disabled=false aria-label");
+    let (result, warnings) = contract::compile_warned(&enabled);
+    result.unwrap();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
 }

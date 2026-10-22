@@ -639,7 +639,7 @@ if (es) {
     // (And a click's token, which the outline answering it names.)
     const envelope = (selected) => ({ kind: "selected", selected, inspect: inspecting.seq ?? undefined, ...(click ? { click } : {}), plan: channel.plan, design, revision: channel.revision });
     let selected = { node: id, type: node.type, testId: node.props?.testId ?? null, site: node.site ?? null, instance: node.instance ?? [], planDigest: node.planDigest ?? null, tuple: node.modes ?? null, rows: Object.entries(node.style ?? {}).map(([name, row]) => ({ name, ...row })), held: x.heldOf?.(x.views?.get(id), ask)?.held ?? null, trimmed: false };
-    if (bytes(envelope(selected)) > REPORT_BYTES) selected = { ...selected, rows: selected.rows.map(({ name, value, source, from, token }) => ({ name, value, source, from, token })), trimmed: true };
+    if (bytes(envelope(selected)) > REPORT_BYTES) selected = { ...selected, rows: selected.rows.map(({ name, value, source, from, fromSite, token }) => ({ name, value, source, from, fromSite, token })), trimmed: true };
     while (bytes(envelope(selected)) > REPORT_BYTES && selected.rows.length) selected = { ...selected, rows: selected.rows.slice(0, Math.floor(selected.rows.length / 2)) };
     if (bytes(envelope(selected)) > REPORT_BYTES) return { kind: "unsupported", what: "inspect", detail: "the selected node's identity alone is larger than a report" };
     return envelope(selected);
@@ -757,6 +757,8 @@ if (es) {
     (modal ?? document.body).append(cover, box, banner);
     // The outlines go with the chrome.
     for (const { mark } of marks) (modal ?? document.body).append(mark);
+    // (Rebuilt with boxes still up: said again.)
+    legend(marks.length);
     // Above the app's own top layer (an open dialog), where one exists.
     topLayer(cover); topLayer(box); topLayer(banner);
   };
@@ -790,19 +792,27 @@ if (es) {
   // A marked view that changes size (a font-size pin, a commit) is outlined
   // where it is now.
   const resized = typeof ResizeObserver === "function" ? new ResizeObserver(() => place()) : null;
-  const unmark = () => { resized?.disconnect(); for (const { mark } of marks.splice(0)) mark.remove(); };
+  // The banner says what the dashed boxes are while they show (a selection's every copy or what the tool's Outline
+  // asked), its words written only when they change (a live region).
+  const legend = (n) => {
+    const t = inspecting.banner?.firstChild, words = n > 0 ? `Inspecting: ${n} outlined in dashes (the selection's every copy, or what the tool outlined); click a view to select it` : "Inspecting: click a view to select it";
+    if (t?.nodeType === 3 && t.nodeValue !== words) t.nodeValue = words;
+  };
+  const unmark = (quiet = false) => { resized?.disconnect(); for (const { mark } of marks.splice(0)) mark.remove(); if (!quiet) legend(0); };
   const place = () => {
     for (const { mark, el } of marks) {
       const r = el.getBoundingClientRect();
       Object.assign(mark.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, display: el.isConnected ? "block" : "none" });
     }
+    // (A view gone takes its box: the count said is of those still shown.)
+    if (marks.length) legend(marks.filter(({ el }) => el.isConnected).length);
   };
   const outlineSites = (frame) => {
     if (frame.clear) { unmark(); return; }
     if (!inspecting.on) return;
     const views = ask({ op: "sites" });
     if (views.error || views.planDigest !== frame.plan || !Array.isArray(frame.sites)) return;
-    unmark();
+    unmark(true);
     const wanted = new Set(frame.sites);
     const found = views.sites.filter(([, site]) => wanted.has(site)).map(([id]) => globalThis.exact.views?.get(id)).filter((el) => el?.isConnected);
     // The outline answering a click here (its token) scrolls nothing: that
@@ -818,6 +828,7 @@ if (es) {
       resized?.observe(el);
     }
     place();
+    legend(found.length);
   };
   // `hold {revision, hold}` (LLP 1122 D4, D8; *1.11*): `{site, instance, state}` of this page's plan, the view by
   // its site and instance path (exactly one, as a refresh finds it), held by the input glue as the real state; null
@@ -899,7 +910,29 @@ if (es) {
     if (r.reason) end(revision, at.epoch);
     report(r.reason ? { kind: "held", state: null, reason: r.reason, revision } : { kind: "held", state: h.state, revision });
   };
+  // `{select: {up, levels, plan, from, instance}}` (tamber/1.16): the selection moves up its call sites, as a click on the node
+  // it lands on would; it lands in the first of `levels` (each enclosing copy's plan sites, nearest first, by the
+  // server's map for the selection at `from`, instance path `instance`, under `plan`) with a node above the selection, on the outermost there.
+  const selectUp = async ({ levels, plan, from, instance }) => {
+    const id = inspecting.selected?.id;
+    // (No selection here to move, or none above it of that copy: staleness, not inability; its selection as it is.)
+    if (!inspecting.on || id == null || !Array.isArray(levels)) { await refresh(); return; }
+    // (Only the selection, its instance, generation and plan the server took its sites from. One that moved since on
+    // its way here is no inability (theme2 15:02): the page reports its selection as it is now, and the tool follows.)
+    if (inspecting.selected.generation !== globalThis.exact.generation || plan !== inspecting.selected.plan || from !== inspecting.selected.site || JSON.stringify(instance ?? []) !== inspecting.selected.instance) { await refresh(); return; }
+    // Its ancestors and their sites, in one read with no node's rows (the runner's `ancestors`), the selection itself
+    // left out; the first level with one of them, and in it the outermost.
+    const above = (ask({ op: "ancestors", id }).ancestors ?? []).slice(1);
+    for (const level of levels) {
+      const want = new Set(level);
+      let found = null;
+      for (const [view, site] of above) if (want.has(site)) found = view;
+      if (found != null) { await select(found); return; }
+    }
+    await refresh();
+  };
   const inspect = async (frame) => {
+    if (frame.select) { await selectUp(frame.select); return; }
     // `{refresh: true}`: the selection again, under the digests now.
     // (`status: true`: its status again first, one lost on the way.)
     if (frame.refresh) { if (frame.status) await status(); await refresh(); return; }

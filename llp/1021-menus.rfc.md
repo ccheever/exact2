@@ -5,7 +5,7 @@
 **Systems:** Kernel (a top layer; the popover's box anchored to its invoker), Contract (HTML popover and dialog declarations), Web host (the Popover API by identity), Apple host (menu-shaped popovers presented as UIMenu/NSMenu), Linux host (a kernel-painted top layer), Agent API (no ninth operation), Weird Castle (the account switcher, first consumer)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-30
-**Revision:** §5.1, 2026-10-05 (Claude, Opus 5.5): the long-press context menu earned back, with its preview and commit, for the Signal clone's chat list (Charlie's approval). §5.2, 2026-10-07 (Claude, Opus 5.5): submenus earned back for the T3 Code clone's row menus (#141), with `position-area="right span-bottom"`.
+**Revision:** §5.1, 2026-10-05 (Claude, Opus 5.5): the long-press context menu earned back, with its preview and commit, for the Signal clone's chat list (Charlie's approval). §5.2, 2026-10-07 (Claude, Opus 5.5): submenus earned back for the T3 Code clone's row menus (#141), with `position-area="right span-bottom"`. §5.3.1, 2026-10-22 (Claude, Opus 5.5): the menu bar's own items — app-wide enablement, `about` and `none`, eleven more removal ids, View's zoom — for the T3 Code clone's app-owned menu code.
 **Related:** LLP 1017 §8.1 (literal HTML/CSS names, no aliases — the rule that names every row here), LLP 1001 (where a deviation from the bare element is declared), LLP 1008 (host state that never enters the plan — scroll offset — and the native text field, the one native control so far), LLP 1012 (the eight operations; `tap` is a journal entry into the runner, never OS input), LLP 1014 (the canvas capture the top layer sits outside of), LLP 1018 (the `EXACT_AGENT` presentation-swap precedent: `MemoryStore` for the keychain), weird-castle e644c82 (the hand-rolled switcher overlay this replaces). Platform record: the HTML Popover API and invoker attributes; the WAI-ARIA menu pattern; Apple HIG "Menus" and "Pull-down buttons"; `UIMenu`/`UIButton.menu`/`showsMenuAsPrimaryAction` (iOS 14+), `NSMenu` (macOS).
 
 ## 1. Summary
@@ -954,6 +954,17 @@ skipped. A Mac's context menu has no preview, and the HIG offers none. A
 picked item presses as the menu closes, once, by the button menu's rules (no
 invoker to recheck). `isMenuShaped` ignores the preview row.
 
+**Over an open popover (2026-10-22).** A node inside an open popover asks
+for its menu without closing that popover: the menu nests in it, as HTML's
+popover stack nests a popover shown with a source inside an open one (HTML,
+"topmost popover ancestor"). Chrome, Firefox and WebKit keep the outer
+popover open under the context menu and after it closes
+(`host/web/tests/context-popover.test.mjs`). macOS had closed every open
+popover before popping up the menu; it now closes only the auto popovers
+above the nearest one holding the node, leaving a manual one open as HTML
+does, and the agent's painted menu on iOS does the same. UIKit's own context menu closes nothing. Implementer: Claude,
+2026-10-22.
+
 **Web (both targets).** The node's `contextpopover` attribute is wired
 (`rt.js` `cp`, `glue.js`). Its `contextmenu` prevents the browser's menu,
 and after the node's own action the popover opens with
@@ -1193,7 +1204,8 @@ This adds a presentation of the existing button, never a new action:
 `disabled`/inert disable it, hidden or removed buttons leave the menu, and
 the existing agent `tap` reaches its button. Standard menus and Develop in
 development builds remain. AppKit menu objects, not their titles, identify
-destinations, so changing the display language does not change placement.
+destinations, so changing the display language does not change placement. §5.3.1 adds `about` and `none`, app-wide enablement and
+more removal ids.
 
 Declared platform deviation: CSS/HTML have no application menu. Web (both
 targets), UIKit (including iPadOS), Linux, Windows, Android and the terminal
@@ -1224,12 +1236,91 @@ values and declarations below a root fail with `lower-menu-remove`, naming the
 whole accepted set. The view has one root node, as elsewhere in Contract. This
 removes menu affordances, not window capabilities or app-declared buttons.
 There is no Format menu in this host's standard bar; no speculative Format ids
-are accepted. The other standard items, Help and development Develop remain.
+are accepted. The other standard items, Help and development Develop remain
+(§5.3.1 adds ids for Go ▸ Back, Develop, Edit's template items, Help's book
+item and View's zoom).
 
 AppKit identifies commands by their selectors and AutoFill by the installed
 item's identifier (`_NSMenuItemAutoFillIdentifier`, observed on macOS 27.0.1), never
 by localized titles. Selected items are hidden with hidden key equivalents
-disallowed, including items AppKit inserts after installation or on update.
+disallowed, including items AppKit inserts after installation or on update;
+since §5.3.1 the host's menus also take their chords out of the key lookup,
+because AppKit sends a hidden item's chord whatever that flag says.
 The host retains the objects so removing the declaration restores them; each
 window installs its own session's menu when it becomes key. Other hosts ignore
 this macOS-only presentation hint, just as they ignore `-exact-menu`.
+
+### 5.3.1 The menu bar's own items (2026-10-22)
+
+Implementer: Claude (Opus 5.5), 2026-10-22. Consumer: the T3 Code clone,
+whose `T3Menus.swift`, `T3MenuBar.swift` and `T3LatinChords.swift` laid these
+over the host's bar. Each is measured against a hand-built AppKit app and
+against T3 Code's own Electron bar (`DesktopApplicationMenu.ts`); every other
+host still ignores both hints.
+
+**App-wide items.** An item in the application menu or Help (`about`, `app`,
+`help`, and the ⌘, item filed as Settings…) is the app's, not its window's:
+it is enabled whatever window is key, with no window key at all, under a
+sheet, and under a Contract modal dialog (not inside a route behind a modal
+route, which is the route's own inertness; an app-modal panel, which
+`NSApp.runModal` shows, disables them as AppKit disables every item whose
+target does not work when modal), as a hand-built app's Settings… and
+Sparkle's Check for Updates… are, and as Electron's are. Its chord works then
+too. `disabled` and an authored `inert` still disable it; inertness that a
+modal dialog lends the rest of the page does not, as a page's modal never
+reaches a browser's menu. Every other item keeps the rule above: its window
+key, no sheet, nothing modal over it.
+
+**`about` and `none`.** `-exact-menu="about"` places the item directly under
+About, before its separator, where apps that update themselves put Check for
+Updates… (Sparkle's convention; T3 Code's darwin template). `app` keeps its
+place after that separator, with Settings…. `-exact-menu="none"` shows no item:
+the chord stays a shortcut, as a hidden key equivalent, and a host item with
+that chord keeps its place without it rather than stepping aside for an item
+nobody sees. This is the author's word for a shortcut the platform would
+otherwise list; author over platform (LLP 1115).
+
+**More removal ids.** `back` (Go ▸ Back; Go hides when it has nothing shown),
+`develop` (the Develop menu of a development build), `paste-and-match-style`,
+`find`, `spelling-and-grammar`, `substitutions`, `transformations` (Edit's
+template items, LLP 1115 D8; a removed submenu's items are removed with it,
+and an app command that would stand in inside Find follows Select All), `app-help` (Help ▸ *App* Help; AppKit's search
+field stays), and `actual-size`, `zoom-in`, `zoom-out` below. The host finds
+its own submenus and Develop by item identifiers it sets, the rest by action,
+never by title. `develop` takes the menu off the bar and leaves its chords:
+Save Trace's ⌥⌘T is a Mac build's one way to write a trace (LLP 1079 D5), and
+an app command still claims any Develop chord it declares, as before.
+`NSMenu.performKeyEquivalent` sends a hidden item's chord whatever its
+`allowsKeyEquivalentWhenHidden` says, in a submenu or not (measured on macOS
+26.6), so the host's menus take every removed item's chord out of their
+lookup while they look a key up, the twelve ids of §5.3 included.
+
+**View's zoom.** View holds Actual Size ⌘0, Zoom In ⌘+ and Zoom Out ⌘-, above
+Show Sidebar and Enter Full Screen, as Safari's and Preview's View does and as
+Electron's default menu does. AppKit sends ⌘= and ⇧⌘= to the ⌘+ item itself
+(measured with posted HID events), so the ⌘+ item answers a keyboard's three;
+an event built without the layout's characters (the agent's) misses it, so a
+hidden ⌘= item answers that one. The steps are Safari's page zoom
+levels (50, 75, 85, 100, 115, 125, 150, 175, 200, 250, 300%); T3 Code's are
+Electron's half levels (1.2^0.5, about 110%), a difference of step only. The
+zoom is the main window's session's (the key window's, or the window under a
+key panel, as AppKit sends a nil-targeted action), kept across a reload and not across a
+launch, and the runner applies it last: the root font size, the app's own
+`setRootFontSize` included, times the zoom (`Runner::set_root_font_zoom`,
+`exact_set_root_font_zoom`), as a browser's page zoom is over an author's
+`html { font-size }`. Declared deviation: a browser's zoom scales `px`
+lengths too; this one scales what follows the root size and leaves `px`
+and the platform's controls. The items are in every Mac app's View, as in
+Safari's and Electron's; an app that sizes in `px` alone removes them. An
+app's own ⌘0, ⌘= or ⌘- command stands in for the host's item, as Edit's do.
+
+**Not built, because the platform already does it.** Standard items under a
+non-Latin input source: under Korean 2-Set a real ⌘ chord's `characters` is
+the key's Latin letter (`charactersIgnoringModifiers` alone is Hangul), and
+AppKit matches Quit, Copy, Minimize, ⌃⌘F and the rest by it in a hand-built
+app and in this host alike (measured on macOS 26.6.2 with posted HID events).
+The physical-key fallback of #110 stays for app commands, whose matching is
+the host's. A held ⌘Q: a root `key` handler that prevents ⌘Q's default hears
+its press, auto-repeats and `keyup` before the menu does, and `close()` ends a
+one-window app, so the hold is the app's, as Chrome's Warn Before Quitting is
+Chrome's; Quit chosen with the pointer stays immediate.

@@ -110,7 +110,7 @@ extension Presenter {
         var child: UIView = sv, up = sv.superview
         while let parent = up {
             if let at = parent.subviews.firstIndex(of: child) {
-                for case let sibling as NodeView in parent.subviews[(at + 1)...] where sibling.style["position_type"]?.string == "absolute" {
+                for case let sibling as NodeView in parent.subviews[(at + 1)...] where sibling.layoutPosition == "absolute" {
                     consider(sibling)
                 }
             }

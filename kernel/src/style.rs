@@ -17,6 +17,7 @@ mod backdrop;
 pub use backdrop::{link as link_backdrop_filter, BackdropFilter, BackdropOp};
 mod border;
 pub(crate) mod effects;
+mod engine;
 pub use crate::gradient::link as link_gradients;
 pub use effects::link as link_effects;
 mod grid;
@@ -1314,8 +1315,8 @@ impl StyleProps {
             width: self.max_width.floor_lpa(env),
             height: self.max_height.floor_lpa(env),
         };
-        s.aspect_ratio = self.aspect_ratio.preferred();
-        s.aspect_ratio_content_box = self.aspect_ratio.content_box();
+        s.aspect_ratio = self.rare.aspect_ratio.preferred();
+        s.aspect_ratio_content_box = self.rare.aspect_ratio.content_box();
 
         s.inset = if self.position_type == PositionType::Sticky {
             let auto = taffy::style::LengthPercentageAuto::auto();
@@ -1371,12 +1372,7 @@ impl StyleProps {
         };
 
         s.grid_auto_flow = grid_auto_flow(self.grid_auto_flow);
-        s.grid_template_columns = self.rare.grid_template_columns.taffy_components();
-        s.grid_template_column_names = self.rare.grid_template_columns.line_names();
-        s.grid_template_rows = self.rare.grid_template_rows.taffy_components();
-        s.grid_template_row_names = self.rare.grid_template_rows.line_names();
-        s.grid_column = self.rare.grid_column.taffy();
-        s.grid_row = self.rare.grid_row.taffy();
+        s.rare = engine::rare(self);
         s
     }
 }
@@ -1444,7 +1440,9 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
         Direction::Rtl => taffy::style::Direction::Rtl,
     };
     s.justify_items = justify_items(arena.style(slot).justify_items, direction);
-    s.multicol = crate::fragment::taffy_multicol(arena, slot);
+    if let Some(multicol) = crate::fragment::taffy_multicol(arena, slot) {
+        s.rare.multicol = Some(multicol);
+    }
     // A root with `width: auto` fills what it is offered, as a `<div>` fills
     // the body: CSS's block rule, which Taffy does not apply to a root.
     // Height stays auto — as tall as its content, the page a viewport scrolls.
@@ -1452,7 +1450,9 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     // (with or without a fallback ratio, or a degenerate one): CSS sizes an
     // `<img>` with one dimension given from the other by that ratio. Only a
     // plain `<ratio>` overrides it; natural ratios are of the content box.
-    if arena.node_type(slot).is_replaced() && arena.style(slot).aspect_ratio.defers_to_natural() {
+    if arena.node_type(slot).is_replaced()
+        && arena.style(slot).rare.aspect_ratio.defers_to_natural()
+    {
         if let Some((w, h)) = arena.intrinsic(slot) {
             if w > 0.0 && h > 0.0 {
                 s.aspect_ratio = Some(w / h);
@@ -1489,6 +1489,7 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
 mod finite_tests;
 #[cfg(test)]
 mod tests;
+pub(crate) mod top_layer;
 // A `touch-action` value's pinch and pan parts.
 mod decoration;
 #[cfg(test)]

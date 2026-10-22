@@ -88,14 +88,16 @@ test('a carried restart keeps focus at its place and autofocuses nothing',()=>{
 });
 
 test('declared shortcuts support named keys and leave text input and composition with editors',()=>{
-  const previous={document:globalThis.document,getComputedStyle:globalThis.getComputedStyle};
+  const previous={document:globalThis.document,getComputedStyle:globalThis.getComputedStyle,MutationObserver:globalThis.MutationObserver,Element:globalThis.Element,matchMedia:globalThis.matchMedia};
   const handlers=new Map();
   let chord='',presses=0,editing=false,inert=false,modal=null,shown=[],activates=false;
+  // What the input glue reads as it starts that no chord here touches: its sheets' observers, hover, looks.
+  Object.assign(globalThis,{MutationObserver:class{observe(){}disconnect(){}takeRecords(){return [];}},Element:class{},matchMedia:()=>({matches:false,addEventListener(){}})});
   const button={isConnected:true,disabled:false,getClientRects:()=>[{}],getAttribute:()=>chord,click:()=>presses++};
   const root={addEventListener(){},querySelectorAll:s=>s.includes('aria-modal')?shown:[button],contains:()=>false};
   const target={matches:s=>s.startsWith('button')?activates:editing,closest:()=>modal};
   // Every listener on the document hears the key, in order, as a browser's would.
-  globalThis.document={addEventListener:(name,handler)=>handlers.set(name,[...(handlers.get(name)??[]),handler]),activeElement:target};
+  globalThis.document={addEventListener:(name,handler)=>handlers.set(name,[...(handlers.get(name)??[]),handler]),activeElement:target,getElementById:id=>(id==='exact-snap'?{}:null),styleSheets:[]};
   globalThis.getComputedStyle=()=>({visibility:'visible'});
   const key=(key,mods={},extra={})=>{
     const event={key,metaKey:false,ctrlKey:false,altKey:false,shiftKey:false,...mods,...extra,

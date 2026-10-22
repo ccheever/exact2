@@ -147,6 +147,17 @@ impl Value {
         Value::HeapStr(HeapStr(Str::from(s)))
     }
 
+    /// The text's length in bytes, read without checking it is UTF-8 (it
+    /// is by construction); 0 for any other value.
+    #[inline]
+    pub fn text_len(&self) -> usize {
+        match self {
+            Value::HeapStr(s) => s.0.len(),
+            Value::InlineStr(s) => s.len(),
+            _ => 0,
+        }
+    }
+
     /// Whether the value is text.
     #[inline]
     pub fn is_str(&self) -> bool {
