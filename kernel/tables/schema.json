@@ -5958,6 +5958,7 @@
     ["sidebar-gap", "length", 10],
     ["back-padding-start", "length", "0.375em"],
     ["back-padding-end", "length", "0.625em"],
+    ["bar-symbol-size", "length", "1.2941rem"],
     ["alert-width", "length", "26rem"],
     ["alert-margin", "length", 32],
     ["alert-padding", "length", 24],

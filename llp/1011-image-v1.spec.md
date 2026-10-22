@@ -209,7 +209,9 @@ its bounds. A native button's symbol takes no `width` or `height`
 keeps the box the look gives it, as iOS draws those outside a button's face: a
 tab bar's or a segmented control's image (at body size) and a menu item's. An
 icon of the app's own, with no `sf`, draws its viewBox at
-1em, as the Apple hosts draw its path (`FaceSymbol.pathImage`).
+1em, as the Apple hosts draw its path (`FaceSymbol.pathImage`). A symbol alone
+on a bar item's face is at the bar's symbol size, whatever size is written on it
+or its item (LLP 1115.000 D4.15).
 
 **Tinted rasters (2026-09-26).** `host_css` (`host/web/src/element.rs`) gives
 an `<img>` whose source is not `symbol:` and whose `tint_color` is set the

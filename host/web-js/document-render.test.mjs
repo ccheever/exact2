@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { webCompiler } from './module.mjs';
 import { createDocument } from './dom.js';
 import { open } from '../../scripts/agent.mjs';
+import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 
 async function renderedPages(source, check, files = {}, manifest = {}) {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
@@ -21,10 +22,10 @@ async function renderedPages(source, check, files = {}, manifest = {}) {
     const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
     expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
     const html = path => readFileSync(resolve(dir, 'dist', path, 'index.html'), 'utf8');
-    check(path => {
+    await check(path => {
       const page = html(path);
       return [/<title>([^<]*)<\/title>/.exec(page)?.[1], /<meta name="description" content="([^"]*)">/.exec(page)?.[1]];
-    }, html);
+    }, html, resolve(dir, 'dist'));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
@@ -299,6 +300,61 @@ test('JavaScript-rendered pages exclude the other retained tabs’ heads', async
     expect(page('saved')).toEqual(['Saved', 'Saved description']);
   });
 }, 30000);
+
+// LLP 1115.000 D4.15: the page marks a route's bar (`data-exact-bar`) as the glue will, so its item's symbol is the
+// bar's size, 22/17 of the 16 px body in its 1.2em box, over the 13 px written on it, before the page adopts and after:
+// no jump. A header whose heading sits in a menu's button (`popovertarget`) is no bar, before or after, and its symbol
+// keeps the 13 px in a native face's 1.5em box.
+test('JavaScript-rendered pages mark the bar, whose symbols are the bar\'s size before the page adopts and after', async () => {
+  await renderedPages(`routes nav
+  home "/" render=build
+
+component Bars
+  state added = 0
+  action add
+    added = added + 1
+  view
+    column
+      main navigationKey=\`\${top(nav).id}\` navigationBack="back"
+        for e in stack(nav) key=e.id
+          column navigationKey=\`\${e.id}\`
+            header display="flex" align-items="center"
+              text "Inbox" role="heading" aria-level=1
+              button press=add testId="add" aria-label="Add"
+                image "symbol:add" font-size=13
+      main navigationKey="menu" navigationBack="back"
+        column navigationKey="menu"
+          header display="flex" align-items="center"
+            button popovertarget="menu-items"
+              text "Menu" role="heading" aria-level=1
+            button press=add testId="menu-add" aria-label="Add"
+              image "symbol:add" font-size=13
+          column popover="auto" id="menu-items"
+            text "Item"
+`, async (_page, _html, dist) => {
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    let suite, browser;
+    try {
+      // Each header's mark, and its Add symbol's width to within 0.06 px of the bar's size or of the written one.
+      const measure = `[...document.querySelectorAll('[navigationkey] > header')].map(h => {
+        const width = h.querySelector('[data-testid$="add"] img').getBoundingClientRect().width;
+        return [h.hasAttribute('data-exact-bar'), Math.abs(width - 16 * 22 / 17 * 1.2) <= 0.06 ? 'bar' : Math.abs(width - 13 * 1.5) <= 0.06 ? 'written' : width];
+      })`;
+      suite = await suiteBrowser('chromium', { timeout: 10000 });
+      const page = await suite.newPage({ javaScriptEnabled: false });
+      await page.goto(server.url.href);
+      expect(await page.evaluate(measure)).toEqual([[true, 'bar'], [false, 'written']]);
+      browser = await open({ host: 'web', url: server.url.href });
+      expect(await browser.carrier.evaluate(`globalThis.exact.journal.some(l => l.endsWith('adopted the document'))`)).toBe(true);
+      expect(await browser.carrier.evaluate(measure)).toEqual([[true, 'bar'], [false, 'written']]);
+    } finally {
+      await browser?.close(); await suite?.close(); server.stop(true);
+    }
+  });
+}, 180000);
 
 // The render's DOM orders nodes as DOM §4.4 does (midi.js sorts its listeners by it).
 test('the render DOM compares document positions, across trees one way each', () => {
