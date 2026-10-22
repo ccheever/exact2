@@ -645,6 +645,22 @@ reading. Nothing that isn't HTML is added by it.
   `host-context-changed` updates. Take: QUEUE "Shared elements, stage 2" (LLP 1013.000
   §3) moves to Later. Structured clone, broadcast, a permission broker and Linux
   delivery stay no.
+- **Expanded (Daehyeon Mun, 2026-10-23; trade; LLP 1020.002):** a browser shell on
+  the `iframe`: `partition` makes a guest a top-level page with its own storage (LLP
+  1020's `top` topology, for a partitioned frame only); its new windows, external
+  schemes, dialogs, files, downloads and fullscreen get the platform's answers,
+  and its permission requests are denied (navigation policy, with no veto);
+  `navigate`, `traverseHistory`, `reload(id)`, `stopLoading` and
+  `captureScreenshot` of an `iframe` join `HOST_COMMANDS`, with the Navigation
+  API's events (the controller ops); `clearSiteData`, `zoom`, and
+  WebDriver BiDi automation under the `browser.automation` grant in production
+  builds. macOS and iOS first; the web a detectable subset; Android and Windows
+  later; Linux absent. Unblocks T3 Code's Browser panel without app-owned
+  `WKWebView` Swift. Take: QUEUE "Web view rows: memory against SwiftUI" (LLP 1020
+  §10) moves to Later. Still no: a veto on the guest's own navigation, `allow` and
+  a permission broker, author-facing `srcdoc`, a bridge in a partitioned page's
+  world, a picture of any element but an `iframe`, cookie import, and LLP
+  1020.002 §13's other uses.
 - **Expanded (LLP 1096; admitted by the orchestrator under Charlie's
   2026-10-04 delegation, "make decisions without me"):** short sounds an
   action can schedule: a `sound` declaration (a WAV in `assets/`, at most 10
