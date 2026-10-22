@@ -28,7 +28,7 @@ fn prop(id: ViewId, prop: PropId, value: &str) -> Op {
     }
 }
 
-/// A route (1, a column) holding a header (2) and a box after it
+/// A route (1, a column) holding a header (2, `top: 10`) and a box after it
 /// (3); the header a popover, and sticky as its author wrote it when `sticky`.
 fn route(popover: bool, sticky: bool) -> Kernel {
     let mut k = Kernel::with_monospace();
@@ -48,7 +48,13 @@ fn route(popover: bool, sticky: bool) -> Kernel {
         ],
     ));
     ops.push(prop(2, PropId::SemanticTag, "header"));
-    ops.push(style(2, &[(StyleId::Height, StyleValue::Number(40.0))]));
+    ops.push(style(
+        2,
+        &[
+            (StyleId::Height, StyleValue::Number(40.0)),
+            (StyleId::Top, StyleValue::Number(10.0)),
+        ],
+    ));
     if sticky {
         // Written, as the runner marks a row its author wrote (LLP 1115.000 D2).
         let mut patch = StyleProps::default();
@@ -86,11 +92,18 @@ fn a_popover_keeps_only_a_sticky_its_author_wrote() {
         "the neutral route header's start is sticky"
     );
     let below = |k: &Kernel| k.node(2).unwrap().frame.height;
+    let sticks = |k: &Kernel| k.sticky_constraint(k.node(2).unwrap().key).is_some();
     assert_eq!(
         k.node(3).unwrap().frame.y,
         below(&k),
         "in flow: the box after it"
     );
+    assert_eq!(
+        k.node(2).unwrap().frame.y,
+        0.0,
+        "a sticky box's inset is no offset"
+    );
+    assert!(sticks(&k), "the sticky machinery takes it");
 
     let k = route(true, false);
     assert_eq!(
@@ -103,6 +116,12 @@ fn a_popover_keeps_only_a_sticky_its_author_wrote() {
         0.0,
         "out of flow: it takes no room"
     );
+    assert_eq!(
+        k.node(2).unwrap().frame.y,
+        10.0,
+        "an absolute box's inset is an offset"
+    );
+    assert!(!sticks(&k), "and the sticky machinery lets it go");
 
     let k = route(true, true);
     assert_eq!(
@@ -111,4 +130,5 @@ fn a_popover_keeps_only_a_sticky_its_author_wrote() {
         "a popover its author made sticky keeps it"
     );
     assert_eq!(k.node(3).unwrap().frame.y, below(&k), "in flow");
+    assert!(sticks(&k), "sticky");
 }

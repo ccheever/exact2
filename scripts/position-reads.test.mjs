@@ -19,14 +19,16 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 // Where the rule's readers live, and what a direct read looks like there:
 // in Rust the field itself (as a word, so a destructuring, a rename, a
-// spaced or split access all count) or its row id, in code outside comments,
-// strings and tests; in Swift the row's name.
-const RUST = /\bposition_type\b|\bStyleId::PositionType\b/;
+// spaced or split access all count) or its row id (`StyleId::PositionType`,
+// spaced or split across lines, or in a `use StyleId::{…}` group), in code
+// outside comments, strings and tests; in Swift the row's name, in code
+// outside comments.
+const RUST = /\bposition_type\b|\bStyleId\s*::\s*(?:PositionType\b|\{[^}]*\bPositionType\b)/g;
 const SCOPES = [
   { dir: 'kernel/src', ext: '.rs', read: RUST },
   { dir: 'host/apple/src', ext: '.rs', read: RUST },
   { dir: 'host/linux/src', ext: '.rs', read: RUST },
-  { dir: 'host/apple/Sources', ext: '.swift', read: /"position_type"/ },
+  { dir: 'host/apple/Sources', ext: '.swift', read: /"position_type"/g },
 ];
 
 // The reads that mean the author's value, each with why. An entry matches
@@ -34,19 +36,15 @@ const SCOPES = [
 export const ALLOWED = [
   { file: 'kernel/src/style/top_layer.rs', text: 'arena.computed_source(slot, crate::StyleId::PositionType)', why: 'the accessor itself: the row with its platform start' },
   { file: 'kernel/src/style/top_layer.rs', text: 'let authored = style.position_type;', why: 'the accessor itself' },
-  { file: 'kernel/src/style/top_layer.rs', text: 'style.written.has(crate::StyleId::PositionType)', why: "the accessor itself: whether the author wrote the sticky" },
-  { file: 'kernel/src/style.rs', text: 's.position = match self.position_type', why: "the engine mapping of the authored rows (to_taffy); top_layer::apply overrides it right after, in cover::apply" },
-  { file: 'kernel/src/style.rs', text: 's.inset = if self.position_type == PositionType::Sticky', why: "a sticky box's insets aren't offsets (to_taffy); a box sticky for layout is sticky as written" },
+  { file: 'kernel/src/style/top_layer.rs', text: 'style.written.has(crate::StyleId::PositionType)', why: 'the accessor itself: whether the author wrote the sticky' },
+  { file: 'kernel/src/style.rs', text: 's.position = match self.position_type', why: 'the engine mapping of the rows (to_taffy); top_layer::apply makes a top-layer box absolute right after, in cover::apply' },
+  { file: 'kernel/src/style.rs', text: 's.inset = if self.position_type == PositionType::Sticky', why: "the engine mapping of the rows (to_taffy): a sticky row's insets aren't offsets; top_layer::apply makes a top-layer box's offsets again" },
   { file: 'kernel/src/arena/defaults.rs', text: '(StyleId::PositionType, "-exact-header-position")', why: "the neutral route header's platform start: a row it sets, not a read" },
-  { file: 'kernel/src/arena/defaults.rs', text: '.computed_source(slot, StyleId::PositionType)', why: "the sticky machinery's own registry (refresh_sticky); a box sticky for layout is sticky as written" },
-  { file: 'kernel/src/arena/defaults.rs', text: '.position_type', why: "the sticky machinery's own registry (refresh_sticky), the line above's field" },
-  { file: 'kernel/src/kernel/sticky.rs', text: 'style.position_type != PositionType::Sticky', why: "the sticky machinery's own constraint (sticky_constraint); a box sticky for layout is sticky as written" },
-  { file: 'host/apple/src/style.rs', text: 'computed.position_type == exact_kernel::PositionType::Sticky', why: 'the style rows the Swift side gets: which rows a sticky box crosses with' },
-  { file: 'host/linux/src/paint.rs', text: '|s| s.position_type)', why: "the sticky machinery's paint offset (LLP 1083 D4); a box sticky for layout is sticky as written" },
+  { file: 'kernel/src/kernel/cover.rs', text: 'use crate::StyleId::{Display, OverflowX, OverflowY, PositionType};', why: "a row list, not a value: a change of the row moves a box on the bottom edge's chain (style_changed); a popover's prop change does too (top_layer::prop_changed)" },
   { file: 'host/linux/src/scroll_anchor.rs', text: 'StyleId::PositionType,', why: 'a row list, not a value: a change of the row is a layout change' },
   { file: 'host/apple/Sources/ExactKit/LayoutPosition.swift', text: 'let authored = style["position_type"]', why: 'the accessor itself' },
   { file: 'host/apple/Sources/ExactKit/LayoutPosition.swift', text: '.contains(.string("position_type"))', why: 'the accessor itself: whether the author wrote the sticky' },
-  { file: 'host/apple/Sources/ExactKit/ScrollAnchoring.swift', text: '"inset", "position_type",', why: "a key list, not a value: a change of the authored row is a layout change" },
+  { file: 'host/apple/Sources/ExactKit/ScrollAnchoring.swift', text: '"inset", "position_type",', why: 'a key list, not a value: a change of the row is a layout change' },
   { file: 'host/apple/Sources/ExactKit/PositionArea.swift', text: 'popover.style["position_type"] == nil', why: "whether the author wrote `position` decides between the UA's fixed and absolute (CSS Positioned Layout 4, top layer styling)" },
   { file: 'host/apple/Sources/ExactCore/FlatPaint.swift', text: 'case "position_type":', why: 'flat leaves carry only data props (FlatLeaves.onlyData), never a popover, so the row is how they lay out' },
   { file: 'host/apple/Sources/ExactCore/FlatPaint.swift', text: 'positioned = ["relative", "absolute"].contains(style["position_type"]', why: 'flat leaves carry only data props (FlatLeaves.onlyData), never a popover, so the row is how they lay out' },
@@ -76,6 +74,19 @@ export function code(text, rust) {
         if (text.startsWith('/*', j)) { depth++; j += 2; } else if (text.startsWith('*/', j)) { j += 2; if (--depth === 0) break; } else j++;
       }
       blank(j);
+      continue;
+    }
+    if (!rust && (c === '"' || (c === '#' && /^#+"/.test(text.slice(i, i + 260))))) {
+      // A Swift string, kept as it is (the row's name is read as one), so a
+      // comment's opener inside one opens nothing: `"…"`, `"""…"""`, and a
+      // raw `#"…"#` with as many #s.
+      const hashes = /^#*/.exec(text.slice(i))[0], open = text.startsWith('"""', i + hashes.length) ? '"""' : '"';
+      const close = open + hashes;
+      let j = i + hashes.length + open.length;
+      while (j < text.length && !text.startsWith(close, j)) j += !hashes && text[j] === '\\' ? 2 : 1;
+      j = Math.min(text.length, j + close.length);
+      out += text.slice(i, j);
+      i = j;
       continue;
     }
     if (rust) {
@@ -130,10 +141,11 @@ export function directReads(root = ROOT) {
     for (const path of files(join(root, dir), ext)) {
       const file = relative(root, path);
       const text = readFileSync(path, 'utf8'), rust = ext === '.rs';
-      const scanned = (rust ? source(path, code(text, true)) : code(text, false)).split('\n'), lines = text.split('\n');
-      scanned.forEach((line, i) => {
-        if (read.test(line)) out.push({ file, line: i + 1, text: lines[i].trim() });
-      });
+      const scanned = rust ? source(path, code(text, true)) : code(text, false), lines = text.split('\n');
+      // Over the whole file, so a read split across lines counts, on the
+      // line it starts.
+      const at = new Set([...scanned.matchAll(read)].map(m => scanned.slice(0, m.index).split('\n').length));
+      for (const line of [...at].sort((a, b) => a - b)) out.push({ file, line, text: lines[line - 1].trim() });
     }
   }
   return out;
@@ -183,15 +195,28 @@ test('the scan finds a new read in any form, and skips comments, strings and tes
       'fn named(row: &Row) -> bool { row.name == "position_type" }',
       "fn life<'a>(s: &'a StyleProps) -> bool { s.position_type == PositionType::Relative }",
       'const RAW: &str = r#"s.position_type { "#;',
+      'fn spaced(s: &Row) { s.get(StyleId :: PositionType); }',
+      'fn split(s: &Row) { s.get(StyleId::',
+      '    PositionType); }',
+      'use exact_kernel::StyleId::{Display,',
+      '    PositionType};',
     ].join('\n'));
     writeFileSync(join(root, 'host/linux/src/scan_tests.rs'), 'fn t(s: &StyleProps) { s.position_type; }');
     writeFileSync(join(root, 'host/apple/Sources/New.swift'), [
       'let p = view.style["position_type"]?.string',
       '// view.style["position_type"] in a comment',
+      'let marker = "/*"',
+      'let q = view.style["position_type"]?.string',
+      'let url = "http://x"; let r = view.style["position_type"]',
+      'let doc = """',
+      '  /* not a comment */ "',
+      '  """',
+      'let s = view.style["position_type"] /* a comment: view.style["position_type"] */',
+      'let raw = #"a \\" /* "#; let t = view.style["position_type"]',
     ].join('\n'));
     assert.deepEqual(directReads(root).map(r => `${r.file}:${r.line}`), [
-      ...[2, 3, 6, 9, 10, 22, 23, 24].map(line => `kernel/src/new.rs:${line}`),
-      'host/apple/Sources/New.swift:1',
+      ...[2, 3, 6, 9, 10, 22, 23, 24, 26, 27, 29].map(line => `kernel/src/new.rs:${line}`),
+      ...[1, 4, 5, 9, 10].map(line => `host/apple/Sources/New.swift:${line}`),
     ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
