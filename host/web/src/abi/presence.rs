@@ -44,5 +44,7 @@ mod tests {
             r#"-exact-layout-transition="200ms ease""#
         )));
         assert!(!super::needed(&plan(r#"opacity=(calm ? 1 : 0.5)"#)));
+        let exit = "keyframes leave\n  to opacity=0\n\ncomponent App\n  state shown = true\n  view\n    column\n      if shown\n        text \"a\" -exact-exit-animation=\"leave 200ms\"\n";
+        assert!(super::needed(&contract::compile(exit).unwrap()));
     }
 }
