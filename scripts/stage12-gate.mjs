@@ -33,6 +33,10 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
 export const CLONE_HOSTS = ['web', 'web-wasm', 'ios', 'macos', 'linux'];
 /** A side's wasm web dist, in its own target. */
 const cloneWasmDist = env => join(env.CARGO_TARGET_DIR ?? join(ROOT, 'target'), 'web-wasm-dist');
+/** And its JS build's, so the clone's web build never lands in the dist the
+ * library-gate lines drive (EXACT_WEB_DIST, Caltrain's JS build). */
+const cloneJsDist = env => join(env.CARGO_TARGET_DIR ?? join(ROOT, 'target'), 'web-js-dist');
+const cloneWebEnv = (env, wasm) => ({ ...env, EXACT_WEB_DIST: wasm ? cloneWasmDist(env) : cloneJsDist(env) });
 export const SCHEMES = ['light', 'dark'];
 /** The agent clock's zero for every drive: the fixture's posts read "3h". */
 export const EPOCH = '2026-10-01T15:00:00Z';
@@ -174,7 +178,7 @@ function driveScreens(copy, host, dir, env) {
       const args = [join(copy, 'exact.mjs'), 'agent', wasm ? 'web' : host, '--json', '--storage', 'stage12-gate', '--reset-storage', '--epoch', EPOCH,
         ...(host === 'ios' || host === 'macos' ? [] : ['--size', SIZE]), ...(host === 'ios' && process.env.EXACT_SIM ? ['--sim', process.env.EXACT_SIM] : []),
         ...screenOps(screen, scheme, png)];
-      const r = runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), { cwd: copy, env: wasm ? { ...env, EXACT_WEB_DIST: cloneWasmDist(env) } : env });
+      const r = runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), { cwd: copy, env: cloneWebEnv(env, wasm) });
       const refused = [...new Set(r.out.match(new RegExp(`${REFUSED} [^"\\s]+`, 'g')) ?? [])];
       const said = refused.length ? `the fixture refused: ${refused.join(', ')}` : r.ok ? '' : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300);
       const allow = r.ok ? allowOf(screen, r.out) : [];
@@ -414,7 +418,7 @@ function buildSide(copy, side) {
   const env = { ...process.env, CARGO_TARGET_DIR: join(ROOT, 'target', `stage12-gate-${side}`), CARGO_BUILD_JOBS: process.env.CARGO_BUILD_JOBS ?? '4' };
   for (const verb of [['web-build'], ['web-build', '--wasm'], ['linux'], ['mac'], ['ios', ...(process.env.EXACT_SIM ? ['--sim', process.env.EXACT_SIM] : [])]]) {
     const wasm = verb[1] === '--wasm';
-    const r = run(process.execPath, [join(copy, 'exact.mjs'), ...verb], { cwd: copy, env: wasm ? { ...env, EXACT_WEB_DIST: cloneWasmDist(env) } : env });
+    const r = run(process.execPath, [join(copy, 'exact.mjs'), ...verb], { cwd: copy, env: cloneWebEnv(env, wasm) });
     if (!r.ok) return `${side}: ${verb.join(' ')} failed: ${r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300)}`;
   }
   if (jsTargetBuild(cloneWasmDist(env))) return `${side}: ${cloneWasmDist(env)} is not a wasm build`;
