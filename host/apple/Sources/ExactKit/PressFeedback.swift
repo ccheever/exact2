@@ -408,7 +408,8 @@ extension NodeView {
     static let dimHold: CFTimeInterval = 0.1
 
     /// Whether a press shows the platform's dim: a node the host presses
-    /// (a `press` handler or a link), with no pressed look written (a
+    /// (a `press` handler, a link, or a custom invoker's visual contact),
+    /// with no pressed look written (a
     /// `-exact-press-scale` or pressed paint, any value, 1 included, is the
     /// author's: `authorsPress`), no `pointerdown` or `pointerup` of its own
     /// (the author paints its pressed state), and not a scrim covering the
@@ -416,7 +417,7 @@ extension NodeView {
     /// native button is UIKit's own and never comes here.
     var platformPressDims: Bool {
         guard !authorsPress, !isNativeButton, !isSurfaceControl,
-              handlers.contains("press") || defaultLink != nil,
+              handlers.contains("press") || defaultLink != nil || pressContact?.invokerLook == true,
               !handlers.contains("pointerdown"), !handlers.contains("pointerup") else { return false }
         if let w = window {
             let r = convert(bounds, to: w)
