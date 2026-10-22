@@ -94,6 +94,7 @@ enum ScrollAnchoring {
     /// transformed or filtered (CSS Positioned Layout §3.1, CSS Transforms).
     private static func containsAbsolute(_ n: NodeView) -> Bool {
         if let p = n.style["position_type"]?.string, p != "static" { return true }
+        if n.props["popover"] != nil { return true } // laid out absolute (the kernel's top layer)
         return ["transform", "translate", "translate_percent", "rotate", "scale", "filter"].contains { n.style[$0] != nil }
     }
 
