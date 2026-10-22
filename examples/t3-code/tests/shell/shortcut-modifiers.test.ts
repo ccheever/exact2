@@ -61,7 +61,7 @@ describe('shortcutModifierState', () => {
 
 const root = contractComponent('app.contract', 'T3Code');
 const window = contractComponent('src/shell/app-window.contract', 'T3Window');
-const scope = (): Env => ({ ...fns, ShortcutModifierState: (record: State) => record, releaseUndoClaim: () => {}, quitHoldKey: () => {} }); // quit-hold.test.ts runs the hold
+const scope = (): Env => ({ ...fns, ShortcutModifierState: (record: State) => record, releaseUndoClaim: () => {}, quitHoldKey: () => {}, quitTypesLatin: contractFns('src/shell/quit-hold.contract', ['QuitHoldState']).quitTypesLatin }); // quit-hold.test.ts runs the hold
 const rootState = (): Env => ({ shortcutModifiers: emptyState(), speedModifierState: emptyState(), threadJumpHintsShown: false, undoHeldKey: '', composerFocused: false });
 
 describe('the window tracks held modifiers from its key events', () => {
@@ -118,7 +118,7 @@ describe('the window tracks held modifiers from its key events', () => {
   test('the window hears every key through capture and the keyup; a focus at a field empties the route\'s state', () => {
     const calls: unknown[][] = [], selectors: string[] = [];
     const state: Env = { focusEditable: false, dialogFocusId: '', dialogFocusOwner: '', dialogFocusPopup: '', dialogFocusInvoker: '' };
-    const props: Env = { modifierKey: (...args: unknown[]) => calls.push(args), modifierEditableFocus: () => calls.push(['field']), chipFocusChanged: () => {}, interacted: () => calls.push(['interacted']),
+    const props: Env = { shortcuts: [], modifierKey: (...args: unknown[]) => calls.push(args), modifierEditableFocus: () => calls.push(['field']), chipFocusChanged: () => {}, interacted: () => calls.push(['interacted']),
       querySelectorAll: (selector: string) => { selectors.push(selector); return ['composer', 'pull-requests-search', 'palette-input']; } };
     window.call('windowFocused', state, props, [{ target: 'composer' }]);
     expect(state.focusEditable).toBe(true);
@@ -135,7 +135,7 @@ describe('the window tracks held modifiers from its key events', () => {
   test('a dialog\'s field (the palette\'s input) is a field too, though the dialog stops the focusin', () => {
     const calls: unknown[][] = [];
     const state: Env = { focusEditable: false, dialogFocusId: '', dialogFocusOwner: '', dialogFocusPopup: '', dialogFocusInvoker: '', dialogFrames: [], dialogSeated: [] };
-    const scope: Env = { modifierKey: (...args: unknown[]) => calls.push(args), modifierEditableFocus: () => calls.push(['field']), chipFocusChanged: () => {}, stopPropagation: () => {}, interacted: () => {},
+    const scope: Env = { shortcuts: [], modifierKey: (...args: unknown[]) => calls.push(args), modifierEditableFocus: () => calls.push(['field']), chipFocusChanged: () => {}, stopPropagation: () => {}, interacted: () => {},
       querySelectorAll: (selector: string) => selector.includes('editable') ? ['palette-input'] : [], frame: () => ({ unavailable: true, width: 0, height: 0 }),
       dialogLineage: () => [], dialogReturn: (...args: unknown[]) => args, dialogFrame: (owner: string, returns: unknown) => ({ owner, returns }) };
     window.call('dialogEntered', state, scope, ['palette', { target: 'palette-input' }]);

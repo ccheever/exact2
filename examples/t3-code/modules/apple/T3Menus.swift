@@ -17,8 +17,6 @@ final class T3Menus: NSObject, NSMenuItemValidation {
     var updatesDisabledReason: () -> String? = { T3Menus.updatesDisabledReason() }
     /// How the "Updates unavailable" box is shown (the tests record it instead).
     var presentAlert: (NSAlert) -> Void = { alert in T3MenuTurn.run { _ = alert.runModal() } }
-    /// Edit › Undo and File › Close Window as the reference bar routes them (T3MenuBar.swift).
-    let keys = T3MenuBar()
 
     func install(_ element: ExactElement) {
         guard element.hatch == .t3Composer, let window = element.view?.window else { return }
@@ -39,7 +37,6 @@ final class T3Menus: NSObject, NSMenuItemValidation {
             let selectAll = edit.indexOfItem(withTitle: "Select All")
             if selectAll > 0, edit.item(at: selectAll - 1)?.isSeparatorItem == false { edit.insertItem(.separator(), at: selectAll) }
         }
-        keys.arrange(bar)
     }
 
     @objc func pasteAsText(_ sender: Any?) { NSApp.sendAction(#selector(NSTextView.pasteAsPlainText(_:)), to: nil, from: sender) }

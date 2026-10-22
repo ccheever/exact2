@@ -29,7 +29,7 @@ describe('the last interaction', () => {
   test('the window root hears every pointer move, press, wheel and key', () => {
     const window = contractComponent('app-window.contract', 'T3Window');
     const marks: string[] = [];
-    window.call('modifierDown', { focusEditable: false }, { modifierKey: () => {}, interacted: () => marks.push('key') }, ['a', { key: 'a' }]);
+    window.call('modifierDown', { focusEditable: false }, { shortcuts: [], modifierKey: () => {}, interacted: () => marks.push('key') }, ['a', { key: 'a' }]);
     expect(marks).toEqual(['key']);
     const root = readFileSync(join(APP, 'src/shell/app-window.contract'), 'utf8').split('\n').find(line => line.trimStart().startsWith('main navigationKey="t3-code"'))!;
     expect(root).toContain('pointermove=interacted');

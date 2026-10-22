@@ -34,9 +34,12 @@ fn quitHoldDuration(): number = 1200
 fn quitDoublePress(): number = 500
 fn quitReleaseGrace(): number = 600
 fn quitHoldIdle(): QuitHoldState = QuitHoldState(holding=false, mode="", notified=false, armed=false, onRelease=false, heldSince=0, lastPressAt=0, lastRepeatAt=0, cadence=0, watchUntil=0, watchQuits=false, consumed=false, signal="", quit=false)
-// The reference's `input.key.toLowerCase()`: Q's physical key under any input source (Korean 2-Set types ㅂ
-// there), ⌘ as "meta", every other key by name.
-fn quitKeyName(e: KeyboardEvent): string = e.code == "KeyQ" ? "q" : ((e.key == "Meta" or e.key == "OS") ? "meta" : e.key.toLowerCase())
+// Whether a key's character is printable ASCII, so a layout's own letter or mark (AZERTY's A, Dvorak's ' on Q's key):
+// only a source that types none there (Korean 2-Set's ㅂ) falls back to the physical key.
+fn quitTypesLatin(key: string): bool = key.length == 1 and ` !"#$%&'()*+,-./0123456789:;<=>?@[]^_abcdefghijklmnopqrstuvwxyz{|}~`.includes(key.toLowerCase())
+// The reference's `input.key.toLowerCase()`, ⌘ as "meta"; Q's physical key stands in where the source types no Latin
+// character there, as the module's T3QuitHold did.
+fn quitKeyName(e: KeyboardEvent): string = (e.key.toLowerCase() == "q" or (e.code == "KeyQ" and e.key.length == 1 and not quitTypesLatin(e.key))) ? "q" : ((e.key == "Meta" or e.key == "OS") ? "meta" : e.key.toLowerCase())
 fn quitStepStart(s: QuitHoldState): QuitHoldState = QuitHoldState(s, consumed=false, signal="", quit=false)
 // release(): a double press's hint may outlive the key's release (keepDoublePressHint).
 fn quitRelease(s: QuitHoldState, keepDoublePressHint: bool): QuitHoldState = (not s.holding and not s.notified) ? s : ((keepDoublePressHint and s.mode == "double-click" and s.notified) ? QuitHoldState(s, holding=false, armed=false, onRelease=false, lastRepeatAt=0, cadence=0) : QuitHoldState(s, holding=false, armed=false, onRelease=false, lastRepeatAt=0, cadence=0, mode="", notified=false, watchUntil=0, watchQuits=false, signal=(s.notified ? "up" : s.signal)))
