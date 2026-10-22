@@ -2170,10 +2170,12 @@ test "a package component's param: set for this app by default, the package's de
   clock settle
   expect state editKind == "set-param"
   expect state editTarget == "@acme/cards/badge.contract#Badge.fill"
-  // Its proposal is the param's own line (the op names Badge.fill).
+  // Its proposal is the param's own line (the op names Badge.fill), docked (a panel's edit); cancelled, no longer.
   expect text "proposal-tokens" == "Badge.fill"
+  expect state dockedFor == "set-param|@acme/cards/badge.contract#Badge.fill"
   tap "cancel-edit"
   clock settle
+  expect state dockedFor == ""
   tap "param-Badge.edge-reset"
   clock settle
   expect state editKind == "unset-param"
