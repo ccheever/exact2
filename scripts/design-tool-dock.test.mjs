@@ -36,15 +36,19 @@ test('a param edit\'s proposal shows docked below its row, not over it, once; ty
     expect(one(trees[0], field)[0]?.focused).toBe(true);
     expect(one(trees[0], 'apply')[0]?.focused).toBeUndefined();
     // Docked in the window (its own place is far below, after 120 more tokens), not over the field.
-    const [dock, at] = [rect(layouts[0], 'proposal'), rect(layouts[0], field)];
+    const [dock, at, view] = [rect(layouts[0], 'proposal'), rect(layouts[0], field), layouts[0].viewport];
     expect(dock.y).toBeGreaterThanOrEqual(0);
-    expect(dock.y + dock.h).toBeLessThan(at.y + 2000);
-    expect(overlap(dock, at)).toBe(false);
-    expect(dock.y).toBeGreaterThan(at.y);
+    expect(dock.y + dock.h).toBeLessThanOrEqual(view.h + 1);
+    // The edited field whole in the window, above the dock.
+    expect(at.y).toBeGreaterThanOrEqual(0);
+    expect(at.y + at.h).toBeLessThanOrEqual(dock.y);
     // The press's proposal: the dock focused (Tab reaches its Apply).
     expect(one(trees[1], 'proposal')).toHaveLength(1);
     expect(one(trees[1], 'proposal')[0]?.focused).toBe(true);
     const [dock2, row] = [rect(layouts[1], 'proposal'), rect(layouts[1], 'param-Card.pad')];
+    expect(dock2.y + dock2.h).toBeLessThanOrEqual(layouts[1].viewport.h + 1);
+    expect(row.y).toBeGreaterThanOrEqual(0);
+    expect(row.y + row.h).toBeLessThanOrEqual(dock2.y);
     expect(overlap(dock2, row)).toBe(false);
   } finally { await tool.close(); rmSync(app, { recursive: true, force: true }); }
 }, 1_200_000);

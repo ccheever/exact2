@@ -916,11 +916,6 @@ component DesignTool
   // The server's files and their digests, folded below the canvas and the tokens (the hands-on pass: 25 rows came
   // before either on the clone).
   state filesShown = false
-  // A proposal opened by a press (Back to the default, Back to the package): focus goes to the dock once its Apply can
-  // be pressed (the dock, not Apply: Apply is disabled while the proposal is read again on each answer, and a
-  // disabled button drops the focus), Tab then reaching Apply. Never for a typed draft, whose next key is the
-  // field's (review2 06:54).
-  state focusApply = false
   // The edit a panel began (a dial's, a param's, its row's Back to the package), whose proposal docks at the window's
   // bottom: the panels sit far above the panel's own place. One begun from the token grid stays in place, under it.
   state dockedFor = ""
@@ -986,9 +981,14 @@ component DesignTool
   derive foldedRows = initialFor == inspected.visit ? [] : inspected.rows.filter(r => r.initial and not (editTarget != "" and (editTarget == r.edit or editTarget == r.state))).map(r => r.name)
   derive foldedHeld = initialFor == inspected.visit ? [] : inspected.heldRows.filter(r => r.initial and not (editTarget != "" and (editTarget == r.edit or editTarget == r.state))).map(r => r.name)
   // Apply can be pressed: the proposal is in, for this draft, and nothing it rests on moved.
+  // Said once each draft first can be applied, and kept while it is read again on each answer (no repeat), but not
+  // while a scrub replaces Apply or the draft is stale (review2's round 1).
+  state readyFor = ""
+  derive draftReadyKey = `${editKind}|${editTarget}|${editWhen}|${editValue}`
+  derive readyLine = readyFor == draftReadyKey and editKind != "" and not scrubShown and not draftStale and not partsStale and not stateStale ? "Proposal ready: Apply or Cancel." : ""
+  task sayReady when applyReady and editKind != "" and readyFor != draftReadyKey key=draftReadyKey
+    after(1, markReady)
   derive applyReady = not (not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or partsStale or stateStale or pending(written) or not canPropose or (branch.readOnly != "" and editTarget == branch.token and editKind == branchOp))
-  task focusProposal when focusApply and editKind != "" and applyReady key=`${editKind}|${editTarget}`
-    after(1, focusTheApply)
   task follow when not pending(changes) and changes.ok key=changes.answer
     after(1, advance)
   task retry when not pending(changes) and not changes.ok key=changes.answer
@@ -1094,6 +1094,9 @@ component DesignTool
       send written = cancelScrub(scrubAsk)
     editKind = op
     editTarget = name
+    // The dock newly opened for this edit: its row scrolled to the top, clear of it (the focus stays in the field).
+    if dockedFor != `${op}|${name}`
+      scrollIntoView(`dial-${name}`, block="start")
     dockedFor = `${op}|${name}`
     editWhen = ""
     // A panel edit: the param's own line, no branch editor draft or mode scope.
@@ -1110,6 +1113,9 @@ component DesignTool
       send written = cancelScrub(scrubAsk)
     editKind = op
     editTarget = name
+    // The dock newly opened for this edit: its row scrolled to the top, clear of it (the focus stays in the field).
+    if dockedFor != `${op}|${name}`
+      scrollIntoView(`dial-${name}`, block="start")
     dockedFor = `${op}|${name}`
     editWhen = ""
     // A panel edit: the param's own line, no branch editor draft or mode scope.
@@ -1133,6 +1139,9 @@ component DesignTool
       send written = cancelScrub(scrubAsk)
     editKind = op
     editTarget = name
+    // The dock newly opened for this edit: its row scrolled to the top, clear of it (the focus stays in the field).
+    if dockedFor != `${op}|${name}`
+      scrollIntoView(`dial-${name}`, block="start")
     dockedFor = `${op}|${name}`
     editWhen = ""
     // A panel edit: the param's own line, no branch editor draft or mode scope.
@@ -1152,7 +1161,11 @@ component DesignTool
     dockedFor = `unset-param|${name}`
     editWhen = ""
     editValue = ""
-    focusApply = true
+    // A press: focus goes to the dock at once (drawn in this commit, and never disabled, as Apply is while the
+    // proposal is read again), Tab then reaching Apply; a typed draft's never moves (review2 06:54). Its row
+    // scrolled to the top, clear of the dock.
+    focus("proposal-dock")
+    scrollIntoView(`dial-${name}`, block="start")
     // A panel edit: the param's own line, no branch editor draft or mode scope.
     draftFor = ""
     rawFor = ""
@@ -1167,6 +1180,7 @@ component DesignTool
   action showInitial(key: string)
     initialFor = key
   action editState(target: string, value: string)
+    dockedFor = ""
     // A style's state part row (T4): `set-state`, which rebuilds, so no scrub.
     if scrubShown
       scrubTick = scrubTick + 1
@@ -1184,6 +1198,7 @@ component DesignTool
     partFor = ""
     scopeOwn = false
   action editRow(target: string, words: string, value: string)
+    dockedFor = ""
     // A row as its author wrote it (T5): `set-row` where it is written, or on its style; it rebuilds, so no scrub.
     if scrubShown
       scrubTick = scrubTick + 1
@@ -1201,6 +1216,7 @@ component DesignTool
     partFor = ""
     scopeOwn = false
   action moveRow(kind: string, target: string, words: string)
+    dockedFor = ""
     // A row moved between rungs (T5, D6's set): promoted to a new param or token (its name typed), or a param
     // detached to its template; one transaction, rebuilt.
     if scrubShown
@@ -1226,6 +1242,7 @@ component DesignTool
   // A row's token, on the branch that won for the selected copy: the grid's
   // cell editor, its edits and scrubs, scoped to that branch.
   action editFromSelection(token: string, column: string, place: string)
+    dockedFor = ""
     if scrubShown
       scrubTick = scrubTick + 1
       scrubWant = false
@@ -1248,6 +1265,7 @@ component DesignTool
     if impactToken != "" and not pending(outlined)
       send outlined = outlineUses(client, impactToken)
   action selectCell(token: string, column: string)
+    dockedFor = ""
     // A scrub open is of another edit: it ends first.
     if scrubShown
       scrubTick = scrubTick + 1
@@ -1335,6 +1353,7 @@ component DesignTool
   // ruling, one op for both), or the app's line over one of theirs taken away (remove-token), each
   // reviewed and applied as any edit.
   action setForApp(name: string, value: string, from: string)
+    dockedFor = ""
     // (The override is the app's line: written in the app's design, whichever file is open.)
     file = ""
     newName = name
@@ -1358,6 +1377,7 @@ component DesignTool
     partFor = ""
     scopeOwn = false
   action backToBase(name: string)
+    dockedFor = ""
     file = ""
     if scrubShown
       scrubTick = scrubTick + 1
@@ -1378,8 +1398,8 @@ component DesignTool
     editTarget = name
     editWhen = ""
     editValue = ""
-    focusApply = true
     dockedFor = `remove-token|${name}`
+    focus("proposal-dock")
   action openBase(name: string)
     openedBase = openedBase.concat([name])
   action editRename(v: string)
@@ -1395,6 +1415,7 @@ component DesignTool
       editWhen = ""
       editValue = renameTo.trim()
   action removeToken
+    dockedFor = ""
     if scrubShown
       scrubTick = scrubTick + 1
       scrubWant = false
@@ -1404,6 +1425,7 @@ component DesignTool
     editWhen = ""
     editValue = ""
   action cancelEdit
+    dockedFor = ""
     if scrubShown
       scrubTick = scrubTick + 1
       scrubWant = false
@@ -1517,9 +1539,8 @@ component DesignTool
     historyShown = not historyShown
   action toggleFiles
     filesShown = not filesShown
-  action focusTheApply
-    focusApply = false
-    focus("proposal-dock")
+  action markReady
+    readyFor = draftReadyKey
   action moreHistory
     historyPages = historyPages + 1
   action newerHistory
@@ -1530,6 +1551,7 @@ component DesignTool
   action toggleMore(group: string)
     opened = opened.includes(group) ? opened.filter(g => g != group) : opened.concat([group])
   action chooseFile(f: string)
+    dockedFor = ""
     if scrubShown
       scrubTick = scrubTick + 1
       scrubWant = false
@@ -2155,7 +2177,7 @@ component DesignTool
                   if draftStale or partsStale
                     text "The branch this edit was for has changed: choose the cell and type it again." color="-exact-system-orange" testId="draft-stale"
                   // Said to a screen reader as it comes: a typed draft keeps the focus in its field.
-                  text (proposal.ok and proposal.active and not pending(proposal) ? "Proposal ready: Apply or Cancel." : "") aria-live="polite" font="-exact-footnote" color="-exact-secondary-label" testId="proposal-ready"
+                  text readyLine aria-live="polite" font="-exact-footnote" color="-exact-secondary-label" testId="proposal-ready"
                   if not proposal.ok
                     text proposal.error color="-exact-system-red" white-space="pre-wrap" testId="proposal-error"
                   else if proposal.active
@@ -2393,7 +2415,7 @@ component DialControl
     onStep: action
     onRelease: action
   view
-    column gap=4 padding=4 border-radius=6 background-color=(focused ? "-exact-tertiary-background" : "transparent") testId=`dial-${c.name}`
+    column id=`dial-${c.name}` gap=4 padding=4 border-radius=6 background-color=(focused ? "-exact-tertiary-background" : "transparent") testId=`dial-${c.name}`
       row gap=8 align-items="center"
         text c.label flex=1
         text c.value color="-exact-secondary-label" font="-exact-footnote" testId=`dial-${c.name}-value`
