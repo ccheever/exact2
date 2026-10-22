@@ -2,10 +2,10 @@
 # add-on's is (game/Cargo.toml): its build script bakes the whole app on one
 # core for minutes, so exact2's six checks never compile it. The async
 # lane builds, tests and lints it (`scripts/async.mjs`); `host/apple/build.mjs`
-# finds it through `macos/Cargo.toml`'s `package.workspace` and passes the root's
-# profiles.
+# finds it through `macos/Cargo.toml`'s (and `mobile/ios/Cargo.toml`'s) `package.workspace` and
+# passes the root's profiles.
 [workspace]
-members = ["data", "macos"]
+members = ["data", "macos", "mobile/ios"]
 resolver = "2"
 
 [workspace.package]

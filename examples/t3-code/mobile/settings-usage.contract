@@ -1,0 +1,522 @@
+// @ref examples/t3-code/mobile/docs/1130.002-design-system-parity.spec.md#typography-and-font-assets
+use SettingsColors, SettingsTextRoles, SettingsSectionLabel from "./settings.contract"
+use ProviderIcon from "./provider-icon.contract"
+shape UsageEnvironment
+  id: string
+  label: string
+  status: string
+  connected: bool
+shape UsageNotice
+  id: string
+  text: string
+shape UsageLink
+  label: string
+  url: string
+  accounts: string
+  message: string
+  disabled: bool
+shape UsageCursor
+  id: string
+  label: string
+  usageLabel: string
+  buttonLabel: string
+  disabled: bool
+shape UsageColumn
+  key: string
+  label: string
+  present: bool
+  remaining: number
+  email: string
+  pending: bool
+  resetsIn: string
+  resetLabel: string
+  credits: number
+shape UsagePoolWindow
+  id: string
+  windowId: string
+  kind: string
+  label: string
+  description: string
+  remaining: number
+  pace: string
+  nextRefill: string
+  columns: UsageColumn[]
+shape UsagePool
+  id: string
+  label: string
+  light: string
+  dark: string
+  windows: UsagePoolWindow[]
+shape UsageBand
+  id: string
+  light: string
+  dark: string
+  height: number
+  value: string
+shape UsageBar
+  id: string
+  label: string
+  bands: UsageBand[]
+shape UsageLegend
+  id: string
+  label: string
+  light: string
+  dark: string
+shape UsageProvider
+  id: string
+  label: string
+  light: string
+  dark: string
+  value: string
+  fraction: number
+  share: string
+  detail: string
+shape UsageValue
+  id: string
+  label: string
+  value: string
+  detail: string
+shape UsageCostSegment
+  id: string
+  label: string
+  weight: number
+  value: string
+  light: string
+  dark: string
+shape UsageModel
+  id: string
+  label: string
+  light: string
+  dark: string
+  value: string
+  detail: string
+shape MobileUsageData
+  ready: bool
+  error: string
+  tab: string
+  metric: string
+  hasUsage: bool
+  canRefresh: bool
+  refreshing: bool
+  emptyMessage: string
+  environments: UsageEnvironment[]
+  notices: UsageNotice[]
+  limitWarnings: UsageNotice[]
+  duplicateMessage: string
+  links: UsageLink[]
+  chatGptUsage: UsageLink[]
+  cursor: UsageCursor[]
+  cursorInsertAt: number
+  cursorPoolInsertAt: number
+  pools: UsagePool[]
+  limitsEmpty: string
+  total: string
+  chartTitle: string
+  chartHasActivity: bool
+  headlineLabel: string
+  headlineValue: string
+  headlineDetail: string
+  chartStart: string
+  chartEnd: string
+  chartLegend: UsageLegend[]
+  chart: UsageBar[]
+  providers: UsageProvider[]
+  hasProviders: bool
+  totals: UsageValue[]
+  hasCost: bool
+  costByType: UsageCostSegment[]
+  costBySpeed: UsageCostSegment[]
+  costPremium: string
+  models: UsageModel[]
+shape UsageAccountSource
+  id: string
+  label: string
+shape MobileUsageAccountData
+  present: bool
+  error: string
+  key: string
+  driver: string
+  label: string
+  email: string
+  hasEmail: bool
+  revealed: bool
+  plan: string
+  windowLabel: string
+  remaining: string
+  resets: string
+  restores: string
+  sourceTitle: string
+  sourceItems: UsageAccountSource[]
+  credits: string
+  hasCredits: bool
+  hasCreditBalance: bool
+  creditPermissionDenied: bool
+  creditBusy: bool
+  creditUsing: bool
+  creditStatus: string
+  canRedeem: bool
+  environmentId: string
+  light: string
+  dark: string
+component SettingsUsage
+  props
+    data: MobileUsageData
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    danger: string
+    bottom: number
+    dark: bool
+    days: number
+    local: action
+    command: action
+    account: action
+    refresh: action
+  view
+    UsageScroll(data=data, colors=colors, refresh=refresh)
+      column padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=bottom gap=17.5 font-family="DM Sans"
+        row padding=2 border-radius=7 background-color=colors.subtle
+          button press=local("tab", "limits") flex=1 min-height=32 border-radius=6 background-color=(data.tab == "limits" ? colors.grouped : "transparent")
+            text "Limits" color=colors.foreground font-size=roles.footnote.size
+          button press=local("tab", "usage") flex=1 min-height=32 border-radius=6 background-color=(data.tab == "usage" ? colors.grouped : "transparent")
+            text "Usage" color=colors.foreground font-size=roles.footnote.size
+        if data.error.length > 0
+          text data.error color=danger role="alert" font-size=roles.footnote.size
+        if data.tab == "limits"
+          if data.limitsEmpty.length > 0
+            text data.limitsEmpty padding-top=42 padding-bottom=42 text-align="center" color=colors.muted font-size=roles.body.size line-height=`${roles.body.line}px`
+          for pool, poolIndex in data.pools key=pool.id
+            if poolIndex == data.cursorPoolInsertAt
+              UsageCursorLimits(items=data.cursor, colors=colors, roles=roles, dark=dark, command=command)
+            column gap=10.5
+              row align-items="center" gap=7 padding-left=3.5 padding-right=3.5
+                ProviderIcon(driver=pool.id, size=18, dark=dark, iconUrl="")
+                text pool.label color=colors.foreground font-size=roles.body.size line-height=`${roles.body.line}px` font-weight=500
+              for window, windowIndex in pool.windows key=window.id
+                column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" padding=14 gap=10.5
+                  row align-items="flex-start" justify-content="space-between" gap=10.5
+                    column gap=3.5
+                      text window.label color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
+                      row align-items="baseline" gap=5.25
+                        text `${window.remaining}%` color=colors.foreground font-size=roles.display.size line-height=`${roles.display.line}px` font-weight=700 font-variant-numeric="tabular-nums"
+                        text "left" color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+                    if window.pace.length > 0
+                      text window.pace color=colors.tertiary font-size=roles.label.size line-height=`${roles.label.line}px`
+                  if window.description.length > 0
+                    text window.description color=colors.muted font-size=roles.label.size line-height=`${roles.label.line}px`
+                  if window.nextRefill.length > 0
+                    text window.nextRefill color=colors.muted font-size=roles.label.size line-height=`${roles.label.line}px` font-variant-numeric="tabular-nums"
+                  row gap=3.5
+                    for item, itemIndex in window.columns key=item.key
+                      if item.present
+                        button appearance="none" press=account(item.key, window.windowId, window.kind) flex=1 min-width=0 height=24.5 padding=0 border-radius=5.25 background-color=colors.subtle overflow="hidden" aria-label=usageSegmentLabel(itemIndex + 1, item) aria-description="Show account details"
+                          UsageLimitSegment(remaining=item.remaining, color=(dark ? pool.dark : pool.light), pending=item.pending, patternId=`usage-limit-${poolIndex}-${windowIndex}-${itemIndex}`)
+                          column position="absolute" inset=0 align-items="center" justify-content="center" pointer-events="none" aria-hidden=true
+                            text `${itemIndex + 1}` color=colors.foreground font-size=roles.label.size line-height=`${roles.label.line}px` font-weight=500 font-variant-numeric="tabular-nums"
+                      else
+                        view flex=1 min-width=0 height=24.5
+                  column
+                    for item, itemIndex in window.columns key=item.key
+                      if item.present
+                        UsageLimitAccountRow(item=item, ordinal=(itemIndex + 1), windowId=window.windowId, kind=window.kind, colors=colors, roles=roles, account=account)
+          if data.cursorPoolInsertAt == data.pools.length
+            UsageCursorLimits(items=data.cursor, colors=colors, roles=roles, dark=dark, command=command)
+          for link in data.links key=link.url
+            column margin-top=3.5 padding=14 gap=10.5 border-width=1 border-style="solid" border-color=colors.borderSubtle border-radius=10.5 background-color="transparent"
+              text link.label color=colors.foreground font-size=roles.body.size line-height=`${roles.body.line}px` font-weight=500
+              text link.accounts color=colors.muted font-size=roles.label.size line-height=`${roles.label.line}px`
+              if link.message.length > 0
+                text link.message color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+              button appearance="none" press=command("open-link", "", link.url) disabled=link.disabled padding=0 min-height=38.5 display="flex" flex-direction="column" justify-content="center" align-items="flex-start" text-align="start" role="link"
+                text "Manage usage" color=colors.primary font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
+          if data.limitWarnings.length > 0
+            row align-items="flex-start" gap=7 margin-top=3.5 padding-left=12.25 padding-right=12.25 padding-top=10.5 padding-bottom=10.5 border-width=1 border-style="solid" border-radius=10.5 border-color=colors.warningBorder background-color=colors.warning role="alert" aria-live="polite"
+              t3-symbol symbol-name="exclamationmark.triangle" symbol-tint=colors.warningForeground width=16 height=16 flex-shrink=0
+              column flex=1 min-width=0 gap=1.75
+                for notice in data.limitWarnings key=notice.id
+                  text notice.text color=colors.warningForeground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
+        else
+          row gap=7 align-items="center"
+            row flex=1 border-radius=7 background-color=colors.subtle padding=2
+              button press=local("days", "1") flex=1 min-height=32 border-radius=6 background-color=(days == 1 ? colors.grouped : "transparent")
+                text "24h" color=colors.foreground font-size=roles.caption.size
+              button press=local("days", "7") flex=1 min-height=32 border-radius=6 background-color=(days == 7 ? colors.grouped : "transparent")
+                text "7d" color=colors.foreground font-size=roles.caption.size
+              button press=local("days", "30") flex=1 min-height=32 border-radius=6 background-color=(days == 30 ? colors.grouped : "transparent")
+                text "30d" color=colors.foreground font-size=roles.caption.size
+              button press=local("days", "90") flex=1 min-height=32 border-radius=6 background-color=(days == 90 ? colors.grouped : "transparent")
+                text "90d" color=colors.foreground font-size=roles.caption.size
+            row border-radius=7 background-color=colors.subtle padding=2
+              button press=local("metric", "cost") min-height=32 padding-left=7 padding-right=7 border-radius=6 background-color=(data.metric == "cost" ? colors.grouped : "transparent")
+                text "Cost" color=colors.foreground font-size=roles.caption.size
+              button press=local("metric", "tokens") min-height=32 padding-left=7 padding-right=7 border-radius=6 background-color=(data.metric == "tokens" ? colors.grouped : "transparent")
+                text "Tokens" color=colors.foreground font-size=roles.caption.size
+          for usage in data.chatGptUsage key=usage.url
+            column margin-top=3.5 margin-bottom=3.5 gap=3.5
+              row align-items="center" justify-content="space-between" gap=10.5
+                row align-items="center" gap=7 flex-shrink=0
+                  ProviderIcon(driver="codex", size=16, dark=dark, iconUrl="")
+                  text "ChatGPT shared usage" color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+                button appearance="none" press=command("open-link", "", usage.url) disabled=usage.disabled padding=0 min-height=38.5 flex-shrink=0 display="flex" flex-direction="column" justify-content="center" align-items="flex-start" text-align="start" role="link"
+                  text "Manage usage" color=colors.primary font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
+              text `${usage.accounts}. Open ChatGPT with the account you connected.` color=colors.muted font-size=roles.label.size line-height=`${roles.label.line}px`
+          if data.duplicateMessage.length > 0
+            text data.duplicateMessage color=colors.muted font-size=roles.footnote.size
+          if data.emptyMessage.length > 0
+            text data.emptyMessage padding-top=56 padding-bottom=56 text-align="center" color=colors.muted font-size=roles.body.size
+          if data.tab == "usage"
+            for environment in data.environments key=environment.id
+              if environment.status.length > 0
+                text `${environment.label}: ${environment.status}` color=colors.muted font-size=roles.footnote.size
+            for notice in data.notices key=notice.id
+              text notice.text color=colors.muted font-size=roles.footnote.size
+          if data.hasUsage
+            column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" padding=14 gap=14
+              column gap=1.75
+                text data.headlineLabel color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=400
+                text data.headlineValue color=colors.foreground font-size=31.5 line-height="35px" font-weight=700 font-variant-numeric="tabular-nums"
+                text data.headlineDetail color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=400
+              if data.chartHasActivity
+                row gap=2 height=180 align-items="flex-end" aria-label=data.chartTitle
+                  for bar in data.chart key=bar.id
+                    column flex=1 min-width=0 height=180 justify-content="flex-end" aria-label=bar.label
+                      for band in bar.bands key=band.id
+                        view height=band.height background-color=(dark ? band.dark : band.light) aria-label=`${band.id}: ${band.value}`
+              else
+                column height=180 align-items="center" justify-content="center"
+                  text "No activity in this window." color=colors.muted font-size=roles.body.size line-height=`${roles.body.line}px`
+              row justify-content="space-between" align-items="center"
+                text data.chartStart flex-shrink=0 color=colors.tertiary font-size=roles.label.size line-height=`${roles.label.line}px`
+                row gap=14 align-items="center" flex-shrink=0
+                  for provider in data.chartLegend key=provider.id
+                    row gap=5.25 align-items="center" flex-shrink=0
+                      view width=7 height=7 border-radius=4 flex-shrink=0 background-color=(dark ? provider.dark : provider.light)
+                      text provider.label flex-shrink=0 color=colors.muted font-size=roles.label.size line-height=`${roles.label.line}px`
+                text data.chartEnd flex-shrink=0 color=colors.tertiary font-size=roles.label.size line-height=`${roles.label.line}px`
+          if data.hasProviders
+            column gap=7
+              SettingsSectionLabel(title="Providers", colors=colors, roles=roles)
+              column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" overflow="hidden"
+                for provider, index in data.providers key=provider.id
+                  if index == data.cursorInsertAt
+                    UsageCursorRows(items=data.cursor, bordered=(index > 0), colors=colors, roles=roles, command=command)
+                  column padding=14 gap=7 border-top-width=(index > 0 or (data.cursor.length > 0 and data.cursorInsertAt == 0) ? 1 : 0) border-top-style="solid" border-top-color=colors.borderSubtle
+                    row align-items="baseline" justify-content="space-between" gap=10.5
+                      row align-items="center" gap=7 flex-shrink=0
+                        view width=8.75 height=8.75 border-radius=999 flex-shrink=0 background-color=(dark ? provider.dark : provider.light)
+                        text provider.label flex-shrink=0 color=colors.foreground font-size=roles.headline.size line-height=`${roles.headline.line}px`
+                      text provider.value flex-shrink=0 color=colors.foreground font-size=roles.headline.size line-height=`${roles.headline.line}px` font-variant-numeric="tabular-nums"
+                    row height=3.5 overflow="hidden" border-radius=999 background-color=colors.subtle
+                      view height="100%" flex=provider.fraction border-radius=999 background-color=(dark ? provider.dark : provider.light)
+                      view flex=(1 - provider.fraction)
+                    text `${provider.share} · ${provider.detail}` color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+                if data.cursorInsertAt == data.providers.length
+                  UsageCursorRows(items=data.cursor, bordered=(data.providers.length > 0), colors=colors, roles=roles, command=command)
+          if data.hasUsage
+            UsageValues(title="Totals", items=data.totals, colors=colors, roles=roles)
+            if data.hasCost
+              column gap=7
+                SettingsSectionLabel(title="Cost", colors=colors, roles=roles)
+                column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" overflow="hidden"
+                  UsageCostBar(label="By type", segments=data.costByType, aside="", dark=dark, colors=colors, roles=roles)
+                  if data.costBySpeed.length > 0
+                    view border-top-width=1 border-top-style="solid" border-top-color=colors.borderSubtle
+                      UsageCostBar(label="By speed", segments=data.costBySpeed, aside=data.costPremium, dark=dark, colors=colors, roles=roles)
+            if data.models.length > 0
+              column gap=7
+                SettingsSectionLabel(title="By model", colors=colors, roles=roles)
+                column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" overflow="hidden"
+                  for model, index in data.models key=model.id
+                    row padding=14 gap=10.5 align-items="center" border-top-width=(index > 0 ? 1 : 0) border-top-style="solid" border-top-color=colors.borderSubtle
+                      view width=8.75 height=8.75 border-radius=999 flex-shrink=0 background-color=(dark ? model.dark : model.light)
+                      column flex=1 min-width=0 gap=1.75
+                        text model.label color=colors.foreground font-size=roles.body.size line-height=`${roles.body.line}px` line-clamp=1
+                        text model.detail color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+                      text model.value flex-shrink=0 color=colors.foreground font-size=roles.body.size line-height=`${roles.body.line}px` font-variant-numeric="tabular-nums"
+component UsageCursorAction
+  props
+    item: UsageCursor
+    label: string
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    command: action
+  view
+    button appearance="none" press=command("enable-cursor", item.id, "") disabled=item.disabled padding-top=7 padding-bottom=7 padding-left=14 padding-right=14 border-radius=999 background-color=colors.primary aria-label=`Enable Cursor usage from ${item.label}` aria-description="Requires access to your Cursor login in macOS Keychain."
+      text label color=colors.primaryForeground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
+component UsageCursorRows
+  props
+    items: UsageCursor[]
+    bordered: bool
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    command: action
+  view
+    for item, index in items key=item.id
+      row align-items="center" justify-content="space-between" gap=10.5 padding=14 border-top-width=(bordered or index > 0 ? 1 : 0) border-top-style="solid" border-top-color=colors.borderSubtle
+        row flex=1 min-width=0 align-items="center" gap=7
+          view width=8.75 height=8.75 border-radius=999 flex-shrink=0 background-color="#8b8b8b"
+          text item.usageLabel flex-shrink=1 color=colors.foreground font-size=roles.headline.size line-height=`${roles.headline.line}px`
+        UsageCursorAction(item=item, label="Enable", colors=colors, roles=roles, command=command)
+component UsageCursorLimits
+  props
+    items: UsageCursor[]
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    dark: bool
+    command: action
+  view
+    if items.length > 0
+      column gap=10.5
+        row align-items="center" gap=7 padding-left=3.5 padding-right=3.5
+          ProviderIcon(driver="cursor", size=18, dark=dark, iconUrl="")
+          text "Cursor" color=colors.foreground font-size=roles.body.size line-height=`${roles.body.line}px` font-weight=500
+        column align-items="flex-start" gap=10.5 border-radius=24 corner-shape="-exact-continuous" background-color=colors.grouped padding=14
+          text "Requires access to your Cursor login in macOS Keychain." color=colors.muted font-size=roles.label.size line-height=`${roles.label.line}px`
+          row flex-wrap="wrap" gap=7
+            for item in items key=item.id
+              UsageCursorAction(item=item, label=item.buttonLabel, colors=colors, roles=roles, command=command)
+component UsageCostBar
+  props
+    label: string
+    segments: UsageCostSegment[]
+    aside: string
+    dark: bool
+    colors: SettingsColors
+    roles: SettingsTextRoles
+  view
+    if segments.length > 0
+      column gap=10.5 padding=14
+        row align-items="baseline" justify-content="space-between" gap=10.5
+          text label flex-shrink=0 color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+          if aside.length > 0
+            text aside flex-shrink=0 color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-variant-numeric="tabular-nums"
+        row height=7 gap=1.75
+          for segment in segments key=segment.id
+            view height="100%" flex=segment.weight border-radius=3.5 background-color=(dark ? segment.dark : segment.light)
+        row flex-wrap="wrap" column-gap=14 row-gap=5.25
+          for segment in segments key=segment.id
+            row align-items="center" gap=5.25 flex-shrink=0
+              view width=7 height=7 border-radius=3.5 flex-shrink=0 background-color=(dark ? segment.dark : segment.light)
+              text segment.label flex-shrink=0 color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+              text segment.value flex-shrink=0 color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-variant-numeric="tabular-nums"
+component UsageValues
+  props
+    title: string
+    items: UsageValue[]
+    colors: SettingsColors
+    roles: SettingsTextRoles
+  view
+    column gap=7
+      SettingsSectionLabel(title=title, colors=colors, roles=roles)
+      row flex-wrap="wrap" background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" overflow="hidden"
+        for item in items key=item.id
+          column width="50%" box-sizing="border-box" flex-shrink=0 padding=14 gap=1.75
+            text item.label color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+            text item.value color=colors.foreground font-size=roles.title.size line-height=`${roles.title.line}px` font-weight=500 font-variant-numeric="tabular-nums"
+            text item.detail color=colors.tertiary font-size=roles.label.size line-height=`${roles.label.line}px`
+fn usageSegmentLabel(ordinal: number, item: UsageColumn): string = `Segment ${ordinal}, ${item.label}, ${item.remaining}% left`
+fn usageAccountRowLabel(ordinal: number, item: UsageColumn): string = `${usageSegmentLabel(ordinal, item)}${item.resetsIn.length > 0 ? `, ${item.resetsIn}` : ""}${item.credits > 0 ? `, ${item.credits} reset credits banked` : ""}`
+component UsageLimitSegment
+  props
+    remaining: number
+    color: string
+    pending: bool
+    patternId: string
+  view
+    svg width="100%" height="100%" aria-hidden=true
+      defs
+        pattern id=patternId width=6 height=6 patternUnits="userSpaceOnUse"
+          path d="M-1 1L1 -1M0 6L6 0M5 7L7 5" stroke=color stroke-width=1 opacity=0.22
+      if pending
+        rect x=`${remaining}%` width=`${100 - remaining}%` height="100%" fill=`url(#${patternId})`
+      rect width=`${remaining}%` height="100%" fill=color opacity=0.35
+component UsageLimitAccountRow
+  props
+    item: UsageColumn
+    ordinal: number
+    windowId: string
+    kind: string
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    account: action
+  state pressed = false
+  action pointerDown
+    pressed = true
+  action pointerUp
+    pressed = false
+  view
+    button appearance="none" press=account(item.key, windowId, kind) pointerdown=pointerDown pointerup=pointerUp min-height=44 padding=0 display="flex" flex-direction="row" align-items="center" gap=7 opacity=(pressed ? 0.6 : 1) aria-label=usageAccountRowLabel(ordinal, item) aria-description="Show account details"
+      column width=17.5 height=17.5 flex-shrink=0 align-items="center" justify-content="center" overflow="hidden" border-radius=5.25 background-color=colors.subtleStrong
+        text `${ordinal}` color=colors.foreground font-size=roles.label.size line-height=`${roles.label.line}px` font-weight=500 font-variant-numeric="tabular-nums"
+      text item.label flex=1 min-width=0 line-clamp=1 text-align="start" color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
+      text `${item.remaining}%` flex-shrink=0 color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500 font-variant-numeric="tabular-nums"
+      row flex-shrink=0 align-items="center" gap=3.5
+        if item.resetLabel.length > 0
+          text item.resetLabel flex-shrink=0 color=colors.muted font-size=roles.label.size line-height=`${roles.label.line}px` font-variant-numeric="tabular-nums"
+        if item.credits > 0
+          if item.resetLabel.length > 0
+            text "·" flex-shrink=0 color=colors.tertiary font-size=roles.label.size line-height=`${roles.label.line}px`
+          t3-symbol symbol-name="ticket" symbol-tint=colors.icon width=13 height=13 flex-shrink=0
+          text `${item.credits}` flex-shrink=0 color=colors.foreground font-size=roles.label.size line-height=`${roles.label.line}px` font-weight=500 font-variant-numeric="tabular-nums"
+component SettingsUsageAccount
+  props
+    data: MobileUsageAccountData
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    danger: string
+    bottom: number
+    dark: bool
+    reveal: action
+    redeem: action
+  view
+    scroll flex=1 min-height=0 background-color=colors.sheet
+      column padding=17.5 padding-bottom=bottom gap=17.5 font-family="DM Sans"
+        if not data.present
+          text data.error color=colors.muted font-size=roles.body.size
+        else
+          column gap=7
+            row align-items="center" gap=7
+              ProviderIcon(driver=data.driver, size=24, dark=dark, iconUrl="")
+              text data.label flex=1 min-width=0 color=colors.foreground font-size=roles.title.size line-height=`${roles.title.line}px` font-weight=700
+            if data.hasEmail
+              button appearance="none" press=reveal(data.key) min-height=44 padding=0 display="flex" flex-direction="column" justify-content="center" text-align="start" aria-label=(data.revealed ? "Hide account email" : "Reveal account email")
+                text data.email color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+            if data.plan.length > 0
+              text data.plan user-select="text" color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+          column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" padding=14 gap=10.5
+            text data.windowLabel color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
+            text data.remaining color=colors.foreground font-size=roles.display.size line-height=`${roles.display.line}px` font-weight=700 font-variant-numeric="tabular-nums"
+            if data.resets.length > 0
+              text `Resets ${data.resets}` user-select="text" color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+            if data.restores.length > 0
+              text data.restores color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+          column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" padding=14 gap=7
+            text data.sourceTitle color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
+            for item in data.sourceItems key=item.id
+              text item.label color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+          if data.hasCredits
+            column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" padding=14 gap=10.5
+              text "Reset credits" color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
+              row flex-wrap="wrap" align-items="center" column-gap=10.5 row-gap=3.5
+                text data.credits flex-shrink=0 color=colors.tertiary font-size=roles.label.size line-height=`${roles.label.line}px` font-variant-numeric="tabular-nums"
+                if data.hasCreditBalance
+                  button appearance="none" press=redeem(data.environmentId, data.key) disabled=(not data.canRedeem or data.creditBusy) min-height=44 box-sizing="border-box" flex-shrink=0 display="flex" flex-direction="column" justify-content="center" padding-top=5.25 padding-bottom=5.25 padding-left=10.5 padding-right=10.5 border-radius=999 background-color=colors.subtleStrong opacity=(data.canRedeem and not data.creditBusy ? 1 : 0.45) text-align="start"
+                    text (data.creditUsing ? "Using…" : "Use reset") color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
+                if data.creditPermissionDenied
+                  text "This connection cannot manage provider accounts." flex-shrink=0 color=colors.tertiary font-size=roles.label.size line-height=`${roles.label.line}px`
+
+                if data.creditStatus != ""
+                  text data.creditStatus color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+
+component UsageScroll
+  props
+    data: MobileUsageData
+    colors: SettingsColors
+    refresh: action
+  slot
+  view
+    if data.canRefresh
+      scroll flex=1 min-height=0 background-color=colors.sheet id="settings-usage-scroll" refresh=refresh refreshing=data.refreshing
+        children
+    else
+      scroll flex=1 min-height=0 background-color=colors.sheet id="settings-usage-scroll"
+        children

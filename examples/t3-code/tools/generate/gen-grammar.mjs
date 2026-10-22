@@ -540,7 +540,7 @@ export async function generate() {
   flush();
 
   const languages = [...Object.keys(index.roots), ...Object.keys(index.aliases)].join(' ');
-  const indexText = header(`The index of the grammar chunks (grammar-1.ts to -${files.length}.ts): languages, aliases, injections, rule ranges, and the pierre-light / pierre-dark token colours and font styles (@pierre/theme, MIT). See LICENSE-T3.`)
+  const indexText = header(`The index of the grammar chunks (grammar-1.ts to -${files.length}.ts): languages, aliases, injections, rule ranges, and the pierre-light / pierre-dark token colours and font styles (@pierre/theme, Apache-2.0). See LICENSE-T3.`)
     + files.map((_, at) => `import { CHUNKS as CHUNKS_${at + 1} } from './grammar-${at + 1}';\n`).join('')
     + `/** The languages and aliases the chunks hold, readable without parsing the index. */\n`
     + `export const GRAMMAR_LANGUAGES = ${JSON.stringify(languages)};\n`

@@ -4,8 +4,9 @@
 // and examples/t3-code/.gitignore keeps it out of git:
 //
 //   gen-grammar.mjs    src/highlight/grammar.ts and grammar-<n>.ts: Shiki's grammars, the pierre themes
-//   gen-css-words.mjs  src/highlight/css-words.ts: the CSS grammar's word lists
-//   gen-icons.mjs      src/settings/settings-b-lucide.ts, src/shared/pages-icons.contract (Lucide);
+//   gen-mobile-grammar.mjs mobile/shared/r12-render-grammar.ts and -more.ts: the iOS app's grammar groups
+//   gen-css-words.mjs  src/highlight/css-words.ts and mobile/shared/r7-polish-css-words.ts: the CSS grammar's word lists
+//   gen-icons.mjs      src/settings/settings-b-lucide.ts (and mobile/shared/'s copy), src/shared/pages-icons.contract (Lucide);
 //                      src/shared/timeline-files.contract and timeline-files-tables.ts, data/pierre-icons.tsv,
 //                      the icon tables of icon-tables.mjs and
 //                      icon-marks.mjs (src/shared/icons.contract and nine more in their features' folders)
@@ -35,7 +36,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const example = join(here, '..', '..');
-const GENERATORS = ['gen-grammar.mjs', 'gen-css-words.mjs', 'gen-icons.mjs', 'gen-morph.mjs', 'gen-vectors.mjs', 'gen-mermaid.mjs', 'gen-codex-directives.mjs', 'gen-minimap-text.mjs', 'gen-shell-parser.mjs'];
+const GENERATORS = ['gen-grammar.mjs', 'gen-mobile-grammar.mjs', 'gen-css-words.mjs', 'gen-icons.mjs', 'gen-morph.mjs', 'gen-vectors.mjs', 'gen-mermaid.mjs', 'gen-codex-directives.mjs', 'gen-minimap-text.mjs', 'gen-shell-parser.mjs'];
 
 /** Every input: this directory's scripts, package.json and bun.lock (no generator reads an app source). */
 export function inputs() {

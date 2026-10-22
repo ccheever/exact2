@@ -1,0 +1,78 @@
+use PendingInputView, PendingInputColors from "./pending-input-shapes.contract"
+component PendingInputCard
+  props
+    data: PendingInputView
+    colors: PendingInputColors
+    maxHeight: number
+    act: action
+    coverage: action
+  state collapsed = false
+  state cardHeight = 0
+  state barHeight = 0
+  action measured(width: number, height: number)
+    let card = frame(`question-card-bounds-${data.cardId}`)
+    let bar = frame(`question-bar-bounds-${data.cardId}`)
+    if not card.unavailable and not card.provisional and not bar.unavailable and not bar.provisional
+      cardHeight = card.height
+      barHeight = bar.height
+      coverage(data.cardId, collapsed ? 0 : max(0, card.height - bar.height))
+  action toggle
+    let nextCollapsed = not collapsed
+    collapsed = nextCollapsed
+    blur()
+    coverage(data.cardId, nextCollapsed ? 0 : max(0, cardHeight - barHeight))
+  action edit(question: string, value: string)
+    act(data.owner, "custom", question, value)
+  view
+    column position="relative" width="100%" font-family="DM Sans" testId="pending-input"
+      row position="relative" align-items="center" gap=7 border-radius=9999 border-width=1 border-style="solid" border-color=colors.border background-color=colors.card
+        padding-left=14 padding-right=5.25 padding-top=5.25 padding-bottom=5.25 pointer-events=(collapsed ? "auto" : "none") aria-hidden=(not collapsed)
+        view id=`question-bar-bounds-${data.cardId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=measured
+        button appearance="none" press=toggle min-height=35 flex=1 text-align="left" aria-label=`Expand user input, ${data.count} ${data.count == 1 ? "question" : "questions"}` testId="pending-input-expand"
+          row align-items="center" gap=7
+            text "USER INPUT NEEDED" font-size=12 line-height="16px" font-weight=700 letter-spacing=1.1 color=colors.secondary
+            text `${data.count} ${data.count == 1 ? "question" : "questions"}` font-size=13 line-height="17px" color=colors.muted
+            view flex=1
+            t3-symbol symbol-name="chevron.up" symbol-tint=colors.iconSubtle width=12 height=12
+        button appearance="none" press=act(data.owner, "stop", "", "") disabled=(not data.canStop) width=31.5 height=31.5 display="flex" border-radius=9999 background-color=colors.danger align-items="center" justify-content="center" aria-label="Stop" testId="pending-input-stop"
+          t3-symbol symbol-name="stop.fill" symbol-tint=colors.dangerForeground width=14 height=14
+      column position="absolute" left=0 right=0 bottom=0 height=maxHeight overflow="hidden" justify-content="flex-end" pointer-events=(collapsed ? "none" : "auto") aria-hidden=collapsed
+        column position="relative" max-height=maxHeight gap=8.75 padding=14 border-radius=20 border-width=1 border-style="solid" border-color=colors.border background-color=colors.card
+          translate=`0px ${collapsed ? cardHeight : 0}px` transition="translate 220ms ease-out" testId="pending-input-card"
+          view id=`question-card-bounds-${data.cardId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=measured
+          button appearance="none" press=toggle text-align="left" aria-label="Collapse user input" testId="pending-input-collapse"
+            row align-items="start" gap=7
+              column flex=1 gap=8.75
+                text "USER INPUT NEEDED" font-size=12 line-height="16px" font-weight=700 letter-spacing=1.1 color=colors.secondary
+                text "Fill in the pending answers" font-size=18 line-height="23px" font-weight=700 color=colors.foreground
+              column width=28 height=28 align-items="center" justify-content="center" border-radius=9999 background-color=colors.subtleStrong
+                t3-symbol symbol-name="chevron.down" symbol-tint=colors.iconSubtle width=13 height=13
+          scroll flex=1 min-height=0 testId="pending-input-questions"
+            column gap=8.75 padding-bottom=3.5
+              if data.reason != ""
+                text data.reason font-size=14 line-height="20px" color=colors.muted
+              for question in data.questions key=question.id
+                column gap=7 padding-top=3.5 testId=`pending-input-question-${question.id}`
+                  text question.header text-transform="uppercase" font-size=13 line-height="17px" letter-spacing=1 font-weight=700 color=colors.muted
+                  text question.question font-size=16 line-height="22px" color=colors.foreground
+                  for option in question.options key=option.id
+                    button appearance="none" press=act(data.owner, "option", question.id, option.id) disabled=(not data.editable) role=(question.multiSelect ? "checkbox" : "radio") aria-checked=option.selected
+                      min-height=42 width="100%" padding-left=12.25 padding-right=12.25 padding-top=10.5 padding-bottom=10.5 border-radius=14 border-width=1 border-style="solid" border-color=(option.selected ? colors.primary : colors.border)
+                      background-color=(option.selected ? colors.selected : colors.input) text-align="left" retainFocus=true testId=`pending-input-option-${question.id}-${option.id}`
+                      column gap=1.75
+                        text option.label font-size=14 line-height="19px" font-weight=700 color=(option.selected ? colors.foreground : colors.secondary)
+                        if option.description != ""
+                          text option.description font-size=14 line-height="20px" color=colors.muted
+                  if question.customAllowed
+                    input value=question.answer input=edit(question.id) readonly=(not data.editable) placeholder="Or type a custom answer"
+                      min-height=54 padding-left=12.25 padding-right=12.25 padding-top=10.5 padding-bottom=10.5 border-radius=14 border-width=1 border-style="solid" border-color=colors.inputBorder
+                      background-color=colors.input font-family="DM Sans" font-size=16 line-height="23px" color=colors.foreground testId=`pending-input-custom-${question.id}`
+          if data.error != ""
+            text data.error font-size=13 line-height="19.5px" color=colors.dangerForeground
+          button appearance="none" press=act(data.owner, "submit", "", "") disabled=(not data.canSubmit) padding-left=14 padding-right=14 padding-top=12.25 padding-bottom=12.25 border-radius=14 background-color=(data.complete ? colors.primary : colors.subtleStrong) opacity=(not data.canSubmit ? 0.5 : 1) testId="pending-input-submit"
+            text "Submit answers" font-size=14 line-height="19px" font-weight=(data.complete ? 800 : 700) color=(data.complete ? colors.primaryForeground : colors.foreground)
+          if data.dismissible
+            button appearance="none" press=act(data.owner, "dismiss", "", "") disabled=(not data.canDismiss) padding-left=14 padding-right=14 padding-top=8.75 padding-bottom=8.75 testId="pending-input-dismiss"
+              text "Dismiss without answering" font-size=14 line-height="19px" font-weight=700 color=colors.muted
+          if not data.canOperate
+            text "This connection cannot submit answers." font-size=13 line-height="17px" color=colors.tertiary
