@@ -769,6 +769,8 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
     const base = `http://127.0.0.1:${port}`;
     const devSaid = lines(dev);
     await devSaid.until(l => l.includes(`127.0.0.1:${port}/`), 600_000);
+    // Its page built (a build that failed frames an error page, which never registers as the frame's build).
+    expect(devSaid.seen.filter(l => l.includes('does not build'))).toEqual([]);
     tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
     other = await polledBuild(base, 'linux-1');
