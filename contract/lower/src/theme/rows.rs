@@ -260,7 +260,12 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
         // a `font` or `font-family` row, whose tokens `tokens_named` judges
         // together (one longhand set, one axis rule): refused where the
         // build's refusal is said. Alike, one value and one type.
-        if computed.is_some() || matches!(a.name.as_str(), "font" | "font-family") {
+        // So is a written shorthand or `flex`: its longhands judged over the
+        // whole choice, as the build expands and judges it (Astra's round 1).
+        if computed.is_some()
+            || matches!(a.name.as_str(), "font" | "font-family")
+            || expanded(&a).is_some()
+        {
             let place = Place {
                 row: a.span,
                 at: a.span,
@@ -393,9 +398,16 @@ fn judge_expanded(
         let component = Attr { value, ..a.clone() };
         let mut leaves = Vec::new();
         super::leaves(&component.value, &mut Vec::new(), &mut leaves);
-        let ty = match leaves.iter().all(|e| matches!(e, Expr::Number(..))) {
-            true => contract_types::Ty::Number,
-            false => contract_types::Ty::String,
+        // As the build types the expanded value: a choice of numbers a
+        // number, of strings a string, of both not known.
+        let numbers = leaves
+            .iter()
+            .filter(|e| matches!(e, Expr::Number(..)))
+            .count();
+        let ty = match numbers {
+            n if n == leaves.len() => contract_types::Ty::Number,
+            0 => contract_types::Ty::String,
+            _ => contract_types::Ty::Unknown,
         };
         crate::values::check_style_value(&component, &[*row], &ty, uses, scope, shapes)?;
     }
