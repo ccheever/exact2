@@ -598,8 +598,8 @@ package final class Runtime {
     package func setTime(epochAtZero: Double, utcOffset: Double) -> Batch { on { read(exact_set_time(rt, epochAtZero, utcOffset)) } }
     package func setLaunchTime(epochAtZero: Double, utcOffset: Double) { on { () -> Void in _ = exact_set_launch_time(rt, epochAtZero, utcOffset) } }
     @discardableResult
-    package func setLaunchPlace(locale: String, timeZone: String, seed: UInt64) -> Batch { on {
-        let count = exact_set_launch_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed)))
+    package func setLaunchPlace(locale: String, timeZone: String, seed: UInt64, formatLocale: String = "") -> Batch { on {
+        let count = exact_set_launch_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed) + "\0" + formatLocale))
         return count == 0 ? Batch(ops: [], timers: false, motion: false, clock: nil, error: nil) : read(count)
     } }
     package func setPreferences(_ bits: UInt32) -> Batch { on { read(exact_set_preferences(rt, bits)) } }
@@ -632,7 +632,7 @@ package final class Runtime {
     package func bindExtensions(_ names: [String]) { on { exact_bind_extensions(rt, write(names.joined(separator: "\n"))) } }
     package func setModes(_ pins: [String: String], check: Bool = false) -> Batch { on { read(exact_set_mode(rt, write((check ? "?" : "") + pins.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")))) } }
     package func setDisplayScale(_ scale: Double) -> Batch { on { read(exact_set_display_scale(rt, scale)) } }
-    package func setPlace(locale: String, timeZone: String, seed: UInt64) -> Batch { on { read(exact_set_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed))) ) } }
+    package func setPlace(locale: String, timeZone: String, seed: UInt64, formatLocale: String = "") -> Batch { on { read(exact_set_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed) + "\0" + formatLocale)) ) } }
     package func listIndex(_ view: UInt32, key: String) -> Int? {
         return on(busy: nil) {
             let n = write(key)

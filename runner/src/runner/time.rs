@@ -94,10 +94,25 @@ impl<D: DataSource> Runner<D> {
         time_zone: &str,
         seed: Option<f64>,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
+        self.set_place_formatted(locale, time_zone, seed, None)
+    }
+
+    /// [`Runner::set_place`] with the regional format ([`Place`]'s
+    /// `format_locale`, `""` for none apart from the locale); `None` keeps
+    /// the one last told, as a `None` seed does.
+    pub fn set_place_formatted(
+        &mut self,
+        locale: &str,
+        time_zone: &str,
+        seed: Option<f64>,
+        format_locale: Option<&str>,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
         let place = Place {
             locale: locale.into(),
             time_zone: time_zone.into(),
             seed: seed.unwrap_or(self.place.seed),
+            format_locale: format_locale
+                .map_or_else(|| self.place.format_locale.clone(), str::to_owned),
         };
         if let Err(error) = place.validate() {
             self.log(format!("place refused: {error:?}"));

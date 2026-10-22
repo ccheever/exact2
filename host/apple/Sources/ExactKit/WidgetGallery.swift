@@ -74,7 +74,7 @@ final class WidgetPreview: ObservableObject {
         let facts = SessionFacts(displayScale: Double(variant.scale), preferences: variant.scheme == "dark" ? [.dark] : [],
             rootFontSize: Double(SnapshotDriver.bodySize(for: variant.typeSize)),
             date: date, clock: clock,
-            timeZone: TimeZone(identifier: place.timeZone) ?? TimeZone(secondsFromGMT: 0)!, locale: place.locale, seed: place.seed)
+            timeZone: TimeZone(identifier: place.timeZone) ?? TimeZone(secondsFromGMT: 0)!, locale: place.locale, formatLocale: place.formatLocale, seed: place.seed)
         var result: [String: Any] = [:]
         if suppliedProps == nil {
             let initial = try HeadlessSession(plan: plan, entry: entry.kind, size: variant.contentSize, facts: facts, assets: entry.assets)
@@ -185,7 +185,7 @@ final class ActivityPreview {
         let place = appSession.launchPlace
         let date = Date(timeIntervalSince1970: (epochAtZero + clock) / 1000)
         let facts = SessionFacts(displayScale: 1, preferences: scheme == "dark" ? [.dark] : [], rootFontSize: Double(SnapshotDriver.bodySize(for: .large)),
-            date: date, clock: clock, timeZone: TimeZone(identifier: place.timeZone) ?? TimeZone(secondsFromGMT: 0)!, locale: place.locale, seed: place.seed)
+            date: date, clock: clock, timeZone: TimeZone(identifier: place.timeZone) ?? TimeZone(secondsFromGMT: 0)!, locale: place.locale, formatLocale: place.formatLocale, seed: place.seed)
         state = supplied ?? entry.preview
         render = try ActivityRender(plan: plan, kind: entry.kind, state: try JSONSerialization.data(withJSONObject: state, options: [.sortedKeys]), facts: facts, assets: entry.assets)
         _ = try render.session.advance(to: clock)
