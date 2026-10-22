@@ -864,9 +864,9 @@ package final class Presenter {
 
     /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
     var pressHeld = ""
-    /// The click whose press is being sent (`pressMount`, FocusMac.swift).
+    /// The click being sent as a press, given by the mouse paths only (`pressMount`, FocusMac.swift).
     var pressClick: NSEvent?
-    package func press(_ id: UInt32, fromNativeMenu: Bool = false, held: String = "", bubbled: Bool = false, outsideModal: Bool = false) {
+    package func press(_ id: UInt32, fromNativeMenu: Bool = false, held: String = "", bubbled: Bool = false, outsideModal: Bool = false, click: NSEvent? = nil) {
         pressHeld = held; defer { pressHeld = "" } // `outsideModal`: an app-wide menu item's (ShortcutsMac `enabled`)
         guard let node = textHost(id), !(bubbled || outsideModal ? node.authoredInert : node.inert), !node.disabled,
               fromNativeMenu || (segments.shown(node) ?? sidebar.shows(node) ?? !node.isHiddenOrHasHiddenAncestor) || toolbar.contains(node) else { return }
@@ -874,7 +874,7 @@ package final class Presenter {
         let command = dialogs.command(node, fromNativeMenu: fromNativeMenu, bubbled: bubbled)
         let popover = menus.command(node, fromNativeMenu: fromNativeMenu, bubbled: bubbled)
         if command == nil && popover == nil, node.id == id, let url = node.defaultLink, node.activateLink(url, bubbled: bubbled) { return }
-        if (command == nil && popover == nil) || node.handlers.contains("press") { pressClick = NSApp.currentEvent; onPress?(id); pressClick = nil }
+        if (command == nil && popover == nil) || node.handlers.contains("press") { pressClick = click ?? pressClick; onPress?(id); pressClick = nil }
         command?()
         popover?()
     }

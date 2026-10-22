@@ -80,6 +80,44 @@ final class PressMountCaretMacTests: XCTestCase {
         XCTAssertTrue(window.firstResponder === composer)
     }
 
+    /// The press of a click on the box itself, through `mouseDown`/`mouseUp`
+    /// and `press(id)`: its runner mounts the editor as the press is applied.
+    func testAClickOnTheBoxThroughItsMousePathBeginsEditing() throws {
+        let p = presenter()
+        XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(p.views[2]?.textArea)))
+        p.onPress = { [unowned self] id in if id == 3 { self.mount(p, 4) } }
+        let box = try XCTUnwrap(p.views[3]), at = p.viewport.convert(NSPoint(x: 30, y: 48), to: nil)
+        func event(_ type: NSEvent.EventType) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                                             context: nil, eventNumber: 7, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+        }
+        box.mouseDown(with: try event(.leftMouseDown))
+        box.mouseUp(with: try event(.leftMouseUp))
+        let editor = try XCTUnwrap(p.views[4]?.textArea)
+        XCTAssertTrue(window.firstResponder === editor, "the click's press mounted it and it took the focus")
+        XCTAssertTrue((1..<9).contains(editor.selectedRange().location), "under the click: \(editor.selectedRange())")
+        XCTAssertNil(p.pressClick, "the click is the press's alone")
+    }
+
+    /// VoiceOver's press, with an old click still the app's current event,
+    /// carries no click: the held focus stays, as for any press without one.
+    func testAnAssistivePressWithAnOldClickCurrentKeepsTheHeldFocus() throws {
+        let p = presenter()
+        let composer = try XCTUnwrap(p.views[2]?.textArea)
+        XCTAssertTrue(window.makeFirstResponder(composer))
+        p.onPress = { [unowned self] id in if id == 3 { self.mount(p, 4) } }
+        // An earlier click's release, made the current event as `NSApp.nextEvent` makes it.
+        NSApp.postEvent(try click(p, at: NSPoint(x: 30, y: 48)), atStart: true)
+        _ = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: true)
+        XCTAssertEqual(NSApp.currentEvent?.type, .leftMouseUp)
+        XCTAssertTrue(try XCTUnwrap(p.views[3]).accessibilityPerformPress())
+        let pressed = expectation(description: "the assistive press ran")
+        DispatchQueue.main.async { pressed.fulfill() }
+        wait(for: [pressed], timeout: 10)
+        XCTAssertNotNil(p.views[4], "the press mounted the editor")
+        XCTAssertTrue(window.firstResponder === composer, "an old click is not this press's")
+    }
+
     /// A press from the keyboard carries no click: no handoff.
     func testAKeyPressCarriesNoClick() throws {
         let p = presenter()
