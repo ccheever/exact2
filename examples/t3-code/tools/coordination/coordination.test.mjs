@@ -64,6 +64,20 @@ const proof = task => ({ thread: { threadId: task.thread, worktreePath: task.wor
 const audit = (task, operation, processes = [], auditorThreadId = task.thread) => ({ taskId: task.id, worktree: task.worktree, auditorThreadId, operation, processes, noUnrecordedDescendants: true });
 const own = task => ['--task', task.id, '--thread', task.thread];
 
+test('fresh output directories match trailing-slash ignore rules before creation', async () => {
+  const f = fixture(); await f.start();
+  writeFileSync(join(f.a, '.gitignore'), 'target/\nexamples/t3-code/mobile/assets/browser-mobile/\n');
+  for (const path of ['target', 'examples/t3-code/mobile/assets/browser-mobile']) {
+    expect(existsSync(join(f.a, path))).toBe(false);
+    const output = await f.c(f.a).recordOutput(f.ta.id, f.ta.thread, path, 1);
+    expect(output.path).toBe(join(f.a, path));
+    expect(existsSync(output.path)).toBe(true);
+    await expect(f.c(f.a).recordOutput(f.ta.id, f.ta.thread, path, 1)).rejects.toThrow('refuse adopting');
+  }
+  await expect(f.c(f.a).recordOutput(f.ta.id, f.ta.thread, 'examples/t3-code/mobile/dist', 1)).rejects.toThrow();
+  expect(existsSync(join(f.a, 'examples/t3-code/mobile/dist'))).toBe(false);
+});
+
 test('independent worktrees share registration, device collisions, release/reuse and surplus retirement', async () => {
   const f = fixture(); await f.start();
   expect((await f.cli(f.a, ['register', '--issue', 'A', '--thread', 'thread-a'])).value.id).toBe(f.ta.id);
