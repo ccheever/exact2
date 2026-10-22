@@ -609,21 +609,22 @@ compiler's existing-boolean admission and iOS/browser repair do not establish
 Linux support (LLP 1035.001 D3).
 
 **The painter is vello on the GPU (r2), with tiny-skia on the CPU as the
-fallback and the pixel oracle.** r1 took CPU raster for the reasons
-`QUEUE.md` §Open decisions named — boots with nothing compiled, runs on
-the GPU-less fleet, deterministic pixels — and Charlie reversed it the
+fallback and the pixel oracle.** r1 took CPU raster because it boots with
+nothing compiled, runs on the GPU-less fleet and gives deterministic
+pixels; Charlie reversed it the
 same day: the GPU is the main painter going forward, because it is what
 makes `canvas` and LLP 1014's children-through-the-shader one pass rather
 than a readback, and because the display that matters is a GPU's. The
 costs, measured: **shader compilation on the boot path** — 773 ms on the
 first launch on this Mac (Metal), 9.8 ms on every later one from the
 driver's cache; on Vulkan the wgpu pipeline cache on disk plays that role
-(on RADV: 77 ms the first launch on the machine, 6 ms from the cache after — §6) — which is the "boot path compiles nothing"
-rule not met, and the amendment LLP 1009 §5 already proposes ("compiles
-nothing on the boot path; a canvas compiles its shaders at first use")
-now needs a second clause for this host: *the GPU painter compiles its
-shaders on the first launch on a machine and reads them from the cache
-after*. And **the readback**: 4 ms to render and 17–19 ms to wait and map
+(on RADV: 77 ms the first launch on the machine, 6 ms from the cache after
+— §6) — **accepted (Charlie, 2026-10-22)** as the Linux painter's
+exception to "the boot path compiles nothing," recorded in
+`rules/DEFERRED.md` §Runtime. The first launch is accepted over the
+cold-start budget: RADV's device creation and shaders alone cost 170 ms
+(93 + 77 ms, §6); later launches read the pipeline cache. And **the
+readback**: 4 ms to render and 17–19 ms to wait and map
 per frame on Metal, at 420×860 and at 840×1720 alike — latency, not
 bandwidth — against 3.8–6.9 ms for the CPU painter; on RADV the same
 readback is 3–5 ms and a 1920×1080 frame is 12.6 ms against the CPU's
