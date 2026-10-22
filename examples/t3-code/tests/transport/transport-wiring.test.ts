@@ -41,7 +41,7 @@ describe('app.contract', () => {
 
   test('the snapshot and Settings › Connections are asked again for news only once their read in flight lands', () => {
     expect(contract).toMatch(/task transportNews when transportInbox\.news != transportSeen and not pending\(data\)/);
-    expect(contract).toMatch(/resource data = snapshot\([^\n]*transportSeen, composerTyping, layoutFrames\)/);
+    expect(contract).toMatch(/resource data = snapshot\([^\n]*transportSeen, composerTyping, layoutFrames, wallTime\.formatLocale\)/);
     expect(contract).toMatch(/resource connectionsPage = connectionsPage\([^\n]*transportFleetSeen\)/);
   });
 });

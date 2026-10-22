@@ -11,6 +11,7 @@ import { obj, type Obj } from '../../src/client/domain';
 import type { Files, Native } from '../../src/client/protocol';
 import { panelState, panelView, surfaceLocal } from '../../src/panel/panel-surfaces';
 import { appPath } from '../support/app-files';
+import { adoptHostLocale, currentTimestampLocale } from '../../src/shared/timestamp-format';
 
 const source = (file: string) => Bun.file(appPath(file)).text();
 
@@ -36,6 +37,17 @@ function harness() {
   const surface = (op: string, id = '', value = '') => surfaceLocal(client, native, op, id, value);
   return { client, native, storage, calls, surface };
 }
+
+describe('timestamps follow exactTime().formatLocale', () => {
+  test('the snapshot request\'s format locale is the timestamps\' locale; none leaves the runtime default', () => {
+    const { client } = harness();
+    snapshot(client, 0, '', 'en-KR');
+    expect(currentTimestampLocale()).toBe('en-KR');
+    snapshot(client, 0, '', '');
+    expect(currentTimestampLocale()).toBe('en-US');
+    adoptHostLocale(null);
+  });
+});
 
 describe('a server thread with no messages docks the composer over the timeline\'s placeholder', () => {
   test('threadLoading is true from a server thread\'s selection until its detail arrives, never on a draft', () => {

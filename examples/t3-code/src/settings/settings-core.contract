@@ -257,6 +257,8 @@ shape SettingsCore
   codePreview: FontDiffPreview
   wordWrap: bool
   panelDuration: number
+  // The Quit shortcut setting ("direct", "hold" or "double-click"), which the window's ⌘Q hold reads (app.contract quitHoldKey).
+  quitMode: string
   background: BackgroundDialog
   archiveConfirm: ArchiveConfirm
   updateConfirm: bool
@@ -381,7 +383,7 @@ component SettingsNav
           SidebarUpdatePill(color=pal.sidebarIcon, testId="settings-check-updates")
       button press=onKey("/") aria-keyshortcuts="/" aria-label="Focus settings search" position="absolute" width=1 height=1 opacity=0 left=0 top=0 tabindex=-1 testId="settings-search-shortcut" title=""
       // ⌘F focuses it too, from a text field as well (SettingsSidebarNav's isFindShortcut).
-      button press=onKey("/") aria-keyshortcuts="Meta+F" aria-label="Find in settings" position="absolute" width=1 height=1 opacity=0 left=0 top=0 tabindex=-1 testId="settings-find-shortcut" title=""
+      button -exact-menu="none" press=onKey("/") aria-keyshortcuts="Meta+F" aria-label="Find in settings" position="absolute" width=1 height=1 opacity=0 left=0 top=0 tabindex=-1 testId="settings-find-shortcut" title=""
 
 // Settings' main sidebar trigger (AppSidebarLayout's SidebarControl over the settings nav, Toggle main sidebar): one
 // node at the window controls whether the nav is open or closed, so a VoiceOver press on it is answered by the element
@@ -398,7 +400,7 @@ component SettingsSidebarToggle
   view
     box position="absolute" left=controlsLeft top="0.75rem" testId="settings-sidebar-control"
       Tip(label=(keySidebar == "" ? "Toggle main sidebar" : `Toggle main sidebar (${keySidebar})`), side="bottom", align="center", offset=32)
-        button press=toggle class=SettingsGhost width="1.75rem" height="1.75rem" padding="0.375rem" aria-label="Toggle main sidebar" aria-pressed=open aria-keyshortcuts=keySidebar testId="settings-toggle-sidebar" id="settings-sidebar-trigger" title=""
+        button -exact-menu="none" press=toggle class=SettingsGhost width="1.75rem" height="1.75rem" padding="0.375rem" aria-label="Toggle main sidebar" aria-pressed=open aria-keyshortcuts=keySidebar testId="settings-toggle-sidebar" id="settings-sidebar-trigger" title=""
           if open
             CorePaintIcon(ownId=`paint-icon-SettingsNav-1-${route}`, paint=(artwork ? "" : "mutedForeground"), name="panel-left-close", size=16, color=(artwork ? "#d8daed" : pal.sidebarMuted))
           else

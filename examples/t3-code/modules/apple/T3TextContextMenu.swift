@@ -26,7 +26,7 @@
 //
 // The monitor ends every click it answers (it returns nil, never `self?.handle(event) ?? event`: optional chaining
 // would flatten handle's nil back into the event and the host's menu would pop after the shell's). Under the agent
-// nothing pops up (its window is never key, so a menu would track until a real click, as T3ContextMenu.perform notes):
+// nothing pops up (its window is never key, so a menu would track until a real click or Escape):
 // the items go to the log (`t3.textmenu:`) instead.
 #if os(macOS)
 import AppKit
@@ -214,9 +214,8 @@ final class T3TextContextMenu: NSObject {
     }
 
     /// An app-drawn image under `location` (window coordinates) anywhere below the node that took the click, topmost first:
-    /// the image lets presses through, and so may the node that holds it. The work group's tool icon is two levels down
-    /// (ToolActivityIcon's box › its `pointer-events="none"` hook box › `T3ToolActivityIcon`'s view), so the click is the
-    /// outer box's; Chromium's hit test for Copy Image passes `pointer-events: none` the same way.
+    /// the image lets presses through, and so may the node that holds it (a `pointer-events="none"` box), as Chromium's
+    /// hit test for Copy Image passes `pointer-events: none`.
     static func drawnImage(at location: NSPoint, in view: NSView) -> CGImage? {
         for child in view.subviews.reversed() where !child.isHidden && child.frame.contains(view.convert(location, from: nil)) {
             if let drawn = child as? T3ShellImageView, let image = drawn.shellImage { return image }

@@ -392,7 +392,12 @@ shape UpdateEverythingView
   summary: string
   ticking: bool
   machines: UpdateMachineView[]
+// The latest link to open outside the app (external-open.ts); app.contract's externalOpen task opens it once per serial.
+shape ExternalOpen
+  serial: number
+  url: string
 shape Snapshot
+  externalOpen: ExternalOpen
   updateEverything: UpdateEverythingView
   serverUpdate: ServerUpdateView
   timelineReadsNeeded: bool

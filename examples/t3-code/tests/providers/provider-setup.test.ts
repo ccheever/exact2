@@ -11,6 +11,7 @@ import { providerPage, providerSetupStreams, providerWizard, runProviderOp, type
 import { providerSetupEvent, providerSetupOp, setupOf, watchProviderSetup } from '../../src/providers/provider-setup';
 import { redactedPlaceholder } from '../../src/shared/redacted-text';
 import { appPath } from '../support/app-files';
+import { externalOpensForTests, resetExternalOpensForTests } from '../../src/client/external-open';
 
 const instanceId = 'antigravity_work';
 const provider = (extra: Obj = {}): Obj => ({ instanceId, driver: 'antigravity', installed: true, enabled: true, version: 'test-version', status: 'error',
@@ -25,7 +26,6 @@ class Fake implements ProviderHost, Native {
   config: Obj; log: string[] = []; calls: { method: string; payload: Obj }[] = []; ops: Obj[] = []; serial = 0;
   subs: Record<string, string> = {};
   handlers: Record<string, (payload: Obj) => Obj | Promise<Obj>> = {};
-  opened = true;
   constructor(live: Obj[] = [provider()], instances: Obj = { [instanceId]: { driver: 'antigravity', enabled: true } }) {
     this.config = { environment: { label: 'Remote Google device' }, settings: { providerInstances: instances, providers: {} }, providers: live };
   }
@@ -36,7 +36,6 @@ class Fake implements ProviderHost, Native {
     const ok = (value: Obj) => ({ ok: true, generation: this.generation, value });
     if (op === 'subscribe') { const id = `sub-${++this.serial}`; this.subs[str(request.key)] = id; return ok({ id }); }
     if (op === 'unsubscribe') { delete this.subs[str(request.key)]; return ok({}); }
-    if (op === 'remoteEditorsOpen') return ok({ opened: this.opened, recorded: true });
     if (op === 'copyText') return { ok: true, generation: this.generation, value: { copied: true } };
     return ok({});
   }
@@ -227,19 +226,18 @@ describe('provider setup in the clone', () => {
     fake.log = [];
     const account = fake.account();
     expect(account).toMatchObject({ url: 'https://cursor.com/login?state=x', callback: false, description: 'Finish signing in in your browser.' });
+    resetExternalOpensForTests();
     await fake.press('setup:auth-open', account.draftId);
-    expect(fake.log).toEqual(['rpc:provider.auth.respond', 'native:remoteEditorsOpen']);
+    expect(fake.log).toEqual(['rpc:provider.auth.respond']);
     expect(fake.calls[0]).toEqual({ method: 'provider.auth.respond', payload: { instanceId, flowId: 'flow-1', interactionId: 'consent', response: { type: 'browser', action: 'accept' } } });
-    expect(fake.ops.find(op => op.op === 'remoteEditorsOpen')?.url).toBe('https://cursor.com/login?state=x');
-    // A refused consent opens nothing; a failed open asks for the copied link.
+    expect(externalOpensForTests()).toEqual(['https://cursor.com/login?state=x']);
+    // A refused consent opens nothing.
     fake.handlers['provider.auth.respond'] = () => { throw new Error('Consent expired.'); };
     fake.log = [];
     await fake.press('setup:auth-open', account.draftId);
     expect(fake.log).toEqual(['rpc:provider.auth.respond']);
     expect(fake.account().error).toBe('Consent expired.');
-    delete fake.handlers['provider.auth.respond']; fake.opened = false;
-    await fake.press('setup:auth-open', account.draftId);
-    expect(fake.account().error).toBe('Could not open the sign-in page. Copy the link and open it in your browser.');
+    expect(externalOpensForTests()).toEqual(['https://cursor.com/login?state=x']);
   });
 
   test('copy link copies first, then records consent; no consent without requiresConsent', async () => {

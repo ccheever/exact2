@@ -162,6 +162,8 @@ shape FilesView
   table: RenderedTableRow[]
   editing: bool
   editorText: string
+  // The last press that began editing, as FilePreview numbered it (its mark counts until the module has heard it).
+  editPress: string
   crumbMenu: FilesCrumbMenu
   crumbsMask: string
   crumbsOffset: number

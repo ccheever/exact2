@@ -169,6 +169,8 @@ async function stopWorkflow(client: T3Client, native: Native, subagentId: string
 /** Local window actions: clipboard copies with the reference's toasts. */
 export async function shellLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
   if (op === 'prompt-link-replace') { replaceLinkedPrompt(client, Number(id)); return ''; }
+  // Check for Updates… (DesktopApplicationMenu.ts): the module's "Updates unavailable" box (T3Menus.swift).
+  if (op === 'check-for-updates') { await native.later({ op: 'checkForUpdates', generation: client.generation }); return ''; }
   const copy = async (text: string) => {
     const response = obj(await native.later({ op: 'copyText', text, generation: client.generation }));
     if (response.ok !== true) throw new ClientError('Could not copy to the clipboard.');

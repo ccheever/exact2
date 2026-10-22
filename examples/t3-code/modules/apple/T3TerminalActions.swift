@@ -29,7 +29,7 @@ final class T3TerminalActions: NSObject {
     private var chosen: String?
     private(set) var items: [[String: Any]] = []
     /// Under the agent the menu is not tracked: AppKit's popUp would hold the main thread until a
-    /// real click or Escape (as T3ContextMenu explains). It is reported open at this view point
+    /// real click or Escape, the agent's window being never key. It is reported open at this view point
     /// (top-left origin) with its items until the page dismisses it; the actions are `perform`'s.
     private(set) var agentShown: [Double]?
 
@@ -139,7 +139,7 @@ final class T3TerminalActions: NSObject {
 
     /// TS owns the URL-vs-path decision and editor preference. This boundary performs only
     /// the system-browser branch and reports a terminal-local failure without opening files.
-    /// An agent run opens nothing: the URL is recorded as `remoteEditorsOpen` records it
+    /// An agent run opens nothing: the URL is recorded
     /// (T3RemoteEditors.openOrRecord, `T3_REMOTE_OPEN_LOG`), so a drive can read what a link did.
     static func perform(_ request: [String: Any], agent: Bool = false, reply: ExactReply) -> Bool {
         guard let op = request["op"] as? String, ["terminalOpenExternal", "terminalSystemMessage"].contains(op) else { return false }

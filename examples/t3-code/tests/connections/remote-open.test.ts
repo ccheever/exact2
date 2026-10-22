@@ -1,9 +1,11 @@
 import { afterEach, test, expect, describe, beforeEach } from 'bun:test';
 import { primaryAt, resetPrimary } from '../support/local-primary-fixture';
 afterEach(resetPrimary);
-import { resolveRemoteOpenState, shouldShowOpenInPicker, canUseMarkdownFileShellActions, parseSafeExternalUrl, remoteEditorsFrom, remoteCapableEditors,
+import { resolveRemoteOpenState, shouldShowOpenInPicker, canUseMarkdownFileShellActions, remoteEditorsFrom, remoteCapableEditors,
   resetRemoteEditorsForTests, openInView, openInEditorHere, rememberSshAlias, remoteOpenFor, openFavoriteEnabled, loadSshAliases } from '../../src/connections/remote-open';
 import { buildRemoteOpenUrl, REMOTE_CAPABLE_EDITOR_IDS } from '../../src/shared/editors';
+import { externalOpenRequest, externalOpensForTests, openExternal, parseSafeExternalUrl, resetExternalOpensForTests } from '../../src/client/external-open';
+beforeEach(resetExternalOpensForTests);
 import { obj, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { T3Client } from '../../src/client/client';
@@ -97,7 +99,7 @@ describe('buildRemoteOpenUrl', () => {
   });
 });
 
-// apps/desktop/src/electron/ElectronShell.test.ts (the URL gate; T3RemoteEditors.swift repeats it before NSWorkspace)
+// apps/desktop/src/electron/ElectronShell.test.ts (the URL gate, external-open.ts; T3RemoteEditors.swift repeats it for the module's own opens)
 describe('parseSafeExternalUrl', () => {
   test('opens safe external URLs', () => { expect(parseSafeExternalUrl('https://example.com/path')).toBe('https://example.com/path'); });
   test('opens remote SSH editor URLs', () => {
@@ -122,15 +124,16 @@ describe('parseSafeExternalUrl', () => {
     expect(parseSafeExternalUrl('zed://ssh/admin-user@example.com/home/user/project')).toBe('zed://ssh/admin-user@example.com/home/user/project');
     expect(parseSafeExternalUrl('vscode://vscode-remote/ssh-remote+admin-user%40example.com/home/user/project:1:1')).toBe('vscode://vscode-remote/ssh-remote+admin-user%40example.com/home/user/project:1:1');
   });
+  test('openExternal hands an accepted URL to Contract\'s openURL once per serial and refuses the rest', () => {
+    const before = externalOpenRequest().serial;
+    expect(openExternal('https://example.com/a b')).toBe(true);
+    expect(externalOpenRequest()).toEqual({ serial: before + 1, url: 'https://example.com/a%20b' });
+    expect([openExternal('file:///etc/passwd'), openExternal('javascript:alert(1)'), openExternal(42)]).toEqual([false, false, false]);
+    expect(externalOpenRequest().serial).toBe(before + 1);
+    expect(externalOpensForTests()).toEqual(['https://example.com/a%20b']);
+  });
   test('does not open unsafe external URLs', () => { expect(parseSafeExternalUrl('file:///etc/passwd')).toBe(null); });
   test('does not open non-remote editor URLs', () => { expect(parseSafeExternalUrl('vscode://ms-python.python/some-command?argument=attacker')).toBe(null); });
-  test('returns false when Electron rejects openExternal', async () => {
-    // The module answers opened=false (NSWorkspace refused); the open does not count as the first remote open.
-    const { native, calls } = fakeNative(request => request.op === 'remoteEditorsOpen' ? { opened: false } : request.op === 'sshHosts' ? { targets: { 'http://127.0.0.1:41001': { alias: 'devbox' } } } : {});
-    resetRemoteEditorsForTests();
-    expect(await openInEditorHere(client('http://127.0.0.1:41001'), native, '/srv/app', 'vscode')).toBe(false);
-    expect(calls.some(call => call.op === 'remoteEditorsHint' && call.seen === true)).toBe(false);
-  });
 });
 
 function fakeNative(handler: (request: Obj) => Obj) {
@@ -198,12 +201,12 @@ describe('picker visibility and editors', () => {
   });
   test('an SSH environment opens over its alias; the hint shows until the first accepted open', async () => {
     const { native, calls } = fakeNative(request => request.op === 'sshHosts' ? { targets: { 'http://127.0.0.1:41001': { alias: 'devbox', hostname: 'devbox' } } }
-      : request.op === 'remoteEditorsProbe' ? { editors: ['vscode', 'zed'] } : request.op === 'remoteEditorsOpen' ? { opened: true } : request.op === 'remoteEditorsHint' ? { seen: request.seen === true } : {});
+      : request.op === 'remoteEditorsProbe' ? { editors: ['vscode', 'zed'] } : request.op === 'remoteEditorsHint' ? { seen: request.seen === true } : {});
     const ssh = client('http://127.0.0.1:41001/');
     const view = await openInView(ssh, native, ['cursor', 'idea'], 'app');
     expect(view).toMatchObject({ mode: 'remote-links', show: true, editors: ['vscode', 'zed'], hint: 'Opens over SSH. Needs your key on devbox', unavailable: '', empty: false });
     expect(await openInEditorHere(ssh, native, '/home/tester/my app', 'vscode')).toBe(true);
-    expect(calls.find(call => call.op === 'remoteEditorsOpen')?.url).toBe('vscode://vscode-remote/ssh-remote+devbox/home/tester/my%20app');
+    expect(externalOpensForTests().at(-1)).toBe('vscode://vscode-remote/ssh-remote+devbox/home/tester/my%20app');
     expect(rest).toEqual([]);
     expect((await openInView(ssh, native, [], 'app')).hint).toBe('');
     expect(openFavoriteEnabled(ssh, 'app')).toBe(true);
@@ -219,7 +222,7 @@ describe('picker visibility and editors', () => {
     const far = client('https://far.example.com');
     expect(await openInView(far, native, ['cursor'], 'app')).toMatchObject({ mode: 'remote-unavailable', show: true, unavailable: 'No SSH route to devbox' });
     expect(await openInEditorHere(far, native, '/w', 'vscode')).toBe(false);
-    expect(calls.some(call => call.op === 'remoteEditorsOpen')).toBe(false);
+    expect(externalOpensForTests()).toEqual([]);
     const advertised = client('https://far.example.com', { remoteOpenTargets: TAILSCALE_TARGETS });
     expect(remoteOpenFor(advertised).state).toEqual({ mode: 'remote-links', host: { kind: 'tailscale', host: 'sol.tail1234.ts.net' } });
     rememberSshAlias('https://far.example.com', 'farbox');
@@ -242,7 +245,6 @@ describe('Files and Markdown use the focused environment route', () => {
       let value: Obj = {};
       if (request.op === 'sshHosts') value = { targets: remote ? { [origin]: { alias: 'devbox' } } : {} };
       if (request.op === 'remoteEditorsProbe') value = { editors: ['zed', 'vscode'] };
-      if (request.op === 'remoteEditorsOpen') value = { opened: true };
       return { ok: true, generation: 0, value };
     } };
     const state = filesState(owner);
@@ -259,11 +261,11 @@ describe('Files and Markdown use the focused environment route', () => {
     expect(view.editorShow).toBe(true);
     expect(view.editorHint).toContain('Opens over SSH');
     await filesLocal(owner, native, 'open-editor', view.absolutePath, 'zed');
-    expect(calls.find(call => call.op === 'remoteEditorsOpen')?.url).toBe('zed://ssh/devbox/srv/project/README.md');
+    expect(externalOpensForTests().at(-1)).toBe('zed://ssh/devbox/srv/project/README.md');
     expect((await filesView(owner, native, file)).editorHint).toBe('');
-    const count = calls.length;
+    const count = externalOpensForTests().length;
     await filesLocal(owner, native, 'open-editor', view.absolutePath, 'idea');
-    expect(calls.slice(count).some(call => call.op === 'remoteEditorsOpen')).toBe(false);
+    expect(externalOpensForTests()).toHaveLength(count);
   });
   test('Files displays a missing SSH route instead of offering server editors', async () => {
     const { owner, native, calls } = fixture('https://remote.example', false);
@@ -272,7 +274,7 @@ describe('Files and Markdown use the focused environment route', () => {
     expect(view.editors).toEqual([]);
     expect(view.editorUnavailable).toContain('No SSH route');
     await filesLocal(owner, native, 'open-editor', view.absolutePath, 'cursor');
-    expect(calls.some(call => call.op === 'remoteEditorsOpen')).toBe(false);
+    expect(externalOpensForTests()).toEqual([]);
   });
   test('Files retains the server editor list on the local environment', async () => {
     primaryAt('http://127.0.0.1:41857', 'env');

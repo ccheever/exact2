@@ -15,6 +15,7 @@ import { pushToast } from '../shell/toast';
 import { welcomeLocal } from './pages-welcome';
 import { CHATGPT_USAGE_URL } from '../providers/chatgpt-plan';
 import { pullRequestLinkPick } from '../panel/context-menu-actions';
+import { openExternal } from '../client/external-open';
 
 export async function pagesLocal(client: T3Client, native: Native | null | undefined, _storage: Files, op: string, id: string, value: string): Promise<string> {
   if (op === 'usage-prices-save') {
@@ -26,7 +27,7 @@ export async function pagesLocal(client: T3Client, native: Native | null | undef
   if (op.startsWith('usage-prices-')) return usagePricesLocal(client, op.slice(13), id, value);
   // ChatGptUsageButton on the Usage page and in the model picker opens ChatGPT's usage settings.
   if (op === 'usage-chatgpt' || op === 'chatgpt-usage') {
-    if (native?.available) await bridgeReply(native, { op: 'remoteEditorsOpen', url: CHATGPT_USAGE_URL });
+    openExternal(CHATGPT_USAGE_URL);
     return '';
   }
   if (op.startsWith('usage-pool-')) return usagePoolLocal(client, native, op.slice(11), id); // environments, redeem, Cursor
