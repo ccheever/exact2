@@ -879,7 +879,20 @@ test('tamber/1.16: inspect select moves only the inspecting client\'s selection,
   expect(selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 1 } }, () => null).status).toBe(409);
   expect(selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 1 } }, () => ({ levels: [], plan: 'g1', from: 2 })).status).toBe(409);
   expect(selectRequest(channel, { client: 'other', build: 'web-1', select: { up: 1 } }, () => at).status).toBe(409);
+  // No selection reported yet: stale (the chain read from none), 409 with stale: true (theme2 15:02).
+  const none = selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 2 } }, () => ({ levels: [[0, 4], [1]], plan: 'g1', from: 2, instance: [] }));
+  expect([none.status, none.error.stale]).toEqual([409, true]);
+  // The page's selection, as it reported it (under inspect's command).
+  const seqNow = frames.filter(f => f.kind === 'inspect' && f.on).at(-1).seq;
+  expect(channel.report(JSON.stringify({ nonce: opened.nonce, kind: 'selected', inspect: seqNow, selected: { node: 9, site: 2, instance: [], planDigest: 'g1', rows: [] }, plan: 'g1', design: 'd1', revision: 0 })).status).toBe(204);
   frames.length = 0;
-  expect(selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 2 } }, () => ({ levels: [[0, 4], [1]], plan: 'g1', from: 2 }))).toEqual({ ok: { builds: ['web-1'] } });
-  expect(frames.filter(f => f.kind === 'inspect')).toEqual([{ kind: 'inspect', select: { up: 2, levels: [[0, 4], [1]], plan: 'g1', from: 2, instance: undefined } }]);
+  expect(selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 2 } }, () => ({ levels: [[0, 4], [1]], plan: 'g1', from: 2, instance: [] }))).toEqual({ ok: { builds: ['web-1'] } });
+  expect(frames.filter(f => f.kind === 'inspect')).toEqual([{ kind: 'inspect', select: { up: 2, levels: [[0, 4], [1]], plan: 'g1', from: 2, instance: [] } }]);
+  // A rebuild since (another plan) or another node: stale, never sent.
+  frames.length = 0;
+  for (const at of [{ plan: 'g2', from: 2, instance: [] }, { plan: 'g1', from: 3, instance: [] }, { plan: 'g1', from: 2, instance: [{ region: 1, key: 2 }] }]) {
+    const r = selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 1 } }, () => ({ levels: [[0]], ...at }));
+    expect([r.status, r.error.stale]).toEqual([409, true]);
+  }
+  expect(frames.filter(f => f.kind === 'inspect')).toEqual([]);
 });
