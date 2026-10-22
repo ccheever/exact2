@@ -383,13 +383,13 @@ const DEVELOPMENT_STORE = null; // a development build's app directory, as stora
 /** The page's `localStorage` keys of a kind: "exact.<kind>.<name>", or in a development build "exact.<kind>.@<digest>/<name>", its app's own on the origin the dev server's apps share (LLP 1116.004 D8). Persisted state's kind is "state" (persist.js); the durable store's (LLP 1018, `Store`: name → text, kept after a commit stands) is "secret". */
 export const Kept = kind => `exact.${kind}.${DEVELOPMENT_STORE ? `@${DEVELOPMENT_STORE}/` : ''}`;
 export const Store = {
-  map: new Map(), writes: [], dirty: false,
+  map: new Map(), writes: [], pending: new Map(), dirty: false,
   get(k) { return this.map.get(k); },
   // Keeping what is already kept is no write, as the runner's `Store::set`.
   set(k, v) { if (v != null && this.map.get(k) === v) return; if (v == null) this.map.delete(k); else this.map.set(k, v); this.writes.push([k, v]); this.dirty = true; Rev++; },
   save() { return [new Map(this.map), this.writes.length]; },
   restore([m, n]) { this.map = m; this.writes.length = n; this.dirty = false; },
-  persist() { const p = Kept("secret"); for (const [k, v] of this.writes.splice(0)) try { v == null ? localStorage.removeItem(p + k) : localStorage.setItem(p + k, v); } catch {} },
+  persist() { const p = Kept("secret"); for (const [k, v] of this.writes.splice(0)) this.pending.set(k, { v, warned: false }); for (const [k, entry] of this.pending) try { entry.v == null ? localStorage.removeItem(p + k) : localStorage.setItem(p + k, entry.v); this.pending.delete(k); } catch (e) { if (!entry.warned) { entry.warned = true; say(`store ${k} failed: ${e}`); } } },
   load() { const p = Kept("secret"); try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith(p)) this.map.set(k.slice(p.length), localStorage.getItem(k)); } } catch {} },
 };
 /** Every resource, in plan order: the checkpoint a render writes reads them. */
