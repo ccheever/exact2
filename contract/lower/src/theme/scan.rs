@@ -149,6 +149,68 @@ fn grouped_list(file: &File, tag: &str, attrs: &[Attr]) -> bool {
     matches!(crate::grouped::style(tag, &expanded), Ok(Some(_)))
 }
 
+/// Each element of `nodes` by its address, numbered in the order lowering
+/// lowers them (depth first, in order): a style's row is keyed by the element
+/// applying it, and refused once for its first, as the build refuses it.
+fn order(nodes: &[Node], out: &mut std::collections::HashMap<usize, usize>) {
+    for node in nodes {
+        if matches!(node, Node::Element { .. }) {
+            let next = out.len() + 1;
+            out.insert(node as *const Node as usize, next);
+        }
+        match node {
+            Node::Element { children, .. } | Node::Use { children, .. } => order(children, out),
+            Node::When {
+                then, otherwise, ..
+            } => {
+                order(then, out);
+                order(otherwise, out);
+            }
+            Node::Each { body, .. } => order(body, out),
+            Node::Match { some, none, .. } => {
+                order(&some.1, out);
+                order(none, out);
+            }
+            Node::Children { .. } => {}
+        }
+    }
+}
+
+/// The styles an element's `class=` names: one, or a choice's two.
+fn class_names(attrs: &[Attr]) -> Vec<&str> {
+    match attrs.iter().find(|a| a.name == "class").map(|c| &c.value) {
+        Some(Expr::Ident(name, _)) => vec![name.as_str()],
+        Some(Expr::Ternary(_, yes, no, _)) => [&**yes, &**no]
+            .into_iter()
+            .filter_map(|e| match e {
+                Expr::Ident(name, _) => Some(name.as_str()),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Whether `grouped::style` refuses `tag`, its class's rows with its own.
+fn grouped_refused(file: &File, tag: &str, attrs: &[Attr]) -> bool {
+    let style = |name: &str| {
+        file.styles
+            .iter()
+            .rfind(|s| s.name == name)
+            .map(|s| s.attrs.as_slice())
+    };
+    let Ok(class) = crate::class::rows(attrs, &style) else {
+        return false;
+    };
+    let expanded: Vec<Attr> = class
+        .map(|(_, rows)| rows)
+        .unwrap_or_default()
+        .into_iter()
+        .chain(attrs.iter().filter(|a| a.name != "class").cloned())
+        .collect();
+    crate::grouped::style(tag, &expanded).is_err()
+}
+
 /// The address of `node` and of every node inside it, into `out`.
 fn addresses(node: &Node, out: &mut std::collections::HashSet<usize>) {
     out.insert(node as *const Node as usize);
@@ -279,6 +341,9 @@ impl Said {
         // (`grouped::folds`) holds one text lowering builds anew, at its
         // first arm's place: the chain's rows are left to the build
         // (`left`).
+        let mut lowered = std::collections::HashMap::new();
+        order(&root.view, &mut lowered);
+        let mut unjudged: std::collections::HashSet<Span> = Default::default();
         let mut stack: Vec<(&Node, Around)> =
             root.view.iter().map(|n| (n, Around::default())).collect();
         while let Some((node, around)) = stack.pop() {
@@ -391,7 +456,7 @@ impl Said {
                     let mut fonts = None;
                     // A module tag's row lowering refuses is never judged
                     // (`native::refused`, before any check of it).
-                    for r in own.iter().filter(|r| {
+                    for (index, r) in own.iter().enumerate().filter(|(_, r)| {
                         !left
                             && !(tag == "audio" && r.name == "display")
                             && !(yields && crate::row_look::look(r))
@@ -419,6 +484,110 @@ impl Said {
                             fonts,
                             computed,
                             within: within.clone(),
+                            element: 0,
+                            index,
+                            order: lowered
+                                .get(&(node as *const Node as usize))
+                                .copied()
+                                .unwrap_or(0),
+                        });
+                    }
+                    // A style's rows where an element applies it, as lowering
+                    // applies them (`class::rows`: the element's own rows of
+                    // a name replace the style's), each judged here with the
+                    // element's fonts and typing, keyed by the element too.
+                    // Left to the build: a choice of styles, an element whose
+                    // class rows lowering rewrites or judges otherwise first
+                    // (an SVG element's, coerced; a box's `transform`; a
+                    // grouped list's, or one `grouped::style` refuses, and its
+                    // rows and sheet; a `button`'s, which `button_appearance`
+                    // reads first, a native one refusing rows of its own; an
+                    // `audio`'s `display`; a row a `delete=` swipe expands,
+                    // whose rows go before the class's), and one a `for` or
+                    // `match` binds a name around. A style row applied at any
+                    // such element is the build's at every element (`unjudged`,
+                    // below): there it may be the build's first refusal of it,
+                    // in its words.
+                    let plain_class = a
+                        .iter()
+                        .find(|r| r.name == "class")
+                        .is_some_and(|c| matches!(c.value, Expr::Ident(..)));
+                    let class_left = left
+                        || local
+                        || !plain_class
+                        || in_svg
+                        || tag == "svg"
+                        || grouped != Grouped::No
+                        || yielding.is_some()
+                        || tag == "button"
+                        || tag == "audio"
+                        || a.iter().any(|r| r.name == "delete");
+                    let style = |name: &str| {
+                        file.styles
+                            .iter()
+                            .rfind(|s| s.name == name)
+                            .map(|s| s.attrs.as_slice())
+                    };
+                    let class = match class_left {
+                        true => None,
+                        false => crate::class::rows(a, &style).ok().flatten(),
+                    };
+                    let judged = class.as_ref().is_some_and(|(_, rows)| {
+                        let joined: Vec<Attr> = rows.iter().chain(own).cloned().collect();
+                        let plain: Vec<Attr> = rows
+                            .iter()
+                            .chain(a.iter().filter(|a| a.name != "class"))
+                            .cloned()
+                            .collect();
+                        matches!(crate::box_transform::lower(tag, in_svg, &joined), Ok(None))
+                            && matches!(crate::grouped::style(tag, &plain), Ok(None))
+                    });
+                    if !judged {
+                        for name in class_names(a) {
+                            unjudged.extend(style(name).into_iter().flatten().map(|r| r.span));
+                        }
+                    }
+                    for (index, r) in class
+                        .iter()
+                        .filter(|_| judged)
+                        .flat_map(|(_, rows)| rows)
+                        .enumerate()
+                    {
+                        if crate::native::refused(tag, r).is_some() {
+                            unjudged.insert(r.span);
+                            continue;
+                        }
+                        let computed = match super::rows::kept(r) {
+                            Some(false) => None,
+                            Some(true) => match super::rows::typed(&r.value, scope) {
+                                Some(ty) => Some((ty, typing.clone())),
+                                None => continue,
+                            },
+                            _ => continue,
+                        };
+                        let fonts = match super::rows::font_row(&r.name) {
+                            false => None,
+                            true => match fonts.get_or_insert_with(|| {
+                                super::rows::Fonts::of(file, a, !children.is_empty(), declared)
+                            }) {
+                                Some(f) => Some(f.clone()),
+                                None => continue,
+                            },
+                        };
+                        rows.push(super::rows::Said {
+                            attr: r.clone(),
+                            fonts,
+                            computed,
+                            within: within.clone(),
+                            element: lowered
+                                .get(&(node as *const Node as usize))
+                                .copied()
+                                .unwrap_or(0),
+                            index,
+                            order: lowered
+                                .get(&(node as *const Node as usize))
+                                .copied()
+                                .unwrap_or(0),
                         });
                     }
                     let inside = svg || tag == "svg";
@@ -430,6 +599,9 @@ impl Said {
                         _ if tag == "list" && grouped_list(file, tag, a) => Grouped::Sections,
                         _ => Grouped::No,
                     };
+                    // A list `grouped::style` refuses is lowered no further:
+                    // its children are the build's (`prepare_element`).
+                    let left = left || (tag == "list" && grouped_refused(file, tag, a));
                     let inner = Around {
                         svg: inside,
                         parent: Some(tag.as_str()),
@@ -465,6 +637,9 @@ impl Said {
                 Node::Children { .. } => {}
             }
         }
+        // A style row applied where the check leaves class rows to the build
+        // is the build's everywhere.
+        rows.retain(|r| r.element == 0 || !unjudged.contains(&r.attr.span));
         let mut folded = BTreeSet::new();
         // A colour keyframe folds its tokens as a row does (`keyframes::tokens`):
         // its value as the app compiles it, through a palette function's

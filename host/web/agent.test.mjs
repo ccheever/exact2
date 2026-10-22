@@ -231,7 +231,7 @@ function fixture(agentMode = true) {
     INHERITED_CSS: {}, getComputedStyle: () => ({}), inertAncestor: () => false,
     viewBox: element => element.getBoundingClientRect(),
     navigation: { observation: () => ({ location: '/' }), reset() {} },
-    presence: { live: null },
+    presence: { live: null, pending: () => null, landed: async () => true },
     ask: req => req.op === 'state' ? state : req.op === 'logs' ? logs : req.op === 'node' ? { id: req.id, type: 'Text' }
       : req.op === 'tags' ? { epoch: 2, incarnation: 1, clock: 0 } : { error: 'unknown op' },
     tree: () => outline, now: () => 0, environment: () => ({}),

@@ -698,11 +698,11 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
   const close = async () => {
     closing = true;
     try { socket.end(); } catch {}
-    await waitAtMost(exited, 2000);
+    const hungUp = await waitAtMost(exited.then(() => true), 2000);
     let touchFailure = null;
     try { await touches?.close(); } catch (e) { touchFailure = e; }
     if (pid) { try { process.kill(pid, 'SIGKILL'); } catch {} }
-    await waitAtMost(consoleExited, 1000);
+    if (!hungUp) await waitAtMost(consoleExited, 1000); // the socket closed as the app ended: `simctl launch` hears of it ~0.5 s later, with nothing to add
     if (!consoleDone) {
       try { console_.kill('SIGKILL'); } catch {}
       await consoleExited;

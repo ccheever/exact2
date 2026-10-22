@@ -100,7 +100,13 @@ panic = "abort"
 lto = false
 incremental = true
 
+# Xcode 27's strip and a build script or proc macro (release's, above); a
+# dependency's own under `package."*"`, which outranks the override.
+[profile.gpu-dev.build-override]
+strip = false
+
 [profile.gpu-dev.package."*"]
+strip = false
 opt-level = 3
 
 # The engine crates are workspace members here, so the wildcard excludes them.

@@ -163,7 +163,7 @@ export function galleryLoop({ app, root, appDist, channel = () => null, client, 
   /** Its plan's inspect table (the loop's own command, a process of the gallery's), the last two. */
   function inspectTable(digest) {
     if (!tables.has(digest)) {
-      const tool = tableTool(), out = resolve(cache, `inspect-${digest}.json`);
+      const tool = tableTool(), out = resolve(cache, `inspect-${digest}-${process.pid}.json`); // (this loop's own, as dev.mjs's)
       tables.set(digest, (async () => {
         if (!tool) return null;
         const made = await step(tool.cmd, [...tool.pre, 'inspect-table', resolve(dist, 'app.plan'), out], {});
