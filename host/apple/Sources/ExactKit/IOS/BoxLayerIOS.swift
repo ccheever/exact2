@@ -5,7 +5,7 @@
 // times the scale squared, painted or not: a collection's spacer asked for
 // gigabytes, and each card of a list carried its own. What Core Animation
 // cannot say still draws, through `draw(_:)` as before: borders that differ
-// by side, radii that differ by corner, a paragraph without a raster, a
+// by side, a paragraph without a raster, a
 // capture's picture. (The macOS host's `wantsUpdateLayer` split.) An image's
 // pixels are a sublayer's contents where its clip is one radius over the
 // part of the content box it covers: no bitmap of the view's size is painted
@@ -142,9 +142,8 @@ extension NodeView {
     }
 
     /// A `background-image` gradient (LLP 1066) as a sublayer under
-    /// everything else the layer holds — over the layer's background, under
-    /// its border and children — with the box's one radius, which is all a
-    /// box `draw(_:)` does not paint can have. A view that paints through
+    /// everything else the layer holds — over the box's fill, under its
+    /// border and children — clipped to its corners. A view that paints through
     /// `draw(_:)` paints the gradient there instead, in the same place —
     /// unless it is `background-attachment: fixed` (`gradientLayered`).
     func applyGradientLayer() {
@@ -158,10 +157,10 @@ extension NodeView {
         defer { CATransaction.commit() }
         let g = boxGradient ?? CAGradientLayer()
         boxGradient = g
-        if layer.sublayers?.first !== g { layer.insertSublayer(g, at: 0) }
+        if g.superlayer !== layer { insertBoxSublayer(g) }
         if g.frame != layer.bounds { g.frame = layer.bounds }
-        if drawsPaint {
-            // Over the drawn box: its outline, whatever its corners.
+        if drawsPaint || (layer.cornerRadius == 0 && cornerRadii(in: bounds).contains { $0 > 0 }) {
+            // Over the shaped box: its outline, whatever its corners.
             let outline = (g.mask as? CAShapeLayer) ?? CAShapeLayer()
             let path = roundedPath(in: bounds).cgPath
             if outline.path != path { outline.path = path }
@@ -184,7 +183,7 @@ extension NodeView {
     /// gradient layer: anything above the node scrolling re-aims it
     /// (`reaimFixedGradient`), a few points set on a layer, where a drawn
     /// gradient would repaint the box every frame. Over a box `draw(_:)`
-    /// paints (corners of different radii: a chat bubble) the layer is
+    /// paints the layer is
     /// masked to the outline, over the drawn fill — and over a drawn
     /// border, which is owed. Several layers, a conic or repeating one, or another
     /// `background-clip` draw as before, unfixed.
@@ -260,7 +259,8 @@ extension NodeView {
         let patterned = drawn.contains { ["dotted", "dashed"].contains(style["border_style_" + sides[$0]]?.string ?? "solid") }
         let sideColor = drawn.first.map { colors[$0] }
         let edges = !patterned && !oneBorder && !own && radii.allSatisfy { $0 == 0 } && drawn.allSatisfy { colors[$0] == sideColor }
-        boxDrawn = !away && (patterned || !((oneBorder || edges) && oneRadius && (shape == nil || continuous)) || gradientDraws || backgroundClip != "border-box") && (fill != nil || gradient || widths.contains { $0 > 0 })
+        let shapedRadii = !oneRadius && shape == nil && oneBorder
+        boxDrawn = !away && (patterned || !((oneBorder || edges) && (oneRadius || shapedRadii) && (shape == nil || continuous)) || gradientDraws || backgroundClip != "border-box") && (fill != nil || gradient || widths.contains { $0 > 0 })
         let onLayer = !boxDrawn
         var corners: CACornerMask = []
         let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
@@ -283,7 +283,9 @@ extension NodeView {
         if layer.cornerCurve != curve { layer.cornerCurve = curve }
         // A vibrant fill is its vibrancy view's (`VibrancyIOS.swift`).
         let bg = onLayer && !away && !cssVisibilityHidden && (vibrancyView == nil || isParagraph) ? fill : nil
-        if layer.backgroundColor != bg { layer.backgroundColor = bg }
+        applyCornerFill(shapedRadii ? bg : nil)
+        let layerFill = shapedRadii ? nil : bg
+        if layer.backgroundColor != layerFill { layer.backgroundColor = layerFill }
         // A flight interpolates the radius itself (LLP 1013.000 D4).
         if flightLook == nil, layer.cornerRadius != cornerRadius { layer.cornerRadius = cornerRadius }
         if let v = vibrancyView, !isParagraph {
@@ -292,18 +294,32 @@ extension NodeView {
             v.clipsToBounds = cornerRadius > 0
         }
         if cornerRadius > 0, layer.maskedCorners != corners { layer.maskedCorners = corners }
-        let ownWidth = own && border != nil ? width : 0
+        let ownWidth = own && !shapedRadii && border != nil ? width : 0
         if layer.borderWidth != ownWidth { layer.borderWidth = ownWidth }
         if ownWidth > 0, layer.borderColor != border { layer.borderColor = border }
-        guard let border, !own else { boxBorder?.removeFromSuperlayer(); boxBorder = nil; return }
-        if let old = boxBorder, (old is CAShapeLayer) != edges { old.removeFromSuperlayer(); boxBorder = nil }
-        let b = boxBorder ?? (edges ? CAShapeLayer() : CALayer())
+        guard let border, !own || shapedRadii else { boxBorder?.removeFromSuperlayer(); boxBorder = nil; return }
+        let shapeBorder = edges || shapedRadii
+        if let old = boxBorder, (old is CAShapeLayer) != shapeBorder { old.removeFromSuperlayer(); boxBorder = nil }
+        let b = boxBorder ?? (shapeBorder ? CAShapeLayer() : CALayer())
         if b.superlayer !== layer {
             boxBorder = b
             insertBoxSublayer(b)
         }
         if b.frame != bounds { b.frame = bounds }
         if let shape = b as? CAShapeLayer {
+            if shapedRadii {
+                let path = roundedPath(in: bounds).cgPath.mutableCopy()!
+                let inner = bounds.insetBy(dx: width, dy: width)
+                if inner.width > 0, inner.height > 0 {
+                    let sizes = BorderPaint.contentRadii(cornerSizes(in: bounds), outer: bounds, inner: inner)
+                    path.addPath(BorderPaint.roundedRect(inner, sizes))
+                }
+                if shape.path != path { shape.path = path }
+                shape.fillRule = .evenOdd
+                if shape.fillColor != border { shape.fillColor = border }
+                return
+            }
+            shape.fillRule = .nonZero
             let (w, h) = (bounds.width, bounds.height)
             let path = CGMutablePath()
             for rect in [CGRect(x: 0, y: 0, width: w, height: widths[0]),
@@ -328,7 +344,7 @@ extension NodeView {
     /// shadow, gradient, inset shadow, image, border, text — whichever of
     /// them joins first (as `Mac/BoxLayerMac.swift`).
     func insertBoxSublayer(_ l: CALayer) {
-        let order: [CALayer?] = [shadowCaster, boxGradient, insetCaster, imageLayer, boxBorder, textRasterLayer]
+        let order: [CALayer?] = [shadowCaster, boxFill, boxGradient, insetCaster, imageLayer, boxBorder, textRasterLayer]
         guard let rank = order.firstIndex(where: { $0 === l }) else { return }
         if let below = order[..<rank].reversed().compactMap({ $0 }).first(where: { $0.superlayer === layer }) {
             layer.insertSublayer(l, above: below)
