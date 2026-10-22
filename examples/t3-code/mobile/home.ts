@@ -50,12 +50,12 @@ export interface HomeItem {
   status: string; statusTone: string; time: string; error: string; card: boolean; pinned: boolean; queued: boolean;
   expanded: boolean; disabled: boolean; count: number; last: boolean; trailingDivider: boolean; selected: boolean;
   faviconTarget: MobileProjectFaviconTarget; favicon: string; iconKind: string; iconText: string; iconColor: string; iconSurface: string; iconSize: number;
-  provider: HomeProvider; searchExcerpt: string; swipe: HomeSwipeData; menuItems: HomeMenuItem[]; nativeMenu: string;
+  provider: HomeProvider; searchExcerpt: string; swipe: HomeSwipeData; menuItems: HomeMenuItem[]; nativeMenu: string; dismissalIdentity: string;
 }
 const blankItem = (key: string): HomeItem => ({ key, kind: 'thread', draftKey: '', queuedOwner: '', showPendingDivider: false, id: '', environmentId: '', projectId: '', threadId: '', section: '', title: '',
   projectTitle: '', projectPresent: false, branch: '', environmentLabel: '', machineSymbol: '', status: '', statusTone: '',
   time: '', error: '', card: false, pinned: false, queued: false, expanded: false, disabled: false, count: 0,
-  last: false, trailingDivider: false, selected: false, faviconTarget: mobileProjectFaviconTarget(''), favicon: '', iconKind: '', iconText: '', iconColor: '', iconSurface: '', iconSize: 0, provider: blankHomeProvider(), searchExcerpt: '', swipe: blankHomeSwipe(), menuItems: [], nativeMenu: '' });
+  last: false, trailingDivider: false, selected: false, faviconTarget: mobileProjectFaviconTarget(''), favicon: '', iconKind: '', iconText: '', iconColor: '', iconSurface: '', iconSize: 0, provider: blankHomeProvider(), searchExcerpt: '', swipe: blankHomeSwipe(), menuItems: [], nativeMenu: '', dismissalIdentity: '' });
 const scoped = (environmentId: string, id: unknown) => `${environmentId}:${str(id)}`;
 /** threadPullRequestSearchTerms (packages/shared/src/threadPullRequests.ts at 365aa87982): visible links, else the legacy link. */
 const pullRequestSearchTerms = (thread: Obj): string[] => {

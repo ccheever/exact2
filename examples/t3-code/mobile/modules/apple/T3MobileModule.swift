@@ -207,7 +207,7 @@ final class T3MobileModule: ExactModule {
     }
     override func element(_ element: ExactElement) {
         if element.hatch == .mobileHomeRow { homeChrome.rowMenus.configure(element); homeChrome.customSnooze.configure(element) }
-        if element.hatch == .mobileHomeRow || element.hatch == .mobileHomeSwipeList || element.hatch == .mobileHomeSnooze { homeSwipes.configure(element) }
+        if element.hatch == .mobileHomeRow || element.hatch == .mobileHomeSwipeList || element.hatch == .mobileHomeSnooze || element.hatch == .mobileHomeDismissal { homeSwipes.configure(element) }
         if element.hatch == .mobileReviewList || element.hatch == .mobileReviewRow { reviewViewport.configure(element) }
         if element.hatch == .mobileVoiceEditor {
             voice.editor.configure(element, owner: element.data[.mobileVoiceOwner] ?? "",
@@ -216,7 +216,7 @@ final class T3MobileModule: ExactModule {
     }
     override func elementEnded(_ element: ExactElement) {
         if element.hatch == .mobileHomeRow { homeChrome.rowMenus.end(element); homeChrome.customSnooze.end(element) }
-        if element.hatch == .mobileHomeRow || element.hatch == .mobileHomeSwipeList || element.hatch == .mobileHomeSnooze { homeSwipes.end(element) }
+        if element.hatch == .mobileHomeRow || element.hatch == .mobileHomeSwipeList || element.hatch == .mobileHomeSnooze || element.hatch == .mobileHomeDismissal { homeSwipes.end(element) }
         if element.hatch == .mobileReviewList || element.hatch == .mobileReviewRow { reviewViewport.end(element) }
         if element.hatch == .mobileVoiceEditor { voice.editor.end(element) }
     }
@@ -454,6 +454,8 @@ final class T3MobileModule: ExactModule {
         let generation = request["generation"] as? Int ?? 0
         func answer(_ value: [String: Any] = [:]) { reply.send(["ok": true, "generation": generation, "value": value]) }
         switch request["op"] as? String {
+        case "mobileHomeDismissal":
+            homeSwipes.dismissal(request, reply: reply)
         case "timelineSleep":
             guard let milliseconds = request["ms"] as? Double,
                   scratchClock.sleep(milliseconds: milliseconds, reply: { finished in

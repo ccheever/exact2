@@ -1,6 +1,6 @@
 #if os(iOS)
 // @ref examples/t3-code/mobile/docs/1130.004-home-projection.decision.md#decision
-// Recognition only. Contract owns row geometry and semantic Home actions.
+// Native recognition and mounted-copy receipts. Contract owns all row geometry.
 import UIKit
 
 final class T3MobileHomeSwipes {
@@ -14,11 +14,26 @@ final class T3MobileHomeSwipes {
     private var serial = 0
     private var alive = true
     private var sidebarVisible = false
+    private var dismissalRows: [ObjectIdentifier: T3HomeDismissalRow] = [:]
+    private var dismissalElements: [ObjectIdentifier: ExactElement] = [:]
+    private var dismissals: [String: T3HomeDismissalOperation] = [:]
+    private var dismissalClock: ExactTicket?
+    private var lastDismissalSeq: UInt64 = 0
+    private var actionPending = false
+    private var actionRoute = ""
     let context: ExactModuleContext
     init(context: ExactModuleContext) { self.context = context }
 
     func makeView(props: [String: String], events: ExactNativeEvents) throws -> ExactNativeInstance {
         guard alive else { throw ExactNativeRefusal("The Home swipe session ended.") }
+        if props["swipe-controller-pending"] != nil {
+            let lease = T3HomeDismissalLease(owner: self, events: events); try lease.setProps(props); return lease
+        }
+        if props["swipe-dismissal-identity"] != nil {
+            let row = T3HomeDismissalRow(owner: self, events: events)
+            dismissalRows[ObjectIdentifier(row)] = row
+            do { try row.setProps(props); return row } catch { row.destroy(); throw error }
+        }
         let bridge = T3HomeSwipeBridge(owner: self, events: events)
         bridges[ObjectIdentifier(bridge)] = BridgeRef(bridge)
         try bridge.setProps(props)
@@ -62,6 +77,11 @@ final class T3MobileHomeSwipes {
     func configure(_ element: ExactElement) {
         let key = ObjectIdentifier(element)
         element.reusable = true
+        if element.hatch == .mobileHomeDismissal {
+            dismissalElements[key] = element
+            for row in dismissalRows.values { bindDismissal(row) }
+            return
+        }
         if element.hatch == .mobileHomeSwipeList {
             guard let owner = element.data[.mobileSwipeOwner], T3HomeSwipePacket.token(owner), let scroll = element.scrollView else {
                 lists.removeValue(forKey: key)?.end(); return
@@ -89,6 +109,8 @@ final class T3MobileHomeSwipes {
     }
     func end(_ element: ExactElement) {
         let key = ObjectIdentifier(element)
+        dismissalElements.removeValue(forKey: key)
+        for row in Array(dismissalRows.values) where row.element === element { row.unbind() }
         rows.removeValue(forKey: key)?.end(); lists.removeValue(forKey: key)?.end(); snooze.removeValue(forKey: key)?.end()
         element.reusable = true
     }
@@ -105,11 +127,235 @@ final class T3MobileHomeSwipes {
     func retired(owner: String, row: String) { bridge(for: owner)?.retired(row) }
     func destroy() {
         guard alive else { return }
+        cancelDismissals()
+        Array(dismissalRows.values).forEach { $0.destroy() }
+        dismissalElements.removeAll()
         for bridge in liveBridges { bridge.invalidate() }
         alive = false
         rows.values.forEach { $0.end() }; lists.values.forEach { $0.end() }
         snooze.values.forEach { $0.end() }
         rows.removeAll(); lists.removeAll(); snooze.removeAll(); bridges.removeAll(); routes.removeAll()
+    }
+}
+
+fileprivate struct T3HomeDismissalScope: Equatable {
+    let requestRoute: String, environmentId: String, threadId: String, origin: String
+    let generation: Int
+    init?(_ value: [String: Any]) {
+        guard let requestRoute = value["requestRoute"] as? String, let environmentId = value["environmentId"] as? String,
+              let threadId = value["threadId"] as? String, let origin = value["origin"] as? String,
+              let generation = value["generation"] as? Int else { return nil }
+        self.requestRoute = requestRoute; self.environmentId = environmentId; self.threadId = threadId
+        self.origin = origin; self.generation = generation
+    }
+}
+
+private final class T3HomeDismissalOperation {
+    struct Capture { let row: T3HomeDismissalRow; let incarnation: Int }
+    let token: String
+    let scope: T3HomeDismissalScope
+    let captures: [Capture]
+    var waiting: Set<Int>
+    var reply: ExactReply?
+    init(token: String, scope: T3HomeDismissalScope, rows: [T3HomeDismissalRow]) {
+        self.token = token; self.scope = scope
+        captures = rows.map { Capture(row: $0, incarnation: $0.incarnation) }
+        waiting = Set(captures.map(\.incarnation))
+    }
+}
+
+extension T3MobileHomeSwipes {
+    func observeActionLease(pending: Bool, route: String) {
+        if !pending || actionRoute != route { cancelDismissals() }
+        actionPending = pending; actionRoute = route
+    }
+    func bindDismissal(_ row: T3HomeDismissalRow) {
+        let matching = dismissalElements.values.filter {
+            $0.isLive && $0.data[.mobileSwipeOwner] == row.ownerKey && $0.data[.mobileSwipeRow] == row.rowKey
+                && $0.data[.mobileDismissalIdentity] == row.identity && $0.view.map { row.view.isDescendant(of: $0) } == true
+        }
+        if matching.count == 1 { row.bind(matching[0]) } else { row.unbind() }
+    }
+    func dismissalRetired(_ incarnation: Int) {
+        for operation in Array(dismissals.values) {
+            operation.waiting.remove(incarnation); answerDismissal(operation)
+        }
+    }
+    func dismissalRemoved(_ row: T3HomeDismissalRow) { dismissalRows.removeValue(forKey: ObjectIdentifier(row)) }
+    func dismissalEchoSequence() -> UInt64 { lastDismissalSeq }
+    func closeDismissalGesture(owner: String, row: String) {
+        for item in rows.values where item.identity.owner == owner && item.identity.row == row { item.cancel() }
+        // Presentation cleanup also reaches mounted, inactive copies.
+        for bridge in liveBridges where bridge.ownerKey == owner { bridge.retired(row) }
+    }
+    func dismissalFinished(_ incarnation: Int, token: String) {
+        guard let operation = dismissals[token] else { return }
+        operation.waiting.remove(incarnation); answerDismissal(operation)
+    }
+    private func answerDismissal(_ operation: T3HomeDismissalOperation) {
+        if operation.waiting.isEmpty, let reply = operation.reply {
+            operation.reply = nil
+            reply.send(["ok": true, "generation": operation.scope.generation, "value": ["token": operation.token, "completed": true]])
+        }
+        reconcileDismissalClock()
+    }
+    private func reconcileDismissalClock() {
+        guard dismissals.values.contains(where: { $0.reply != nil && !$0.waiting.isEmpty }) else {
+            dismissalClock?.stop(); dismissalClock = nil; return
+        }
+        guard dismissalClock == nil else { return }
+        dismissalClock = context.frames { [weak self] frame in
+            guard let self else { return }
+            self.lastDismissalSeq = frame.seq
+            for row in Array(self.dismissalRows.values) { row.frame(frame) }
+        }
+    }
+    private func finishDismissal(_ operation: T3HomeDismissalOperation, committed: Bool) {
+        dismissals.removeValue(forKey: operation.token)
+        for capture in operation.captures where capture.row.incarnation == capture.incarnation {
+            capture.row.finish(operation.token, committed: committed)
+        }
+        operation.reply?.fail("The Home dismissal ended."); operation.reply = nil
+        reconcileDismissalClock()
+    }
+    private func cancelDismissals() {
+        for operation in Array(dismissals.values) { finishDismissal(operation, committed: false) }
+    }
+    func dismissal(_ request: [String: Any], reply: ExactReply) {
+        guard alive else { reply.fail("The Home session ended."); return }
+        guard let scope = T3HomeDismissalScope(request) else { reply.fail("Invalid Home dismissal scope."); return }
+        func answer(_ value: [String: Any] = [:]) { reply.send(["ok": true, "generation": scope.generation, "value": value]) }
+        switch request["phase"] as? String {
+        case "prepare":
+            let rows = dismissalRows.values.filter { $0.matches(scope) && $0.element?.isLive == true && $0.element?.view != nil }
+            if rows.isEmpty { answer(); return }
+            guard actionPending, actionRoute == scope.requestRoute else { reply.fail("The Home action ended."); return }
+            let token = String(nextSerial())
+            dismissals[token] = T3HomeDismissalOperation(token: token, scope: scope, rows: Array(rows))
+            answer(["token": token])
+        case "begin":
+            guard let token = request["token"] as? String, let operation = dismissals[token], operation.reply == nil, operation.scope == scope,
+                  actionPending, actionRoute == scope.requestRoute else { reply.fail("The Home dismissal changed."); return }
+            operation.reply = reply
+            do {
+                for capture in operation.captures where operation.waiting.contains(capture.incarnation) {
+                    if capture.row.incarnation != capture.incarnation { operation.waiting.remove(capture.incarnation) }
+                    else if try !capture.row.begin(token) { operation.waiting.remove(capture.incarnation) }
+                }
+            } catch { finishDismissal(operation, committed: false); return }
+            answerDismissal(operation)
+        case "finish":
+            if let token = request["token"] as? String, let operation = dismissals[token], operation.scope == scope {
+                finishDismissal(operation, committed: request["committed"] as? Bool == true)
+            }
+            answer()
+        default: reply.fail("Unknown Home dismissal phase.")
+        }
+    }
+}
+
+private final class T3HomeDismissalLease: ExactNativeInstance {
+    private weak var owner: T3MobileHomeSwipes?
+    private let root = UIView()
+    override var view: UIView { root }
+    init(owner: T3MobileHomeSwipes, events: ExactNativeEvents) {
+        self.owner = owner; super.init(events: events); root.isUserInteractionEnabled = false
+    }
+    override func setProps(_ props: [String: String]) throws {
+        guard let pending = props["swipe-controller-pending"], ["true", "false"].contains(pending),
+              let route = props["swipe-controller-route"] else { throw ExactNativeRefusal("Invalid Home action lease.") }
+        owner?.observeActionLease(pending: pending == "true", route: route)
+    }
+    override func destroy() { owner?.observeActionLease(pending: false, route: ""); owner = nil }
+}
+
+final class T3HomeDismissalRow: ExactNativeInstance {
+    private weak var owner: T3MobileHomeSwipes?
+    private let root = UIView()
+    private var scope: T3HomeDismissalScope?
+    private var operation = "", displayToken = "", expectedPhase = ""
+    private var echo: (phase: String, after: UInt64)?
+    private var width = 0.0, height = 0.0
+    private var dismissed = false, alive = true
+    private(set) var ownerKey = "", rowKey = "", identity = ""
+    private(set) var incarnation = 0
+    private(set) weak var element: ExactElement?
+    override var view: UIView { root }
+    init(owner: T3MobileHomeSwipes, events: ExactNativeEvents) {
+        self.owner = owner; super.init(events: events); root.isUserInteractionEnabled = false
+    }
+    override func setProps(_ props: [String: String]) throws {
+        guard alive, let owner, let key = props["swipe-owner"], let row = props["swipe-row"],
+              let identity = props["swipe-dismissal-identity"], T3HomeSwipePacket.token(identity),
+              let json = props["swipe-context"]?.data(using: .utf8),
+              let value = (try? JSONSerialization.jsonObject(with: json)) as? [String: Any] else { throw ExactNativeRefusal("Invalid Home dismissal row.") }
+        if self.identity != identity || ownerKey != key || rowKey != row {
+            retireAuthored(identity: identity, token: props["swipe-dismissal-token"] ?? "",
+                registration: Int(props["swipe-dismissal-registration"] ?? "") ?? 0)
+            owner.dismissalRetired(incarnation); incarnation = owner.nextSerial()
+            operation = ""; displayToken = ""; expectedPhase = ""; echo = nil; dismissed = false; element = nil
+        }
+        self.identity = identity; ownerKey = key; rowKey = row; scope = T3HomeDismissalScope(value)
+        owner.bindDismissal(self)
+        if !operation.isEmpty, props["swipe-dismissal-token"] == displayToken,
+           props["swipe-dismissal-registration"] == String(incarnation),
+           Double(props["swipe-dismissal-progress"] ?? "") == 1,
+           let phase = props["swipe-dismissal-phase"], phase == (expectedPhase == "out" ? "out-done" : "collapsed"), !expectedPhase.isEmpty {
+            if echo == nil { echo = (phase, owner.dismissalEchoSequence()) }
+        }
+    }
+    fileprivate func matches(_ scope: T3HomeDismissalScope) -> Bool { alive && self.scope == scope }
+    func bind(_ next: ExactElement) {
+        if element === next { return }
+        if element != nil { unbind() }
+        element = next
+    }
+    func unbind() {
+        guard element != nil else { return }
+        retireAuthored(identity: identity, token: displayToken, registration: incarnation)
+        element = nil; owner?.dismissalRetired(incarnation); incarnation = owner?.nextSerial() ?? 0
+        operation = ""; displayToken = ""; expectedPhase = ""; echo = nil; dismissed = false
+    }
+    private func retireAuthored(identity: String, token: String, registration: Int) {
+        guard T3HomeSwipePacket.token(token), registration > 0 else { return }
+        events.change(["2", identity, String(registration), token, "retired"].joined(separator: "|"))
+    }
+    func begin(_ token: String) throws -> Bool {
+        guard alive, let view = element?.view, element?.isLive == true else { return false }
+        operation = token
+        if dismissed { return false }
+        width = Double(view.bounds.width); height = Double(view.bounds.height)
+        guard width.isFinite, height.isFinite, width > 0, height > 0 else { throw ExactNativeRefusal("The mounted Home row has no measurable bounds.") }
+        owner?.closeDismissalGesture(owner: ownerKey, row: rowKey)
+        displayToken = token; expectedPhase = "out"; echo = nil; send("out")
+        return true
+    }
+    private func send(_ phase: String, at: Double? = nil) {
+        guard let owner, !displayToken.isEmpty else { return }
+        events.change(["2", identity, String(incarnation), displayToken, phase, String(at ?? owner.context.now()), String(width), String(height)].joined(separator: "|"))
+    }
+    func frame(_ frame: ExactFrame) {
+        guard alive, !operation.isEmpty, !expectedPhase.isEmpty else { return }
+        if let echo {
+            guard frame.seq > echo.after else { return }
+            self.echo = nil
+            if echo.phase == "out-done" { expectedPhase = "collapse"; send("collapse", at: frame.now) }
+            else if echo.phase == "collapsed" {
+                expectedPhase = ""; dismissed = true; owner?.dismissalFinished(incarnation, token: operation)
+            }
+            return
+        }
+        // The authored action advances progress; elapsed native time never completes a row.
+        send("tick", at: frame.now)
+    }
+    func finish(_ token: String, committed: Bool) {
+        guard alive, operation == token else { return }
+        if !committed { send("restore"); dismissed = false; displayToken = "" }
+        operation = ""; expectedPhase = ""; echo = nil
+    }
+    override func destroy() {
+        guard alive else { return }; alive = false
+        unbind(); owner?.dismissalRetired(incarnation); owner?.dismissalRemoved(self); owner = nil
     }
 }
 

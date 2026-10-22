@@ -112,13 +112,15 @@
     "mobile-swipe-owner",
     "mobile-swipe-row",
     "mobile-swipe-enabled",
-    "mobile-swipe-open"
+    "mobile-swipe-open",
+    "mobile-dismissal-identity"
   ],
   "hatches": [
     "mobile-voice-editor",
     "mobile-review-list",
     "mobile-review-row",
     "mobile-home-row",
+    "mobile-home-dismissal",
     "mobile-home-swipe-list",
     "mobile-home-snooze"
   ]
