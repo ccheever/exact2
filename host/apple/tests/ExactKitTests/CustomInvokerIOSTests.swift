@@ -180,9 +180,16 @@ final class CustomInvokerIOSTests: XCTestCase {
                 ["op": "frame", "id": 31, "x": 10, "y": 10, "w": 160, "h": 40],
             ]))
         }
-        let reply = tap(agent, 3)
-        XCTAssertNil(reply["error"], "\(reply)")
+        let opener = try XCTUnwrap(p.views[2])
+        let contact = Touch(opener)
+        opener.touchesBegan([contact], with: nil)
+        XCTAssertNil(p.views[30], "the ancestor has not mounted the target yet")
+        XCTAssertFalse(opener.pressed, "the ancestor still owns the press")
+        XCTAssertTrue(try XCTUnwrap(p.views[1]).pressed)
+        XCTAssertNotNil(opener.press.dimmedAt, "a declared opening invocation shows contact before its target exists")
+        opener.touchesEnded([contact], with: nil)
         delivered()
+        XCTAssertNil(opener.press.dimmedAt)
         XCTAssertTrue(p.menus.isOpen(try XCTUnwrap(p.views[30])), "the target its ancestor's press mounted opens")
         p.menus.action("hidePopover", ["late"])
         p.onPress = nil
