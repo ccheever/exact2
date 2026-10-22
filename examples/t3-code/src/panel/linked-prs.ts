@@ -16,11 +16,12 @@ import { pushToast } from '../shell/toast';
 import { visiblePullRequests } from './shell-pr';
 import { relativeLabel } from '../pull-requests/pages-prs';
 import { letGo } from '../client/let-go';
+import { emptyBreakdown, presentChangeBreakdown, readChangeBreakdowns, type BreakdownTarget, type PrBreakdown } from '../pull-requests/pr-change-breakdown';
 
 export type LinkedRow = {
   key: string; index: number; number: number; title: string; url: string; host: string; repository: string; depth: number;
   state: string; stateLabel: string; waiting: boolean; conflict: string; open: boolean; watching: boolean;
-  checks: string; checksLabel: string; review: string; reviewLabel: string; additions: string; deletions: string;
+  checks: string; checksLabel: string; review: string; reviewLabel: string; additions: string; deletions: string; breakdown: PrBreakdown;
   author: string; avatar: string; initial: string; head: string; base: string; age: string; stackSize: number; stackLabel: string;
   sourceLabel: string; unlinkLabel: string; canWatch: boolean; context: string;
   speed: ReturnType<typeof quickRow>['speed']; speedPending: boolean;
@@ -116,7 +117,7 @@ const caps = (client: T3Client) => obj(obj(obj(client.config).environment).capab
 export function prsView(client: T3Client, now: number): PrsView {
   const supported = caps(client).threadPullRequests === true, canWatch = caps(client).threadPullRequestWatch === true;
   const links = sharedPullRequestLinks(client, arr(thread(client)?.pullRequests), str(thread(client)?.projectId));
-  const lines = listLines(resolveChains(links));
+  const lines = listLines(resolveChains(links)), projectId = str(thread(client)?.projectId);
   const rows = lines.map(({ link, depth, stack }, index): LinkedRow => {
     const snapshot = snapshotOf(link), state = !snapshot ? 'open' : snapshot.state === 'open' && snapshot.isDraft === true ? 'draft' : str(snapshot.state, 'open');
     const open = !snapshot || snapshot.state === 'open', author = obj(snapshot?.author);
@@ -129,6 +130,8 @@ export function prsView(client: T3Client, now: number): PrsView {
       open, watching: link.watch != null, checks: open ? str(snapshot?.checksState) : '', checksLabel: CHECKS_LABELS[str(snapshot?.checksState)] ?? '',
       review: open ? str(snapshot?.reviewDecision) : '', reviewLabel: REVIEW_LABELS[str(snapshot?.reviewDecision)] ?? '',
       additions: measured ? `+${additions.toLocaleString('en-US')}` : '', deletions: measured ? `-${deletions.toLocaleString('en-US')}` : '',
+      // A thread without a project keeps the bare +/- (no reference to read the split through).
+      breakdown: projectId ? presentChangeBreakdown(client, linkBreakdown(projectId, link)) : emptyBreakdown(),
       author: snapshot?.author ? login : '', avatar: str(author.avatarUrl), initial: login.slice(0, 1).toUpperCase(), head: str(snapshot?.headBranch), base: str(snapshot?.baseBranch),
       age: snapshot ? relativeLabel(snapshot.updatedAt, now) : '', stackSize: stack?.size ?? 0,
       stackLabel: stack ? (stack.kind === 'native' ? `GitHub stack of ${stack.size}: merging a layer lands the ones below it.` : `${stack.size} pull requests chained by base branch.`) : '',
@@ -143,6 +146,16 @@ export function prsView(client: T3Client, now: number): PrsView {
   let lastSynced = '';
   for (const link of visible) { const at = str(snapshotOf(link)?.syncedAt); if (at && at > lastSynced) lastSynced = at; }
   return { supported, rows, canWatch, footer: `${openCount} open · ${visible.length} linked${lastSynced ? ` · synced ${relativeLabel(lastSynced, now)}` : ''}` };
+}
+/** The split's target for a linked row: the thread's project reads it, the row's snapshot gives the totals. */
+const linkBreakdown = (projectId: string, link: Obj): BreakdownTarget => ({ reference: { projectId, host: str(link.host), repository: str(link.repository), number: num(link.number) },
+  additions: num(snapshotOf(link)?.additions), deletions: num(snapshotOf(link)?.deletions) });
+/** The rows' splits the reader asked for by hovering their +/- (the panel's resource, before it presents them). */
+export async function readLinkedBreakdowns(client: T3Client, native: Native | null | undefined): Promise<void> {
+  const projectId = str(thread(client)?.projectId);
+  if (!projectId) return;
+  const links = sharedPullRequestLinks(client, arr(thread(client)?.pullRequests), projectId);
+  await readChangeBreakdowns(client, native, visiblePullRequests(links).map(link => linkBreakdown(projectId, link)));
 }
 export const emptyPrs = (): PrsView => ({ supported: false, rows: [], footer: '', canWatch: false });
 

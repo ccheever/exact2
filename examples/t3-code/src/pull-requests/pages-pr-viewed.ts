@@ -1,4 +1,4 @@
-// The Code tab's Viewed marks: usePullRequestFilesViewed (T3 Code 1e2ecbd975,
+// The Code tab's Viewed marks: usePullRequestFilesViewed (T3 Code 74541bab17,
 // MIT, see LICENSE-T3: apps/web/src/components/pullRequest/usePullRequestFilesViewed.ts) as a plain
 // store the panel's resource and its commands share, one per change request on one environment.
 //
@@ -8,8 +8,9 @@
 // one `pullRequests.setFilesViewed` of at most 500 presses, detached from the answer that sent it
 // (composer-replies.ts). One write is in flight per change request (the reference's serial command
 // scheduler); presses made while a write is out wait for the next flush. A press is held over the host's answers until a read that could have seen
-// it comes back (`answeredFrom`); a failed write takes its own presses back and says "Could not
-// update viewed files" unless nothing on screen went back or the connection went away.
+// it comes back (`answeredFrom`); a failed write takes its own presses back, says "Could not
+// update viewed files" and reads the marks again (the batch may have applied some paths), unless nothing on screen
+// went back or the connection went away.
 import {
   countViewedFiles, isFileViewed, isStaleViewedState, revertFileViewedOverlay, settleFileViewedOverlay, toFileViewedBatch, toFileViewedStates,
   type FileViewedOverlay, type FileViewedStates, type PullRequestFileViewedState,
