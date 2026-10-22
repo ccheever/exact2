@@ -5,6 +5,7 @@ import UIKit
 // Keep the detail button while UIKit refreshes the cell for accessibility.
 final class GroupedCell: UICollectionViewListCell {
     #if os(iOS)
+    weak var menuSource: NodeView?
     private var detailButton: UIButton?
     private var detailAction: (() -> Void)?
 
@@ -62,4 +63,8 @@ final class GroupedCell: UICollectionViewListCell {
         return fitted
     }
 }
+#endif
+
+#if os(iOS)
+extension GroupedCell: GroupedMenuSurface {}
 #endif

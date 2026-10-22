@@ -17,6 +17,7 @@ import UIKit
 final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditMenuInteractionDelegate {
     private weak var presenter: Presenter?
     private weak var menus: MenuHost?
+    private var projected: [ObjectIdentifier: UIContextMenuInteraction] = [:]
     private var interactions: [UInt32: UIContextMenuInteraction] = [:]
     private lazy var keyboardInteraction = UIEditMenuInteraction(delegate: self)
     /// A sheet's mount's interaction, while a logical ancestor of its route
@@ -88,6 +89,27 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         view.interactions.compactMap { $0 as? UIContextMenuInteraction }.filter { $0.delegate === self }
     }
 
+    func syncProjected(_ view: UIView & GroupedMenuSurface) {
+        let key = ObjectIdentifier(view)
+        if let owner = open, owner.interaction?.view === view, owner.source !== view.menuSource {
+            owner.interaction?.dismissMenu()
+            restore(owner)
+            open = nil
+        }
+        let wanted = !ExactEnv.agentMode && view.menuSource?.props["contextPopover"]?.isEmpty == false
+        if wanted, projected[key] == nil {
+            let interaction = UIContextMenuInteraction(delegate: self)
+            let before = companions(of: view)
+            view.addInteraction(interaction)
+            projected[key] = interaction
+            recognizers[ObjectIdentifier(interaction)] = companions(of: view).subtracting(before).subtracting([ObjectIdentifier(interaction)])
+        } else if !wanted, let interaction = projected.removeValue(forKey: key) {
+            if open?.interaction === interaction, let owner = open { restore(owner); open = nil }
+            interaction.dismissMenu()
+            detach(interaction, from: view)
+        }
+    }
+
     /// After a batch: one interaction on each node naming a popover, its
     /// plain long press (the `contextmenu` recognizer) off while it has one.
     func sync() {
@@ -107,6 +129,10 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         if !ExactEnv.agentMode {
             for v in presenter.textViews.values where v.hasInlineContextPopover { wanted[v.id] = v }
             for v in presenter.carrying("contextPopover") where v.props["contextPopover"]?.isEmpty == false { wanted[v.id] = v }
+        }
+        for (key, interaction) in projected {
+            if let view = interaction.view as? (UIView & GroupedMenuSurface) { syncProjected(view) }
+            else { projected[key] = nil; recognizers[ObjectIdentifier(interaction)] = nil }
         }
         syncMounts(presenter, sources: Array(wanted.values))
         for (id, interaction) in interactions where wanted[id] == nil || interaction.view !== wanted[id] {
@@ -243,6 +269,8 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
 
     /// The popover as it is now, if its source still names it.
     private func current(_ owner: Open) -> NodeView? {
+        // A cell may have been reused while UIKit still holds its menu.
+        if let cell = owner.interaction?.view as? GroupedMenuSurface, cell.menuSource !== owner.source { return nil }
         // Its own action, which has run, may have disabled, hidden or moved it.
         guard let source = owner.source, live(source), contextName(owner) == owner.name,
               menus?.eligible(source, contextMenu: true) == true, let pop = popover(named: owner.name) else { return nil }
@@ -276,6 +304,8 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         let source: NodeView, point: CGPoint, hit: UIView?
         if let node = view as? NodeView {
             source = node; point = location; hit = node.hitTest(location, with: nil)
+        } else if let cell = view as? (UIView & GroupedMenuSurface), let found = cell.menuSource {
+            source = found; point = location; hit = cell
         } else if let mount = view as? PresentationMount, let found = mount.relay?.listener(mount.hitTest(location, with: nil), contextMenu: true, { $0.props["contextPopover"]?.isEmpty == false }) {
             // A sheet's mount: its route's nearest logical ancestor with a
             // menu, unless a node in the sheet is nearer (`MountRelay`)
@@ -412,7 +442,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
 
     /// UIKit lifts the node itself, clipped to its corners.
     private func targeted(_ configuration: UIContextMenuConfiguration) -> UITargetedPreview? {
-        guard let owner = open, let source = owner.source, live(source), source.window != nil,
+        guard let owner = open, let source = owner.source, live(source), (owner.touched ?? source).window != nil,
               (configuration.identifier as? NSNumber)?.uint32Value == (owner.inlineID ?? source.id) else { return nil }
         let parameters = UIPreviewParameters()
         let shown = owner.touched.flatMap { $0.window == nil ? nil : $0 } ?? source
@@ -519,6 +549,11 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
 
     func reset() {
         keyboardInteraction.dismissMenu()
+        for interaction in projected.values {
+            interaction.dismissMenu()
+            if let view = interaction.view { detach(interaction, from: view) }
+        }
+        projected.removeAll()
         for interaction in interactions.values {
             interaction.dismissMenu()
             if let view = interaction.view { detach(interaction, from: view); (view as? NodeView)?.contextRecognizer?.isEnabled = true }

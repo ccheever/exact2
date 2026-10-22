@@ -43,6 +43,7 @@ package protocol GroupedLists: AnyObject {
     // LLP 1080.001 D3: what the inspection walk accounts for.
     func inspectionOwns(_ view: UIView) -> Bool
     func hides(_ node: NodeView) -> Bool
+    func hidSection(_ node: NodeView) -> Bool
     func projects(_ view: UIView) -> Bool
     /// The authored parent of a row carried into a cell.
     func logicalParent(of view: UIView) -> UIView?
@@ -62,5 +63,17 @@ package enum GroupedListsLink {
     package static var make: ((Presenter) -> GroupedLists)?
     /// The row and part of a grouped list's cell that a view is in.
     package static var part: ((UIView?) -> [String: Any]?)?
+}
+#endif
+
+#if os(iOS)
+package protocol GroupedMenuSurface: AnyObject {
+    var menuSource: NodeView? { get }
+}
+
+extension Presenter {
+    package func syncGroupedMenu(on view: UIView & GroupedMenuSurface) {
+        menus.context.syncProjected(view)
+    }
 }
 #endif
