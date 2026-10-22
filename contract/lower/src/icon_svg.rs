@@ -125,7 +125,9 @@ fn property(attrs: &[(&str, String)], name: &str) -> Option<String> {
         .and_then(|(_, s)| {
             let declared = s.split(';').filter_map(|d| {
                 let (k, v) = d.split_once(':')?;
-                (k.trim() == name).then(|| (v.trim().ends_with("!important"), clean(v)))
+                // A property's name in any case, as CSS reads it (round 2, R2-5).
+                (k.trim().eq_ignore_ascii_case(name))
+                    .then(|| (v.trim().ends_with("!important"), clean(v)))
             });
             declared.fold(
                 None,
@@ -177,6 +179,8 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
     let (mut view_box, mut paths, mut fill, mut why) =
         (None, Vec::<String>::new(), None::<String>, Why::new());
     let mut stack: Vec<Open> = Vec::new();
+    // Whether a drawn element sets a `color`, and a path paints `currentColor`.
+    let (mut coloured, mut current) = (false, false);
     let mut rest = text;
     while let Some(open) = rest.find('<') {
         rest = &rest[open..];
@@ -253,17 +257,9 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
                     (format!("its `<{name}>` has a `{p}`"), fix_lost(p))
                 });
             }
-            // A `color` sets what `currentColor` paints, so two paths both
-            // `currentColor` may still be two colours (round 1, Astra 7):
-            // taken as no template wherever one is set.
-            if property(&attrs, "color").is_some() {
-                note(&mut why, || {
-                    (
-                        format!("its `<{name}>` sets a `color`"),
-                        "remove the `color` and fill every path in one plain colour (`fill=\"black\"`): the host paints it in the text's colour",
-                    )
-                });
-            }
+            // A `color` sets what `currentColor` paints (round 1, Astra 7;
+            // judged below, with what paints in it).
+            coloured |= property(&attrs, "color").is_some();
         }
         match name {
             // A nested viewport places and scales what it holds.
@@ -293,6 +289,7 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
                     return Err("a `<path>`'s `d` is not path data".into());
                 }
                 let painted = fill_here.clone().unwrap_or_else(|| "black".into());
+                current |= painted == "currentcolor";
                 if painted.starts_with("url(") {
                     note(&mut why, || {
                         (
@@ -347,6 +344,18 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
         if !raw.ends_with('/') {
             stack.push((fill_here, stroke_here, in_defs));
         }
+    }
+    // Paths painting `currentColor` under a `color` may be two colours, or
+    // another than a plain fill's (round 2, Astra 2: conservatively, any
+    // `color` with any `currentColor` paint); a `color` nothing paints in
+    // changes nothing.
+    if coloured && current {
+        note(&mut why, || {
+            (
+                "it paints `currentColor` under a `color`".to_string(),
+                "remove the `color` and fill every path in one plain colour (`fill=\"black\"`): the host paints it in the text's colour",
+            )
+        });
     }
     let view_box = view_box.ok_or("it has no `<svg>` with a viewBox (or a width and height)")?;
     let numbers: Vec<f64> = view_box
@@ -423,12 +432,22 @@ mod tests {
                 coloured
                     .not_template
                     .as_deref()
-                    .is_some_and(|w| w.contains("sets a `color`")),
+                    .is_some_and(|w| w.contains("paints `currentColor` under a `color`")),
                 "{coloured:?}"
             );
         }
         let plain = read(r#"<svg viewBox="0 0 24 24"><path fill="currentColor" d="M0 0h1"/><path fill="currentColor" d="M2 2h1"/></svg>"#).unwrap();
         assert_eq!(plain.not_template, None);
+        // A `color` nothing paints in is no reason (round 2, Astra 2), in
+        // any case of the property's name (R2-5).
+        for svg in [
+            r#"<svg viewBox="0 0 24 24" color="red"><path fill="black" d="M0 0h1"/></svg>"#,
+            r#"<svg viewBox="0 0 24 24" style="COLOR: red"><path d="M0 0h1"/></svg>"#,
+        ] {
+            assert_eq!(read(svg).unwrap().not_template, None, "{svg}");
+        }
+        let styled = read(r#"<svg viewBox="0 0 24 24" style="Color: red"><path style="FILL: currentColor" d="M0 0h1"/></svg>"#).unwrap();
+        assert!(styled.not_template.is_some(), "{styled:?}");
         assert!(read(r#"<svg viewBox="0 0 0 24"><path d="M0 0"/></svg>"#).is_err());
         assert!(read(r#"<svg><path d="M0 0"/></svg>"#).is_err());
     }

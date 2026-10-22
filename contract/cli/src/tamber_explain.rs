@@ -9,8 +9,8 @@ use std::path::Path;
 
 /// `{target: source}`: which of an icon's sources each target the app at
 /// `dir` ships draws (`sf`, `svg`, or null for none), by D10's rule; its
-/// SVG read beside the design file it is written in (`app`'s package's,
-/// stage 13), as the build reads it.
+/// SVG read under the assets of the root whose file writes it (`app`'s
+/// package's, stage 13), as the build reads it.
 pub(crate) fn draws(dir: &Path, app: &AppParams, icon: &exact_tamber::Icon) -> Value {
     let home = contract_lower::icons::Home::of(icon, Some(dir), &app.packages, &app.tokens);
     let by: serde_json::Map<String, Value> = contract_lower::icons::draws(icon, dir, home)
