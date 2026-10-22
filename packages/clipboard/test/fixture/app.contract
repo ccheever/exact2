@@ -1,0 +1,131 @@
+shape Said
+  said: string
+
+component App
+  mutation pngBytes as shape Said
+  mutation pngPath as shape Said
+  mutation apng as shape Said
+  mutation huge as shape Said
+  mutation notPng as shape Said
+  mutation text as shape Said
+  mutation race as shape Said
+  mutation two as shape Said
+  mutation jpeg as shape Said
+  mutation green as shape Said
+  mutation red as shape Said
+  action doPngBytes
+    send pngBytes = clipPngBytes()
+  action doPngPath
+    send pngPath = clipPngPath()
+  action doApng
+    send apng = clipApng()
+  action doHuge
+    send huge = clipHuge()
+  action doNotPng
+    send notPng = clipNotPng()
+  action doText
+    send text = clipText()
+  action doRace
+    send race = clipRace()
+  action doTwo
+    send two = clipTwo()
+  action doJpeg
+    send jpeg = clipJpeg()
+  action doGreen
+    send green = clipGreen()
+  action doRed
+    send red = clipRed()
+  action copyIt
+    copyText("exact copyText fixture")
+  view
+    column
+      button testId="copy-text" press=copyIt
+        text "copyText"
+      row
+        button testId="png-bytes" press=doPngBytes
+          text "PNG bytes"
+        match pngBytes
+          case some(s)
+            text testId="png-bytes-said" s.said
+          case none
+            text testId="png-bytes-said" "none"
+      row
+        button testId="png-path" press=doPngPath
+          text "PNG path"
+        match pngPath
+          case some(s)
+            text testId="png-path-said" s.said
+          case none
+            text testId="png-path-said" "none"
+      row
+        button testId="apng" press=doApng
+          text "APNG"
+        match apng
+          case some(s)
+            text testId="apng-said" s.said
+          case none
+            text testId="apng-said" "none"
+      row
+        button testId="huge" press=doHuge
+          text "Too large"
+        match huge
+          case some(s)
+            text testId="huge-said" s.said
+          case none
+            text testId="huge-said" "none"
+      row
+        button testId="not-png" press=doNotPng
+          text "Not a PNG"
+        match notPng
+          case some(s)
+            text testId="not-png-said" s.said
+          case none
+            text testId="not-png-said" "none"
+      row
+        button testId="text" press=doText
+          text "Text"
+        match text
+          case some(s)
+            text testId="text-said" s.said
+          case none
+            text testId="text-said" "none"
+      row
+        button testId="race" press=doRace
+          text "A then B"
+        match race
+          case some(s)
+            text testId="race-said" s.said
+          case none
+            text testId="race-said" "none"
+      row
+        button testId="two" press=doTwo
+          text "Two items"
+        match two
+          case some(s)
+            text testId="two-said" s.said
+          case none
+            text testId="two-said" "none"
+      row
+        button testId="jpeg" press=doJpeg
+          text "JPEG type"
+        match jpeg
+          case some(s)
+            text testId="jpeg-said" s.said
+          case none
+            text testId="jpeg-said" "none"
+      row
+        button testId="green" press=doGreen
+          text "Green"
+        match green
+          case some(s)
+            text testId="green-said" s.said
+          case none
+            text testId="green-said" "none"
+      row
+        button testId="red" press=doRed
+          text "Red"
+        match red
+          case some(s)
+            text testId="red-said" s.said
+          case none
+            text testId="red-said" "none"
