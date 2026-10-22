@@ -182,7 +182,13 @@ final class CaptureOrientationMacTests: XCTestCase {
         root.cacheDisplay(in: root.bounds, to: cache)
         for i in 0..<8 {
             print("TIMING CACHE \(i) \(marker(cache, i))")
-            XCTAssertEqual(marker(original, i), marker(cache, i), "the original tree agrees with AppKit for case \(i)")
+            for rep in [copy, shownCopy, original, cache] { assertMarkerPairExists(rep, i) }
+            // Record the measured inversion, not a qualification of a fix
+            // for Caltrain's mixed case. Missing contents fail independently.
+            XCTAssertEqual(marker(copy, i), "flipped", "model contents, case \(i)")
+            XCTAssertEqual(marker(shownCopy, i), "flipped", "presentation contents, case \(i)")
+            XCTAssertEqual(marker(original, i), "upright", "original tree, case \(i)")
+            XCTAssertEqual(marker(cache, i), "upright", "AppKit reference, case \(i)")
         }
         try evidence([("timing-copy", copy), ("timing-original", original), ("timing-cache", cache), ("timing-shown-copy", shownCopy)])
     }
@@ -263,7 +269,7 @@ final class CaptureOrientationMacTests: XCTestCase {
 
     private func marker(_ rep: NSBitmapImageRep, _ i: Int, bottom: Bool = false) -> String {
         let x = (i % 4) * 120 + 4, y = (i / 4) * 56 + (bottom ? 52 : 4)
-        guard let c = rep.colorAt(x: x * rep.pixelsWide / 480, y: y * rep.pixelsHigh / 112) else { return "missing" }
+        guard let c = rep.colorAt(x: x * rep.pixelsWide / 480, y: y * rep.pixelsHigh / 112), c.alphaComponent > 0.9 else { return "missing" }
         let red = c.redComponent > 0.8 && c.blueComponent < 0.2
         let blue = c.blueComponent > 0.8 && c.redComponent < 0.2
         return (bottom ? blue : red) ? "upright" : (bottom ? red : blue) ? "flipped" : "other"
