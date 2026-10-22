@@ -156,6 +156,38 @@ final class SplitMacTests: XCTestCase {
     }
     private func items(_ window: NSWindow) -> [String] { window.toolbar?.items.map(\.itemIdentifier.rawValue) ?? [] }
 
+    func testTheRunnerReadsFramesAndHitsInTheDetailPanesSpace() throws {
+        let source = app(tabs: false)
+            .replacingOccurrences(of: "  state query = \"\"", with: "  state observed = \"unread\"\n  state hit = \"unread\"\n  state query = \"\"")
+            .replacingOccurrences(of: "  action count\n", with: "  action readGeometry\n    let f = frame(\"geometry-card\")\n    observed = `${f.x},${f.y},${f.width}`\n    hit = match elementFromPoint(321 + f.width / 2, f.y + 5) { case some(id) => id, case none => \"none\" }\n  action count\n")
+            .replacingOccurrences(of: "box testId=`half-${e.params.id}`", with: "box id=\"geometry-card\" testId=`half-${e.params.id}`")
+            .replacingOccurrences(of: "testId=`field-${e.params.id}`", with: "testId=`field-${e.params.id}`\n            button testId=\"read-geometry\" press=readGeometry\n              text \"Read\"\n            text `${observed} ${hit}` testId=\"geometry-result\"")
+        let session = try boot(tabs: false, size: CGSize(width: 1000, height: 500), source: source)
+        let columns = compose(ExactView(session: session), width: 1000, sidebar: false)
+        let window = try XCTUnwrap(self.window)
+        try press("row-a")
+        func check() throws {
+            window.layoutIfNeeded()
+            session.presenter.settlePump()
+            try press("read-geometry")
+            let card = try node("half-a"), clip = session.presenter.viewport.contentView
+            XCTAssertTrue(card.isDescendant(of: columns.detailPane))
+            let shown = clip.convert(card.bounds, from: card).offsetBy(dx: -clip.bounds.minX, dy: -clip.bounds.minY)
+            let words = try node("geometry-result").accessibleText.split(separator: " ")
+            let frame = try XCTUnwrap(words.first).split(separator: ",").compactMap { Double($0) }
+            XCTAssertEqual(frame.count, 3)
+            guard frame.count == 3 else { return }
+            XCTAssertGreaterThan(shown.minX, 200)
+            XCTAssertEqual(frame[0], shown.minX, accuracy: 0.5)
+            XCTAssertEqual(frame[1], shown.minY, accuracy: 0.5)
+            XCTAssertEqual(frame[2], shown.width, accuracy: 0.5)
+            XCTAssertEqual(words.last, "geometry-card")
+        }
+        try check()
+        width(window, 1200)
+        try check()
+    }
+
     func testAnUnsplitStackClosesADetailPaneRestoredByAppKit() throws {
         let session = try boot(tabs: true, size: CGSize(width: 1100, height: 500))
         try press("tab-stats")

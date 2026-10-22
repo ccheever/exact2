@@ -18,6 +18,7 @@ import CExact
 /// (a divider, a window) gave it another size.
 final class BlockView: NSView {
     var sizeChanged: ((CGSize) -> Void)?
+    var positionChanged: (() -> Void)?
     /// The moves of a free pointer over a window of the session's own (a
     /// popover's, a sheet's), as the page's viewport reports its window's
     /// (PageScrollView.swift): an authored ancestor out in the page hears
@@ -38,6 +39,11 @@ final class BlockView: NSView {
     override func mouseEntered(with event: NSEvent) { pointerTracking?(event) }
     override func mouseMoved(with event: NSEvent) { pointerTracking?(event) }
     override func mouseExited(with event: NSEvent) { pointerTracking?(event) }
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        let old = frame.origin
+        super.setFrameOrigin(newOrigin)
+        if newOrigin != old { positionChanged?() }
+    }
     override func setFrameSize(_ newSize: NSSize) {
         let old = frame.size
         super.setFrameSize(newSize)
@@ -58,6 +64,7 @@ final class BlockHost {
         var before: [Sibling] = []
         var turn = 0
         var block: HostBlock
+        var placement: BlockPlacement?
         /// What its container does with its used size (a sheet sizes its window).
         var used: ((CGSize) -> Void)?
     }
@@ -102,7 +109,7 @@ final class BlockHost {
 
     /// Put `node`'s subtree in `container` and lay it out in `block`; `used`
     /// hears its used size, now and whenever layout gives it another.
-    func show(_ node: NodeView, in container: NSView, block: HostBlock, used: ((CGSize) -> Void)? = nil) {
+    func show(_ node: NodeView, in container: NSView, block: HostBlock, placement: BlockPlacement? = nil, used: ((CGSize) -> Void)? = nil) {
         guard let presenter, presenter.views[node.id] === node else { return }
         // Outside the root (a sheet, a popover, a split's pane), still this
         // presenter's theme (LLP 1121 stage 5).
@@ -115,21 +122,22 @@ final class BlockHost {
             let nodes = home.map { authored($0.subviews.compactMap { $0 as? NodeView }, in: $0) } ?? []
             let before = nodes.prefix { $0 !== node }.map { Sibling(node: $0) }
             turns += 1
-            entries[node.id] = Entry(node: node, home: home, next: next, before: before, turn: turns, block: block, used: used)
-        } else { entries[node.id]?.block = block; entries[node.id]?.used = used }
+            entries[node.id] = Entry(node: node, home: home, next: next, before: before, turn: turns, block: block, placement: placement, used: used)
+        } else { entries[node.id]?.block = block; entries[node.id]?.placement = placement; entries[node.id]?.used = used }
         if node.superview !== container {
             container.addSubview(node)
             presenter.topLayerChanged()
         }
-        tell([(node.id, block)])
+        tell([(node.id, block)], placements: [(node.id, placement)])
     }
 
     /// The container gave the subtree another box: a divider moved, a
     /// sheet's maximum changed with its parent window.
-    func resize(_ node: NodeView, _ block: HostBlock) {
-        guard owns(node), entries[node.id]?.block != block else { return }
+    func resize(_ node: NodeView, _ block: HostBlock, placement: BlockPlacement? = nil) {
+        guard owns(node), entries[node.id]?.block != block || entries[node.id]?.placement != placement else { return }
         entries[node.id]?.block = block
-        tell([(node.id, block)])
+        entries[node.id]?.placement = placement
+        tell([(node.id, block)], placements: [(node.id, placement)])
     }
 
     /// Give the subtree back to the page, where its authored parent has it.
@@ -170,11 +178,11 @@ final class BlockHost {
         entries[id] = nil; used[id] = nil
     }
 
-    private func tell(_ blocks: [(UInt32, HostBlock?)]) {
+    private func tell(_ blocks: [(UInt32, HostBlock?)], placements: [(UInt32, BlockPlacement?)] = []) {
         guard let session = presenter?.session else { return }
         session.whenIdle { [weak session] in
             guard let session else { return }
-            session.apply(session.runtime.blocks(blocks))
+            session.apply(session.runtime.blocks(blocks, placements: placements))
         }
     }
 }
