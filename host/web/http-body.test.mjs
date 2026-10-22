@@ -150,6 +150,16 @@ test('a TypeScript stream reads a body that is not events as joined bytes, then 
   assert.equal(refused.kind, 2);
   assert.equal(new TextDecoder().decode(refused.body), 'byte stream receive queue exceeds the response ceiling');
 
+  // One browser read longer than the bound goes in pieces of it, at once.
+  const big = [], b = open(8, { bytes: true }, big);
+  await tick();
+  b.push([0]); b.push([...Array(20).keys()].map(n => n + 1));
+  await tick();
+  b.close();
+  const after = await b.done;
+  assert.deepEqual(big, [[0], [1, 2, 3, 4, 5, 6, 7, 8], [9, 10, 11, 12, 13, 14, 15, 16], [17, 18, 19, 20]]);
+  assert.equal(new TextDecoder().decode(after.body), 'the byte stream ended');
+
   const whole = [], w = open(64, undefined, whole);
   await tick();
   w.push([9]); w.close();

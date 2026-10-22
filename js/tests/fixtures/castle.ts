@@ -173,6 +173,8 @@ function answer(source: string, args: unknown[], store: Store): unknown {
         e.type === "error" ? `ended: ${e.message}` : `${e.type} ${e.lastEventId}:${e.data}:${e.coalesced}:${store.get("castle.session") ?? "-"}`,
     } as RequestInit);
     // A body that is not events is bytes (LLP 1016.000, the byte stream).
+    // LLP 1133.003 §9: the gate's stub decode is there under the agent only.
+    case "gate": return typeof (globalThis as { __exact_gate_decode?: unknown }).__exact_gate_decode;
     case "bytes": return fetch("https://api.castle.xyz/screen.avcc", {
       exactStream: (e: { type: string; data: ArrayBuffer | string; message?: string }) =>
         e.type === "error" ? `ended: ${e.message}` : `${e.type}:${e.data instanceof ArrayBuffer ? new Uint8Array(e.data).join(",") : "text"}`,

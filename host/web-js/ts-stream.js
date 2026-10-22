@@ -89,32 +89,11 @@ function handle(transport, owner) {
     },
   });
 }
-// LLP 1133.003 §9's gate: a development page's stream timing, which the
-// agent starts and reads (agent.js `perf streams`): per message, receipt
-// (http-body.js `received`) to the mapper's entry, to each decode, and to
-// the commit standing. Off, and absent from a production page, unless the
-// agent has started it.
-const timing = () => globalThis.exact?.streamTiming?.on ? globalThis.exact.streamTiming : null;
-let current = null;
-const row = (t, name) => t.streams[name] ??= { messages: 0, commits: 0, decodes: 0, decodedBytes: 0, frames: 0, decodeErrors: 0, busy: 0, toEntry: [], toDecode: [], toCommit: [] };
-// The gate's stub decode, until `VideoDecoder` is the module's: the browser's
-// decoder per track, configured by the chunk that carries a config, each
-// frame closed as it comes out.
-const decoders = new Map();
-globalThis.__exact_gate_decode ??= (track, type, timestamp, data, config) => {
-  const t = timing(), r = t && current && row(t, current.name);
-  if (r) { r.decodes++; r.decodedBytes += data.byteLength; if (current.receipt != null) r.toDecode.push(performance.now() - current.receipt); }
-  if (typeof VideoDecoder !== 'function') return;
-  let d = decoders.get(track);
-  if (config && d?.codec !== config.codec) {
-    try { d?.decoder.close(); } catch {}
-    const name = current?.name;
-    const decoder = new VideoDecoder({ output: f => { f.close(); const t = timing(); if (t && name) row(t, name).frames++; }, error: () => { const t = timing(); if (t && name) row(t, name).decodeErrors++; } });
-    decoder.configure(config);
-    decoders.set(track, d = { decoder, codec: config.codec });
-  }
-  if (d?.decoder.state === 'configured') d.decoder.decode(new EncodedVideoChunk({ type, timestamp, data }));
-};
+// LLP 1133.003 §9's gate, under the agent only: agent.js installs
+// `exact.streamGate`, which times each message from its receipt
+// (http-body.js `received`) through the mapper to the commit, and the stub
+// decode the mapper calls. A page with no agent has none of it.
+const gate = () => globalThis.exact?.streamGate;
 export function open({ input, init, redirect }, conv, grantSet, deliver, controller) {
   let req;
   try { req = request(input, init, redirect); } catch (e) { return Promise.resolve({ error: String(e?.message ?? e), code: failureCode(e), reason: failureReason(e) }); }
@@ -150,19 +129,14 @@ export function open({ input, init, redirect }, conv, grantSet, deliver, control
   };
   const message = m => deliver({ ...value({ type: m.event || 'message', data: m.data, lastEventId: m.id, coalesced: m.coalesced }, true), coalesced: m.coalesced });
   const timed = m => {
-    const t = timing();
-    if (!t) return message(m);
-    const r = row(t, controller.streamName), entry = performance.now();
-    r.messages++; if (m.received != null) r.toEntry.push(entry - m.received);
-    current = { name: controller.streamName, receipt: m.received };
-    try { message(m); } finally {
-      current = null;
-      const now = performance.now();
-      r.commits++; r.busy += now - entry; if (m.received != null) r.toCommit.push(now - m.received);
-    }
+    const g = gate();
+    if (!g) return message(m);
+    g.enter(controller.streamName, m.received);
+    try { message(m); } finally { g.leave(); }
   };
   return streamed(req, grantSet, timed, controller, readBodyFile, protocol)
     .then(o => {
+      gate()?.ended(controller.streamName);
       if (o.close) journal.push(`t=${clock.now} socket close: ${o.close.code} ${o.close.reason} (${controller.streamName})`);
       return value(o.close ? { type: 'close', data: '', lastEventId: '', coalesced: 0, ...o.close } : o.kind
       ? { type: 'error', data: '', lastEventId: '', coalesced: 0, kind: KINDS[o.kind], message: said.decode(o.body), status: 0 }

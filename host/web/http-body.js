@@ -78,8 +78,8 @@ async function readEvents(response, limit, message, controller) {
 // stream. Reads join until the page's next task delivers them as one
 // message, an ArrayBuffer, so the mapper's turns follow its pace and no byte
 // is dropped or reordered. What waits is bounded by the ceiling, at most
-// 1 MiB (D7's receive bound): a read past it delivers what waits and ends
-// the stream refused. `received` is the oldest read's time, as a socket
+// 1 MiB (D7's receive bound): a read that would pass it delivers what waits
+// and ends the stream refused. `received` is the oldest read's time, as a socket
 // frame's is its arrival's, for the development page's stream timing
 // (ts-stream.js).
 async function readBytes(response, limit, message, controller) {
@@ -98,9 +98,20 @@ async function readBytes(response, limit, message, controller) {
   };
   try {
     for (;;) {
-      const { done, value } = await reader.read();
+      let { done, value } = await reader.read();
       if (done) { flush(); return failed(1, 'the byte stream ended'); }
       if (!value.length) continue;
+      // A read longer than the bound alone, which no native read is, goes
+      // to the mapper now in pieces of the bound, after what waits; the rest
+      // waits as a read of its own.
+      if (value.length > bound) {
+        const now = performance.now();
+        flush();
+        for (; value.length > bound; value = value.subarray(bound)) {
+          parts = [value.subarray(0, bound)]; size = bound; received = now;
+          flush();
+        }
+      }
       if (size + value.length > bound) {
         flush();
         return failed(2, bound === 1048576 ? 'byte stream receive queue exceeds 1 MiB' : 'byte stream receive queue exceeds the response ceiling');

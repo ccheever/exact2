@@ -442,6 +442,26 @@ fn a_byte_stream_maps_each_message_as_an_array_buffer() {
     );
 }
 
+/// LLP 1133.003 §9: the prelude installs the gate's stub decode under the
+/// agent alone.
+#[test]
+fn the_gate_stub_decode_is_installed_under_the_agent_alone() {
+    let plan = contract::compile(
+        "component App\n  resource g = gate() as shape string\n  view\n    text g\n",
+    )
+    .unwrap();
+    for (seed, kind) in [(None, "undefined"), (Some(7), "function")] {
+        let mut m = unloaded().with_agent_seed(seed);
+        m.load().expect("the fixture loads");
+        m.bind(&plan);
+        assert_eq!(
+            now(m.answer(&mut store(), "gate", &[]).unwrap()),
+            Value::str(kind),
+            "seed {seed:?}"
+        );
+    }
+}
+
 /// LLP 1069.004 slice 3: the spelling of a socket is its URL. A text frame
 /// is a `message` event; the far side's close is the end.
 #[test]

@@ -2,7 +2,10 @@
 // LLP 1133.003 §9's throughput gate, driven: the stream fixture on one host,
 // fed by `serve.mjs`, measured by `perf streams` and the host's frames.
 //
-//   bun apps/stream-fixture/gate.mjs <web|macos> [--seconds 60]
+//   bun apps/stream-fixture/gate.mjs <web|macos> [--seconds 60] [--baseline <n>]
+//
+// `--baseline <n>` runs only the run with no stream, n times, to measure
+// the frame numbers' noise.
 //
 // For each run it starts the timing, opens the streams, waits, and reads:
 // every stream's message, commit and decode counts and rates, receipt to
@@ -22,6 +25,7 @@ const args = process.argv.slice(2);
 const host = args[0];
 if (!['web', 'macos'].includes(host)) throw new Error('usage: gate.mjs <web|macos> [--seconds 60]');
 const seconds = Number(args[args.indexOf('--seconds') + 1]) || 60;
+const baseline = args.includes('--baseline') ? Number(args[args.indexOf('--baseline') + 1]) || 3 : 0;
 const ROOT = resolve(import.meta.dirname, '../..'), SERVER = 'http://127.0.0.1:4340';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -85,6 +89,8 @@ const cpu = () => {
   return rest.split(':').reduce((n, part) => n * 60 + Number(part), 0) + Number(days) * 86400;
 };
 
+if (baseline) RUNS.splice(0, RUNS.length, ...Array.from({ length: baseline }, (_, i) => ({ name: `no stream ${i + 1}`, tap: null, streams: 0 })));
+
 const child = await server();
 const s = await open({ host, app: 'stream-fixture', onProcess: (p) => { pid ??= host === 'macos' ? p.pid : null; }, ...(host === 'macos' ? { timing: 'platform' } : {}) });
 const results = [];
@@ -108,7 +114,7 @@ try {
     results.push({ ...run, seconds: timing.seconds, frame, cores, failed, framesSent, decodes,
       dropped: Math.max(0, framesSent - decodes - 2 * run.streams), refused: streams.reduce((n, x) => n + (x.refused ?? 0), 0),
       busy: +streams.reduce((n, x) => n + x.busy, 0).toFixed(4), toDecode: { p95: worst('toDecode', 'p95'), p99: worst('toDecode', 'p99'), max: worst('toDecode', 'max') },
-      toCommit: { p95: worst('toCommit', 'p95'), p99: worst('toCommit', 'p99') }, streams });
+      toCommit: { p95: worst('toCommit', 'p95'), p99: worst('toCommit', 'p99') }, perStream: streams });
     const r = results.at(-1);
     console.log(`${host} · ${run.name}: ${r.framesSent} sent, ${r.decodes} decoded, ${r.dropped} dropped, ${r.refused} refused${failed.length ? `, failed: ${failed.join('; ')}` : ''} · receipt→decode p95 ${r.toDecode.p95} p99 ${r.toDecode.p99} max ${r.toDecode.max} ms · busy ${(r.busy * 100).toFixed(2)}%${cores != null ? ` · process ${(cores * 100).toFixed(1)}% of a core` : ''} · frames p50 ${frame.p50} p95 ${frame.p95} p99 ${frame.p99} ms; of ${frame.presented} presented ${frame.missed} vsyncs missed, ${frame.late} late${frame.overruns != null ? ` (${frame.overruns} overruns)` : ''}`);
   }
@@ -118,7 +124,14 @@ try {
   child?.kill();
 }
 
+const out = resolve(ROOT, `target/stream-fixture/gate-${host}${baseline ? '-baseline' : ''}.json`);
+if (baseline) {
+  writeFileSync(out, JSON.stringify({ host, seconds, results }, null, 2));
+  console.log(out);
+  process.exit(0);
+}
 const base = results[0].frame, three = results.filter((r) => r.streams === 3);
+if (three.length !== 2) throw new Error(`gate: ${three.length} three-stream runs, not 2`);
 const pass = {
   noOverflowOrDrop: three.every((r) => !r.failed.length && !r.refused && !r.dropped),
   decodeP95: three.every((r) => r.toDecode.p95 < 8),
@@ -126,9 +139,10 @@ const pass = {
   busy: three.every((r) => r.busy < 0.25),
   // Within the noise: the p95 frame interval moves by under a millisecond, and
   // missed vsyncs by under 1% of the frames presented.
-  frames: three.every((r) => r.frame.p95 - base.p95 < 1 && (r.frame.missed / Math.max(1, r.frame.presented)) - (base.missed / Math.max(1, base.presented)) < 0.01),
+  // A run that presented nothing (the app left the foreground, and the
+  // macOS sampler with it) measured no frame time, and fails.
+  frames: base.presented > 0 && three.every((r) => r.frame.presented > 0 && r.frame.p95 - base.p95 < 1 && (r.frame.missed / r.frame.presented) - (base.missed / base.presented) < 0.01),
 };
-const out = resolve(ROOT, `target/stream-fixture/gate-${host}.json`);
 writeFileSync(out, JSON.stringify({ host, seconds, pass, results }, null, 2));
 console.log(`${host}: ${Object.entries(pass).map(([k, v]) => `${k} ${v ? 'pass' : 'FAIL'}`).join(' · ')}\n${out}`);
 process.exit(Object.values(pass).every(Boolean) ? 0 : 1);

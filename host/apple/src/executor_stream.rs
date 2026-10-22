@@ -245,7 +245,9 @@ fn open(
         HttpScheduling::Ordered => MAX_BODY,
         HttpScheduling::Independent { max_response_bytes } => max_response_bytes as usize,
     };
-    let as_bytes = request.bytes;
+    // A response with no body (Fetch's null body status, or to a `HEAD`) is
+    // the one answer, as the web's, whose `response.body` is null for it.
+    let as_bytes = request.bytes && !request.method.eq_ignore_ascii_case("HEAD");
     let mut req = fetch_request(request, forced);
     if !req.headers.has("accept") {
         req.headers.set("accept", "text/event-stream");
@@ -266,7 +268,7 @@ fn open(
     if events {
         return Ok(Opened::Events(r, limit));
     }
-    if as_bytes && r.ok() {
+    if as_bytes && r.ok() && !matches!(r.status, 204 | 205) {
         return Ok(Opened::Bytes(r, limit));
     }
     let (status, headers) = (r.status, r.headers.entries().to_vec());

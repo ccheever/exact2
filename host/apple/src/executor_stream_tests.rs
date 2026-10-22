@@ -43,7 +43,8 @@ impl BodySource for Fed {
 }
 
 /// `/events` opens an event stream the test feeds, `/bytes` a binary body
-/// it feeds; `/plain` answers 404; anything else answers `done` at once.
+/// it feeds; `/plain` answers 404, `/empty` 204; anything else answers
+/// `done` at once.
 #[derive(Default)]
 struct Script {
     feeds: Mutex<Vec<Option<Feed>>>,
@@ -96,6 +97,8 @@ impl Transport for Scripted {
         }
         let status = if request.url.ends_with("/plain") {
             404
+        } else if request.url.ends_with("/empty") {
+            204
         } else {
             200
         };
@@ -763,6 +766,27 @@ fn a_byte_stream_that_is_not_2xx_and_a_rust_sources_body_are_one_answer() {
     let (_, outcome) = next(&core, &woke);
     assert!(
         matches!(&outcome, Outcome::Response(r) if r.status == 200 && r.body == b"done"),
+        "{outcome:?}"
+    );
+    assert!(settled(&core));
+}
+
+#[test]
+fn a_byte_stream_with_no_body_is_one_answer_as_on_the_web() {
+    let (core, _, woke) = setup();
+    core.run_owned(bytes_stream(1, "/empty", 4096), None)
+        .unwrap();
+    let (_, outcome) = next(&core, &woke);
+    assert!(
+        matches!(&outcome, Outcome::Response(r) if r.status == 204),
+        "{outcome:?}"
+    );
+    let mut head = bytes_stream(2, "/other", 4096);
+    head.request.method = "HEAD".into();
+    core.run_owned(head, None).unwrap();
+    let (_, outcome) = next(&core, &woke);
+    assert!(
+        matches!(&outcome, Outcome::Response(r) if r.status == 200),
         "{outcome:?}"
     );
     assert!(settled(&core));
