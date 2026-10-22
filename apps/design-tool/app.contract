@@ -366,6 +366,8 @@ shape Changes
   refusedMore: number
   // Each build's refusal events, counted (one more each, the same words again included).
   refusalCounts: RefusalCount[]
+  // The builds whose page can't move a selection up the chain (it answered `unsupported inspect` to a move).
+  noStep: string[]
   // The files' digests as the poll has them: what a design read follows
   // (a build's status, a scrub's frame or a proposal moves `seq`, not them).
   files: string
@@ -789,7 +791,7 @@ component DesignTool
   // impact the inspector shows.
   resource inspected = loadSelection(changes.answer, design.answer, appAxes.answer) as shape Inspected else empty()
   mutation inspectSent as shape Pinned refreshes inspected
-  mutation selectedUp as shape SelectUp
+  mutation selectedUp as shape SelectUp refreshes inspected
   mutation holdSent as shape Pinned refreshes inspected
   state impactToken = ""
   resource uses = loadUses(impactToken, changes.paced) as shape Uses else empty(ok=true)
@@ -958,6 +960,9 @@ component DesignTool
   state upRefusalsAt = ""
   derive refusalsKey = changes.refusalCounts.filter(r => r.id == inspected.build).map(r => `${r.count}`).join("")
   task upPageRefused when upExpect >= 0 and refusalsKey != upRefusalsAt key=refusalsKey
+    after(1, dropUp)
+  // A page that can't step (it answered `unsupported inspect`): the move is over, and its up control greyed.
+  task upCantStep when upExpect >= 0 and changes.noStep.includes(inspected.build) key=`${upFromKey}|cant`
     after(1, dropUp)
   // The edit a panel began (a dial's, a param's, its row's Back to the package), whose proposal docks at the window's
   // bottom: the panels sit far above the panel's own place. One begun from the token grid stays in place, under it.
@@ -1848,8 +1853,10 @@ component DesignTool
                 column gap=4 testId="selection"
                   text inspected.source font="-exact-headline" testId="selection-source"
                   // Each a press that selects that ancestor on the build, as a click on it would (tamber/1.16).
+                  if changes.noStep.includes(inspected.build) and inspected.chain.length > 0
+                    text "This build can't move its selection up the chain: click the node itself." color="-exact-secondary-label" font="-exact-footnote" testId="selection-up-none"
                   for c in inspected.chain key=c.up
-                    button press=selectUp(c.up) disabled=(not inspected.inspecting or pending(selectedUp)) aria-label=`Select ${c.text}` testId=`selection-up-${c.up}`
+                    button press=selectUp(c.up) disabled=(not inspected.inspecting or pending(selectedUp) or changes.noStep.includes(inspected.build)) aria-label=`Select ${c.text}` testId=`selection-up-${c.up}`
                       text `in ${c.text}` color="-exact-secondary-label" font="-exact-footnote"
                   if upNote != "" and upNoteKey == inspected.visit
                     text upNote color="-exact-system-orange" font="-exact-footnote" testId="selection-up-note"

@@ -28,6 +28,8 @@ export const refusalRows = (builds: Iterable<Refusing>) => {
     // Each build's refusal events counted (each moves it, the same words again included): what a move up the chain on
     // that build waits to see change (tamber/1.16 `select`).
     refusalCounts: all.map(b => ({ id: b.id, count: b.refusalSeq ?? 0 })),
+    // The builds whose page answered a move up the chain that it can't step.
+    noStep: [...cantStep],
   };
 };
 
@@ -41,3 +43,9 @@ export const takeRefusals = (builds: Map<string, Refusing>) => {
 export const restoreRefusals = (builds: Map<string, Refusing>, kept: ReturnType<typeof takeRefusals>) => {
   for (const [id, { r, at }] of kept) { const b = builds.get(id); if (b && (b.refusalSeq ?? 0) === at) b.inspectRefused = r; }
 };
+
+/** A move up the chain sent to a build (tamber/1.16 `select`), until its page answers: an `unsupported inspect` in
+ * that while is the page saying it can't step (Apple's for now), which greys out the tool's up control for that build
+ * alone, never inspect (theme2 15:02). A selection from it ends the while. */
+export const stepping = new Set<string>(), cantStep = new Set<string>();
+export const stepRefused = (id: string) => { if (!stepping.delete(id)) return false; cantStep.add(id); return true; };

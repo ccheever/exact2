@@ -915,9 +915,11 @@ if (es) {
   // server's map for the selection at `from`, instance path `instance`, under `plan`) with a node above the selection, on the outermost there.
   const selectUp = async ({ levels, plan, from, instance }) => {
     const id = inspecting.selected?.id;
-    if (!inspecting.on || id == null || !Array.isArray(levels)) { report({ kind: "unsupported", what: "inspect", detail: "no node is selected on this page to move up from" }); return; }
-    // (Only the selection, its instance, generation and plan the server took its sites from: another since is selected again first.)
-    if (inspecting.selected.generation !== globalThis.exact.generation || plan !== inspecting.selected.plan || from !== inspecting.selected.site || JSON.stringify(instance ?? []) !== inspecting.selected.instance) { report({ kind: "unsupported", what: "inspect", detail: "the selection moved or the page was rebuilt since: select a node again" }); return; }
+    // (No selection here to move, or none above it of that copy: staleness, not inability; its selection as it is.)
+    if (!inspecting.on || id == null || !Array.isArray(levels)) { await refresh(); return; }
+    // (Only the selection, its instance, generation and plan the server took its sites from. One that moved since on
+    // its way here is no inability (theme2 15:02): the page reports its selection as it is now, and the tool follows.)
+    if (inspecting.selected.generation !== globalThis.exact.generation || plan !== inspecting.selected.plan || from !== inspecting.selected.site || JSON.stringify(instance ?? []) !== inspecting.selected.instance) { await refresh(); return; }
     // Its ancestors and their sites, in one read with no node's rows (the runner's `ancestors`), the selection itself
     // left out; the first level with one of them, and in it the outermost.
     const above = (ask({ op: "ancestors", id }).ancestors ?? []).slice(1);
@@ -927,7 +929,7 @@ if (es) {
       for (const [view, site] of above) if (want.has(site)) found = view;
       if (found != null) { await select(found); return; }
     }
-    report({ kind: "unsupported", what: "inspect", detail: "no node above the selected one on this page is one of that copy's" });
+    await refresh();
   };
   const inspect = async (frame) => {
     if (frame.select) { await selectUp(frame.select); return; }

@@ -300,9 +300,11 @@ async function select(el, clicked = false, click = null) {
 // it lands in the first level with a node above the selection, on the outermost there, by this page's own tree.
 async function selectUp({ levels, plan, from, instance }) {
   const el = inspecting.selected?.el;
-  if (!inspecting.on || !el?.isConnected || !Array.isArray(levels)) { env.report({ kind: "unsupported", what: "inspect", detail: "no node is selected on this page to move up from" }); return; }
-  // (Only the selection, its instance and the plan the server took its sites from: another since is selected again first.)
-  if (inspecting.selected.plan !== (globalThis.exact?.plan ?? null) || plan !== inspecting.selected.plan || from !== inspecting.selected.site || JSON.stringify(instance ?? []) !== inspecting.selected.instance) { env.report({ kind: "unsupported", what: "inspect", detail: "the selection moved or the page was rebuilt since: select a node again" }); return; }
+  // (No selection here to move, or none above it of that copy: staleness, not inability; its selection as it is.)
+  if (!inspecting.on || !el?.isConnected || !Array.isArray(levels)) { await refresh(); return; }
+  // (Only the selection, its instance and the plan the server took its sites from. One that moved since on its way
+  // here is no inability (theme2 15:02): the page reports its selection as it is now, and the tool's chain follows.)
+  if (inspecting.selected.plan !== (globalThis.exact?.plan ?? null) || plan !== inspecting.selected.plan || from !== inspecting.selected.site || JSON.stringify(instance ?? []) !== inspecting.selected.instance) { await refresh(); return; }
   // The first level with a node above the selection, by this page's tree; in it, the outermost.
   for (const level of levels) {
     const want = new Set(level);
@@ -310,7 +312,7 @@ async function selectUp({ levels, plan, from, instance }) {
     for (let at = above(el); at; at = above(at)) if (want.has(siteOf(at))) found = at;
     if (found) { await select(found); return; }
   }
-  env.report({ kind: "unsupported", what: "inspect", detail: "no node above the selected one on this page is one of that copy's" });
+  await refresh();
 }
 async function refresh() {
   const was = inspecting.selected;
