@@ -282,10 +282,9 @@ fn scroller_insets_bottom(arena: &NodeArena, slot: u32) -> bool {
         let flowing = |&&c: &&u32| {
             let s = arena.style(c);
             s.display != crate::Display::None
-                && s.position_type != crate::PositionType::Absolute
-                && arena.cover(c) != Some(HostCover::Whole)
                 // A popover is out of flow, open or closed (`style::top_layer`).
-                && !crate::style::top_layer::top_layer(arena, c)
+                && crate::style::top_layer::layout_position(arena, c) != crate::PositionType::Absolute
+                && arena.cover(c) != Some(HostCover::Whole)
         };
         let Some(&last) = arena.children(at).iter().rev().find(flowing) else {
             return false;
@@ -390,8 +389,7 @@ pub(crate) fn positioned_children(arena: &NodeArena, slot: u32) -> Vec<u32> {
 
 /// Whether `slot` lays out absolute: authored so, or a popover (`style::top_layer`).
 fn positioned(arena: &NodeArena, slot: u32) -> bool {
-    arena.style(slot).position_type == crate::PositionType::Absolute
-        || crate::style::top_layer::top_layer(arena, slot)
+    crate::style::top_layer::layout_position(arena, slot) == crate::PositionType::Absolute
 }
 
 /// The points a cover adds to the box's padding as layout pads it (`apply`):

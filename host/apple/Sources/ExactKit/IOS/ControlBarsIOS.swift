@@ -42,7 +42,7 @@ final class ControlBars {
     func isBar(_ box: NodeView) -> Bool {
         if let known = bars[ObjectIdentifier(box)] { return known }
         let placed = !box.isHidden && NavigationHost.inFlow(box) && box.transform.isIdentity && CATransform3DIsIdentity(box.layer.transform)
-            && ["static", "relative"].contains(box.style["position_type"]?.string ?? "static") && !box.wrote("background_color")
+            && ["static", "relative"].contains(box.layoutPosition) && !box.wrote("background_color")
         let answer = placed && contents(box).map { $0 > 0 } == true
         bars[ObjectIdentifier(box)] = answer
         return answer
