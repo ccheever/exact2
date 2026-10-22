@@ -25,7 +25,7 @@
     "broken": { "type": "color", "value": [ 3 ] }
   },
   "children": [
-    { "type": "frame", "gap": "$base", "stroke": { "thickness": { "top": "$edge" }, "fill": "$surface" },
+    { "type": "frame", "gap": "$base", "strokeWidth": { "top": "$edge" }, "stroke": { "fill": "$surface" },
       "fill": { "type": "gradient", "size": { "width": "$spread" } },
       "children": [ { "type": "text", "lineHeight": "$ratio", "fill": "$chain" } ] }
   ]

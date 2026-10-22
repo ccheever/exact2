@@ -36,8 +36,9 @@ use serde::de::{Deserializer, IgnoredAny, MapAccess, Visitor};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
-/// The node properties Pencil reads as pixels.
-const PIXELS: [&str; 9] = [
+/// The node properties Pencil reads as pixels (an effect's `radius` and a
+/// shadow's `blur` among them).
+const PIXELS: [&str; 11] = [
     "cornerRadius",
     "gap",
     "padding",
@@ -47,8 +48,10 @@ const PIXELS: [&str; 9] = [
     "thickness",
     "width",
     "height",
+    "radius",
+    "blur",
 ];
-/// A pixel property's per-side or per-corner members (`thickness: {top, …}`).
+/// A pixel property's per-side or per-corner members (`strokeWidth: {top, …}`).
 const SIDES: [&str; 8] = [
     "top",
     "right",
@@ -59,12 +62,14 @@ const SIDES: [&str; 8] = [
     "bottomRight",
     "bottomLeft",
 ];
-/// Properties whose members are fractions of the box, never pixels (a
-/// gradient's `size` and `center`).
-const NORMALIZED: [&str; 2] = ["size", "center"];
+/// Maps of the author's own names (a shader's inputs): no key in one is a
+/// property, so nothing in one decides a kind.
+const OPAQUE: [&str; 1] = ["uniforms"];
 /// The axes, and values of one, a file may declare.
 const AXES: usize = 16;
 const VALUES: usize = 64;
+/// A file name as a report's block says it, at most.
+const LABEL: usize = 120;
 
 impl Scope {
     /// It and the scopes it holds (an `All`'s, which a Pencil entry's theme
@@ -144,48 +149,61 @@ impl<'de> serde::Deserialize<'de> for Doc {
 /// whether Pencil reads that property as pixels.
 type Uses = BTreeMap<String, (usize, bool)>;
 
+/// Where a value sits: its key, its parent's key, and whether it is inside a
+/// gradient (whose sizes and centres are fractions of the box) or a map of
+/// the author's own names.
+#[derive(Clone, Copy, Default)]
+struct At<'a> {
+    key: Option<&'a str>,
+    parent: Option<&'a str>,
+    gradient: bool,
+    opaque: bool,
+}
+
 /// Each variable's readers in the node tree (`"$name"`), by the property
-/// that reads it: its own key, a side's (`thickness.top`) or a fraction's
-/// (`size.width`); every value visited charged to the budget.
-fn readers(
-    v: &Value,
-    keys: &mut Vec<String>,
-    out: &mut BTreeMap<String, Uses>,
-) -> Result<(), String> {
+/// that reads it: its own key, a side's (`strokeWidth.top`), a shadow
+/// offset's (`offset.x`); every value visited, and every name, charged to
+/// the budget.
+fn readers(v: &Value, at: At, out: &mut BTreeMap<String, Uses>) -> Result<(), String> {
     crate::budget::spend(1)?;
     match v {
         Value::String(s) => {
-            if let (Some(name), Some(k)) = (s.strip_prefix('$'), keys.last()) {
-                crate::budget::spend(name.len() as u64)?;
-                let parent = keys.len().checked_sub(2).map(|i| keys[i].as_str());
-                let side =
-                    SIDES.contains(&k.as_str()) && parent.is_some_and(|p| PIXELS.contains(&p));
-                let fraction = keys.iter().any(|k| NORMALIZED.contains(&k.as_str()));
-                let pixel = !fraction && (PIXELS.contains(&k.as_str()) || side);
-                let label = match (side || fraction, parent) {
+            if let (Some(name), Some(k)) = (s.strip_prefix('$'), at.key) {
+                let side = (SIDES.contains(&k) && at.parent.is_some_and(|p| PIXELS.contains(&p)))
+                    || (matches!(k, "x" | "y") && at.parent == Some("offset"));
+                let pixel = !at.gradient && !at.opaque && (PIXELS.contains(&k) || side);
+                let label = match (side || at.opaque || at.gradient, at.parent) {
                     (true, Some(p)) => format!("{p}.{k}"),
-                    _ => k.clone(),
+                    _ => k.to_string(),
                 };
+                crate::budget::spend((name.len() + label.len()) as u64)?;
                 let entry = out
                     .entry(name.to_string())
                     .or_default()
                     .entry(label)
                     .or_insert((0, pixel));
                 entry.0 += 1;
+                // (one property read as pixels in one place and not in another is no pixel property)
+                entry.1 &= pixel;
             }
         }
         Value::Array(all) => {
             for x in all {
-                readers(x, keys, out)?;
+                readers(x, at, out)?;
             }
         }
         Value::Object(m) => {
             crate::budget::members(m)?;
+            let gradient = at.gradient || m.get("type").and_then(Value::as_str) == Some("gradient");
             for (k, x) in m {
                 crate::budget::spend(k.len() as u64)?;
-                keys.push(k.clone());
-                readers(x, keys, out)?;
-                keys.pop();
+                let inner = At {
+                    key: Some(k),
+                    parent: at.key,
+                    gradient,
+                    opaque: at.opaque || at.key.is_some_and(|p| OPAQUE.contains(&p)),
+                };
+                readers(x, inner, out)?;
             }
         }
         _ => {}
@@ -208,26 +226,25 @@ fn alias_of(v: &Value) -> Option<&str> {
     v.as_str().and_then(|s| s.strip_prefix('$'))
 }
 
-/// A variable's entries: each value and its theme; a scalar is one entry.
-type Entries = Vec<(Value, Option<Value>)>;
+/// One entry of a variable: its value and theme, or why it is no entry.
+type Entry<'a> = Result<(&'a Value, Option<&'a Value>), &'static str>;
 
-/// A variable's entries, or why its `value` holds none.
-fn entries_of(def: &Value) -> Result<Entries, &'static str> {
+/// A variable's entries, each on its own (a scalar is one); or why its
+/// `value` holds none.
+fn entries_of(def: &Value) -> Result<Vec<Entry<'_>>, &'static str> {
     match def.get("value") {
         Some(Value::Array(all)) if all.is_empty() => Err("its `value` is an empty list"),
-        Some(Value::Array(all)) => all
+        Some(Value::Array(all)) => Ok(all
             .iter()
             .map(|e| match e {
                 Value::Object(o) if o.contains_key("value") => match o.get("theme") {
-                    None | Some(Value::Object(_)) => {
-                        Ok((o["value"].clone(), o.get("theme").cloned()))
-                    }
+                    None | Some(Value::Object(_)) => Ok((&o["value"], o.get("theme"))),
                     Some(_) => Err("an entry's `theme` is no object of axes and values"),
                 },
                 _ => Err("an entry is no `{value, theme?}`"),
             })
-            .collect(),
-        Some(v) => Ok(vec![(v.clone(), None)]),
+            .collect()),
+        Some(v) => Ok(vec![Ok((v, None))]),
         None => Err("it has no `value`"),
     }
 }
@@ -283,10 +300,19 @@ fn read(file: &str, doc: &Doc) -> Result<(Read, Vec<String>), String> {
     }
     let mut readers: BTreeMap<String, Uses> = BTreeMap::new();
     if let Some(children) = &doc.children {
-        self::readers(children, &mut Vec::new(), &mut readers)?;
+        self::readers(children, At::default(), &mut readers)?;
     }
-    let vars = doc.variables.as_ref().map_or(&[][..], |v| &v.0[..]);
-    let types: BTreeMap<&str, &str> = vars
+    // The file's name as each report says it: bounded, so a long one is no multiplier.
+    let label: String = file.chars().take(LABEL).collect();
+    crate::budget::spend(label.len() as u64)?;
+    // The variables: a name declared twice keeps its last, the earlier reported.
+    let all = doc.variables.as_ref().map_or(&[][..], |v| &v.0[..]);
+    let mut last: BTreeMap<&str, usize> = BTreeMap::new();
+    for (i, (n, _)) in all.iter().enumerate() {
+        crate::budget::spend(n.len() as u64)?;
+        last.insert(n, i);
+    }
+    let types: BTreeMap<&str, &str> = all
         .iter()
         .map(|(n, d)| {
             (
@@ -295,38 +321,54 @@ fn read(file: &str, doc: &Doc) -> Result<(Read, Vec<String>), String> {
             )
         })
         .collect();
-    // A number's kind by its readers and those of every number it aliases or that aliases it: one group, one kind.
-    let mut group: BTreeMap<&str, &str> = BTreeMap::new();
-    fn root<'a>(g: &BTreeMap<&'a str, &'a str>, mut n: &'a str) -> &'a str {
-        while let Some(&p) = g.get(n).filter(|p| **p != n) {
-            n = p;
+    // A number's kind by its readers and those of every number it aliases or that aliases it: one group (a union
+    // of roots, each walk compressed, every step charged), one kind.
+    let mut parent: BTreeMap<&str, &str> = BTreeMap::new();
+    fn root<'a>(p: &mut BTreeMap<&'a str, &'a str>, n: &'a str) -> Result<&'a str, String> {
+        let mut r = n;
+        while let Some(&up) = p.get(r).filter(|up| **up != r) {
+            crate::budget::spend(1)?;
+            r = up;
         }
-        n
+        let mut at = n;
+        while at != r {
+            let up = p[at];
+            p.insert(at, r);
+            at = up;
+        }
+        Ok(r)
     }
-    for (name, def) in vars {
+    for (name, def) in all {
         if types[name.as_str()] != "number" {
             continue;
         }
-        group.entry(name).or_insert(name);
-        for (v, _) in entries_of(def).unwrap_or_default() {
+        parent.entry(name).or_insert(name);
+        for (v, _) in entries_of(def).unwrap_or_default().into_iter().flatten() {
             crate::budget::spend(1)?;
-            if let Some(t) = alias_of(&v).filter(|t| types.get(t) == Some(&"number")) {
-                let (t, _) = types.get_key_value(t).unwrap();
-                group.entry(t).or_insert(t);
-                let (a, b) = (root(&group, name), root(&group, t));
+            if let Some((t, _)) = alias_of(v)
+                .and_then(|t| types.get_key_value(t))
+                .filter(|(_, ty)| **ty == "number")
+            {
+                parent.entry(t).or_insert(t);
+                let (a, b) = (root(&mut parent, name)?, root(&mut parent, t)?);
                 if a != b {
-                    group.insert(a, b);
+                    parent.insert(a, b);
                 }
             }
         }
     }
     let empty = Uses::new();
-    let mut joined: BTreeMap<&str, Uses> = BTreeMap::new();
-    for &n in group.keys() {
-        let into = joined.entry(root(&group, n)).or_default();
+    let mut joined: BTreeMap<&str, (Uses, usize)> = BTreeMap::new();
+    let members: Vec<&str> = parent.keys().copied().collect();
+    for n in members {
+        let r = root(&mut parent, n)?;
+        let (into, count) = joined.entry(r).or_default();
+        *count += 1;
         for (k, (c, p)) in readers.get(n).unwrap_or(&empty) {
+            crate::budget::spend(k.len() as u64)?;
             let e = into.entry(k.clone()).or_insert((0, *p));
             e.0 += c;
+            e.1 &= *p;
         }
     }
     let mut notes = Vec::new();
@@ -340,19 +382,31 @@ fn read(file: &str, doc: &Doc) -> Result<(Read, Vec<String>), String> {
                 .to_string(),
         );
     }
-    for (name, def) in vars {
+    let none = (Uses::new(), 0);
+    for (i, (name, def)) in all.iter().enumerate() {
         crate::budget::spend(1)?;
+        if last[name.as_str()] != i {
+            crate::budget::spend(name.len() as u64)?;
+            out.unused(
+                vec![Def {
+                    file: label.clone(),
+                    path: name.clone(),
+                    ty: None,
+                    value: Value::Null,
+                    refused: None,
+                }],
+                "declared again later in `variables`, which stands",
+            );
+            continue;
+        }
         let ty = types[name.as_str()];
-        let uses = match ty {
-            "number" => joined.get(root(&group, name)).unwrap_or(&empty),
-            _ => readers.get(name).unwrap_or(&empty),
+        let (uses, shared) = match ty {
+            "number" => {
+                let (u, n) = joined.get(root(&mut parent, name)?).unwrap_or(&none);
+                (u, *n > 1)
+            }
+            _ => (readers.get(name).unwrap_or(&empty), false),
         };
-        let shared = ty == "number"
-            && group
-                .keys()
-                .filter(|n| root(&group, n) == root(&group, name))
-                .count()
-                > 1;
         let pixels = !uses.is_empty() && uses.values().all(|(_, p)| *p);
         let as_dtcg: (&str, fn(&Value) -> Value) = match ty {
             "color" => ("color", |v| v.clone()),
@@ -376,25 +430,25 @@ fn read(file: &str, doc: &Doc) -> Result<(Read, Vec<String>), String> {
             };
             let pixel = listed(uses.iter().filter(|(_, (_, p))| *p));
             let other = listed(uses.iter().filter(|(_, (_, p))| !*p));
-            notes.push(match (pixel.is_empty(), other.is_empty()) {
+            let note = match (pixel.is_empty(), other.is_empty()) {
                 (false, true) => format!("`{name}` is a length (px): Pencil reads it{with} as {pixel}"),
                 (true, true) => format!("`{name}` is a number: no frame reads it{with}"),
                 (true, false) => format!("`{name}` is a number: Pencil reads it{with} as {other}"),
                 (false, false) => format!("`{name}` is a number: Pencil reads it{with} as a pixel length ({pixel}) and as {other}, so it is no length"),
-            });
+            };
+            crate::budget::spend(note.len() as u64)?;
+            notes.push(note);
         }
         let entries = match entries_of(def) {
             Ok(e) => e,
             Err(why) => {
                 crate::budget::spend(name.len() as u64)?;
-                let value = def.get("value").cloned().unwrap_or(Value::Null);
-                crate::budget::copy(&value)?;
                 out.unused(
                     vec![Def {
-                        file: file.to_string(),
+                        file: label.clone(),
                         path: name.clone(),
                         ty: None,
-                        value,
+                        value: Value::Null,
                         refused: None,
                     }],
                     why,
@@ -402,17 +456,42 @@ fn read(file: &str, doc: &Doc) -> Result<(Read, Vec<String>), String> {
                 continue;
             }
         };
-        for (value, theme) in entries {
-            crate::budget::spend(2 * name.len() as u64)?;
-            crate::budget::copy(&value)?;
-            // An alias names another variable, as written, of its own type.
+        for entry in entries {
+            crate::budget::spend(name.len() as u64)?;
+            // (each entry counted on its own: one of no shape reported, the rest read)
+            let (value, theme) = match entry {
+                Ok(e) => e,
+                Err(why) => {
+                    out.unused(
+                        vec![Def {
+                            file: label.clone(),
+                            path: name.clone(),
+                            ty: None,
+                            value: Value::Null,
+                            refused: None,
+                        }],
+                        why,
+                    );
+                    continue;
+                }
+            };
+            crate::budget::copy(value)?;
             let mut refused = (as_dtcg.0.is_empty()).then(|| {
                 format!(
                     "a Pencil `type` the importer does not name (`{}`)",
                     ty.chars().take(20).collect::<String>()
                 )
             });
-            let value = match alias_of(&value) {
+            // An alias names another variable, as written, of its own type; a literal that DTCG would read as one
+            // (`{x}`) can't be said, nor an alias to a name DTCG can't hold (`{` or `}` in it).
+            let value = match alias_of(value) {
+                Some(target) if target.contains(['{', '}']) => {
+                    refused.get_or_insert(format!(
+                        "an alias to `{}`, a name with a brace, which no token can follow",
+                        target.chars().take(80).collect::<String>()
+                    ));
+                    Value::Null
+                }
                 Some(target) => {
                     match types.get(target) {
                         None => {
@@ -430,18 +509,23 @@ fn read(file: &str, doc: &Doc) -> Result<(Read, Vec<String>), String> {
                     }
                     Value::String(format!("{{{target}}}"))
                 }
-                None => (as_dtcg.1)(&value),
+                None if value.as_str().is_some_and(|s| {
+                    s.trim_start().starts_with('{') && s.trim_end().ends_with('}')
+                }) =>
+                {
+                    refused.get_or_insert(
+                        "a literal in braces, which the importer would read as an alias"
+                            .to_string(),
+                    );
+                    value.clone()
+                }
+                None => (as_dtcg.1)(value),
             };
             // Its scope: every axis its theme names at once; one undeclared, never.
             let mut scopes = Vec::new();
             let mut said = Vec::new();
             let mut undeclared = None;
-            for (axis, v) in theme
-                .as_ref()
-                .and_then(Value::as_object)
-                .into_iter()
-                .flatten()
-            {
+            for (axis, v) in theme.and_then(Value::as_object).into_iter().flatten() {
                 let v = v.as_str().unwrap_or_default();
                 crate::budget::spend((axis.len() + v.len()) as u64)?;
                 said.push(format!("{axis}={v}"));
@@ -458,9 +542,10 @@ fn read(file: &str, doc: &Doc) -> Result<(Read, Vec<String>), String> {
                 });
             }
             let block = match said.is_empty() {
-                true => file.to_string(),
-                false => format!("{file} ({})", said.join(", ")),
+                true => label.clone(),
+                false => format!("{label} ({})", said.join(", ")),
             };
+            crate::budget::spend(block.len() as u64)?;
             let def = Def {
                 file: block,
                 path: name.clone(),
@@ -487,7 +572,7 @@ fn read(file: &str, doc: &Doc) -> Result<(Read, Vec<String>), String> {
             crate::budget::spend(alias.len() as u64)?;
             crate::budget::copy(to)?;
             found.push(Def {
-                file: file.to_string(),
+                file: label.clone(),
                 path: format!("imports.{alias}"),
                 ty: None,
                 value: to.clone(),
