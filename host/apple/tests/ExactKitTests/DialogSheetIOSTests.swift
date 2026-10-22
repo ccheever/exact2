@@ -1217,5 +1217,118 @@ final class DialogSheetIOSTests: XCTestCase {
         XCTAssertFalse(p.menus.isOpen(dialog))
         XCTAssertNil(p.menus.observation())
     }
+    func testMovingAPageDialogKeepsItsEditAndFocusEvents() throws {
+        let (p, controller, scene) = page(field: ["autofocus": "true"])
+        guard scene else { throw missing("scene", "dialog relocation needs a presented sheet") }
+        let node = try XCTUnwrap(p.views[3])
+        node.handlers.formUnion(["focus", "blur", "change"])
+        p.dialogCommand("showModal", "form")
+        let old = try sheet(controller), field = try XCTUnwrap(node.field)
+        settle { !p.menus.inTransition && field.isFirstResponder }
+        field.text = "Uncommitted name"
+        node.fieldChanged()
+        var events: [String] = []
+        p.onChange = { _, _ in events.append("change") }
+        p.onBlur = { _ in events.append("blur") }
+        p.onFocus = { _ in events.append("focus") }
+        let unrelated = NodeView(id: 90, kind: "view", presenter: p)
+        let finish = p.menus.retire(over: controller, removing: unrelated)
+        controller.dismiss(animated: false, completion: finish)
+        settle { p.menus.sheets.top !== old && p.menus.sheets.top?.viewIfLoaded?.window != nil && field.isFirstResponder }
+        XCTAssertEqual(events, [], "moving an open dialog is not an editing end")
+        XCTAssertEqual(p.edited, node.id)
+        XCTAssertEqual(field.text, "Uncommitted name")
+        p.dialogCommand("close", "form")
+        settle { controller.presentedViewController == nil }
+        XCTAssertEqual(events.filter { $0 == "change" }.count, 1, "the real close commits once")
+    }
+
+    func testMovingAPageDialogPreservesAFocusStillPendingInIt() throws {
+        let (p, controller, scene) = page()
+        guard scene else { throw missing("scene", "pending dialog focus needs a presented sheet") }
+        p.dialogCommand("showModal", "form")
+        let old = try sheet(controller), node = try XCTUnwrap(p.views[3])
+        settle { !p.menus.inTransition }
+        old.scroller.removeFromSuperview()
+        p.focusNode(node)
+        XCTAssertTrue(p.pendingFocusNode === node)
+        let unrelated = NodeView(id: 90, kind: "view", presenter: p)
+        let finish = p.menus.retire(over: controller, removing: unrelated)
+        controller.dismiss(animated: false, completion: finish)
+        settle { p.menus.sheets.top !== old && node.field?.isFirstResponder == true }
+        XCTAssertTrue(node.field?.isFirstResponder == true)
+        XCTAssertNil(p.pendingFocusNode)
+    }
+
+    func testClosingTheLowerDialogDismissesItsWholeNativeStack() throws {
+        let (p, controller, scene) = page()
+        guard scene else { throw missing("scene", "stack dismissal needs presented sheets") }
+        p.apply(wireBatch([
+            ["op": "create", "id": 30, "kind": "view", "props": ["semanticTag": "dialog", "id": "upper"], "handlers": []],
+            ["op": "create", "id": 31, "kind": "input", "props": [:], "handlers": []],
+            ["op": "children", "id": 30, "ids": [31]],
+            ["op": "frame", "id": 30, "x": 0.0, "y": 0.0, "w": 300.0, "h": 160.0],
+            ["op": "frame", "id": 31, "x": 20.0, "y": 20.0, "w": 200.0, "h": 40.0],
+            ["op": "children", "id": 1, "ids": [8, 7, 2, 20, 30]],
+        ]))
+        p.dialogCommand("showModal", "form")
+        settle { !p.menus.inTransition }
+        p.dialogCommand("showModal", "upper")
+        let lower = try sheet(controller)
+        settle { lower.presentedViewController?.viewIfLoaded?.window != nil && !p.menus.inTransition }
+        p.dialogCommand("close", "form")
+        settle { !p.menus.inTransition }
+        XCTAssertNil(controller.presentedViewController, "no empty lower sheet remains")
+        XCTAssertNil(p.menus.sheets.top)
+    }
+
+    func testAnEmbedderDismissingAConfirmationReleasesItsOwnerAndPrompt() throws {
+        let (p, controller, scene) = page()
+        guard scene else { throw missing("scene", "external alert dismissal needs a presentation") }
+        p.apply(wireBatch([
+            ["op": "create", "id": 24, "kind": "input", "props": ["value": "Name"], "handlers": ["change"]],
+            ["op": "children", "id": 20, "ids": [24, 21, 22, 23]],
+        ]))
+        p.dialogCommand("showModal", "confirm")
+        let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
+        settle { !p.menus.inTransition }
+        XCTAssertNotNil(p.views[24]?.headerField)
+        controller.dismiss(animated: false)
+        settle { alert.presentingViewController == nil }
+        // Drain the disappearance cleanup, which waits for UIKit's callback stack.
+        let drained = expectation(description: "disappearance cleanup")
+        DispatchQueue.main.async { DispatchQueue.main.async { drained.fulfill() } }
+        wait(for: [drained], timeout: 2)
+        XCTAssertNil(p.menus.nativeConfirmation)
+        XCTAssertNil(p.views[24]?.headerField)
+        XCTAssertFalse(p.menus.isOpen(try XCTUnwrap(p.views[20])))
+    }
+
+    func testMovingAPromptKeepsItsUncommittedTextAndFocusEvents() throws {
+        let (p, controller, scene) = page()
+        guard scene else { throw missing("scene", "prompt relocation needs a presented alert") }
+        p.apply(wireBatch([
+            ["op": "create", "id": 24, "kind": "input", "props": ["value": "Name"], "handlers": ["input", "change", "focus", "blur"]],
+            ["op": "children", "id": 20, "ids": [24, 21, 22, 23]],
+        ]))
+        p.dialogCommand("showModal", "confirm")
+        let old = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
+        let field = try XCTUnwrap(old.textFields?.first)
+        settle { !p.menus.inTransition && field.isFirstResponder }
+        field.text = "New name"
+        field.sendActions(for: .editingChanged)
+        var events: [String] = []
+        p.onChange = { _, _ in events.append("change") }
+        p.onBlur = { _ in events.append("blur") }
+        p.onFocus = { _ in events.append("focus") }
+        let unrelated = NodeView(id: 90, kind: "view", presenter: p)
+        let finish = p.menus.retire(over: controller, removing: unrelated)
+        controller.dismiss(animated: false) { finish(); p.menus.resumeAfterRouteDismissal() }
+        settle { controller.presentedViewController !== old && (controller.presentedViewController as? UIAlertController)?.textFields?.first?.isFirstResponder == true }
+        XCTAssertEqual(events, [])
+        XCTAssertEqual((controller.presentedViewController as? UIAlertController)?.textFields?.first?.text, "New name")
+        XCTAssertEqual(p.edited, 24)
+    }
+
 }
 #endif

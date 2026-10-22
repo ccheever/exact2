@@ -576,7 +576,7 @@ final class MenuHost {
             }
         }
         owner.finishing = true
-        owner.fields.forEach { $0.end() }
+        owner.fields.forEach { $0.end(relocating: pendingConfirmation.map { $0.popover === owner.popover } == true) }
         // The route's presenting controller dismisses the whole stack once.
         // Removing route content is not HTML dialog.close(), so sends no close.
         return { [owner] in
@@ -585,8 +585,9 @@ final class MenuHost {
         }
     }
 
+    func preservesFocus(_ id: UInt32) -> Bool { sheets.preservesFocus(id) || pendingConfirmation?.fields.contains { $0.node?.id == id && $0.node === presenter?.views[id] && $0.node?.incarnation == $0.incarnation } == true }
     func resumeAfterRouteDismissal() {
-        guard let presenter, !presenter.modals.inTransition, sheets.resumeAfterRouteDismissal(),
+        guard let presenter, !presenter.modals.inTransition, !presenter.navigation.inTransition, sheets.resumeAfterRouteDismissal(),
               confirmation == nil, let pending = pendingConfirmation else { return }
         pendingConfirmation = nil
         let pop = pending.popover
@@ -1329,6 +1330,7 @@ final class MenuHost {
         }
         #endif
         confirmation = owner
+        owner.observeDisappearance()
         if announce { presenter?.popoverEvents.changed(pop, open: true) }
         controller.present(owner.alert, animated: !ExactEnv.agentFreezes) { [weak self, weak owner] in
             guard let self, let owner else { return }
