@@ -15,6 +15,23 @@ final class RasterImageTests: XCTestCase {
         XCTAssertTrue(CGImageDestinationFinalize(destination))
         return bytes as Data
     }
+    func testHalfAlphaPNGOverWhiteMatchesChrome() throws {
+        // Unassociated RGBA(255, 0, 0, 128), encoded independently of ImageIO.
+        let bytes = try XCTUnwrap(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DQAAAEgQGALFXOsAAAAABJRU5ErkJggg=="))
+        let metadata = try RasterMetadata.read(prefix: bytes, encodedBytes: bytes.count)
+        let image = try RasterImage.decode(bytes, metadata: metadata,
+            plan: RasterDecodePlan(metadata: metadata, maxPixel: 1), charge: TestRasterCharge())
+        let ctx = try XCTUnwrap(CGContext(data: nil, width: 40, height: 40, bitsPerComponent: 8,
+            bytesPerRow: 160, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let rect = CGRect(x: 0, y: 0, width: 40, height: 40)
+        ctx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fill(rect)
+        RasterGeometry.draw(ctx, image.image, in: rect, tint: nil)
+        let pixels = try XCTUnwrap(ctx.data).assumingMemoryBound(to: UInt8.self)
+        // Chrome's screenshot of the same PNG, scaled to 40 CSS pixels on white.
+        XCTAssertEqual(Array(UnsafeBufferPointer(start: pixels + (20 * 40 + 20) * 4, count: 4)), [255, 127, 127, 255])
+    }
+
     func testPlanReconstructedFromAdmittedDimensionsIsIdentical() throws {
         for orientation in [1, 6] {
             let metadata = try RasterMetadata.validated(width: 1448, height: 1086,
