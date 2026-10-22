@@ -757,6 +757,8 @@ if (es) {
     (modal ?? document.body).append(cover, box, banner);
     // The outlines go with the chrome.
     for (const { mark } of marks) (modal ?? document.body).append(mark);
+    // (Rebuilt with boxes still up: said again.)
+    legend(marks.length);
     // Above the app's own top layer (an open dialog), where one exists.
     topLayer(cover); topLayer(box); topLayer(banner);
   };
@@ -790,9 +792,13 @@ if (es) {
   // A marked view that changes size (a font-size pin, a commit) is outlined
   // where it is now.
   const resized = typeof ResizeObserver === "function" ? new ResizeObserver(() => place()) : null;
-  // The banner says what the dashed boxes are while they show (every copy of the selection's source).
-  const legend = (n) => { const t = inspecting.banner?.firstChild; if (t?.nodeType === 3) t.nodeValue = n > 0 ? `Inspecting: dashed boxes mark every copy of this source (${n}); click a view to select it` : "Inspecting: click a view to select it"; };
-  const unmark = () => { resized?.disconnect(); for (const { mark } of marks.splice(0)) mark.remove(); legend(0); };
+  // The banner says what the dashed boxes are while they show (a selection's every copy or what the tool's Outline
+  // asked), its words written only when they change (a live region).
+  const legend = (n) => {
+    const t = inspecting.banner?.firstChild, words = n > 0 ? `Inspecting: ${n} outlined in dashes (the selection's every copy, or what the tool outlined); click a view to select it` : "Inspecting: click a view to select it";
+    if (t?.nodeType === 3 && t.nodeValue !== words) t.nodeValue = words;
+  };
+  const unmark = (quiet = false) => { resized?.disconnect(); for (const { mark } of marks.splice(0)) mark.remove(); if (!quiet) legend(0); };
   const place = () => {
     for (const { mark, el } of marks) {
       const r = el.getBoundingClientRect();
@@ -804,7 +810,7 @@ if (es) {
     if (!inspecting.on) return;
     const views = ask({ op: "sites" });
     if (views.error || views.planDigest !== frame.plan || !Array.isArray(frame.sites)) return;
-    unmark();
+    unmark(true);
     const wanted = new Set(frame.sites);
     const found = views.sites.filter(([, site]) => wanted.has(site)).map(([id]) => globalThis.exact.views?.get(id)).filter((el) => el?.isConnected);
     // The outline answering a click here (its token) scrolls nothing: that
