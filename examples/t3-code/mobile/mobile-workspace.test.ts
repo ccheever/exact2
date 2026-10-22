@@ -1,4 +1,7 @@
 import { expect, test } from 'bun:test';
+import { execFileSync } from 'node:child_process';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { contractComponent } from '../tests/support/contract-action-fixture';
 import { mobileWorkspaceEvent, mobileWorkspace, mobileWorkspaceEntries, mobileWorkspaceLocation, mobileWorkspaceThreadSelection,
   mobileWorkspaceFileSelection, mobileWorkspaceOverlay, type MobileWorkspaceOptions } from './mobile-workspace';
@@ -11,6 +14,100 @@ const options: MobileWorkspaceOptions = { width: 1024, height: 768, primarySideb
   reducedMotion: false, appearance: 'dark', background: '#111111', hasWorkspace: true, selectedEnvironmentId: 'env', selectedThreadId: 'a' };
 const inspector = { token: 'registration-1', routeId: '12', environmentId: 'env', threadId: 'a', generation: 3,
   role: 'inspector' as const, kind: 'files' as const, selectedPath: '', active: true, renderable: true };
+
+type ContractTerm = string | ContractTerm[];
+// Read the compiler's expanded view, including component and slot expansion.
+// A source-text match cannot tell which box UIKit receives as a route's first child.
+function expandedWorkspaceRoute(): ContractTerm[] {
+  const root = fileURLToPath(new URL('../../../', import.meta.url));
+  const compiler = process.env.CONTRACT_BIN ?? resolve(root, process.env.CARGO_TARGET_DIR ?? 'target', 'debug/contract');
+  const lean = execFileSync(compiler, ['lean', resolve(import.meta.dir, 'app.contract'), '--name', 'WorkspaceStructure'],
+    { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+  let at = lean.indexOf('  view := ') + '  view := '.length;
+  if (at < '  view := '.length) throw new Error('Contract compiler emitted no expanded view.');
+  function read(): ContractTerm {
+    while (/\s|,/.test(lean[at] ?? '') && at < lean.length) at++;
+    const first = lean[at++];
+    if (first === '[' || first === '(') {
+      const end = first === '[' ? ']' : ')', values: ContractTerm[] = [];
+      while (at < lean.length) {
+        while (/\s|,/.test(lean[at] ?? '') && at < lean.length) at++;
+        if (lean[at] === end) { at++; return values; }
+        values.push(read());
+      }
+      throw new Error('Unterminated expanded Contract node.');
+    }
+    if (first === '"') {
+      const start = at - 1;
+      while (at < lean.length) { if (lean[at++] === '\\') at++; else if (lean[at - 1] === '"') break; }
+      return JSON.parse(lean.slice(start, at).replace(/\\x([0-9a-f]{2})/g, '\\u00$1'));
+    }
+    const start = at - 1;
+    while (at < lean.length && !/[\s,\]\)]/.test(lean[at]!)) at++;
+    return lean.slice(start, at);
+  }
+  const view = terms(read()), main = terms(view[0]), children = terms(main[5]);
+  const entry = children.map(terms).find(node => node[0] === '.each' && node[2] === 'entry');
+  if (!entry) throw new Error('Expanded root has no actual router-entry loop.');
+  return terms(terms(entry[6])[0]);
+}
+function terms(value: ContractTerm | undefined): ContractTerm[] {
+  if (!Array.isArray(value)) throw new Error('Expected an expanded Contract node/list.');
+  return value;
+}
+function contractValue(value: ContractTerm | undefined, scope: Record<string, unknown>): unknown {
+  const node = terms(value), kind = node[0];
+  if (kind === '.typed') return contractValue(node[1], scope);
+  if (kind === '.str') return node[1];
+  if (kind === '.bool') return node[1] === 'true';
+  if (kind === '.var') return scope[String(node[1])];
+  if (kind === '.member') return (contractValue(node[1], scope) as Record<string, unknown>)[String(node[2])];
+  if (kind === '.template') return terms(node[1]).map(part => String(contractValue(part, scope))).join('');
+  if (kind === '.unary' && node[1] === '.not') return !contractValue(node[2], scope);
+  if (kind === '.binary') {
+    const left = contractValue(node[2], scope);
+    if (node[1] === '.and') return left && contractValue(node[3], scope);
+    if (node[1] === '.or') return left || contractValue(node[3], scope);
+    if (node[1] === '.eq') return left === contractValue(node[3], scope);
+    if (node[1] === '.ne') return left !== contractValue(node[3], scope);
+  }
+  if (kind === '.call' && node[1] === 'startsWith') {
+    const args = terms(node[2]).map(arg => contractValue(arg, scope));
+    return String(args[0]).startsWith(String(args[1]));
+  }
+  throw new Error(`Unsupported structural condition ${kind}: ${JSON.stringify(node).slice(0, 160)}`);
+}
+function routeParts(nodes: ContractTerm[], scope: Record<string, unknown>): ContractTerm[][] {
+  return nodes.flatMap(value => {
+    const node = terms(value);
+    if (node[0] === '.when') return routeParts(terms(node[contractValue(node[2], scope) ? 3 : 4]), scope);
+    return [node];
+  });
+}
+
+test('expanded routes put native headers first and ordinary inspector columns below the bar', () => {
+  const route = expandedWorkspaceRoute();
+  for (const name of ['home', 'thread', 'threadFiles', 'threadFile', 'threadReview', 'newTask', 'newTaskDraft', 'settings', 'settingsAppearance', 'connect']) {
+    for (const mode of [{ fileInspectorSupported: false, inspectorMounted: false, inspectorRouteId: '7' },
+      { fileInspectorSupported: true, inspectorMounted: true, inspectorRouteId: '7' },
+      { fileInspectorSupported: true, inspectorMounted: true, inspectorRouteId: '99' }]) {
+      const scope = { entry: { id: 7, name }, workspace: { sidebarMounted: false, ...mode }, filesData: { error: '' } };
+      const children = routeParts(terms(route[5]), scope);
+      expect(children[0]?.slice(0, 2), `${name}: UIKit needs a direct header`).toEqual(['.element', 'header']);
+      expect(children[1]?.slice(0, 2), `${name}: content and inspector share the body row`).toEqual(['.element', 'row']);
+      const columns = routeParts(terms(children[1]![5]), scope);
+      expect(columns[0]?.slice(0, 2)).toEqual(['.element', 'column']);
+      const ownsInspector = mode.inspectorMounted && mode.inspectorRouteId === '7';
+      expect(columns).toHaveLength(ownsInspector ? 2 : 1);
+      if (ownsInspector) {
+        const inspectorColumn = columns[1];
+        expect(inspectorColumn?.slice(0, 2)).toEqual(['.element', 'column']);
+        const attrs = terms(inspectorColumn![3]).map(terms);
+        expect(contractValue(attrs.find(attr => attr[0] === 'id')?.[1], scope)).toBe('inspector-panel');
+      }
+    }
+  }
+});
 
 test('projection preserves Exact zero/numeric ids and strips no legitimate path parameters', () => {
   expect(mobileWorkspaceEntries([home, thread])).toEqual([{ ...home, id: '0' }, { ...thread, id: '7' }]);
