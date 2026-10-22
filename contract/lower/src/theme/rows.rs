@@ -357,6 +357,9 @@ pub(crate) fn kept(a: &Attr) -> Option<bool> {
     let mut leaves = Vec::new();
     match written(&a.value, &mut leaves) {
         true => (style_row(a) || expanded(a).is_some()).then_some(false),
+        // A shorthand's or `flex`'s choice may clear with `none` in an arm,
+        // which lowering expands too (Grok's round 3).
+        false if expanded(a).is_some() && cleared(&a.value) => Some(false),
         false => (!bound(&a.value) && style_row(a)).then_some(true),
     }
 }
@@ -374,6 +377,25 @@ fn literal_ty(e: &Expr) -> contract_types::Ty {
         Expr::Let { body, .. } => literal_ty(body),
         Expr::None(_) => Ty::Option(Box::new(Ty::Unknown)),
         _ => Ty::Unknown,
+    }
+}
+
+/// Whether `v` is literals and `none`, through `?:` and `match`.
+fn cleared(v: &Expr) -> bool {
+    match v {
+        Expr::Str(..) | Expr::Number(..) | Expr::None(..) => true,
+        Expr::Ternary(_, yes, no, _) => cleared(yes) && cleared(no),
+        Expr::Match { some, none, .. } => cleared(some) && cleared(none),
+        _ => false,
+    }
+}
+
+/// Longhand `index` of shorthand or `flex` row `a`, by the build's own
+/// expansion (`bind_shorthand`'s `component`, the Flex arm's).
+fn component_of(a: &Attr, index: usize) -> Result<Expr, LowerError> {
+    match crate::tags::attr_valued(&a.name, &a.value) {
+        Some(crate::tags::AttrTarget::Flex) => crate::values::flex_component(&a.value, index),
+        _ => crate::shorthands::component(&a.value, &a.name, index),
     }
 }
 
@@ -396,7 +418,8 @@ fn expanded(a: &Attr) -> Option<Vec<exact_kernel::StyleId>> {
 }
 
 /// Each longhand of shorthand or `flex` row `a` judged as lowering judges
-/// it: expanded by the build's own function, typed by its leaves, then
+/// it: expanded by the build's own function, typed as `expr::compile`
+/// types it ([`literal_ty`]), then
 /// `values::check_style_value` on the one row, in row order, the first
 /// refusal the row's.
 fn judge_expanded(
@@ -407,10 +430,7 @@ fn judge_expanded(
     shapes: &contract_types::Shapes,
 ) -> Result<bool, LowerError> {
     for (index, row) in rows.iter().enumerate() {
-        let value = match crate::tags::attr_valued(&a.name, &a.value) {
-            Some(crate::tags::AttrTarget::Flex) => crate::values::flex_component(&a.value, index)?,
-            _ => crate::shorthands::component(&a.value, &a.name, index)?,
-        };
+        let value = component_of(a, index)?;
         let component = Attr { value, ..a.clone() };
         let ty = literal_ty(&component.value);
         crate::values::check_style_value(&component, &[*row], &ty, uses, scope, shapes)?;
@@ -594,6 +614,18 @@ pub fn check(
             super::leaves(&r.attr.value, &mut Vec::new(), &mut leaves);
             for a in r.fonts.iter().flat_map(|f| &f.attrs) {
                 super::leaves(&a.value, &mut Vec::new(), &mut leaves);
+            }
+            // A longhand's own text too, which an expansion may write
+            // (`flex="none"`'s basis `auto`; Astra's round 3).
+            let longhands: Vec<Expr> = expanded(&r.attr)
+                .map(|rows| {
+                    (0..rows.len())
+                        .filter_map(|i| component_of(&r.attr, i).ok())
+                        .collect()
+                })
+                .unwrap_or_default();
+            for v in &longhands {
+                super::leaves(v, &mut Vec::new(), &mut leaves);
             }
             leaves.iter().any(|l| match l {
                 Expr::Str(text, _) => scan::words(text).any(reaches),
