@@ -1517,7 +1517,7 @@ deferred.
 
 ### Shrink a picked image for upload (`storage.fs.compressImage`)
 
-`storage.fs.compressImage(from, to, {maxDimension, maxBytes, type})` decodes the image
+`storage.fs.compressImage(from, to, {maxDimension, maxBytes, type, maxPixels})` decodes the image
 at `from`, scales it so its longer side is at most `maxDimension` pixels, and
 writes a JPEG of at most `maxBytes` bytes at `to`, searching JPEG quality the way
 Bluesky's composer does (from quality 51 down and up; when 51 and 26 both miss,
@@ -1526,8 +1526,16 @@ of the source's metadata is written (no EXIF, GPS or orientation); transparency
 becomes white and the colour is sRGB. With `type: 'image/png'` it writes a PNG
 instead, which keeps transparency: PNG has no quality, so it is encoded at the
 fitted size and, while over `maxBytes`, the size shrinks by 0.8, at most four
-times. It resolves `{path, type, size, width, height}`, `type` the one written
-([LLP 1069.002](../llp/1069.002-media-picker.rfc.md) Amendment A1, A1.11):
+times. A PNG with no `maxDimension` keeps the image's own size, at most 16,384
+pixels a side, and `maxBytes` then refuses (`unfit`) rather than shrinks: the
+conversion to PNG that `@exact/clipboard`'s `write` takes. `maxPixels` (an
+integer up to 64 Mi) refuses a source whose header has more pixels
+(`too-large`), before decoding. An animated PNG is read as its first frame, and
+an SVG at its natural size, as an `img` with no CSS size draws it (macOS and
+iOS with the renderer `img` uses; the web in the page, not in the module's
+worker, where an SVG is `undecodable`). It resolves `{path, type, size, width,
+height}`, `type` the one written ([LLP 1069.002](../llp/1069.002-media-picker.rfc.md)
+Amendment A1, A1.11; [LLP 1133.006](../llp/1133.006-clipboard-items.rfc.md) D1):
 
 ```ts
 export const grants = 'fs.read app:/tmp\nfs.write app:/tmp';

@@ -1021,21 +1021,25 @@
     host(6, "watch", (options && options.recursive ? "doc-watch-recursive:" : "doc-watch:") + path);
   };
   files.recentDocuments = function () { return kept(""); }; files.forgetDocument = function (path) { return kept("forget " + path); }; function kept(ask) { try { var r = host(6, "kept", ask); return Promise.resolve(r ? JSON.parse(r) : undefined); } catch (e) { return Promise.reject(storageError(String(e && e.message || e))); } } // LLP 1069.010.000 D5 (doc.keep): the host's kept list, which watch("doc:/") hears change, and the app's own removal
-  // `fs.compressImage(from, to, {maxDimension, maxBytes, type})` (LLP 1069.002 A1, A1.11): its options are
-  // checked here, before anything is queued, and travel to the host as two numbers and the media type;
-  // natively the reply is `width\theight\tsize`, on the web the record.
-  var MAX_IMAGE_DIMENSION = 8192, MAX_IMAGE_BYTES = 67108864;
+  // `fs.compressImage(from, to, {maxDimension, maxBytes, type, maxPixels})` (LLP 1069.002 A1, A1.11): its
+  // options are checked here, before anything is queued, and travel to the host as two numbers, the media
+  // type and the pixel bound; a PNG with no `maxDimension` keeps its size, sent as 0 (LLP 1133.006 D1).
+  // Natively the reply is `width\theight\tsize`, on the web the record.
+  var MAX_IMAGE_DIMENSION = 8192, MAX_IMAGE_BYTES = 67108864, MAX_IMAGE_PIXELS = 67108864;
   files.compressImage = function (from, to, options) {
     var api = "storage.fs.compressImage()";
     try {
       if (typeof from !== "string" || typeof to !== "string") throw new TypeError(api + ": from and to must be app:/ paths");
       if (!options || typeof options !== "object") throw new TypeError(api + ": options must be {maxDimension, maxBytes}");
-      var dimension = options.maxDimension, bytes = options.maxBytes, type = options.type === undefined ? "image/jpeg" : options.type;
-      if (!Number.isInteger(dimension) || dimension < 1 || dimension > MAX_IMAGE_DIMENSION) throw new TypeError(api + ": maxDimension must be an integer from 1 to " + MAX_IMAGE_DIMENSION);
-      if (!Number.isInteger(bytes) || bytes < 1 || bytes > MAX_IMAGE_BYTES) throw new TypeError(api + ": maxBytes must be an integer from 1 to " + MAX_IMAGE_BYTES);
+      var dimension = options.maxDimension, bytes = options.maxBytes, type = options.type === undefined ? "image/jpeg" : options.type, pixels = options.maxPixels;
       if (type !== "image/jpeg" && type !== "image/png") throw new TypeError(api + ": type must be \"image/jpeg\" or \"image/png\"");
+      if (dimension === undefined && type === "image/png") dimension = 0;
+      else if (!Number.isInteger(dimension) || dimension < 1 || dimension > MAX_IMAGE_DIMENSION) throw new TypeError(api + ": maxDimension must be an integer from 1 to " + MAX_IMAGE_DIMENSION + (type === "image/png" ? ", or left out to keep the size" : ""));
+      if (!Number.isInteger(bytes) || bytes < 1 || bytes > MAX_IMAGE_BYTES) throw new TypeError(api + ": maxBytes must be an integer from 1 to " + MAX_IMAGE_BYTES);
+      if (pixels !== undefined && (!Number.isInteger(pixels) || pixels < 1 || pixels > MAX_IMAGE_PIXELS)) throw new TypeError(api + ": maxPixels must be an integer from 1 to " + MAX_IMAGE_PIXELS);
     } catch (e) { return Promise.reject(e); }
-    return storageCall(nativeStorage && nativeStorage.fs, "compressImage", [from, to, dimension, bytes, type], function (value) {
+    var args = pixels === undefined ? [from, to, dimension, bytes, type] : [from, to, dimension, bytes, type, pixels];
+    return storageCall(nativeStorage && nativeStorage.fs, "compressImage", args, function (value) {
       var parts = typeof value === "string" ? value.split("\t") : [value.width, value.height, value.size];
       return { path: to, type: type, size: +parts[2], width: +parts[0], height: +parts[1] };
     });

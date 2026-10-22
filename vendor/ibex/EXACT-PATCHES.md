@@ -134,6 +134,16 @@ The source pin also deallocates an upload's bytes before invoking its last-relea
 callback, so the executor cannot refund memory while the allocation is retained.
 The standalone manifests, dependency graph and locks are unchanged by this refresh.
 
+Patch 16 (exact2 LLP 1133.006 D1, 2026-10-23) extends patch 9's interface for
+converting an image to PNG at its own size, and is replayed with it on a
+refresh. `fs_image::ImageRequest` gains `max_pixels` (0 is the codec's bound),
+and a `max_dimension` of 0 keeps a PNG's own size, at most the service's
+`max_dimension` a side: admission takes it for a PNG only, and the output
+check uses the service's bound for it. `boundary_abi.rs` takes a dimension of
+0 with `image/png`, and an optional sixth positional argument, the pixel
+bound. `bindings/storage.d.ts` declares `CompressImageOptions` as the scaled
+form or the kept one, with `maxPixels` on both. Exact's codec does the rest.
+
 ### Historical v4 Windows consumer qualification — 2026-10-13
 
 The Windows lane started from Exact `dfa6a26344cf238f4b642805492806795e01ddfd`

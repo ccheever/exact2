@@ -500,6 +500,7 @@ public final class ExactSession {
         self.launchPlace = launchPlace
         self.app = app
         self.label = label
+        SvgRasterizer.installed // `compressImage` reads SVG with the renderer `img` draws with (LLP 1133.006 D1)
         let runtime = Runtime()
         if ActivityLibrary.packaged { runtime.linkActivities() }
         // Motion starts at the first frame that shows it, until an agent owns the clock (LLP 1003.001 D7).

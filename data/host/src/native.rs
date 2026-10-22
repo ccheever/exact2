@@ -194,8 +194,6 @@ fn compress_image(
             .as_f64()
             .ok_or_else(|| format!("storage: {k} must be a number"))
     };
-    let (max_dimension, max_bytes) =
-        exact_data::image::check_limits(number("maxDimension")?, number("maxBytes")?)?;
     // `type` (A1.11): absent is a JPEG.
     let format = match &args["type"] {
         Value::Null => exact_data::image::Format::Jpeg,
@@ -203,6 +201,20 @@ fn compress_image(
             exact_data::image::failure("invalid", "type must be image/jpeg or image/png")
         })?,
         _ => return Err("storage: type must be a string".into()),
+    };
+    // A PNG with no `maxDimension` keeps its size (LLP 1133.006 D1).
+    let dimension = match &args["maxDimension"] {
+        Value::Null if format == exact_data::image::Format::Png => {
+            f64::from(exact_data::image::KEEP_SIZE)
+        }
+        _ => number("maxDimension")?,
+    };
+    let (max_dimension, max_bytes) =
+        exact_data::image::check_options(format, dimension, number("maxBytes")?)?;
+    // `maxPixels`: a source pixel bound below the codec's (LLP 1133.006 D1).
+    let max_pixels = match &args["maxPixels"] {
+        Value::Null => 0,
+        v => exact_data::image::check_pixels(v.as_f64().unwrap_or(f64::NAN))?,
     };
     let service = cfg!(target_vendor = "apple")
         .then(|| ImageService::new(std::sync::Arc::new(ImageCodec), image_limits()))
@@ -223,6 +235,7 @@ fn compress_image(
                 exact_data::image::Format::Jpeg => fs_image::ImageFormat::Jpeg,
                 exact_data::image::Format::Png => fs_image::ImageFormat::Png,
             },
+            max_pixels,
         },
     )
     .map_err(error)?;
@@ -244,7 +257,9 @@ struct ImageCodec;
 fn image_limits() -> fs_image::WorkLimits {
     fs_image::WorkLimits {
         max_job_bytes: 640 << 20,
-        max_dimension: exact_data::image::MAX_DIMENSION,
+        // An image kept at its own size (LLP 1133.006 D1) may be longer than
+        // the 8192 an asked `maxDimension` is.
+        max_dimension: exact_data::image::MAX_KEPT_DIMENSION,
         ..fs_image::WorkLimits::default()
     }
 }
@@ -275,7 +290,10 @@ impl fs_image::ImageCodec for ImageCodec {
                     .check()
                     .map_err(|e| exact_data::image::failure("timeout", e))
             },
-            control.limits().max_pixels,
+            match request.max_pixels {
+                0 => control.limits().max_pixels,
+                n => n.min(control.limits().max_pixels),
+            },
             control.limits().max_scratch_bytes,
         )
         .map(|c| fs_image::CompressedImage {

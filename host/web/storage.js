@@ -147,11 +147,12 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
       return enqueue(async active => { const backend = await fileSystem(); active(); return backend[method](...captured); }, clone, () => {}, true, method);
     };
   }
-  // The prelude hands `compressImage` its options as two numbers and the
-  // media type (LLP 1069.002 A1, A1.11); app files only, so never the
+  // The prelude hands `compressImage` its options as two numbers, the media
+  // type and an optional pixel bound (LLP 1069.002 A1, A1.11); a dimension of
+  // 0 keeps a PNG's size (LLP 1133.006 D1). App files only, so never the
   // documents' backend.
-  files.compressImage = (from, to, maxDimension, maxBytes, type) =>
-    enqueue(async active => { const backend = await fileSystem(); active(); return backend.compressImage(from, to, {maxDimension, maxBytes, type}); }, clone, () => {}, true, 'compressImage');
+  files.compressImage = (from, to, maxDimension, maxBytes, type, maxPixels) =>
+    enqueue(async active => { const backend = await fileSystem(); active(); return backend.compressImage(from, to, {...(maxDimension === 0 ? {} : {maxDimension}), maxBytes, type, ...(maxPixels === undefined ? {} : {maxPixels})}); }, clone, () => {}, true, 'compressImage');
   return {
     reserve, abandon,
     capability: Object.freeze({fs:Object.freeze(files),sqlite:Object.freeze({open:path => enqueue(async active => {

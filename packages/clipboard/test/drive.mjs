@@ -3,7 +3,9 @@
 // `file:`, imports it from data code only, and writes a PNG by bytes and by
 // path, an APNG whose default image is not part of its animation, a PNG over
 // the pixel bound, bytes that are no PNG, text, an A/B race, two items and
-// an unsupported type.
+// an unsupported type; and converts a JPEG, an SVG with no size, a PNG
+// longer than 8192, the APNG and a source over `maxPixels` with
+// `compressImage` first, as T3's Copy image does.
 //
 // - The web, bound, in Chromium, whose headless clipboard is its own (the
 //   machine's pasteboard is saved first and checked unchanged after): the
@@ -54,6 +56,12 @@ const presses = [
   ['green', 'ok', (l) => l.image.width === 4],
   ['red', 'ok', (l) => l.image.width === 4],
   ['apng', 'ok', (l) => l.image.width === 4 && l.image.height === 3],
+  ['from-jpeg', 'ok', (l) => l.image.width === 32 && l.image.height === 24],
+  ['from-svg', 'ok', (l) => l.image.width === 40 && l.image.height === 20],
+  ['from-long', 'ok', (l) => l.image.width === 16000 && l.image.height === 1000],
+  ['from-apng', 'ok', (l) => l.image.width === 4 && l.image.height === 3],
+  ['from-huge', 'too-large', null],
+  ['from-green', 'ok', (l) => l.image.width === 4 && l.image.height === 3],
   ['huge', 'DataError', null],
   ['not-png', 'DataError', null],
   ['two', 'NotAllowedError', null],
@@ -69,6 +77,7 @@ const judge = (where, answers, lasts) => {
   }
   const sha = (p) => lasts[p]?.image?.sha256;
   check(where, 'the APNG writes its frame 0 (green), not its default image (red)', sha('apng') && sha('apng') === sha('green') && sha('apng') !== sha('red'), `${sha('apng')} green ${sha('green')} red ${sha('red')}`);
+  check(where, 'the APNG converted by compressImage is its frame 0 too', sha('from-apng') && sha('from-apng') === sha('from-green'), `${sha('from-apng')} green ${sha('from-green')}`);
 };
 
 if (hosts.includes('web')) {
@@ -135,7 +144,7 @@ const agentDrive = (host) => {
   });
   judge(host, answers, lasts);
   const clipboard = states.at(-1)?.extensions?.clipboard;
-  check(host, 'the implementation is its own substitute under the agent', clipboard?.substituting === true && clipboard?.calls?.write >= 8, JSON.stringify(clipboard));
+  check(host, 'the implementation is its own substitute under the agent', clipboard?.substituting === true && clipboard?.calls?.write >= 12, JSON.stringify(clipboard));
   if (host === 'macos') console.log(`macos: the drive's pasteboard after the PNG with text: ${JSON.stringify(states[0]?.extensions?.clipboard?.written)}`);
 };
 for (const host of ['web', 'macos', 'ios']) if (hosts.includes(host)) agentDrive(host);

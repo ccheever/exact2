@@ -4,7 +4,9 @@
 #   frame 0 is green and frame 1 blue (LLP 1133.006 D1);
 # - a PNG whose header claims 9000 x 9000 pixels, over the 64,000,000 bound;
 # - still 4 x 3 PNGs of the APNG's red and green: a host's sanitized PNG of
-#   the APNG has the same SHA-256 as its sanitized green, not its red.
+#   the APNG has the same SHA-256 as its sanitized green, not its red;
+# - for compressImage's conversion: a 32 x 24 JPEG, an SVG with no size (its
+#   viewBox is 40 x 20) and a 16000 x 1000 PNG, longer than 8192.
 # usage: python3 packages/clipboard/test/images.py   (needs Pillow)
 import base64, io, os, struct, zlib
 from PIL import Image, PngImagePlugin
@@ -32,8 +34,12 @@ huge = SIG + chunk(b'IHDR', struct.pack('>IIBBBBB', 9000, 9000, 8, 2, 0, 0, 0)) 
 green = SIG + chunk(b'IHDR', struct.pack('>IIBBBBB', W, H, 8, 2, 0, 0, 0)) + chunk(b'IDAT', raw((0, 255, 0))) + chunk(b'IEND', b'')
 red = SIG + chunk(b'IHDR', struct.pack('>IIBBBBB', W, H, 8, 2, 0, 0, 0)) + chunk(b'IDAT', raw((255, 0, 0))) + chunk(b'IEND', b'')
 
+b = io.BytesIO(); Image.new('RGB', (32, 24), (200, 30, 30)).save(b, 'JPEG'); jpeg = b.getvalue()
+svg = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20"><rect width="40" height="20" fill="#00ff00"/></svg>'
+b = io.BytesIO(); Image.new('1', (16000, 1000), 1).save(b, 'PNG', optimize=True); long_png = b.getvalue()
+
 out = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fixture', 'images.ts')
 with open(out, 'w') as f:
     f.write("// Written by packages/clipboard/test/images.py; never edited.\n")
-    for name, data in [('png', png), ('apng', apng), ('huge', huge), ('green', green), ('red', red)]:
+    for name, data in [('png', png), ('apng', apng), ('huge', huge), ('green', green), ('red', red), ('jpeg', jpeg), ('svg', svg), ('long', long_png)]:
         f.write(f"export const {name} = '{base64.b64encode(data).decode()}';\n")

@@ -13,6 +13,12 @@ component App
   mutation jpeg as shape Said
   mutation green as shape Said
   mutation red as shape Said
+  mutation fromJpeg as shape Said
+  mutation fromSvg as shape Said
+  mutation fromLong as shape Said
+  mutation fromApng as shape Said
+  mutation fromHuge as shape Said
+  mutation fromGreen as shape Said
   action doPngBytes
     send pngBytes = clipPngBytes()
   action doPngPath
@@ -35,6 +41,18 @@ component App
     send green = clipGreen()
   action doRed
     send red = clipRed()
+  action doFromJpeg
+    send fromJpeg = clipFromJpeg()
+  action doFromSvg
+    send fromSvg = clipFromSvg()
+  action doFromLong
+    send fromLong = clipFromLong()
+  action doFromApng
+    send fromApng = clipFromApng()
+  action doFromHuge
+    send fromHuge = clipFromHuge()
+  action doFromGreen
+    send fromGreen = clipFromGreen()
   action copyIt
     copyText("exact copyText fixture")
   view
@@ -129,3 +147,51 @@ component App
             text testId="red-said" s.said
           case none
             text testId="red-said" "none"
+      row
+        button testId="from-jpeg" press=doFromJpeg
+          text "JPEG to PNG"
+        match fromJpeg
+          case some(s)
+            text testId="from-jpeg-said" s.said
+          case none
+            text testId="from-jpeg-said" "none"
+      row
+        button testId="from-svg" press=doFromSvg
+          text "SVG to PNG"
+        match fromSvg
+          case some(s)
+            text testId="from-svg-said" s.said
+          case none
+            text testId="from-svg-said" "none"
+      row
+        button testId="from-long" press=doFromLong
+          text "Long PNG"
+        match fromLong
+          case some(s)
+            text testId="from-long-said" s.said
+          case none
+            text testId="from-long-said" "none"
+      row
+        button testId="from-apng" press=doFromApng
+          text "APNG to PNG"
+        match fromApng
+          case some(s)
+            text testId="from-apng-said" s.said
+          case none
+            text testId="from-apng-said" "none"
+      row
+        button testId="from-huge" press=doFromHuge
+          text "Over the pixel bound"
+        match fromHuge
+          case some(s)
+            text testId="from-huge-said" s.said
+          case none
+            text testId="from-huge-said" "none"
+      row
+        button testId="from-green" press=doFromGreen
+          text "Green to PNG"
+        match fromGreen
+          case some(s)
+            text testId="from-green-said" s.said
+          case none
+            text testId="from-green-said" "none"

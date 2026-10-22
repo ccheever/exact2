@@ -1,6 +1,6 @@
 import type { Answer, Sources } from './app.contract.d.ts';
 import { write, writeText, ClipboardItem } from '@exact/clipboard';
-import { png, apng, huge, green, red } from './images.ts';
+import { png, apng, huge, green, red, jpeg, svg, long } from './images.ts';
 
 // The suite writes the id `exact new` gave the app. The module is imported
 // from data code only (LLP 1133.006 §11 question 3).
@@ -16,6 +16,20 @@ const file = async (storage: any, name: string, data: Uint8Array) => {
   await folder(storage);
   await storage.fs.writeFile(`app:/tmp/clip/${name}`, data);
   return `app:/tmp/clip/${name}`;
+};
+
+/** Another image as a PNG at its own size, as T3's Copy image converts one
+ * (LLP 1133.006 §6): its path, or the code `compressImage` refused with. */
+const convert = async (storage: any, name: string, data: Uint8Array) => {
+  const from = await file(storage, name, data);
+  try {
+    const out = await storage.fs.compressImage(from, `${from}.png`, { type: 'image/png', maxPixels: 64_000_000, maxBytes: 64 * 1024 * 1024 });
+    return { path: out.path as string };
+  } catch (e: any) { return { refused: `${e?.code ?? e?.name}` }; }
+};
+const converted = async (storage: any, name: string, data: Uint8Array) => {
+  const png = await convert(storage, name, data);
+  return { said: 'refused' in png ? png.refused! : await outcome(write([new ClipboardItem({ 'image/png': png.path! })])) };
 };
 
 const sources: Sources = {
@@ -38,5 +52,12 @@ const sources: Sources = {
   // The APNG's frame 0 and its default image as stills: the APNG's written PNG hashes as the green one does.
   clipGreen: async () => ({ said: await outcome(write([new ClipboardItem({ 'image/png': bytes(green) })])) }),
   clipRed: async () => ({ said: await outcome(write([new ClipboardItem({ 'image/png': bytes(red) })])) }),
+  // compressImage's conversion (LLP 1133.006 D1): another format, an SVG with no size, a PNG longer than 8192, an APNG, and a source over `maxPixels`.
+  clipFromJpeg: async (_a, _s, storage) => converted(storage, 'photo.jpg', bytes(jpeg)),
+  clipFromSvg: async (_a, _s, storage) => converted(storage, 'mark.svg', bytes(svg)),
+  clipFromLong: async (_a, _s, storage) => converted(storage, 'long.png', bytes(long)),
+  clipFromApng: async (_a, _s, storage) => converted(storage, 'hidden.apng', bytes(apng)),
+  clipFromHuge: async (_a, _s, storage) => converted(storage, 'huge.png', bytes(huge)),
+  clipFromGreen: async (_a, _s, storage) => converted(storage, 'green.png', bytes(green)),
 };
 export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);

@@ -13,6 +13,9 @@ import { now } from './storage-environment.js';
 export const MAX_DIMENSION = 8192;
 export const MAX_BYTES = 64 * 1024 * 1024; // also the largest source
 export const MAX_SOURCE_PIXELS = 64 * 1024 * 1024;
+// A PNG with no `maxDimension` keeps its size, at most this a side (LLP
+// 1133.006 D1; the native codec service's bound).
+export const KEEP_SIZE = 0, MAX_KEPT_DIMENSION = 16384;
 const DEADLINE_MS = 20_000;
 const MAX_SHRINKS = 4;
 
@@ -27,14 +30,17 @@ export function failure(code, detail) {
 export function limits(options) {
   const api = 'storage.fs.compressImage()';
   if (!options || typeof options !== 'object') throw new TypeError(`${api}: options must be {maxDimension, maxBytes}`);
-  const { maxDimension, maxBytes } = options;
-  if (!Number.isInteger(maxDimension) || maxDimension < 1 || maxDimension > MAX_DIMENSION)
-    throw new TypeError(`${api}: maxDimension must be an integer from 1 to ${MAX_DIMENSION}`);
-  if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > MAX_BYTES)
-    throw new TypeError(`${api}: maxBytes must be an integer from 1 to ${MAX_BYTES}`);
+  const { maxBytes, maxPixels } = options;
   const type = options.type === undefined ? 'image/jpeg' : options.type;
   if (type !== 'image/jpeg' && type !== 'image/png') throw new TypeError(`${api}: type must be "image/jpeg" or "image/png"`);
-  return { maxDimension, maxBytes, type };
+  const keep = options.maxDimension === undefined && type === 'image/png', maxDimension = keep ? KEEP_SIZE : options.maxDimension;
+  if (!keep && (!Number.isInteger(maxDimension) || maxDimension < 1 || maxDimension > MAX_DIMENSION))
+    throw new TypeError(`${api}: maxDimension must be an integer from 1 to ${MAX_DIMENSION}${type === 'image/png' ? ', or left out to keep the size' : ''}`);
+  if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > MAX_BYTES)
+    throw new TypeError(`${api}: maxBytes must be an integer from 1 to ${MAX_BYTES}`);
+  if (maxPixels !== undefined && (!Number.isInteger(maxPixels) || maxPixels < 1 || maxPixels > MAX_SOURCE_PIXELS))
+    throw new TypeError(`${api}: maxPixels must be an integer from 1 to ${MAX_SOURCE_PIXELS}`);
+  return { maxDimension, maxBytes, type, maxPixels: maxPixels ?? MAX_SOURCE_PIXELS };
 }
 
 /** `containImageRes`: never larger than itself, each side floored, at least 1. */
@@ -67,6 +73,11 @@ export async function search(width, height, maxDimension, maxBytes, encode) {
 /** A PNG's search (A1.11): the fitted size, then each 0.8 shrink, at most
  * four of them. `encode(w, h)` resolves `{size, value}`. */
 export async function searchLossless(width, height, maxDimension, maxBytes, encode) {
+  // Kept at its own size: one trial, and no shrinking.
+  if (maxDimension === KEEP_SIZE) {
+    const { size, value } = await encode(width, height);
+    return size <= maxBytes ? { value, width, height } : null;
+  }
   let dimension = maxDimension;
   for (let shrinks = 0; shrinks <= MAX_SHRINKS; shrinks++) {
     const [w, h] = contain(width, height, dimension);
@@ -153,6 +164,95 @@ export async function headerSize(blob) {
   return null;
 }
 
+// An SVG (LLP 1133.006 D1, "SVG input"): sniffed as a browser does, sized as
+// an `img` with no CSS size is (exact-svg-file's `Natural::size`: the file's
+// width and height, one with the viewBox's ratio, the viewBox's own size
+// when it gives none, else 300 × 150), and drawn by an `img` element, which
+// only a page has: in a worker it is `undecodable`.
+export function svgText(bytes) {
+  let rest = new TextDecoder().decode(bytes.subarray(0, 4096)).replace(/^\ufeff/, '').trimStart();
+  for (;;) {
+    if (/^<svg[\s>/:]/.test(rest)) return rest;
+    const skip = rest.startsWith('<!--') ? rest.indexOf('-->', 4) + 3 : rest.startsWith('<?') || /^<!doctype/i.test(rest) ? rest.indexOf('>') + 1 : 0;
+    if (skip <= 0) return null;
+    rest = rest.slice(skip).trimStart();
+  }
+}
+export function svgSize(text) {
+  const tag = /^<svg(?::svg)?\b([^>]*)>/.exec(text)?.[1] ?? '';
+  const attr = name => new RegExp(`\\s${name}\\s*=\\s*("([^"]*)"|'([^']*)')`).exec(tag)?.slice(2).find(v => v !== undefined);
+  const length = value => {
+    const m = /^\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)\s*(px|pt|pc|mm|cm|in|em|rem)?\s*$/i.exec(value ?? '');
+    const n = m ? Number(m[1]) * ({ pt: 4 / 3, pc: 16, mm: 96 / 25.4, cm: 96 / 2.54, in: 96, em: 16, rem: 16 }[m[2]?.toLowerCase()] ?? 1) : NaN;
+    return n > 0 && isFinite(n) ? n : null;
+  };
+  const box = (attr('viewBox') ?? '').split(/[\s,]+/).filter(Boolean).map(Number);
+  const view = box.length === 4 && box[2] > 0 && box[3] > 0 && box.every(isFinite) ? box : null;
+  const w = length(attr('width')), h = length(attr('height')), r = view ? view[2] / view[3] : null;
+  if (w && h) return [w, h];
+  if (w && r) return [w, w / r];
+  if (h && r) return [h * r, h];
+  if (view) return [view[2], view[3]];
+  return [w ?? 300, h ?? 150];
+}
+async function decodeSvg(blob, maxPixels) {
+  const text = svgText(new Uint8Array(await blob.slice(0, 4096).arrayBuffer()));
+  const [w, h] = svgSize(text).map(n => Math.max(1, Math.round(n)));
+  if (w * h > maxPixels) throw failure('too-large', `${w}×${h} pixels is over ${maxPixels}`);
+  if (typeof Image !== 'function' || typeof URL?.createObjectURL !== 'function') throw failure('undecodable', 'an SVG is drawn by an img element, which this realm has not');
+  const url = URL.createObjectURL(new Blob([blob], { type: 'image/svg+xml' }));
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode().catch(() => { throw failure('undecodable', 'not an SVG this browser draws'); });
+    const { context, encode } = surface(w, h, 'image/png');
+    context.drawImage(img, 0, 0, w, h);
+    return await createImageBitmap(await encode());
+  } finally { URL.revokeObjectURL(url); }
+}
+
+// An animated PNG's first frame as a still PNG (LLP 1133.006 D1), as the
+// native codec cuts it: Chromium writes that frame, and WebKit's decoder,
+// ImageIO, does not select it. A still PNG is itself; null when malformed.
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+const CRC = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+export function pngFirstFrame(bytes) {
+  if (bytes.length < 8 || PNG_SIGNATURE.some((b, i) => bytes[i] !== b)) return bytes;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), chunks = [];
+  for (let at = 8; at + 12 <= bytes.length;) {
+    const length = view.getUint32(at), type = String.fromCharCode(...bytes.subarray(at + 4, at + 8));
+    if (at + 12 + length > bytes.length) return null;
+    chunks.push({ type, data: bytes.subarray(at + 8, at + 8 + length) });
+    at += 12 + length;
+    if (type === 'IEND') break;
+  }
+  const image = chunks.findIndex(c => c.type === 'IDAT');
+  if (image < 0 || !chunks.slice(0, image).some(c => c.type === 'acTL')) return bytes;
+  const run = (list, type) => { const out = []; for (const c of list) { if (c.type !== type) break; out.push(c); } return out; };
+  let data;
+  if (chunks.slice(0, image).some(c => c.type === 'fcTL')) data = run(chunks.slice(image), 'IDAT').map(c => c.data);
+  else {
+    const control = chunks.findIndex(c => c.type === 'fcTL');
+    if (control < 0) return null;
+    data = run(chunks.slice(control + 1), 'fdAT').filter(c => c.data.length > 4).map(c => c.data.subarray(4));
+  }
+  if (!data.length) return null;
+  const chunk = (type, d) => {
+    const out = new Uint8Array(12 + d.length), v = new DataView(out.buffer);
+    v.setUint32(0, d.length);
+    out.set([...type].map(c => c.charCodeAt(0)), 4);
+    out.set(d, 8);
+    let crc = 0xffffffff;
+    for (const b of out.subarray(4, 8 + d.length)) crc = CRC[(crc ^ b) & 0xff] ^ (crc >>> 8);
+    v.setUint32(8 + d.length, (crc ^ 0xffffffff) >>> 0);
+    return out;
+  };
+  const parts = [new Uint8Array(PNG_SIGNATURE), ...chunks.slice(0, image).filter(c => c.type !== 'acTL' && c.type !== 'fcTL').map(c => chunk(c.type, c.data)), ...data.map(d => chunk('IDAT', d)), chunk('IEND', new Uint8Array())];
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  parts.reduce((at, p) => (out.set(p, at), at + p.length), 0);
+  return out;
+}
+
 async function decode(blob) {
   try { return await createImageBitmap(blob, { imageOrientation: 'from-image' }); }
   catch (error) {
@@ -183,19 +283,32 @@ function surface(w, h, type) {
 /** `blob` as a JPEG, or a PNG (`type`), within the budget: `{bytes:
  * ArrayBuffer, width, height}`. Nothing is decoded or tried at or after
  * `deadline`. */
-export async function compress(blob, maxDimension, maxBytes, deadline = now() + DEADLINE_MS, type = 'image/jpeg') {
+export async function compress(blob, maxDimension, maxBytes, deadline = now() + DEADLINE_MS, type = 'image/jpeg', maxPixels = MAX_SOURCE_PIXELS) {
   const late = () => { if (now() >= deadline) throw failure('timeout', `the search ran past ${DEADLINE_MS / 1000} s`); };
   if (blob.size > MAX_BYTES) throw failure('too-large', `${blob.size} bytes is over ${MAX_BYTES}`);
-  const stored = await headerSize(blob);
-  if (!stored) throw failure('undecodable', 'not an image whose size the web reads before decoding (JPEG, PNG, GIF, WebP, BMP)');
-  if (stored[0] * stored[1] > MAX_SOURCE_PIXELS) throw failure('too-large', `${stored[0]}×${stored[1]} pixels is over ${MAX_SOURCE_PIXELS}`);
-  late(); // the header's read may have taken the time
-  const bitmap = await decode(blob);
+  const pixels = Math.min(maxPixels, MAX_SOURCE_PIXELS);
+  const head = new Uint8Array(await blob.slice(0, 4096).arrayBuffer());
+  let bitmap;
+  if (svgText(head)) bitmap = await decodeSvg(blob, pixels);
+  else {
+    const stored = await headerSize(blob);
+    if (!stored) throw failure('undecodable', 'not an image whose size the web reads before decoding (JPEG, PNG, GIF, WebP, BMP, SVG)');
+    if (stored[0] * stored[1] > pixels) throw failure('too-large', `${stored[0]}×${stored[1]} pixels is over ${pixels}`);
+    late(); // the header's read may have taken the time
+    // An animated PNG decodes as its first frame.
+    if (head[0] === 0x89 && head[1] === 0x50) {
+      const still = pngFirstFrame(new Uint8Array(await blob.arrayBuffer()));
+      if (!still) throw failure('undecodable', 'an animated PNG whose first frame is malformed');
+      blob = new Blob([still], { type: 'image/png' });
+    }
+    bitmap = await decode(blob);
+  }
   try {
     const { width, height } = bitmap;
     if (!width || !height) throw failure('undecodable', 'the image has no pixels');
     // Again after decoding: the header may not be the frame the browser drew.
-    if (width * height > MAX_SOURCE_PIXELS) throw failure('too-large', `${width}×${height} pixels is over ${MAX_SOURCE_PIXELS}`);
+    if (width * height > pixels) throw failure('too-large', `${width}×${height} pixels is over ${pixels}`);
+    if (maxDimension === KEEP_SIZE && (width > MAX_KEPT_DIMENSION || height > MAX_KEPT_DIMENSION)) throw failure('too-large', `${width}×${height} keeps more than ${MAX_KEPT_DIMENSION} pixels a side`);
     let drawn = null;
     const name = type === 'image/png' ? 'PNG' : 'JPEG';
     const trial = async (w, h, quality) => {

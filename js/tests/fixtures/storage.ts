@@ -301,6 +301,18 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     catch (e:any) { out.push(e.name + " " + e.code + " " + e.message); }
     return {text: out.join("\n")};
   }
+  // A PNG kept at its own size, no `maxDimension` (LLP 1133.006 D1), then a
+  // source over `maxPixels`.
+  if (op === "compress-kept") {
+    const data = storage.fs.directories.data, out: string[] = [];
+    for (const maxPixels of [Number(value), 10]) {
+      try {
+        const r = await storage.fs.compressImage(data + "/in.png", data + "/kept.png", { maxBytes: 100_000, type: "image/png", maxPixels });
+        out.push([r.path, r.type, r.width, r.height].join(" "));
+      } catch (e:any) { out.push(e.name + " " + e.code + " " + e.message); }
+    }
+    return {text: out.join("\n")};
+  }
   // A compression the wait gives up on, then a write to the same path: the
   // write is what remains (LLP 1069.002 A1.5).
   if (op === "compress-abandoned") {

@@ -248,7 +248,9 @@ pub(crate) struct ImageCodec;
 fn image_limits() -> fs_image::WorkLimits {
     fs_image::WorkLimits {
         max_job_bytes: 640 << 20,
-        max_dimension: exact_data::image::MAX_DIMENSION,
+        // An image kept at its own size (LLP 1133.006 D1) may be longer than
+        // the 8192 an asked `maxDimension` is.
+        max_dimension: exact_data::image::MAX_KEPT_DIMENSION,
         ..fs_image::WorkLimits::default()
     }
 }
@@ -279,7 +281,10 @@ impl fs_image::ImageCodec for ImageCodec {
                     .check()
                     .map_err(|e| exact_data::image::failure("timeout", e))
             },
-            control.limits().max_pixels,
+            match request.max_pixels {
+                0 => control.limits().max_pixels,
+                n => n.min(control.limits().max_pixels),
+            },
             control.limits().max_scratch_bytes,
         )
         .map(|c| fs_image::CompressedImage {

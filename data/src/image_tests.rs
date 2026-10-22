@@ -159,6 +159,123 @@ fn limits_are_integers_in_range() {
     }
 }
 
+/// LLP 1133.006 D1, "keep the size": a PNG with no `maxDimension` is
+/// tried once at its own size, and nothing fitting is `None`, never smaller.
+#[test]
+fn a_kept_png_is_tried_once_at_its_own_size() {
+    let mut sizes = Vec::new();
+    let fit = search_lossless(16_000, 1_000, KEEP_SIZE, 1 << 20, |w, h| {
+        sizes.push((w, h));
+        Ok(vec![0; 10])
+    })
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        (sizes.as_slice(), fit.width, fit.height),
+        (&[(16_000, 1_000)][..], 16_000, 1_000)
+    );
+    let unfit = search_lossless(800, 600, KEEP_SIZE, 1, |_, _| Ok(vec![0; 2])).unwrap();
+    assert!(unfit.is_none());
+    assert_eq!(
+        check_options(Format::Png, 0.0, 1e6),
+        Ok((KEEP_SIZE, 1_000_000))
+    );
+    assert!(
+        check_options(Format::Jpeg, 0.0, 1e6).is_err(),
+        "a JPEG always has a size"
+    );
+    assert_eq!(check_pixels(64e6), Ok(64_000_000));
+    for bad in [0.0, 1.5, 67_108_865.0, f64::NAN] {
+        assert!(check_pixels(bad).is_err(), "{bad}");
+    }
+}
+
+/// An APNG whose default image (red) is not part of its animation: frame 0
+/// green, frame 1 blue (packages/clipboard/test/images.py).
+pub(super) fn hidden_default_apng() -> Vec<u8> {
+    fn chunk(kind: &[u8], data: &[u8]) -> Vec<u8> {
+        let mut out = (data.len() as u32).to_be_bytes().to_vec();
+        out.extend_from_slice(kind);
+        out.extend_from_slice(data);
+        out.extend_from_slice(&crc32(&out[4..]).to_be_bytes());
+        out
+    }
+    let raw = |rgb: [u8; 3]| {
+        let rows: Vec<u8> = (0..3)
+            .flat_map(|_| std::iter::once(0).chain(rgb.repeat(4)))
+            .collect();
+        zlib(&rows)
+    };
+    let fctl = |seq: u32| {
+        let mut d = seq.to_be_bytes().to_vec();
+        for n in [4u32, 3, 0, 0] {
+            d.extend_from_slice(&n.to_be_bytes());
+        }
+        d.extend_from_slice(&[0, 1, 0, 10, 0, 0]);
+        chunk(b"fcTL", &d)
+    };
+    let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
+    out.extend(chunk(b"IHDR", &[0, 0, 0, 4, 0, 0, 0, 3, 8, 2, 0, 0, 0]));
+    out.extend(chunk(b"acTL", &[0, 0, 0, 2, 0, 0, 0, 0]));
+    out.extend(chunk(b"IDAT", &raw([255, 0, 0])));
+    out.extend(fctl(0));
+    out.extend(chunk(
+        b"fdAT",
+        &[&1u32.to_be_bytes()[..], &raw([0, 255, 0])].concat(),
+    ));
+    out.extend(fctl(2));
+    out.extend(chunk(
+        b"fdAT",
+        &[&3u32.to_be_bytes()[..], &raw([0, 0, 255])].concat(),
+    ));
+    out.extend(chunk(b"IEND", &[]));
+    out
+}
+
+/// zlib with stored (uncompressed) blocks: enough for a test's few bytes.
+fn zlib(data: &[u8]) -> Vec<u8> {
+    let mut out = vec![0x78, 0x01, 1];
+    out.extend_from_slice(&(data.len() as u16).to_le_bytes());
+    out.extend_from_slice(&(!(data.len() as u16)).to_le_bytes());
+    out.extend_from_slice(data);
+    let (mut a, mut b) = (1u32, 0u32);
+    for &x in data {
+        a = (a + u32::from(x)) % 65521;
+        b = (b + a) % 65521;
+    }
+    out.extend_from_slice(&((b << 16) | a).to_be_bytes());
+    out
+}
+
+#[test]
+fn an_animated_png_is_cut_to_its_first_frame() {
+    let apng = hidden_default_apng();
+    let still = png_first_frame(&apng).unwrap();
+    // One IDAT, the green frame's data, and neither acTL nor fcTL.
+    let text = String::from_utf8_lossy(&still);
+    assert!(!text.contains("acTL") && !text.contains("fcTL") && !text.contains("fdAT"));
+    assert_eq!(text.matches("IDAT").count(), 1);
+    let green = zlib(
+        &(0..3)
+            .flat_map(|_| std::iter::once(0).chain([0u8, 255, 0].repeat(4)))
+            .collect::<Vec<u8>>(),
+    );
+    assert!(still.windows(green.len()).any(|w| w == green.as_slice()));
+    // A still PNG and anything else are themselves.
+    let plain = b"\x89PNG\r\n\x1a\n".to_vec();
+    assert_eq!(png_first_frame(&plain).as_deref(), Some(&plain[..]));
+    assert_eq!(png_first_frame(b"<svg/>").as_deref(), Some(&b"<svg/>"[..]));
+}
+
+#[test]
+fn an_svg_is_sniffed_as_a_browser_does() {
+    assert!(is_svg(b"<svg xmlns='http://www.w3.org/2000/svg'/>"));
+    assert!(is_svg(
+        b"\xef\xbb\xbf<?xml version='1.0'?>\n<!-- c --><!DOCTYPE svg><svg>"
+    ));
+    assert!(!is_svg(b"<svgx>") && !is_svg(b"<html><svg>") && !is_svg(b"\x89PNG"));
+}
+
 #[cfg(not(target_vendor = "apple"))]
 #[test]
 fn without_a_codec_the_call_is_unsupported() {
@@ -333,6 +450,45 @@ mod apple_codec {
         assert!(err.starts_with("compressImage: unfit: no PNG"), "{err}");
     }
 
+    /// LLP 1133.006 D1: a long PNG kept at its own size, past the 8192 an
+    /// asked `maxDimension` may be; a source over the request's pixel bound
+    /// refused before decoding; an APNG converted as its frame 0.
+    #[test]
+    fn a_kept_png_keeps_its_size_and_a_pixel_bound_refuses() {
+        let rgba = [0u8, 0, 255, 255].repeat(9000 * 2);
+        let long = png(9000, 2, &rgba);
+        let out = compress(&long, Format::Png, KEEP_SIZE, 1 << 20, later()).unwrap();
+        assert_eq!((out.width, out.height), (9000, 2));
+        let err = compress_controlled(
+            &long,
+            Format::Png,
+            KEEP_SIZE,
+            1 << 20,
+            later(),
+            &|| Ok(()),
+            10_000,
+            512 << 20,
+        )
+        .unwrap_err();
+        assert!(err.starts_with("compressImage: too-large: "), "{err}");
+        let err = compress(&png(1, 1, &[0; 4]), Format::Png, KEEP_SIZE, 1, later()).unwrap_err();
+        assert!(err.starts_with("compressImage: unfit: "), "{err}");
+        let apng = compress(
+            &super::hidden_default_apng(),
+            Format::Png,
+            KEEP_SIZE,
+            1 << 20,
+            later(),
+        )
+        .unwrap();
+        assert_eq!((apng.width, apng.height), (4, 3));
+        assert_eq!(
+            first_rgba(&apng.bytes),
+            [0, 255, 0, 255],
+            "frame 0 is green"
+        );
+    }
+
     #[test]
     fn bytes_that_are_no_image_are_undecodable() {
         for bytes in [&b"not an image at all"[..], &[], &FIXTURE[..200]] {
@@ -442,4 +598,30 @@ fn codec_control_refuses_before_decoding_and_before_the_next_trial() {
         );
         assert!(refused.unwrap_err().contains("codec memory reservation"));
     }
+}
+
+#[cfg(target_vendor = "apple")]
+#[test]
+fn a_png_header_over_the_pixel_bound_is_too_large_before_imageio() {
+    let mut huge = b"\x89PNG\r\n\x1a\n".to_vec();
+    huge.extend_from_slice(&[0, 0, 0, 13]);
+    huge.extend_from_slice(b"IHDR");
+    huge.extend_from_slice(&[
+        0, 0, 0x23, 0x28, 0, 0, 0x23, 0x28, 8, 2, 0, 0, 0, 0, 0, 0, 0,
+    ]);
+    let err = compress_controlled(
+        &huge,
+        Format::Png,
+        KEEP_SIZE,
+        1 << 20,
+        later(),
+        &|| Ok(()),
+        64_000_000,
+        512 << 20,
+    )
+    .unwrap_err();
+    assert!(
+        err.starts_with("compressImage: too-large: 9000×9000"),
+        "{err}"
+    );
 }
