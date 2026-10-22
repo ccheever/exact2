@@ -24,7 +24,8 @@ extension Spec {
     mutating func gatherShadows() {
         let painted = runs.filter { !$0.text.isEmpty }
         guard let first = painted.first else { shadow = nil; return }
-        if painted.allSatisfy({ $0.shadow == first.shadow }) {
+        let tokenShadow = lineClamp > 0 ? (strut ?? first).shadow : first.shadow
+        if tokenShadow == first.shadow, painted.allSatisfy({ $0.shadow == first.shadow }) {
             shadow = first.shadow
             for i in runs.indices { runs[i].shadow = nil }
         } else {
