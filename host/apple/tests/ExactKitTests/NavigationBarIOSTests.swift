@@ -439,17 +439,27 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertLessThan(frame.minY, bar.maxY + 20, "beside the item, not centred on the page: \(frame)")
         XCTAssertGreaterThan(frame.maxX, bar.midX, "on the item's side, the trailing one: \(frame)")
         // A real touch light-dismisses before the item acts (PopoverTouch):
-        // a touch on the bar leaves the item's popover to the item's tap.
-        session.presenter.menus.lightDismiss(nav.navigationBar)
-        XCTAssertTrue(session.presenter.menus.isOpen(pop), "a touch on the bar is not outside it")
+        // one on the item that opened it is not outside it, so the item's
+        // tap toggles it; one elsewhere on the bar is.
+        let invoker = try node(session, "about-plain")
+        guard case .success(let (barView, itemRect))? = session.presenter.navigation.barItem(invoker) else { return XCTFail("the item's rect") }
+        let onItem = UIView(frame: itemRect), elsewhere = UIView(frame: CGRect(x: 0, y: 0, width: 20, height: 20))
+        barView.addSubview(onItem); barView.addSubview(elsewhere)
+        defer { onItem.removeFromSuperview(); elsewhere.removeFromSuperview() }
+        session.presenter.menus.lightDismiss(onItem)
+        XCTAssertTrue(session.presenter.menus.isOpen(pop), "a touch on its item is not outside it")
+        // The agent's tap dismisses on the hidden button first: that is its invoker too.
+        session.presenter.menus.lightDismiss(invoker)
+        XCTAssertTrue(session.presenter.menus.isOpen(pop), "nor is the agent's, on the item's button")
         try tap(about)
         until("a second tap closes it") { !session.presenter.menus.isOpen(pop) }
-        // The agent's tap on its button lands the same way, opening and closing.
-        let invoker = try node(session, "about-plain")
-        XCTAssertNil(agent.tap(["id": Int(invoker.id)])["error"])
-        until("the agent's tap opens it") { session.presenter.menus.isOpen(pop) }
-        XCTAssertNil(agent.tap(["id": Int(invoker.id)])["error"])
-        until("and its second tap closes it") { !session.presenter.menus.isOpen(pop) }
+        try tap(about)
+        until("it opens again") { session.presenter.menus.isOpen(pop) }
+        session.presenter.menus.lightDismiss(elsewhere)
+        until("a touch elsewhere on the bar dismisses it") { !session.presenter.menus.isOpen(pop) }
+        // A press of its own runs first; the item's popover then opens from it (`invoke`).
+        session.presenter.menus.invoke(invoker)
+        until("an invocation after a press opens it") { session.presenter.menus.isOpen(pop) }
     }
 
     /// LLP 1075.003 §9.6: a header's `input type="search"` is the item's
