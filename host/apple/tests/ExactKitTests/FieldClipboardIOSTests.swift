@@ -153,6 +153,28 @@ final class FieldClipboardIOSTests: XCTestCase {
         XCTAssertEqual(richEditor.textStorage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor, .magenta)
     }
 
+    func testFilePasteEligibilityExcludesWebURLs() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "pasteboard reads need an app identity") }
+        let p = presenter()
+        defer { UIPasteboard.general.items = [] }
+        let paste = #selector(UIResponderStandardEditActions.paste(_:))
+        let match = #selector(UIResponderStandardEditActions.pasteAndMatchStyle(_:))
+        UIPasteboard.general.items = [["public.url": Data("https://example.com/".utf8)]]
+        XCTAssertTrue(UIPasteboard.general.hasURLs)
+        XCTAssertNil(UIPasteboard.general.string)
+        for id: UInt32 in [2, 3] {
+            let node = try XCTUnwrap(p.views[id])
+            XCTAssertFalse(node.pastesFiles(paste), "a web URL is no file attachment")
+            XCTAssertFalse(node.pastesFiles(match), "Match Style has the same file eligibility")
+        }
+        UIPasteboard.general.urls = [URL(fileURLWithPath: "/tmp/pasted-file")]
+        for id: UInt32 in [2, 3] {
+            let node = try XCTUnwrap(p.views[id])
+            XCTAssertTrue(node.pastesFiles(paste))
+            XCTAssertTrue(node.pastesFiles(match))
+        }
+    }
+
     /// Both edit-menu variants deliver one paste before the editor inserts text.
     /// A listener can also receive an image or file URL the plain editor cannot insert.
     func testUIKitPasteVariantsDeliverThePasteEventAndAcceptFiles() throws {
