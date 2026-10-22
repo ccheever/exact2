@@ -219,6 +219,78 @@ async function authorized() {
   await client.synchronize(f.native); return { client, f };
 }
 
+async function publicationFixture(owner: 'focused' | 'fleet') {
+  const { client, f } = await authorized();
+  if (owner === 'fleet') await f.syncFleet();
+  const entry = [...f.background.entries.values()][0];
+  return { client, background: f.background, subject: owner === 'fleet' ? entry! : client,
+    revision: () => owner === 'fleet' ? f.background.revision : client.revision,
+    request: { op: 'http', path: '/api/auth/session', generation: 3, ...(owner === 'fleet' ? { fleet: entry!.key } : {}) } };
+}
+
+for (const owner of ['focused', 'fleet'] as const) {
+  test(`${owner} auth publication notification stays silent for two fresh identical nested reads`, async () => {
+    const f = await publicationFixture(owner), envelope = { ...response(granted), trace: { same: true } };
+    let reads = 0;
+    const inner = authNative(f.client, () => { reads++; return envelope; }, f.background);
+    const native = mobileNative(inner, f.client, f.background), before = f.revision(), previous = f.subject.scopes;
+    const first = await native.later(f.request), firstRevision = f.revision(), firstScopes = f.subject.scopes;
+    const second = await native.later(f.request), secondRevision = f.revision(), secondScopes = f.subject.scopes;
+    expect(reads).toBe(2);
+    for (const value of [first, second]) {
+      expect(obj(value).trace).toBe(envelope.trace);
+      expect(obj(obj(value).value).scopes).toEqual(granted.permissions);
+    }
+    expect(firstScopes).not.toBe(previous); expect(secondScopes).not.toBe(firstScopes);
+    expect(Object.isFrozen(firstScopes)).toBe(true); expect(Object.isFrozen(secondScopes)).toBe(true);
+    expect([firstRevision - before, secondRevision - firstRevision]).toEqual([0, 0]);
+  });
+
+  test(`${owner} auth publication notification follows accepted state and effective ordered scopes`, async () => {
+    const f = await publicationFixture(owner), emptyGrant = response({ authenticated: true, scopes: ['orchestration:operate'], permissions: [] });
+    const failed = { ok: false, generation: 3, value: granted, error: { kind: 'auth', message: 'Expired' } };
+    const unauthenticated = response({ authenticated: false, scopes: ['providers:manage'] });
+    const ordered = response({ authenticated: true, permissions: ['providers:manage', 'orchestration:read'] });
+    const reordered = response({ authenticated: true, permissions: ['orchestration:read', 'providers:manage'] });
+    const cases = [
+      { value: emptyGrant, scopes: [], delta: 1, raw: false },
+      { value: emptyGrant, scopes: [], delta: 0, raw: false },
+      { value: failed, scopes: [], delta: 1, raw: true },
+      { value: unauthenticated, scopes: [], delta: 0, raw: true },
+      { value: failed, scopes: [], delta: 0, raw: true },
+      { value: emptyGrant, scopes: [], delta: 1, raw: false },
+      { value: response(narrow), scopes: ['orchestration:read'], delta: 1, raw: false },
+      { value: response(narrow), scopes: ['orchestration:read'], delta: 0, raw: false },
+      { value: ordered, scopes: ['providers:manage', 'orchestration:read'], delta: 1, raw: false },
+      { value: reordered, scopes: ['orchestration:read', 'providers:manage'], delta: 1, raw: false },
+      { value: reordered, scopes: ['orchestration:read', 'providers:manage'], delta: 0, raw: false },
+    ];
+    const deltas: number[] = []; let reads = 0;
+    for (const step of cases) {
+      const native = authNative(f.client, () => { reads++; return step.value; }, f.background), before = f.revision();
+      const reply = await native.later(f.request);
+      deltas.push(f.revision() - before);
+      if (step.raw) expect(reply).toBe(step.value);
+      expect(f.subject.scopes).toEqual(step.scopes);
+    }
+    expect(reads).toBe(11);
+    expect(deltas).toEqual(cases.map(step => step.delta));
+  });
+
+  test(`${owner} auth publication notification silence still supersedes an older read`, async () => {
+    const f = await publicationFixture(owner), entered = deferred<void>(), pending = deferred<unknown>();
+    let reads = 0;
+    const old = authNative(f.client, () => { reads++; entered.resolve(); return pending.promise; }, f.background).later(f.request);
+    await entered.promise;
+    const before = f.revision();
+    await authNative(f.client, () => { reads++; return response(granted); }, f.background).later(f.request);
+    pending.resolve(response(narrow));
+    await expect(old).rejects.toHaveProperty('kind', 'superseded');
+    expect(reads).toBe(2); expect(f.subject.scopes).toEqual(granted.permissions);
+    expect(f.revision() - before).toBe(0);
+  });
+}
+
 test('direct auth success replaces old grants and failure recovery publishes only the new grant', async () => {
   for (const failFirst of [false, true]) {
     const { client } = await authorized();

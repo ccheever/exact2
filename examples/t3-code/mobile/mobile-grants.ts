@@ -138,9 +138,12 @@ export async function mobileSessionRead(nativeInput: Native, request: unknown, t
   const publish = (success: boolean, scopes = empty) => {
     const invalid = obsolete();
     if (invalid) throw invalid;
+    const nextScopes = success ? scopes : empty;
+    const changed = authority!.accepted !== success || authority!.scopes.length !== nextScopes.length
+      || authority!.scopes.some((scope, index) => scope !== nextScopes[index]);
     authority!.accepted = success;
     authority!.scopes = success ? Object.freeze(scopes) as unknown as string[] : empty;
-    target!.changed();
+    if (changed) target!.changed();
   };
   try {
     const previous = invoking;
