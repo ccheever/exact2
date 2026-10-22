@@ -202,7 +202,7 @@ final class PopoverSurfaceIOSTests: XCTestCase {
                                         style: ["border_radius_top_left": pct, "border_radius_top_right": pct, "border_radius_bottom_right": pct,
                                                 "border_radius_bottom_left": pct, "overflow_y": "scroll"], filled: true)
         XCTAssertNil(percent.materialView, "a percentage: an ellipse on this box")
-        XCTAssertEqual(percent.scroll?.layer.cornerRadius ?? 0, 0, "no circular clip for an elliptical corner")
+        XCTAssertEqual(try XCTUnwrap(percent.scroll, "a scrolling popover").layer.cornerRadius, 0, "no circular clip for an elliptical corner")
         // An authored circle on a scrolling popover: its scroll view takes that corner.
         let (_, roundScroll, _) = try paint(["defaultSurface": "true", "defaultSurfaceRadius": "30"], dark: false, style: ["border_radius": 12.0, "overflow_y": "scroll"], filled: true)
         XCTAssertEqual(roundScroll.scroll?.layer.cornerRadius, 12, "the author's corner on its scroll view")
