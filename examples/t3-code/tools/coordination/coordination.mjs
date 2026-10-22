@@ -34,6 +34,7 @@ export async function main(argv, overrides) {
     'recover --task ID --thread COORDINATOR --proof FILE',
     'retire --task ID --thread COORDINATOR --proof FILE',
     'device-enroll --thread COORDINATOR --host HOST --udid UDID --class phone|ipad --runtime RUNTIME --inventory FILE --origin created|audited-unused',
+    'device-enroll --thread COORDINATOR --task ID --host HOST --udid UDID --class phone|ipad --runtime RUNTIME --inventory FILE --origin created (assign exact new device; inventory must include matching class/runtime)',
     'device-claim --task ID --thread WORKER --host HOST --class phone|ipad --runtime RUNTIME',
     'device-release --task ID --thread WORKER --host HOST --udid UDID --inventory FILE',
     'device-retire --thread COORDINATOR --host HOST --udid UDID --inventory FILE',
@@ -64,7 +65,7 @@ export async function main(argv, overrides) {
     case 'device-enroll': {
       const origin = required('origin');
       if (!['created', 'audited-unused'].includes(origin)) throw new Error('device origin must attest creation or explicit ownership audit');
-      return c.enroll(thread(), { host: required('host'), udid: required('udid'), class: required('class'), runtime: required('runtime') }, load('inventory'), origin === 'created');
+      return c.enroll(thread(), { host: required('host'), udid: required('udid'), class: required('class'), runtime: required('runtime') }, load('inventory'), origin === 'created', options.task);
     }
     case 'device-claim': return c.claimDevice(task(), thread(), required('host'), required('class'), required('runtime'));
     case 'device-release': return c.releaseDevice(task(), thread(), required('host'), required('udid'), load('inventory'));
