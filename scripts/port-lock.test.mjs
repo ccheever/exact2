@@ -62,3 +62,17 @@ test('claimPort: two runs at once each get a port of their own, past one somethi
     if (before === undefined) delete process.env.EXACT_PORT_TURNS; else process.env.EXACT_PORT_TURNS = before;
   }
 });
+
+test('claimPort: a port named in except is never taken (the contract tests\' stub on the checkout port)', async () => {
+  const { claimPort } = await import('./port-lock.mjs');
+  const before = process.env.EXACT_PORT_TURNS;
+  const start = 17741 + Math.floor(Math.random() * 150);
+  try {
+    const got = await claimPort(start, { label: 'run c', except: [start, start + 1] });
+    expect(got.port).not.toBe(start);
+    expect(got.port).not.toBe(start + 1);
+    got.give();
+  } finally {
+    if (before === undefined) delete process.env.EXACT_PORT_TURNS; else process.env.EXACT_PORT_TURNS = before;
+  }
+});

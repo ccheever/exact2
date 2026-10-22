@@ -73,11 +73,12 @@ export async function takePort(port, { label = 'a test run', waitMs = 20 * 60_00
  * above 17740, whose turn no run holds and on which nothing listens, its turn held until this process ends (or
  * `give()`). Two runs at once, in one checkout or two whose paths share a port, each get one, where taking turns made
  * the second wait out the first. Throws when all 200 are taken. */
-export async function claimPort(start, { label = 'a test run', base = 17741, span = 200 } = {}) {
+export async function claimPort(start, { label = 'a test run', base = 17741, span = 200, except = [] } = {}) {
   const card = JSON.stringify({ label, pid: process.pid, at: new Date().toISOString() });
   const answers = (port) => new Promise((done) => { const s = createConnection({ host: '127.0.0.1', port }); s.once('connect', () => { s.destroy(); done(true); }); s.once('error', () => done(false)); });
   for (let i = 0; i < span; i++) {
     const port = base + ((start - base + i) % span + span) % span;
+    if (except.includes(port)) continue;
     if (held(port)) return { port, give: () => {} };
     const server = await listen(port, card);
     if (!server) continue;
