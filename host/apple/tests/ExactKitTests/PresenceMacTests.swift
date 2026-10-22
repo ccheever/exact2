@@ -104,6 +104,32 @@ final class PresenceMacTests: XCTestCase {
         XCTAssertTrue(p.views[4] === sibling)
     }
 
+    func testAncestorExitDoesNotRetireOrdinaryDialogsOrPopovers() throws {
+        for popover in [false, true] {
+            let f = try SheetFixture(page: """
+            component Proof
+              view
+                column testId="panel" width="100%" height="100%"
+                  button testId="open" \(popover ? "popovertarget=\"held\"" : "commandfor=\"held\" command=\"show-modal\"")
+                    text "Open"
+                  \(popover ? "column popover=\"manual\"" : "dialog") id="held" testId="held" width=240 padding=20
+                    input testId="field" value="Edit"
+            """)
+            defer { f.close() }
+            try f.press("open")
+            let panel = try f.node("panel"), held = try f.node("held"), field = try f.node("field")
+            let container = try XCTUnwrap(held.superview)
+            XCTAssertFalse(held.isDescendant(of: panel))
+            f.presenter.apply(wireBatch([["op": "exit", "id": Int(panel.id)]]))
+            XCTAssertTrue(f.presenter.views[held.id] === held)
+            XCTAssertTrue(f.presenter.views[field.id] === field)
+            if !popover { XCTAssertTrue(held.superview === container) }
+            XCTAssertFalse(try XCTUnwrap(f.presenter.leaving[panel.id]).members.contains { $0 === held })
+            if !popover { XCTAssertTrue(f.presenter.dialogs.active === held) }
+            // A popover may close when its source retires; that does not retire the popover's nodes.
+        }
+    }
+
     func testALayoutPresentMovesTheBoxAndSizesOnlyItsSurface() throws {
         let p = fixture()
         let v = try XCTUnwrap(p.views[3])

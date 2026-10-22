@@ -15,7 +15,7 @@ struct Leaving {
 extension Presenter {
     func beginExit(_ id: UInt32) {
         guard let view = views[id] else { return }
-        let held = (blocks.shown + dialogs.entries.filter(\.route).map(\.dialog)).filter {
+        let held = (blocks.shown.filter { navigation.split.holds($0) } + dialogs.entries.filter(\.route).map(\.dialog)).filter {
             views[$0.id] === $0 && !$0.isDescendant(of: view) && logicallyWithin($0, view)
         }
         // Native containers hold these routes outside their authored ancestors.
