@@ -42,7 +42,7 @@ function ir() {
 test('every exported component, once per variant value, every cell rendered, every slot marked', () => {
   const library = ir();
   const names = library.map(c => c.name);
-  expect(names.sort()).toEqual(['ActionRow', 'AtCard', 'ListRow', 'PostButton', 'PostCard', 'ProfileHeader', 'SwitchRow']);
+  expect(names.sort()).toEqual(['ActionRow', 'AtCard', 'ComposeFrame', 'ListRow', 'PostButton', 'PostCard', 'ProfileHeader', 'SwitchRow']);
   // The gate's slot-rendered line reads every component with a slot (one
   // whose holder is no part included).
   const slotted = slottedIn(['actions', 'cards', 'lists']).filter(n => names.includes(n));
@@ -81,7 +81,7 @@ test("contract gallery places the cells this app does, each placed, on the app's
   const out = mkdtempSync(join(ROOT, 'target', 'library-gate-gallery-'));
   const r = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'gallery', join(ROOT, 'apps/library-gate'), '-o', out], { cwd: ROOT, encoding: 'utf8' });
   expect([r.status, r.stderr]).toEqual([0, '']);
-  expect(r.stdout).toContain('gallery: 7 components, 16 cells (0 refused)');
+  expect(r.stdout).toContain('gallery: 8 components, 22 cells (0 refused)');
   const gallery = readFileSync(join(out, 'app.contract'), 'utf8');
   expect(gallery).not.toContain("can't place");
   const placed = placements(gallery, library.map(c => c.name));
