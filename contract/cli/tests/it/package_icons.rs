@@ -440,3 +440,170 @@ fn a_package_contracts_icon_param_reads_its_packages_assets() {
     assert_eq!(drawn(&dir), APP_STAR);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Round 1, Astra 1: a package component's icon param may name its own
+/// package's icon, drawn from the package's file.
+#[test]
+fn a_package_param_may_name_its_own_packages_icon() {
+    let dir = reading("pkgicon-param-own", APP, "reading.star", STAR);
+    let design = dir.join("node_modules/@acme/reading/reading.tamber");
+    let text = std::fs::read_to_string(&design).unwrap();
+    std::fs::write(
+        &design,
+        format!("{text}\ncomponent Map\n  params\n    glyph: icon = reading.star\n"),
+    )
+    .unwrap();
+    let plan = build(&dir);
+    let glyph = plan
+        .icons
+        .iter()
+        .find(|i| plan.str(i.name).ends_with(".Map.glyph"))
+        .unwrap_or_else(|| panic!("{:?}", plan.icons));
+    assert_eq!(plan.str(glyph.path), PACKAGE_STAR);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Round 1, Astra 2: a write's plan folds the package's icons beside the
+/// app's design, so an app icon naming one doesn't refuse an unrelated
+/// write.
+#[test]
+fn a_write_folds_the_packages_icons() {
+    let design = format!("{APP}\nicons\n  icon.mine = reading.star\n");
+    let dir = reading("pkgicon-write", &design, "reading.star", STAR);
+    let file = dir.join("app.tamber");
+    let mut s = Serve::start(&dir, &[]);
+    let op = json!({"op": "set-token", "name": "ink", "value": "#222222"});
+    let (proposed, _) = s.ask(json!({"method": "propose", "client": "one", "ops": [op]}));
+    assert!(proposed.get("ok").is_some(), "{proposed}");
+    let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": super::tamber_serve::digest(&file)}, "ops": [op]}));
+    assert_eq!(done["ok"]["written"], json!(["app.tamber"]), "{done}");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Round 1, Astra 4 = Grok 2: a package's SVG that links out of its
+/// `assets/` (to the app's file, or a linked `assets/` into another
+/// package) is refused in the build, drawn as none, and no source.
+#[test]
+fn a_package_svg_linked_out_of_its_package_is_refused() {
+    let dir = reading("pkgicon-link-file", APP, "reading.star", STAR);
+    let assets = dir.join("node_modules/@acme/reading/assets");
+    std::fs::remove_file(assets.join("star.svg")).unwrap();
+    std::os::unix::fs::symlink(dir.join("assets/star.svg"), assets.join("star.svg")).unwrap();
+    let leaves = |dir: &Path| {
+        let e = refused(dir);
+        assert_eq!(e.id, "tamber-icon-svg", "{e}");
+        assert!(
+            e.message
+                .contains("the package `@acme/reading`'s `assets/star.svg` leaves the package"),
+            "{e}"
+        );
+        let graph = contract::source_graph(&dir.join("app.contract"));
+        assert!(
+            !graph.sources.iter().any(|s| s.path.ends_with("star.svg")),
+            "{:?}",
+            graph.sources
+        );
+        assert!(
+            graph
+                .consulted
+                .iter()
+                .any(|p| p.ends_with("@acme/reading/assets/star.svg")),
+            "{:?}",
+            graph.consulted
+        );
+        let mut s = Serve::start(dir, &[]);
+        let (described, _) = s.ask(json!({"method": "describe"}));
+        let star = described["ok"]["ir"]["icons"]
+            .as_array()
+            .and_then(|r| r.iter().find(|r| r["name"] == "reading.star").cloned())
+            .unwrap_or_else(|| panic!("{described}"));
+        assert_eq!(star["draws"], json!({"ios": "sf", "web": null}), "{star}");
+    };
+    leaves(&dir);
+    // A linked `assets/` into another package.
+    let other = dir.join("node_modules/@acme/other/assets");
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::write(other.join("star.svg"), shape(PACKAGE_STAR)).unwrap();
+    std::fs::remove_dir_all(&assets).unwrap();
+    std::os::unix::fs::symlink(&other, &assets).unwrap();
+    leaves(&dir);
+    // A package default's SVG linked out: a write's check says so.
+    let design = dir.join("node_modules/@acme/reading/reading.tamber");
+    std::fs::write(
+        &design,
+        "tamber reading\n\ntheme\n  reading.ink = #112233\n\ncomponent Map\n  params\n    glyph: icon = icon(svg \"star.svg\")\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("node_modules/@acme/reading/index.contract"),
+        "component Card\n  view\n    text \"c\"\n",
+    )
+    .unwrap();
+    let file = dir.join("app.tamber");
+    let mut s = Serve::start(&dir, &[]);
+    let op = json!({"op": "set-token", "name": "ink", "value": "#222222"});
+    let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": super::tamber_serve::digest(&file)}, "ops": [op]}));
+    assert!(
+        done["error"]["diagnostics"][0]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("`assets/star.svg` leaves the package `@acme/reading`")),
+        "{done}"
+    );
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Round 1, Astra 5: with no app design and no params, a package's design
+/// still lists the SVGs its icons read.
+#[test]
+fn a_package_only_design_lists_its_svgs() {
+    let dir = reading("pkgicon-package-only", APP, "reading.star", STAR);
+    std::fs::remove_file(dir.join("app.tamber")).unwrap();
+    build(&dir);
+    let graph = contract::source_graph(&dir.join("app.contract"));
+    assert!(
+        graph.sources.iter().any(|s| s
+            .path
+            .ends_with("node_modules/@acme/reading/assets/star.svg")),
+        "{:?}",
+        graph.sources
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Round 1, Astra 6: the local wire's watcher's `hello {paths: true}` gives
+/// each package its SVGs' digest, which an edit of one moves.
+#[test]
+fn a_package_svg_edit_moves_its_assets_digest() {
+    let dir = reading("pkgicon-assets-digest", APP, "reading.star", STAR);
+    let assets = |s: &mut Serve| {
+        let (hello, _) = s.ask(json!({"method": "hello", "paths": true}));
+        hello["ok"]["packages"][0]["assets"].clone()
+    };
+    let mut s = Serve::start(&dir, &[]);
+    let before = assets(&mut s);
+    assert!(before.is_string(), "{before}");
+    assert_eq!(assets(&mut s), before);
+    std::fs::write(
+        dir.join("node_modules/@acme/reading/assets/star.svg"),
+        shape("M2 2h20v20H2Z"),
+    )
+    .unwrap();
+    assert_ne!(assets(&mut s), before);
+    // A client's hello carries none.
+    let (hello, _) = s.ask(json!({"method": "hello"}));
+    assert!(
+        hello["ok"]["packages"][0].get("assets").is_none(),
+        "{hello}"
+    );
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+    // An app with no packages lists none: no key, never null.
+    let dir = app("pkgicon-no-packages", APP);
+    let mut s = Serve::start(&dir, &[]);
+    let (hello, _) = s.ask(json!({"method": "hello", "paths": true}));
+    assert!(hello["ok"].get("packages").is_none(), "{hello}");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}

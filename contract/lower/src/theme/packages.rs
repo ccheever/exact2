@@ -377,7 +377,10 @@ pub(crate) fn references(
                     span: p.param.default_span,
                 })
             };
-            let foreign = |name: &str| !own(band, name) && !shared(name) && !sibling(name);
+            // Its own package's icons too (stage 13): an icon param's default may name one.
+            let own_icon = |name: &str| icons[band].iter().any(|t| t.name.value == name);
+            let foreign =
+                |name: &str| !own(band, name) && !own_icon(name) && !shared(name) && !sibling(name);
             // What its fold read (an icon param's is on `icons`, with none).
             let checked = folding.tokens.iter().find(|t| t.name == p.token);
             let names: Vec<&String> = checked
