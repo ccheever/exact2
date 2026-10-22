@@ -120,7 +120,8 @@ export function linkEmbed(n: number): Embed {
     ...(n % 3 === 0 ? { thumbnail: image } : { image }) };
 }
 
-export function generate(channel: string): { messages: Message[]; lastRead: string } {
+// `deleted`: the ids of messages that replies point at but that were deleted before the history begins.
+export function generate(channel: string): { messages: Message[]; lastRead: string; deleted: string[] } {
   const spec = channelSpecs.find(c => c.id === channel);
   if (!spec) throw new Error(`Unknown channel: ${channel}`);
   const rng = random(spec.seed);
@@ -138,6 +139,7 @@ export function generate(channel: string): { messages: Message[]; lastRead: stri
   const end = WORLD_NOW - 5 * 60000;
   const scale = spec.days * 86400000 / (elapsed - times[0]);
   const messages: Message[] = [];
+  const deleted: string[] = [];
   let author = members[1], imageNumber = 0;
   for (let i = 0; i < spec.count; i++) {
     const at = Math.round(end - (elapsed - times[i]) * scale);
@@ -164,7 +166,9 @@ export function generate(channel: string): { messages: Message[]; lastRead: stri
     }
     if (i > 5 && i % 11 === 0) {
       const target = i % 55 === 0 ? Math.max(0, i - 3200) : i - 3;
-      msg.message_reference = { message_id: i % 121 === 0 ? idAt(at - 1, 99999999) : messages[target].id };
+      const gone = idAt(at - 1, 99999999);
+      if (i % 121 === 0) deleted.push(gone);
+      msg.message_reference = { message_id: i % 121 === 0 ? gone : messages[target].id };
       msg.type = 19;
     }
     if (i % 7 === 0) msg.reactions.push({ emoji: { id: null, name: pick(['👍', '🎉', '❤️', '👀', '🚲']) }, count: 1 + i % 12, me: i % 3 === 0 });
@@ -172,5 +176,5 @@ export function generate(channel: string): { messages: Message[]; lastRead: stri
     if (i % 863 === 1) { msg.type = 7; msg.content = ''; msg.message_reference = undefined; }
     messages.push(msg);
   }
-  return { messages, lastRead: messages[spec.count - spec.unread - 1].id };
+  return { messages, lastRead: messages[spec.count - spec.unread - 1].id, deleted };
 }

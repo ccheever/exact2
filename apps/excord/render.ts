@@ -10,7 +10,7 @@ type Run = Block['runs'][number];
 type Media = Row['media'][number];
 export interface Directories {
   me(): User; user(id: string): User | undefined; channelName(id: string): string; roleName(id: string): string;
-  message(channel: string, id: string): Message | undefined;
+  message(channel: string, id: string): Message | undefined; deleted(channel: string, id: string): boolean;
 }
 interface Context { dirs: Directories; block: number; spoiler: number; mentionsMe: boolean }
 const displayName = (u: User): string => u.global_name || u.username;
@@ -119,7 +119,9 @@ function media(a: Attachment): Media {
 }
 function context(dirs: Directories): Context { return { dirs, block: 0, spoiler: 0, mentionsMe: false }; }
 
-export function renderMessage(m: Message, previous: Message | undefined, dirs: Directories): Row {
+// `previous` is the message before `m`; `unheld` says the store does not hold it (a page's first row
+// whose predecessor was never fetched), so no day divider or group is decided from its absence.
+export function renderMessage(m: Message, previous: Message | undefined, dirs: Directories, unheld = false): Row {
   const ctx = context(dirs), parsed = parse(m.content), isJumbo = jumbo(parsed);
   let blocks = flatten(parsed, ctx);
   const text = plain(blocks);
@@ -147,31 +149,31 @@ export function renderMessage(m: Message, previous: Message | undefined, dirs: D
   if (m.message_reference) {
     const id = m.message_reference.message_id, ref = dirs.message(m.channel_id, id);
     reply.push({ id, author: ref ? displayName(ref.author) : '', tint: ref?.author.tint ?? 0,
-      preview: ref ? plain(flatten(parse(ref.content), context(dirs))).replace(/\s+/g, ' ').trim().slice(0, 100) : 'Original message was deleted.',
-      missing: !ref });
+      preview: ref ? plain(flatten(parse(ref.content), context(dirs))).replace(/\s+/g, ' ').trim().slice(0, 100) : '',
+      state: ref ? 'present' : dirs.deleted(m.channel_id, id) ? 'deleted' : 'unknown' });
   }
   const author = displayName(m.author), system = m.type === 7 ? `${author} joined the server.` : '';
   const delta = previous ? m.timestamp - previous.timestamp : 0;
   return { key: m.nonce || m.id, id: m.id, authorId: m.author.id, author, tint: m.author.tint,
     initials: author.trim().split(/\s+/).slice(0, 2).map(s => Array.from(s)[0]).join('').toUpperCase(),
-    bot: m.author.bot, at: m.timestamp, prevAt: previous?.timestamp ?? 0,
+    bot: m.author.bot, at: m.timestamp, prevAt: previous ? previous.timestamp : unheld ? -1 : 0,
     grouped: !!previous && previous.author.id === m.author.id && delta >= 0 && delta < 7 * 60000 &&
       previous.type === 0 && m.type === 0 && !m.message_reference && previous.state !== 'failed',
     edited, mine: m.author.id === dirs.me().id, state: m.state, mentionsMe, jumbo: isJumbo,
-    system, plain: system || text, blocks, media: m.attachments.map(media), embeds,
+    system, plain: system || text, source: m.content, isNew: false, blocks, media: m.attachments.map(media), embeds,
     reactions: m.reactions.map(r => ({ id: r.emoji.id || r.emoji.name, emoji: r.emoji.id ? '' : r.emoji.name,
       src: r.emoji.id ? emojiPath(r.emoji.name) : '', name: r.emoji.name, count: r.count, me: r.me })), reply };
 }
 
-export function createRenderer(dirs: Directories): (m: Message, previous?: Message) => Row {
+export function createRenderer(dirs: Directories): (m: Message, previous?: Message, unheld?: boolean) => Row {
   const cache = new Map<string, { signature: string; row: Row }>();
-  return (m, previous) => {
+  return (m, previous, unheld = false) => {
     const ref = m.message_reference ? dirs.message(m.channel_id, m.message_reference.message_id) : undefined;
     const key = `${m.channel_id}:${m.id}`;
-    const signature = `${m.revision}/${previous?.id}/${previous?.revision}/${ref?.id}/${ref?.revision}`;
+    const signature = `${unheld}/${m.revision}/${previous?.id}/${previous?.revision}/${ref?.id}/${ref?.revision}`;
     const found = cache.get(key);
     if (found?.signature === signature) return found.row;
-    const row = renderMessage(m, previous, dirs);
+    const row = renderMessage(m, previous, dirs, unheld);
     cache.set(key, { signature, row });
     if (cache.size > 1200) cache.delete(cache.keys().next().value!);
     return row;

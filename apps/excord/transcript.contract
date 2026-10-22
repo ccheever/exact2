@@ -30,10 +30,12 @@ component MessageRow
     discard: action
     swipe: action
     swipeEnd: action
-  derive dayChange = m.prevAt == 0 or formatDate(m.at, offset, "iso") != formatDate(m.prevAt, offset, "iso")
+  derive dayChange = m.prevAt == 0 or (m.prevAt > 0 and formatDate(m.at, offset, "iso") != formatDate(m.prevAt, offset, "iso"))
   derive leads = not m.grouped or dayChange or isNew or m.reply.length > 0
   view
-    column testId=`message-${m.key}` padding-top=(leads ? 14 : 1) padding-bottom=1
+    // `scroll-margin-bottom` is the transcript's bottom inset (the typing line), so a
+    // row aligned to the end leaves the list at its true end.
+    column id=`message-${m.key}` testId=`message-${m.key}` padding-top=(leads ? 14 : 1) padding-bottom=1 scroll-margin-bottom=22
       if dayChange
         row align-items="center" gap=8 padding="6px 16px 4px" testId=`day-${m.key}`
           view flex=1 height="-exact-hairline" background-color="-exact-separator"
@@ -52,7 +54,7 @@ component MessageRow
           background-color=(m.mentionsMe ? "-exact-tertiary-fill" : "transparent")
           translate=`${0 - swipeX}px 0px` transition=(dragging ? "none" : "translate -exact-spring(300, 30, 1)")
           pan=swipe(m.key) panrelease=swipeEnd(m.id, m.author) touch-action="pan-y"
-          contextmenu=aim(m.key, m.id, m.mine, m.plain, m.author) contextPopover="message-menu"
+          contextmenu=aim(m.key, m.id, m.mine, m.source, m.author) contextPopover="message-menu"
           opacity=(m.state == "pending" ? 0.5 : 1)
           // A jump's target: Discord's yellow wash, fading once the reader has seen it.
           view position="absolute" inset=0 background-color="-exact-system-yellow" opacity=(lit ? 0.22 : 0) transition="opacity 800ms ease-out" pointer-events="none" aria-hidden=true
@@ -61,15 +63,22 @@ component MessageRow
           else
             view width="2.5rem" flex-shrink=0
           column flex=1 min-width=0 gap=4
+            // A deleted original has nowhere to jump to; one the store does not
+            // hold yet loads when tapped.
             for r in m.reply key=r.id
-              button appearance="none" press=jump(r.id) testId=`reply-to-${m.key}` aria-label=(r.missing ? "Original message was deleted" : `Replying to ${r.author}: ${r.preview}`)
-                row gap=6 align-items="center" min-width=0
+              if r.state == "deleted"
+                row gap=6 align-items="center" min-width=0 testId=`reply-to-${m.key}`
                   text "↱" color="-exact-tertiary-label"
-                  if r.missing
-                    text "Original message was deleted" font="-exact-footnote" font-style="italic" color="-exact-secondary-label"
-                  else
-                    text r.author font="-exact-footnote" font-weight=600 color="-exact-secondary-label" flex="0 1 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
-                    text r.preview font="-exact-footnote" color="-exact-secondary-label" flex="0 100 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+                  text "Original message was deleted" font="-exact-footnote" font-style="italic" color="-exact-secondary-label"
+              else
+                button appearance="none" press=jump(r.id) testId=`reply-to-${m.key}` aria-label=(r.state == "unknown" ? "Replying to an earlier message" : `Replying to ${r.author}: ${r.preview}`)
+                  row gap=6 align-items="center" min-width=0
+                    text "↱" color="-exact-tertiary-label"
+                    if r.state == "unknown"
+                      text "Tap to see the original message" font="-exact-footnote" color="-exact-secondary-label"
+                    else
+                      text r.author font="-exact-footnote" font-weight=600 color="-exact-secondary-label" flex="0 1 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+                      text r.preview font="-exact-footnote" color="-exact-secondary-label" flex="0 100 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
             if leads
               row gap=6 align-items="baseline" flex-wrap="wrap"
                 text m.author font-weight=600 testId=`author-${m.key}`
