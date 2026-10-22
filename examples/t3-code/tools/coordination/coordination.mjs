@@ -16,6 +16,7 @@ export async function main(argv, overrides) {
   if (!verb || verb === 'help') return { state: defaultRoot, commands: [
     'init --thread COORDINATOR',
     'register --issue ENG-N --thread WORKER',
+    'bind-process-host --thread COORDINATOR --proof FILE (verified live legacy launcher on this boot)',
     'status',
     'grant-publish --task ID --thread COORDINATOR',
     'publish --task ID --thread WORKER -- VERIFY COMMAND...',
@@ -44,6 +45,7 @@ export async function main(argv, overrides) {
   switch (verb) {
     case 'init': return c.init(thread());
     case 'register': return c.register(required('issue'), thread());
+    case 'bind-process-host': return c.bindProcessHost(thread(), load('proof'));
     case 'status': return c.status();
     case 'grant-publish': return c.grant(task(), thread());
     case 'release-publish': return c.releaseTurn(task(), thread());

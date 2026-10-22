@@ -18,18 +18,27 @@ const atomic = (path, value) => {
 export function command(args, cwd) {
   return execFileSync(args[0], args.slice(1), { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
+const bootId = (() => {
+  try { return hash(process.platform === 'darwin' ? command(['sysctl', '-n', 'kern.bootsessionuuid']) : readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim()); }
+  catch { return null; }
+})();
+export function processHostMatches(receipt, current, bindings = {}) {
+  if (!receipt || !current) return false;
+  if (receipt.bootId) return !!current.bootId && receipt.bootId === current.bootId;
+  return receipt.host === current.host || (!!current.bootId && bindings[receipt.host]?.bootId === current.bootId);
+}
 export function processIdentity(pid) {
   try {
     const value = command(['ps', '-p', String(pid), '-o', 'lstart=', '-o', 'stat=']);
     if (!value || /\bZ/.test(value)) return null;
-    return { pid, host: hostname(), started: value.replace(/\s+[A-Z+<Nssl]+\s*$/, '').trim() };
+    return { pid, host: hostname(), bootId, started: value.replace(/\s+[A-Z+<Nssl]+\s*$/, '').trim() };
   } catch {
     try { process.kill(pid, 0); } catch (error) { if (error.code === 'ESRCH') return null; }
-    return { pid, host: hostname(), started: null };
+    return { pid, host: hostname(), bootId, started: null };
   }
 }
-function processState(receipt) {
-  if (!receipt || receipt.host !== hostname() || !receipt.started) return 'unknown';
+function processState(receipt, bindings) {
+  if (!processHostMatches(receipt, { host: hostname(), bootId }, bindings) || !receipt.started) return 'unknown';
   const current = processIdentity(receipt.pid);
   if (!current) return 'dead';
   if (!current.started) return 'unknown';
@@ -98,7 +107,8 @@ export class Coordination {
   recoverMutex() {
     const lock = join(this.root, 'mutex');
     const owner = json(join(lock, 'owner.json'));
-    if (processState(owner) !== 'dead') fail('mutex owner live or unknown; refused');
+    const state = existsSync(join(this.root, 'state.json')) ? json(join(this.root, 'state.json')) : {};
+    if (this.processState(state, owner) !== 'dead') fail('mutex owner live or unknown; refused');
     // Exclusive recovery must not race a second recovery or a new claim.
     const recovery = join(this.root, 'mutex-recovery');
     mkdirSync(recovery);
@@ -113,6 +123,31 @@ export class Coordination {
     const entry = { at: new Date().toISOString(), task: task?.id, thread: task?.thread, worktree: task?.worktree, action, ...details };
     s.events.push(entry);
     return entry;
+  }
+  processState(s, receipt) { return processState(receipt, s.repos?.[this.repo]?.processHosts); }
+  bindProcessHost(thread, proof) {
+    return this.transaction(s => {
+      this.coordinator(s, thread);
+      if (!bootId || proof.bootId !== bootId || proof.toHost !== hostname() || !proof.fromHost || proof.fromHost === proof.toHost) fail('current boot and changed hostname required');
+      const task = this.task(s, proof.anchor?.taskId);
+      const lease = Object.values(s.leases).find(l => l.task === task.id && l.operation === proof.anchor.operation);
+      const old = lease?.guard;
+      if (!old || old.host !== proof.fromHost || old.bootId || old.pid !== proof.anchor.pid || old.started !== proof.anchor.started) fail('matching legacy launcher witness required');
+      const current = processIdentity(old.pid);
+      if (!current?.started || current.started !== old.started || current.bootId !== bootId) fail('legacy launcher witness is dead, changed or unknown');
+      const cwd = process.platform === 'linux' ? realpathSync(`/proc/${old.pid}/cwd`) : command(['lsof', '-a', '-p', String(old.pid), '-d', 'cwd', '-Fn']).split('\n').find(line => line.startsWith('n'))?.slice(1);
+      if (!cwd || realpathSync(cwd) !== task.worktree) fail('launcher witness worktree mismatch');
+      const argv = command(['ps', '-p', String(old.pid), '-o', 'command=']);
+      if (!argv.includes(`--task ${task.id}`) || !argv.includes(`--thread ${task.thread}`)) fail('launcher witness ownership arguments mismatch');
+      const script = argv.trim().split(/\s+/)[1];
+      const fixture = this.root !== resolve(defaultRoot) && script === join(import.meta.dir, 'fixture.mjs');
+      if (!fixture && (basename(script ?? '') !== 'coordination.mjs' || realpathSync(command(['git', 'rev-parse', '--path-format=absolute', '--git-common-dir'], dirname(resolve(cwd, script)))) !== this.common)) fail('launcher witness helper mismatch');
+      const bindings = s.repos[this.repo].processHosts ??= {};
+      if (bindings[proof.fromHost] && bindings[proof.fromHost].bootId !== bootId) fail('legacy hostname is bound to another boot');
+      const binding = { bootId, toHost: hostname(), anchor: { ...proof.anchor, observed: current, worktree: cwd, commandHash: hash(argv) } };
+      bindings[proof.fromHost] = binding;
+      return this.event(s, task, 'process-host-bound', { fromHost: proof.fromHost, binding });
+    });
   }
   task(s, id, thread) {
     const task = s.tasks[id] ?? fail('unknown task');
@@ -168,7 +203,7 @@ export class Coordination {
       const key = `publish:${this.repo}`;
       if (s.leases[key]?.task !== id) fail('publishing turn belongs to another task');
       if (s.leases[key].operation) fail('audit the launched operation before releasing its turn');
-      if (s.leases[key].guard && processState(s.leases[key].guard) !== 'dead') fail('publisher still running or unknown');
+      if (s.leases[key].guard && this.processState(s, s.leases[key].guard) !== 'dead') fail('publisher still running or unknown');
       delete s.leases[key];
       return this.event(s, task, 'publish-released');
     });
@@ -279,14 +314,14 @@ export class Coordination {
       if (!entry) fail('unknown operation or already released');
       const [key, lease] = entry;
       if (audit.taskId !== id || audit.worktree !== task.worktree || audit.auditorThreadId !== thread || !Array.isArray(audit.processes)) fail('matching explicit process audit required');
-      if (lease.phase === 'running' && processState(lease.guard) !== 'dead') fail('launcher still live or unknown');
+      if (lease.phase === 'running' && this.processState(s, lease.guard) !== 'dead') fail('launcher still live or unknown');
       for (const member of [...groupMembers(lease.group), ...audit.processes]) {
-        if (!Number.isSafeInteger(member.pid) || member.pid <= 0 || member.host !== hostname() || !member.started) fail('unknown audited process identity');
+        if (!Number.isSafeInteger(member.pid) || member.pid <= 0 || !processHostMatches(member, { host: hostname(), bootId }, s.repos[this.repo]?.processHosts) || !member.started) fail('unknown audited process identity');
         if (!task.processes.some(p => p.operation === audit.operation && p.pid === member.pid && p.started === member.started)) {
           task.processes.push({ ...member, operation: audit.operation, role: 'descendant' });
         }
       }
-      const held = task.pending.length || task.processes.some(p => p.operation === audit.operation && processState(p) !== 'dead') || audit.noUnrecordedDescendants !== true;
+      const held = task.pending.length || task.processes.some(p => p.operation === audit.operation && this.processState(s, p) !== 'dead') || audit.noUnrecordedDescendants !== true;
       if (!held) {
         task.processes = task.processes.filter(p => p.operation !== audit.operation);
         delete s.leases[key];
@@ -302,7 +337,7 @@ export class Coordination {
     return this.transaction(s => {
       const task = this.task(s, id, thread);
       const receipt = task.processes.find(p => p.pid === pid && p.role !== 'guard') ?? fail('PID was not launched by this task');
-      const state = processState(receipt);
+      const state = this.processState(s, receipt);
       if (state === 'unknown') fail('unknown process identity');
       if (state === 'live') process.kill(pid, 'SIGTERM');
       return this.event(s, task, 'process-stop', { receipt, state });
@@ -341,7 +376,7 @@ export class Coordination {
       const key = `${kind}:${value}`;
       if (release) {
         if (s.leases[key]?.task !== id) fail('resource belongs to another task or unknown owner');
-        if (task.pending.length || task.processes.some(p => processState(p) !== 'dead')) fail('stop owned processes before releasing resource');
+        if (task.pending.length || task.processes.some(p => this.processState(s, p) !== 'dead')) fail('stop owned processes before releasing resource');
         delete s.leases[key];
       } else {
         if (s.leases[key]) fail('resource already owned');
@@ -352,7 +387,7 @@ export class Coordination {
   }
   idle(task, s) {
     if (task.pending.length) fail('incomplete process launch; audit required');
-    if (task.processes.some(p => processState(p) !== 'dead')) fail('task has live or unknown processes');
+    if (task.processes.some(p => this.processState(s, p) !== 'dead')) fail('task has live or unknown processes');
     if (Object.values(s.leases).some(l => l.task === task.id)) fail('task owns a build or publishing turn');
     if (Object.values(s.devices).some(d => d.task === task.id)) fail('release devices first');
   }
@@ -397,9 +432,9 @@ export class Coordination {
         fail('native investigation owns resources; T3-bound recovery required');
       }
       if (task.pending.length) fail('incomplete process launch; audit required');
-      if (task.processes.some(p => processState(p) !== 'dead')) fail('task has live or unknown processes');
+      if (task.processes.some(p => this.processState(s, p) !== 'dead')) fail('task has live or unknown processes');
       for (const [key, lease] of Object.entries(s.leases)) if (lease.task === id) {
-        if (lease.guard && processState(lease.guard) !== 'dead') fail('lease process live or unknown');
+        if (lease.guard && this.processState(s, lease.guard) !== 'dead') fail('lease process live or unknown');
         if (!lease.operation) delete s.leases[key];
       }
       task.status = 'terminal';
@@ -457,7 +492,7 @@ export class Coordination {
       const task = this.task(s, id, thread);
       const device = s.devices[`${host}:${udid}`];
       if (device?.task !== id) fail('device belongs to another task or unknown owner');
-      if (task.processes.some(p => processState(p) !== 'dead')) fail('stop task processes before device release');
+      if (task.processes.some(p => this.processState(s, p) !== 'dead')) fail('stop task processes before device release');
       if (!inventory.some(d => d.host === host && d.udid === udid && d.state === 'Shutdown')) fail('shut down owned device and supply fresh inventory before release');
       delete device.task; delete device.thread; delete device.worktree;
       device.status = 'idle';
