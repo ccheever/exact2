@@ -192,6 +192,11 @@ public final class Agent {
             return
             #endif
         }
+        if ["tree", "state", "layout"].contains(op), presenter.viewport.window != nil,
+           !drainLaunch(until: Date(timeIntervalSinceNow: 20)) {
+            Agent.reply(["error": "launch work is still pending"])
+            return
+        }
         guard session.canvases.waitUntilReady() else {
             Agent.reply(["error": "canvas creation is still in flight"])
             return
@@ -948,7 +953,7 @@ public final class Agent {
     func waitForImages(until end: Date = Date(timeIntervalSinceNow: 3)) -> Int {
         var loading = session.rasters.loadingOnScreen
         while loading > 0 && Date() < end {
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
             loading = session.rasters.loadingOnScreen
         }
         AnimatedRasters.shared.evaluate()
