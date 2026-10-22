@@ -109,7 +109,7 @@ function snapshot(id: string, query: string, now: number, offset: number): Resul
   const messages = (c?.messages ?? []).map((m, i, all) => {
     const live = !!c?.streaming && m.id === c.reply;
     return {
-      id: m.id, mine: m.mine, body: m.body, error: m.error, thinking: m.reasoning,
+      id: m.id, mine: m.mine, body: m.body, parts: m.mine ? [] : parts(m.body), error: m.error, thinking: m.reasoning,
       thought: m.reasoning ? (live && !m.body ? 'Thinking…' : thought(m.thinkingMs)) : '',
       waiting: live && !m.body, live, last: i === all.length - 1,
     };
@@ -119,6 +119,41 @@ function snapshot(id: string, query: string, now: number, offset: number): Resul
     subtitle: c ? subtitle(c) : '', model: c?.model ?? '', effort: c?.effort ?? 'medium',
     streaming: !!c?.streaming, messages, empty: rows.length === 0,
   };
+}
+
+// A pipe table (GFM): a header row, then its delimiter row, then rows while lines hold a pipe.
+// `markup="markdown"` draws one as its source in a fixed pitch, so a reply is cut into runs of
+// Markdown and tables the view draws as grids. Fenced code is never searched for tables.
+const DELIMITER = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+const cellsOf = (line: string) => {
+  const inner = line.trim().replace(/^\|/, '').replace(/(?<!\\)\|$/, '');
+  return inner.split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, '|'));
+};
+export function parts(body: string): Result<'snapshot'>['messages'][number]['parts'] {
+  const lines = body.split('\n'), out: ReturnType<typeof parts> = [];
+  let text: string[] = [], fence = '';
+  const flush = () => { if (text.join('\n').trim()) out.push({ key: `p${out.length}`, table: false, text: text.join('\n'), rows: [] }); text = []; };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!, open = /^\s*(```|~~~)/.exec(line)?.[1];
+    if (open && (!fence || fence === open)) fence = fence ? '' : open;
+    const next = lines[i + 1];
+    if (fence || !line.includes('|') || next === undefined || !next.includes('-') || !DELIMITER.test(next)) { text.push(line); continue; }
+    const head = cellsOf(line), aligns = cellsOf(next).map((d) => (d.endsWith(':') ? (d.startsWith(':') ? 'center' : 'right') : 'left'));
+    const body: string[][] = [];
+    for (i += 2; i < lines.length && lines[i]!.includes('|') && lines[i]!.trim(); i++) body.push(cellsOf(lines[i]!));
+    i--;
+    flush();
+    const row = (cells: string[], r: number, headRow: boolean) => ({
+      key: `r${r}`, head: headRow,
+      cells: head.map((_, c) => {
+        const cell = cells[c] ?? '';
+        return { key: `c${c}`, first: c === 0, align: aligns[c] ?? 'left', text: headRow && cell && !cell.startsWith('**') ? `**${cell}**` : cell };
+      }),
+    });
+    out.push({ key: `p${out.length}`, table: true, text: '', rows: [row(head, 0, true), ...body.map((cells, r) => row(cells, r + 1, false))] });
+  }
+  flush();
+  return out;
 }
 
 // ---- turns ----
