@@ -136,6 +136,7 @@ final class SplitHost {
     /// The stacks that split no longer: their routes go back to the page.
     private var ended = Set<UInt32>()
     private var lastDetail: UInt32?
+    private weak var groundList: NodeView?
     private var queued = false
 
     /// Whether `route` is in the detail's pane: out of its tabpanel's
@@ -258,6 +259,7 @@ final class SplitHost {
         seen = seen.filter { presenter.views[$0] != nil }
         guard let controller, capable else {
             release { _ in true }
+            groundList?.sheetGroundChanged(); groundList = nil
             lastDetail = nil
             return
         }
@@ -265,10 +267,15 @@ final class SplitHost {
         ended.removeAll()
         guard let shown else {
             if !held.values.contains(where: { presenter.isLeaving($0.route) }) { controller.split(false, width: nil, empty: false) }
+            groundList?.sheetGroundChanged(); groundList = nil
             lastDetail = nil
             return
         }
         controller.split(true, width: shown.width, empty: shown.detail == nil)
+        if groundList !== shown.list {
+            groundList = shown.list
+            shown.list.sheetGroundChanged()
+        }
         let pane = controller.detailPane
         pane.sizeChanged = { [weak self] size in self?.resized(size) }
         pane.positionChanged = { [weak self, weak pane] in
@@ -277,6 +284,7 @@ final class SplitHost {
         for route in shown.routes where held[route.id]?.route !== route && presenter.views[route.id] === route {
             held[route.id] = (route, shown.list.id)
             presenter.blocks.show(route, in: pane, block: .size(pane.bounds.size), placement: placement(of: route, in: pane))
+            route.sheetGroundChanged()
             presenter.keyViewLoopStale = true
         }
         select(shown)
@@ -287,6 +295,7 @@ final class SplitHost {
         for (id, entry) in held where gone(entry.list) && !presenter.isLeaving(entry.route) {
             held[id] = nil
             presenter.blocks.release(entry.route)
+            entry.route.sheetGroundChanged()
             presenter.keyViewLoopStale = true
         }
     }
@@ -351,6 +360,16 @@ final class SplitHost {
                 "authoredWidth": shown.width.map { Agent.r2($0) } ?? NSNull(),
                 "routes": shown.routes.map { Int($0.id) }, "detail": shown.detail.map { Int($0.id) } ?? NSNull(),
                 "base": shown.base, "row": shown.row.map { Int($0) } ?? NSNull(), "empty": controller.detail.saysNothing ?? NSNull()]
+    }
+}
+
+extension NodeView {
+    /// The implicit form ground uses AppKit's desktop tint in both panes.
+    var standsOnSplitGround: Bool {
+        guard !wrote("background_color"), case .object(let role)? = style["background_color"],
+              role["sys"]?.string == "windowBackgroundColor", let presenter,
+              presenter.navigation.split.active else { return false }
+        return isDescendant(of: presenter.viewport) || presenter.navigation.split.pane(holding: self) != nil
     }
 }
 #endif

@@ -221,6 +221,19 @@ final class SplitMacTests: XCTestCase {
         XCTAssertFalse(try node("title-a").isHiddenOrHasHiddenAncestor)
     }
 
+    func testAnUnsaidWindowGroundLetsTheSplitSurfaceShowThrough() throws {
+        let session = try boot(tabs: false, size: CGSize(width: 900, height: 500))
+        let p = session.presenter
+        _ = compose(ExactView(session: session), width: 900, sidebar: false)
+        try press("row-a")
+        let role: [String: Any] = ["sys": "windowBackgroundColor", "c": [[255, 255, 255, 255], [30, 30, 30, 255]]]
+        let route = try node("route-book-a")
+        p.apply(wireBatch([["op": "style", "id": route.id, "style": ["background_color": role]]]))
+        XCTAssertNil(route.layer?.backgroundColor)
+        p.apply(wireBatch([["op": "style", "id": route.id, "style": ["background_color": role, "written": ["background_color"]]]]))
+        XCTAssertNotNil(route.layer?.backgroundColor, "an author's explicit role still paints")
+    }
+
     func testAnUnsplitStackClosesADetailPaneRestoredByAppKit() throws {
         let session = try boot(tabs: true, size: CGSize(width: 1100, height: 500))
         try press("tab-stats")
