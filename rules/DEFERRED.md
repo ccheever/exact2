@@ -134,6 +134,14 @@ additional standalone showcase apps wait behind this composition; existing full
 stress workloads and controls remain intact. No new UI framework, general job
 scheduler or cross-device synchronization service is implied.
 
+**Expanded (Charlie, 2026-10-22: "Let's build a Discord app for iOS, MacOS, web,
+Windows, Android"):** Excord (`apps/excord/llp/0001-excord.rfc.md`), a client
+for the real Discord whose messages list and composer are its bar, built to find
+Exact's gaps. Unblocks a real service's chat on every host as the consumer for
+the transcript work. Take: waived by Charlie's ask. Voice, video, uploads beyond
+images, and push notifications stay out (its §1); no Discord protocol enters
+Exact itself.
+
 **Expanded (Charlie, 2026-09-20: "make an app that shows off clones of" the
 Pretext demos):** Reflow (`apps/reflow`) is a seventh showcase — balls, the
 illustrated dragon, masonry, a drag-to-reflow magazine, proportional ASCII

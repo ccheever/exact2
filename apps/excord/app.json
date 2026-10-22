@@ -1,0 +1,38 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Excord",
+  "short_name": "Excord",
+  "id": "com.exact.excord",
+  "start_url": "/",
+  "display": "standalone",
+  "app": {
+    "id": "com.exact.excord",
+    "name": "Excord"
+  },
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ]
+    },
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 1100,
+        "height": 760,
+        "minWidth": 360,
+        "minHeight": 500
+      }
+    },
+    "web": {}
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0"
+    }
+  }
+}
