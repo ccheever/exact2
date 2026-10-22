@@ -1,9 +1,10 @@
-// What scripts/design-tool.test.mjs and design-tool-pair.test.mjs share: the
+// What scripts/design-tool*.test.mjs and design-tool-pair.test.mjs share: the
 // tool on this checkout's own port (EXACT_TOOL_PORT), taken in turn; a drive
 // of it; and the tool through a proxy in front of an app's design server.
 import { afterEach, beforeEach } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { checkoutPort, claimPort, takePort } from './port-lock.mjs';
 import { spawnOwned, stopAll } from './test-children.mjs';
@@ -115,4 +116,26 @@ export async function proxied(app, before = () => {}) {
   tool.stderr.on('data', d => { said = (said + d).slice(-4000); });
   const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000).catch(e => { throw new Error(`${e.message}\n${said}`); });
   return { url, origin, writes, close: async () => { await stop(tool); proxy.stop(true); await stop(serve); } };
+}
+
+/** Where two texts differ, in order: the first line that differs, the
+ * lines taken out there and the lines put in. */
+export const edit = (a, b) => {
+  const [x, y] = [a.split('\n'), b.split('\n')];
+  let i = 0, j = 0;
+  while (i < x.length && i < y.length && x[i] === y[i]) i++;
+  while (j < x.length - i && j < y.length - i && x[x.length - 1 - j] === y[y.length - 1 - j]) j++;
+  return { at: i, removed: x.slice(i, x.length - j), added: y.slice(i, y.length - j) };
+};
+
+/** A copy of the dials stub (its design and app) in a git repository of its own, one commit in. */
+export function repo(name) {
+  const app = mkdtempSync(join(tmpdir(), `exact-design-tool-${name}-`));
+  writeFileSync(join(app, 'app.tamber'), readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8'));
+  writeFileSync(join(app, 'app.contract'), STUB_APP);
+  const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app, encoding: 'utf8' });
+  git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
+  // Who the server's commit is by, here, whatever this machine's git says.
+  git('config', 'user.email', 't@example.test'); git('config', 'user.name', 't');
+  return { app, git };
 }

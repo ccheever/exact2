@@ -339,8 +339,8 @@ function positionContexts() {
   }
 }
 // @ref LLP 1039 D2, LLP 1061 D4 — viewport facts and display preferences, on every change, without debounce.
-const pageFacts = pageReporter(agentMode), pageChanged = () => { if (wasm?.exact_set_page && root.childElementCount) { applyBatch(JSON.parse(readOut(wasm.exact_set_page(pageFacts.bits())))); if (wasm.exact_set_root_font_size) applyBatch(JSON.parse(readOut(wasm.exact_set_root_font_size(pageFacts.rootFontSize())))); if (wasm.exact_set_display_scale) applyBatch(JSON.parse(readOut(wasm.exact_set_display_scale(pageFacts.displayScale())))); } }; pageFacts.onChange(pageChanged); addEventListener("resize", pageChanged); // @ref LLP 1069.000 D2, D3
-const mediaChanged = () => { if (wasm && root.childElementCount) applyBatch(presence.resize(JSON.parse(readOut(wasm.exact_resize(innerWidth, innerHeight, now(), preferences() | foldBits()))))); requestAnimationFrame(positionContexts); }; addEventListener("resize", mediaChanged); onPreferences(mediaChanged); const foldChanged = mediaChanged; onFold(foldChanged); // @ref LLP 1078 D6 — the posture and the segment counts ride the facts word beside the preferences; the browser resolves the `env(viewport-segment-*)` lengths itself
+const pageFacts = pageReporter(agentMode), pageChanged = () => { if (wasm?.exact_set_page && incarnation) { applyBatch(JSON.parse(readOut(wasm.exact_set_page(pageFacts.bits())))); if (wasm.exact_set_root_font_size) applyBatch(JSON.parse(readOut(wasm.exact_set_root_font_size(pageFacts.rootFontSize())))); if (wasm.exact_set_display_scale) applyBatch(JSON.parse(readOut(wasm.exact_set_display_scale(pageFacts.displayScale())))); } }; pageFacts.onChange(pageChanged); addEventListener("resize", pageChanged); // @ref LLP 1069.000 D2, D3
+const mediaChanged = () => { if (wasm && incarnation && innerWidth > 0 && innerHeight > 0) applyBatch(presence.resize(JSON.parse(readOut(wasm.exact_resize(innerWidth, innerHeight, now(), preferences() | foldBits()))))); requestAnimationFrame(positionContexts); }; addEventListener("resize", mediaChanged); onPreferences(mediaChanged); const foldChanged = mediaChanged; onFold(foldChanged); // @ref LLP 1078 D6 — the posture and the segment counts ride the facts word beside the preferences; the browser resolves the `env(viewport-segment-*)` lengths itself
 visualViewport?.addEventListener("resize", () => requestAnimationFrame(positionContexts));
 const symbolStyle = document.createElement("style"); document.head.append(symbolStyle); // @ref LLP 1095 D8 — an untinted symbol is `AccentColor`: a zero-specificity default, so any authored tint wins. LLP 1116.003 D3.2: the nearest authored accent (`--exact-accent`), as the role is (LLP 1116.001 D2) and UIKit's inherited tint. LLP 1121 stage 9 B: one whose `color` its author wrote (`data-symbol-color`, element.rs) draws in it.
 symbolStyle.textContent = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}:where(img[data-symbol-path]){--exact-tint:var(--exact-accent,AccentColor)}:where(img[data-symbol-path][data-symbol-color]){--exact-tint:currentcolor}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,contain);mask-origin:content-box;mask-clip:content-box}';
@@ -1274,8 +1274,7 @@ function activateData() {
   const pending = pieces.pending(); // pieces this tree first uses: input waits for their handlers (LLP 1047 D5)
   return pending ? pending.then(ready) : ready();
 }
-// Boot the app — from the plan baked into the wasm, or from `bytes` (the
-// dev loop's restart carrying compatible state, LLP 1007 §6).
+// Boot the app: the baked plan, or `bytes` carrying compatible state (the dev loop's restart, LLP 1007 §6).
 let mutation = Promise.resolve(); function mutate(work) { const next = mutation.then(work); mutation = next.catch(() => {}); return next; }
 function boot(...args) { return mutate(() => bootNow(...args)); }
 async function bootNow(bytes, assets = devAssets, current = () => true, module = null, fresh = false) {
@@ -1302,6 +1301,8 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   }
   const launch = encoder.encode(launchLocation()); if (wasm.exact_set_launch) { const [epoch, offset] = reportTime(now()); wasm.exact_set_launch(epoch, offset, writeIn(reportPlace())); } // @ref LLP 1038 D5; then the date and place the boot's first settle reads (LLP 1027.000.000)
   const kept = !fresh && (bytes || module) ? (await loadStage('inspection'), focus.keep(ask({ op: "tree" }), Number(document.activeElement?.closest?.("[data-view]")?.dataset.view))) : undefined;
+  // A cold WebView or hidden iframe can have no viewport. Wait without a deadline; module swaps reuse the runner's.
+  if (!current() || request !== bootAttempt) return null; while (!module && !(innerWidth > 0 && innerHeight > 0)) { await new Promise(resolve => addEventListener("resize", resolve, { once: true })); if (!current() || request !== bootAttempt) return null; }
   const appleRoles = wasm.exact_report_colors && getComputedStyle(document.documentElement).getPropertyValue("--exact-apple-roles").trim(); if (appleRoles) { const probe = document.body.appendChild(document.createElement("i")), seen = getComputedStyle(probe), colors = []; for (const dark of [false, true]) { probe.style.colorScheme = dark ? "dark" : "light"; for (const name of JSON.parse(appleRoles).split(" ")) if (seen.getPropertyValue(`--exact-apple-${name}`).trim()) { probe.style.color = `var(--exact-apple-${name})`; colors.push([name, dark, seen.color]); } } probe.remove(); wasm.exact_report_colors(writeIn(JSON.stringify(colors))); } let len; wasm.exact_live_clock?.(agentMode ? 0 : 1); // each role look.mjs names, light and dark, as the page draws it, reported so a colour the kernel resolves itself (a canvas's ink) is the page's (src/colors.rs); the page's clock owns time, the agent's when it drives (the timers RFC, D1); kept for every boot
   if (module) {
     const id = module.rust ?? new TextEncoder().encode(JSON.stringify(module.realm.id));
@@ -1368,8 +1369,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   if (bytes) afterPaint(loadGpuIfNeeded, agentMode);
   return performance.now() - t;
 }
-// `agent`, `agentSettled` and `now` exist only in agent mode: a normal page has no agent
-// surface and no clock but the browser's.
+// `agent`, `agentSettled` and `now` exist only in agent mode; a normal page uses the browser's clock.
 let ready;
 globalThis.exact = { ...globalThis.exact, mutate, devFirst: () => devFirst(), pageFacts: Object.assign(pageFacts, { changed: () => pageChanged() }), // the GPU tier's reader and teller (gpu-tier.js)
   // @ref LLP 1038 D8/D11 — synchronous for the serialized popstate caller.

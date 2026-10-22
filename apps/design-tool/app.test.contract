@@ -1,7 +1,7 @@
 // The design tool against a stand-in Tamber server (stub/tamber-stub.ts, run
 // by `test` and `verify`); its drives against a real `tamber serve` are in
-// scripts/design-tool.test.mjs (and stage 11's base scale and package rows
-// in scripts/design-tool-scale.test.mjs).
+// scripts/design-tool.test.mjs and its -ops, -canvas and -scrub files (and
+// stage 11's base scale and package rows in scripts/design-tool-scale.test.mjs).
 
 test "it asks for the person's name once, then shows the server's hello"
   expect tree has "ask-name"
