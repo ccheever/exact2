@@ -6,6 +6,9 @@
 //! keeps what a computed source may name. `symbol:sf/<name>` names the role
 //! whose Apple name it is, else the icon whose `sf` it is.
 
+mod confined;
+pub use confined::{read as read_confined, Unread};
+
 use crate::LowerError;
 use contract_syntax::{DesignSource, Span};
 use exact_tamber as tamber;
@@ -142,31 +145,19 @@ impl<'a> Home<'a> {
         Some(self.root?.join("assets").join(file))
     }
 
-    /// The file to read for `path` (this home's SVG, [`Home::svg`]), or
-    /// none where it leaves its package: a package's file that is there
-    /// must be, links followed, under the package's own `assets/` (round 1,
-    /// Astra 4 = Grok 2), so no link passes off the app's or another
-    /// package's bytes as the package's; and it is read at the canonical
-    /// path checked, never the link again (round 2, R2-3). An entry there
-    /// that can't be resolved (a dangling link) leaves; one not there at
-    /// all is read as itself, and is missing. The app's are not confined:
-    /// its `assets/` are its own to arrange (a link to a shared directory is
-    /// the author's choice), and the web stages them as they are.
-    pub fn resolve(&self, path: &Path) -> Option<std::path::PathBuf> {
-        let (Some(_), Some(root)) = (self.package, self.root) else {
-            return Some(path.to_path_buf());
-        };
-        if path.symlink_metadata().is_err() {
-            return Some(path.to_path_buf());
-        }
-        let real = path.canonicalize().ok()?;
-        let root = root.canonicalize().ok()?;
-        real.starts_with(root.join("assets")).then_some(real)
-    }
-
-    /// Whether `path` leaves its package ([`Home::resolve`]).
+    /// Whether `path` (this home's SVG, [`Home::svg`]) leaves its package:
+    /// a package's file must be its own, links followed, under its own
+    /// `assets/` (round 1, Astra 4 = Grok 2; [`confined::read`], the one
+    /// rule every reader of a package's file applies), so no link passes off
+    /// the app's or another package's bytes as the package's. One not there
+    /// leaves nothing. The app's are not confined: its `assets/` are its own
+    /// to arrange (a link to a shared directory is the author's choice), and
+    /// the web stages them as they are.
     pub fn leaves(&self, path: &Path) -> bool {
-        self.resolve(path).is_none()
+        let (Some(_), Some(root)) = (self.package, self.root) else {
+            return false;
+        };
+        matches!(confined::read(path, root), Err(Unread::Leaves))
     }
 
     /// `assets/<file>` as a refusal names it: a package's by its package.
@@ -194,14 +185,21 @@ fn svg_of(icon: &tamber::Icon, home: Home) -> Result<Option<crate::icon_svg::Svg
         }
         (Some(file), Some(root)) => (file, root),
     };
-    let Some(path) = home.resolve(&root.join("assets").join(file)) else {
-        return Err(format!(
-            "`{}`: {} leaves the package (a link to a file outside its `assets/`): a package's SVG is its own file",
-            icon.name,
-            home.shown(file)
-        ));
+    let path = root.join("assets").join(file);
+    // A package's read only as its own file, from the file checked (round 3,
+    // R3-4: [`confined::read`]); the app's as it is.
+    let bytes = match home.package {
+        Some(_) => confined::read(&path, root).map_err(|why| match why {
+            Unread::Leaves => format!(
+                "`{}`: {} leaves the package (a link to a file outside its `assets/`): a package's SVG is its own file",
+                icon.name,
+                home.shown(file)
+            ),
+            Unread::Missing(e) | Unread::Failed(e) => format!("`{}`: {}: {e}", icon.name, home.shown(file)),
+        })?,
+        None => std::fs::read(&path).map_err(|e| format!("`{}`: {}: {e}", icon.name, home.shown(file)))?,
     };
-    std::fs::read_to_string(path)
+    String::from_utf8(bytes)
         .map_err(|e| e.to_string())
         .and_then(|t| Ok((t.len(), crate::icon_svg::read(&t)?)))
         .and_then(|(len, svg)| match &svg.not_template {
