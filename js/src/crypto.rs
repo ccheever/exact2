@@ -125,7 +125,10 @@ fn ec(state: &mut HostState, op: u32, a: &str, data: &[u8]) -> Result<String, St
 }
 
 /// The bytes door (`__exact_bytes(op, a, arrayBuffer)`). Ops: 1 digest(name);
-/// 2–7 ECDSA P-256 and kept keys ([`ec`]).
+/// 2–7 ECDSA P-256 and kept keys ([`ec`]); 8 LLP 1133.003 §9's stub decode,
+/// which copies the bytes at `a`'s offset and length and drops them; 9 the
+/// binary message being mapped, written into the buffer, which the prelude
+/// made its size.
 ///
 /// # Safety
 /// Called by the shim on the engine's thread with `ctx` the `HostState` the
@@ -140,6 +143,24 @@ pub(crate) unsafe extern "C" fn bytes_door(
 ) -> i32 {
     let state = &mut *(ctx as *mut HostState);
     let a = CStr::from_ptr(a).to_string_lossy();
+    // Op 9 writes: no shared slice of the buffer may live while it does.
+    // SAFETY: the shim hands over JSI's `ArrayBuffer::data`, the prelude's
+    // own buffer, writable and `len` long for this call.
+    if op == 9 {
+        let (status, text) = if len == state.binary.len() {
+            if len > 0 {
+                std::ptr::copy_nonoverlapping(state.binary.as_ptr(), bytes as *mut u8, len);
+            }
+            (0, String::new())
+        } else {
+            (
+                1,
+                "message: a buffer that is not the message's size".to_string(),
+            )
+        };
+        *out = c_string(&text);
+        return status;
+    }
     let data: &[u8] = if len == 0 {
         &[]
     } else {
@@ -148,6 +169,20 @@ pub(crate) unsafe extern "C" fn bytes_door(
     let reply = match op {
         1 => digest(&a, data),
         2..=7 => ec(state, op, &a, data),
+        8 => {
+            let mut range = a.split(' ').map(str::parse::<usize>);
+            match (range.next(), range.next()) {
+                (Some(Ok(at)), Some(Ok(n)))
+                    if at.checked_add(n).is_some_and(|end| end <= data.len()) =>
+                {
+                    let chunk = data[at..at + n].to_vec();
+                    exact_runner::stream_timing::decoded(chunk.len());
+                    drop(chunk);
+                    Ok(String::new())
+                }
+                _ => Err("decode: a range outside the chunk's buffer".into()),
+            }
+        }
         other => Err(format!("__exact_bytes: no op {other}")),
     };
     let (status, text) = match reply {
