@@ -1113,18 +1113,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         cell.contentConfiguration = c
         cell.marginsIgnoreSafeArea()
         cell.accessories = accessories(row)
-        // A row that presses is a button to VoiceOver, or a link (LLP
-        // 1115.000 D11.6), as SwiftUI's `List { Button }` is; UIKit's cell
-        // says so only for a disclosure. A reused cell keeps what it was set.
-        let node = host.presenter.views[id]
-        cell.accessibilityLabel = node?.props["accessibilityLabel"]
-            ?? [row.title, row.secondary].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
-        let link = node?.props["accessibilityRole"] == "link"
-        cell.accessibilityTraits.remove([.button, .link, .selected])
-        if row.pressable { cell.accessibilityTraits.insert(link ? .link : .button) }
-        let current = node?.props["accessibilityCurrent"].map { !["", "false"].contains($0) } ?? false
-        if row.accessory == "checkmark" || (row.accessory == "radio" && row.checked)
-            || node?.props["accessibilitySelected"] == "true" || current { cell.accessibilityTraits.insert(.selected) }
+        accessibility(cell, id, row)
     }
 
     private func accessories(_ row: GroupedListModel.Row) -> [UICellAccessory] {
@@ -1357,9 +1346,22 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         return target
     }
 
+    private func accessibility(_ cell: UICollectionViewCell, _ id: UInt32, _ row: GroupedListModel.Row) {
+        let node = host.presenter.views[id]
+        cell.accessibilityLabel = node?.props["accessibilityLabel"]
+            ?? [row.title, row.secondary].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
+        let link = node?.props["accessibilityRole"] == "link"
+        cell.accessibilityTraits.remove([.button, .link, .selected])
+        if row.pressable { cell.accessibilityTraits.insert(link ? .link : .button) }
+        let current = node?.props["accessibilityCurrent"].map { !["", "false"].contains($0) } ?? false
+        if row.accessory == "checkmark" || (row.accessory == "radio" && row.checked)
+            || node?.props["accessibilitySelected"] == "true" || current { cell.accessibilityTraits.insert(.selected) }
+    }
+
     /// An inert row's cell takes no touch and is no element, as its node.
     private func interact(_ cell: UICollectionViewCell, _ id: UInt32) {
         assign(cell, \.accessibilityIdentifier, host.presenter.views[id]?.props["testId"])
+        if let row = rows[id], !row.custom { accessibility(cell, id, row) }
         let inert = carried[id]?.inert ?? host.presenter.views[id]?.inert ?? false
         assign(cell, \.isUserInteractionEnabled, !inert)
         assign(cell, \.accessibilityElementsHidden, inert)
