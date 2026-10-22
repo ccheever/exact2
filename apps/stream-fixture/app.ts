@@ -6,8 +6,9 @@
 // serve-emu's WebSocket sends one frame a message: a 16-byte header (magic
 // `SEMU`, version 1, a key flag, a `u64` presentation time) over Annex-B.
 // Each frame goes to `__exact_gate_decode`, the gate's stub decode until
-// `@exact/webcodecs` exists: natively it copies the bytes into the host; on
-// the web it feeds the browser's `VideoDecoder`.
+// `@exact/webcodecs` exists, which hosts install under the agent only:
+// natively it copies the bytes into the host; on the web it feeds the
+// browser's `VideoDecoder`. Outside the agent the frames are parsed only.
 import type { Answer } from './app.contract.d.ts';
 
 export const appId = 'com.exact.streamfixture';
@@ -15,7 +16,10 @@ const SERVER = '127.0.0.1:4340';
 export const grants = [`net.fetch http://${SERVER}`, `net.websocket ws://${SERVER}`].join('\n');
 
 type Config = { codec: string; description?: Uint8Array; optimizeForLatency: boolean };
-declare function __exact_gate_decode(track: string, type: 'key' | 'delta', timestamp: number, data: Uint8Array, config?: Config): void;
+declare const __exact_gate_decode: ((track: string, type: 'key' | 'delta', timestamp: number, data: Uint8Array, config?: Config) => void) | undefined;
+function decode(track: string, type: 'key' | 'delta', timestamp: number, data: Uint8Array, config?: Config) {
+  if (typeof __exact_gate_decode === 'function') __exact_gate_decode(track, type, timestamp, data, config);
+}
 
 const FRAME_US = 16_667;
 const LIVE = { live: true, failed: '' };
@@ -50,8 +54,8 @@ function avcc(track: string) {
       if (length - offset - 4 < size) break;
       const tag = buffer[offset + 4], payload = buffer.subarray(offset + 5, offset + 4 + size);
       if (tag === 1) config = { codec: codecOf(payload), description: payload.slice(), optimizeForLatency: true };
-      else if (tag === 2 && config) { keyed = true; __exact_gate_decode(track, 'key', frame++ * FRAME_US, payload, config); }
-      else if (tag === 3 && keyed) __exact_gate_decode(track, 'delta', frame++ * FRAME_US, payload);
+      else if (tag === 2 && config) { keyed = true; decode(track, 'key', frame++ * FRAME_US, payload, config); }
+      else if (tag === 3 && keyed) decode(track, 'delta', frame++ * FRAME_US, payload);
       offset += 4 + size;
     }
     if (offset > 0) { buffer.copyWithin(0, offset, length); length -= offset; }
@@ -82,7 +86,7 @@ function semu(track: string) {
       const sps = spsOf(unit);
       if (sps) config = { codec: codecOf(sps), optimizeForLatency: true };
     }
-    if (config) __exact_gate_decode(track, key ? 'key' : 'delta', timestamp, unit, key ? config : undefined);
+    if (config) decode(track, key ? 'key' : 'delta', timestamp, unit, key ? config : undefined);
     return LIVE;
   };
 }
