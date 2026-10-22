@@ -125,28 +125,17 @@ fn an_unused_an_overridden_and_a_chosen_style_row_are_not_judged() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A style applied under a `for` is the build's there (the row's scope is
-/// the region's), and judged at an element outside it: one refusal, the
-/// column's, in the build's words. Applied only under a `for` or a `match`,
-/// it is the build's alone: accepted here.
+/// A style applied under a `for` or a `match` is the build's there (the row's
+/// scope is the region's), and so everywhere: where the build lowers that
+/// element first, its refusal of the row is the build's first, in that
+/// element's words (Grok's round 2). Accepted here, the column's application
+/// beside it too.
 #[test]
-fn a_style_row_under_a_for_or_match_is_left_to_the_build_there() {
-    let contract = "use Card from \"@acme/reading\"\nstyle Pad\n  padding=\"gap\"\ncomponent App\n  state items = [1]\n  view\n    column class=Pad\n      for i in items key=i\n        row class=Pad\n          Card()\n";
+fn a_style_row_under_a_for_or_match_is_left_to_the_build() {
     let op = json!({"op": "set-token", "name": "gap", "value": "#444444"});
-    let dir = reading("rows-style-each");
-    assert_eq!(
-        refusals(&dir, DESIGN, contract, op.clone()).map(|r| r.len()),
-        Some(1)
-    );
-    same_words(
-        &dir,
-        DESIGN,
-        contract,
-        op.clone(),
-        &DESIGN.replace("gap = 8px", "gap = #444444"),
-    );
     for (name, contract) in [
-        ("rows-style-only-each", "use Card from \"@acme/reading\"\nstyle Pad\n  padding=\"gap\"\ncomponent App\n  state items = [1]\n  view\n    column\n      for i in items key=i\n        row class=Pad\n          Card()\n"),
+        ("rows-style-each", "use Card from \"@acme/reading\"\nstyle Pad\n  padding=\"gap\"\ncomponent App\n  state items = [1]\n  view\n    column class=Pad\n      for i in items key=i\n        row class=Pad\n          Card()\n"),
+        ("rows-style-each-first", "use Card from \"@acme/reading\"\nstyle Pad\n  padding=\"gap\"\ncomponent App\n  state items = [1]\n  view\n    column\n      for i in items key=i\n        row class=Pad\n          text \"a\"\n      row class=Pad\n        Card()\n"),
         ("rows-style-only-match", "use Card from \"@acme/reading\"\nstyle Pad\n  padding=\"gap\"\ncomponent App\n  state picked: number? = 1\n  view\n    column\n      match picked\n        some p\n          row class=Pad\n            Card()\n        none\n          text \"none\"\n"),
     ] {
         let dir = reading(name);
@@ -157,12 +146,15 @@ fn a_style_row_under_a_for_or_match_is_left_to_the_build_there() {
 
 /// A `button`'s class rows are the build's (`button_appearance` reads them
 /// first, and a native button refuses rows of its own), and so are a grouped
-/// list's (`grouped::style` rewrites its rows first): neither refused here.
+/// list's (`grouped::style` rewrites its rows first) and a `delete=` row's
+/// (its swipe's rows go before the class's, `width` among them; Astra's
+/// round 2): none refused here.
 #[test]
-fn a_buttons_and_a_grouped_lists_style_rows_are_left_to_the_build() {
+fn a_buttons_a_grouped_lists_and_a_swipes_style_rows_are_left_to_the_build() {
     let op = json!({"op": "set-token", "name": "gap", "value": "#444444"});
     for (name, contract) in [
         ("rows-style-button", "use Card from \"@acme/reading\"\nstyle Pad\n  padding=\"gap\"\ncomponent App\n  action go\n  view\n    column\n      button class=Pad press=go appearance=\"auto\"\n        text \"Go\"\n      Card()\n"),
+        ("rows-style-delete", "use Card from \"@acme/reading\"\nstyle Pad\n  width=\"gap\"\ncomponent App\n  action remove\n  view\n    column\n      list\n        row class=Pad delete=remove\n          text \"a\"\n      Card()\n"),
         ("rows-style-grouped", "use Card from \"@acme/reading\"\nstyle Pad\n  padding=\"gap\"\ncomponent App\n  view\n    column\n      list class=Pad appearance=\"auto\" listStyle=\"grouped\"\n        section\n          text \"a\"\n      Card()\n"),
     ] {
         let dir = reading(name);
