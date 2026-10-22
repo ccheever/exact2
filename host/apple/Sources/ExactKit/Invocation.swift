@@ -60,7 +60,7 @@ struct Invocation {
         target = popover
     }
 
-    private static func asciiLowercased(_ s: String) -> String {
+    fileprivate static func asciiLowercased(_ s: String) -> String {
         String(String.UnicodeScalarView(s.unicodeScalars.map { (65...90).contains($0.value) ? Unicode.Scalar($0.value + 32)! : $0 }))
     }
 }
@@ -70,13 +70,32 @@ extension Presenter {
     /// (the lowest id among several with one `id`, as `aria-*` references do)
     /// and then its paragraphs' named runs.
     func invocation(of source: NodeView) -> Invocation? {
-        Invocation(of: source) { name in
-            if let view = chrome.named[name]?.min().flatMap({ views[$0] }) { return .view(view) }
-            let run = inlineOwners.values.contains { location in
-                guard let runs = views[location.owner]?.inlineText, runs.indices.contains(location.index) else { return false }
-                return runs[location.index].props["id"] == name
-            }
-            return run ? .element : nil
+        Invocation(of: source, element: invocationElement)
+    }
+
+    #if os(iOS)
+    /// Contact can precede the press handler that mounts a named popover.
+    /// Resolved targets retain their menu or overlay's existing feedback.
+    func showsPopoverPress(of source: NodeView) -> Bool {
+        if let invocation = invocation(of: source) {
+            return invocation.opensPopover && !menus.pullsDown(invocation.target)
         }
+        guard source.isButton else { return false }
+        if let name = source.props["commandfor"], !name.isEmpty {
+            if invocationElement(name) != nil { return false }
+            if ["show-popover", "toggle-popover"].contains(source.props["command"].map(Invocation.asciiLowercased) ?? "") { return true }
+        }
+        guard let name = source.props["popovertarget"], !name.isEmpty, invocationElement(name) == nil else { return false }
+        return source.props["popovertargetaction"].map(Invocation.asciiLowercased) != "hide"
+    }
+    #endif
+
+    private func invocationElement(_ name: String) -> Invocation.Named? {
+        if let view = chrome.named[name]?.min().flatMap({ views[$0] }) { return .view(view) }
+        let run = inlineOwners.values.contains { location in
+            guard let runs = views[location.owner]?.inlineText, runs.indices.contains(location.index) else { return false }
+            return runs[location.index].props["id"] == name
+        }
+        return run ? .element : nil
     }
 }
