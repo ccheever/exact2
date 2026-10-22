@@ -11,7 +11,7 @@ import type { T3Client } from './shared/client';
 import { obj, str, type Obj } from './shared/domain';
 import { bridgeReply, ClientError, type Files, type Native } from './shared/protocol';
 import { letGo, letGoAware } from './shared/let-go';
-import { liveEnvironments } from './shared/live-streams';
+import { liveEnvironments, type LiveEnvironment } from './shared/live-streams';
 import { EnvironmentFleet, fleet } from './shared/settings-b-fleet';
 import { capabilities, canSnooze, orderKeyBetween, sectionOf, sidebarVisible, shellRuntime, pendingApproval, pendingInput } from './shared/sidebar-model';
 import { snoozePresets } from './shared/sidebar-presentation';
@@ -76,9 +76,14 @@ export function mobileHomeSwipe(environmentId: string, threadId: string, now: nu
   const current = row(environmentId, threadId, client, background);
   if (!current.thread || !current.environment) return blankHomeSwipe();
   const queued = (orderInput?.queuedThreadKeys ?? new Set(homeOrderState(client).queuedThreadKeys)).has(`${environmentId}:${threadId}`);
-  const policy = homeSwipePolicy(current.thread, capabilities(current.environment.config), now, queued, current.allowed, environmentId);
+  return projectHomeSwipe(current, now, queued, () => mobileHomeSnoozePresets(now));
+}
+function projectHomeSwipe(current: ReturnType<typeof row>, now: number, queued: boolean,
+  presets: () => ReturnType<typeof mobileHomeSnoozePresets>): HomeSwipeData {
+  if (!current.thread || !current.environment) return blankHomeSwipe();
+  const policy = homeSwipePolicy(current.thread, capabilities(current.environment.config), now, queued, current.allowed, current.environment.environmentId);
   if (policy.snoozable) {
-    policy.snoozeItems = mobileHomeSnoozePresets(now).map(preset => item(`snooze:${preset.id}`, preset.label, '',
+    policy.snoozeItems = presets().map(preset => item(`snooze:${preset.id}`, preset.label, '',
       { operation: `swipe:snooze:${preset.id}`, value: preset.value, subtitle: preset.subtitle }));
     policy.snoozeItems.push(item('snooze:custom', 'Custom…', '', { operation: 'swipe:snooze:custom' }));
   }
@@ -88,10 +93,17 @@ export function mobileHomeSwipe(environmentId: string, threadId: string, now: nu
 /** Context menus retain their source membership independently of swipe controls. */
 export function mobileHomeMenu(environmentId: string, threadId: string, now: number,
   client: T3Client = mobileClient, background: EnvironmentFleet = fleet, orderInput?: HomeOrderSnapshot): HomeMenuItem[] {
-  const { environment, thread, allowed } = row(environmentId, threadId, client, background);
-  if (!allowed || !environment || !thread) return [];
+  const current = row(environmentId, threadId, client, background);
+  if (!current.allowed || !current.environment || !current.thread) return [];
   const order = orderInput ?? mobileHomeOrder(client, mobileHomeSources(client, background), now);
-  const caps = capabilities(environment.config), queued = order.queuedThreadKeys.has(`${environmentId}:${threadId}`);
+  return projectHomeMenu(current, now, order, () => mobileHomeSnoozePresets(now));
+}
+function projectHomeMenu(current: ReturnType<typeof row>, now: number, order: HomeOrderSnapshot,
+  presets: () => ReturnType<typeof mobileHomeSnoozePresets>): HomeMenuItem[] {
+  const { environment, thread, allowed } = current;
+  if (!allowed || !environment || !thread) return [];
+  const key = `${environment.environmentId}:${str(thread.id)}`;
+  const caps = capabilities(environment.config), queued = order.queuedThreadKeys.has(key);
   const section = sectionOf(queued ? { ...thread, settledOverride: null } : thread, caps, now, false), snoozed = section === 'snoozed';
   const items: HomeMenuItem[] = [];
   if (str(thread.branch)) items.push(item('new-thread-on-branch', 'New thread on branch', 'square.and.pencil'));
@@ -101,14 +113,14 @@ export function mobileHomeMenu(environmentId: string, threadId: string, now: num
     { unsnooze: 'clock', archive: 'archivebox', unsettle: 'arrow.uturn.backward', settle: 'checkmark' }[lifecycle]));
   if (!snoozed && caps.settlement && section !== 'settled' && caps.snooze && canSnooze(thread, now)) {
     items.push(item('snooze', 'Snooze', 'clock', { operation: '' }));
-    for (const preset of mobileHomeSnoozePresets(now)) items.push(item(`snooze:${preset.id}`, preset.label, '', { parentId: 'snooze', value: preset.value, subtitle: preset.subtitle }));
+    for (const preset of presets()) items.push(item(`snooze:${preset.id}`, preset.label, '', { parentId: 'snooze', value: preset.value, subtitle: preset.subtitle }));
     items.push(item('snooze:custom', 'Custom…', '', { parentId: 'snooze' }));
   }
   const moveSection = thread.pinnedAt != null ? 'pinned' : 'active';
   const movesSupported = moveSection === 'pinned' ? caps.pinReorder : !order.workingEnabled && caps.activeReorder;
   if (!snoozed && movesSupported) items.push(item('arrange-open', 'Arrange threads…', 'line.3.horizontal'));
   if (!snoozed && section !== 'settled' && movesSupported) {
-    const available = order.availability.get(`${environmentId}:${threadId}`);
+    const available = order.availability.get(key);
     items.push(item('move-up', 'Move up', 'arrow.up', { disabled: available?.canMoveUp !== true }));
     items.push(item('move-down', 'Move down', 'arrow.down', { disabled: available?.canMoveDown !== true }));
   }
@@ -122,6 +134,34 @@ export function mobileHomeMenu(environmentId: string, threadId: string, now: num
   }
   items.push(item('delete', 'Delete', 'trash', { destructive: true }));
   return items;
+}
+
+/** Display data lasts for one synchronous projection; commands keep resolving row() fresh. */
+export function mobileHomeRowProjection(live: readonly LiveEnvironment[], now: number, order: HomeOrderSnapshot,
+  client: T3Client, background: EnvironmentFleet) {
+  const catalogues = new Map<string, { environment: LiveEnvironment; allowed: boolean; threads?: Map<unknown, Obj> }>(live.map(environment => {
+    const scopes = environment.focused ? client.scopes : background.entries.get(environment.key)?.scopes ?? [];
+    return [environment.environmentId, { environment, allowed: environment.connected && scopes.includes('orchestration:operate') }] as const;
+  }));
+  const resolve = (environmentId: string, threadId: string): ReturnType<typeof row> => {
+    const catalogue = catalogues.get(environmentId);
+    if (!catalogue) return { environment: undefined, thread: undefined, allowed: false };
+    if (!catalogue.threads) {
+      catalogue.threads = new Map();
+      for (const thread of catalogue.environment.shell.threads) {
+        const id = thread.id;
+        if (!catalogue.threads.has(id) && sidebarVisible(thread)) catalogue.threads.set(id, thread);
+      }
+    }
+    return { environment: catalogue.environment, thread: catalogue.threads.get(threadId), allowed: catalogue.allowed };
+  };
+  let formattedPresets: ReturnType<typeof mobileHomeSnoozePresets> | undefined;
+  const presets = () => formattedPresets ??= mobileHomeSnoozePresets(now);
+  return {
+    swipe: (environmentId: string, threadId: string) => projectHomeSwipe(resolve(environmentId, threadId), now,
+      order.queuedThreadKeys.has(`${environmentId}:${threadId}`), presets),
+    menu: (environmentId: string, threadId: string) => projectHomeMenu(resolve(environmentId, threadId), now, order, presets),
+  };
 }
 const titles: Record<string, string> = { rename: 'Could not rename thread', delete: 'Could not delete thread',
   archive: 'Could not archive thread', settle: 'Could not settle thread', unsettle: 'Could not un-settle thread',

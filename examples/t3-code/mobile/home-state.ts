@@ -12,7 +12,7 @@ import type { T3Client } from './shared/client';
 import { liveEnvironments } from './shared/live-streams';
 import { threadSearchPending } from './shared/sidebar-presentation';
 import { fleet, type EnvironmentFleet } from './shared/settings-b-fleet';
-import { mobileHomeActionsObserve, mobileHomeMenu, mobileHomeSwipe } from './home-actions';
+import { mobileHomeActionsObserve, mobileHomeRowProjection } from './home-actions';
 
 export const emptyShelves = { loaded: false, workingEnabled: false, workingExpanded: false,
   snoozedExpanded: false, settledExpanded: false };
@@ -51,9 +51,10 @@ export function mobileHomeView(args: unknown[], client: T3Client = mobileClient,
     const endpoint = environment.focused ? client : background.entries.get(environment.key);
     return [environment.environmentId, { origin: endpoint?.origin ?? '', generation: endpoint?.generation ?? 0, connected: environment.connected }] as const;
   }));
+  const rowProjection = mobileHomeRowProjection(live, Number(now), order, client, background);
   for (const item of result.items) if (item.kind === 'thread') {
-    item.swipe = mobileHomeSwipe(item.environmentId, item.threadId, Number(now), client, background, order);
-    item.menuItems = mobileHomeMenu(item.environmentId, item.threadId, Number(now), client, background, order);
+    item.swipe = rowProjection.swipe(item.environmentId, item.threadId);
+    item.menuItems = rowProjection.menu(item.environmentId, item.threadId);
     item.nativeMenu = JSON.stringify({ identity: item.key, requestRoute: String(requestRoute ?? ''), enabled: sidebarVisible === true, items: item.menuItems, swipeItems: item.swipe.snoozeItems, swipeSnoozable: item.swipe.snoozable, swipeResetKey: item.swipe.resetKey,
       environmentId: item.environmentId, threadId: item.threadId, ...contexts.get(item.environmentId),
       homeVisible: homeVisible === true, sidebarVisible: sidebarVisible === true });
