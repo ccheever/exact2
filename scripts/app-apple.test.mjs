@@ -120,16 +120,17 @@ test.skipIf(process.platform !== 'darwin')('iOS distribution assets retain the i
       host: { ios: { launchImage: { src: 'icon.png', width: 40 } } } } };
     const keys = iosAssets(app, bundle, true, { catalog: true });
     assert.equal(keys.CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName, 'AppIcon');
-    assert.equal(keys.UILaunchScreen.UIColorName, 'ExactLaunch');
-    assert.equal(keys.UILaunchScreen.UIImageName, 'ExactLaunchImage', 'the picture the launch screen centres on its colour');
+    const { UIColorName: colour, UIImageName: image } = keys.UILaunchScreen;
+    assert.match(colour, /^ExactLaunch-[0-9a-f]{8}$/);
+    assert.match(image, /^ExactLaunchImage-[0-9a-f]{8}$/, 'the picture the launch screen centres on its colour');
     assert.equal(keys.ExactLaunchImageSource, 'icon.png', 'an image of the picture decodes from the catalog');
     assert.equal(keys.ExactLaunchImageSHA256, launchImageInventory(app).sha256, 'only for the bytes the catalog was made from');
     const result = spawnSync('xcrun', ['assetutil', '--info', resolve(bundle, 'Assets.car')], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     const assets = JSON.parse(result.stdout);
     assert.ok(assets.some(asset => asset.Name === 'AppIcon'), 'Assets.car must retain AppIcon');
-    assert.equal(assets.filter(asset => asset.Name === 'ExactLaunch').length, 2);
-    const launch = assets.filter(asset => asset.Name === 'ExactLaunchImage');
+    assert.equal(assets.filter(asset => asset.Name === colour).length, 2);
+    const launch = assets.filter(asset => asset.Name === image);
     assert.ok(launch.length >= 1, 'Assets.car holds the launch image');
     assert.ok(launch.every(asset => asset.PixelWidth === 40 * asset.Scale), `40 points wide at each scale: ${JSON.stringify(launch)}`);
     // The launch image is a binary input: packaging draws the bytes the bake
@@ -137,7 +138,14 @@ test.skipIf(process.platform !== 'darwin')('iOS distribution assets retain the i
     const baked = launchImageInventory(app);
     assert.equal(baked.sha256.length, 64);
     const again = resolve(dir, 'Again.app'); mkdirSync(again);
-    assert.equal(iosAssets(app, again, true, { expectedLaunchImage: baked }).UILaunchScreen.UIImageName, 'ExactLaunchImage');
+    assert.deepEqual(iosAssets(app, again, true, { expectedLaunchImage: baked }).UILaunchScreen, keys.UILaunchScreen, 'the same content, the same names');
+    // iOS draws the launch screen it kept for unchanged `UILaunchScreen` keys (the euxy port's white launch):
+    // another colour or picture is another name.
+    const darker = { ...app, manifest: { ...app.manifest, background_color: '#08080a' } };
+    assert.equal(iosAssets(darker, again, true).UILaunchScreen.UIImageName, image);
+    assert.notEqual(iosAssets(darker, again, true).UILaunchScreen.UIColorName, colour);
+    const wider = { ...app, manifest: { ...app.manifest, host: { ios: { launchImage: { src: 'icon.png', width: 41 } } } } };
+    assert.notEqual(iosAssets(wider, again, true).UILaunchScreen.UIImageName, image);
     assert.throws(() => iosAssets(app, again, true, { expectedLaunchImage: null }), /launch image changed after the bake/);
     writeFileSync(resolve(dir, 'icon.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'));
     assert.notEqual(launchImageInventory(app).sha256, baked.sha256);

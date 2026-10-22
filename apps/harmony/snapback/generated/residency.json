@@ -1,0 +1,705 @@
+{
+  "createChannel": {
+    "predicts": "eligible",
+    "sites": [
+      {
+        "site": "schema.q:238:12 (profiles[])",
+        "table": "profiles",
+        "index": "byHandle",
+        "kind": "scan",
+        "class": "held",
+        "reason": "scan profiles by byHandle: held, no horizon; selected byHandle (); result: page; explicit by",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:47:3 (members insert rule: members by byRoomPrincipal)",
+        "table": "members",
+        "index": "byRoomPrincipal",
+        "kind": "rule",
+        "class": "held",
+        "reason": "rule members by byRoomPrincipal: held, no horizon",
+        "rewrite": ""
+      }
+    ],
+    "requires": []
+  },
+  "createEmoji": {
+    "predicts": "eligible",
+    "sites": [],
+    "requires": []
+  },
+  "customEmoji": {
+    "runs": "device",
+    "sites": [
+      {
+        "site": "schema.q:183:10 (emoji[])",
+        "table": "emoji",
+        "index": "byTime",
+        "kind": "scan",
+        "class": "held",
+        "reason": "scan emoji by byTime: held, no horizon; selected byTime (); result: page; explicit by",
+        "rewrite": ""
+      }
+    ],
+    "requires": []
+  },
+  "deleteEmoji": {
+    "predicts": "eligible",
+    "sites": [
+      {
+        "site": "schema.q:258:7 (emoji[emojiId])",
+        "table": "emoji",
+        "index": "byId",
+        "kind": "point",
+        "class": "held",
+        "reason": "point emoji by byId: held, no horizon; selected byId (id = emojiId); result: row or null; unique positional key selected by argument types",
+        "rewrite": ""
+      }
+    ],
+    "requires": [
+      "NOT_AUTHOR",
+      "NOT_FOUND"
+    ]
+  },
+  "deleteMessage": {
+    "predicts": "eligible",
+    "sites": [
+      {
+        "site": "schema.q:203:9 (messages[messageId])",
+        "table": "messages",
+        "index": "byId",
+        "kind": "point",
+        "class": "horizon",
+        "reason": "point messages by byId: sync to members[.roomId] last 300 by byRoomTime; selected byId (id = messageId); result: row or null; only declared unique key of this arity",
+        "rewrite": "remove a redundant guard, or read a synced fact without a horizon"
+      }
+    ],
+    "requires": [
+      "NOT_AUTHOR",
+      "NOT_FOUND"
+    ]
+  },
+  "editMessage": {
+    "predicts": "eligible",
+    "sites": [
+      {
+        "site": "schema.q:197:9 (messages[messageId])",
+        "table": "messages",
+        "index": "byId",
+        "kind": "point",
+        "class": "horizon",
+        "reason": "point messages by byId: sync to members[.roomId] last 300 by byRoomTime; selected byId (id = messageId); result: row or null; only declared unique key of this arity",
+        "rewrite": "remove a redundant guard, or read a synced fact without a horizon"
+      },
+      {
+        "site": "schema.q:199:3",
+        "table": "messages",
+        "index": "byId",
+        "kind": "write target",
+        "class": "horizon",
+        "reason": "write target messages by byId: sync to members[.roomId] last 300 by byRoomTime",
+        "rewrite": ""
+      }
+    ],
+    "requires": [
+      "NOT_AUTHOR",
+      "NOT_FOUND"
+    ]
+  },
+  "inbox": {
+    "runs": "device",
+    "sites": [
+      {
+        "site": "schema.q:156:12 (members[viewer])",
+        "table": "members",
+        "index": "byPrincipalRoom",
+        "kind": "scan",
+        "class": "held",
+        "reason": "scan members by byPrincipalRoom: held, no horizon; selected byPrincipalRoom (principal = viewer); result: page; explicit by",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:157:10 (lastReads[m.roomId, viewer])",
+        "table": "lastReads",
+        "index": "byRoomPrincipal",
+        "kind": "point",
+        "class": "held",
+        "reason": "point lastReads by byRoomPrincipal: held, no horizon; selected byRoomPrincipal (roomId = m.roomId, principal = viewer); result: row or null; only declared unique key of this arity",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:159:46 (rooms[m.roomId])",
+        "table": "rooms",
+        "index": "byId",
+        "kind": "point",
+        "class": "held",
+        "reason": "point rooms by byId: held, no horizon; selected byId (id = m.roomId); result: row or null; only declared unique key of this arity",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:159:77 (messages[m.roomId])",
+        "table": "messages",
+        "index": "byRoomTime",
+        "kind": "scan",
+        "class": "horizon",
+        "reason": "scan messages by byRoomTime: sync to members[.roomId] last 300 by byRoomTime; selected byRoomTime (roomId = m.roomId); result: page; explicit by",
+        "rewrite": "remove a redundant guard, or read a synced fact without a horizon"
+      },
+      {
+        "site": "schema.q:159:141 (messages[m.roomId])",
+        "table": "messages",
+        "index": "byRoomTime",
+        "kind": "scan",
+        "class": "horizon",
+        "reason": "scan messages by byRoomTime: sync to members[.roomId] last 300 by byRoomTime; selected byRoomTime (roomId = m.roomId); result: page; explicit by",
+        "rewrite": "remove a redundant guard, or read a synced fact without a horizon"
+      },
+      {
+        "site": "schema.q:159:191 (members[m.roomId])",
+        "table": "members",
+        "index": "byRoomPrincipal",
+        "kind": "scan",
+        "class": "held",
+        "reason": "scan members by byRoomPrincipal: held, no horizon; selected byRoomPrincipal (roomId = m.roomId); result: page; explicit by",
+        "rewrite": ""
+      }
+    ],
+    "requires": []
+  },
+  "markRead": {
+    "predicts": "eligible",
+    "sites": [
+      {
+        "site": "schema.q:232:18 (members[roomId, viewer])",
+        "table": "members",
+        "index": "byRoomPrincipal",
+        "kind": "point",
+        "class": "held",
+        "reason": "point members by byRoomPrincipal: held, no horizon; selected byRoomPrincipal (roomId = roomId, principal = viewer); result: exists; only declared unique key of this arity",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:233:3",
+        "table": "lastReads",
+        "index": "byRoomPrincipal",
+        "kind": "write target",
+        "class": "held",
+        "reason": "write target lastReads by byRoomPrincipal: held, no horizon",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:233:3",
+        "table": "lastReads",
+        "index": "byRoomPrincipal",
+        "kind": "upsert insert",
+        "class": "held",
+        "reason": "upsert insert into lastReads: absence is provable when the group and insert image are held and readable; held updates — unique roomId, principal: unchanged or null key needs no new coverage; changes predict only with complete held, readable population coverage; cap 100 by principal: unchanged group needs no new coverage; changes predict only with complete held, readable population coverage",
+        "rewrite": ""
+      }
+    ],
+    "requires": [
+      "NOT_MEMBER"
+    ]
+  },
+  "me": {
+    "runs": "device",
+    "sites": [
+      {
+        "site": "schema.q:149:10 (profiles[viewer])",
+        "table": "profiles",
+        "index": "byPrincipal",
+        "kind": "point",
+        "class": "held",
+        "reason": "point profiles by byPrincipal: held, no horizon; selected byPrincipal (principal = viewer); result: row or null; unique positional key selected by argument types",
+        "rewrite": ""
+      }
+    ],
+    "requires": []
+  },
+  "openDm": {
+    "predicts": "eligible",
+    "sites": [
+      {
+        "site": "schema.q:244:12 (members[viewer])",
+        "table": "members",
+        "index": "byPrincipalRoom",
+        "kind": "scan",
+        "class": "held",
+        "reason": "scan members by byPrincipalRoom: held, no horizon; selected byPrincipalRoom (principal = viewer); result: page; explicit by",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:245:9 (rooms[m.roomId])",
+        "table": "rooms",
+        "index": "byId",
+        "kind": "point",
+        "class": "held",
+        "reason": "point rooms by byId: held, no horizon; selected byId (id = m.roomId); result: row or null; only declared unique key of this arity",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:246:47 (members[m.roomId, other])",
+        "table": "members",
+        "index": "byRoomPrincipal",
+        "kind": "point",
+        "class": "held",
+        "reason": "point members by byRoomPrincipal: held, no horizon; selected byRoomPrincipal (roomId = m.roomId, principal = other); result: exists; only declared unique key of this arity",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:47:3 (members insert rule: members by byRoomPrincipal)",
+        "table": "members",
+        "index": "byRoomPrincipal",
+        "kind": "rule",
+        "class": "held",
+        "reason": "rule members by byRoomPrincipal: held, no horizon",
+        "rewrite": ""
+      }
+    ],
+    "requires": [
+      "SELF_DM"
+    ]
+  },
+  "people": {
+    "runs": "device",
+    "sites": [
+      {
+        "site": "schema.q:152:10 (profiles[])",
+        "table": "profiles",
+        "index": "byHandle",
+        "kind": "scan",
+        "class": "held",
+        "reason": "scan profiles by byHandle: held, no horizon; selected byHandle (); result: page; explicit by",
+        "rewrite": ""
+      }
+    ],
+    "requires": []
+  },
+  "pin": {
+    "predicts": "eligible",
+    "sites": [
+      {
+        "site": "schema.q:218:9 (messages[messageId])",
+        "table": "messages",
+        "index": "byId",
+        "kind": "point",
+        "class": "horizon",
+        "reason": "point messages by byId: sync to members[.roomId] last 300 by byRoomTime; selected byId (id = messageId); result: row or null; only declared unique key of this arity",
+        "rewrite": "remove a redundant guard, or read a synced fact without a horizon"
+      },
+      {
+        "site": "schema.q:219:18 (members[msg.roomId, viewer])",
+        "table": "members",
+        "index": "byRoomPrincipal",
+        "kind": "point",
+        "class": "held",
+        "reason": "point members by byRoomPrincipal: held, no horizon; selected byRoomPrincipal (roomId = msg.roomId, principal = viewer); result: exists; only declared unique key of this arity",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:220:13 (pins[messageId])",
+        "table": "pins",
+        "index": "byMessage",
+        "kind": "point",
+        "class": "held",
+        "reason": "point pins by byMessage: held, no horizon; selected byMessage (messageId = messageId); result: exists; unique positional key selected by argument types",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:221:5 (delete pins)",
+        "table": "pins",
+        "index": "byMessage",
+        "kind": "write target",
+        "class": "held",
+        "reason": "write target pins by byMessage: held, no horizon",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:99:3 (pins delete rule: members by byRoomPrincipal)",
+        "table": "members",
+        "index": "byRoomPrincipal",
+        "kind": "rule",
+        "class": "held",
+        "reason": "rule members by byRoomPrincipal: held, no horizon",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:97:3 (pins insert rule: members by byRoomPrincipal)",
+        "table": "members",
+        "index": "byRoomPrincipal",
+        "kind": "rule",
+        "class": "held",
+        "reason": "rule members by byRoomPrincipal: held, no horizon",
+        "rewrite": ""
+      }
+    ],
+    "requires": [
+      "NOT_FOUND",
+      "NOT_MEMBER"
+    ]
+  },
+  "pinned": {
+    "runs": "device",
+    "sites": [
+      {
+        "site": "schema.q:171:18 (members[roomId, viewer])",
+        "table": "members",
+        "index": "byRoomPrincipal",
+        "kind": "point",
+        "class": "held",
+        "reason": "point members by byRoomPrincipal: held, no horizon; selected byRoomPrincipal (roomId = roomId, principal = viewer); result: exists; only declared unique key of this arity",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:172:10 (pins[roomId])",
+        "table": "pins",
+        "index": "byRoomTime",
+        "kind": "scan",
+        "class": "held",
+        "reason": "scan pins by byRoomTime: held, no horizon; selected byRoomTime (roomId = roomId); result: page; explicit by",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:172:51 (messages[.messageId])",
+        "table": "messages",
+        "index": "byId",
+        "kind": "point",
+        "class": "horizon",
+        "reason": "point messages by byId: sync to members[.roomId] last 300 by byRoomTime; selected byId (id = .messageId); result: row or null; only declared unique key of this arity",
+        "rewrite": "remove a redundant guard, or read a synced fact without a horizon"
+      }
+    ],
+    "requires": [
+      "NOT_MEMBER"
+    ]
+  },
+  "react": {
+    "predicts": "eligible",
+    "sites": [
+      {
+        "site": "schema.q:209:9 (messages[messageId])",
+        "table": "messages",
+        "index": "byId",
+        "kind": "point",
+        "class": "horizon",
+        "reason": "point messages by byId: sync to members[.roomId] last 300 by byRoomTime; selected byId (id = messageId); result: row or null; only declared unique key of this arity",
+        "rewrite": "remove a redundant guard, or read a synced fact without a horizon"
+      },
+      {
+        "site": "schema.q:210:18 (members[msg.roomId, viewer])",
+        "table": "members",
+        "index": "byRoomPrincipal",
+        "kind": "point",
+        "class": "held",
+        "reason": "point members by byRoomPrincipal: held, no horizon; selected byRoomPrincipal (roomId = msg.roomId, principal = viewer); result: exists; only declared unique key of this arity",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:211:13 (reactions[messageId, viewer, emoji])",
+        "table": "reactions",
+        "index": "byMessagePrincipalEmoji",
+        "kind": "point",
+        "class": "horizon",
+        "reason": "point reactions by byMessagePrincipalEmoji: sync to members[.roomId] last 2000 by byRoom; selected byMessagePrincipalEmoji (messageId = messageId, principal = viewer, emoji = emoji); result: exists; only declared unique key of this arity",
+        "rewrite": "remove a redundant guard, or read a synced fact without a horizon"
+      },
+      {
+        "site": "schema.q:212:5 (delete reactions)",
+        "table": "reactions",
+        "index": "byMessagePrincipalEmoji",
+        "kind": "write target",
+        "class": "horizon",
+        "reason": "write target reactions by byMessagePrincipalEmoji: sync to members[.roomId] last 2000 by byRoom",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:81:3 (reactions insert rule: members by byRoomPrincipal)",
+        "table": "members",
+        "index": "byRoomPrincipal",
+        "kind": "rule",
+        "class": "held",
+        "reason": "rule members by byRoomPrincipal: held, no horizon",
+        "rewrite": ""
+      }
+    ],
+    "requires": [
+      "NOT_FOUND",
+      "NOT_MEMBER"
+    ]
+  },
+  "roomInfo": {
+    "runs": "device",
+    "sites": [
+      {
+        "site": "schema.q:163:18 (members[roomId, viewer])",
+        "table": "members",
+        "index": "byRoomPrincipal",
+        "kind": "point",
+        "class": "held",
+        "reason": "point members by byRoomPrincipal: held, no horizon; selected byRoomPrincipal (roomId = roomId, principal = viewer); result: exists; only declared unique key of this arity",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:164:18 (rooms[roomId])",
+        "table": "rooms",
+        "index": "byId",
+        "kind": "point",
+        "class": "held",
+        "reason": "point rooms by byId: held, no horizon; selected byId (id = roomId); result: row or null; only declared unique key of this arity",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:164:42 (members[roomId])",
+        "table": "members",
+        "index": "byRoomPrincipal",
+        "kind": "scan",
+        "class": "held",
+        "reason": "scan members by byRoomPrincipal: held, no horizon; selected byRoomPrincipal (roomId = roomId); result: page; explicit by",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:164:102 (lastReads[roomId, viewer])",
+        "table": "lastReads",
+        "index": "byRoomPrincipal",
+        "kind": "point",
+        "class": "held",
+        "reason": "point lastReads by byRoomPrincipal: held, no horizon; selected byRoomPrincipal (roomId = roomId, principal = viewer); result: row or null; only declared unique key of this arity",
+        "rewrite": ""
+      }
+    ],
+    "requires": [
+      "NOT_MEMBER"
+    ]
+  },
+  "search": {
+    "runs": "device",
+    "sites": [
+      {
+        "site": "schema.q:179:25 (members[viewer])",
+        "table": "members",
+        "index": "byPrincipalRoom",
+        "kind": "scan",
+        "class": "held",
+        "reason": "scan members by byPrincipalRoom: held, no horizon; when q present: selected byPrincipalRoom (principal = viewer); result: page; explicit by; when q absent: selected byPrincipalRoom (principal = viewer); result: page; explicit by",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:179:5 (messages where .roomId = m.roomId last 50 by .at, .id)",
+        "table": "messages",
+        "index": "byRoomWords",
+        "kind": "scan",
+        "class": "horizon",
+        "reason": "scan messages by byRoomWords: sync to members[.roomId] last 300 by byRoomTime; when q present: selected byRoomWords (roomId = m.roomId); result: page; explicit by; when q absent: selected byRoomTime (roomId = m.roomId); result: page; explicit by",
+        "rewrite": "remove a redundant guard, or read a synced fact without a horizon"
+      },
+      {
+        "site": "schema.q:179:5 (messages where .roomId = m.roomId last 50 by .at, .id)",
+        "table": "messages",
+        "index": "byRoomTime",
+        "kind": "scan",
+        "class": "horizon",
+        "reason": "scan messages by byRoomTime: sync to members[.roomId] last 300 by byRoomTime; when q present: selected byRoomWords (roomId = m.roomId); result: page; explicit by; when q absent: selected byRoomTime (roomId = m.roomId); result: page; explicit by",
+        "rewrite": "remove a redundant guard, or read a synced fact without a horizon"
+      },
+      {
+        "site": "schema.q:180:26 (rooms[.roomId])",
+        "table": "rooms",
+        "index": "byId",
+        "kind": "point",
+        "class": "held",
+        "reason": "point rooms by byId: held, no horizon; selected byId (id = .roomId); result: row or null; only declared unique key of this arity",
+        "rewrite": ""
+      }
+    ],
+    "requires": []
+  },
+  "sendMessage": {
+    "predicts": "eligible",
+    "sites": [
+      {
+        "site": "schema.q:190:18 (members[roomId, viewer])",
+        "table": "members",
+        "index": "byRoomPrincipal",
+        "kind": "point",
+        "class": "held",
+        "reason": "point members by byRoomPrincipal: held, no horizon; selected byRoomPrincipal (roomId = roomId, principal = viewer); result: exists; only declared unique key of this arity",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:192:13 (typing[roomId, viewer])",
+        "table": "typing",
+        "index": "byRoomPrincipal",
+        "kind": "point",
+        "class": "held",
+        "reason": "point typing by byRoomPrincipal: held, no horizon; selected byRoomPrincipal (roomId = roomId, principal = viewer); result: exists; only declared unique key of this arity",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:193:5 (delete typing)",
+        "table": "typing",
+        "index": "byRoomPrincipal",
+        "kind": "write target",
+        "class": "held",
+        "reason": "write target typing by byRoomPrincipal: held, no horizon",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:62:3 (messages insert rule: members by byRoomPrincipal)",
+        "table": "members",
+        "index": "byRoomPrincipal",
+        "kind": "rule",
+        "class": "held",
+        "reason": "rule members by byRoomPrincipal: held, no horizon",
+        "rewrite": ""
+      }
+    ],
+    "requires": [
+      "NOT_MEMBER"
+    ]
+  },
+  "setProfile": {
+    "predicts": "eligible",
+    "sites": [
+      {
+        "site": "schema.q:186:3",
+        "table": "profiles",
+        "index": "byPrincipal",
+        "kind": "write target",
+        "class": "held",
+        "reason": "write target profiles by byPrincipal: held, no horizon",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:186:3",
+        "table": "profiles",
+        "index": "byPrincipal",
+        "kind": "upsert insert",
+        "class": "held",
+        "reason": "upsert insert into profiles: absence is provable when the group and insert image are held and readable; held updates — unique handle: unchanged or null key needs no new coverage; changes predict only with complete held, readable population coverage; unique principal: unchanged or null key needs no new coverage; changes predict only with complete held, readable population coverage; cap 100 by (whole table): unchanged by this patch; no new coverage needed",
+        "rewrite": ""
+      }
+    ],
+    "requires": []
+  },
+  "setTyping": {
+    "predicts": "eligible",
+    "sites": [
+      {
+        "site": "schema.q:227:18 (members[roomId, viewer])",
+        "table": "members",
+        "index": "byRoomPrincipal",
+        "kind": "point",
+        "class": "held",
+        "reason": "point members by byRoomPrincipal: held, no horizon; selected byRoomPrincipal (roomId = roomId, principal = viewer); result: exists; only declared unique key of this arity",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:228:3",
+        "table": "typing",
+        "index": "byRoomPrincipal",
+        "kind": "write target",
+        "class": "held",
+        "reason": "write target typing by byRoomPrincipal: held, no horizon",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:228:3",
+        "table": "typing",
+        "index": "byRoomPrincipal",
+        "kind": "upsert insert blocked",
+        "class": "held",
+        "reason": "typing expiring cap 100 by roomId needs server physical occupancy; held updates — unique roomId, principal: unchanged or null key needs no new coverage; changes predict only with complete held, readable population coverage; cap 100 by roomId: unchanged group needs no new coverage; changes queue: expiring cap needs server physical occupancy",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:112:3 (typing update rule: members by byRoomPrincipal)",
+        "table": "members",
+        "index": "byRoomPrincipal",
+        "kind": "rule",
+        "class": "held",
+        "reason": "rule members by byRoomPrincipal: held, no horizon",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:111:3 (typing insert rule: members by byRoomPrincipal)",
+        "table": "members",
+        "index": "byRoomPrincipal",
+        "kind": "rule",
+        "class": "held",
+        "reason": "rule members by byRoomPrincipal: held, no horizon",
+        "rewrite": ""
+      }
+    ],
+    "requires": [
+      "NOT_MEMBER"
+    ]
+  },
+  "thread": {
+    "runs": "device",
+    "sites": [
+      {
+        "site": "schema.q:167:18 (members[roomId, viewer])",
+        "table": "members",
+        "index": "byRoomPrincipal",
+        "kind": "point",
+        "class": "held",
+        "reason": "point members by byRoomPrincipal: held, no horizon; selected byRoomPrincipal (roomId = roomId, principal = viewer); result: exists; only declared unique key of this arity",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:168:10 (messages[roomId])",
+        "table": "messages",
+        "index": "byRoomTime",
+        "kind": "scan",
+        "class": "horizon",
+        "reason": "scan messages by byRoomTime: sync to members[.roomId] last 300 by byRoomTime; selected byRoomTime (roomId = roomId); result: page; explicit by",
+        "rewrite": "remove a redundant guard, or read a synced fact without a horizon"
+      },
+      {
+        "site": "schema.q:146:71 (pins[.id])",
+        "table": "pins",
+        "index": "byMessage",
+        "kind": "point",
+        "class": "held",
+        "reason": "point pins by byMessage: held, no horizon; selected byMessage (messageId = .id); result: row or null; unique positional key selected by argument types",
+        "rewrite": ""
+      },
+      {
+        "site": "schema.q:146:37 (reactions[.id])",
+        "table": "reactions",
+        "index": "byMessage",
+        "kind": "scan",
+        "class": "horizon",
+        "reason": "scan reactions by byMessage: sync to members[.roomId] last 2000 by byRoom; selected byMessage (messageId = .id); result: page; explicit by",
+        "rewrite": "remove a redundant guard, or read a synced fact without a horizon"
+      },
+      {
+        "site": "schema.q:146:91 (messages[.replyToId])",
+        "table": "messages",
+        "index": "byId",
+        "kind": "point",
+        "class": "horizon",
+        "reason": "point messages by byId: sync to members[.roomId] last 300 by byRoomTime; selected byId (id = .replyToId); result: row or null; only declared unique key of this arity",
+        "rewrite": "remove a redundant guard, or read a synced fact without a horizon"
+      }
+    ],
+    "requires": [
+      "NOT_MEMBER"
+    ]
+  },
+  "typingNow": {
+    "runs": "device",
+    "sites": [
+      {
+        "site": "schema.q:175:10 (typing[roomId])",
+        "table": "typing",
+        "index": "byRoomPrincipal",
+        "kind": "scan",
+        "class": "held",
+        "reason": "scan typing by byRoomPrincipal: held, no horizon; selected byRoomPrincipal (roomId = roomId); result: page; explicit by",
+        "rewrite": ""
+      }
+    ],
+    "requires": []
+  }
+}

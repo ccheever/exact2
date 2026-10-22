@@ -521,7 +521,7 @@ fn artifact_graph(
             b.kind == exact_plan::BindingKind::Prop
                 && exact_kernel::PropId::from_wire(b.id) == Some(exact_kernel::PropId::Hatch)
         })
-        .filter_map(|b| crate::colors::literal(plan, b))
+        .filter_map(|b| crate::colors::literal(plan, &b))
         .filter(|word| handled.iter().any(|h| h == word))
         .collect();
     marked.sort_unstable();
@@ -645,7 +645,7 @@ fn launch_background(plan: &exact_plan::Plan) -> &'static str {
     let literal = |node: &exact_plan::NodesRow, kind, id: u16| {
         node.bindings.iter().find_map(|b| {
             let b = plan.binding(b);
-            (b.kind == kind && b.id == id).then(|| crate::colors::literal(plan, b))
+            (b.kind == kind && b.id == id).then(|| crate::colors::literal(plan, &b))
         })
     };
     let route = plan.nodes.iter().find(|node| {
@@ -655,7 +655,7 @@ fn launch_background(plan: &exact_plan::Plan) -> &'static str {
             && literal(node, Prop, PropId::TestId as u16) != Some(Some("not-found"))
     });
     let ground = route.and_then(|node| {
-        literal(node, Style, exact_kernel::StyleId::BackgroundColor as u16).flatten()
+        literal(&node, Style, exact_kernel::StyleId::BackgroundColor as u16).flatten()
     });
     if ground == Some("-exact-grouped-background") {
         "grouped"

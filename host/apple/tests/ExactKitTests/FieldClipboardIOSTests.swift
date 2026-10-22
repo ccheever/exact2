@@ -81,5 +81,59 @@ final class FieldClipboardIOSTests: XCTestCase {
         root.copy(nil)
         XCTAssertEqual(heard, [], "an unheard copy is no event and no crash")
     }
+
+    /// With nothing focused the session's view is the first responder: the
+    /// edit menu's cut, copy and paste go to the first root's handlers, as
+    /// the DOM's go to `<body>`, and a hardware key to its `key` handlers.
+    func testWithNothingFocusedTheRootHearsTheEditMenuAndKeys() throws {
+        let session = ExactApp.shared.makeSession(label: "root-edits")
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
+        let view = ExactView(session: session)
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.addSubview(view)
+        window.makeKeyAndVisible()
+        let p = session.presenter
+        session.apply(wireBatch([
+            ["op": "create", "id": 9001, "kind": "view", "props": [:], "handlers": ["cut", "key"]],
+            ["op": "roots", "ids": [9001]],
+            ["op": "frame", "id": 9001, "x": 0.0, "y": 0.0, "w": 390.0, "h": 844.0],
+        ]))
+        p.onClipboard = { [unowned self] id, kind, text in heard.append("\(id):\(kind):\(text)") }
+        var keys: [String] = []
+        p.onKey = { id, press in keys.append("\(id) \(press.chord)") }
+        XCTAssertTrue(p.keyRoot === p.views[9001])
+        XCTAssertTrue(view.becomeFirstResponder())
+        XCTAssertTrue(view.canPerformAction(#selector(UIResponderStandardEditActions.cut(_:)), withSender: nil))
+        XCTAssertFalse(view.canPerformAction(#selector(UIResponderStandardEditActions.copy(_:)), withSender: nil), "no copy handler")
+        view.cut(nil)
+        XCTAssertEqual(heard, ["9001:33:"])
+        XCTAssertFalse(p.keyDown(at: p.keyRoot, "a"))
+        XCTAssertEqual(keys, ["9001 a"])
+    }
+
+    /// UIKit's answer for the paste variants, which iOS keeps for now (LLP
+    /// 1069.010; QUEUE.md): a text view's Paste and Paste and Match Style are
+    /// disabled for image data alone, and Paste and Match Style with text
+    /// does not reach its `paste(_:)`, so no `paste` fires. The pasteboard is
+    /// this test's own, so reading it asks nothing.
+    func testUIKitPasteVariantsAreItsOwn() throws {
+        let p = presenter()
+        let editor = try XCTUnwrap(p.views[2]?.textArea)
+        XCTAssertTrue(editor.becomeFirstResponder())
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).image { $0.fill(CGRect(x: 0, y: 0, width: 2, height: 2)) }
+        UIPasteboard.general.items = []
+        UIPasteboard.general.image = image
+        let paste = editor.canPerformAction(#selector(UIResponderStandardEditActions.paste(_:)), withSender: nil)
+        let match = editor.canPerformAction(#selector(UIResponderStandardEditActions.pasteAndMatchStyle(_:)), withSender: nil)
+        UIPasteboard.general.string = "plain"
+        let matchText = editor.canPerformAction(#selector(UIResponderStandardEditActions.pasteAndMatchStyle(_:)), withSender: nil)
+        editor.pasteAndMatchStyle(nil)
+        UIPasteboard.general.items = []
+        XCTAssertFalse(paste, "Paste, image data alone")
+        XCTAssertFalse(match, "Paste and Match Style, image data alone")
+        XCTAssertTrue(matchText, "Paste and Match Style, text")
+        XCTAssertEqual(heard, [], "Paste and Match Style fires no paste")
+    }
 }
 #endif

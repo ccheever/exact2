@@ -374,6 +374,8 @@ pub struct Runner<D: DataSource> {
     strings: vm::Strings,
     sites: crate::instance::SiteIndex,
     inspection_digest: std::cell::OnceCell<String>,
+    /// [`Runner::keeps_midi`], made at the first agent read.
+    keeps_midi: std::cell::OnceCell<bool>,
     action_binding_origin: std::rc::Rc<()>,
     detached_focus: Vec<(ViewId, FocusPath)>,
     data: D,
@@ -858,6 +860,7 @@ impl<D: DataSource> Runner<D> {
             midi: crate::runner::midi::queue(&plan, &data),
             plan,
             inspection_digest: std::cell::OnceCell::new(),
+            keeps_midi: std::cell::OnceCell::new(),
             action_binding_origin: std::rc::Rc::new(()),
             detached_focus: Vec::new(),
             data,
@@ -1258,6 +1261,16 @@ impl<D: DataSource> Runner<D> {
             .iter()
             .position(|d| self.plan.str(d.name) == name)
             .and_then(|i| self.derives[i].as_ref())
+    }
+
+    /// The plan's `i`th slot and derive, for a walk of all of them (the
+    /// agent's `state`): looking each up by name is quadratic in the slots.
+    pub(crate) fn slot_at(&self, i: usize) -> Option<&Value> {
+        self.slots.get(i)
+    }
+
+    pub(crate) fn derive_at(&self, i: usize) -> Option<&Value> {
+        self.derives.get(i).and_then(Option::as_ref)
     }
 
     /// Each resource whose last request failed, by name, with why: what

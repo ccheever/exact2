@@ -62,7 +62,7 @@ pub(crate) fn authored_placeholder(
     style
         .mask
         .has(exact_kernel::StyleId::PlaceholderColor)
-        .then(|| super::rgba(style.placeholder_color.resolve(dark)))
+        .then(|| super::rgba(style.rare.placeholder_color.resolve(dark)))
 }
 
 /// What a field has round its text. Under the neutral look (LLP 1115.000

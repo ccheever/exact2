@@ -57,6 +57,92 @@ fn columns_of(text: &str) -> Option<Value> {
     (!columns.is_empty()).then_some(Value::Object(columns))
 }
 
+/// The scale columns a shadow is answered in: every one but the
+/// terminal's, which draws no shadow (theme2's 20:50 Q1, the one exception
+/// to D1's "left out only where it doesn't fold").
+fn shadow_columns() -> impl Iterator<Item = (&'static str, exact_kernel::style::metrics::Column)> {
+    scale::COLUMNS
+        .into_iter()
+        .filter(|(key, _)| *key != "terminal")
+}
+
+/// A shadow's text in `column` as that column's host reads it: the
+/// kernel's own fold (`scale::fold_lengths`), each base name read from its
+/// table. (No zero it writes is negative: the kernel's `calc()` folds a
+/// zero to +0, and a px length's text, `0px`, carries no sign.)
+fn shadow_text(text: &str, column: exact_kernel::style::metrics::Column) -> Option<String> {
+    scale::fold_lengths(text, |b| scale::of(b, column).map(scale::css))
+}
+
+/// A shadow token's value over unset base names in each column but the
+/// terminal's, D1's form (*1.16*): `{value}`, the whole shadow's
+/// text as that column's host reads it ([`shadow_text`]); a column it
+/// doesn't fold in is left out. None for a shadow with no length over an
+/// unset base (px only, or over a base the app sets, folded to px).
+fn shadow_columns_of(s: &exact_tamber::Shadows) -> Option<Value> {
+    use exact_tamber::ShadowLength;
+    let over = |one: &exact_tamber::Shadow| {
+        one.lengths
+            .iter()
+            .any(|l| matches!(l, ShadowLength::Base(_)))
+    };
+    if !s.list.iter().any(over) {
+        return None;
+    }
+    let text = s.css();
+    let columns: serde_json::Map<String, Value> = shadow_columns()
+        .filter_map(|(key, column)| {
+            let v = shadow_text(&text, column)?;
+            Some((key.to_string(), json!({ "value": v })))
+        })
+        .collect();
+    (!columns.is_empty()).then_some(Value::Object(columns))
+}
+
+/// One shadow of a token's, over unset base names, in each column but the
+/// terminal's (*1.16*): `{value, lengths}`, its own text as that
+/// column's host reads it and each of its lengths' px there, a number in
+/// `lengths`' order (the kernel's fold of each, as `fold_lengths` folds
+/// it; a zero never negative). None for one with no such length.
+fn one_shadow_columns(text: bool, one: &exact_tamber::Shadow) -> Option<Value> {
+    use exact_tamber::ShadowLength;
+    if !one
+        .lengths
+        .iter()
+        .any(|l| matches!(l, ShadowLength::Base(_)))
+    {
+        return None;
+    }
+    let css = exact_tamber::Shadows {
+        text,
+        list: vec![one.clone()],
+    }
+    .css();
+    let zero = |n: f64| if n == 0.0 { 0.0 } else { n };
+    let columns: serde_json::Map<String, Value> = shadow_columns()
+        .filter_map(|(key, column)| {
+            let v = shadow_text(&css, column)?;
+            let lengths = one
+                .lengths
+                .iter()
+                .map(|l| match l {
+                    ShadowLength::Px(n) => Some(zero(*n)),
+                    // As the fold writes it: the kernel's f32, shortest.
+                    ShadowLength::Base(r) => {
+                        let px = scale::fold(&format!(
+                            "calc({})",
+                            scale::substitute(&r.css(), column)?
+                        ))?;
+                        format!("{px}").parse::<f64>().ok().map(zero)
+                    }
+                })
+                .collect::<Option<Vec<f64>>>()?;
+            Some((key.to_string(), json!({ "value": v, "lengths": lengths })))
+        })
+        .collect();
+    (!columns.is_empty()).then_some(Value::Object(columns))
+}
+
 /// The `when` line of `t` a tuple selects, the one naming the most axes
 /// among those that hold (the checker's rule for a length, whose light
 /// and dark sides are one); None for its default.
@@ -83,6 +169,9 @@ fn branch_of(t: &exact_tamber::Token, axes: &[exact_tamber::Axis], tuple: usize)
 fn source(s: ScaleSource) -> Value {
     match s {
         ScaleSource::Metric(m) => json!({"kind": "metric", "ref": m}),
+        ScaleSource::Stretch { metric, why } => {
+            json!({"kind": "stretch", "ref": metric, "why": why})
+        }
         ScaleSource::Measured(id) => json!({"kind": "measured", "id": id}),
         ScaleSource::Guideline(id) => json!({"kind": "guideline", "cite": id}),
         ScaleSource::Full => json!({"kind": "full"}),
@@ -152,6 +241,52 @@ fn bases_of(folding: &exact_tamber::Folding, name: &str) -> Vec<String> {
         stack.extend(t.names.iter().rev().map(String::as_str));
     }
     out
+}
+
+/// The base names `name` reaches in each tuple (stage 13 D4, *1.16*), as
+/// the checker folded that tuple (`Checked::by_tuple`): the unset ones its
+/// value there reads bare, the set ones it names, and those of the tokens
+/// it names, in the same tuple, through any chain; a line no tuple selects
+/// in none. One `{modes, light, dark}` a tuple, in `resolve`'s order: a
+/// base name is a length's, whose light and dark sides are one (a `when`
+/// under `scheme=dark` is a colour's alone, `tamber-under-kind`), so the
+/// sides are alike.
+fn bases_by_tuple(folding: &exact_tamber::Folding, name: &str) -> Vec<Value> {
+    let tokens = &folding.tokens;
+    let start = tokens.iter().position(|t| t.name == name);
+    let reach = |tuple: usize| {
+        let mut out: Vec<String> = Vec::new();
+        let mut seen = vec![false; tokens.len()];
+        let mut stack: Vec<usize> = start.into_iter().collect();
+        while let Some(i) = stack.pop() {
+            if std::mem::replace(&mut seen[i], true) {
+                continue;
+            }
+            let by = &tokens[i].by_tuple;
+            let Some((named, bases)) = by.at.get(tuple).and_then(|&r| by.reads.get(r as usize))
+            else {
+                continue;
+            };
+            let set = named
+                .iter()
+                .map(|&j| &tokens[j as usize].name)
+                .filter(|m| scale::is_base(m));
+            for b in bases.iter().chain(set) {
+                if !out.contains(b) {
+                    out.push(b.clone());
+                }
+            }
+            // (named tokens next, in the order written)
+            stack.extend(named.iter().rev().map(|&j| j as usize));
+        }
+        out
+    };
+    (0..folding.tuples)
+        .map(|tuple| {
+            let bases = reach(tuple);
+            json!({"modes": modes_of(&folding.design.axes, tuple), "light": bases, "dark": bases})
+        })
+        .collect()
 }
 
 /// `describe`'s base rows and targets, from the design it describes.
@@ -229,7 +364,7 @@ impl Server {
         if let Some(icons) = ir["icons"].as_array_mut() {
             for entry in icons {
                 if let Some(icon) = folding.icons.iter().find(|i| entry["name"] == i.name) {
-                    entry["draws"] = crate::tamber_explain::draws(&self.dir, icon);
+                    entry["draws"] = crate::tamber_explain::draws(&self.dir, &app, icon);
                 }
             }
         }
@@ -241,14 +376,15 @@ impl Server {
             .iter()
             .find(|(f, _, _)| *f == file)
             .map_or("", |(_, t, _)| t.as_str());
-        crate::tamber_packages::mark(
-            ir["tokens"]
-                .as_array_mut()
-                .map_or(&mut [][..], |r| &mut r[..]),
-            &app,
-            text,
-            &file,
-        );
+        // Its icons' too (stage 13, *1.16*).
+        for rows in ["tokens", "icons"] {
+            crate::tamber_packages::mark(
+                ir[rows].as_array_mut().map_or(&mut [][..], |r| &mut r[..]),
+                &app,
+                text,
+                &file,
+            );
+        }
         let mut out = json!({"ir": ir, "files": files_json(&snap), "meta": {"dials": dials, "tokens": tokens}, "pairs": pairs, "warnings": warnings, "base": base, "targets": targets});
         crate::tamber_packages::packaged(&app, &mut out, false);
         Ok(out)
@@ -302,6 +438,8 @@ impl Server {
                 .collect();
             let mut out = json!({"token": name, "tuples": tuples, "files": files_json(&snap)});
             levelled(&mut out);
+            // A package's icon names its package and file, as a token does (stage 13, *1.16*).
+            crate::tamber_packages::fields(&app, &snap, &file, &name, &mut out, false);
             return Ok(out);
         }
         let token = folding
@@ -355,7 +493,8 @@ impl Server {
                                     .lengths
                                     .iter()
                                     .map(|l| match l {
-                                        ShadowLength::Px(n) => json!(n),
+                                        // A zero never negative (`calc(space.md * -0)`), *1.16*.
+                                        ShadowLength::Px(n) => json!(if *n == 0.0 { 0.0 } else { *n }),
                                         ShadowLength::Base(_) => Value::Null,
                                     })
                                     .collect();
@@ -364,10 +503,19 @@ impl Server {
                                     let texts: Vec<String> = one.lengths.iter().map(ShadowLength::css).collect();
                                     out["length_texts"] = json!(texts);
                                 }
+                                // Its own text and numbers by column (*1.16*).
+                                if let Some(columns) = one_shadow_columns(s.text, one) {
+                                    out["columns"] = columns;
+                                }
                                 out
                             })
                             .collect();
-                        return json!({"modes": modes, "value": v.css(), "kind": if s.text { "text-shadow" } else { "box-shadow" }, "shadows": shadows});
+                        let mut out = json!({"modes": modes, "value": v.css(), "kind": if s.text { "text-shadow" } else { "box-shadow" }, "shadows": shadows});
+                        // Each host's text, by column but the terminal's (*1.16*).
+                        if let Some(columns) = shadow_columns_of(s) {
+                            out["columns"] = columns;
+                        }
+                        return out;
                     }
                     // A motion token: a time in ms, or an easing's text.
                     exact_tamber::Value::Duration(ms) => {
@@ -417,7 +565,8 @@ impl Server {
     /// A token's chain: its default and `when` values, the dials it depends
     /// on, and the tokens those values name, as the checker resolved them.
     pub(super) fn explain(&self, request: &Value) -> Result<Value, Value> {
-        let (snap, folding, name) = self.lookup(request)?;
+        // Each token's per-tuple names recorded, for `bases_by_tuple`.
+        let (snap, folding, name) = exact_tamber::traced(|| self.lookup(request))?;
         // An icon, an icon param's too (D10, *1.12*).
         let app = self.app_params();
         // The design asked about (`file`), whose lines set the app's values.
@@ -430,6 +579,8 @@ impl Server {
             crate::tamber_explain::icon(&self.dir, &design, &app, &snap, &folding, &name)
         {
             self.levelled(&app, &design, text.as_deref(), &name, &mut icon);
+            // A package's icon names its package and file, as a token does (stage 13, *1.16*).
+            crate::tamber_packages::fields(&app, &snap, &design, &name, &mut icon, true);
             return Ok(icon);
         }
         // A base name (*1.14*), not a param named like one: its row, with
@@ -441,6 +592,7 @@ impl Server {
         let with = |mut out: Value| {
             if !bases.is_empty() {
                 out["bases"] = json!(bases);
+                out["bases_by_tuple"] = json!(bases_by_tuple(&folding, &name));
             }
             if let Some(base) = &base {
                 out["kind"] = json!("base");
@@ -458,9 +610,9 @@ impl Server {
             .zip(&folding.design.tokens)
             .find(|(t, _)| t.name == name)
             .ok_or_else(|| no_token(&folding, &name))?;
-        // Each line's value over base names in each column (*1.15*), as the
+        // Each line's value over base names in each column (*1.15*; a shadow's *1.16*), as the
         // first tuple that line chooses folds it (a line no tuple chooses,
-        // none).
+        // none): a length's, and a shadow's but for the terminal.
         let axes = &folding.design.axes;
         let columns = |line: Option<usize>| {
             (0..folding.tuples)
@@ -468,6 +620,7 @@ impl Server {
                 .and_then(|t| token.values.get(t))
                 .and_then(|v| match v {
                     exact_tamber::Value::Length(_) => columns_of(&v.css()),
+                    exact_tamber::Value::Shadow(s) => shadow_columns_of(s),
                     _ => None,
                 })
         };

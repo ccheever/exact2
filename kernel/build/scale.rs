@@ -134,6 +134,47 @@ fn scale_cell(
                 Some(n),
             )
         }
+        // A metric borrowed for a role it doesn't name, where theme2 ruled
+        // it (stage 13 D5): read as `=metric` is, with its reason in a line
+        // and its entry under docs/scale-measured.md's Role stretches.
+        V::Object(o) if o.contains_key("stretch") => {
+            let (Some(V::String(text)), Some(V::String(why))) = (o.get("stretch"), o.get("why"))
+            else {
+                panic!("schema: scale {at}: a stretch is `{{\"stretch\": \"=metric\", \"why\": \"…\"}}`")
+            };
+            assert!(
+                o.len() == 2 && !terminal,
+                "schema: scale {at}: a stretch is its metric and its `why` alone, in a column that reads metrics"
+            );
+            let metric = text.strip_prefix('=').unwrap_or_else(|| {
+                panic!("schema: scale {at}: a stretch names `=` and one metric, not `{text}`")
+            });
+            assert!(
+                !metric.is_empty() && metric.bytes().all(|b| b.is_ascii_lowercase() || b == b'-'),
+                "schema: scale {at}: `{text}` is `=` and one metric's name, no arithmetic"
+            );
+            assert!(
+                !why.trim().is_empty() && !why.contains('\n'),
+                "schema: scale {at}: a stretch's `why` says why in one line"
+            );
+            // (by lines, whatever the page's line ends)
+            let doc = doc.replace("\r\n", "\n");
+            let stretches = doc
+                .split("\n## ")
+                .find(|s| s.starts_with("Role stretches\n"))
+                .unwrap_or_default();
+            assert!(
+                stretches.contains(&format!("\n### `{text}`")),
+                "schema: scale {at}: the stretch `{text}` has no entry under docs/scale-measured.md's Role stretches"
+            );
+            let n = scale_metric(metrics, &at, column, metric);
+            (
+                format!(
+                    "ScaleCell {{ value: ScaleValue::Px({n:?}), source: ScaleSource::Stretch {{ metric: {metric:?}, why: {why:?} }} }}"
+                ),
+                Some(n),
+            )
+        }
         V::Object(o) => {
             let n = px(o
                 .get("px")
@@ -180,7 +221,7 @@ fn scale_cell(
             )
         }
         other => panic!(
-            "schema: scale {at}: `{other}` is no cell (a `=metric`, a measured or guideline value, `full`, or the terminal's cells): never a bare number"
+            "schema: scale {at}: `{other}` is no cell (a `=metric`, a stretch, a measured or guideline value, `full`, or the terminal's cells): never a bare number"
         ),
     }
 }
@@ -200,6 +241,7 @@ fn write_scale(w: &mut String, scale: &[Vec<serde_json::Value>], metrics: &[Metr
         "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n",
         "pub enum ScaleSource {\n",
         "    /// A metrics row in the same column, read when the kernel was built.\n    Metric(&'static str),\n",
+        "    /// A metrics row read for a role it doesn't name, where theme2 ruled the\n    /// stretch (stage 13 D5), and why.\n    Stretch {\n        /// The metrics row.\n        metric: &'static str,\n        /// Why, in a line.\n        why: &'static str,\n    },\n",
         "    /// A measurement, by its entry in docs/scale-measured.md.\n    Measured(&'static str),\n",
         "    /// A published guideline or the neutral look's own steps, by its entry there.\n    Guideline(&'static str),\n",
         "    /// radius.full's oversized length.\n    Full,\n",

@@ -380,6 +380,19 @@ test('a padded percentage width past its parent is an overflow that names its ca
   expect(judge({ viewport: { w: 40, h: 20 }, scheme: 'light', target: 24, items: [{ ...padded, outX: 14 }] }, png)).toHaveLength(1);
 });
 
+test('two texts drawn over each other run together, unless one stands on the opaque fill of the view laid over the other', () => {
+  const vp = { viewport: { w: 200, h: 100 }, scheme: 'light', target: 24 };
+  const row = { id: 3, text: 'Row 5', x: 0, y: 40, w: 60, h: 20 }, tab = { id: 7, text: 'Tab', x: 10, y: 45, w: 30, h: 20, on: 6 };
+  const kindsOf = (items) => judge({ ...vp, items }, null).map((f) => `${f.id} ${f.kind}`);
+  expect(kindsOf([row, tab])).toEqual(['3 overlap']); // no say about what is drawn over what: they run together
+  const bar = { by: 6, x: 0, y: 40, w: 200, h: 30 };
+  expect(kindsOf([{ ...row, beneath: bar }, { ...tab, solid: true }])).toEqual([]); // the row is under the bar (view 6) the tab's fill is
+  expect(kindsOf([{ ...row, beneath: bar }, tab])).toEqual(['3 overlap']); // a see-through bar: the row shows through it
+  expect(kindsOf([{ ...row, beneath: { ...bar, by: 9 } }, { ...tab, solid: true }])).toEqual(['3 overlap']); // under something else
+  // The tab's label running past its bar's edge meets the row outside the fill: they run together there.
+  expect(kindsOf([{ ...row, beneath: { ...bar, x: 20, w: 15 } }, { ...tab, solid: true }])).toEqual(['3 overlap']);
+});
+
 test('a page with every finding class has each found, by testId, in the scheme it shows in; a clean page has none', async () => {
   const session = await open({ host: 'web', url: await built('broken', BROKEN) });
   try {

@@ -12,6 +12,12 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
+/// The launch screen's colour, by the name `UILaunchScreen` gives it, which
+/// host/apple/assets.mjs makes from the colour itself; nil where the build
+/// declares none.
+public let launchScreenColor = ((Bundle.main.object(forInfoDictionaryKey: "UILaunchScreen") as? [String: Any])?["UIColorName"] as? String)
+    .flatMap { UIColor(named: $0) }
+
 public final class ExactView: UIView {
     public let session: ExactSession
     private var fitPending = false
@@ -73,7 +79,7 @@ public final class ExactView: UIView {
         super.init(frame: .zero)
         // The launch screen's colour (the manifest's `launch`) until the first
         // frame names the canvas; unset, the platform's (LLP 1115 D2).
-        backgroundColor = UIColor(named: "ExactLaunch") ?? .platformBackground(in: nil)
+        backgroundColor = launchScreenColor ?? .platformBackground(in: nil)
         canvas = backgroundColor
         addSubview(session.presenter.viewport)
         #if !os(tvOS)
@@ -242,6 +248,29 @@ public final class ExactView: UIView {
     public override var canBecomeFirstResponder: Bool { true }
     public override var keyCommands: [UIKeyCommand]? { session.presenter.shortcutCommands(#selector(exactShortcut(_:))) }
     @objc private func exactShortcut(_ command: UIKeyCommand) { session.presenter.performShortcut(command) }
+    // This view holds the focus while nothing else does: a hardware key that
+    // no shortcut took reaches the first root's `keycapture`, `key` and
+    // `keyup` handlers, and ⌘X, ⌘C and ⌘V its `cut`, `copy` and `paste`,
+    // as the DOM's `window` listeners hear them at `<body>` (`keyRoot`).
+    public override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if isFirstResponder, let key = presses.first?.key, let root = session.presenter.keyRoot, root.hardwareKey(key, down: true) { return }
+        super.pressesBegan(presses, with: event)
+    }
+    public override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if isFirstResponder, let key = presses.first?.key, let root = session.presenter.keyRoot { _ = root.hardwareKey(key, down: false) }
+        super.pressesEnded(presses, with: event)
+    }
+    private func rootHearer(_ action: Selector) -> NodeView? {
+        guard isFirstResponder, let root = session.presenter.keyRoot, root.clipboardHearer(action)?.node === root else { return nil }
+        return root
+    }
+    public override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if [#selector(copy(_:)), #selector(cut(_:)), #selector(paste(_:))].contains(action) { return rootHearer(action) != nil }
+        return super.canPerformAction(action, withSender: sender)
+    }
+    public override func copy(_ sender: Any?) { rootHearer(#selector(copy(_:)))?.clipboard(#selector(copy(_:))) }
+    public override func cut(_ sender: Any?) { rootHearer(#selector(cut(_:)))?.clipboard(#selector(cut(_:))) }
+    public override func paste(_ sender: Any?) { rootHearer(#selector(paste(_:)))?.clipboard(#selector(paste(_:))) }
     #endif
 
     public override func willMove(toWindow newWindow: UIWindow?) {
@@ -406,7 +435,8 @@ public final class ExactView: UIView {
         }
         var size = frame.size // the page's area, whatever the viewport's frame
         // LLP 1075.003 §9.11: the window, the document's frame before the
-        // keyboard trims it, which the viewport units and segments read
+        // keyboard trims it, which the viewport units and the segments' count,
+        // tops and lefts read
         let screenFrame = whole ? bounds : bounds.inset(by: safe)
         var screen: CGSize? = screenFrame.size
         // The agent's explicit viewport size is shared with web/macOS/Linux.
@@ -442,8 +472,12 @@ public final class ExactView: UIView {
         // posture is folded while any is active or the hinge says it is
         // partially open. Below 27.1 there are none.
         let bent = hingeStatus == 2
-        // The window's, not a sheet's (LLP 1075.003 §9.11).
+        // The window's, not a sheet's (LLP 1075.003 §9.11), its segments
+        // ending where the keyboard ends the viewport, or under
+        // `resizes-visual` its last row at the visual viewport's end.
         let fold = Self.fold(of: self, viewport: screenFrame, size: screen ?? size, hingeBent: bent)
+        let visual = !["resizes-content", "overlays-content"].contains(presenter.keyboardPolicy)
+        let segments = fold.fold.ending(at: visual ? CGSize(width: size.width, height: size.height - presenter.keyboardInset) : size, lastRow: visual)
         if fold.hasFold { presenter.hasFold = true }
         // The regions can trail the hinge's update by a frame (the handler
         // runs before UIKit flips `isActive`), so a reading that disagrees
@@ -461,7 +495,7 @@ public final class ExactView: UIView {
             if case .failed = session.state { return }
             lastSize = size
             lastInsets = insets
-            lastFold = fold.fold
+            lastFold = segments
             session.boot(size: size)
             // The first batch made the roots: one that covers the screen is
             // framed to it now, before anything is drawn. A refused boot made
@@ -488,7 +522,15 @@ public final class ExactView: UIView {
         }
         let resized = size != lastSize
         if resized { lastSize = size; change.size = size }
-        session.view(change)
+        // Rects that change on the same grid (a keyboard ending the
+        // segments, a resize) are told with the viewport, in its one layout;
+        // a new posture or grid goes through `segments`. The kernel refuses
+        // only rects off its grid, which this one, `lastFold`'s, never is.
+        var keyed: ViewportFold?
+        if segments != lastFold, (segments.posture, segments.cols, segments.rows) == (lastFold.posture, lastFold.cols, lastFold.rows) {
+            keyed = segments; lastFold = segments
+        }
+        session.view(change, fold: keyed)
         if change.insets != nil || resized { session.natives.scopesChanged() }
         if resized {
             // The keys came or went: the tab bar stays under them, and the
@@ -500,9 +542,9 @@ public final class ExactView: UIView {
             presenter.owners.publish()
             if presenter.keyboardInset > 0 { presenter.revealEditorAsTheKeysMove() }
         }
-        if fold.fold != lastFold {
-            lastFold = fold.fold
-            session.segments(fold.fold)
+        if segments != lastFold {
+            lastFold = segments
+            session.segments(segments)
         }
         paintUnderKeys()
     }
