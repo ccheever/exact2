@@ -258,8 +258,10 @@ async function upload(client: T3Client, native: Native, file: DraftFile, base64:
   assertOwner?.();
   file.attachmentId = attachmentId;
   file.status = 'ready';
-  // An attached file's staged copy has done its job once the server holds the bytes.
-  if (file.source === 'attached') await removeStaged(file.id);
+  // A chip pasted into another draft of this environment names the same bytes (composer-copied-chips.ts): it takes the upload too.
+  for (const other of draftFiles(client.local)) if (other.id === file.id && other.environmentId === file.environmentId) { other.attachmentId = attachmentId; other.status = 'ready'; }
+  // An attached file's staged copy has done its job once the server holds the bytes for every draft that names it.
+  if (file.source === 'attached' && !draftFiles(client.local).some(other => other.id === file.id && other.status !== 'ready')) await removeStaged(file.id);
   assertOwner?.();
 }
 

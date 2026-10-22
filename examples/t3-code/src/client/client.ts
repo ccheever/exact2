@@ -69,6 +69,7 @@ import { ClientError, bridgeReply, reply, providerAvailable, applyConfig, type B
 import { detachDraftLaunch, isDraftLaunch, launchId, restoreDetachedLaunch } from '../composer/draft-launch';
 import { clampInterfaceFontSize } from '../appearance/appearance-fonts';
 import { windowAppearanceMode } from '../appearance/settings-appearance-look'; // the window draws in the resolved mode
+import { heldImageIds } from '../composer/composer-copied-chips'; // the latest composer copy's images keep their bytes
 
 const localPath = 'app:/data/t3-code.json';
 type Selection = { projectId: string; threadId: string };
@@ -1014,7 +1015,8 @@ export class T3Client {
     // First persist acknowledgment/removal and retry identities. Never delete
     // a file still referenced by the last durable draft or uncertain submission.
     try { await this.persist(storage); } catch { return; }
-    const referenced = new Set(Object.values(this.local.snapshotDrafts).flat().map(image => str(image.id)));
+    // The latest composer copy's images keep their bytes for a paste into another draft (composer-copied-chips.ts).
+    const referenced = new Set([...Object.values(this.local.snapshotDrafts).flat().map(image => str(image.id)), ...heldImageIds(this.local)]);
     for (const id of [...new Set(this.local.snapshotReleases)]) {
       if (referenced.has(id)) continue;
       try {

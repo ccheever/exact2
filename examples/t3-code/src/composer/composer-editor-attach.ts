@@ -32,13 +32,13 @@ export function fileTooLargeMessage(name: string, maxUploadBytes: number): strin
  * One plain file staged for a chip (`kind: "file"`, composer-attach-stage.ts): the draft file
  * it becomes, or the reference's reason it was refused.
  */
-export function acceptAttachedFile(client: T3Client, file: Obj, limit = attachStagingLimit(client)): { file: DraftFile | null; error: string } {
+export function acceptAttachedFile(client: T3Client, file: Obj, limit = attachStagingLimit(client), draftKey = client.draftKey, environmentId = client.environmentId): { file: DraftFile | null; error: string } {
   const name = str(file.name, 'file'), size = Number(file.sizeBytes) || 0, id = str(file.id);
   if (limit <= 0) return { file: null, error: 'This server does not support file attachments.' };
   if (size <= 0) return { file: null, error: `'${name}' is empty or could not be read.` };
   if (size > limit) return { file: null, error: fileTooLargeMessage(name, limit) };
   if (!/^[a-f0-9-]{36}$/i.test(id)) return { file: null, error: `'${name}' is empty or could not be read.` };
-  const staged: DraftFile = { id, contextId: contextId('file', id), draftKey: client.draftKey, environmentId: client.environmentId, name,
+  const staged: DraftFile = { id, contextId: contextId('file', id), draftKey, environmentId, name,
     mimeType: str(file.mimeType, 'application/octet-stream'), sizeBytes: size, source: 'attached', attachmentId: '', status: 'staged' };
   setDraftFiles(client.local, [...draftFiles(client.local), staged]);
   return { file: staged, error: '' };
@@ -67,9 +67,14 @@ export async function insertFileChips(client: T3Client, native: Native, files: D
     const reply = await requestComposerField(native, { op: 'editorInsert', text, ...(owner ? { owner } : {}) }, { applied: release, refused: release }).catch(() => null);
     return reply?.accepted === true;
   }
-  const prompt = client.local.drafts[key] ?? '';
-  client.local.drafts[key] = `${prompt}${prompt && !/\s$/.test(prompt) ? ' ' : ''}${text} `;
+  appendChipLinks(client, key, links);
   return true;
+}
+
+/** ensureInlineContextReferences: chips for a draft with no editor join the end of its stored prompt. */
+export function appendChipLinks(client: T3Client, draftKey: string, links: readonly string[]): void {
+  const prompt = client.local.drafts[draftKey] ?? '', missing = links.filter(link => !prompt.includes(link));
+  if (missing.length) client.local.drafts[draftKey] = `${prompt}${prompt && !/\s$/.test(prompt) ? ' ' : ''}${missing.join(' ')} `;
 }
 
 // ── Image chips (imageContextReference, ImageChipButton) ───────────────────
@@ -110,6 +115,13 @@ export function reservedAttachments(client: T3Client): number {
   const { environmentId, threadId } = client, requestId = question.input.requestId;
   return question.input.questions.reduce((total, entry) => total + (client.local.snapshotDrafts[questionDraftKey(environmentId, threadId, requestId, entry.id)] ?? []).length
     + referencedFiles(client.local, client.draftKey, client.answers[`${requestId}::${entry.id}`]?.custom ?? '').length, 0);
+}
+
+/** countReservedAttachments for the draft files were given to (`key`, its thread draft `threadKey`), which the composer may
+ *  no longer show: its shelf, and the files its stored prompt references. */
+export function reservedAttachmentsIn(client: T3Client, key: string, threadKey: string): number {
+  if (key === client.attachmentKey && threadKey === client.draftKey) return reservedAttachments(client);
+  return (client.local.snapshotDrafts[key] ?? []).length + (key === threadKey ? referencedFiles(client.local, threadKey, client.local.drafts[threadKey] ?? '').length : 0);
 }
 
 /** A staged copy no draft will reference (a pick past the attachment limit). */

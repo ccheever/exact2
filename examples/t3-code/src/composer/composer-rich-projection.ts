@@ -1,8 +1,9 @@
-// ComposerPromptEditorTiptap's source projection at T3 Code 9c161462c9.
+// ComposerPromptEditorTiptap's source projection at T3 Code 9c161462c9; plain list lines at 74541bab17.
 import { composerMarkdown, type ComposerBlockOrigin, type ComposerRange } from './composer-markdown';
 import { codeLanguageEntry, codeLanguageLabel, languageOfInfoString } from './composer-code-languages';
 import { composerChips, composerChipsInBlocks, type ComposerChip } from './composer-source-chips';
 import type { ComposerMode } from './composer-source-session';
+import { plainListLines } from './composer-list-continuation';
 
 export type ComposerCodeHeader = ComposerRange & { infoStart: number; infoEnd: number; info: string; language: string; label: string };
 export type ComposerSourceBlock = ComposerRange & { kind: string; contentStart: number; bodyStart: number; bodyEnd: number; bodyLine: boolean };
@@ -32,5 +33,12 @@ export function composerRichProjection(input: ComposerRichInput): ComposerRichPr
     return { kind: block.kind, start: block.start, end: block.end, contentStart: 'contentStart' in block ? block.contentStart : block.start,
       bodyStart: body.start, bodyEnd: body.end, bodyLine: block.kind !== 'code' || block.body !== null };
   });
+  // The plain composer has no Markdown blocks, but Tab still indents a list line typed as text (listIndentForTab).
+  if (!input.styling && !input.literal) {
+    for (const list of plainListLines(input.value)) {
+      const index = blocks.findIndex(block => block.start === list.start);
+      if (index >= 0) blocks[index] = { ...blocks[index]!, kind: 'list' };
+    }
+  }
   return { owner: input.owner, value: input.value, mode: input.literal ? 'literal' : input.styling ? 'rich' : 'plain', headers, blocks, chips: composerChipsInBlocks(input.value, parsed.blocks, chips) };
 }
