@@ -3,9 +3,10 @@
 import { afterAll, afterEach, beforeEach, beforeAll, expect, test } from 'bun:test';
 import { identity, restHeaders } from '../discord/client.ts';
 import * as rest from '../discord/rest.ts';
+import { identity as clientIdentity } from '../discord/client.ts';
 import {
-  addPending, applyDispatch, applyHistoryPage, channelVersion, createStore, latestWindow, sidebarVersion,
-  typingUsers, unread, windowAround, windowBefore, type Store,
+  addPending, applyDispatch, applyHistoryPage, channel as storeChannel, channelVersion, createStore, latestWindow,
+  sidebarVersion, storeSeq, typingUsers, unread, windowAround, windowBefore, type Store,
 } from '../discord/store.ts';
 import { control, drive, restCall, type Drive } from './drive.ts';
 import { startFixture } from './server.ts';
@@ -15,8 +16,12 @@ let d: Drive;
 let store: Store;
 let applyMs = 0;
 let ctx: rest.RestContext;
+const nonces: rest.NonceState = { lastMs: null, sequence: 0 };
 beforeAll(() => {
-  fixture = startFixture({ port: 0, heartbeatInterval: 5_000, rateLimits: { messages: { limit: 3, windowMs: 600 } } });
+  // subscribeAll: these tests read full guild events, which Discord sends only for a guild the
+  // client has subscribed to; the passive case below uses a fixture of its own.
+  fixture = startFixture({ port: 0, heartbeatInterval: 5_000, subscribeAll: true,
+    rateLimits: { messages: { limit: 3, windowMs: 600 } } });
   const id = identity('ios', { launchId: 'store-e2e' });
   ctx = { origin: fixture.origin, headers: restHeaders(id, 'fixture-token') };
 });
@@ -147,7 +152,7 @@ test('a reconnect that must identify keeps the cached history; the next latest p
 test('a send shows at once and the gateway confirmation replaces it in place', async () => {
   const channel = general();
   await page(channel, {});
-  const nonce = rest.makeNonce(Date.now());
+  const nonce = rest.makeNonce(Date.now(), nonces);
   addPending(store, channel, { nonce, content: 'hello from the test', nowMs: Date.now() });
   const before = latestWindow(store, channel, 200);
   expect(before.rows.at(-1)).toMatchObject({ key: nonce, status: 'pending', id: null });
@@ -195,7 +200,7 @@ test('the limiter spaces sends inside the bucket and honours a forced 429', asyn
   const statuses: number[] = [];
   const started = Date.now();
   for (let i = 0; i < 4; i++) {
-    const r = await restCall(limiter, rest.sendMessage(ctx, channel, { content: `spaced ${i}`, nonce: rest.makeNonce(Date.now() + i) }));
+    const r = await restCall(limiter, rest.sendMessage(ctx, channel, { content: `spaced ${i}`, nonce: rest.makeNonce(Date.now(), nonces) }));
     statuses.push(r.status);
   }
   // Three per 600 ms: the fourth waited for the reset rather than drawing a 429.
@@ -230,4 +235,75 @@ test('a burst of 1,000 MESSAGE_CREATEs over the gateway lands in the store in or
   expect(tail.reachesNewest).toBe(true);
   // The burst joined the run the latest page made: no gap between the old tail and the burst.
   expect(ids(windowBefore(store, channel, burst[0], 50).rows)).toEqual(worldIds().slice(-1050, -1000));
+});
+
+test('a late page keeps the edit and reaction the gateway delivered while it was in flight', async () => {
+  const channel = general();
+  await page(channel, {});
+  const since = storeSeq(store);
+  const reply = await restCall(rest.limiterInit(), rest.history(ctx, channel, {}));
+  // The page is in hand but not yet applied: the gateway moves on meanwhile.
+  const target = reply.body[5].id;
+  const n = d.dispatches().length;
+  await control(fixture.origin, 'edit', { channel_id: channel, message_id: target, content: 'edited in flight' });
+  await control(fixture.origin, 'react', { channel_id: channel, message_id: target, emoji: '🧪', user_id: fixture.world.users[3].id, add: true });
+  await d.until(() => d.dispatches().length >= n + 2, 'edit and reaction');
+  applyHistoryPage(store, channel, { limit: 50 }, reply.body, { since });
+  const row = latestWindow(store, channel, 50).rows.find(r => r.id === target)!;
+  expect(row.content).toBe('edited in flight');
+  expect(row.reactions.some((r: any) => r.emoji.name === '🧪')).toBe(true);
+});
+
+test('reactions from several people arrive as one MESSAGE_REACTION_ADD_MANY and count each', async () => {
+  const channel = general();
+  await page(channel, {});
+  const target = latestWindow(store, channel, 50).rows[3].id!;
+  const users = [3, 4, 5].map(i => fixture.world.users[i].id);
+  await control(fixture.origin, 'react-many', { channel_id: channel, message_id: target, emoji: '🪴', user_ids: users });
+  await d.until(c => c.some(x => x.kind === 'dispatch' && x.t === 'MESSAGE_REACTION_ADD_MANY'), 'the batch');
+  const row = latestWindow(store, channel, 50).rows.find(r => r.id === target)!;
+  expect(row.reactions.find((r: any) => r.emoji.name === '🪴')).toMatchObject({ count: 3, me: false });
+});
+
+test('a repeated nonce returns the first message within five minutes and a new one after', async () => {
+  const channel = general();
+  const nonce = rest.makeNonce(Date.now(), nonces);
+  const limiter = rest.limiterInit();
+  const send = () => restCall(limiter, rest.sendMessage(ctx, channel, { content: 'once', nonce }));
+  const first = await send();
+  const again = await send();
+  expect(again.body.id).toBe(first.body.id);
+  await control(fixture.origin, 'clock', { advance_ms: 6 * 60_000 });
+  const later = await send();
+  expect(later.status).toBe(200);
+  expect(later.body.id).not.toBe(first.body.id);
+});
+
+test('an unsubscribed guild sends passive updates: V1 to iOS, V2 to the web; the sidebar learns of them', async () => {
+  const passive = startFixture({ port: 0, heartbeatInterval: 5_000 });
+  const drives: Drive[] = [];
+  try {
+    for (const [host, version] of [['ios', 'V1'], ['web', 'V2']] as const) {
+      const own = createStore();
+      const pd = drive({ gatewayUrl: passive.gatewayUrl, host, onChange: change => {
+        if (change.kind === 'dispatch') applyDispatch(own, change.t, change.d, Date.now());
+      } });
+      drives.push(pd);
+      await pd.until(c => c.some(x => x.kind === 'dispatch' && x.t === 'GUILD_CREATE'), `${host} login`);
+      expect(pd.sent[0].d.capabilities).toBe(clientIdentity(host, { launchId: 'x' }).capabilities);
+      const channel = passive.world.guilds[1].channels.find(c => c.type === 0)!.id;
+      const before = sidebarVersion(own);
+      const { ids: sent } = await control(passive.origin, 'burst', { channel_id: channel, count: 1 });
+      await pd.until(c => c.some(x => x.kind === 'dispatch' && x.t === `PASSIVE_UPDATE_${version}`), `PASSIVE_UPDATE_${version}`);
+      expect(pd.dispatches('MESSAGE_CREATE')).toHaveLength(0);
+      expect(storeChannel(own, channel)!.last_message_id).toBe(sent[0]);
+      expect(unread(own, channel).unread).toBe(true);
+      expect(sidebarVersion(own)).toBeGreaterThan(before);
+      pd.close();
+      await control(passive.origin, 'reset');
+    }
+  } finally {
+    for (const pd of drives) pd.close();
+    await passive.close();
+  }
 });

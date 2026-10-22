@@ -27,12 +27,15 @@ export interface PendingMessage {
 }
 export interface MessageWindow {
   rows: MessageRow[];
+  /** Refetch a stale window with an around page at the reader's anchor after a fresh READY. */
+  stale: boolean;
   moreBefore: boolean;
   moreAfter: boolean;
   reachesStart: boolean;
   reachesNewest: boolean;
   fetchBefore: string | null;
   fetchAfter: string | null;
+  fetchAround: string | null;
   /** Request a cursorless latest page: the live tail has no confirmed rows and its start is unknown. */
   fetchLatest: boolean;
 }
@@ -40,11 +43,18 @@ export interface ChannelGroup { category: Channel | null; channels: Channel[] }
 export interface UnreadState { unread: boolean; mentionCount: number; lastReadId: string | null }
 export interface TypingUser { user: User; expiresAtMs: number }
 interface ReadState { lastReadId: string | null; mentionCount: number }
-interface Entry { row: MessageRow; sortId: string; tie: number; run: Run; unanchored?: boolean }
+interface Entry {
+  row: MessageRow; sortId: string; tie: number; run: Run; unanchored?: boolean;
+  changedAt: number; verified: boolean;
+}
 interface Run {
   entries: Entry[];
   low: string | null;
   high: string | null;
+  lowInclusive: boolean;
+  highInclusive: boolean;
+  // A live arrival can follow this id, but only a fetched row can connect it to older history.
+  predecessor?: string;
   rowLow: string | null;
   rowHigh: string | null;
   reachesStart: boolean;
@@ -58,6 +68,7 @@ interface History {
   live?: Run;
   typing: Map<string, number>;
   nextTie: number;
+  invalidatedAt: number;
 }
 export interface Store {
   meId: string | null;
@@ -68,6 +79,7 @@ export interface Store {
   readStates: Map<string, ReadState>;
   versions: Map<string, number>;
   sidebarRevision: number;
+  sequence: number;
 }
 interface Changes { channels: Set<string>; sidebar: boolean }
 
@@ -75,7 +87,7 @@ interface Changes { channels: Set<string>; sidebar: boolean }
 export function createStore(opts: { meId?: string } = {}): Store {
   return {
     meId: opts.meId ?? null, users: new Map(), guildMap: new Map(), channelMap: new Map(),
-    histories: new Map(), readStates: new Map(), versions: new Map(), sidebarRevision: 0,
+    histories: new Map(), readStates: new Map(), versions: new Map(), sidebarRevision: 0, sequence: 0,
   };
 }
 
@@ -90,14 +102,15 @@ function finish(s: Store, c: Changes): Changed {
 function historyFor(s: Store, id: string): History {
   let h = s.histories.get(id);
   if (!h) {
-    h = { messages: new Map(), pending: new Map(), tombstones: new Set(), runs: [], typing: new Map(), nextTie: 0 };
+    h = { messages: new Map(), pending: new Map(), tombstones: new Set(), runs: [], typing: new Map(), nextTie: 0, invalidatedAt: 0 };
     s.histories.set(id, h);
   }
   return h;
 }
 
 function newRun(): Run {
-  return { entries: [], low: null, high: null, rowLow: null, rowHigh: null, reachesStart: false, reachesNewest: false };
+  return { entries: [], low: null, high: null, lowInclusive: true, highInclusive: true,
+    rowLow: null, rowHigh: null, reachesStart: false, reachesNewest: false };
 }
 
 function liveRun(h: History): Run {
@@ -109,9 +122,11 @@ function liveRun(h: History): Run {
   return h.live;
 }
 
-function include(run: Run, id: string): void {
-  if (run.low === null || cmpId(id, run.low) < 0) run.low = id;
-  if (run.high === null || cmpId(id, run.high) > 0) run.high = id;
+function include(run: Run, id: string, inclusive = true): void {
+  if (run.low === null || cmpId(id, run.low) < 0) { run.low = id; run.lowInclusive = inclusive; }
+  else if (id === run.low) run.lowInclusive ||= inclusive;
+  if (run.high === null || cmpId(id, run.high) > 0) { run.high = id; run.highInclusive = inclusive; }
+  else if (id === run.high) run.highInclusive ||= inclusive;
 }
 
 function includeRow(run: Run, id: string): void {
@@ -147,10 +162,34 @@ function anchorPending(h: History, id: string, before: boolean): void {
   }
 }
 
-function meets(a: Run, b: Run): boolean {
-  if ((a.reachesNewest && b.reachesNewest) || (a.reachesStart && b.reachesStart)) return true;
-  return a.low !== null && a.high !== null && b.low !== null && b.high !== null
-    && cmpId(a.low, b.high) <= 0 && cmpId(b.low, a.high) <= 0;
+function meets(h: History, a: Run, b: Run): boolean {
+  if (a.low === null || a.high === null || b.low === null || b.high === null) return false;
+  const left = cmpId(a.low, b.high), right = cmpId(b.low, a.high);
+  return left <= 0 && right <= 0
+    && (left !== 0 || a.lowInclusive || b.highInclusive || h.tombstones.has(a.low))
+    && (right !== 0 || b.lowInclusive || a.highInclusive || h.tombstones.has(b.low));
+}
+
+function follows(a: Run, b: Run): boolean {
+  return !!a.predecessor && b.entries.some(entry => entry.row.id === a.predecessor);
+}
+
+function movePending(h: History, run: Run): void {
+  for (const entry of h.pending.values()) if (entry.run !== run) {
+    eraseEntry(entry);
+    entry.sortId = run.entries.at(-1)?.sortId ?? run.rowHigh ?? '0';
+    entry.tie = ++h.nextTie;
+    entry.unanchored = run.rowHigh === null;
+    insert(run, entry);
+  }
+}
+
+function demoteLive(h: History): void {
+  const old = h.live;
+  if (old) old.reachesNewest = false;
+  h.live = undefined;
+  if (h.pending.size) movePending(h, liveRun(h));
+  if (old?.low === null && old.entries.length === 0) h.runs.splice(h.runs.indexOf(old), 1);
 }
 
 function merge(a: Run, b: Run): Run {
@@ -163,8 +202,9 @@ function merge(a: Run, b: Run): Run {
     if (!seen.has(entry)) { entries.push(entry); seen.add(entry); }
   }
   a.entries = entries;
-  if (b.low !== null) include(a, b.low);
-  if (b.high !== null) include(a, b.high);
+  if (b.low !== null) include(a, b.low, b.lowInclusive);
+  if (b.high !== null) include(a, b.high, b.highInclusive);
+  a.predecessor ??= b.predecessor;
   if (b.rowLow !== null) includeRow(a, b.rowLow);
   if (b.rowHigh !== null) includeRow(a, b.rowHigh);
   a.reachesStart ||= b.reachesStart;
@@ -178,7 +218,7 @@ function joinPage(h: History, page: Run, linked = new Set<Run>()): void {
   if (ownIndex >= 0) h.runs.splice(ownIndex, 1);
   for (let i = 0; i < h.runs.length;) {
     const run = h.runs[i];
-    if (!linked.has(run) && !meets(page, run)) { i++; continue; }
+    if (!linked.has(run) && !meets(h, page, run) && !follows(page, run) && !follows(run, page)) { i++; continue; }
     h.runs.splice(i, 1);
     page = merge(page, run);
     i = 0;
@@ -197,7 +237,27 @@ function messageUsers(s: Store, data: DiscordObject): void {
   for (const user of data.mentions ?? []) rememberUser(s, user);
 }
 
-function storedMessage(s: Store, h: History, channelId: string, data: DiscordObject, c: Changes): Entry | null {
+function olderEdit(incoming: string | null | undefined, previous: string): boolean {
+  if (!incoming) return true;
+  const delta = Date.parse(incoming) - Date.parse(previous);
+  if (delta !== 0) return delta < 0;
+  // Date.parse truncates fractions to milliseconds; Discord timestamps can retain more digits.
+  const a = incoming.match(/\.(\d+)/)?.[1] ?? '', b = previous.match(/\.(\d+)/)?.[1] ?? '';
+  const length = Math.max(a.length, b.length);
+  return a.padEnd(length, '0') < b.padEnd(length, '0');
+}
+
+function mergeMessage(previous: MessageRow, data: DiscordObject, keepNewer = false): MessageRow {
+  const { error: _error, ...old } = previous;
+  const next = keepNewer ? { ...data, ...old } : { ...old, ...data };
+  if (old.edited_timestamp && olderEdit(data.edited_timestamp, old.edited_timestamp)) {
+    if (old.content !== undefined) next.content = old.content;
+    next.edited_timestamp = old.edited_timestamp;
+  }
+  return { ...next, id: data.id, channel_id: previous.channel_id, key: previous.key, status: 'sent' } as MessageRow;
+}
+
+function storedMessage(s: Store, h: History, channelId: string, data: DiscordObject, c: Changes, since?: number): Entry | null {
   const id = data.id as string;
   if (!id || h.tombstones.has(id)) return null;
   messageUsers(s, data);
@@ -211,10 +271,10 @@ function storedMessage(s: Store, h: History, channelId: string, data: DiscordObj
     readOwnMessage(s, channelId, data, c);
   }
   if (entry) {
-    const { error: _error, ...previous } = entry.row;
-    entry.row = { ...previous, ...data, id, channel_id: channelId, key: previous.key, status: 'sent' };
+    entry.row = mergeMessage(entry.row, data, since !== undefined && entry.changedAt > since);
   } else {
-    entry = { row: { ...data, id, channel_id: channelId, key: id, status: 'sent' }, sortId: id, tie: 0, run: newRun() };
+    entry = { row: { ...data, id, channel_id: channelId, key: id, status: 'sent' }, sortId: id, tie: 0,
+      run: newRun(), changedAt: 0, verified: true };
   }
   h.messages.set(id, entry);
   return entry;
@@ -245,6 +305,8 @@ function setChannel(s: Store, data: DiscordObject, c: Changes): void {
   }
   if (sameFields(s.channelMap.get(data.id), normalized)) return;
   s.channelMap.set(data.id, { ...s.channelMap.get(data.id), ...normalized } as Channel);
+  const h = s.histories.get(data.id);
+  if (h?.live && data.last_message_id && (!h.live.rowHigh || cmpId(data.last_message_id, h.live.rowHigh) > 0)) demoteLive(h);
   c.channels.add(data.id);
   c.sidebar = true;
 }
@@ -318,12 +380,20 @@ function createMessage(s: Store, data: DiscordObject, c: Changes): void {
   if (!existed || pending) anchorPending(h, data.id, true);
   const entry = storedMessage(s, h, id, data, c);
   if (!entry) return;
+  entry.changedAt = s.sequence;
   const channel = s.channelMap.get(id);
   if (!existed && !pending) {
-    const run = liveRun(h);
-    if (run.low === null && channel?.last_message_id) include(run, channel.last_message_id);
+    let run = liveRun(h);
+    const newest = run.high ?? channel?.last_message_id;
+    if (newest && cmpId(data.id, newest) < 0 && (run.low === null || cmpId(data.id, run.low) < 0)) {
+      run = newRun();
+      h.runs.push(run);
+    }
     insert(run, entry);
   }
+  if (pending && entry.run !== h.live) { eraseEntry(entry); insert(liveRun(h), entry); }
+  if (entry.run === h.live && entry.run.low === null && channel?.last_message_id
+    && cmpId(data.id, channel.last_message_id) > 0) entry.run.predecessor = channel.last_message_id;
   include(entry.run, data.id);
   includeRow(entry.run, data.id);
   if (pending) joinPage(h, entry.run);
@@ -350,7 +420,9 @@ function createMessage(s: Store, data: DiscordObject, c: Changes): void {
 function reaction(s: Store, t: string, data: DiscordObject, c: Changes): void {
   const entry = s.histories.get(data.channel_id)?.messages.get(data.message_id);
   if (!entry) return;
+  entry.changedAt = s.sequence;
   const old = (entry.row.reactions ?? []) as DiscordObject[];
+  if (entry.row.reactions === undefined) entry.row = { ...entry.row, reactions: old };
   let next = old;
   const matches = (r: DiscordObject) => data.emoji?.id ? r.emoji.id === data.emoji.id
     : !r.emoji.id && r.emoji.name === data.emoji?.name;
@@ -374,8 +446,50 @@ function reaction(s: Store, t: string, data: DiscordObject, c: Changes): void {
   c.channels.add(data.channel_id);
 }
 
+function deleteMessages(s: Store, channelId: string, ids: string[], c: Changes): void {
+  const h = historyFor(s, channelId);
+  const channel = s.channelMap.get(channelId);
+  const last = channel?.last_message_id;
+  const before = unreadSignature(s, channelId);
+  const run = last ? h.messages.get(last)?.run ?? h.runs.find(run => run.low !== null && run.high !== null
+    && cmpId(run.low, last) <= 0 && cmpId(last, run.high) <= 0) : undefined;
+  for (const id of ids) {
+    if (!id) continue;
+    h.tombstones.add(id);
+    const entry = h.messages.get(id);
+    if (entry) { eraseEntry(entry); h.messages.delete(id); c.channels.add(channelId); }
+  }
+  if (channel && last && ids.includes(last)) {
+    const next = run?.rowHigh && cmpId(run.rowHigh, last) < 0 ? run.rowHigh : null;
+    s.channelMap.set(channelId, { ...channel, last_message_id: next });
+    c.channels.add(channelId);
+    c.sidebar ||= channel.type === 1 || channel.type === 3 || before !== unreadSignature(s, channelId);
+  }
+}
+
+function passiveUpdate(s: Store, channels: DiscordObject[], members: DiscordObject[], guildId: string, c: Changes): void {
+  for (const member of members) rememberUser(s, member.user);
+  for (const data of channels) {
+    if (!data.id) continue;
+    const old = s.channelMap.get(data.id);
+    const before = unreadSignature(s, data.id);
+    const next: Channel = { ...old, id: data.id, guild_id: guildId };
+    if (data.last_message_id && (!old?.last_message_id || cmpId(data.last_message_id, old.last_message_id) > 0)) {
+      next.last_message_id = data.last_message_id;
+    }
+    if (data.last_pin_timestamp !== undefined) next.last_pin_timestamp = data.last_pin_timestamp;
+    if (sameFields(old, next)) continue;
+    s.channelMap.set(data.id, next);
+    const h = s.histories.get(data.id);
+    if (h?.live && next.last_message_id && (!h.live.rowHigh || cmpId(next.last_message_id, h.live.rowHigh) > 0)) demoteLive(h);
+    c.channels.add(data.id);
+    c.sidebar ||= !old || before !== unreadSignature(s, data.id);
+  }
+}
+
 /** Apply one decoded gateway dispatch and advance only the affected resource versions. */
 export function applyDispatch(s: Store, t: string, d: DiscordObject, nowMs: number): Changed {
+  s.sequence++;
   const c = changes();
   switch (t) {
     case 'READY':
@@ -383,17 +497,21 @@ export function applyDispatch(s: Store, t: string, d: DiscordObject, nowMs: numb
       s.users.clear(); s.guildMap.clear(); s.channelMap.clear(); s.readStates.clear();
       ingestReady(s, d, c);
       for (const [id, h] of s.histories) {
+        h.invalidatedAt = s.sequence;
+        for (const entry of h.messages.values()) entry.verified = false;
+        if (h.messages.size) c.channels.add(id);
         if (h.typing.size) { h.typing.clear(); c.channels.add(id); }
         const latest = s.channelMap.get(id)?.last_message_id;
         if (h.live && (!latest || !h.live.rowHigh || cmpId(h.live.rowHigh, latest) < 0)) {
-          h.live.reachesNewest = false;
-          h.live = undefined;
+          demoteLive(h);
           c.channels.add(id);
         }
       }
       c.sidebar = true;
       break;
     case 'READY_SUPPLEMENTAL': ingestReady(s, d, c); break;
+    case 'PASSIVE_UPDATE_V1': passiveUpdate(s, d.channels ?? [], d.members ?? [], d.guild_id, c); break;
+    case 'PASSIVE_UPDATE_V2': passiveUpdate(s, d.updated_channels ?? [], d.updated_members ?? [], d.guild_id, c); break;
     case 'GUILD_CREATE': setGuild(s, { unavailable: false, ...d }, c); break;
     case 'GUILD_UPDATE': setGuild(s, d, c); break;
     case 'GUILD_DELETE':
@@ -411,26 +529,23 @@ export function applyDispatch(s: Store, t: string, d: DiscordObject, nowMs: numb
       const entry = s.histories.get(d.channel_id)?.messages.get(d.id);
       if (entry) {
         messageUsers(s, d);
-        entry.row = { ...entry.row, ...d, key: entry.row.key, status: 'sent' };
+        entry.row = mergeMessage(entry.row, d);
+        entry.changedAt = s.sequence;
         c.channels.add(d.channel_id);
       }
       break;
     }
     case 'MESSAGE_DELETE':
-    case 'MESSAGE_DELETE_BULK': {
-      const h = historyFor(s, d.channel_id);
-      for (const id of t === 'MESSAGE_DELETE_BULK' ? d.ids ?? [] : [d.id]) {
-        if (!id) continue;
-        h.tombstones.add(id);
-        const entry = h.messages.get(id);
-        if (entry) { eraseEntry(entry); h.messages.delete(id); c.channels.add(d.channel_id); }
-      }
-      break;
-    }
+    case 'MESSAGE_DELETE_BULK': deleteMessages(s, d.channel_id, t === 'MESSAGE_DELETE_BULK' ? d.ids ?? [] : [d.id], c); break;
     case 'MESSAGE_REACTION_ADD':
     case 'MESSAGE_REACTION_REMOVE':
     case 'MESSAGE_REACTION_REMOVE_ALL':
     case 'MESSAGE_REACTION_REMOVE_EMOJI': reaction(s, t, d, c); break;
+    case 'MESSAGE_REACTION_ADD_MANY':
+      for (const r of d.reactions ?? []) for (const user_id of r.users ?? []) {
+        reaction(s, 'MESSAGE_REACTION_ADD', { ...d, emoji: r.emoji, user_id }, c);
+      }
+      break;
     case 'TYPING_START': {
       if (d.user_id === s.meId) break;
       rememberUser(s, d.member?.user);
@@ -450,8 +565,12 @@ export function applyDispatch(s: Store, t: string, d: DiscordObject, nowMs: numb
   return finish(s, c);
 }
 
-/** Add a REST page as a contiguous run, joining only overlapping spans or proven endpoints. */
-export function applyHistoryPage(s: Store, channelId: string, query: HistoryQuery, messages: DiscordObject[]): Changed {
+/** Capture before starting a history request; pass it back as applyHistoryPage's since option. */
+export function storeSeq(s: Store): number { return s.sequence; }
+
+/** Add a complete range, keeping dispatch changes newer than the request and reconciling absent rows. */
+export function applyHistoryPage(s: Store, channelId: string, query: HistoryQuery, messages: DiscordObject[],
+  options: { since?: number } = {}): Changed {
   if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 50) throw new RangeError('History limit must be 1–50');
   if ([query.before, query.after, query.around].filter(value => value !== undefined).length > 1) {
     throw new Error('History takes only one cursor');
@@ -459,41 +578,76 @@ export function applyHistoryPage(s: Store, channelId: string, query: HistoryQuer
   const h = historyFor(s, channelId);
   const c = changes();
   const page = newRun();
-  const seen = new Set<Entry>();
+  const latestPage = !query.before && !query.after && !query.around;
   const linked = new Set<Run>();
+  const received = new Set<string>();
   let confirmation: string | undefined;
   let newest: string | undefined;
   for (const message of messages) {
     if (!message.id) continue;
+    received.add(message.id);
+    include(page, message.id);
     if (!newest || cmpId(message.id, newest) > 0) newest = message.id;
     if (message.author?.id === s.meId && h.pending.has(String(message.nonce))
       && (!confirmation || cmpId(message.id, confirmation) < 0)) confirmation = message.id;
   }
-  if (confirmation) anchorPending(h, confirmation, true);
-  else if (newest && !query.before && !query.around && (!query.after || messages.length < query.limit)) {
-    anchorPending(h, newest, false);
-  }
-  for (const message of messages) {
-    if (!message.id) continue;
-    include(page, message.id);
-    const entry = storedMessage(s, h, channelId, message, c);
-    if (entry && !seen.has(entry)) {
-      includeRow(page, message.id);
-      page.entries.push(entry);
-      seen.add(entry);
-      if (entry.run.entries.length) linked.add(entry.run);
-    }
-  }
-  page.entries.sort(compare);
-  // before/after exclude the cursor, but prove continuity right up to it, even if it was deleted.
-  if (query.before) include(page, query.before);
-  if (query.after) include(page, query.after);
+  // Exclusive endpoints prove the adjacent interval, not the cursor row itself.
+  if (query.before) include(page, query.before, false);
+  if (query.after) include(page, query.after, false);
   const short = messages.length < query.limit;
   page.reachesStart = !query.after && !query.around && short;
   page.reachesNewest = (!query.before && !query.after && !query.around) || (!!query.after && short);
   const latest = s.channelMap.get(channelId)?.last_message_id;
   if (latest && page.high !== null && cmpId(page.high, latest) >= 0 && !query.before) page.reachesNewest = true;
   if (page.low === null && query.around) return { channels: [], sidebar: false };
+  if (confirmation && !latest && !h.live?.rowHigh) page.reachesNewest = true;
+  const oldLive = h.live;
+  const liveAfterEmptyPage = latestPage && page.high === null && options.since !== undefined
+    && options.since >= h.invalidatedAt && oldLive?.entries.some(entry => entry.row.id !== null && entry.changedAt > options.since!);
+  const connected = oldLive && (meets(h, page, oldLive) || (oldLive.predecessor && received.has(oldLive.predecessor)) || liveAfterEmptyPage);
+  if (liveAfterEmptyPage && oldLive) linked.add(oldLive);
+  if (page.reachesNewest && oldLive && !connected && oldLive.rowHigh !== null) {
+    if (page.high !== null && cmpId(page.high, oldLive.rowHigh) < 0) page.reachesNewest = false;
+    else demoteLive(h);
+  }
+  const missing: string[] = [];
+  for (const [id, entry] of h.messages) {
+    if (received.has(id) || (options.since !== undefined && entry.changedAt > options.since)) continue;
+    // Above the page's newest row it is authoritative only with `since`: without it, a row the
+    // gateway delivered while the request was in flight is indistinguishable from a deleted one.
+    const open = options.since !== undefined;
+    const above = page.low === null ? open
+      : cmpId(id, page.low) > 0 || (id === page.low && page.lowInclusive) || page.reachesStart;
+    const below = page.high === null ? open
+      : cmpId(id, page.high) < 0 || (id === page.high && page.highInclusive)
+        || (open && (latestPage || (!!query.after && short)));
+    if (id !== query.before && id !== query.after && above && below) missing.push(id);
+  }
+  deleteMessages(s, channelId, missing, c);
+  if (page.reachesNewest && (!oldLive || !connected)) {
+    movePending(h, page);
+    if (h.live?.low === null && h.live.entries.length === 0) h.runs.splice(h.runs.indexOf(h.live), 1);
+    h.live = page;
+  }
+  if (confirmation) anchorPending(h, confirmation, true);
+  else if (newest && !query.before && !query.around && (!query.after || messages.length < query.limit)) {
+    anchorPending(h, newest, false);
+  }
+  const seen = new Set(page.entries);
+  for (const message of messages) {
+    if (!message.id) continue;
+    const entry = storedMessage(s, h, channelId, message, c, options.since);
+    if (entry) {
+      entry.verified = options.since === undefined || options.since >= h.invalidatedAt;
+      includeRow(page, message.id);
+      if (!seen.has(entry)) {
+        page.entries.push(entry);
+        seen.add(entry);
+        if (entry.run.entries.length) linked.add(entry.run);
+      }
+    }
+  }
+  page.entries.sort(compare);
   // A shared row joins runs even when its confirmed id differs from its local display position.
   joinPage(h, page, linked);
   for (const entry of page.entries) entry.run = page;
@@ -517,6 +671,7 @@ export function addPending(s: Store, channelId: string, message: PendingMessage)
     // Freeze display order on confirmation: another user's message may have arrived after this slot.
     sortId: last?.sortId ?? lastId ?? '0', tie: ++h.nextTie, run,
     unanchored: last?.unanchored ?? (!last && !lastId),
+    changedAt: 0, verified: true,
   };
   insert(run, entry);
   h.pending.set(message.nonce, entry);
@@ -563,13 +718,14 @@ function windowLimit(limit: number): number {
 
 function sliceWindow(run: Run | undefined, start: number, end: number): MessageWindow {
   if (!run) return { rows: [], moreBefore: true, moreAfter: true, reachesStart: false, reachesNewest: false,
-    fetchBefore: null, fetchAfter: null, fetchLatest: false };
+    fetchBefore: null, fetchAfter: null, fetchAround: null, fetchLatest: false, stale: false };
   start = Math.max(0, start);
   end = Math.min(run.entries.length, end);
   const reachesStart = start === 0 && run.reachesStart;
   const reachesNewest = end === run.entries.length && run.reachesNewest;
+  const entries = run.entries.slice(start, end);
   // Exclusive cursors must name cached ids: low/high can be uncached page endpoints.
-  return { rows: run.entries.slice(start, end).map(entry => entry.row),
+  return { rows: entries.map(entry => entry.row), stale: entries.some(entry => !entry.verified), fetchAround: null,
     moreBefore: !reachesStart, moreAfter: !reachesNewest, reachesStart, reachesNewest,
     fetchBefore: start === 0 && !run.reachesStart ? run.rowLow : null,
     fetchAfter: end === run.entries.length && !run.reachesNewest ? run.rowHigh : null,
@@ -582,8 +738,8 @@ function locate(s: Store, channelId: string, id: string): { run: Run; index: num
   const entry = h.messages.get(id) ?? h.pending.get(id);
   if (entry) return { run: entry.run, index: lowerBound(entry.run.entries, entry.sortId, entry.tie), found: true };
   for (const run of h.runs) {
-    if ((run.low === null || cmpId(id, run.low) >= 0 || run.reachesStart)
-      && (run.high === null || cmpId(id, run.high) <= 0 || run.reachesNewest)) {
+    if (run.low !== null && run.high !== null && (cmpId(id, run.low) >= 0 || run.reachesStart)
+      && (cmpId(id, run.high) <= 0 || run.reachesNewest)) {
       return { run, index: lowerBound(run.entries, id), found: false };
     }
   }
@@ -603,7 +759,7 @@ export function latestWindow(s: Store, channelId: string, limit = 50): MessageWi
 export function windowAround(s: Store, channelId: string, messageId: string, limit = 50): MessageWindow {
   const count = windowLimit(limit);
   const location = locate(s, channelId, messageId);
-  if (!location) return sliceWindow(undefined, 0, 0);
+  if (!location) return { ...sliceWindow(undefined, 0, 0), fetchAround: messageId };
   const start = Math.max(0, Math.min(location.index - Math.floor(count / 2), location.run.entries.length - count));
   return sliceWindow(location.run, start, start + count);
 }

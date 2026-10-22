@@ -475,6 +475,18 @@ export function createWorld(seed = 1, assetOrigin = 'http://127.0.0.1:4790'): Wo
 
 export interface PageQuery { before?: string; after?: string; around?: string; limit?: number }
 
+// Discord documents "the past few minutes"; five minutes is the fixture's default.
+export const NONCE_WINDOW_MS = 5 * 60 * 1000;
+
+export function recentNonceMessage(messages: readonly Message[], authorId: string, nonce: string | number,
+  nowMs: number, windowMs = NONCE_WINDOW_MS): Message | undefined {
+  return messages.findLast(message => {
+    const age = nowMs - Date.parse(message.timestamp);
+    return message.author.id === authorId && message.nonce !== undefined
+      && String(message.nonce) === String(nonce) && age >= 0 && age < windowMs;
+  });
+}
+
 function lowerBound(messages: readonly Message[], id: string): number {
   let lo = 0, hi = messages.length;
   while (lo < hi) {
@@ -497,11 +509,10 @@ export function pageMessages(messages: readonly Message[], query: PageQuery = {}
     end = Math.min(messages.length, start + limit);
   } else if (query.around !== undefined) {
     const center = lowerBound(messages, query.around);
-    // Discord takes half the limit on each side plus the anchor: an even
-    // limit can return limit + 1 messages. Edges clip without rebalancing.
+    // An even limit gives the older side one extra message; that split is unverified.
     start = Math.max(0, center - Math.floor(limit / 2));
-    end = Math.min(messages.length, center + Math.floor(limit / 2)
-      + (messages[center]?.id === query.around ? 1 : 0));
+    end = Math.min(messages.length, start + limit);
+    start = Math.max(0, end - limit);
   } else {
     end = query.before === undefined ? messages.length : lowerBound(messages, query.before);
     start = Math.max(0, end - limit);
