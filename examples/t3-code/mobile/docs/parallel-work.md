@@ -252,6 +252,15 @@ bun "$coord" device-enroll --thread 628aac75-8ba2-4cdc-a567-4b7e160f700a --host 
 bun "$coord" device-claim --task "$task_id" --thread "$worker_thread" --host "$device_host" --class phone --runtime "$runtime"
 ```
 
+To assign a newly created simulator directly to an active worker, the coordinator
+adds `--task` to enrollment. Its fresh Shutdown inventory entry must also include
+`class` and `runtime` matching the command. The helper enrolls and assigns that
+exact device atomically, preserving the existing idle pool:
+
+```sh
+bun "$coord" device-enroll --thread 628aac75-8ba2-4cdc-a567-4b7e160f700a --task "$task_id" --host "$device_host" --udid "$udid" --class phone --runtime "$runtime" --inventory "$inventory_file" --origin created
+```
+
 Use `ipad` for an iPad. Claiming returns one compatible released device. If none
 is available, queue the work or have the coordinator audit/create and enroll
 another; the helper never takes an unknown device. After claiming, call T3

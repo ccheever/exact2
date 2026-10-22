@@ -186,6 +186,98 @@ test('independent worktrees share registration, device collisions, release/reuse
   expect((await f.c(f.main).status()).devices['fixture-host:nates-phone']).toBeUndefined();
 });
 
+test('coordinator enrolls a fresh simulator directly to its worker without changing the idle pool', async () => {
+  const f = fixture(); await f.start();
+  const old = { host: 'fixture-host', udid: 'pooled-phone', class: 'phone', runtime: 'iOS-fixture' };
+  const fresh = { ...old, udid: 'fresh-phone' };
+  const pooled = await f.c(f.main).enroll('coordinator', old, [{ ...old, state: 'Shutdown' }], true);
+  const inventory = [{ ...old, state: 'Booted' }, { ...fresh, state: 'Shutdown' }];
+  const inv = join(f.dir, 'inventory.json'); writeFileSync(inv, JSON.stringify(inventory));
+  const assigned = await f.cli(f.main, ['device-enroll', '--thread', 'coordinator', '--task', f.ta.id,
+    '--host', fresh.host, '--udid', fresh.udid, '--class', fresh.class, '--runtime', fresh.runtime,
+    '--inventory', inv, '--origin', 'created']);
+  expect(assigned.code, assigned.err).toBe(0);
+  expect(assigned.value).toMatchObject({ ...fresh, status: 'owned', task: f.ta.id, thread: f.ta.thread, worktree: f.a, created: true });
+  const state = await f.c(f.main).status();
+  expect(state.devices['fixture-host:pooled-phone']).toEqual(pooled);
+  expect(Object.values(state.devices).filter(d => d.task === f.ta.id)).toHaveLength(1);
+  await expect(f.c(f.a).claimDevice(f.ta.id, f.ta.thread, old.host, old.class, old.runtime)).rejects.toThrow('already owns');
+  await expect(f.c(f.b).releaseDevice(f.tb.id, f.tb.thread, fresh.host, fresh.udid, inventory)).rejects.toThrow('another task');
+  await f.c(f.a).releaseDevice(f.ta.id, f.ta.thread, fresh.host, fresh.udid, inventory);
+  const released = await f.c(f.main).status();
+  expect(released.devices['fixture-host:pooled-phone']).toEqual(pooled);
+  expect(released.devices['fixture-host:fresh-phone'].status).toBe('retiring');
+  expect(released.devices['fixture-host:fresh-phone'].task).toBeUndefined();
+});
+
+test('direct enrollment refuses invalid owners and inventory without changing shared state', async () => {
+  const f = fixture(); await f.start();
+  await f.c(f.main).recover(f.tb.id, 'coordinator', proof(f.tb));
+  const other = fixture();
+  const foreign = new Coordination(other.a, { root: f.root });
+  await foreign.init('other-coordinator');
+  const foreignTask = await foreign.register('FOREIGN', 'foreign-worker');
+  const c = f.c(f.main);
+  const device = { host: 'fixture-host', udid: 'fresh-phone', class: 'phone', runtime: 'iOS-fixture' };
+  const inventory = [{ ...device, state: 'Shutdown' }];
+  const before = await c.status();
+  const refused = async (thread, candidate, rows, created, id, message) => {
+    await expect(c.enroll(thread, candidate, rows, created, id)).rejects.toThrow(message);
+    expect(await c.status()).toEqual(before);
+  };
+  await refused(f.ta.thread, device, inventory, true, f.ta.id, 'coordinator');
+  await refused('coordinator', device, inventory, true, 'unknown', 'unknown task');
+  await refused('coordinator', device, inventory, true, foreignTask.id, 'different repository');
+  await refused('coordinator', device, inventory, true, f.tb.id, 'inactive task');
+  await refused('coordinator', device, inventory, false, f.ta.id, 'newly created');
+  for (const rows of [null, {}, [], [{ ...inventory[0], host: 'another-host' }],
+    [{ ...inventory[0], udid: 'another-phone' }], [{ ...inventory[0], class: 'ipad' }],
+    [{ ...inventory[0], runtime: 'another-runtime' }], [{ host: device.host, udid: device.udid, state: 'Shutdown' }],
+    [...inventory, ...inventory]]) {
+    await refused('coordinator', device, rows, true, f.ta.id, 'fresh inventory');
+  }
+  for (const field of ['host', 'udid', 'runtime']) {
+    for (const value of ['', ' ', 42]) {
+      const invalid = { ...device, [field]: value };
+      await refused('coordinator', invalid, [{ ...invalid, state: 'Shutdown' }], true, f.ta.id, 'fresh inventory');
+    }
+  }
+  await refused('coordinator', { ...device, class: 'watch' }, [{ ...inventory[0], class: 'watch' }], true, f.ta.id, 'compatible class/runtime');
+  await refused('coordinator', device, [{ ...inventory[0], state: 'Booted' }], true, f.ta.id, 'shutdown');
+  const inv = join(f.dir, 'inventory.json'); writeFileSync(inv, JSON.stringify(inventory));
+  const args = ['device-enroll', '--thread', 'coordinator', '--task', f.ta.id, '--host', device.host,
+    '--udid', device.udid, '--class', device.class, '--runtime', device.runtime, '--inventory', inv, '--origin', 'audited-unused'];
+  expect((await f.cli(f.main, args)).err).toContain('newly created');
+  expect(await c.status()).toEqual(before);
+  await c.enroll('coordinator', device, inventory, true, f.ta.id);
+  const owned = await c.status();
+  await expect(c.enroll('coordinator', { ...device, udid: 'second-phone' }, [{ ...inventory[0], udid: 'second-phone' }], true, f.ta.id)).rejects.toThrow('already owns');
+  expect(await c.status()).toEqual(owned);
+});
+
+test('concurrent direct enrollment assigns one owner and never exposes the new simulator to pool claims', async () => {
+  const f = fixture(); await f.start();
+  const device = { host: 'fixture-host', udid: 'fresh-ipad', class: 'ipad', runtime: 'iOS-fixture' };
+  const inventory = [{ ...device, state: 'Shutdown' }];
+  const inv = join(f.dir, 'inventory.json'); writeFileSync(inv, JSON.stringify(inventory));
+  const enroll = task => f.cli(f.main, ['device-enroll', '--thread', 'coordinator', '--task', task.id,
+    '--host', device.host, '--udid', device.udid, '--class', device.class, '--runtime', device.runtime,
+    '--inventory', inv, '--origin', 'created']);
+  const claim = task => f.cli(task.worktree, ['device-claim', ...own(task), '--host', device.host, '--class', device.class, '--runtime', device.runtime]);
+  const [a, b, pooled] = await Promise.all([enroll(f.ta), enroll(f.tb), claim(f.tb)]);
+  expect([a, b].filter(r => r.code === 0)).toHaveLength(1);
+  expect([a, b].find(r => r.code !== 0).err).toContain('already registered');
+  expect(pooled.err).toMatch(/no released compatible|already owns/);
+  const winner = a.code === 0 ? f.ta : f.tb, loser = winner === f.ta ? f.tb : f.ta;
+  const state = await f.c(f.main).status();
+  expect(Object.values(state.devices)).toHaveLength(1);
+  expect(state.devices['fixture-host:fresh-ipad']).toMatchObject({ status: 'owned', task: winner.id, thread: winner.thread, worktree: winner.worktree });
+  expect(state.events.filter(e => e.action === 'device-claimed')).toHaveLength(1);
+  await f.c(winner.worktree).releaseDevice(winner.id, winner.thread, device.host, device.udid, inventory);
+  expect((await f.c(f.main).status()).devices['fixture-host:fresh-ipad'].status).toBe('idle');
+  expect((await claim(loser)).value).toMatchObject({ udid: device.udid, task: loser.id });
+});
+
 test('native slot spans repositories and low disk refuses before allocating output', async () => {
   const f = fixture(); await f.start();
   const other = join(f.dir, 'other'); mkdirSync(other); command(['git', 'init', '-b', 'main'], other);
