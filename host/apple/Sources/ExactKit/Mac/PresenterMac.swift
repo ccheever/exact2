@@ -1430,15 +1430,13 @@ struct TextViewportIndex {
     init(_ paragraphs: [NodeView]) {
         var positions: [ObjectIdentifier: Int] = [:]
         for node in paragraphs {
-            guard let document = node.enclosingScrollView?.documentView else { continue }
+            // A paragraph outside every scroll view (a heading over a split's
+            // detail pane, a popover's text) is in view wherever its window
+            // is: its window's content view stands in as its document.
+            guard let document = node.enclosingScrollView?.documentView ?? node.window?.contentView else { continue }
             let key = ObjectIdentifier(document)
-            let index: Int
-            if let found = positions[key] { index = found }
-            else {
-                index = groups.count
-                positions[key] = index
-                groups.append(Group(document: document, entries: []))
-            }
+            let index = positions[key] ?? groups.count
+            if index == groups.count { positions[key] = index; groups.append(Group(document: document, entries: [])) }
             let rect = node.convert(node.bounds, to: document)
             groups[index].entries.append(Entry(node: node, rect: rect, bottom: rect.maxY))
         }
