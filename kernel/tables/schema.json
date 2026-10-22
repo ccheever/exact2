@@ -1545,7 +1545,7 @@
       "id": 261,
       "name": "menuPlacement",
       "kind": "str",
-      "_comment": "LLP 1021 §5.3: -exact-menu on a button, a literal app|file|edit|view|go|window|help. AppKit projects the button into that menu, with or without a chord; other hosts retain the ordinary button. No layout effect."
+      "_comment": "LLP 1021 §5.3: -exact-menu on a button, a literal about|app|file|edit|view|go|window|help|none. AppKit projects the button into that menu, with or without a chord (none: no item, the chord kept); other hosts retain the ordinary button. No layout effect."
     },
     {
       "id": 263,
