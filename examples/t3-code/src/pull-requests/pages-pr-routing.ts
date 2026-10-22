@@ -8,7 +8,7 @@
 // resolveQueryEnvironmentIds, resolveSelectedEnvironmentId), apps/web/src/routes/_chat.pull-requests.tsx
 // (PAGE_SIZE, MAX_PAGE_SIZE), packages/client-runtime/src/connection/githubRoutingPermissions.ts
 // (gitHubRoutingPermissionFor) and packages/client-runtime/src/state/pullRequestRouting.ts
-// (createPullRequestRouter).
+// (createPullRequestRouter, at 74541bab17).
 //
 // Port changes. The reference router is an Effect over the connection registry; here it is a class
 // over a `PullRequestRouterHost` the caller builds from the focused connection and the background
@@ -218,7 +218,8 @@ export function routingPermissionFor(key: string | null, stored: Record<string, 
 
 export const PR_ROUTED_READS: ReadonlySet<string> = new Set([
   'pullRequests.summary', 'pullRequests.stack', 'pullRequests.detail', 'pullRequests.preview', 'pullRequests.checks', 'pullRequests.activity',
-  'pullRequests.threadComments', 'pullRequests.diffFileContents', 'pullRequests.filesViewed', 'pullRequests.reviewerCandidates', 'pullRequests.labelCandidates',
+  'pullRequests.threadComments', 'pullRequests.diffFileContents', 'pullRequests.filesViewed', 'pullRequests.changeBreakdown', 'pullRequests.reviewerCandidates',
+  'pullRequests.labelCandidates',
 ]);
 export const PR_ROUTED_WRITES: ReadonlySet<string> = new Set([
   'pullRequests.setFilesViewed', 'pullRequests.runAction', 'pullRequests.update', 'pullRequests.comment', 'pullRequests.updateComment', 'pullRequests.submitReview',
@@ -346,14 +347,18 @@ export class PullRequestRouter {
    * A routed write whose reply comes back later (the Viewed ticks' flush, pages-pr-code.ts: no answer waits on it). It is
    * routed as `request` routes a write (the identity probes, the reference's candidate order, a server that refuses before
    * the write leaves passing it to the next), but `send` puts it on the chosen server and returns at once. The readers'
-   * invalidations (the reference's `finish`) follow the host's acceptance: the caller runs `afterWrite` in the answer that
-   * sees the reply, because a native call needs an answer to run in and the reply arrives outside this one.
+   * invalidations (the reference's `finish`) follow the host's reply: the caller runs `afterWrite` in the answer that
+   * sees it, because a native call needs an answer to run in and the reply arrives outside this one.
    */
   dispatch(host: PullRequestRouterHost, method: string, payload: Obj, send: DetachedSend): Promise<Obj> {
     return this.routed(host, method, payload, true, undefined, send);
   }
 
-  /** The reference's `finish` after a write the host accepted: every server read through for the pull request is told (`filesViewedOnly` for the Viewed marks). */
+  /**
+   * The reference's `finish` after a write: every server read through for the pull request is told (`filesViewedOnly` for
+   * the Viewed marks). It follows a write the host accepted, and a Viewed batch whatever its answer, since a failed batch
+   * may have applied some of its paths.
+   */
   async afterWrite(host: PullRequestRouterHost, method: string, ref: Obj): Promise<void> {
     if (!PR_ROUTED_WRITES.has(method) || this.used.size === 0) return;
     const origin = host.originId;
@@ -375,7 +380,7 @@ export class PullRequestRouter {
     return routingAllowed(environments.find(entry => entry.id === host.originId), environments.find(entry => entry.id === destination), write);
   }
 
-  /** invalidateTarget: GitHub already accepted the write; a stalled reader must not delay its confirmation. */
+  /** invalidateTarget: a stalled reader must not delay the write's answer. */
   private async invalidateTarget(host: PullRequestRouterHost, target: string, inputs: ReadonlyArray<Obj>): Promise<void> {
     if (target !== host.originId && !this.allowed(host, target, false)) return;
     for (let index = 0; index < inputs.length; index += 3) {
@@ -422,6 +427,10 @@ export class PullRequestRouter {
     const ref = input;
     const refKey = JSON.stringify([origin, str(ref.projectId), typeof ref.host === 'string' ? ref.host.toLowerCase() : null, str(ref.repository).toLowerCase(), String(num(ref.number))]);
     const finish = async (operation: () => Promise<Obj>): Promise<Obj> => {
+      // A failed Viewed batch may have applied some paths. Other writes invalidate on success.
+      if (method === SET_FILES_VIEWED && !send) {
+        try { return await operation(); } finally { await this.afterWrite(host, method, ref); }
+      }
       const result = await operation();
       if (!send) await this.afterWrite(host, method, ref);
       return result;
