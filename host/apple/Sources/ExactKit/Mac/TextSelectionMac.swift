@@ -269,13 +269,14 @@ package final class TextSelection {
             if self.gesture == current, !(responder is NSWindow || responder === self.presenter?.viewport) { self.clear() }
         }
     }
-    /// A mouse-down on text a drag selects: the paragraph takes the focus
-    /// and the selection begins there or, with Shift, grows to there. The
+    /// A click begins a selection without ending a field's editing. A
+    /// double click, Shift-click or drag takes the focus for text selection. The
     /// focus moving between two paragraphs clears a selection; not one this
     /// click is about to extend.
     func press(_ node: NodeView, event: NSEvent) {
         holding = event.modifierFlags.contains(.shift) && anchor != nil
-        node.window?.makeFirstResponder(node)
+        let editing = (node.window?.firstResponder as? NSTextView)?.isEditable == true
+        if !editing || holding || event.clickCount > 1 || atomic(node) { node.window?.makeFirstResponder(node) }
         holding = false
         begin(node, event: event)
     }
@@ -459,6 +460,11 @@ package final class TextSelection {
     func drag(_ event: NSEvent) {
         if pendingBegin { deferredDrag = event; return }
         guard anchor != nil || list != nil else { return }
+        if let anchor {
+            holding = true
+            anchor.window?.makeFirstResponder(anchor)
+            holding = false
+        }
         dragged = true
         let point = event.locationInWindow
         let nodes = paragraphs.filter { list == nil || $0.isDescendant(of: list!) }
