@@ -670,6 +670,29 @@ final class MenuTests: XCTestCase {
         for _ in 0..<40 { menus.zoomIn(nil) }
         XCTAssertEqual(pow(1.2, menus.zoomLevel), 5, accuracy: 0.001)
     }
+    /// DesktopApplicationMenu.ts's zoom accelerators: ⌘= and ⌘−, ⇧⌘= (Command-Plus on a US layout), and the
+    /// keypad's +, − and 0, which reach the View items from real key events.
+    func testZoomChordsReachTheViewItems() {
+        _ = NSApplication.shared
+        let bar = NSMenu(), view = NSMenu(title: "View")
+        view.addItem(withTitle: "Enter Full Screen", action: nil, keyEquivalent: "f")
+        bar.addItem(withTitle: "View", action: nil, keyEquivalent: "").submenu = view
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        let menus = T3Menus()
+        menus.attach(window)
+        menus.augment(bar)
+        let chords: [(String, String, UInt16, NSEvent.ModifierFlags, Double)] = [
+            ("⌘=", "=", 24, [.command], 0.5), ("⇧⌘=", "+", 24, [.command, .shift], 1), ("⌘−", "-", 27, [.command], 0.5),
+            ("⌘ keypad +", "+", 69, [.command, .numericPad], 1), ("⌘ keypad −", "-", 78, [.command, .numericPad], 0.5),
+            ("⌘ keypad 0", "0", 82, [.command, .numericPad], 0), ("⌘0", "0", 29, [.command], 0),
+        ]
+        for (name, characters, code, flags, level) in chords {
+            let key = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
+                                       characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!
+            XCTAssertTrue(bar.performKeyEquivalent(with: key), "\(name) is a View item's key equivalent")
+            XCTAssertEqual(menus.zoomLevel, level, accuracy: 0.001, name)
+        }
+    }
     func testOverlayPillRendersTheReferenceMessages() throws {
         _ = NSApplication.shared
         XCTAssertEqual(T3QuitOverlay.message("hold"), "Hold ⌘Q or press twice to quit")
@@ -729,7 +752,7 @@ suite.addTest(QuitHoldTests.defaultTestSuite)
 suite.addTest(MenuTests.defaultTestSuite)
 suite.addTest(InstalledFontTests.defaultTestSuite)
 suite.run()
-guard let run = suite.testRun, run.executionCount == 49 else { print("Menus: unexpected test count \(suite.testRun?.executionCount ?? 0)"); exit(1) }
+guard let run = suite.testRun, run.executionCount == 50 else { print("Menus: unexpected test count \(suite.testRun?.executionCount ?? 0)"); exit(1) }
 print("Menus: \(run.executionCount) tests, \(run.totalFailureCount) failures")
 exit(run.hasSucceeded ? 0 : 1)
 
