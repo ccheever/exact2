@@ -246,7 +246,7 @@ extension NodeView {
         // An `input`'s `aria-label` names its field, as a text area's names it.
         if let field, field.accessibilityLabel() != authoredLabel { field.setAccessibilityLabel(authoredLabel) }
         #else
-        // UIKit has no property for `aria-required`, `aria-invalid`, `aria-haspopup` or `aria-current`.
+        // UIKit has no property for `aria-required`, `aria-invalid`, `aria-haspopup` or `aria-current` (a button's current is its selected trait, NodeViewIOS).
         let target: UIView = field ?? presenter?.controls.controls[id] ?? textArea as UIView? ?? self
         // Only on change: a set is kept in UIKit's associated object table.
         if target.accessibilityTraits.contains(.notEnabled) != (disabled || ariaUnavailable) { target.accessibilityTraits.formSymmetricDifference(.notEnabled) }

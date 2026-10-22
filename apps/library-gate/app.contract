@@ -126,19 +126,19 @@ component App
         // An app's own bar's items, in a row as a bar holds them: the base,
         // then selected, a count, a dot and an avatar in the slot as samples.
         row testId="gate-bar"
-          BarItem(id="bi-base", label="Home", selected=false, d="M4 4h16v16H4zM6 6v12h12V6z", selectedD="M4 4h16v16H4z", iconSize=28, lift=0, badge="", dot=false, press=press, hold=press)
+          BarItem(id="bi-base", label="Home", selected=false, d="M4 4h16v16H4zM6 6v12h12V6z", selectedD="M4 4h16v16H4z", iconSize=28, lift=0, badge="", dot=false, press=press)
             box testId="marker-bi-base" press=toggle width=24 height=24 align-items="center" justify-content="center"
               text glyph
-          BarItem(id="sample-bi-selected", label="Home", selected=true, d="M4 4h16v16H4zM6 6v12h12V6z", selectedD="M4 4h16v16H4z", iconSize=28, lift=0, badge="", dot=false, press=press, hold=press)
+          BarItem(id="sample-bi-selected", label="Home", selected=true, d="M4 4h16v16H4zM6 6v12h12V6z", selectedD="M4 4h16v16H4z", iconSize=28, lift=0, badge="", dot=false, press=press)
             box testId="marker-sample-bi-selected" press=toggle width=24 height=24 align-items="center" justify-content="center"
               text glyph
-          BarItem(id="sample-bi-badge", label="Home", selected=false, d="M4 4h16v16H4zM6 6v12h12V6z", selectedD="M4 4h16v16H4z", iconSize=28, lift=0, badge="3", dot=false, press=press, hold=press)
+          BarItem(id="sample-bi-badge", label="Home", selected=false, d="M4 4h16v16H4zM6 6v12h12V6z", selectedD="M4 4h16v16H4z", iconSize=28, lift=0, badge="3", dot=false, press=press)
             box testId="marker-sample-bi-badge" press=toggle width=24 height=24 align-items="center" justify-content="center"
               text glyph
-          BarItem(id="sample-bi-dot", label="Home", selected=false, d="M4 4h16v16H4zM6 6v12h12V6z", selectedD="M4 4h16v16H4z", iconSize=28, lift=0, badge="", dot=true, press=press, hold=press)
+          BarItem(id="sample-bi-dot", label="Home", selected=false, d="M4 4h16v16H4zM6 6v12h12V6z", selectedD="M4 4h16v16H4z", iconSize=28, lift=0, badge="", dot=true, press=press)
             box testId="marker-sample-bi-dot" press=toggle width=24 height=24 align-items="center" justify-content="center"
               text glyph
-          BarItem(id="sample-bi-avatar", label="Home", selected=false, d="", selectedD="M4 4h16v16H4z", iconSize=28, lift=0, badge="", dot=false, press=press, hold=press)
+          BarItem(id="sample-bi-avatar", label="Home", selected=false, d="", selectedD="M4 4h16v16H4z", iconSize=28, lift=0, badge="", dot=false, press=press)
             box testId="marker-sample-bi-avatar" press=toggle width=24 height=24 align-items="center" justify-content="center"
               text glyph
         // An app's own header's buttons: each variant value, one at a time.

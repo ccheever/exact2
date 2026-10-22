@@ -3771,7 +3771,11 @@ no package's), and its params are named in full, a short name that names
 none too (`tamber-param-short-library`). The in-repo `@exact/actions`'
 `BarItem` and `HeaderButton` are for an app's own authored bar and header (a
 design's, as Bluesky's are); the platform's `tabs` and `header` routes stay
-the platform's, and no library component wraps them.
+the platform's, and no library component wraps them. A `BarItem` says its
+selection as the bar's current item (`aria-current="page"`, iOS's selected
+trait) and takes no long press itself: an item held for more puts
+`contextmenu` on its slot fill (Bluesky's Profile avatar), so the press lands
+on the fill rather than the whole column.
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
 `contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust|swift|kotlin .` writes bindings into
