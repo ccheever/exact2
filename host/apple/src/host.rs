@@ -70,6 +70,8 @@ mod paint;
 #[path = "paragraph.rs"]
 mod paragraph;
 use paragraph::props_for;
+#[path = "persistence.rs"]
+mod persistence;
 #[path = "presence.rs"]
 mod presence;
 #[path = "tamber.rs"]
@@ -233,6 +235,8 @@ pub struct Host<D: DataSource> {
     /// a commit (LLP 1018 D6); `None` keeps them in the runner only (a test,
     /// or grants that do not parse).
     secrets: Option<Box<dyn crate::store::KeptStore>>,
+    pending_store_writes: Vec<exact_runner::StoreWrite>,
+    store_error: Option<String>,
     data_activated: bool,
     /// The source's activation, run ahead of `activate_data` by `prepare_data`.
     source_prepared: Option<Result<(), String>>,
@@ -563,6 +567,8 @@ impl<D: DataSource> Host<D> {
             preload_wake: Default::default(),
             doc_watch: None,
             secrets,
+            pending_store_writes: Vec::new(),
+            store_error: None,
             update_line: None,
             delivery,
             colors_seen: None,
@@ -789,32 +795,6 @@ impl<D: DataSource> Host<D> {
             .ok()
             .flatten()
             .map(|(roots, _)| roots)
-    }
-
-    /// What the last commit kept or forgot, into the platform's store (LLP
-    /// 1018 D6): secrets synchronously, on this thread, milliseconds once per
-    /// login; kept answers queued for their writer thread (`store.rs`). A
-    /// write that fails is journaled (a kept answer's at a later commit);
-    /// the app is otherwise unaffected, as a web app is when `setItem`
-    /// throws: the next launch will not remember.
-    fn persist(&mut self) {
-        let mut changed = self.runner.data().take_storage_changed();
-        for line in self.kept_failures() {
-            self.runner.log(line);
-        }
-        for w in self.runner.take_store_writes() {
-            let Some(secrets) = &self.secrets else {
-                continue;
-            };
-            if let Err(e) = secrets.write(&w) {
-                self.runner.log(format!("store {} failed: {e}", w.name));
-            } else {
-                changed = true;
-            }
-        }
-        if changed {
-            crate::store::widget_changed(self.runner.data_ref().app_id());
-        }
     }
 
     /// The kept answers the writer failed to write since the last call.

@@ -739,3 +739,90 @@ fn refused_data_ready_survives_an_unrelated_change_and_store_refusals_are_journa
         .journal()
         .any(|line| line.contains("store changed refused")));
 }
+
+struct RefusedWrite {
+    refusing: Arc<AtomicBool>,
+    attempts: Arc<Mutex<Vec<exact_runner::StoreWrite>>>,
+}
+impl crate::store::KeptStore for RefusedWrite {
+    fn snapshot(&self, previous: Vec<(String, Vec<u8>)>) -> crate::store::StoreRead {
+        crate::store::StoreRead {
+            values: previous,
+            omitted: Vec::new(),
+            complete: true,
+        }
+    }
+    fn write(&self, write: &exact_runner::StoreWrite) -> Result<(), String> {
+        self.attempts.lock().unwrap().push(write.clone());
+        if self.refusing.load(Ordering::SeqCst) {
+            Err("injected storage full".into())
+        } else {
+            Ok(())
+        }
+    }
+    fn kept_failures(&self) -> Vec<String> {
+        Vec::new()
+    }
+}
+
+#[test]
+fn failed_persistence_is_reported_and_retried_without_another_value_change() {
+    let plan = contract::compile("component App\n  state count = 0 persist\n  action step\n    count = count + 1\n  action keep\n    count = count\n  view\n    text \"State\"\n").unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        ChangingReader {
+            asks: Arc::new(AtomicUsize::new(0)),
+        },
+        Box::new(MonospaceMeasurer::default()),
+        300.,
+        200.,
+    )
+    .unwrap();
+    host.runner.take_store_writes();
+    let refusing = Arc::new(AtomicBool::new(true));
+    let attempts = Arc::new(Mutex::new(Vec::new()));
+    host.secrets = Some(Box::new(RefusedWrite {
+        refusing: refusing.clone(),
+        attempts: attempts.clone(),
+    }));
+    let mut act = |name| {
+        let receipt = host.runner.act(name, vec![]).unwrap();
+        serde_json::from_str::<serde_json::Value>(
+            &host.commit(&[Timed { at_ms: 0., receipt }], None),
+        )
+        .unwrap()
+    };
+    let failed = act("step");
+    assert!(
+        failed["error"]
+            .as_str()
+            .is_some_and(|s| s.contains("injected storage full")),
+        "{failed}"
+    );
+    refusing.store(false, Ordering::SeqCst);
+    let retried = act("keep");
+    assert!(retried["error"].is_null(), "{retried}");
+    assert_eq!(
+        attempts.lock().unwrap().len(),
+        2,
+        "an unchanged value still retries its failed write"
+    );
+    refusing.store(true, Ordering::SeqCst);
+    act("step");
+    refusing.store(false, Ordering::SeqCst);
+    act("step");
+    act("keep");
+    let attempts = attempts.lock().unwrap();
+    let values: Vec<serde_json::Value> = attempts
+        .iter()
+        .map(|w| serde_json::from_slice(w.value.as_ref().unwrap()).unwrap())
+        .collect();
+    assert_eq!(
+        values,
+        serde_json::json!([1, 1, 2, 3])
+            .as_array()
+            .unwrap()
+            .as_slice(),
+        "a newer value supersedes the pending write; success clears it"
+    );
+}
