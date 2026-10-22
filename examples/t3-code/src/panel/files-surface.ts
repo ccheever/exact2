@@ -40,7 +40,7 @@ import type { MenuRow } from '../sidebar/sidebar-menu';
 import { availableEditorIds } from '../shared/context-menus';
 import { isWorkspaceImagePreviewPath, isWorkspaceVideoPreviewPath } from '../media/media-source';
 import { openMarkdownMediaPreview } from '../timeline/timeline-attachments';
-import { fileLinkCopyPaths, fileLinkEditorTarget, resolveFileLinkHostPath } from '../timeline/workspace-file-lookup'; // the file a chat link means
+import { fileLinkCopyPaths, fileLinkEditorTarget, resolveFileLinkHostPath, splitPosition } from '../timeline/workspace-file-lookup'; // the file a chat link means
 
 export type TreeRow = { id: string; path: string; name: string; depth: number; directory: boolean; expanded: boolean; selected: boolean; token: string; ignored: boolean; loading: boolean; guides: { id: string; left: number }[] };
 /** A crumb: `navigable` moves the browser to its folder (FolderBreadcrumb), `descendant` is below the current one (kept
@@ -415,6 +415,16 @@ export async function markdownFilePick(client: T3Client, native: Native, target:
     return;
   }
   const hostPath = () => resolveFileLinkHostPath(client, native, target, context.lookup ?? '', cwd);
+  // openMarkdownFileInPreview: the file in a new Browser tab beside the thread (a draft gets its thread id first).
+  if (picked === 'open-in-browser') {
+    try {
+      if (!client.threadId && !activeRef(client) && client.environmentId) await ensureDraftThreadId(client, native);
+      const ref = activeRef(client);
+      if (!ref) throw new Error('Environment is not connected.');
+      await openFileInPreview(client, native, ref, splitPosition(target).path, cwd);
+    } catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Unable to open file in browser', description: error instanceof Error && error.message ? error.message : 'An error occurred.', stacked: true }); }
+    return;
+  }
   if (picked === 'open' || picked === 'reveal') {
     const failed = (description: string): void => { pushToast(client, { kind: 'error', title: picked === 'open' ? 'Unable to open file' : 'Unable to reveal file', description, stacked: true }); };
     try {

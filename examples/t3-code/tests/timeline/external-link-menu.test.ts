@@ -219,6 +219,10 @@ describe("a reply's pull request link over the open thread", () => {
     expect(foreign.rows(mergeRequest)[0]).toBe('Link to thread');
     await foreign.pick('link-to-thread', mergeRequest);
     expect(foreign.dispatched).toEqual([{ type: 'thread.pull-request.link', commandId: 'command-1', threadId: 't1', host: 'gitlab.com', repository: 'other/repo', number: 7, url: mergeRequest, source: 'manual' }]);
+    // A link node's href spelled as `new URL` spells it (host lowercased) finds the same rows.
+    notePullRequestLinks('See https://GitHub.com/lane/sandbox/pull/7 too.');
+    expect(other.rows('https://GitHub.com/lane/sandbox/pull/7')[0]).toBe('Link to thread');
+    expect(other.rows('https://github.com/lane/sandbox/pull/7')[0]).toBe('Link to thread');
     // A pull request link not on screen yet has the plain rows until a chip list notes it.
     expect(foreign.rows('https://github.com/lane/sandbox/pull/8')[0]).toBe('Open in integrated browser');
     // Without the data module's storage (no dispatch path) the menu has no thread action.

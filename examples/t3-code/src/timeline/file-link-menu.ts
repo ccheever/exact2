@@ -10,17 +10,22 @@ import { mediaMimeTypeFromExtension } from '../media/media-source';
 import { workspaceOf } from '../panel/panel-surfaces';
 import { availableEditorIds, markdownFileMenuItems, revealLabelFor } from '../shared/context-menus';
 import type { ChipView } from './message-chips';
+import { can } from '../connections/command-permissions';
+import { isBrowserPreviewFile } from '../panel/files-rendered-html';
+import { activeRef } from '../terminal/terminal-drawer-view';
 import { splitPosition, workspaceRelativeFilePath } from './workspace-file-lookup';
 
-/** Where a file link sits: `cwd` is the workspace its relative path is read in (the thread's by default); a link where
- *  no media can be previewed (a pull request page) has `previewMedia` false. */
+/** Where a file link sits: `cwd` is the workspace its relative path is read in (the thread's by default); a link with no
+ *  thread beside it (a pull request page) has `previewMedia` false, so neither media preview nor the Browser. */
 export type FileLinkMenuContext = { cwd?: string; previewMedia?: boolean };
 
 /**
  * The rows for the file link `target` (its full path, `:line` allowed): "Preview media" for a media file in a thread,
  * the open item named for the preferred editor and the server-worded reveal only where shell actions are allowed (a
  * resolved local environment, which needs the saved SSH aliases read: timeline-prepare.ts reads them before a
- * snapshot), then the copies, the relative one for a file inside the workspace.
+ * snapshot), "Open in integrated browser" for a page or a PDF where the thread's Browser can open (ChatMarkdown's
+ * threadRef, canOperatePreview and isPreviewAvailableFor; a new thread's draft gets its id when it opens), then the
+ * copies, the relative one for a file inside the workspace.
  */
 export function markdownFileMenuRows(client: T3Client, target: string, context: FileLinkMenuContext = {}): { id: string; label: string }[] {
   if (!target) return [];
@@ -30,7 +35,9 @@ export function markdownFileMenuRows(client: T3Client, target: string, context: 
   const filePath = splitPosition(target).path, name = filePath.slice(filePath.lastIndexOf('/') + 1), dot = name.lastIndexOf('.');
   const cwd = context.cwd ?? workspaceOf(client).cwd;
   const canPreviewMedia = context.previewMedia !== false && !!client.threadId && dot >= 0 && mediaMimeTypeFromExtension(name.slice(dot)) !== null;
-  return markdownFileMenuItems({ canPreviewMedia, canOpen, preferredEditor: editor, revealLabel: revealLabelFor(client.config, environment),
+  const thread = !!activeRef(client) || (!client.threadId && !!client.environmentId && !!client.projectId);
+  const canOpenInBrowser = context.previewMedia !== false && thread && client.available === true && can(client, 'preview:operate') && isBrowserPreviewFile(filePath);
+  return markdownFileMenuItems({ canPreviewMedia, canOpen, canOpenInBrowser, preferredEditor: editor, revealLabel: revealLabelFor(client.config, environment),
     canCopyRelative: workspaceRelativeFilePath(filePath, cwd) !== null }).map(item => ({ id: item.id, label: item.label }));
 }
 
