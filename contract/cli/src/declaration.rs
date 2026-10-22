@@ -58,7 +58,10 @@ pub(crate) fn read(path: &Path, text: &str, source_id: u32) -> Result<File, Refu
                     });
                 }
             }
-            for entry in json["names"].as_array().into_iter().flatten() {
+            // A name with positional parameters is data code's only (LLP
+            // 1133.006 D8): Contract has no form of it.
+            let names = json["names"].as_array().into_iter().flatten();
+            for entry in names.filter(|n| n.get("params").is_none()) {
                 let mut decl = module(entry, package, &json, span).map_err(refuse)?;
                 for (subpath, implementation) in &implementations {
                     let platform = implementation["platform"].as_str().unwrap_or(subpath);
@@ -123,9 +126,12 @@ fn endorsed(dir: &Path) -> Result<Vec<(String, Value)>, String> {
 
 /// Each shape, its fields in name order: `serde_json` here keeps no key
 /// order, and none is meant, since a record crosses the seam by name.
+/// A shape keyed by string (`"record": "string"`, LLP 1133.006 D8) is data
+/// code's only, and left out.
 fn shapes(json: &Value, span: Span) -> Result<Vec<ShapeDecl>, String> {
     object(&json["shapes"])
         .iter()
+        .filter(|(_, fields_json)| fields_json["record"] != "string")
         .map(|(name, fields_json)| {
             Ok(ShapeDecl {
                 name: name.clone(),

@@ -34,6 +34,7 @@ mod map;
 mod midi;
 mod module_events;
 mod module_rust;
+mod module_rust_declared;
 mod modules;
 pub mod native;
 pub mod picker;
@@ -63,6 +64,7 @@ pub use logic::{apple_linked, rust_entry, web_linked, web_rust_mode};
 pub use manifest::{Activity, Manifest, Widget};
 pub use map::{plan_digest, SourceMap};
 pub use module_rust::module_rust;
+pub use module_rust_declared::module_rust_declared;
 pub use resolve::Origin;
 pub use rust::rust;
 pub use sources::{

@@ -162,12 +162,22 @@ pub fn reply(name: &str, outcome: &Outcome) -> Result<Json, ModuleError> {
     };
     let json: Json = serde_json::from_slice(body)
         .map_err(|e| unsupported(format!("the reply is not JSON: {e}")))?;
-    match json
+    // `{"error": code}`, with a `message` beside it or not, as TypeScript's
+    // binding reads it.
+    let error = json
         .as_object()
-        .filter(|o| o.len() == 1)
-        .and_then(|o| o.get("error")?.as_str())
-    {
-        Some(code) => Err(ModuleError::new(code, format!("{name}: {code}"))),
+        .filter(|o| o.keys().all(|k| k == "error" || k == "message"))
+        .and_then(|o| {
+            Some((
+                o.get("error")?.as_str()?,
+                o.get("message").and_then(Json::as_str),
+            ))
+        });
+    match error {
+        Some((code, message)) => Err(ModuleError::new(
+            code,
+            message.map_or_else(|| format!("{name}: {code}"), str::to_owned),
+        )),
         None => Ok(json),
     }
 }
@@ -178,4 +188,40 @@ pub fn malformed(name: &str, why: String) -> ModuleError {
         "NotSupportedError",
         format!("{name}: the reply is not its shape: {why}"),
     )
+}
+
+/// The most bytes one call carries: base64 makes them 4/3, inside the native
+/// request's 4 MiB (LLP 1133.006 D8 item 1).
+pub const MAX_CALL_BYTES: usize = 2 * 1024 * 1024;
+
+/// Bytes as the wire carries them, `{"$bytes": base64}`; `DataError` past
+/// [`MAX_CALL_BYTES`], naming the path form.
+pub fn bytes(name: &str, value: &[u8]) -> Result<Json, ModuleError> {
+    if value.len() > MAX_CALL_BYTES {
+        return Err(ModuleError::new(
+            "DataError",
+            format!(
+                "{name}: {} bytes is more than the {MAX_CALL_BYTES} a call carries; write them to an app:/ file and pass its path",
+                value.len()
+            ),
+        ));
+    }
+    Ok(serde_json::json!({ "$bytes": crate::envelope::base64(value) }))
+}
+
+/// An `app:/` path as the wire carries it, `{"$path": …}`: the runner admits
+/// it under the source's `fs.read`, and the host hands the implementation
+/// the file (LLP 1133.006 D8 item 3).
+pub fn path(value: &str) -> Json {
+    serde_json::json!({ "$path": value })
+}
+
+/// The place a call of a sequence takes (LLP 1133.006 D2): `args` gains
+/// `$sequence`, so the implementation supersedes an earlier call of it that
+/// has not landed.
+pub fn sequence(args: &mut Json, counter: &std::sync::atomic::AtomicU64) {
+    let seq = counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    if let Some(o) = args.as_object_mut() {
+        o.insert("$sequence".into(), serde_json::json!({ "seq": seq }));
+    }
 }

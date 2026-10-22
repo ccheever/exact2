@@ -1,0 +1,17 @@
+{
+  "kind": "interface",
+  "name": "@fixture/tray",
+  "version": "1.0.0",
+  "substitute": "implementation",
+  "shapes": {
+    "TrayItem": {
+      "record": "string",
+      "of": "string | bytes | path",
+      "keys": { "text/plain": "string", "application/octet-stream": "bytes | path" }
+    }
+  },
+  "names": [
+    { "send": "put", "params": { "items": "TrayItem[]" }, "answers": null, "origin": "person", "sequence": "put" },
+    { "send": "putText", "params": { "text": "string" }, "answers": null, "origin": "person", "sequence": "put" }
+  ]
+}

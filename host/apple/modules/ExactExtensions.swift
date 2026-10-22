@@ -15,6 +15,13 @@
 // [AnyHashable: Any]`, the `userInfo` entry for content whose opening
 // raises one (or opens the location given) through the host's delegate.
 //
+// The build also writes `exactExtensionAdmission`, each extension's JSON of
+// what the runner admits its sends by (LLP 1133.006 D8 items 3 and 4):
+// `person`, the names only a person's origin may call, and `substitute`,
+// whether it answers under the agent too. The roster carries it to the host.
+// A path the runner admitted reaches the implementation as `{"$file": …}`,
+// the file the host resolved it to (NativeModule.swift).
+//
 // A request naming `extension` is the runner's call of one of its names
 // (`{"extension", "source"|"send", "args"}`), its release of a live source
 // (`{"extension", "release"}`), or data code's synchronous form (`{"extension",

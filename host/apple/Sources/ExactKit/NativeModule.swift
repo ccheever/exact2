@@ -107,6 +107,9 @@ private final class NativeTable {
     var heldStacks = false
     /// The modules' extensions the artifact composes (LLP 1133.001 D4).
     var extensions: [String] = []
+    /// What the runner admits each extension's sends by (LLP 1133.006 D8
+    /// items 3 and 4): `person`, `substitute`; an older module says nothing.
+    var admission: [String: [String: Any]] = [:]
     /// The module reads `app.onLine` through the host table's `on_line`
     /// (its roster's `facts`); an older module reads only the app facts.
     var asksOnLine = false
@@ -194,7 +197,9 @@ private final class NativeTable {
         // can take (LLP 1075.003.000.001 §4.3); an older module names none.
         let hatches = roster.removeValue(forKey: "hatches")
         let hatchWords = (hatches?["words"] as? [String]).map(Set.init)
-        let extensions = roster.removeValue(forKey: "extensions")?["names"] as? [String] ?? []
+        let extensionsEntry = roster.removeValue(forKey: "extensions")
+        let extensions = extensionsEntry?["names"] as? [String] ?? []
+        let admission = extensionsEntry?["admission"] as? [String: [String: Any]] ?? [:]
         let asksOnLine = roster.removeValue(forKey: "facts")?["onLine"] as? String == "asks"
         guard let create = pointer(16), let view = pointer(24), let set = pointer(32), let destroy = pointer(48),
               let moduleCreate = pointer(72), let moduleDestroy = pointer(80), let moduleLater = pointer(88),
@@ -213,6 +218,7 @@ private final class NativeTable {
         loaded.hatchWords = hatchWords
         loaded.heldStacks = hatches?["heldStacks"] as? Bool == true
         loaded.extensions = extensions
+        loaded.admission = admission
         loaded.asksOnLine = asksOnLine
         loaded.agentInput = pointer(64).map { unsafeBitCast($0, to: SetFn.self) }
         loaded.focusTarget = size >= 120 ? pointer(112).map { unsafeBitCast($0, to: ViewFn.self) } : nil
@@ -650,19 +656,32 @@ final class NativeViews {
         _ = module(table)
         // Its extensions answer their names from now on, outside the agent;
         // under the agent the runner's substitute does (LLP 1124 D7), unless
-        // the drive binds one (`--bind`).
-        let bound = ExactEnv.agentMode ? table.extensions.filter(ExactEnv.agentBind.contains) : table.extensions
+        // the drive binds one (`--bind`) or the implementation is its own
+        // substitute (LLP 1133.006 D8 item 4). Each goes with what the runner
+        // admits its sends by, as JSON after its name.
+        let substitutes = { (name: String) in table.admission[name]?["substitute"] as? Bool == true }
+        let bound = ExactEnv.agentMode ? table.extensions.filter { ExactEnv.agentBind.contains($0) || substitutes($0) } : table.extensions
         if !bound.isEmpty, let session {
-            session.runtime.bindExtensions(bound)
+            session.runtime.bindExtensions(bound.map { name in
+                guard let admission = table.admission[name], let json = try? JSONSerialization.data(withJSONObject: admission) else { return name }
+                return name + " " + String(decoding: json, as: UTF8.self)
+            })
         }
     }
 
     /// A long call, on the main thread: the artifact loads, the instance is
     /// made if need be, and the module takes the call (Q5).
-    fileprivate func later(_ body: Data, reply: UnsafeMutableRawPointer?) {
+    fileprivate func later(_ request: Data, reply: UnsafeMutableRawPointer?) {
         let refuse = { (message: String) in
             let bytes = Array(message.utf8)
             bytes.withUnsafeBufferPointer { exact_app_reply(reply, 503, $0.baseAddress, $0.count) }
+        }
+        // An admitted `app:/` path, as the file it names (ModulePaths.swift).
+        let body: Data
+        switch ModulePaths.resolve(request, roots: session?.appFileRoots ?? [:]) {
+        case .body(let resolved): body = resolved
+        case .answer(let answer):
+            return [UInt8](answer).withUnsafeBufferPointer { exact_app_reply(reply, 200, $0.baseAddress, $0.count) }
         }
         let table: NativeTable
         switch self.table() {

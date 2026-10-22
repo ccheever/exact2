@@ -1016,8 +1016,17 @@ export function appleImplementations(app, target) {
       return {key,keys:[...keys].sort()};
     }).filter(p=>p.keys.length);
     const events=(i.declaration.names ?? []).some(n=>n.event);
-    return [{extension,module:'ExactPkg_'+extension.replace(/\W/g,'_'),className:impl.json.class,sources:files.map(f=>resolve(impl.dir,f)),plist,events}];
+    return [{extension,module:'ExactPkg_'+extension.replace(/\W/g,'_'),className:impl.json.class,sources:files.map(f=>resolve(impl.dir,f)),plist,events,admission:moduleAdmission(i.declaration)}];
   });
+}
+
+/** What the runner admits a bound implementation's sends by (LLP 1133.006
+ * D8 items 3 and 4), from its interface: `person`, the names a call whose
+ * origin is not a person's may not make (D6); `substitute`, true when the
+ * implementation answers under the agent too, told it is substituting. */
+export function moduleAdmission(declaration) {
+  const person=(declaration.names ?? []).filter(n=>n.origin==='person').map(n=>n.send ?? n.source);
+  return { person, substitute: declaration.substitute==='implementation' };
 }
 
 /** The Kotlin implementations bound for Android (LLP 1133.001 D4) of the interfaces the app names: each extension,
@@ -1042,16 +1051,22 @@ export function webImplementations(app) {
   return out;
 }
 
-/** A declaration's type (`option<number>`, `enum<a|b>`, `T[]`) as TypeScript's. */
+/** A declaration's type (`option<number>`, `enum<a|b>`, `T[]`, `a | b`) as
+ * TypeScript's. `bytes` is an `ArrayBuffer` or a view of one, and `path` an
+ * `app:/` path, a string (LLP 1133.006 D8 item 1). */
 function moduleType(t, inList=false) {
   t=String(t).trim();
   if (t.endsWith('[]')) return moduleType(t.slice(0,-2),true)+'[]';
   let m, union;
   if ((m=/^option<(.*)>$/.exec(t))) union=moduleType(m[1])+' | null';
   else if ((m=/^enum<(.*)>$/.exec(t))) union=m[1].split('|').map(s=>JSON.stringify(s.trim())).join(' | ');
-  else return {number:'number',string:'string',bool:'boolean','strings-key':'string'}[t] ?? t;
+  else if (t.includes('|')) union=[...new Set(t.split('|').map(s=>moduleType(s)))].join(' | ');
+  else return {number:'number',string:'string',bool:'boolean','strings-key':'string',path:'string',bytes:'ArrayBuffer | ArrayBufferView'}[t] ?? t;
   return inList ? '('+union+')' : union;
 }
+
+/** Whether a declared shape is a record keyed by string (`{"record": "string", "of": …}`), which the binding makes a class. */
+const keyedRecord=(fields)=>fields?.record==='string' && typeof fields.of==='string';
 
 /** The binding of one interface: its shapes, each name's options (a
  * platform's words under its key), and each name as a function. */
@@ -1060,13 +1075,17 @@ export function moduleBinding(name, declaration, implementations) {
   const shapes={...declaration.shapes};
   for (const i of implementations) Object.assign(shapes,i.shapes ?? {});
   for (const [shape,fields] of Object.entries(shapes)) {
+    if (keyedRecord(fields)) { lines.push(...recordClass(shape,fields)); continue; }
     lines.push(`export interface ${shape} {`, ...Object.entries(fields).map(([f,t])=>`  ${f}: ${moduleType(t)};`), '}');
   }
+  const sequences=new Set();
   const optional=(t)=>{ const m=/^option<(.*)>$/.exec(String(t).trim()); return m ? ['?',moduleType(m[1])] : ['',moduleType(t)]; };
   for (const entry of declaration.names ?? []) {
     // An event is the root's to hear, never data code's (LLP 1133.004 §11).
     if (entry.event) continue;
     const fn=entry.source ?? entry.send, type=fn[0].toUpperCase()+fn.slice(1)+'Options';
+    // Positional parameters (LLP 1133.006 D8 item 1): `write(items)`, no options record.
+    if (entry.params) { lines.push(...positional(extension,entry,shapes)); if (entry.sequence) sequences.add(entry.sequence); continue; }
     const fields=Object.entries(entry.options ?? {}).map(([f,t])=>{ const [q,ts]=optional(t); return `  ${f}${q}: ${ts};`; });
     for (const i of implementations) {
       const words=i.options?.[fn];
@@ -1083,6 +1102,7 @@ export function moduleBinding(name, declaration, implementations) {
     if (entry.sync?.name) lines.push(`export function ${entry.sync.name}(options: ${type}${required ? '' : ' = {}'}): ${moduleType(entry.answers)} {`,
       `  return callNow({ extension: ${JSON.stringify(extension)}, sync: ${JSON.stringify(entry.sync.name)}, args: options });`, '}');
   }
+  if (sequences.size || (declaration.names ?? []).some(n=>n.params)) lines.push(...encoding(sequences));
   lines.push(
     'function call(body: { extension: string; source?: string; send?: string; args: unknown }): Promise<any> {',
     '  const via = (globalThis as any).__exact_module;',
@@ -1109,6 +1129,125 @@ export function moduleBinding(name, declaration, implementations) {
     '  return D ? new D(message, name) : Object.assign(new Error(message), { name });',
     '}', '');
   return lines.join('\n');
+}
+
+/** A shape keyed by string as a class (LLP 1133.006 D8 item 1): the
+ * constructor takes the record, each value its data or a promise of it;
+ * `types` is its keys in order; the static `supports` answers from the
+ * declaration's `keys`. */
+function recordClass(shape, fields) {
+  const value=`${shape}Value`, keys=Object.keys(fields.keys ?? {});
+  return [
+    `export type ${value} = ${moduleType(fields.of)};`,
+    `export class ${shape} {`,
+    `  readonly items: Readonly<Record<string, ${value} | PromiseLike<${value}>>>;`,
+    `  constructor(items: Record<string, ${value} | PromiseLike<${value}>>) {`,
+    `    if (items === null || typeof items !== "object" || Array.isArray(items)) throw new TypeError("${shape}: its argument is a record of type to data");`,
+    // As Chrome's constructor refuses one: "Empty dictionary argument".
+    `    if (!Object.keys(items).length) throw new TypeError("${shape}: an empty record");`,
+    '    this.items = Object.freeze({ ...items });',
+    '  }',
+    '  get types(): string[] { return Object.keys(this.items); }',
+    `  static supports(type: string): boolean { return ${JSON.stringify(keys)}.includes(type); }`,
+    '}',
+  ];
+}
+
+/** A send with positional parameters: each parameter's data, a keyed
+ * record's promised values awaited, is encoded for the wire (bytes as
+ * base64, a path as `{"$path"}`, beside its key's declared type). A send in
+ * a `sequence` takes its place in it when called (LLP 1133.006 D2): one
+ * called later supersedes it until it is sent, so its promise rejects
+ * `AbortError`; the implementation supersedes one already sent by `seq`. */
+function positional(extension, entry, shapes) {
+  const fn=entry.send ?? entry.source, params=Object.entries(entry.params);
+  const answers=entry.answers===null || entry.answers===undefined ? 'void' : moduleType(entry.answers);
+  const types=JSON.stringify(Object.fromEntries(params.map(([p,t])=>[p,wireType(t,shapes)])));
+  const out=[`export function ${fn}(${params.map(([p,t])=>`${p}: ${moduleType(t)}`).join(', ')}): Promise<${answers}> {`];
+  out.push(entry.sequence ? `  const place = enter(${JSON.stringify(entry.sequence)});` : '  const place = null;');
+  out.push(`  let taken: Record<string, unknown>;`,
+    `  try { taken = take(${JSON.stringify(`${extension}.${fn}`)}, { ${params.map(([p])=>`${JSON.stringify(p)}: ${p}`).join(', ')} }, ${types}); }`,
+    '  catch (e) { return Promise.reject(e); }',
+    `  return settle(taken).then(args => {`,
+    `    if (place) { if (!place.current()) throw abort(${JSON.stringify(`${extension}.${fn}`)}); (args as any).$sequence = { seq: place.seq }; }`,
+    `    return call({ extension: ${JSON.stringify(extension)}, send: ${JSON.stringify(fn)}, args });`,
+    `  })${answers==='void' ? '.then(() => undefined)' : ''};`, '}');
+  return out;
+}
+
+/** A parameter's type as the encoder reads it: a keyed record by its keys' types. */
+function wireType(t, shapes) {
+  t=String(t).trim();
+  if (t.endsWith('[]')) return {list:wireType(t.slice(0,-2),shapes)};
+  if (/^option<(.*)>$/.test(t)) return wireType(/^option<(.*)>$/.exec(t)[1],shapes);
+  const shape=shapes[t];
+  if (keyedRecord(shape)) return {keys:shape.keys ?? {},of:shape.of};
+  return t;
+}
+
+/** The encoder and the sequences, shared by every positional send of the binding. */
+function encoding(sequences) {
+  return [
+    '// The most bytes one call carries: base64 makes them 4/3, inside the native request\'s 4 MiB (LLP 1133.006 D8).',
+    'const MAX_CALL_BYTES = 2 * 1024 * 1024;',
+    'const D = (globalThis as any).DOMException;',
+    'const fail = (message: string, name: string) => D ? new D(message, name) : Object.assign(new Error(message), { name });',
+    'const abort = (at: string) => fail(`${at}: a later call superseded it`, "AbortError");',
+    `const sequences: Record<string, number> = { ${[...sequences].map(s=>`${JSON.stringify(s)}: 0`).join(', ')} };`,
+    'function enter(name: string) { const seq = ++sequences[name]; return { seq, current: () => sequences[name] === seq }; }',
+    '/** A view\'s bytes copied now, so a later write to its buffer does not reach the call. */',
+    'function bytesOf(v: any): Uint8Array | null {',
+    '  if (v instanceof ArrayBuffer) return new Uint8Array(v.slice(0));',
+    '  if (ArrayBuffer.isView(v)) return new Uint8Array(v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength));',
+    '  return null;',
+    '}',
+    '/** Each value as the wire carries it, its promises kept for `settle`: bytes copied at the call. */',
+    'function take(at: string, value: any, type: any): any {',
+    '  if (type && typeof type === "object" && "list" in type) {',
+    '    if (!Array.isArray(value)) throw new TypeError(`${at}: expected an array`);',
+    '    return value.map((v: any) => take(at, v, type.list));',
+    '  }',
+    '  if (type && typeof type === "object" && "keys" in type) {',
+    '    const items = value?.items;',
+    '    if (!items || typeof items !== "object") throw new TypeError(`${at}: expected a record of type to data`);',
+    '    const out: Record<string, unknown> = {};',
+    '    for (const k of Object.keys(items)) out[k] = take(at, items[k], type.keys[k] ?? type.of);',
+    '    return out;',
+    '  }',
+    '  if (type && typeof type === "object") {',
+    '    const out: Record<string, unknown> = {};',
+    '    for (const k of Object.keys(type)) out[k] = take(at, value[k], type[k]);',
+    '    return out;',
+    '  }',
+    '  if (value && typeof value.then === "function") return Promise.resolve(value).then(v => take(at, v, type));',
+    '  return leaf(at, value, String(type));',
+    '}',
+    'function leaf(at: string, value: any, type: string): unknown {',
+    '  const kinds = type.split("|").map(s => s.trim());',
+    '  const bytes = bytesOf(value);',
+    '  if (bytes && kinds.includes("bytes")) {',
+    '    if (bytes.length > MAX_CALL_BYTES) throw fail(`${at}: ${bytes.length} bytes is more than the ${MAX_CALL_BYTES} a call carries; write them to an app:/ file and pass its path`, "DataError");',
+    '    let text = "";',
+    '    for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + 0x8000)));',
+    '    return { $bytes: btoa(text) };',
+    '  }',
+    '  if (typeof value === "string" && kinds.includes("path") && !kinds.includes("string")) return { $path: value };',
+    '  if (typeof value === "string" && (kinds.includes("string") || kinds.includes("strings-key"))) return value;',
+    '  if (typeof value === "number" && kinds.includes("number")) return value;',
+    '  if (typeof value === "boolean" && kinds.includes("bool")) return value;',
+    '  throw new TypeError(`${at}: ${value === null ? "null" : typeof value} is not ${type}`);',
+    '}',
+    '/** `value` with every promise it holds resolved. */',
+    'function settle(value: any): Promise<any> {',
+    '  if (value && typeof value.then === "function") return value.then(settle);',
+    '  if (Array.isArray(value)) return Promise.all(value.map(settle));',
+    '  if (value && typeof value === "object" && !("$bytes" in value) && !("$path" in value)) {',
+    '    const keys = Object.keys(value);',
+    '    return Promise.all(keys.map(k => settle(value[k]))).then(vs => Object.fromEntries(keys.map((k, i) => [k, vs[i]])));',
+    '  }',
+    '  return Promise.resolve(value);',
+    '}',
+  ];
 }
 
 /** A name that is not a source (`Result<'posted'>`, a mutation's slot) fails
