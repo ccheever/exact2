@@ -12,12 +12,20 @@ package struct LineBreakPlan {
     package var contentEnds: [Int] = []
     package var hardEnds: [Int] = []
     package var boundaryIndex = 0, hardIndex = 0
+    private var ordinary: [Int] = [], ordinaryContent: [Int] = []
+    private var ordinaryIndex = 0
 
-    package mutating func prepare(_ text: NSString, length: Int) {
+    package mutating func prepare(_ text: NSString, length: Int, emergency: [Int] = []) {
         (contentEnds, hardEnds) = TextEngine.breakEnds(text, boundaries: boundaries, length: length)
+        if !emergency.isEmpty {
+            let ends = Set(emergency.map { $0 + 1 })
+            ordinary = boundaries.filter { !ends.contains($0) }
+            ordinaryContent = TextEngine.breakEnds(text, boundaries: ordinary, length: length).0
+        }
     }
     package mutating func advance(to start: Int) {
         while boundaryIndex < boundaries.count && boundaries[boundaryIndex] <= start { boundaryIndex += 1 }
+        while ordinaryIndex < ordinary.count && ordinary[ordinaryIndex] <= start { ordinaryIndex += 1 }
         while hardIndex < hardEnds.count && hardEnds[hardIndex] <= start { hardIndex += 1 }
     }
     /// The line's length from `start` in `room`. No opportunities (an
@@ -38,6 +46,13 @@ package struct LineBreakPlan {
         // A forced break ends the line wherever the room is.
         let hard = (hardIndex < hardEnds.count ? hardEnds[hardIndex] : length) - start
         let fitted = min(CTTypesetterSuggestClusterBreak(typesetter, start, room), hard)
+        // UILabel keeps a whole word on its own line before using a syllable
+        // break inside it. Authored soft hyphens remain ordinary opportunities.
+        if !ordinary.isEmpty {
+            var i = ordinaryIndex
+            while i < ordinary.count && ordinary[i] - start <= hard && ordinaryContent[i] <= start + fitted { i += 1 }
+            if i > ordinaryIndex { return ordinary[i - 1] - start }
+        }
         return TextEngine.cssBreak(start: start, fitted: fitted, hard: hard, boundaries: boundaries, contentEnds: contentEnds,
                                    from: boundaryIndex, breakWord: breakWord, text: text)
     }
