@@ -1418,9 +1418,10 @@ const serve = async (req, res) => {
     // A build's nonce for the build channel: this loop's own, or, serving as
     // another loop's producers, that loop's, whose commands are relayed.
     const write = frame => res.write(`data: ${JSON.stringify(frame)}\n\n`);
-    // Listening for its close before the relay's hello, which takes a while.
+    // Its close heard before the relay's (slow) hello; ended once, by either close (Bun: a handed-off socket's req never closes).
     let gone = false, opened = null;
-    req.on('close', () => { gone = true; opened?.close(); });
+    const end = () => { if (gone) return; gone = true; opened?.close(); clients.delete(res); };
+    req.on('close', end); res.on('close', end);
     opened = tamber?.channel.open(write) ?? (servedAs != null ? await relayChannel(`http://127.0.0.1:${servedAs}`, write, 250, () => res.end()) : null);
     if (gone) { opened?.close(); return; }
     res.write(`data: ${hello(opened?.nonce)}\n\n`);
@@ -1430,7 +1431,6 @@ const serve = async (req, res) => {
     if (designSnapshot) res.write(`data: ${JSON.stringify(designNotice(designSnapshot))}\n\n`);
     clients.add(res);
     console.log(`page connected (${clients.size})`);
-    req.on('close', () => clients.delete(res));
     return;
   }
   if (url.pathname === '/__dev/reloaded') {
