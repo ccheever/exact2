@@ -786,3 +786,63 @@ fn an_app_vendored_packages_svg_is_its_packages() {
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Narrow re-check, Astra RE-1: an app-vendored package whose SVG isn't
+/// there yet still owns it: its manifest an input, its directory watched,
+/// listed in `watch.assets`, so making the SVG moves the digest.
+#[test]
+fn an_app_vendored_packages_missing_svg_is_still_watched() {
+    let dir = app("pkgicon-app-vendored-missing", APP);
+    let vendor = dir.join("vendor/reading");
+    std::fs::create_dir_all(vendor.join("assets")).unwrap();
+    std::fs::write(
+        vendor.join("package.json"),
+        r#"{"name":"@acme/reading","version":"1.2.3","exports":{".":"./index.contract"}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        vendor.join("index.contract"),
+        "component Card\n  params\n    glyph: icon = \"icon(svg \\\"pin.svg\\\")\"\n  view\n    column\n      image \"symbol:param.glyph\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"./vendor/reading/index.contract\"\ncomponent App\n  view\n    column\n      Card()\n",
+    )
+    .unwrap();
+    let graph = contract::source_graph(&dir.join("app.contract"));
+    for wanted in [
+        "vendor/reading/package.json",
+        "vendor/reading/assets/pin.svg",
+    ] {
+        assert!(
+            graph.consulted.iter().any(|p| p.ends_with(wanted)),
+            "{wanted}: {:?}",
+            graph.consulted
+        );
+    }
+    let watched = |s: &mut Serve| {
+        let (hello, _) = s.ask(json!({"method": "hello", "paths": true}));
+        hello["ok"]["watch"].clone()
+    };
+    let mut s = Serve::start(&dir, &[]);
+    let before = watched(&mut s);
+    assert_eq!(
+        before["assets"][0]["file"], "@acme/reading/assets/",
+        "{before}"
+    );
+    assert!(
+        before["roots"].as_array().is_some_and(|r| r
+            .iter()
+            .any(|d| d.as_str().is_some_and(|d| d.ends_with("vendor/reading")))),
+        "{before}"
+    );
+    std::fs::write(vendor.join("assets/pin.svg"), shape(PACKAGE_STAR)).unwrap();
+    let after = watched(&mut s);
+    assert_ne!(
+        after["assets"][0]["assets"], before["assets"][0]["assets"],
+        "{after}"
+    );
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -59,18 +59,13 @@ pub(crate) fn assets(app: &AppParams, out: &mut Value, graph: &contract::SourceG
         .iter()
         .filter_map(|p| p.root.as_deref())
         .collect();
-    let mut others: Vec<(String, std::path::PathBuf)> = Vec::new();
-    for s in &graph.sources {
-        let contract::Origin::Package { name, root, .. } = &s.origin else {
-            continue;
-        };
-        let svg = s.path.starts_with(root.join("assets"));
-        let known = designed.iter().any(|d| std::path::Path::new(d) == root)
-            || others.iter().any(|(_, r)| r == root);
-        if svg && !known {
-            others.push((name.clone(), root.clone()));
-        }
-    }
+    // Each owner of an SVG, there or not (narrow re-check, RE-1).
+    let mut others: Vec<(String, std::path::PathBuf)> = graph
+        .owners
+        .iter()
+        .filter(|p| !designed.iter().any(|d| std::path::Path::new(d) == p.root))
+        .map(|p| (p.name.clone(), p.root.clone()))
+        .collect();
     others.sort();
     let listed: Vec<Value> = others
         .iter()
@@ -116,15 +111,9 @@ fn assets_under(graph: &contract::SourceGraph, root: &std::path::Path) -> String
 pub(crate) fn watched(app_contract: &std::path::Path, graph: &contract::SourceGraph) -> Value {
     // Each package resolved, and each directory a resolution looked for a package.json in and failed
     // past (an export or a manifest missing for now): mending it inside the directory is a change too.
-    // And each package an icon's SVG is owned by, one vendored in the app included (round 3, R3-3).
-    let owners = graph.sources.iter().filter_map(|s| match &s.origin {
-        contract::Origin::Package { root, .. }
-            if s.path.extension().is_some_and(|e| e == "svg") =>
-        {
-            Some(root.clone())
-        }
-        _ => None,
-    });
+    // And each package an icon's SVG is owned by, there or not, one vendored in the app included
+    // (round 3, R3-3; narrow re-check, RE-1).
+    let owners = graph.owners.iter().map(|p| p.root.clone());
     let mut roots: Vec<String> = graph
         .packages
         .iter()

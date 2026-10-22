@@ -474,6 +474,10 @@ pub struct SourceGraph {
     pub consulted: Vec<PathBuf>,
     /// The loader's refusals; empty when every source loaded and scoped.
     pub errors: Vec<CompileError>,
+    /// Each named package whose `assets/` an icon's SVG is read from (LLP
+    /// 1121 stage 13), the SVG there or not (one vendored in the app
+    /// included): what a watcher watches and digests for it.
+    pub owners: Vec<Package>,
 }
 
 pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
@@ -559,7 +563,7 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
     };
     // With its packages' tokens, which an app token may name (D11); a
     // package's SVG under its root, a source of the package (stage 13).
-    let icons: Vec<(PathBuf, Option<Origin>)> = text
+    let icons: Vec<(PathBuf, Option<Origin>, Option<Origin>)> = text
         .and_then(|text| exact_tamber::parse(&text).ok())
         .and_then(|d| contract_lower::with_package_designs(Some(d), &package_designs))
         .and_then(|mut d| {
@@ -593,18 +597,41 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
                     let path = home.svg(i.svg.as_ref()?)?;
                     // A package's link out of its `assets/` is refused by the build: its bytes are
                     // no source, but the link is looked at, so mending it rebuilds (round 1, Astra 4).
-                    let origin = (!home.leaves(&path)).then(|| origin(i).unwrap_or(Origin::App));
-                    Some((path, origin))
+                    let owner = origin(i);
+                    let origin =
+                        (!home.leaves(&path)).then(|| owner.clone().unwrap_or(Origin::App));
+                    Some((path, origin, owner))
                 })
                 .collect()
         })
         .unwrap_or_default();
     // One not there yet is looked for, as a hidden import is, so making it
     // rebuilds.
+    // Each package an SVG is read from owns it there or not (narrow re-check,
+    // Astra RE-1): its manifest an input, its directory watched.
+    let mut owners: Vec<Package> = Vec::new();
+    for (_, _, owner) in &icons {
+        if let Some(Origin::Package {
+            name,
+            version,
+            root,
+            manifest,
+        }) = owner
+        {
+            if !owners.iter().any(|p| p.root == *root) {
+                owners.push(Package {
+                    name: name.clone(),
+                    version: version.clone(),
+                    root: root.clone(),
+                    manifest: manifest.clone(),
+                });
+            }
+        }
+    }
     let (icons, missing): (Vec<_>, Vec<_>) = icons
         .into_iter()
-        .partition(|(p, o)| o.is_some() && p.is_file());
-    let missing = missing.into_iter().map(|(p, _)| p);
+        .partition(|(p, o, _)| o.is_some() && p.is_file());
+    let missing = missing.into_iter().map(|(p, ..)| p);
     sources.extend(design.map(|path| Source {
         path,
         origin: Origin::App,
@@ -616,7 +643,7 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
     // The files that say which components are the library's (LLP 1139 D0).
     let library = library::read(&loader.sources, app_root).read;
     let missing: Vec<PathBuf> = missing.into_iter().chain(unmade).collect();
-    sources.extend(icons.into_iter().filter_map(|(path, origin)| {
+    sources.extend(icons.into_iter().filter_map(|(path, origin, _)| {
         Some(Source {
             path,
             origin: origin?,
@@ -624,15 +651,7 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
     }));
     // A named package's manifest an icon's SVG is owned by (one vendored in
     // the app) is read for its name: an input (round 3, R3-3).
-    let manifests: Vec<PathBuf> = sources
-        .iter()
-        .filter_map(|s| match &s.origin {
-            Origin::Package { manifest, .. } if s.path.extension().is_some_and(|e| e == "svg") => {
-                Some(manifest.clone())
-            }
-            _ => None,
-        })
-        .collect();
+    let manifests: Vec<PathBuf> = owners.iter().map(|p| p.manifest.clone()).collect();
     let mut consulted: Vec<PathBuf> = loader
         .sources
         .consulted
@@ -650,6 +669,7 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         packages: loader.sources.packages,
         consulted,
         errors,
+        owners,
     }
 }
 
