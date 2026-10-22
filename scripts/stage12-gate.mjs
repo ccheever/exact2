@@ -932,7 +932,7 @@ export function readExact(host, exact, plans, app, drive = (plan, ids) => driveP
           Object.assign(o, { before: b, set: sv, removed: rv });
           if (!standsApart(b, r.want, r.kind, row)) o.why.push(`the set value ${r.want} is within the read's tolerance of the base ${JSON.stringify(b)}`);
           if (!matches(sv, r.want, r.kind, row)) o.why.push(`set ${JSON.stringify(sv)}, expected ${r.want}`);
-          if (!same(rv, b)) o.why.push(`removed ${JSON.stringify(rv)}, not back to ${JSON.stringify(b)}`);
+          if (!same(rv, b, r.kind)) o.why.push(`removed ${JSON.stringify(rv)}, not back to ${JSON.stringify(b)}`);
         } catch (e) { o.why.push(String(e?.message ?? e)); }
         o.ok = !o.why.length;
         o.why = o.why.join('; ');

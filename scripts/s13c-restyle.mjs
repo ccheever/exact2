@@ -211,7 +211,7 @@ const componentOfPath = token => {
 /** The packages' tokens from their designs: [{ name, kind }], `kind` a
  * length, a number or (no type) a colour. */
 export function packageTokens(root = ROOT) {
-  return PACKAGES.flatMap(p => [...readFileSync(join(root, 'packages', p, `${p}.tamber`), 'utf8').matchAll(/^\s+([a-z]+\.[\w-]+)(?::\s*([\w-]+))?\s*=/gm)]
+  return PACKAGES.flatMap(p => [...readFileSync(join(root, 'packages', p, `${p}.tamber`), 'utf8').matchAll(/^\s+([a-z][\w-]*(?:\.[\w-]+)+)(?::\s*([\w-]+))?\s*=/gm)]
     .map(m => ({ name: m[1], kind: m[2] ?? 'color' })));
 }
 
@@ -223,7 +223,7 @@ export function packageParams(root = ROOT) {
     const body = text.slice(text.indexOf(`component ${component}`));
     const params = body.slice(body.indexOf('params'), body.search(/\n  (props|slot|parts|view)\b/));
     // Every param, whatever its default: a token's name, or a literal.
-    return [...params.matchAll(/^\s{4}(\w+):\s*([\w-]+)\s*=\s*(?:"([^"]*)"|(\S+))/gm)].map(m => ({ full: `${c.source}#${component}.${m[1]}`, key: `${component}.${m[1]}`, kind: m[2], token: /^[a-z]+\.[\w-]+$/.test(m[3] ?? '') ? m[3] : null }));
+    return [...params.matchAll(/^\s{4}([\w-]+):\s*([\w-]+)\s*=\s*(?:"([^"]*)"|(\S+))/gm)].map(m => ({ full: `${c.source}#${component}.${m[1]}`, key: `${component}.${m[1]}`, kind: m[2], token: /^[a-z][\w-]*(?:\.[\w-]+)+$/.test(m[3] ?? '') ? m[3] : null }));
   });
 }
 
@@ -322,7 +322,8 @@ export function hexOf(v) {
 /** A gradient's first stop's colour (`linear-gradient(<angle>, <colour> 0%, …)`,
  * the angle optional), as `#rrggbbaa`, or null. */
 export function firstStop(v) {
-  const m = typeof v === 'string' && /^linear-gradient\((?:[^,()]+,\s*)?(#[0-9a-f]+|rgba?\([^)]*\))\s+0%/i.exec(v.trim());
+  // The prelude, when there is one, an angle or a side (`180deg`, `to bottom`).
+  const m = typeof v === 'string' && /^linear-gradient\((?:\s*(?:-?[\d.]+(?:deg|rad|grad|turn)|to(?:\s+[a-z]+)+)\s*,)?\s*(#[0-9a-f]+|rgba?\([^)]*\))\s+0%/i.exec(v.trim());
   return m ? hexOf(m[1]) : null;
 }
 
@@ -337,8 +338,9 @@ export function matches(v, want, kind, row = '') {
   return Math.abs(points(v) - want) <= (kind === 'number' ? 1e-3 : 0.01);
 }
 
-/** Whether two computed values are the same (a read back at its base). */
-export const same = (a, b) => (Number.isFinite(points(a)) && Number.isFinite(points(b)) ? Math.abs(points(a) - points(b)) <= 0.01 : JSON.stringify(a) === JSON.stringify(b));
+/** Whether two computed values are the same (a read back at its base), to
+ * the read's own tolerance: a number's as `matches` holds it, 1e-3. */
+export const same = (a, b, kind = 'length') => (Number.isFinite(points(a)) && Number.isFinite(points(b)) ? Math.abs(points(a) - points(b)) <= (kind === 'number' ? 1e-3 : 0.01) : JSON.stringify(a) === JSON.stringify(b));
 
 /** Whether set value `want` stands apart from base value `base` by more
  * than the read's tolerance (theme2 10:28 (1)): 2 pt for a length. */

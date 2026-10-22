@@ -2,12 +2,12 @@
 // diff and its allowlist, and that every line says WAITS-ON before its parts.
 import { expect, test } from 'bun:test';
 import { encodePng } from './png.mjs';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { ADOPTED, BEFORE_USES, RENDERED, STAGES, useStage, allowOf, beforeDrift, cloneConform, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE, readExact, mutationFails, MUTATION } from './stage12-gate.mjs';
-import { apart, caseReads, cases as exactCases, locate, matches, same } from './s13c-restyle.mjs';
+import { apart, caseReads, cases as exactCases, locate, matches, newTokens, packageParams, same } from './s13c-restyle.mjs';
 
 test('the command line', () => {
   expect(parse(['baseline', '--copy', '/c'])).toBe('baseline needs --copy and --out');
@@ -310,6 +310,10 @@ test('a read\'s node by path, and a value matched, kept and apart', () => {
   expect(matches('linear-gradient(180deg, #1a2b3cff 0%, #00000000 100%)', '#1a2b3c', 'color', 'background_image')
     && matches('linear-gradient(rgb(26, 43, 60) 0%, rgba(0, 0, 0, 0) 100%)', '#1a2b3c', 'color', 'background_image')).toBe(true);
   expect(matches('linear-gradient(180deg, #000000ff 0%, #1a2b3cff 100%)', '#1a2b3c', 'color', 'background_image')).toBe(false);
+  expect(matches('linear-gradient(#000000 0%, #1a2b3c 0%, transparent 100%)', '#1a2b3c', 'color', 'background_image')
+    || matches('linear-gradient(to bottom, #000000 0%, #1a2b3c 0%)', '#1a2b3c', 'color', 'background_image')).toBe(false);
+  expect(matches('linear-gradient(to bottom, #1a2b3c 0%, #000000 100%)', '#1a2b3c', 'color', 'background_image')).toBe(true);
+  expect(same(0.8, 0.805, 'number') || !same(0.8, 0.8004, 'number')).toBe(false);
   expect(matches('0.15', 0.15, 'number') && matches('301px', 301, 'length')).toBe(true);
   expect(same(16, '16px') && same('label', 'label') && !same(16, 18)).toBe(true);
   expect(apart(16, 304, 'length') && !apart(303, 304, 'length') && apart('label', '#1a2b3c', 'color') && !apart('#1a2b3cff', '#1a2b3c', 'color')).toBe(true);
@@ -352,3 +356,14 @@ test.skipIf(process.env.EXACT_GATE_DRIVES !== '1')('the mutation: a package\'s u
   const failed = mutationFails(mkdtempSync(join(tmpdir(), 'iosfix-s13c-mutation-')), 'linux');
   expect([...new Set(failed.map(r => `${r.key} ${r.row}`))]).toEqual([`${MUTATION.token} ${MUTATION.row}`]);
 }, 900_000);
+
+test('the inventory reads any legal token or param name: dotted more than once, hyphenated, a literal default', () => {
+  const root = mkdtempSync(join(tmpdir(), 'iosfix-s13c-inventory-'));
+  for (const pkg of ['lists', 'cards', 'actions']) cpSync(join(import.meta.dir, '..', 'packages', pkg), join(root, 'packages', pkg), { recursive: true });
+  const cards = join(root, 'packages/cards/cards.tamber'), row = join(root, 'packages/lists/list-row.contract');
+  writeFileSync(cards, `${readFileSync(cards, 'utf8').trimEnd()}\n  cards.header.frame: length = 37px\n  cards.extra-ink: color = #123456\n`);
+  writeFileSync(row, readFileSync(row, 'utf8').replace(/(\n  params\n)/, '$1    extra-tint: color = "lists.switch-on" control = "token"\n    literal: color = "#abcdef" control = "token"\n'));
+  expect(newTokens(root).filter(t => ['cards.header.frame', 'cards.extra-ink'].includes(t.name))).toEqual([{ name: 'cards.header.frame', kind: 'length' }, { name: 'cards.extra-ink', kind: 'color' }]);
+  const params = packageParams(root).filter(p => p.key.startsWith('ListRow.'));
+  expect(params.map(p => [p.key, p.token])).toEqual([['ListRow.extra-tint', 'lists.switch-on'], ['ListRow.literal', null], ['ListRow.tint', 'lists.symbol-tint']]);
+});
