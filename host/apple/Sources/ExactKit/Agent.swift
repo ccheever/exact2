@@ -953,7 +953,7 @@ public final class Agent {
     func waitForImages(until end: Date = Date(timeIntervalSinceNow: 3)) -> Int {
         var loading = session.rasters.loadingOnScreen
         while loading > 0 && Date() < end {
-            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
             loading = session.rasters.loadingOnScreen
         }
         AnimatedRasters.shared.evaluate()
