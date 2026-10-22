@@ -12,8 +12,10 @@ final class MenuRowPopoverMacTests: XCTestCase {
     private var windows: [NSWindow] = []
 
     /// An invoker (2) of `menu` (3: React, 10, opening `picker`, 4, a
-    /// popover of one button row, 6; More, 11, opening `more`, 5, a menu of
-    /// one row, 8): both menu-shaped, only `more` a menu.
+    /// popover of a heading, 7, and a button, 6; More, 11, opening `more`, 5,
+    /// a menu of one row, 8), and Grid, 31, opening `grid`, 30, a menu's
+    /// shape (one button row) with no role. The picker is no menu's shape, so
+    /// it is painted, not the Mac's menu of its rows (D3).
     private func fixture() -> Presenter {
         _ = NSApplication.shared
         let p = Presenter()
@@ -32,9 +34,16 @@ final class MenuRowPopoverMacTests: XCTestCase {
             ["op": "create", "id": 5, "kind": "view", "props": ["popover": "auto", "id": "more", "accessibilityRole": "menu"]],
             ["op": "create", "id": 6, "kind": "button", "props": [String: String]()], ["op": "create", "id": 16, "kind": "text", "props": ["text": "Thumbs up"]],
             ["op": "create", "id": 8, "kind": "button", "props": [String: String]()], ["op": "create", "id": 18, "kind": "text", "props": ["text": "Deep"]],
+            ["op": "create", "id": 20, "kind": "text", "props": ["text": "Add Reaction"]], ["op": "create", "id": 21, "kind": "text", "props": ["text": "More"]],
+            ["op": "children", "id": 10, "ids": [20]], ["op": "children", "id": 11, "ids": [21]],
             ["op": "children", "id": 6, "ids": [16]], ["op": "children", "id": 8, "ids": [18]],
-            ["op": "children", "id": 4, "ids": [6]], ["op": "children", "id": 5, "ids": [8]],
-            ["op": "children", "id": 1, "ids": [2, 3, 4, 5]], ["op": "children", "id": 3, "ids": [10, 11]],
+            ["op": "create", "id": 7, "kind": "text", "props": ["text": "Pick a reaction"]],
+            ["op": "children", "id": 4, "ids": [7, 6]], ["op": "children", "id": 5, "ids": [8]],
+            ["op": "create", "id": 30, "kind": "view", "props": ["popover": "auto", "id": "grid"]],
+            ["op": "create", "id": 31, "kind": "button", "props": ["popovertarget": "grid"]], ["op": "create", "id": 32, "kind": "button", "props": [String: String]()],
+            ["op": "create", "id": 33, "kind": "text", "props": ["text": "Grid"]], ["op": "create", "id": 34, "kind": "text", "props": ["text": "Cell"]],
+            ["op": "children", "id": 31, "ids": [33]], ["op": "children", "id": 32, "ids": [34]], ["op": "children", "id": 30, "ids": [32]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4, 5, 30]], ["op": "children", "id": 3, "ids": [10, 11, 31]],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 500, "h": 400],
             ["op": "frame", "id": 2, "x": 400, "y": 340, "w": 80, "h": 30],
@@ -62,7 +71,23 @@ final class MenuRowPopoverMacTests: XCTestCase {
         // submenu; one opening any other popover, menu-shaped or not, is an
         // item, which opens it as above.
         XCTAssertTrue(p.menus.submenu(of: try XCTUnwrap(p.views[11]), path: [menu]) === more, "a menu: a submenu")
-        XCTAssertNil(p.menus.submenu(of: try XCTUnwrap(p.views[10]), path: [menu]), "a popover that is no menu: an item")
+        XCTAssertNil(p.menus.submenu(of: try XCTUnwrap(p.views[31]), path: [menu]), "a menu's shape that is no menu: an item")
+    }
+
+    /// A row chosen in the native menu presses once the menu has closed:
+    /// its popover still opens from the menu's invoker.
+    func testARowChosenInTheNativeMenuOpensItsPopoverFromTheMenusInvoker() throws {
+        let p = fixture()
+        defer { p.menus.reset() }
+        let picker = try XCTUnwrap(p.views[4])
+        let menu = p.menus.menu(of: try XCTUnwrap(p.views[3]), from: p.views[2])
+        let react = try XCTUnwrap(menu.items.first { $0.title == "Add Reaction" }, "\(menu.items.map(\.title))")
+        XCTAssertNil(react.submenu, "a popover that is no menu: an item")
+        NSApp.sendAction(try XCTUnwrap(react.action), to: react.target, from: react)
+        let end = Date(timeIntervalSinceNow: 5)
+        while !p.menus.isOpen(picker) && Date() < end { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
+        XCTAssertTrue(p.menus.isOpen(picker), "the chosen row's popover opens")
+        XCTAssertEqual(p.menus.observation?["source"] as? Int, 2, "from the menu's invoker")
     }
 }
 #endif

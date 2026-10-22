@@ -1316,12 +1316,14 @@ bound, and an empty target is no target. `href`, `action` and swipe attributes
 remain refused. `-exact-enabled` transitions are not available.
 
 **Exact2's menu rule** (LLP 1021): a row of a menu (`popover role="menu"`)
-whose `popovertarget` names a popover that is no menu opens it as if by the
-menu's own invoker (the button that opened the menu, or the node its context
-menu opened on), as `showPopover(id, source=)` does: not nested in the menu, so
-it stays open as the menu closes on choose, beside where the menu came from. A
-row naming another menu opens its submenu, nested. The build notes each such
-row (`lower-menu-row-popover`).
+whose `popovertarget` (or `commandfor` with `command="show-popover"`) names a
+popover that is no menu opens it as if by the menu's own invoker (the button
+that opened the menu, or the node its context menu opened on), as
+`showPopover(id, source=)` does: not nested in the menu, so it stays open as the
+menu closes on choose, beside where the menu came from. Write that popover
+outside the menu: one written inside it is nested by where it is. A row naming
+another menu opens its submenu, nested. The build notes each such row it can
+see (literal ids, roles and actions: `lower-menu-row-popover`).
 
 On macOS, iOS and the web, an action can call `showModal(id)` or `close(id)`
 for a `dialog`. macOS and the web follow the invoker's modal focus path; iOS

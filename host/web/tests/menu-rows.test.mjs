@@ -19,25 +19,30 @@ const page = `<!doctype html>
 <button id="opener" popovertarget="menu">Message</button>
 <div id="menu" popover role="menu">
   <button id="react" popovertarget="picker">Add Reaction…</button>
+  <button id="commanded" commandfor="picker" command="show-popover">Pick (command)</button>
   <button id="more" popovertarget="submenu">More</button>
   <button id="close" popovertarget="menu" popovertargetaction="hide">Close</button>
 </div>
 <div id="submenu" popover role="menu"><button id="deep">Deep</button></div>
 <div id="picker" popover><button id="emoji">👍</button></div>
-<script src="/menu-rows.js"></script>
-<script>
+<script type="module">
+  import '/menu-rows.js';
   globalThis.exact.menuRows();
   window.pressed = [];
   document.getElementById('react').addEventListener('click', () => pressed.push('react'));
   window.open = () => ['menu', 'submenu', 'picker'].filter(id => document.getElementById(id).matches(':popover-open'));
+  // What opened each popover, as its beforetoggle says.
+  window.sources = {};
+  document.addEventListener('beforetoggle', e => { if (e.newState === 'open') sources[e.target.id] = e.source?.id ?? null; }, true);
   window.ready = true;
 </script>`;
 
 async function inChrome(test) {
   const server = createServer((req, res) => {
     if (req.url === '/') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(page); return; }
-    if (req.url !== '/menu-rows.js') { res.writeHead(404); res.end(); return; }
-    res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, 'menu-rows.js')));
+    const file = ['menu-rows.js', 'navigation.js', 'grant-admission.js'].find(name => req.url === '/' + name);
+    if (!file) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, file)));
   });
   await new Promise(ok => server.listen(0, '127.0.0.1', ok));
   const suite = await cdpBrowser({ args: ['--window-size=600,900'] }), { cdp } = suite;
@@ -53,34 +58,57 @@ async function inChrome(test) {
     const press = async id => {
       const at = await evaluate(`(() => { const r = document.getElementById(${JSON.stringify(id)}).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
       for (const type of ['mousePressed', 'mouseReleased']) await call('Input.dispatchMouseEvent', { type, button: 'left', clickCount: 1, ...at });
-      await evaluate('new Promise(r => setTimeout(r, 50))');
     };
-    await test(evaluate, press);
+    const enter = async id => {
+      await evaluate(`document.getElementById(${JSON.stringify(id)}).focus()`);
+      for (const type of ['keyDown', 'keyUp']) await call('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, ...(type === 'keyDown' ? { text: '\r' } : {}) });
+    };
+    // Until `expression` is `want` (the rule opens after the row's press, a task later).
+    const until = async (expression, want) => {
+      for (let i = 0; i < 100; i++) { if (JSON.stringify(await evaluate(expression)) === JSON.stringify(want)) return; await evaluate('new Promise(requestAnimationFrame)'); }
+      expect(await evaluate(expression)).toEqual(want);
+    };
+    await test(evaluate, press, until, enter);
   } finally {
     await suite.close();
     server.close();
   }
 }
 
-check('a menu row opens its popover from the menu\'s invoker, the menu closes and the popover stays', () => inChrome(async (evaluate, press) => {
+check('a menu row opens its popover from the menu\'s invoker, the menu closes and the popover stays', () => inChrome(async (evaluate, press, until) => {
   await press('opener');
-  expect(await evaluate('open()')).toEqual(['menu']);
+  await until('open()', ['menu']);
   await press('react');
+  await until('open()', ['picker']);
   expect(await evaluate('pressed')).toEqual(['react']);
-  expect(await evaluate('open()')).toEqual(['picker']);
-  expect(await evaluate(`document.getElementById('picker').exactOpener?.id`)).toBe('opener');
+  expect(await evaluate('sources.picker')).toBe('opener');
   // A press in the picker keeps it open: the menu, now closed, was never its ancestor.
   await press('emoji');
-  expect(await evaluate('open()')).toEqual(['picker']);
+  await until('open()', ['picker']);
 }), 60000);
 
-check('a submenu stays nested in its menu, and a row that hides the menu hides it', () => inChrome(async (evaluate, press) => {
+check('a commandfor row and a key\'s press take the rule too', () => inChrome(async (evaluate, press, until, enter) => {
   await press('opener');
+  await until('open()', ['menu']);
+  await press('commanded');
+  await until('open()', ['picker']);
+  expect(await evaluate('sources.picker')).toBe('opener');
+  await evaluate(`document.getElementById('picker').hidePopover()`);
+  await press('opener');
+  await until('open()', ['menu']);
+  await enter('react');
+  await until('open()', ['picker']);
+}), 60000);
+
+check('a submenu stays nested in its menu, and a row that hides the menu hides it', () => inChrome(async (evaluate, press, until) => {
+  await press('opener');
+  await until('open()', ['menu']);
   await press('more');
-  expect(await evaluate('open()')).toEqual(['menu', 'submenu']);
+  await until('open()', ['menu', 'submenu']);
   await evaluate(`document.getElementById('menu').hidePopover()`);
-  expect(await evaluate('open()')).toEqual([]);
+  await until('open()', []);
   await press('opener');
+  await until('open()', ['menu']);
   await press('close');
-  expect(await evaluate('open()')).toEqual([]);
+  await until('open()', []);
 }), 60000);
