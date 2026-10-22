@@ -1,6 +1,6 @@
 // T3Module's window ops (T3Module.swift routes them): the installed fonts, the
-// appearance, send shortcut and quit mode, Open in Finder's folder picker,
-// copying text, and the shell's menu for a link's click.
+// appearance, send shortcut and quit mode, Open in Finder's folder picker and
+// copying text.
 import Foundation
 import AppKit
 
@@ -28,13 +28,6 @@ extension T3Module {
                 self?.menus.pickFolder(startingAt: request["path"] as? String ?? "") { path in
                     reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": ["path": path ?? ""]])
                 }
-            }
-            return
-        }
-        if request["op"] as? String == "shellMenu" { // A link's `contextmenu` left its click (or ContextMenu key) to the shell (T3TextContextMenu)
-            DispatchQueue.main.async { [weak self] in
-                let shown = self?.textMenu.shellMenuForLastClick(href: request["href"] as? String ?? "") ?? false
-                reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": ["shown": shown]])
             }
             return
         }

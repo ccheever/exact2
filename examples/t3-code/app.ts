@@ -38,6 +38,7 @@ import { usagePage, usageKeys, plotWidth } from './src/usage/pages-usage';
 import { pagesSource } from './src/pages/pages-sources';
 import { ariaChord } from './src/shell/keyboard-dispatch';
 import { snapshot, modelCatalog } from './src/client/presentation';
+import { chatLinkMenuView } from './src/timeline/external-link-menu';
 import { noteComposerTyping } from './src/composer/composer-typing-guard';
 import { arr, obj, str, type Obj } from './src/client/domain';
 import { nativeFiles, type Native, type Files } from './src/client/protocol';
@@ -131,7 +132,8 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
     await keepAlivePrepare(client, native); migrationToast(client); // keep-alive.ts, local-lifecycle.ts: running threads stay live; "Restoring your threads…"
     await codexPrepare(client, native); // codex-setup-host.ts: the managed Codex setups' effects and loopback callbacks
     await activationPrepare(client, native); // desktop-activation.ts: `t3 app` waits until the primary is connected and loaded
-    return { ...snapshot(client, Number(args[0]) || 0, String(args[3] ?? '')), chatgptPlan: chatGptPlanSnapshot(client) }; // chatgpt-plan-view.ts: "Your ChatGPT plan is connected"
+    return { ...snapshot(client, Number(args[0]) || 0, String(args[3] ?? '')), chatgptPlan: chatGptPlanSnapshot(client), // chatgpt-plan-view.ts: "Your ChatGPT plan is connected"
+      linkMenu: chatLinkMenuView(client, native, storage) }; // a Markdown web link's menu rows (external-link-menu.ts)
   }
   if (source === 'threadFind') return native?.available ? threadFindTick(client, native, Number(args[1]) || 0, arr(args[2]).map(skill => ({ name: str(skill.name), displayName: str(skill.displayName) })), String(args[3] || '')) : threadFindView(client);
   if (source === 'composerBranches') return composerBranches(client, native, args[0] === true, String(args[1] || ''));
