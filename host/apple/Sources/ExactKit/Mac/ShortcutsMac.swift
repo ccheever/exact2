@@ -116,8 +116,13 @@ final class ShortcutMenu: NSMenu {
     // LLP 1021 §5.3: AppKit can insert these after the app installs its bar.
     // Keep its objects for restoration, suppressing presentation and equivalents.
     private var removalIDs = Set<String>()
-    fileprivate func removeStandardItems(_ ids: Set<String>) {
+    /// Runs after a write put off while the menu was open: the host's sync,
+    /// which hides again what a removal gave back and a command stands in for.
+    private var afterLateWrite: () -> Void = {}
+    fileprivate func removeStandardItems(_ ids: Set<String>, afterLateWrite: @escaping () -> Void) {
         removalIDs = ids
+        self.afterLateWrite = afterLateWrite
+        watchTracking()
         applyRemovals()
     }
     /// What each removed item was: hidden (a hidden alternate's chord), and
@@ -131,24 +136,77 @@ final class ShortcutMenu: NSMenu {
         super.insertItem(newItem, at: index)
         applyRemovals()
     }
+    // An open menu is a table AppKit lays out, and a plan batch can arrive
+    // inside that layout: a menu item's own view entering the menu's window
+    // can make it key (Help's search field), which posts the window facts.
+    // An item shown or hidden there inserts or deletes a row, and AppKit
+    // throws (`-[NSTableRowData insertRowsAtIndexes:withRowAnimation:]`).
+    // So a removal writes only what changes, and while the menu is open it
+    // writes on the next turn of the run loop, outside any layout.
+    private var tracking = false, writeScheduled = false
+    private var trackingObservers: [NSObjectProtocol] = []
+    private func watchTracking() {
+        guard trackingObservers.isEmpty else { return }
+        // The object is the menu bar for its menus, or a popped-up menu.
+        let center = NotificationCenter.default
+        trackingObservers = [(NSMenu.didBeginTrackingNotification, true), (NSMenu.didEndTrackingNotification, false)].map { name, begins in
+            center.addObserver(forName: name, object: nil, queue: nil) { [weak self] note in
+                guard let self, let root = note.object as? NSMenu,
+                      sequence(first: self as NSMenu, next: \.supermenu).contains(where: { $0 === root }) else { return }
+                self.tracking = begins
+            }
+        }
+    }
+    deinit { trackingObservers.forEach(NotificationCenter.default.removeObserver) }
     private func applyRemovals() {
         guard !removalIDs.isEmpty || !removed.isEmpty else { return }
-        for (item, hidden, hiddenEquivalent) in removed.reversed() {
-            item.isHidden = hidden
-            item.allowsKeyEquivalentWhenHidden = hiddenEquivalent
+        // Each item as it was before any removal: as saved for one removed
+        // now, as it is for any other.
+        var saved: [ObjectIdentifier: (Bool, Bool)] = [:]
+        for (item, hidden, hiddenEquivalent) in removed where saved[ObjectIdentifier(item)] == nil {
+            saved[ObjectIdentifier(item)] = (hidden, hiddenEquivalent)
         }
-        removed.removeAll(keepingCapacity: true)
+        let restored = { (item: NSMenuItem) in saved[ObjectIdentifier(item)] ?? (item.isHidden, item.allowsKeyEquivalentWhenHidden) }
+        var next: [(NSMenuItem, Bool, Bool)] = []
         // A hidden submenu's items keep their chords (AppKit), so a removed
         // submenu's go with it; the app's own commands stay.
         func remove(_ item: NSMenuItem) {
-            removed.append((item, item.isHidden, item.allowsKeyEquivalentWhenHidden))
-            item.allowsKeyEquivalentWhenHidden = false
-            item.isHidden = true
+            let (hidden, hiddenEquivalent) = restored(item)
+            next.append((item, hidden, hiddenEquivalent))
             for child in item.submenu?.items ?? [] where !(child.target is ShortcutHost) { remove(child) }
         }
-        for item in items where (!item.isHidden || item.allowsKeyEquivalentWhenHidden) && !(item.target is ShortcutHost) {
-            guard let id = Self.standardID(item), removalIDs.contains(id) else { continue }
+        for item in items where !(item.target is ShortcutHost) {
+            let (hidden, hiddenEquivalent) = restored(item)
+            guard !hidden || hiddenEquivalent, let id = Self.standardID(item), removalIDs.contains(id) else { continue }
             remove(item)
+        }
+        let kept = Set(next.map { ObjectIdentifier($0.0) })
+        let restores = removed.reversed().filter { item, hidden, hiddenEquivalent in
+            !kept.contains(ObjectIdentifier(item)) && (item.isHidden != hidden || item.allowsKeyEquivalentWhenHidden != hiddenEquivalent)
+        }
+        let removals = next.map(\.0).filter { !$0.isHidden || $0.allowsKeyEquivalentWhenHidden }
+        if (!restores.isEmpty || !removals.isEmpty) && tracking {
+            guard !writeScheduled else { return }
+            writeScheduled = true
+            RunLoop.main.perform(inModes: [.common]) { [weak self] in
+                guard let self else { return }
+                self.writeScheduled = false
+                let tracking = self.tracking
+                self.tracking = false
+                self.applyRemovals()
+                self.tracking = tracking
+                self.afterLateWrite()
+            }
+            return
+        }
+        removed = next
+        for (item, hidden, hiddenEquivalent) in restores {
+            if item.isHidden != hidden { item.isHidden = hidden }
+            if item.allowsKeyEquivalentWhenHidden != hiddenEquivalent { item.allowsKeyEquivalentWhenHidden = hiddenEquivalent }
+        }
+        for item in removals {
+            if item.allowsKeyEquivalentWhenHidden { item.allowsKeyEquivalentWhenHidden = false }
+            if !item.isHidden { item.isHidden = true }
         }
     }
     static func standardID(_ item: NSMenuItem) -> String? {
@@ -423,7 +481,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             place(navigation, in: navigationMenu, at: own.count)
         }
         for menu in [fileMenu, applicationMenu, navigationMenu, editMenu, viewMenu, windowMenu, helpMenu] {
-            (menu as? ShortcutMenu)?.removeStandardItems(removals)
+            (menu as? ShortcutMenu)?.removeStandardItems(removals) { [weak self] in self?.sync() }
         }
         // Go shows while it has an item to show, Back once `back` removed it.
         if let navigationMenu {
