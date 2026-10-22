@@ -4,9 +4,21 @@ import { test, expect } from 'bun:test';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
-import { Cdp, chromium, chromiumBuilds, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort } from './agent-launch.mjs';
+import { Cdp, chromium, chromiumBuilds, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort, pollUntil } from './agent-launch.mjs';
 import { PassThrough } from 'node:stream';
 import { placeReporter } from '../host/web/navigation.js';
+
+test('polling host I/O waits for a cold guest and bounds a hung guest', async () => {
+  let time = 0, reads = 0;
+  const clock = { now: () => time, pause: async ms => { time += ms; } };
+  const loaded = await pollUntil(() => ({ loading: time < 2500 }), value => !value.loading, clock);
+  expect(loaded.loading).toBe(false);
+  expect(time).toBe(2500);
+  time = 0;
+  const stuck = await pollUntil(() => ({ loading: true, read: ++reads }), value => !value.loading, { ...clock, bound: 100 });
+  expect(time).toBe(100);
+  expect(stuck).toEqual({ loading: true, read: 3 });
+});
 
 // The Region's format apart from the language (`exactTime().formatLocale`): unsaid, no host is told one and each
 // answers the locale; said, it reaches the native hosts' environment and the page, as the fourth place field.
