@@ -5,6 +5,24 @@ import AppKit
 /// a press, leaves the first responder where it is, as a click on a window's
 /// background does (LLP 1115.000 D7.1), and ends the reader's text selection.
 package final class PageScrollView: NSScrollView {
+    var visibleSizeChanged: (() -> Void)?
+    private var visibleSize = NSSize.zero
+    private var styleObserver: NSObjectProtocol?
+
+    package override init(frame: NSRect) {
+        super.init(frame: frame)
+        followScrollerStyle()
+        styleObserver = NotificationCenter.default.addObserver(forName: NSScroller.preferredScrollerStyleDidChangeNotification,
+            object: nil, queue: .main) { [weak self] _ in self?.followScrollerStyle() }
+    }
+    required init?(coder: NSCoder) { nil }
+
+    private func followScrollerStyle() {
+        let style: NSScroller.Style = ExactEnv.agentMode ? .overlay : NSScroller.preferredScrollerStyle
+        if scrollerStyle != style { invalidateDocumentFit(); scrollerStyle = style }
+        tile()
+    }
+
     private struct DocumentFit {
         let document: ObjectIdentifier
         let documentFrame: NSRect
@@ -24,7 +42,10 @@ package final class PageScrollView: NSScrollView {
     var pointerTracking: ((NSEvent) -> Void)?
     var lostKey: (() -> Void)?
     private var keyObserver: NSObjectProtocol?
-    deinit { if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) } }
+    deinit {
+        if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
+        if let styleObserver { NotificationCenter.default.removeObserver(styleObserver) }
+    }
     var modalAccessibilityChildren: (() -> [NSView]?)?
     /// The modal's elements, served as this view's children. A modal that
     /// is no element itself (an `aria-modal` box with no role) is served by
@@ -142,6 +163,11 @@ package final class PageScrollView: NSScrollView {
         super.tile()
         pinInsets()
         syncElasticity()
+        let size = contentView.bounds.size
+        if visibleSize != size {
+            visibleSize = size
+            visibleSizeChanged?()
+        }
     }
     /// A page that fits does not rubber-band.
     ///
