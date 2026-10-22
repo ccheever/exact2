@@ -9,7 +9,7 @@ import { sidebarSnapshot } from '../../src/sidebar/sidebar-view';
 import { sidebarCommand } from '../../src/sidebar/sidebar-commands';
 import { sidebarSession } from '../../src/sidebar/sidebar-state';
 import { keyboardDispatch, keyboardDispatchSource, favoriteEditor } from '../../src/shell/keyboard-dispatch';
-import { closeThreadTerminals, setCloseThreadTerminals } from '../../src/sidebar/worktree-cleanup';
+import { closeThreadTerminals, setCloseThreadTerminals } from '../../src/terminal/thread-terminal-cleanup';
 import { adoptShellPrefs, shellPrefs } from '../../src/shell/shell-prefs';
 import { hostKeyRows } from '../../src/shell/thread-keys';
 import { EnvironmentFleet } from '../../src/connections/settings-b-fleet';
@@ -70,15 +70,23 @@ describe('G5: Delete the worktree too?', () => {
     expect(requests[4]!.payload).toEqual({ cwd: '/repo' });
     expect(sidebarSession(client).dialog.kind).toBe('');
   });
-  test('Cancel keeps the worktree but still deletes the thread; the terminal hook runs before the delete', async () => {
+  test('Cancel keeps the worktree and awaits the replaced terminal hook before deleting the thread', async () => {
     const closed: string[] = [], previous = closeThreadTerminals;
-    setCloseThreadTerminals(async (_client, _native, threadId) => { closed.push(threadId); });
-    const { client, trace } = fake([shell('a', { worktreePath: '/repo/wt-a' })]);
-    await del(client, 'a');
-    await sidebarCommand(client, native, files, 'dialog-cancel', '', '');
-    expect(trace()).toEqual(['thread.delete']);
-    expect(closed).toEqual(['a']);
-    setCloseThreadTerminals(previous);
+    let release!: () => void, entered!: () => void;
+    const closing = new Promise<void>(resolve => { release = resolve; });
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    setCloseThreadTerminals(async (_client, _native, threadId) => { closed.push(threadId); entered(); await closing; });
+    try {
+      const { client, trace } = fake([shell('a', { worktreePath: '/repo/wt-a' })]);
+      await del(client, 'a');
+      const deletion = sidebarCommand(client, native, files, 'dialog-cancel', '', '');
+      await started;
+      expect(trace()).toEqual([]);
+      expect(closed).toEqual(['a']);
+      release();
+      await deletion;
+      expect(trace()).toEqual(['thread.delete']);
+    } finally { release(); setCloseThreadTerminals(previous); }
   });
   test('a shared worktree does not ask; its last thread does; a bulk delete asks once, after the first deletion', async () => {
     const single = fake([shell('a', { worktreePath: '/repo/wt' }), shell('b', { worktreePath: '/repo/wt' })]);
