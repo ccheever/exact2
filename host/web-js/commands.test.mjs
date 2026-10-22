@@ -9,6 +9,7 @@ test('relaunch reloads the browser document and keeps committed storage', async 
     if (path === '/navigation.js') return new Response(Bun.file(new URL('../web/navigation.js', import.meta.url)));
     if (path === '/prompt-glue.js') return new Response(Bun.file(new URL('../web/prompt-glue.js', import.meta.url)));
     if (path === '/alert-message.js') return new Response(Bun.file(new URL('../web/alert-message.js', import.meta.url)));
+    if (path === '/menu-rows.js') return new Response(Bun.file(new URL('../web/menu-rows.js', import.meta.url)));
     return new Response(`<button id="restart">Restart</button><output id="state"></output>
       <script type="module">
         import { commands } from '/commands.js';
@@ -49,6 +50,7 @@ test("a prompt's Return commits its field, then presses its action", async () =>
     if (path === '/navigation.js') return new Response(Bun.file(new URL('../web/navigation.js', import.meta.url)));
     if (path === '/prompt-glue.js') return new Response(Bun.file(new URL('../web/prompt-glue.js', import.meta.url)));
     if (path === '/alert-message.js') return new Response(Bun.file(new URL('../web/alert-message.js', import.meta.url)));
+    if (path === '/menu-rows.js') return new Response(Bun.file(new URL('../web/menu-rows.js', import.meta.url)));
     return new Response(`<dialog role="alertdialog" open><input id="name">
         <button id="delete" data-exact-on="press" data-destructive="true">Delete</button>
         <button id="save" data-exact-on="press" disabled>Save</button>

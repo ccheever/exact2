@@ -1488,7 +1488,7 @@ export function popoverCommand(method, id, source, say) {
   try { pop[method](method === "hidePopover" || !anchor ? undefined : { source: anchor }); }
   catch (e) { say(`${method} "${id}" refused: ${e.name}`); }
 }
-const popoverSources = new WeakMap();
+const popoverSources = new WeakMap(); /** What opened popover `pop` last (its `beforetoggle`'s source): a menu's invoker, for menu-rows.js. */ export const popoverSource = pop => popoverSources.get(pop) ?? null;
 globalThis.document?.addEventListener?.("beforetoggle", e => {
   if (e.target.hasAttribute("popover") && e.newState === "open") { popoverSources.set(e.target, e.source ?? null); e.target.toggleAttribute("data-exact-chooser", !!e.source?.checkVisibility() && e.target.getAttribute("role") === "alertdialog" && !e.target.querySelector(":scope > [data-exact-text], input")); } // a chooser (LLP 1021) its invoker opened, the invoker still shown: neutral.css draws it there, as a menu
 }, true);
