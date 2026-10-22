@@ -416,6 +416,36 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertTrue(refusal?.hasPrefix("unsupported: bar item") == true, "\(refusal ?? "nil")")
     }
 
+    /// LLP 1021 D3: only a menu-shaped popover is a bar item's pull-down. An
+    /// item opening any other popover (Harmony's pins and members) is a plain
+    /// item whose tap opens the popover itself, lifted and anchored under the
+    /// item, as a native button in the page opens one; a second tap closes it.
+    func testABarItemOpeningAPopoverThatIsNoMenuOpensItFromTheItem() throws {
+        let session = try fixture("bar-popover", module: false)
+        let agent = Agent(session: session)
+        XCTAssertNil(agent.tap(["id": Int(try node(session, "open-plain").id)])["error"])
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        until("the plain route is pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
+        let plain = try XCTUnwrap(nav.topViewController)
+        let about = try XCTUnwrap(plain.navigationItem.rightBarButtonItems?.first { $0.accessibilityLabel == "About" }, "the invoker is an item")
+        XCTAssertNil(about.menu, "no pull-down: its popover is no menu")
+        XCTAssertNotNil(about.action)
+        let pop = try node(session, "plain-about")
+        try tap(about)
+        until("the popover opens") { session.presenter.menus.isOpen(pop) && pop.window != nil && !pop.isHidden }
+        let bar = nav.navigationBar.convert(nav.navigationBar.bounds, to: nil)
+        let frame = pop.convert(pop.bounds, to: nil)
+        XCTAssertGreaterThan(frame.minY, bar.minY, "from the item in the bar: \(frame) \(bar)")
+        XCTAssertLessThan(frame.minY, bar.maxY + 20, "beside the item, not centred on the page: \(frame)")
+        XCTAssertGreaterThan(frame.maxX, bar.midX, "on the item's side, the trailing one: \(frame)")
+        try tap(about)
+        until("a second tap closes it") { !session.presenter.menus.isOpen(pop) }
+        // The agent's tap on its button lands the same way.
+        let invoker = try node(session, "about-plain")
+        XCTAssertEqual(session.presenter.navigation.activateChrome(invoker)?["popover"] as? String, "lifted")
+        until("the agent's tap opens it") { session.presenter.menus.isOpen(pop) }
+    }
+
     /// LLP 1075.003 §9.6: a header's `input type="search"` is the item's
     /// search controller; what the reader types is the field's `input`.
     func testAHeaderSearchFieldIsTheItemsSearchControllerAndTypingIsItsInput() throws {

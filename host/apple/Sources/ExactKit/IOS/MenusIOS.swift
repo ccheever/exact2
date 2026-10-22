@@ -109,7 +109,7 @@ final class MenuHost {
     private(set) lazy var sheets = DialogSheets(presenter: presenter!)
 
     private func isDialog(_ node: NodeView) -> Bool { node.props["semanticTag"] == "dialog" }
-    private func isConfirmation(_ node: NodeView) -> Bool {
+    func isConfirmation(_ node: NodeView) -> Bool {
         isDialog(node) || node.props["accessibilityRole"] == "alertdialog"
     }
     /// The `id` of what `source` invokes, as HTML resolves it (`Invocation`).
@@ -284,6 +284,12 @@ final class MenuHost {
         // opens a popover is its pull-down (`pullDown`), never this.
         let barModal = !eligible(source) && eligible(source, inBar: true)
             && presenter?.invocation(of: source)?.action == .showModal
+        // A bar item's popover that is no menu (one with a press of its own;
+        // without one the bar opens it, `openFromBar`).
+        if !eligible(source), let invocation = presenter?.invocation(of: source), invocation.opensPopover, !pullsDown(invocation.target) {
+            _ = openFromBar(source)
+            return
+        }
         guard custom || source.isNativeButton || barModal || closesPresentedContent(source), barModal || eligible(source),
               let invocation = presenter?.invocation(of: source), let name = invocation.target.props["id"] else { return }
         let pop = invocation.target, action = invocation.action
@@ -764,7 +770,7 @@ final class MenuHost {
     }
     /// Out of the top layer, hidden, back where it was; the popovers nested
     /// in it first, as hiding a popover hides those above it in the stack.
-    private func drop(_ name: String) {
+    func drop(_ name: String) {
         for (nested, entry) in agentOpen where entry.ancestor == name { drop(nested) }
         guard let entry = agentOpen.removeValue(forKey: name) else { return }
         coverClosed()
@@ -839,7 +845,7 @@ final class MenuHost {
         }
         #endif
     }
-    private func agentShow(_ pop: NodeView, named name: String, from row: UInt32?) {
+    func agentShow(_ pop: NodeView, named name: String, from row: UInt32?) {
         layOut(pop)
         guard let presenter, live(pop) else { return }
         // A row of an open menu opens a popover that is no menu as the menu's own invoker would (LLP 1021's menu rule).
@@ -883,27 +889,6 @@ final class MenuHost {
             return false
         }
         agentShow(pop, named: name, from: node.id)
-        return true
-    }
-    /// Under the agent's painted popovers and UIKit's bars (`--chrome
-    /// platform`), the tap of a bar item whose button opens a menu: what a
-    /// finger opens is UIKit's pull-down, which no public API opens, so its
-    /// popover opens painted under the bar, as a content invoker's does, and
-    /// `tap <row>` presses a row as the pull-down's action does (LLP
-    /// 1116.020 D6). A confirmation it names presents as the pull-down's
-    /// provider presents it. Nil when the agent shows UIKit's menus instead
-    /// (`--touch platform`: a real touch opens them); false when it opens
-    /// nothing now.
-    func agentOpen(barItem node: NodeView) -> Bool? {
-        guard ExactEnv.agentPaints, let presenter else { return nil }
-        guard eligible(node, inBar: true), let invocation = presenter.invocation(of: node), invocation.opens else { return false }
-        let target = invocation.target
-        if isConfirmation(target) {
-            return openConfirmation(from: nil, popover: target, modal: invocation.action == .showModal, dispatchPress: false)
-        }
-        guard let name = target.props["id"] else { return false }
-        lightDismiss(node)
-        if agentOpen[name] == nil { agentShow(target, named: name, from: node.id) } else { drop(name) }
         return true
     }
     /// Whether a tap on `node` goes through the agent's painted popovers —
@@ -1186,7 +1171,7 @@ final class MenuHost {
     /// `anchorItem`: with no `source`, what UIKit says a popover presents from
     /// (`UIMenuLeaf.presentationSourceItem`), such as the button whose menu
     /// held the row that asked.
-    private func openConfirmation(from source: NodeView?, popover pop: NodeView, modal: Bool, anchorItem: AnyObject? = nil,
+    func openConfirmation(from source: NodeView?, popover pop: NodeView, modal: Bool, anchorItem: AnyObject? = nil,
                                   dispatchPress: Bool = true, announce: Bool = true, restoring: [PromptField.Snapshot] = []) -> Bool {
         var modal = modal
         // Both invoker actions fire, as on the web: the source's press first
