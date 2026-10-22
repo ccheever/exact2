@@ -92,7 +92,13 @@ fn a_popover_keeps_only_a_sticky_its_author_wrote() {
         "the neutral route header's start is sticky"
     );
     let below = |k: &Kernel| k.node(2).unwrap().frame.height;
-    let sticks = |k: &Kernel| k.sticky_constraint(k.node(2).unwrap().key).is_some();
+    // A constraint, and a place among the sticky nodes a host is sent.
+    let sticks = |k: &Kernel| {
+        let key = k.node(2).unwrap().key;
+        let listed = k.sticky_nodes().contains(&key);
+        assert_eq!(k.sticky_constraint(key).is_some(), listed);
+        listed
+    };
     assert_eq!(
         k.node(3).unwrap().frame.y,
         below(&k),

@@ -116,9 +116,10 @@ impl<'a> NodeRef<'a> {
         self.arena.looks(self.slot)
     }
 
-    /// How the node is positioned for layout: its authored `position`, but
-    /// absolute in the top layer (an open or closed popover, unless sticky).
-    /// A host's layout-side read goes through this, not `style.position_type`.
+    /// How the node is positioned for layout: its `position`, but absolute in
+    /// the top layer (an open or closed popover, unless its author wrote
+    /// `sticky`). A host's layout-side read goes through this, not
+    /// `style.position_type`.
     pub fn layout_position(&self) -> crate::PositionType {
         crate::style::top_layer::layout_position(self.arena, self.slot)
     }
