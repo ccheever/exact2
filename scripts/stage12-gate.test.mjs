@@ -6,7 +6,7 @@ import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { ADOPTED, BEFORE_USES, RENDERED, STAGES, useStage, allowOf, beforeDrift, cloneConform, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE, readExact, mutationFails, MUTATION, drivePlan, s13cPlan } from './stage12-gate.mjs';
+import { ADOPTED, BEFORE_USES, RENDERED, STAGES, useStage, allowOf, beforeDrift, cloneConform, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE, readExact, mutationFails, MUTATION, drivePlan, s13cPlan, renderedComponents } from './stage12-gate.mjs';
 import { apart, caseReads, cases as exactCases, inspectDrive, locate, matches, newTokens, packageParams, same } from './s13c-restyle.mjs';
 
 test('the command line', () => {
@@ -395,4 +395,15 @@ test('a shot scrolled past the top mark takes the viewport from the unscrolled s
   // The mark on screen is read where it is, never the calibration (here: not found, so it fails).
   const unscrolled = { viewport: { w: 100, h: 200 }, nodes: [{ testId: 'gate-top', x: 0, y: 0, w: 40, h: 12 }] };
   expect(() => viewportTop(img, unscrolled, 37)).toThrow(/top mark/);
+});
+
+test('the components a shot shows, by each shown node\'s source map', () => {
+  const node = (file, component, y = 10) => ({ x: 0, y, w: 10, h: 10, sourceMap: { status: 'compatible', file, component } });
+  const out = JSON.stringify({ viewport: { w: 100, h: 100 }, nodes: [
+    node('/c/node_modules/@exact/lists/list-row.contract', 'ListRow'),
+    node('/sdk/packages/lists/switch-row.contract', 'SwitchRow__switch_row'),
+    node('/c/node_modules/@exact/actions/bar-item.contract', 'BarItem', 500), // off screen
+    node('/c/settings.contract', 'NavRow'),
+  ] });
+  expect(renderedComponents(`noise\n${out}\n`).sort()).toEqual(['@exact/lists/list-row.contract#ListRow', '@exact/lists/switch-row.contract#SwitchRow']);
 });

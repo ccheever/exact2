@@ -183,10 +183,25 @@ function driveScreens(copy, host, dir, env) {
       const said = refused.length ? `the fixture refused: ${refused.join(', ')}` : r.ok ? '' : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300);
       const allow = r.ok ? allowOf(screen, r.out) : [];
       const shown = r.ok ? renderedIds(r.out) : null;
-      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null && shown !== null, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], shown: shown ?? [], said: allow === null ? `no layout for ${ALLOW[screen].target}` : shown === null ? 'no layout' : said });
+      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null && shown !== null, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], shown: shown ?? [], components: r.ok ? renderedComponents(r.out) : [], said: allow === null ? `no layout for ${ALLOW[screen].target}` : shown === null ? 'no layout' : said });
     }
   }
   return rows;
+}
+
+/** The library components a drive's whole layout shows, by the source map
+ * each shown node carries (its declaring file and component): one a
+ * package's file declares, as `@exact/<package>/<file>#<Component>`. */
+export function renderedComponents(out) {
+  const line = out.split('\n').filter(l => l.startsWith('{') && l.includes('"nodes"') && l.includes('"viewport"')).at(-1);
+  if (!line) return [];
+  const layout = JSON.parse(line);
+  const ids = layout.nodes.filter(n => shown(n, layout.viewport)).map(n => {
+    // A package's file, in the checkout's packages/ or a copy's node_modules/@exact/.
+    const m = /\/(?:packages|node_modules\/@exact)\/([\w-]+)\/([\w-]+)\.contract$/.exec(n.sourceMap?.file ?? '');
+    return m && n.sourceMap.component ? `@exact/${m[1]}/${m[2]}.contract#${String(n.sourceMap.component).replace(new RegExp(`__${m[2].replace(/\W/g, '_')}$`), '')}` : null;
+  });
+  return [...new Set(ids.filter(Boolean))];
 }
 
 /** What a baseline was taken on (LLP 1139 §5: commit, OS, device). */
@@ -466,14 +481,24 @@ export function consumerPixels(opts) {
   const unseen = RENDERED.filter(([, is]) => ![...seen('after')].some(is)).map(([name]) => name);
   const shownEarly = RENDERED.filter(([name]) => name !== 'PostButton' && !BEFORE_USES.some(id => id.endsWith(`#${name}`)))
     .filter(([, is]) => [...seen('before')].some(is)).map(([name]) => name);
+  // And by the source map (theme2 23:03): each adopted component shown on
+  // some screen shot on every host, the screens that show it said; none of
+  // the stage's own shown before.
+  const onScreens = (side, host, id) => [...new Set(shots[side].shots.filter(x => x.host === host && (x.components ?? []).includes(id)).map(x => x.screen))];
+  const hosts = [...new Set(shots.after.shots.map(x => x.host))];
+  const byComponent = ADOPTED.map(id => ({ id, name: id.split('#')[1], per: Object.fromEntries(hosts.map(h => [h, onScreens('after', h, id)])) }));
+  const notShown = byComponent.flatMap(c => hosts.filter(h => !c.per[h].length).map(h => `${c.name} on ${h}`));
+  const shownBefore = ADOPTED.filter(id => !BEFORE_USES.includes(id)).filter(id => hosts.some(h => onScreens('before', h, id).length)).map(id => id.split('#')[1]);
   const p = shots.after.provenance;
   const evidence = [`before ${shots.before.provenance.copy.slice(0, 7)} (${BASELINE_TAG}, lock for the SDK), after ${p.copy.slice(0, 7)}, SDK ${p.exact2?.slice(0, 10)}: ${r.length} shots, ${r.length - bad.length} identical outside their allowlists`,
     ...bad.map(x => `  ${x.shot}: ${x.differ ?? x.said}${x.differ ? ' px' : ''}`),
     'the allowlist (LLP 1139 §5: at most 10% of a library component\'s box): the caret strip lies inside the composer\'s own field (compose-text, the app\'s) and the system keyboard\'s rect below the viewport (from the layout\'s keyboard inset), so neither covers a library component\'s box, by construction (allowOf)',
     `the adoption places ${ADOPTED.length} of ${ADOPTED.length} library components in its views (${ADOPTED.map(i => i.split('#')[1]).join(', ')}; the build's source map), before ${BEFORE_USES.length ? `only the earlier stage's (${BEFORE_USES.map(i => i.split('#')[1]).join(', ')})` : 'none'}`,
     `rendered on the screens shot: ${RENDERED.length - unseen.length} of ${RENDERED.length} (${RENDERED.map(([name]) => name).filter(n => !unseen.includes(n)).join(', ')})${unseen.length ? `; NOT shown: ${unseen.join(', ')}` : ''}${own.length ? `; the copy's own sources write a package's testId: ${own.join(', ')}` : ''}${shownEarly.length ? `; before already shows ${shownEarly.join(', ')}` : ''}`,
+    `shown on the screens shot, by each node's source map, every host: ${byComponent.length - new Set(notShown.map(x => x.split(' on ')[0])).size} of ${byComponent.length}${notShown.length ? `; NOT shown: ${notShown.join(', ')}` : ''}${shownBefore.length ? `; before already shows ${shownBefore.join(', ')}` : ''}`,
+    ...byComponent.map(c => { const all = [...new Set(Object.values(c.per).flat())]; const same = hosts.every(h => c.per[h].length === all.length); return `  ${c.name}: ${same ? all.join(', ') : hosts.map(h => `${h} ${c.per[h].join(', ') || 'none'}`).join('; ')}`; }),
     ...conformEvidence(conform)];
-  return bad.length || !r.length || !conformSame(conform) || unseen.length || own.length || shownEarly.length ? fail(...evidence) : pass(...evidence);
+  return bad.length || !r.length || !conformSame(conform) || unseen.length || own.length || shownEarly.length || notShown.length || shownBefore.length ? fail(...evidence) : pass(...evidence);
 }
 
 /** The library lines' required hosts (LLP 1139 §5): the web's JS target
@@ -920,6 +945,8 @@ export async function restyle(opts) {
 let EXACT = false;
 /** The release comparison's runs when a stage names them (`useStage`). */
 let RELEASE = null;
+/** A stage's own line headlines (`useStage`). */
+let TITLES = {};
 
 /** Stage 13 C's cases on `host` (theme2 10:28, 10:42): the runner's tree
  * of the base design names each read's node, by its instance's first
@@ -1248,6 +1275,9 @@ export const STAGES = {
     restyle: [...RESTYLE],
     // Stage 13 C's tokens and params, a batch a component (s13c-restyle.mjs).
     exact: true,
+    titles: {
+      'consumer-pixels': 'The clone\'s settings rows, profile header, composer frame, bottom bar items and header buttons come from @exact/lists, @exact/cards and @exact/actions (ListRow, SwitchRow, ProfileHeader, ComposeFrame, BarItem, HeaderButton; stage 12\'s four kept) with no visual change (conform clean; zero differing pixels outside the allowlist, web, iOS, macOS, Linux, light and dark)',
+    },
     // Release identity over the four pieces as they landed on main.
     release: { label: 'stage 13 C', runs: [['21a1a836b3', '21a1a836b3'], ['b821a5f4d0', '9aa14743f2'], ['f926a60524', '304de7b893'], ['ba2d017788', '4f29a65443']] },
   },
@@ -1259,13 +1289,14 @@ export function useStage(stage) {
   BASELINE_TAG = p.tag;
   EXACT = !!p.exact;
   RELEASE = p.release ?? null;
+  TITLES = p.titles ?? {};
   for (const [list, items] of [[ADOPTED, p.adopted], [BEFORE_USES, p.before], [SCREENS, p.screens], [RENDERED, p.rendered], [RESTYLE, p.restyle]]) list.splice(0, list.length, ...items);
   return p;
 }
 
 /** The gate's lines, in LLP 1139 §5's order. */
 export function lines(opts) {
-  return [
+  return withTitles([
     ['consumer-pixels', 'The clone\'s post card, AtCard, action row and Post button come from the two packages with no visual change (conform clean; zero differing pixels outside the allowlist, web, iOS, macOS, Linux, light and dark)', () => {
       if (!opts.baseline || !existsSync(join(opts.baseline, 'baseline.json'))) return waits('the baseline (`baseline --copy … --out …`, taken before the change)');
       if (!opts.copy || !opts.before) return waits('the clone copy\'s adoption (--copy) and its before (--before, the baseline\'s tag)');
@@ -1294,8 +1325,11 @@ export function lines(opts) {
       return r.ok && !forks.length ? pass(said) : fail(said, ...forks.slice(0, 5), ...(r.ok ? [] : [r.out.split('\n').filter(l => /error|\[/.test(l)).slice(0, 3).join(' / ').slice(0, 400)]));
     }],
     ['no-regressions', 'Release output unchanged for apps using no library component; conform clean; @exact/reading\'s users unchanged', () => noRegressions(opts)],
-  ];
+  ]);
 }
+
+/** A stage's own headline for a line where stage 12's names its components. */
+const withTitles = list => list.map(([name, title, fn]) => [name, TITLES[name] ?? title, fn]);
 
 export function parse(argv) {
   const opts = { mode: 'gate', stage: 's12', only: [], hosts: [], app: 'unsaid', out: null, copy: null, before: null, baseline: null, release: null, conformBase: null };
