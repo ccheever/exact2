@@ -14,13 +14,16 @@ test('a body whose client left mid-way through a TLS door settles as gone, at on
   let settled;
   const read = new Promise(ok => { settled = ok; });
   // (the door's shape: TLS accepts, HTTP parses, as tamber-remote.mjs's `secure`)
-  const http = createPlain(async req => { settled(await readBody(req, 1 << 20)); });
+  let observed;
+  const partial = new Promise(ok => { observed = ok; });
+  // (the client leaves once the server has some of its body: no timing guessed)
+  const http = createPlain(async req => { req.once('data', () => observed()); settled(await readBody(req, 1 << 20)); });
   const door = createTLS({ cert: cert.cert, key: cert.key }, socket => http.emit('connection', socket));
   await new Promise(ok => door.listen(0, '127.0.0.1', ok));
   try {
     const c = connect({ host: '127.0.0.1', port: door.address().port, rejectUnauthorized: false }, () => {
       c.write('POST /__tamber HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 100000\r\n\r\n{"partial":');
-      setTimeout(() => c.destroy(), 200);
+      partial.then(() => c.destroy());
     });
     c.on('error', () => {});
     const got = await Promise.race([read, new Promise(ok => setTimeout(() => ok('still waiting'), 3000))]);
