@@ -90,6 +90,7 @@ extension Presenter {
         for run in node.inlineText where inlineOwners[run.id]?.owner == node.id { inlineOwners.removeValue(forKey: run.id) }
         node.inlineText.removeAll()
         #if os(iOS)
+        node.updateContextGestures()
         textSelection.remove(node) // its text interaction and selection go with it
         #endif
     }
@@ -117,6 +118,9 @@ extension Presenter {
         node.invalidateText()
         node.updateInlineInteraction()
         node.updateTextAccessibility()
+        #if os(iOS)
+        node.updateContextGestures()
+        #endif
         #if os(macOS)
         // Its `href` runs' pointing hand (`resetCursorRects`).
         if hadLinks || rows.contains(where: \.isLink) { node.window?.invalidateCursorRects(for: node) }
