@@ -16,8 +16,10 @@ use exact_plan::BindingsRow;
 
 /// Words the web targets write as `data-<word>` on their elements:
 /// explicit DOM markers and props without a DOM name, whose fallback is
-/// `data-<the prop's name, lowercased>`. The host element and JS-target row
-/// tests check their emitted names.
+/// `data-<the prop's name, lowercased>`. `host/web`'s element tests and
+/// `host/web-js`'s row tests check the names their Rust writers emit; the
+/// markers the JS glue writes (`agent.js`, `modes.js`, `gpu-refusal.js`)
+/// and the render host's `audio-session` are kept here by hand.
 const HOST_WORDS: [&str; 114] = [
     "accept",
     "accessibilitybusy",
