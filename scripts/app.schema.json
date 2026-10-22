@@ -805,6 +805,11 @@
         "check": {
           "type": "object",
           "properties": {
+            "interval": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Seconds between foreground update checks; defaults to 900 under every activation policy."
+            },
             "background": {
               "type": "boolean"
             }

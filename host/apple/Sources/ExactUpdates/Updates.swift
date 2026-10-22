@@ -8,6 +8,11 @@
 import ExactKit
 import CExact
 import Foundation
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 enum Updates {
     static var completed: ((String) -> Void)?
@@ -105,13 +110,12 @@ public final class ExactUpdates: ExactAppLifecycle {
     private var preparationRetry: DispatchWorkItem?
     /// `deploy.activate` is `immediate` (build.mjs writes it into Info.plist).
     private let immediate = Bundle.main.object(forInfoDictionaryKey: "ExactUpdateActivate") as? String == "immediate"
-    private var interval: Timer?
+    private lazy var checks = ForegroundUpdateChecks(
+        interval: Bundle.main.object(forInfoDictionaryKey: "ExactUpdateCheckInterval") as? TimeInterval,
+        immediate: immediate, check: { [weak self] in self?.check(quietly: true) },
+        activate: { [weak self] in self?.activate() })
     private var observers: [NSObjectProtocol] = []
     public private(set) var status: String?
-
-    /// How often an `immediate` app checks while it is in the foreground: a
-    /// head is a few hundred bytes, and the app's owner is waiting on a fix.
-    static let foregroundInterval: TimeInterval = 2
 
     @discardableResult
     public static func install(on app: ExactApp) -> ExactUpdates {
@@ -131,34 +135,32 @@ public final class ExactUpdates: ExactAppLifecycle {
         }
         Updates.completed = { [weak self] line in
             guard let self else { return }
-            // An `immediate` app checks every two seconds: say each outcome once.
+            // Repeated automatic checks report each outcome once.
             if !self.immediate || (line != self.status && line != "current") { FileHandle.standardError.write(Data("exact update: \(line)\n".utf8)) }
             self.status = line
             self.app?.refreshDelivery()
-            if self.immediate && line.hasPrefix("staged") { self.activate() }
+            self.checks.completed(line)
         }
     }
 
-    /// The `immediate` policy's checks: on becoming active, and on an
-    /// interval until resigning. The names are AppKit's and UIKit's, so this
-    /// target links neither.
+    /// Discovery runs under every activation policy, only while active.
     private func watchForeground() {
         let center = NotificationCenter.default
         for name in ["NSApplicationDidBecomeActiveNotification", "UIApplicationDidBecomeActiveNotification"] {
-            observers.append(center.addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in self?.foreground(true) })
+            observers.append(center.addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in self?.checks.foreground(true) })
         }
         for name in ["NSApplicationDidResignActiveNotification", "UIApplicationWillResignActiveNotification"] {
-            observers.append(center.addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in self?.foreground(false) })
+            observers.append(center.addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in self?.checks.foreground(false) })
         }
-        foreground(true)
+        #if os(macOS)
+        checks.foreground(NSApplication.shared.isActive)
+        #else
+        checks.foreground(UIApplication.shared.applicationState == .active)
+        #endif
     }
 
-    private func foreground(_ active: Bool) {
-        interval?.invalidate()
-        interval = nil
-        guard active else { return }
-        check(quietly: true)
-        interval = Timer.scheduledTimer(withTimeInterval: Self.foregroundInterval, repeats: true) { [weak self] _ in self?.check(quietly: true) }
+    deinit {
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
     }
 
     private func generation(_ selection: Updates.Selection, app: ExactApp) throws -> ExactGeneration {
@@ -206,8 +208,7 @@ public final class ExactUpdates: ExactAppLifecycle {
         guard !firstPixelSeen else { return }
         firstPixelSeen = true
         if ExactEnv.agentMode, ExactEnv.environment["EXACT_UPDATE_ORIGIN"] == nil { return }
-        if immediate { watchForeground(); return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.check() }
+        watchForeground()
     }
 
     public func check() { check(quietly: false) }
@@ -242,4 +243,66 @@ public final class ExactUpdates: ExactAppLifecycle {
         default: return false
         }
     }
+}
+
+/// Discovery cadence is independent of whether a staged generation may activate.
+final class ForegroundUpdateChecks {
+    static let defaultInterval: TimeInterval = 15 * 60
+    let interval: TimeInterval
+    private let immediate: Bool
+    private let check: () -> Void
+    private let activate: () -> Void
+    private let now: () -> TimeInterval
+    private let schedule: (TimeInterval, @escaping () -> Void) -> (() -> Void)
+    private var cancel: (() -> Void)?
+    private var active = false
+    private var staged = false
+    private var lastForegroundCheck: TimeInterval?
+
+    init(interval: TimeInterval?, immediate: Bool, check: @escaping () -> Void,
+         activate: @escaping () -> Void, now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         schedule: @escaping (TimeInterval, @escaping () -> Void) -> (() -> Void) = { interval, tick in
+             let timer = Timer(timeInterval: interval, repeats: true) { _ in tick() }
+             RunLoop.main.add(timer, forMode: .common)
+             return { timer.invalidate() }
+         }) {
+        self.interval = interval.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? Self.defaultInterval
+        self.immediate = immediate
+        self.check = check
+        self.activate = activate
+        self.now = now
+        self.schedule = schedule
+    }
+
+    func foreground(_ active: Bool) {
+        guard active != self.active else { return }
+        self.active = active
+        cancel?()
+        cancel = nil
+        guard active else { return }
+        let time = now()
+        if lastForegroundCheck.map({ time - $0 >= 60 }) ?? true {
+            lastForegroundCheck = time
+            check()
+        }
+        activateStaged()
+        cancel = schedule(interval) { [weak self] in
+            guard let self, self.active else { return }
+            self.check()
+        }
+    }
+
+    func completed(_ line: String) {
+        if line.hasPrefix("staged") { staged = true }
+        activateStaged()
+    }
+
+    private func activateStaged() {
+        if immediate && active && staged {
+            staged = false
+            activate()
+        }
+    }
+
+    deinit { cancel?() }
 }
