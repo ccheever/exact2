@@ -190,16 +190,17 @@ pub fn run(args: &[String]) -> ExitCode {
     };
     // Each SVG where the build reads it: under the assets of the root whose
     // file writes it (a package's under its root, stage 13), by its path there.
-    let mut svgs: Vec<(PathBuf, &str)> = folding
+    let mut svgs: Vec<(PathBuf, &str, Option<PathBuf>)> = folding
         .icons
         .iter()
         .filter_map(|i| {
             let svg = i.svg.as_deref()?;
             let at =
                 contract_lower::icons::Home::of(i, home.as_deref(), &app.packages, &app.tokens);
-            // A package's that leaves it is not copied, and is refused as the build refuses it.
-            // Read at the path checked (round 2, R2-3).
-            Some((at.resolve(&at.svg(svg)?)?, svg))
+            // A package's read as the build reads it (round 3, R3-4): one that leaves it is
+            // not copied, and is refused as the build refuses it.
+            let root = at.package.and(at.root).map(Path::to_path_buf);
+            Some((at.svg(svg)?, svg, root))
         })
         .collect();
     svgs.sort_unstable();
@@ -281,7 +282,7 @@ pub fn run(args: &[String]) -> ExitCode {
 #[allow(clippy::type_complexity)]
 fn admission(
     src: &str,
-    svgs: &[(PathBuf, &str)],
+    svgs: &[(PathBuf, &str, Option<PathBuf>)],
     app: Option<PathBuf>,
 ) -> Result<Vec<(Option<PathBuf>, u32, u32, String, String)>, String> {
     if let Some(app) = app {
@@ -315,17 +316,22 @@ fn admission(
         // its build reads them: each one it names copied there (one the app
         // lacks is not, and is refused as the build refuses it).
         .and_then(|()| {
-            for (from, svg) in svgs {
-                if !from.is_file() {
-                    continue;
-                }
+            for (from, svg, package) in svgs {
+                let bytes = match package {
+                    Some(root) => match contract_lower::icons::read_confined(from, root) {
+                        Ok(bytes) => bytes,
+                        Err(_) => continue,
+                    },
+                    None if from.is_file() => std::fs::read(from)?,
+                    None => continue,
+                };
                 let to = dir.join("assets").join(svg);
                 if let Some(parent) = to.parent() {
                     std::fs::create_dir_all(parent)?;
                 }
                 // Its bytes, in a file of the copy's own (a read-only
                 // source's permissions not carried over).
-                std::fs::write(to, std::fs::read(from)?)?;
+                std::fs::write(to, bytes)?;
             }
             Ok(())
         });

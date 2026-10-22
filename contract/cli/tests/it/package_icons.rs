@@ -717,3 +717,72 @@ fn a_contract_only_packages_svgs_are_watched() {
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Round 3, R3-3: a package vendored in the app and reached by a relative
+/// `use` owns its SVG in the graph (its origin, its manifest consulted) and
+/// on the local wire (`watch.assets`, its directory watched), so an edit of
+/// it moves its digest.
+#[test]
+fn an_app_vendored_packages_svg_is_its_packages() {
+    let dir = app("pkgicon-app-vendored", APP);
+    let vendor = dir.join("vendor/reading");
+    std::fs::create_dir_all(vendor.join("assets")).unwrap();
+    std::fs::write(
+        vendor.join("package.json"),
+        r#"{"name":"@acme/reading","version":"1.2.3","exports":{".":"./index.contract"}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        vendor.join("index.contract"),
+        "component Card\n  params\n    glyph: icon = \"icon(svg \\\"pin.svg\\\")\"\n  view\n    column\n      image \"symbol:param.glyph\"\n",
+    )
+    .unwrap();
+    std::fs::write(vendor.join("assets/pin.svg"), shape(PACKAGE_STAR)).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"./vendor/reading/index.contract\"\ncomponent App\n  view\n    column\n      Card()\n",
+    )
+    .unwrap();
+    let graph = contract::source_graph(&dir.join("app.contract"));
+    let pin = graph
+        .sources
+        .iter()
+        .find(|s| s.path.ends_with("vendor/reading/assets/pin.svg"))
+        .unwrap_or_else(|| panic!("{:?}", graph.sources));
+    assert!(
+        matches!(&pin.origin, contract::Origin::Package { name, version, .. } if name == "@acme/reading" && version == "1.2.3"),
+        "{pin:?}"
+    );
+    assert!(
+        graph
+            .consulted
+            .iter()
+            .any(|p| p.ends_with("vendor/reading/package.json")),
+        "{:?}",
+        graph.consulted
+    );
+    let watched = |s: &mut Serve| {
+        let (hello, _) = s.ask(json!({"method": "hello", "paths": true}));
+        hello["ok"]["watch"].clone()
+    };
+    let mut s = Serve::start(&dir, &[]);
+    let before = watched(&mut s);
+    assert_eq!(
+        before["assets"][0]["file"], "@acme/reading/assets/",
+        "{before}"
+    );
+    assert!(
+        before["roots"].as_array().is_some_and(|r| r
+            .iter()
+            .any(|d| d.as_str().is_some_and(|d| d.ends_with("vendor/reading")))),
+        "{before}"
+    );
+    std::fs::write(vendor.join("assets/pin.svg"), shape("M2 2h20v20H2Z")).unwrap();
+    let after = watched(&mut s);
+    assert_ne!(
+        after["assets"][0]["assets"], before["assets"][0]["assets"],
+        "{after}"
+    );
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}

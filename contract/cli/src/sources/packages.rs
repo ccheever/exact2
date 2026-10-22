@@ -70,6 +70,24 @@ pub(super) fn origin(package: &Package) -> Origin {
     }
 }
 
+/// The origin of a file of the named package `name` at `root` that no
+/// resolution reached as a package (one vendored in the app, reached by a
+/// relative `use`): its manifest's version, read where it is.
+pub(super) fn named(name: &str, root: &Path) -> Origin {
+    let manifest = root.join("package.json");
+    let version = std::fs::read_to_string(&manifest)
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|m| m["version"].as_str().map(str::to_string))
+        .unwrap_or_default();
+    Origin::Package {
+        name: name.to_string(),
+        version,
+        root: root.to_path_buf(),
+        manifest,
+    }
+}
+
 fn refusal(id: &str, path: &Path, message: String) -> CompileError {
     CompileError {
         pass: "use",
