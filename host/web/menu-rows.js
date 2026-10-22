@@ -9,13 +9,18 @@
 // source. Loaded after the first paint (glue.js), the JS target at boot.
 import { popoverSource } from "./navigation.js";
 
+/** HTML's built-in invoker commands. */
+const COMMANDS = ["show-popover", "hide-popover", "toggle-popover", "show-modal", "close", "request-close"];
+
 /** What `row` invokes, as HTML resolves it: the `commandfor` element when there is one (its `command` as written), else `popovertarget`'s, with what to do. */
 function invoked(row) {
   const commanded = document.getElementById(row.getAttribute("commandfor") || "");
   if (commanded) {
     const command = row.getAttribute("command") ?? "", lower = command.toLowerCase();
     const action = { "show-popover": "show", "hide-popover": "hide", "toggle-popover": "toggle" }[lower];
-    return { target: commanded, command: command.startsWith("--") ? command : lower, action: action && commanded.hasAttribute("popover") ? action : null };
+    // A command HTML doesn't know (not a built-in, not a custom `--` one) does nothing, with no event.
+    const known = command.startsWith("--") ? command : COMMANDS.includes(lower) ? lower : null;
+    return known === null ? null : { target: commanded, command: known, action: action && commanded.hasAttribute("popover") ? action : null };
   }
   const target = document.getElementById(row.getAttribute("popovertarget") || "");
   const action = (row.getAttribute("popovertargetaction") ?? "").toLowerCase();
