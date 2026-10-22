@@ -9,6 +9,10 @@ import XCTest
 ///   bun host/apple/build.mjs --test --ios
 final class PressFeedbackIOSTests: XCTestCase {
     private var window: UIWindow!
+    override func tearDown() {
+        window?.isHidden = true; window = nil
+        super.tearDown()
+    }
 
     private func fixture(style: [String: Any] = ["press_scale": 0.97], handlers: [String] = ["press"]) throws -> (Presenter, NodeView) {
         let p = Presenter()
@@ -208,8 +212,18 @@ final class PressFeedbackIOSTests: XCTestCase {
         // Whatever instant Core Animation presents, it is the box at some
         // factor about the origin — composed before the model, not after it.
         CATransaction.flush()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.03))
-        let presented = try XCTUnwrap(v.layer.presentation()).affineTransform()
+        func pressOnScreen() -> CGAffineTransform? {
+            // Earlier releases deliberately hold until the shortest flash ends.
+            guard CACurrentMediaTime() - v.press.start >= PressFeedback.unseen,
+                  let shown = v.layer.presentation()?.affineTransform() else { return nil }
+            let factor = hypot(shown.a, shown.b) / hypot(unpressed.a, unpressed.b)
+            return (0.5...0.99).contains(factor) ? shown : nil
+        }
+        let deadline = Date().addingTimeInterval(10)
+        while pressOnScreen() == nil, Date() < deadline {
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        let presented = try XCTUnwrap(pressOnScreen(), "the render server presented the press")
         let f = hypot(presented.a, presented.b) / hypot(unpressed.a, unpressed.b)
         let o = v.transformOriginPoint, d = CGPoint(x: o.x - v.bounds.midX, y: o.y - v.bounds.midY)
         let atF = CGAffineTransform(translationX: d.x, y: d.y).scaledBy(x: f, y: f).translatedBy(x: -d.x, y: -d.y).concatenating(unpressed)
@@ -217,12 +231,13 @@ final class PressFeedbackIOSTests: XCTestCase {
         XCTAssertEqual(presented.tx, atF.tx, accuracy: 1e-3, "Core Animation composes it as the model's, not after it")
         XCTAssertEqual(presented.ty, atF.ty, accuracy: 1e-3)
         // A release mid-ease starts from what shows: no jump.
-        let there = v.pressFactor
+        let pressing = v.press
         v.pressed = false
         XCTAssertEqual(v.transform, unpressed, "released: the model is the engine's alone")
         let back = try XCTUnwrap(v.layer.animation(forKey: "press") as? CABasicAnimation)
         let backFrom = CATransform3DGetAffineTransform(try XCTUnwrap(back.fromValue as? CATransform3D))
-        XCTAssertEqual(backFrom.a, there, accuracy: 1e-3, "the factor that showed at release")
+        XCTAssertEqual(backFrom.a, pressing.factor(at: v.press.start), accuracy: 1e-9,
+                       "the factor at the recorded release instant")
     }
 
     /// The render server's ease follows the box, and only the box: one that
