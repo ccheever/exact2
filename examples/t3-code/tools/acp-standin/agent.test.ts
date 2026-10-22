@@ -131,6 +131,28 @@ describe("the agent", () => {
     await child.exited;
   });
 
+  test("'Ask a question' asks one free-text question and names the attachments the server appended to its answer", async () => {
+    const { executable } = install(join(root, "home-ask"), { methods: "none" });
+    const shot = join(root, "ask-shot.png");
+    writeFileSync(shot, "png");
+    const child = Bun.spawn([executable], { stdin: "pipe", stdout: "pipe", env: {}, cwd: root });
+    const lines = child.stdout.pipeThrough(new TextDecoderStream()).getReader();
+    let buffered = "";
+    const next = async () => { for (;;) { const at = buffered.indexOf("\n"); if (at >= 0) { const line = buffered.slice(0, at); buffered = buffered.slice(at + 1); return JSON.parse(line); } buffered += (await lines.read()).value ?? ""; } };
+    const write = (message: object) => { child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`); child.stdin.flush(); };
+    write({ id: 1, method: "session/prompt", params: { sessionId: "s1", prompt: [{ type: "text", text: "<user_request>\nAsk a question\n</user_request>" }] } });
+    const asked = await next();
+    expect(asked).toMatchObject({ method: "elicitation/create", params: { sessionId: "s1", mode: "form", message: "Which window shows the problem?",
+      requestedSchema: { type: "object", properties: { answer: { type: "string" } } } } });
+    // userInputAttachments.ts appends one line per attachment, its name and its path on the server, both JSON strings.
+    const answer = `The settings window\n\nAttached image ${JSON.stringify("SnapShot.png")}: ${JSON.stringify(shot)}\nAttached image ${JSON.stringify("gone.png")}: ${JSON.stringify(join(root, "gone.png"))}`;
+    write({ id: asked.id, result: { action: "accept", content: { answer } } });
+    expect((await next()).params.update).toEqual({ sessionUpdate: "agent_message_chunk", content: { type: "text",
+      text: 'Stand-in reply: answer "The settings window" with 2 attachments: image SnapShot.png, image gone.png (missing)' } });
+    child.stdin.end();
+    await child.exited;
+  });
+
   test("'Read the thread <id>' thinks, then runs a t3_thread_read tool call on that id before the reply", async () => {
     const home = join(root, "home-read");
     const { executable } = install(home, { methods: "none" });
