@@ -11,7 +11,8 @@ export function framesAllowed(csp, ancestor, page) {
   const a = new URL(ancestor), self = new URL(page).origin;
   const lists = String(csp ?? '').split(',').map(policy => policy.split(';').map(d => d.trim().split(/\s+/)).find(([name]) => name?.toLowerCase() === 'frame-ancestors')?.slice(1)).filter(Boolean);
   for (const sources of lists) {
-    if (!sources.some(s => matches(s, a, self))) return { allowed: false, origins: sources.map(s => named(s, self)).filter(Boolean), portFixes: sources.some(s => portFixes(s, self)) };
+    // (A port fixes it only when it would satisfy every policy: one 'none' among them and no port does.)
+    if (!sources.some(s => matches(s, a, self))) return { allowed: false, origins: sources.map(s => named(s, self)).filter(Boolean), portFixes: lists.every(l => l.some(s => matches(s, a, self) || portFixes(s, self))) };
   }
   return { allowed: true, origins: [], portFixes: false };
 }
