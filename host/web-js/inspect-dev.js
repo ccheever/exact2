@@ -436,7 +436,10 @@ function setInspect(on, local = false) {
 // plan leaves them; an empty one, or `clear`, clears them.
 const marks = [];
 const resized = typeof ResizeObserver === "function" ? new ResizeObserver(() => place()) : null;
-function unmark() { resized?.disconnect(); for (const { mark } of marks.splice(0)) mark.remove(); }
+function unmark() { resized?.disconnect(); for (const { mark } of marks.splice(0)) mark.remove(); legend(0); }
+// The banner says what the dashed boxes are while they show (the second hands-on pass, #7): every copy of the
+// selection's source.
+const legend = (n) => { const t = inspecting.banner?.firstChild; if (t?.nodeType === 3) t.nodeValue = n > 0 ? `Inspecting: dashed boxes mark every copy of this source (${n}); click a view to select it` : "Inspecting: click a view to select it"; };
 function place() {
   for (const { mark, el } of marks) {
     const r = el.getBoundingClientRect();
@@ -460,6 +463,7 @@ function outlineSites(frame) {
     resized?.observe(el);
   }
   place();
+  legend(found.length);
 }
 
 /** An `inspect` or `outline` frame from the build channel. */
