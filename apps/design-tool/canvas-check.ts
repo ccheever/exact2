@@ -8,7 +8,10 @@ export async function canvasRefusal(api: string): Promise<{ refused: string }> {
     if (res.status !== 200) return { refused: '' };
     const c = (await res.json()) as { via?: unknown; allowed?: unknown; origins?: unknown };
     if (c.allowed !== false) return { refused: '' };
-    const origins = Array.isArray(c.origins) ? c.origins.map(String).join(' ') : '';
-    return { refused: `The dev loop at ${String(c.via ?? '')} lets only ${origins || 'no page'} frame its page, not this tool, so the canvas stays empty: start the loop with EXACT_TOOL_PORT=${new URL(api).port}.` };
+    // As the terminal says it (scripts/tamber-frame.mjs `refusalWords`): a port to set only when the page names a
+    // loopback tool; else the page's own policy, which no port changes.
+    const origins = Array.isArray(c.origins) ? c.origins.map(String) : [];
+    const head = `The dev loop at ${String(c.via ?? '')} ${origins.length ? `lets only ${origins.join(' ')} frame its page` : 'lets no page frame it'}, not this tool, so the canvas stays empty`;
+    return { refused: origins.some(o => /^http:\/\/127\.0\.0\.1:\d+$/.test(o)) ? `${head}: start the loop with EXACT_TOOL_PORT=${new URL(api).port}.` : `${head}: its page's own policy refuses framing, which no port changes.` };
   } catch { return { refused: '' }; }
 }

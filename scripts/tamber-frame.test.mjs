@@ -29,6 +29,17 @@ test('frame-ancestors: the tool by its origin, another port, none, self, wildcar
   expect(allows('frame-ancestors https://127.0.0.1:17977')).toBe(false);
   // Directive names and keywords in any case.
   expect(allows(`FRAME-ANCESTORS 'SELF' ${TOOL.toUpperCase()}`)).toBe(true);
+  // An ancestor is its origin, path `/`: a longer path never matches; `/` does.
+  expect(allows(`frame-ancestors ${TOOL}/__tamber/tool/`)).toBe(false);
+  expect(allows(`frame-ancestors ${TOOL}/`)).toBe(true);
+  // No port: the URL's own default only; http allows https; 'self' upgrades to https on the default ports.
+  expect(allows('frame-ancestors http://example.test', 'https://example.test')).toBe(true);
+  expect(allows('frame-ancestors http://example.test', 'https://example.test:80')).toBe(false);
+  expect(allows("frame-ancestors 'self'", 'https://example.test', 'http://example.test')).toBe(true);
+  // A bracketed IPv6 literal isn't a CSP source (a browser ignores it): it allows nothing.
+  expect(allows('frame-ancestors http://[::1]:17977', 'http://[::1]:17977')).toBe(false);
+  // A refusal names origins, never a source's path.
+  expect(framesAllowed('frame-ancestors https://example.test/private/path', TOOL, PAGE).origins).toEqual(['https://example.test']);
   // Several policies (headers joined by commas): every one with the directive must allow; the most restrictive wins.
   expect(allows(`frame-ancestors ${TOOL}, frame-ancestors 'none'`)).toBe(false);
   expect(allows(`frame-ancestors ${TOOL}, default-src 'self'`)).toBe(true);
@@ -53,6 +64,9 @@ test('the canvas check: asked of the page, said once each time it starts refusin
     expect(allowed.allowed).toBe(true);
     ({ said } = canvasLine(allowed, TOOL, said));
     expect(said).toBe('');
+    // A policy no port can satisfy ('none', another host): said as the page's own, with no port to set.
+    expect(canvasLine({ via, allowed: false, origins: [] }, TOOL, '').line).toBe(`tamber tool: the dev loop at ${via} lets no page frame it, not this tool (${TOOL}), so the canvas stays empty: its page's own policy refuses framing, which no port changes`);
+    expect(canvasLine({ via, allowed: false, origins: ['https://example.test'] }, TOOL, '').line).not.toContain('EXACT_TOOL_PORT');
     // A loop that doesn't answer: nothing to say.
     expect((await canvasCheck('http://127.0.0.1:9', TOOL)).allowed).toBe(true);
     // The tool's endpoint: its own page (no Origin, or its own; same-origin) and local; anything else not found.
