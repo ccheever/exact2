@@ -33,6 +33,77 @@ private final class OrientationUpdate: OrientationView {
 }
 
 final class CaptureOrientationMacTests: XCTestCase {
+    func testHeaderBesideScrollRows() throws {
+        _ = NSApplication.shared
+        let shell = OrientationView(frame: NSRect(x: 0, y: 0, width: 480, height: 112))
+        shell.wantsLayer = true
+        let root = OrientationView(frame: shell.bounds); shell.addSubview(root)
+        let header = OrientationInk(frame: NSRect(x: 0, y: 0, width: 120, height: 56))
+        root.addSubview(header)
+        let scroll = NSScrollView(frame: NSRect(x: 120, y: 0, width: 120, height: 112))
+        let document = OrientationView(frame: NSRect(x: 0, y: 0, width: 120, height: 224))
+        let first = OrientationInk(frame: NSRect(x: 0, y: 0, width: 120, height: 56))
+        let second = OrientationInk(frame: NSRect(x: 0, y: 56, width: 120, height: 56))
+        document.addSubview(first); document.addSubview(second)
+        scroll.documentView = document; root.addSubview(scroll)
+        let context = try XCTUnwrap(CGContext(data: nil, width: 120, height: 56, bitsPerComponent: 8, bytesPerRow: 480,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(NSColor.white.cgColor); context.fill(CGRect(x: 0, y: 0, width: 120, height: 56))
+        context.setFillColor(NSColor.red.cgColor); context.fill(CGRect(x: 0, y: 48, width: 20, height: 8))
+        context.setFillColor(NSColor.blue.cgColor); context.fill(CGRect(x: 0, y: 0, width: 20, height: 8))
+        let image = try XCTUnwrap(context.makeImage())
+        let train = NSImageView(frame: NSRect(x: 240, y: 0, width: 120, height: 56))
+        train.image = NSImage(cgImage: image, size: train.bounds.size); root.addSubview(train)
+        let direct = OrientationUpdate(frame: NSRect(x: 240, y: 56, width: 120, height: 56))
+        direct.image = image; root.addSubview(direct)
+        let field = NSTextField(frame: NSRect(x: 360, y: 0, width: 120, height: 56))
+        field.stringValue = "Palo Fg"; field.font = .systemFont(ofSize: 20)
+        root.addSubview(field)
+        let window = NSWindow(contentRect: shell.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = shell
+        defer { window.close() }
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(field)
+        let editor = try XCTUnwrap(field.currentEditor())
+        XCTAssertTrue(window.firstResponder === editor)
+        editor.selectedRange = NSRange(location: field.stringValue.count, length: 0)
+        shell.layoutSubtreeIfNeeded(); shell.displayIfNeeded(); CATransaction.flush()
+        func chain(_ view: NSView) -> String {
+            var views: [String] = [], layers: [String] = []
+            var v: NSView? = view
+            while let item = v {
+                views.append("\(type(of: item)):\(item.isFlipped)\(item === root ? "[capture]" : "")")
+                v = item.superview
+            }
+            var layer = view.layer
+            while let item = layer {
+                layers.append("\(type(of: item)):\(item.isGeometryFlipped)\(item === root.layer ? "[capture]" : "")")
+                layer = item.superlayer
+            }
+            return "views=\(views) layers=\(layers)"
+        }
+        for (name, view) in [("header", header), ("row", first), ("image", train), ("direct", direct), ("editor", editor)] {
+            print("MIXED CHAIN \(name) \(chain(view))")
+        }
+        let backing = try XCTUnwrap(root.layer)
+        let drawsBefore = [header.draws, first.draws, second.draws]
+        let copy = try XCTUnwrap(Capture.paintOrderBitmap(of: root, scale: 1))
+        let drawsAfterCopy = [header.draws, first.draws, second.draws]
+        let original = NSBitmapImageRep(cgImage: try XCTUnwrap(Capture.picture(of: backing, size: root.bounds.size, scale: 1)))
+        print("MIXED DRAWS before=\(drawsBefore) afterCopy=\(drawsAfterCopy) afterOriginal=\([header.draws, first.draws, second.draws])")
+        let cache = try XCTUnwrap(root.bitmapImageRepForCachingDisplay(in: root.bounds))
+        root.cacheDisplay(in: root.bounds, to: cache)
+        for (name, i) in [("header", 0), ("row1", 1), ("row2", 5), ("image", 2), ("direct", 6)] {
+            print("MIXED \(name) copy=\(marker(copy, i)) original=\(marker(original, i)) cache=\(marker(cache, i))")
+            XCTAssertEqual(marker(original, i), "upright", name)
+            XCTAssertEqual(marker(cache, i), "upright", name)
+        }
+        XCTExpectFailure("QUEUE 465: a header and scroll rows lose their backing-store orientation in a copied subtree") {
+            XCTAssertEqual([0, 1, 5, 2, 6].map { marker(copy, $0) }, [0, 1, 5, 2, 6].map { marker(cache, $0) })
+        }
+        try evidence([("mixed-copy", copy), ("mixed-original", original), ("mixed-cache", cache)])
+    }
+
     func testContentsAndLateDrawing() throws {
         _ = NSApplication.shared
         let shell = OrientationView(frame: NSRect(x: 0, y: 0, width: 480, height: 112))
