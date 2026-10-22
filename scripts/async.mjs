@@ -161,9 +161,9 @@ export function checks(sha, since, selection = {}) {
     // 1071 §4; Charlie, 2026-09-28): minutes and a network, so never blocking.
     ['conform', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--build', '--linux', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform')]],
     // `tree --ax` against Chrome's own tree (LLP 1080.002 §3), and the wasm
-    // host's presence preload played in Chrome, over this commit's Caltrain
-    // dists (a plan swapped in); a missing dist fails it.
-    ['web-ax-test', 'env', [...required, ...distEnv, 'bun', 'test', './host/web/tests/accessibility-tree.test.mjs', './host/web/tests/presence-preload.test.mjs']],
+    // host's presence preload and zero-viewport recovery, over this commit's
+    // Caltrain dists; a missing dist fails it.
+    ['web-ax-test', 'env', [...required, ...distEnv, 'bun', 'test', './host/web/tests/accessibility-tree.test.mjs', './host/web/tests/presence-preload.test.mjs', './host/web/tests/zero-viewport.test.mjs']],
     // The JS target in the other browser engines, with Chrome as its oracle.
     // These remain async-only; a missing Playwright browser is a named failure
     // whose log gives the exact outside-the-repo install command.
