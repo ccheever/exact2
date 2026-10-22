@@ -125,7 +125,11 @@ fn ec(state: &mut HostState, op: u32, a: &str, data: &[u8]) -> Result<String, St
 }
 
 /// The bytes door (`__exact_bytes(op, a, arrayBuffer)`). Ops: 1 digest(name);
-/// 2–7 ECDSA P-256 and kept keys ([`ec`]).
+/// 2–7 ECDSA P-256 and kept keys ([`ec`]); 8 LLP 1133.003 §9's stub decode,
+/// under the agent only, which copies the bytes at `a`'s offset and length
+/// and drops them; 9 the
+/// binary message being mapped, written into the buffer, which the prelude
+/// made its size.
 ///
 /// # Safety
 /// Called by the shim on the engine's thread with `ctx` the `HostState` the
@@ -140,6 +144,24 @@ pub(crate) unsafe extern "C" fn bytes_door(
 ) -> i32 {
     let state = &mut *(ctx as *mut HostState);
     let a = CStr::from_ptr(a).to_string_lossy();
+    // Op 9 writes: no shared slice of the buffer may live while it does.
+    // SAFETY: the shim hands over JSI's `ArrayBuffer::data`, the prelude's
+    // own buffer, writable and `len` long for this call.
+    if op == 9 {
+        let (status, text) = if len == state.binary.len() {
+            if len > 0 {
+                std::ptr::copy_nonoverlapping(state.binary.as_ptr(), bytes as *mut u8, len);
+            }
+            (0, String::new())
+        } else {
+            (
+                1,
+                "message: a buffer that is not the message's size".to_string(),
+            )
+        };
+        *out = c_string(&text);
+        return status;
+    }
     let data: &[u8] = if len == 0 {
         &[]
     } else {
@@ -148,6 +170,21 @@ pub(crate) unsafe extern "C" fn bytes_door(
     let reply = match op {
         1 => digest(&a, data),
         2..=7 => ec(state, op, &a, data),
+        8 if state.agent.is_none() => Err("decode: the gate's stub decode is the agent's".into()),
+        8 => {
+            let mut range = a.split(' ').map(str::parse::<usize>);
+            match (range.next(), range.next()) {
+                (Some(Ok(at)), Some(Ok(n)))
+                    if at.checked_add(n).is_some_and(|end| end <= data.len()) =>
+                {
+                    let chunk = data[at..at + n].to_vec();
+                    exact_runner::stream_timing::decoded(chunk.len());
+                    drop(chunk);
+                    Ok(String::new())
+                }
+                _ => Err("decode: a range outside the chunk's buffer".into()),
+            }
+        }
         other => Err(format!("__exact_bytes: no op {other}")),
     };
     let (status, text) = match reply {
@@ -171,5 +208,70 @@ mod tests {
         assert!(digest("SHA-1", b"")
             .unwrap_err()
             .starts_with("NotSupportedError"));
+    }
+
+    /// `(status, text)` of one bytes-door call on `state` with `buffer`.
+    fn call(state: &mut HostState, op: u32, a: &str, buffer: &mut [u8]) -> (i32, String) {
+        let a = std::ffi::CString::new(a).unwrap();
+        let mut out = std::ptr::null_mut();
+        // SAFETY: `state` and `buffer` outlive the call; `out` is the
+        // malloc'd string the door returns, freed below.
+        unsafe {
+            let ctx = state as *mut HostState as *mut c_void;
+            let status = bytes_door(
+                ctx,
+                op,
+                a.as_ptr(),
+                buffer.as_mut_ptr(),
+                buffer.len(),
+                &mut out,
+            );
+            let text = CStr::from_ptr(out).to_string_lossy().into_owned();
+            libc_free(out as *mut c_void);
+            (status, text)
+        }
+    }
+    extern "C" {
+        #[link_name = "free"]
+        fn libc_free(p: *mut c_void);
+    }
+
+    #[test]
+    fn a_message_fills_a_buffer_of_its_size_and_refuses_any_other() {
+        let mut state = HostState {
+            binary: vec![1, 2, 3],
+            ..HostState::default()
+        };
+        let mut wrong = [0u8; 2];
+        let (status, text) = call(&mut state, 9, "", &mut wrong);
+        assert_eq!(
+            (status, text.as_str(), wrong),
+            (
+                1,
+                "message: a buffer that is not the message's size",
+                [0, 0]
+            )
+        );
+        let mut right = [0u8; 3];
+        assert_eq!(call(&mut state, 9, "", &mut right).0, 0);
+        assert_eq!(right, [1, 2, 3]);
+    }
+
+    #[test]
+    fn the_stub_decode_is_the_agents_alone() {
+        let mut state = HostState::default();
+        let mut chunk = [0u8; 4];
+        let (status, text) = call(&mut state, 8, "0 4", &mut chunk);
+        assert_eq!(
+            (status, text.as_str()),
+            (1, "decode: the gate's stub decode is the agent's")
+        );
+        state.agent = Some(exact_data::crypto::AgentStream::new(1, "typescript"));
+        assert_eq!(call(&mut state, 8, "0 4", &mut chunk).0, 0);
+        assert_eq!(
+            call(&mut state, 8, "2 4", &mut chunk).0,
+            1,
+            "a range past the chunk"
+        );
     }
 }

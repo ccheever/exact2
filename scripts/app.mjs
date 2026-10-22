@@ -331,7 +331,7 @@ const WEB_HOST_GROUPS = {
     'http-body.js', 'grant-admission.js', 'faults.js', 'media-glue.js', 'list-selection.js', 'markup-editor.js', 'decorations.js', 'live-time-glue.js', 'document-glue.js',
     'motion-glue.js', 'group-glue.js', 'collection-glue.js', 'canvas2d-glue.js', 'presence-glue.js', 'picker-glue.js',
     'documents-glue.js', 'auth-glue.js', 'image-glue.js', 'geometry-glue.js', 'resize-glue.js', 'intersect-glue.js', 'notify-glue.js', 'sound-glue.js', 'midi-glue.js', 'prompt-glue.js', 'alert-message.js', 'wakelock-glue.js', 'menu-rows.js'],
-  module: ['module-glue.js', 'module-worker.js', 'module-prelude.js'],
+  module: ['module-glue.js', 'module-worker.js', 'module-binary.js', 'module-prelude.js'],
   storage: ['storage-request.js', 'storage.js', 'storage-environment.js', 'storage-fs.js', 'storage-image.js', 'storage-sqlite.js',
     'storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm'],
   rust: ['rust-glue.js'],
@@ -390,7 +390,7 @@ export function checkModuleRoster(app, provided, where, release) {
 export function webHostFiles(...groups) {
   return Object.fromEntries((groups.length ? groups : Object.keys(WEB_HOST_GROUPS))
     .flatMap(group => WEB_HOST_GROUPS[group]).map(name => [name,
-      name === 'module-prelude.js' ? 'js/src/prelude.js'
+      name === 'module-prelude.js' ? 'js/src/prelude.js' : name === 'module-binary.js' ? 'js/src/binary.js'
         : name.startsWith('sqlite3.') ? 'node_modules/@sqlite.org/sqlite-wasm/dist/' + (name === 'sqlite3.mjs' ? 'index.mjs' : name)
           : 'host/web/' + name]));
 }
