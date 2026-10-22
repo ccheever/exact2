@@ -32,7 +32,7 @@ final class ContextMenuIOSTests: XCTestCase {
     }
 
     private func boot() throws -> ExactSession {
-        if ExactEnv.agentMode { throw XCTSkip("under the agent the popover is painted (D4)") }
+        if ExactEnv.agentPaints { throw XCTSkip("the agent paints the popover (D4)") }
         let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_FIXTURE_PLAN"], "build.mjs --test --ios compiles the fixture's plan")))
         let session = ExactApp.shared.makeSession(label: "context-menu")
         self.session = session
