@@ -21,6 +21,16 @@ final class NativeButtonCellMac: NSButtonCell {
         get { super.isHighlighted || owner?.holds("active") == true }
         set { super.isHighlighted = newValue }
     }
+    /// A borderless button's title stands inside the padding the kernel
+    /// applied at each side it names (an author's, or a list row's inset,
+    /// LLP 1138), as UIKit's configuration's content insets place it; a
+    /// bezel's title stays AppKit's, centred in its bezel.
+    override func titleRect(forBounds rect: NSRect) -> NSRect {
+        guard !isBordered, let p = owner?.kernelPadding, p.count == 4 else { return super.titleRect(forBounds: rect) }
+        let left = p[3] ?? 0, right = p[1] ?? 0
+        guard left > 0 || right > 0 else { return super.titleRect(forBounds: rect) }
+        return super.titleRect(forBounds: NSRect(x: rect.minX + left, y: rect.minY, width: max(0, rect.width - left - right), height: rect.height))
+    }
     override func accessibilityPerformShowMenu() -> Bool { owner?.accessibilityPerformShowMenu() ?? false }
     override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
         selector == #selector(accessibilityPerformShowMenu) ? owner?.isAccessibilitySelectorAllowed(selector) == true : super.isAccessibilitySelectorAllowed(selector)

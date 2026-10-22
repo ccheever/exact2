@@ -76,13 +76,14 @@ pub(crate) enum Drew {
         variant: Option<usize>,
     },
     /// A run of `count` quads, the frame's quad draw `draw`: particles,
-    /// sprites or a placed child, camera-facing, with its pipeline variant and
+    /// sprites, primitive triangles or a placed child, with its pipeline variant and
     /// whether it writes depth (an opaque or masked sprite).
     Quads {
         draw: usize,
         count: u32,
         variant: usize,
         depth: bool,
+        triangles: bool,
     },
     /// One instance of a blended model, drawn in translucent order, with its
     /// pipeline variant and winding.

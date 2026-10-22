@@ -333,6 +333,10 @@ pub trait DataSource {
         false
     }
 
+    /// A native module wrote the app's files itself (`context.wrote`): the
+    /// next commit reports a storage change as a TypeScript write would.
+    fn note_storage_changed(&mut self) {}
+
     /// Session that may use document handles minted by this host.
     fn set_document_owner(&mut self, owner: u64) {
         let _ = owner;

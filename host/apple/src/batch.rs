@@ -165,7 +165,7 @@ impl Batch {
         out: &mut String,
         id: u32,
         parent: u32,
-        props: &exact_kernel::SortedMap<String, String>,
+        props: &exact_kernel::SortedMap<&'static str, String>,
         style: &str,
         handlers: &[&str],
         paints: bool,
@@ -177,7 +177,7 @@ impl Batch {
         string_map(
             &props
                 .iter()
-                .map(|(k, v)| (k.as_str(), v.clone()))
+                .map(|(k, v)| (*k, v.clone()))
                 .collect::<Vec<_>>(),
             out,
         );

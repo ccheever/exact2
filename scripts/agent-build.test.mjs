@@ -7,8 +7,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { appleArtifacts, appleRunBinary } from '../host/apple/build.mjs';
-import { moduleGraph } from './agent-launch.mjs';
-import { buildArgs, buildFirst, buildReason, failureSummary, nativeBuild, overrideDir, planOverride, planSource, rebuildCommand, refuseBuild } from './agent-build.mjs';
+import { moduleGraph, notBuildInput } from './agent-launch.mjs';
+import { buildArgs, buildFirst, buildReason, failureSummary, nativeBuild, overrideDir, planOverride, planSource, prebuild, rebuildCommand, refuseBuild } from './agent-build.mjs';
 import { resolveApp } from './app.mjs';
 
 /** An outside app, as `exact new` lays one out, with only what the decision reads. */
@@ -250,14 +250,18 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     const app = resolveApp('plan-log');
     const at = offset => new Date(Date.now() + offset * 1000), stamp = (file, offset) => utimesSync(resolve(dir, file), at(offset), at(offset));
     // app.ts and what it imports, type-only imports included; a backend beside it that the app reaches over HTTP.
-    write('app.ts', "import type { Book } from './types';\nimport { shelf } from './lib/model.js';\nimport seed from './lib/seed.json';\nexport const grants = '';\n");
+    write('app.ts', "import type { Book } from './types';\nimport { shelf } from './lib/model.js';\nimport seed from './lib/seed.json';\nimport { money } from './lib/format.mjs';\nexport const grants = '';\n");
     write('types.ts', 'export type Book = { title: string };\n');
     write('lib/model.ts', "export const shelf = [] as const;\n");
     write('lib/seed.json', '[]\n');
+    write('lib/format.mjs', "import { digits } from './digits.mjs';\nexport const money = n => digits(n);\n");
+    write('lib/digits.mjs', 'export const digits = n => String(n);\n');
+    // A helper script beside the app that app.ts never imports (an export, a seeding script).
+    write('scripts/export.mjs', 'console.log(1);\n');
     write('server/index.ts', "import { Database } from 'bun:sqlite';\nimport { routes } from './routes';\n");
     write('server/routes.ts', 'export const routes = {};\n');
     write('server/fixtures.json', '{}\n');
-    for (const file of ['app.contract', 'app.ts', 'types.ts', 'lib/model.ts', 'lib/seed.json', 'server/index.ts', 'server/routes.ts', 'server/fixtures.json', 'app.json', 'exact.mjs', 'apple/Cargo.toml', 'web/Cargo.toml']) stamp(file, -60);
+    for (const file of ['app.contract', 'app.ts', 'types.ts', 'lib/model.ts', 'lib/seed.json', 'lib/format.mjs', 'lib/digits.mjs', 'scripts/export.mjs', 'server/index.ts', 'server/routes.ts', 'server/fixtures.json', 'app.json', 'exact.mjs', 'apple/Cargo.toml', 'web/Cargo.toml']) stamp(file, -60);
     // The build: its receipt names the plan its build script baked, beside which is the module receipt it paired.
     const target = 'aarch64-apple-ios-sim', out = resolve(app.target, target, 'host-dev/build/plan-log-apple-0123/out');
     const module = { version: 1, appId: 'com.exact.plan-log', grants: '', abi: 1, surfaces: {}, bytecodeVersion: 96 };
@@ -289,7 +293,10 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     const kept = () => planOverride('ios', app, nativeBuild('ios', app));
 
     // What app.ts imports is the plan's; what it does not import is no input at all (LLP 1116.003 D1.1).
-    assert.deepEqual([...moduleGraph(dir, app.manifest)].map(p => p.slice(dir.length + 1)).sort(), ['app.ts', 'lib/model.ts', 'lib/seed.json', 'types.ts']);
+    assert.deepEqual([...moduleGraph(dir, app.manifest)].map(p => p.slice(dir.length + 1)).sort(), ['app.ts', 'lib/digits.mjs', 'lib/format.mjs', 'lib/model.ts', 'lib/seed.json', 'types.ts']);
+    // A script app.ts never imports is no input, a `.mjs` as a `.ts`; one it imports, through another, is.
+    const input = notBuildInput(dir);
+    assert.deepEqual(['scripts/export.mjs', 'lib/format.mjs', 'lib/digits.mjs', 'server/index.ts'].map(f => input(resolve(dir, f))), [true, false, false, true]);
     // Only the Contract and what app.ts imports, and nothing a native build reads, is a plan-only edit.
     for (const [path, only] of [['app.contract', true], ['app.ts', true], ['types.ts', true], ['lib/model.ts', true], ['lib/seed.json', true], ['screens/list.contract', true],
       ['server/index.ts', false], ['server/fixtures.json', false], ['app.json', false], ['app.contract.d.ts', false],
@@ -394,6 +401,51 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
 
 // A drive's compiler warnings keep the compiler's order, the symbols only the web draws blank one line at the end;
 // the file beside the app lists each (the euxy port's header warning was one of 43, behind 21 of them).
+// A background build ends apart from every shell, so the next build or drive says once how it failed (the euxy port's
+// `--prebuild --release`, failed by an edit, said so only in its log).
+test('a failed background build is said once by the next drive, from its part of the log', async () => {
+  const previous = process.env.EXACT_APP_DIR;
+  const { dir, write } = scratchApp('prebuilt-log');
+  try {
+    process.env.EXACT_APP_DIR = dir;
+    const app = resolveApp('prebuilt-log'), said = [];
+    // The drive rebuilds, writing the build log anew.
+    const drive = () => buildFirst('ios', app, { say: line => said.push(line), wait: () => {}, build: async (args, log) => (writeFileSync(log, 'rebuilt'), { code: 0, output: '' }) });
+    const build = 'app: the bake failed:\napp.contract:14:10 [syntax-expected] expected `)`, found `like`\n';
+    write('.exact/ios-build.log', `${build}   Compiling the bake tool\n`);
+    write('.exact/ios-prebuild.json', JSON.stringify({ args: ['--ios', 'prebuilt-log-apple', '--release'], started: '08:02:54', pid: 1, exit: 1, bytes: build.length }));
+    await drive();
+    assert.match(said[0], /^app: the bake failed:\napp\.contract:14:10 \[syntax-expected\] expected `\)`, found `like`\nthe background iOS build \(--prebuild --ios --release, started 08:02:54\) failed \(exit 1\); its whole log: \S*\.exact\/ios-prebuild-failed\.log$/);
+    assert.equal(readFileSync(resolve(dir, '.exact/ios-prebuild-failed.log'), 'utf8'), build, 'its part, kept from the rebuild');
+    assert.ok(!existsSync(resolve(dir, '.exact/ios-prebuild.json')), 'said once');
+    said.length = 0;
+    await drive();
+    assert.ok(!said.some(line => line.includes('background')), said.join('\n'));
+    // One that ended before it could say (its shell gone) is dropped, unsaid.
+    write('.exact/ios-prebuild.json', JSON.stringify({ args: ['--ios'], started: '08:02:54', pid: 2 ** 22 + 1 }));
+    await drive();
+    assert.ok(!said.some(line => line.includes('background')) && !existsSync(resolve(dir, '.exact/ios-prebuild.json')));
+    // A second started while a build holds the claim starts nothing, and leaves the first's log and record.
+    const lock = appleArtifacts(app).lock;
+    mkdirSync(dirname(lock), { recursive: true });
+    writeFileSync(lock, JSON.stringify({ pid: process.pid, app: app.id, source: dir, started: new Date().toISOString() }) + '\n');
+    write('.exact/ios-prebuild.json', '{"id":"first"}');
+    assert.equal(await prebuild(app, ['--ios', 'prebuilt-log-apple', '--prebuild'], { say: line => said.push(line) }), 1);
+    assert.match(said.at(-1), /already running, so none was started/);
+    assert.equal(readFileSync(resolve(dir, '.exact/ios-prebuild.json'), 'utf8'), '{"id":"first"}');
+    assert.equal(readFileSync(resolve(dir, '.exact/ios-build.log'), 'utf8'), 'rebuilt');
+    rmSync(lock);
+    // So does one started before the first's build has claimed it: that record names a live shell.
+    write('.exact/ios-prebuild.json', JSON.stringify({ id: 'first', pid: process.pid }));
+    assert.equal(await prebuild(app, ['--ios', 'prebuilt-log-apple', '--prebuild'], { say: line => said.push(line) }), 1);
+    assert.equal(JSON.parse(readFileSync(resolve(dir, '.exact/ios-prebuild.json'), 'utf8')).id, 'first');
+    assert.equal(readFileSync(resolve(dir, '.exact/ios-build.log'), 'utf8'), 'rebuilt');
+  } finally {
+    if (previous === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = previous;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('a drive says the web-only symbol warnings in one line and lists each in its file', async () => {
   const { warningLines } = await import('./app-cli.mjs');
   const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-warning-lines-')));

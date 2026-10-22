@@ -10,12 +10,12 @@ import CExact
 package enum TextMetricKey {
     private static func fields(_ size: CGFloat, _ weight: Int, _ family: Int, _ italic: Bool,
                                _ lineHeight: CGFloat?, _ spacing: CGFloat, _ numeric: Int, _ stretch: CGFloat,
-                               _ h: inout Hasher) {
+                               _ variations: [FontAxis], _ h: inout Hasher) {
         h.combine(size); h.combine(weight); h.combine(family); h.combine(italic)
-        h.combine(lineHeight); h.combine(spacing); h.combine(numeric); h.combine(stretch)
+        h.combine(lineHeight); h.combine(spacing); h.combine(numeric); h.combine(stretch); h.combine(variations)
     }
     private static func fields(_ r: Run, _ h: inout Hasher) {
-        fields(r.size, r.weight, r.family, r.italic, r.lineHeight, r.letterSpacing, r.numeric, r.stretch, &h)
+        fields(r.size, r.weight, r.family, r.italic, r.lineHeight, r.letterSpacing, r.numeric, r.stretch, r.variations, &h)
         // Only an expanded Markdown run has these; a plain run hashes as
         // its request's does (LLP 1045 D4).
         if r.indent != 0 || r.hang { h.combine(r.indent); h.combine(r.hang) }
@@ -23,7 +23,7 @@ package enum TextMetricKey {
     private static func fields(_ r: ExactTextRun, _ h: inout Hasher) {
         fields(CGFloat(r.font_size), Int(r.font_weight), Int(r.font_family), r.italic != 0,
                r.has_line_height != 0 ? CGFloat(r.line_height) : nil, CGFloat(r.letter_spacing),
-               Int(r.font_variant_numeric), CGFloat(r.font_stretch), &h)
+               Int(r.font_variant_numeric), CGFloat(r.font_stretch), FontAxis.of(r), &h)
     }
     package static func hash(_ spec: Spec) -> Int {
         var h = Hasher()
@@ -72,6 +72,7 @@ package enum TextMetricKey {
             && CGFloat(raw.letter_spacing) == owned.letterSpacing
             && Int(raw.font_variant_numeric) == owned.numeric
             && CGFloat(raw.font_stretch) == owned.stretch
+            && FontAxis.of(raw) == owned.variations
     }
     package static func matches(_ request: ExactMeasureRequest, _ geometry: Spec) -> Bool {
         // An expanded Markdown request has more runs than its one source run;

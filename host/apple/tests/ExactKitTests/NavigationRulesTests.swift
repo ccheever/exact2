@@ -225,6 +225,18 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertNil(NavigationRules.backControl(named: "back", among: disabled, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active))
         let inactive = controls.filter { !$0.active }
         XCTAssertNil(NavigationRules.backControl(named: "back", among: inactive, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active))
+        // A control in no route (a header the screens share) serves the active route that has none of its own;
+        // one in another route never does, and the route's own comes first.
+        struct S { let id: UInt32; let html: String?; let press: Bool; let disabled: Bool; let active: Bool; let routed: Bool }
+        let shared = [S(id: 2, html: "back", press: true, disabled: false, active: false, routed: false),
+                      S(id: 5, html: "back", press: true, disabled: false, active: false, routed: true)]
+        let resolveShared = { (controls: [S]) -> UInt32? in
+            NavigationRules.backControl(named: "back", among: controls, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active, inAnyRoute: \.routed)?.id
+        }
+        XCTAssertEqual(resolveShared(shared), 2)
+        XCTAssertNil(resolveShared(shared.filter { $0.id == 5 }), "another route's control is that route's")
+        XCTAssertEqual(resolveShared(shared + [S(id: 8, html: "back", press: true, disabled: false, active: true, routed: true)]), 8, "the route's own first")
+        XCTAssertNil(resolveShared([S(id: 2, html: "back", press: true, disabled: true, active: false, routed: false)]), "a disabled shared control refuses")
     }
 
     /// LLP 1115 D5: the authored control when it resolves; refused while a

@@ -160,5 +160,45 @@ final class TextRasterIOSTests: XCTestCase {
         p.refreshVisibleText(velocity: 5000)
         XCTAssertEqual(p.textRasters.inFlight, 1)
     }
+
+    /// A paragraph whose pixels are its words already returns before
+    /// `ensure` asks whether it is urgent or what shows: a batch's display
+    /// pass asks again of every paragraph the batch gave new words.
+    func testEnsureAsksNothingOfAParagraphWhosePixelsAreCurrent() throws {
+        let session = fixture("text-current")
+        defer { session.destroy() }
+        let p = session.presenter
+        let node = try XCTUnwrap(p.views[2])
+        move(p, y: 100)
+        p.paintVisibleText()
+        XCTAssertTrue(node.textRasterReady)
+        var asked = 0
+        func urgent() -> Bool { asked += 1; return true }
+        p.textRasters.ensure(node, urgent: urgent())
+        XCTAssertEqual(asked, 0)
+        node.invalidateText()
+        p.textRasters.ensure(node, urgent: urgent())
+        XCTAssertEqual(asked, 1, "new words are asked about")
+    }
+
+    /// The clips a refresh finds once per ancestor (`TextClips`) meet as
+    /// boxes in the viewport's space, which a rotated parent's are not:
+    /// under a transform the walk answers, as it does with none.
+    func testTheMemoAnswersAsTheWalkUnderARotatedClip() throws {
+        let session = fixture("text-rotated-clip")
+        defer { session.destroy() }
+        let p = session.presenter
+        let parent = try XCTUnwrap(p.views[1]), node = try XCTUnwrap(p.views[2])
+        parent.frame = CGRect(x: 100, y: 100, width: 100, height: 100)
+        parent.clipsToBounds = true
+        parent.transform = CGAffineTransform(rotationAngle: .pi / 4)
+        // Below the parent's own bounds, inside their rotated bounding box.
+        node.frame = CGRect(x: 0, y: 120, width: 100, height: 20)
+        let walked = p.textScrollportRect(node)
+        XCTAssertTrue(walked.isEmpty, "\(walked)")
+        p.textClips = TextClips(p.viewport, soon: 0, reach: 0)
+        defer { p.textClips = nil }
+        XCTAssertEqual(p.textScrollportRect(node), walked)
+    }
 }
 #endif

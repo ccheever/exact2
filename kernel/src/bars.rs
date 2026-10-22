@@ -81,6 +81,10 @@ pub mod fact {
     /// so neither it nor what it holds is the bar's (a menu written in the
     /// header is its button's menu, not more items).
     pub const LAYER: u32 = 1 << 11;
+    /// A button that says `disabled=true`: UIKit's disabled bar item, shown
+    /// dimmed, whether or not anything would press it (a "● Clock" written
+    /// as one); never the title's tap.
+    pub const DISABLED: u32 = 1 << 12;
     /// A heading's `aria-level`, 1 to 6, shifted this far; 0 where it says
     /// none (ARIA's default is then 2).
     pub const LEVEL: u32 = 16;
@@ -203,7 +207,10 @@ impl<N: Copy + PartialEq> Walk<N> {
                 // Its tabs press, but they are the title's segments, never
                 // bar items.
                 self.segments.get_or_insert(child);
-            } else if facts & (fact::PRESS | fact::MENU) != 0 {
+            } else if facts & (fact::PRESS | fact::MENU) != 0
+                // A disabled button around the heading is walked for it, as a box is.
+                || (facts & fact::DISABLED != 0 && !holds_heading(tree, child))
+            {
                 // A pressable heading's group is the title, tapped.
                 if self.tap.is_none() && facts & fact::PRESS != 0 && holds_heading(tree, child) {
                     self.tap = Some(child);
@@ -420,6 +427,13 @@ impl Tree for Live<'_> {
             fact::LAYER,
         );
         set((self.pressed)(id), fact::PRESS);
+        // A button, native or bare.
+        let button = node.node_type == NodeType::Pressable
+            || (node.node_type == NodeType::Control && props.str(PropId::Type) == Some("button"));
+        set(
+            button && role == Some("button") && props.bool(PropId::Disabled) == Some(true),
+            fact::DISABLED,
+        );
         set(
             crate::Invocation::of(self.kernel, &node).is_some_and(|i| i.opens_popover()),
             fact::MENU,

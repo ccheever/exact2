@@ -771,7 +771,7 @@ test('no answer to a remote client names this machine\'s directories; authored t
     for (const [who, request] of asked) replies.push([request, await app.remote(who, request)]);
     const body = i => JSON.parse(replies[i][1].text);
     expect(body(0).ok.app).toBe(basename(dir));
-    expect(body(0).ok.protocol).toBe('tamber/1.15'); // this change opened 1.15
+    expect(body(0).ok.protocol).toBe('tamber/1.16');
     const sites = body(4).ok.sites;
     expect(sites.length).toBeGreaterThan(0);
     const linkedName = sites[0].file;

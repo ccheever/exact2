@@ -1,0 +1,9 @@
+// @exact/lists — library components for lists (LLP 1139, stage 13 C, from
+// the Bluesky clone's settings rows): a grouped list's own rows, each the
+// platform's native list cell (D6), so the platform lays them out. Their
+// look is their params, whose defaults are the package's tokens
+// (lists.tamber); an app restyles them by setting a param or a token by
+// full name, never by editing this file.
+
+use ListRow from "./list-row.contract"
+use SwitchRow from "./switch-row.contract"

@@ -482,3 +482,60 @@ fn a_package_holding_its_own_test_app_names_its_files_by_its_name() {
     assert_eq!(ids, ["@x/pkg/index.contract#Card"]);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// An app's file linked into its tree from elsewhere (conform's corpus
+/// fixtures: `conformance/tabs.contract` a link to the corpus's) is the
+/// app's own, named where the link sits: no package, so no refusal.
+#[cfg(unix)]
+#[test]
+fn a_file_linked_into_the_app_is_the_apps_own_named_where_it_sits() {
+    let root = std::env::temp_dir().join(format!("exact2-tools-linked-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("corpus")).unwrap();
+    std::fs::create_dir_all(root.join("app")).unwrap();
+    std::fs::write(root.join("corpus/fixture.contract"), "component Card\n  params\n    radius: length = \"4px\"\n  view\n    column border-radius=\"param.radius\"\n      text \"c\"\n\ncomponent App\n  view\n    column\n      Card()\n").unwrap();
+    let path = root.join("app/tabs.contract");
+    std::os::unix::fs::symlink("../corpus/fixture.contract", &path).unwrap();
+    contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    let params = contract::tamber_params::params_of(&path);
+    let ids: Vec<&str> = params.tokens.iter().map(|p| p.identity.as_str()).collect();
+    assert_eq!(ids, ["tabs.contract#Card"]);
+    // `contract sources` reads it as the build does, and so does a bare
+    // file name, from the app's directory.
+    let graph = contract::source_graph(&path);
+    assert!(graph.errors.is_empty(), "{:?}", graph.errors);
+    let target = root.join("corpus/fixture.contract").canonicalize().unwrap();
+    assert_eq!(
+        graph.sources[0].path, target,
+        "the graph's paths stay canonical"
+    );
+    for args in [
+        &["build", "tabs.contract", "-o", "tabs.plan"][..],
+        &["sources", "tabs.contract"],
+        &["fmt", "--uses", "tabs.contract"],
+    ] {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+            .args(args)
+            .current_dir(root.join("app"))
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    // A file a `use` reaches through a link outside the app is still the
+    // link's target's, refused at the `use`.
+    std::os::unix::fs::symlink("../corpus/fixture.contract", root.join("app/card.contract"))
+        .unwrap();
+    let app = root.join("app/app.contract");
+    std::fs::write(
+        &app,
+        "use Card from \"./card.contract\"\n\ncomponent Main\n  view\n    column\n      Card()\n",
+    )
+    .unwrap();
+    let e = contract::compile_path(&app).unwrap_err();
+    assert_eq!(e.id, "contract-use-path", "{e:?}");
+    let _ = std::fs::remove_dir_all(&root);
+}

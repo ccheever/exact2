@@ -785,11 +785,13 @@ dependencies = [
  "exact-data",
  "exact-kernel",
  "exact-markdown",
+ "exact-markdown-editor",
  "exact-motion",
  "exact-plan",
  "exact-raster",
  "exact-route",
  "exact-runner",
+ "exact-svg-file",
  "exact-textflow",
  "ibex2",
  "serde_json",
@@ -1009,6 +1011,13 @@ name = "exact-markdown"
 version = "0.1.0"
 
 [[package]]
+name = "exact-markdown-editor"
+version = "0.1.0"
+dependencies = [
+ "exact-markdown",
+]
+
+[[package]]
 name = "exact-motion"
 version = "0.1.0"
 dependencies = [
@@ -1058,6 +1067,15 @@ dependencies = [
  "exact-route",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "exact-svg-file"
+version = "0.1.0"
+dependencies = [
+ "exact-kernel",
+ "exact-motion",
+ "exact-num",
 ]
 
 [[package]]
@@ -1119,8 +1137,10 @@ dependencies = [
 name = "exact-web-capabilities"
 version = "0.1.0"
 dependencies = [
+ "contract",
  "exact-kernel",
  "exact-markdown",
+ "exact-plan",
  "exact-runner",
  "exact-web",
  "exact-web-geometry",
@@ -1142,6 +1162,7 @@ dependencies = [
  "exact-linux",
  "exact-runner",
  "softbuffer",
+ "windows-sys 0.61.2",
  "winit",
 ]
 

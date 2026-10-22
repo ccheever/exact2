@@ -77,6 +77,8 @@ impl Weather {
                 Value::str(selected),
                 Value::Number(decoded["lat"].as_f64().unwrap()),
                 Value::Number(decoded["lon"].as_f64().unwrap()),
+                // Not following the device's location (f8807ee6e4).
+                Value::Bool(false),
             ],
         )
     }
@@ -109,6 +111,8 @@ fn location(lat: f64, lon: f64, revision: f64) -> Vec<Value> {
         Value::Number(lat),
         Value::Number(lon),
         Value::Number(revision + 1.),
+        // A chosen city's, not the device's location (f8807ee6e4).
+        Value::Bool(false),
     ]
 }
 
@@ -231,6 +235,7 @@ fn loading_keeps_forecast_slots_and_refresh_never_relabels_another_city() {
                 Value::Number(35.6762),
                 Value::Number(139.6503),
                 Value::Number(0.),
+                Value::Bool(false),
             ],
         )
         .unwrap());
@@ -257,6 +262,7 @@ fn loading_keeps_forecast_slots_and_refresh_never_relabels_another_city() {
             Value::str("now"),
             Value::Number(51.5074),
             Value::Number(-0.1278),
+            Value::Bool(false),
         ],
     );
     assert_eq!(changed_city, blank, "pending London must not display Tokyo");

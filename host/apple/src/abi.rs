@@ -604,9 +604,14 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// The app module announced `topic` (LLP 1016.002): the live source's
-    /// watching answers are asked again.
+    /// watching answers are asked again. An `app:/` topic is a file the
+    /// module wrote (`ExactModuleContext.wrote`): the commit reports a
+    /// storage change too, so a widget reloads as after a TypeScript write.
     pub fn app_changed(&mut self, topic: &str) {
-        if let Some(host) = &self.host {
+        if let Some(host) = &mut self.host {
+            if topic.starts_with("app:/") {
+                host.runner_mut().data().note_storage_changed();
+            }
             host.native_slot().changed(topic);
         }
     }
@@ -617,6 +622,17 @@ impl<D: DataSource> Bridge<D> {
             slot.host(self.app_module.clone());
             slot.host_call(self.app_call.clone());
         }
+    }
+
+    /// The presenter has painted this session: evaluate the deferred logic
+    /// without committing it (`Host::prepare_data`); `data_ready` commits.
+    pub fn prepare_data(&mut self) {
+        if self.host.is_none() {
+            return;
+        }
+        self.painted = true;
+        self.adopt_app_module();
+        self.host.as_mut().expect("checked").prepare_data();
     }
 
     /// The presenter has painted this session; deferred logic can now load.

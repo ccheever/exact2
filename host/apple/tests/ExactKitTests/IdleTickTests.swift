@@ -4,8 +4,9 @@ import XCTest
 /// A timer's (or a scroll event's) batch that changes nothing only moves the clock: it does not
 /// reach `apply`, as fills and list feedback already skip theirs, and the
 /// next timer is armed for its deadline. A batch with ops, an error, a
-/// control's viewless contents (`controls`, LLP 1069.011 §9) or new motion
-/// still applies. The flag crosses the wire as `"controls":true`.
+/// control's viewless contents (`controls`, LLP 1069.011 §9), new motion,
+/// moved page facts or a wake lock still applies. The flag crosses the wire
+/// as `"controls":true`.
 final class IdleTickTests: XCTestCase {
     func testATickThatChangesNothingOnlyMovesTheClock() throws {
         let session = ExactApp.shared.makeSession(label: "idle-tick")
@@ -53,7 +54,12 @@ final class IdleTickTests: XCTestCase {
         let failed = Batch(ops: [], timers: true, motion: false, clock: nil, error: "boom", timerDueMs: due)
         let moving = Batch(ops: [], timers: true, motion: true, clock: nil, error: nil, timerDueMs: due)
         let ops = wireBatch([["op": "props", "id": 1, "set": ["testId": "x"]]])
-        for batch in [controls, failed, moving, ops] {
+        // A timer's own `setMode` or `setRootFontSize` (page facts) or wake lock, with no node changed.
+        var facts = Batch(ops: [], timers: true, motion: false, clock: nil, error: nil, timerDueMs: due)
+        facts.facts = true
+        var wakelock = Batch(ops: [], timers: true, motion: false, clock: nil, error: nil, timerDueMs: due)
+        wakelock.wakelock = false
+        for batch in [controls, failed, moving, ops, facts, wakelock] {
             XCTAssertFalse(session.changesNothing(batch))
             let count = session.appliedBatches
             session.applyUnlessEmpty(batch)

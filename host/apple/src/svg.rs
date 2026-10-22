@@ -354,6 +354,12 @@ impl SvgState {
     }
 }
 
+/// An SVG file's scene as the `svg` op carries one (LLP 1011.001 D4): no
+/// animation runs in a picture, so the engine is empty and nothing presses.
+pub(crate) fn image_scene(kernel: &Kernel, node: &NodeRef<'_>, bx: (f32, f32, f32, f32)) -> String {
+    scene(kernel, &Engine::new(), &IdSet::default(), node, bx)
+}
+
 /// `{"box":[x,y,w,h],"t":[a,b,c,d,e,f]|null,"els":[…]}`: `t` null renders
 /// nothing (a view box with no area). The scene is the kernel's resolved
 /// one (LLP 1055.000 D1); this only serializes it with the lowered

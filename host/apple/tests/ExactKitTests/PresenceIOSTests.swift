@@ -37,7 +37,13 @@ final class PresenceIOSTests: XCTestCase {
 
     private func tabBarFixture() -> Presenter {
         let p = fixture()
-        p.apply(wireBatch([
+        p.apply(tabBar(y: 0, height: 20))
+        return p
+    }
+
+    /// A tablist of two symbol-over-label tabs, a root at `y`, `height` tall.
+    private func tabBar(y: Double, height: Double) -> Batch {
+        wireBatch([
             ["op": "create", "id": 10, "kind": "view", "props": ["accessibilityRole": "tablist"]],
             ["op": "create", "id": 11, "kind": "button", "props": ["accessibilityRole": "tab"], "handlers": ["press"]],
             ["op": "create", "id": 12, "kind": "button", "props": ["accessibilityRole": "tab"], "handlers": ["press"]],
@@ -49,9 +55,8 @@ final class PresenceIOSTests: XCTestCase {
             ["op": "children", "id": 12, "ids": [15, 16]],
             ["op": "children", "id": 10, "ids": [11, 12]],
             ["op": "roots", "ids": [1, 10]],
-            ["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 400.0, "h": 20.0],
-        ]))
-        return p
+            ["op": "frame", "id": 10, "x": 0.0, "y": y, "w": 400.0, "h": height],
+        ])
     }
 
     private func drainIntrinsicSizes() {
@@ -116,6 +121,56 @@ final class PresenceIOSTests: XCTestCase {
         XCTAssertNil(bar.superview)
         XCTAssertFalse(try XCTUnwrap(p.views[11]).isHidden)
         p.reset()
+    }
+
+    /// A tablist padded at a side keeps its bar inside the padding, the
+    /// bar's edges on the device's pixel grid (LLP 1059 D2): duo-lab's tabs
+    /// on a book fold's trailing segment, from 495.5 points.
+    func testTabBarSpansAPaddedTablistsContentBoxOnThePixelGrid() throws {
+        let p = tabBarFixture()
+        defer { p.reset() }
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 951.0, "h": 83.0],
+                           ["op": "fieldContent", "id": 10, "rect": [495.5, 0.0, 455.5, 83.0], "padding": [0.0, 0.0, 0.0, 495.5]]]))
+        let owner = try XCTUnwrap(p.views[10])
+        let bar = try XCTUnwrap(owner.subviews.first { $0 is UITabBar })
+        XCTAssertEqual(bar.frame.minX, PixelGrid.round(495.5, scale: p.gridScale), accuracy: 0.0001, "the left edge on the grid, inside the padding")
+        XCTAssertEqual(bar.frame.maxX, owner.bounds.maxX, accuracy: 0.0001)
+        XCTAssertEqual(bar.frame.height, owner.bounds.height)
+        p.apply(wireBatch([["op": "fieldContent", "id": 10]]))
+        XCTAssertEqual(bar.frame, owner.bounds, "unpadded, the bar fills the box again")
+    }
+
+    /// A bar first laid out inside the home indicator's inset, before its box
+    /// took its measured height, has its labels sized again as it grows:
+    /// UIKit sizes them in the room the bar has then (duo-lab under the
+    /// agent's chrome). The selected tab's glyph is its symbol filled.
+    func testATabBarFirstLaidOutInTheBottomInsetSizesItsLabelsAgainAsItGrows() throws {
+        let p = fixture()
+        defer { p.reset(); window.isHidden = true }
+        let host = UIViewController()
+        host.additionalSafeAreaInsets.bottom = 34
+        window.rootViewController = host
+        host.view.addSubview(p.viewport)
+        p.apply(tabBar(y: 366, height: 34))
+        p.apply(wireBatch([["op": "props", "id": 11, "set": ["accessibilitySelected": "true"]]]))
+        let bar = try XCTUnwrap(p.views[10]?.subviews.first { $0 is UITabBar } as? UITabBar)
+        window.layoutIfNeeded()
+        XCTAssertEqual(bar.safeAreaInsets.bottom, 34, "laid out inside the inset")
+        let height = bar.sizeThatFits(CGSize(width: 400, height: 0)).height
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 400 - Double(height), "w": 400.0, "h": Double(height)]]))
+        window.layoutIfNeeded()
+        drainIntrinsicSizes()
+        window.layoutIfNeeded()
+        func labels(_ view: UIView) -> [UILabel] { view.subviews.flatMap { ($0 as? UILabel).map { [$0] } ?? labels($0) } }
+        XCTAssertFalse(labels(bar).isEmpty)
+        for label in labels(bar) {
+            XCTAssertGreaterThanOrEqual(label.bounds.height, label.intrinsicContentSize.height - 0.5, "\(label.text ?? "") is cut short")
+        }
+        XCTAssertEqual(bar.items?.first?.selectedImage?.pngData(), UIImage(systemName: "house.fill")?.pngData())
+        // A symbol written filled stays filled when unselected.
+        p.apply(wireBatch([["op": "props", "id": 15, "set": ["imageSource": "symbol:sf/star.fill", "symbolName": "star.fill"]]]))
+        drainIntrinsicSizes()
+        XCTAssertEqual(bar.items?.last?.image?.pngData(), UIImage(systemName: "star.fill")?.pngData())
     }
 
     /// Measured again when what sizes it changes: a segment's title, the

@@ -836,16 +836,77 @@ fontique's synthesis (`text::shaping::push_style`), which Android's
 | Apple | `RegisteredFace` holds both ranges; `matched` is §5.2 over them; `drawn` sets `wght` and `wdth` on the descriptor per request (one declared weight stays pinned at registration). |
 | Linux, Android | fontique's `FontInfo::with_declared_ranges` (`vendor/fontique/EXACT-PATCHES.md` §5): matching takes a range at its value nearest the request, and synthesis always emits the clamped coordinate. Android draws the axes fontique chose. |
 
-A platform family (`system-ui`) draws at its normal width on Apple: San
-Francisco's widths are `UIFont.Width`, which this change does not map. Text
-fields' and Canvas 2D's faces take no stretch. Neither has a consumer yet.
+### D9 — `font-variation-settings`, and the width everywhere
+
+`font_variation_settings` is a kernel row (bit 217): inherited, `normal` or a
+list of quoted four-character tags with numbers, as CSS Fonts 4 §7.2 writes it.
+A repeated tag keeps its last value; a tag the face lacks does nothing.
+
+- **The value is a fixed array of eight axes**, not an interned list.
+  `TextStyle` stays `Copy` and crosses the C ABI by value (`ExactTextRun`
+  carries a count and two arrays of eight), so no host keeps a table in step
+  with the kernel, and two values of the same tags interpolate axis by axis
+  when motion takes text rows. Eight covers every registered axis and the
+  parametric ones a face like Roboto Flex names together; a ninth distinct tag
+  is refused at compile.
+- **It draws last.** §7 orders the axes: weight, width and optical size first,
+  then each tag the settings name, which wins for its own axis.
+  `"wdth" 50` draws as `font-stretch: 50%` does.
+- **A platform family stretches.** `font-stretch` on `system-ui` (and the
+  generics Apple draws with San Francisco) sets SF's `wdth` axis (30–150) to
+  the percentage, as Chrome and WebKit draw it; `UIFont.Width` and
+  `NSFont.Width` are points on that axis. Once a variation is set CoreText
+  stops choosing `opsz`, so it is set to the size (`TextEngine.cssAxes`).
+- **Fields and Canvas 2D take the width.** Apple's native fields draw the
+  field's stretch and settings through the same font call as text. Android's
+  fields set `Typeface.Builder.setFontVariationSettings` from the weight,
+  width and settings for a declared family; the device's default family is
+  `Typeface.create`, which takes no axes. Canvas 2D's `font` shorthand and
+  `fontStretch` were parsed already; Apple now draws them, as Linux and the
+  browser did. A canvas takes no `font-variation-settings`: the HTML canvas
+  has none.
+
+### How each host draws the settings
+
+| Host | `font-variation-settings` |
+|---|---|
+| Web | The property itself. |
+| Apple | `RegisteredFace.drawn` and `TextEngine.cssAxes` set the tags on the descriptor after `wght`, `wdth` and `opsz`. |
+| Linux, Android | Parley's style variations, after `opsz` and after fontique's synthesis; Android's `FONT_AXES` carries them to the reader. |
 
 ### Not here
 
-`font-variation-settings` (any axis by tag) is a list on every text run, where
-these two rows are numbers each host already carries; CSS recommends the
-high-level properties wherever one exists. `font-optical-sizing` stays
-`auto` and is not authorable. Animating any of
-these rows is a layout property per frame, which `rules/DEFERRED.md` §Motion
-keeps out.
+`font-optical-sizing` stays `auto` and is not authorable.
+`font-variation-settings` takes no transition (D10 is the weight and the
+width alone); its eight pairs would interpolate axis by axis.
+
+### D10 — `font-weight` and `font-stretch` transition (2026-10-20)
+
+`transition` takes both rows, as CSS does: `font-weight 300ms ease-out`, a
+spring, `all`. Each is a layout property: a weight's glyphs are wider, so
+every frame of the transition lays its text out again. That is admitted for
+these two rows alone (`rules/DEFERRED.md` §Motion). Measured first on an
+iPhone 17 Pro Max with the weight set every frame: the poster and a title
+hold 119 fps and as few late frames as the same screens built in UIKit;
+twelve paragraphs of body text hold the rate with more late frames (QUEUE).
+
+- **The runner plays them** (`runner/src/runner/text_axes.rs`): no
+  compositor can draw a weight it was not given, so no host's engine takes
+  their targets. A commit that changes one under a matching declaration
+  writes the value presented now and starts the transition in an
+  `exact-motion` engine of the runner's own; each frame writes the next
+  value as a presentation-only commit, and layout follows. CSS's
+  before-change value (the computed one, inherited included), interruption
+  and reversing shortening are the engine's, as for every other property.
+- **A spring is its curve from rest**, a `linear()` over its settle time, as
+  for paint (LLP 1062 D3): nothing carries a weight's velocity.
+- **A weight moves in whole steps** of 1 in 1000, the row's own encoding.
+- **The web links none of it.** The row emits as CSS `transition`, and the
+  browser plays it (`RunnerLinks::text_axes` is `None` there); Apple links it
+  by use, when the plan declares any transition.
+- **Settle** folds the runner's end time into each native host's `settle`,
+  and the seekable clock steps its virtual frames while an axis moves.
+- **Not here:** a child that inherits a transitioning parent's weight follows
+  each frame's commit, but a child's own `transition` does not start when
+  only its inherited value changes, which CSS would do.
 

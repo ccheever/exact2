@@ -265,6 +265,74 @@ fn malformed_view_keeps_state() {
     );
 }
 
+/// `exact_view`'s words: the mask, eight floats, the regions' count and
+/// `regions`, then `tail` (the segments' count and rects).
+fn view_words(mask: u32, regions: &[f32], tail: &[u32]) -> Vec<u8> {
+    let mut words = vec![mask];
+    words.extend([0.0f32; 8].map(f32::to_bits));
+    words.push(regions.len() as u32);
+    words.extend(regions.iter().map(|r| r.to_bits()));
+    words.extend(tail);
+    words.iter().flat_map(|w| w.to_le_bytes()).collect()
+}
+
+/// The segments' rects (mask 16) without their count, or with a count the
+/// buffer does not hold or holds more than, are refused, never read past
+/// the buffer.
+#[test]
+fn a_view_whose_segments_are_short_keeps_state() {
+    for (regions, tail) in [
+        (vec![], vec![]),
+        (vec![0.0; 20], vec![]),
+        (vec![], vec![2]),
+        (vec![], vec![1, 0, 0, 0, 0, 0, 0, 0, 0]),
+        (vec![], vec![u32::MAX]),
+    ] {
+        preserves_state(
+            |bridge, _| {
+                let len = bridge.input_write(&view_words(16, &regions, &tail));
+                bridge.view(len)
+            },
+            "view: malformed",
+        );
+    }
+}
+
+/// A keyboard's rects (mask 16) after the regions, with and without them,
+/// reach the kernel's grid with the viewport.
+#[test]
+fn a_view_carries_a_keyboards_segment_rects() {
+    let plan = contract::compile("component App\n  view\n    column\n")
+        .unwrap()
+        .encode();
+    for regions in [vec![], vec![0.0f32; 20]] {
+        let mut bridge = Bridge::new();
+        bridge.boot(&plan, Dot, Hooks::none(), 402., 874.);
+        let rects = |h: f32| [0., 0., 402., 400., 0., 440., 402., h].map(f32::to_bits);
+        bridge.input_write(
+            &rects(434.)
+                .iter()
+                .flat_map(|w| w.to_le_bytes())
+                .collect::<Vec<_>>(),
+        );
+        bridge.segments(1, 1, 2, 2);
+        let mut tail = vec![2];
+        tail.extend(rects(15.));
+        let mask = 16 | 8 | if regions.is_empty() { 0 } else { 4 };
+        let mut words = view_words(mask, &regions, &tail);
+        words[28..36].copy_from_slice(&[402.0f32.to_le_bytes(), 455.0f32.to_le_bytes()].concat());
+        let len = bridge.input_write(&words);
+        bridge.view(len);
+        let env = bridge.host.as_ref().unwrap().runner().kernel().env();
+        assert_eq!((env.cols, env.rows), (1, 2));
+        assert_eq!(
+            env.segments[1],
+            exact_kernel::Rect::new(0., 440., 402., 15.)
+        );
+        assert_eq!(env.viewport_height, 455.);
+    }
+}
+
 #[test]
 fn failed_plan_preparation_keeps_state() {
     preserves_state(

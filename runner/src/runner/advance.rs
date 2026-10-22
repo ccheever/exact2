@@ -613,10 +613,22 @@ impl<D: DataSource> Runner<D> {
             );
             self.log(line);
         }
+        // A font axis's frame, after the log: a presented frame each, which
+        // the journal does not count.
+        let error = match self.tick_text_axes() {
+            Ok(receipt) => {
+                receipts.extend(receipt.map(|receipt| Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }));
+                None
+            }
+            Err(error) => Some(error),
+        };
         Advanced {
             receipts,
             now_ms: self.now_ms,
-            error: None,
+            error,
             stopped_on_request,
         }
     }

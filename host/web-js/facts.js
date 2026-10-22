@@ -30,6 +30,7 @@ export function viewport(readers) {
       devicePosture: f.posture, horizontalViewportSegments: f.cols, verticalViewportSegments: f.rows, // @ref LLP 1078 D2, D6
       colorGamut: GAMUT[(p >>> 26) & 3], dynamicRange: p & (1 << 28) ? "high" : "standard", // @ref LLP 1100 D9
       pointer: p & 64 ? "none" : p & 32 ? "coarse" : "fine", hover: p & 128 ? "none" : "hover",
+      accessibilityTextSize: false, // a browser has no accessibility text sizes (runner/src/runner/root_font.rs)
       gpuTier: reporter()?.read()["gpu-tier"] ?? "high" }); // @ref LLP 1139.003 D2: the page facts' tier; this target has no GPU module, so the screen's class, or the agent's
   };
   if (typeof addEventListener !== "function") return;

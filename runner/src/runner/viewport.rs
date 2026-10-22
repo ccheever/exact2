@@ -113,6 +113,8 @@ impl<D: DataSource> Runner<D> {
             let name = self.plan.str(self.plan.field(f).name);
             let value = if name == "gpuTier" {
                 Some(Value::str(self.page.gpu_tier()))
+            } else if name == "accessibilityTextSize" {
+                Some(Value::Bool(self.accessibility_text_size()))
             } else {
                 self.viewport.field(name)
             };

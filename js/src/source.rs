@@ -38,6 +38,10 @@ impl DataSource for Module {
         std::mem::take(&mut self.host.storage_changed)
     }
 
+    fn note_storage_changed(&mut self) {
+        self.host.storage_changed = true;
+    }
+
     fn set_document_owner(&mut self, owner: u64) {
         self.document_owner = owner;
     }

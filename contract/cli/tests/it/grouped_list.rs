@@ -1066,7 +1066,8 @@ fn an_authored_colour_and_font_reach_the_platforms_texts_and_unsaid_ones_stay_it
             weight: 400,
             italic: false,
             family: 0,
-            numeric: 0
+            numeric: 0,
+            said: TextFont::SAID[0]
         })
     );
     assert!(rows[1].destructive);

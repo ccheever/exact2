@@ -22,7 +22,7 @@ function over(edit) {
 
 test('the helps agree with their scripts here, and caps says it checked them', () => {
   expect(helpParity(ROOT)).toEqual([]);
-  const caps = spawnSync(process.execPath, [resolve(ROOT, 'scripts/caps.mjs')], { cwd: ROOT, encoding: 'utf8' });
+  const caps = spawnSync(process.execPath, [resolve(ROOT, 'scripts/caps.mjs')], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_CAPS_WASM: '0' } }); // the wasm32 check is wasm-check.test's
   expect(caps.status).toBe(0);
   expect(caps.stdout).toContain("helps: each verb's flags against its script's, its rows and lengths, 0 problems");
 });

@@ -312,7 +312,13 @@ impl Lowerer<'_> {
             self.push(LowerError { span, ..e });
         }
         crate::params::add_to(&mut design, &kinded, &identities);
-        let mut said = Said::of(file, root, &design);
+        let scope = self.types.component_scope(root, &self.types.components[0]);
+        let typing = rows::Typing::new(scope.clone(), self.types.shapes.clone());
+        let declared = std::sync::Arc::new(rows::Declared::new(
+            self.declared_fonts.clone(),
+            self.font_files.clone(),
+        ));
+        let mut said = Said::of(file, root, &design, &declared, &typing, &scope);
         // The rows a design server's write check reads again (`rows`).
         rows::note(std::mem::take(&mut said.rows));
         // D7's retention, left for the design server before the design is
@@ -885,7 +891,7 @@ pub(crate) fn stand_in_profiles(design: &mut tamber::Design) {
 /// column's px.
 pub(crate) fn measure_values(text: &str) -> Option<(tamber::Kind, Vec<String>)> {
     measure_written(text)
-        .map(|(kind, values)| (kind, crate::scale::expanded(&values)))
+        .map(|(kind, values)| (kind, crate::scale::expanded(kind, &values)))
         .or_else(|| crate::scale::values(text).map(|values| (tamber::Kind::Length, values)))
 }
 
@@ -1089,7 +1095,7 @@ pub(crate) fn measure_row(
                         .map_or(e.message.as_str(), |(_, why)| why);
                     // An expression over base names: the column it fails in.
                     let place = measure_written(text)
-                        .and_then(|(_, written)| crate::scale::place(&written, value))
+                        .and_then(|(_, written)| crate::scale::place(kind, &written, value))
                         .unwrap_or_else(|| "in some app mode".into());
                     return refuse("tamber-kind", format!("`{}=\"{text}\"`: `{text}` is the {kind_name} `{value}` {place}, which `{}` does not take: {why}", a.name, a.name));
                 }
@@ -1158,6 +1164,12 @@ pub(crate) fn token_error(a: &Attr, rows: &[exact_kernel::StyleId], e: LowerErro
         && text
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c));
+    // A word among others: a shadow's, a border's, a gradient's (stage 12 B3).
+    if e.id == "lower-attr-value" && !name_like {
+        if let Some(e) = scan::literal_word(&a.name, text, rows, span) {
+            return e;
+        }
+    }
     if e.id != "lower-attr-value" || !name_like || !exact_kernel::style::theme::bound() {
         return e;
     }

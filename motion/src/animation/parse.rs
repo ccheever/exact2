@@ -314,7 +314,7 @@ impl Keyframes {
             rest = rest[close + 1..].trim_start();
         }
         frames.sort_by(|a, b| a.offset.total_cmp(&b.offset));
-        let keyframes = Keyframes(frames);
+        let keyframes = Keyframes(frames.into());
         keyframes.validate().map_err(ParseError::InvalidAnimation)?;
         Ok(keyframes)
     }
@@ -323,7 +323,7 @@ impl Keyframes {
     /// `@keyframes name { … }`.
     pub fn css(&self) -> String {
         let mut out = String::new();
-        for frame in &self.0 {
+        for frame in self.0.iter() {
             let _ = write!(out, "{}%{{", Shortest(frame.offset * 100.0));
             if let Some(e) = &frame.easing {
                 let _ = write!(out, "animation-timing-function:{};", easing_css(e));

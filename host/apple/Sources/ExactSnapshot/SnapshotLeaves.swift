@@ -172,27 +172,58 @@ struct SnapshotLiveText: View {
 }
 
 /// `progress`: over an interval the platform's timer bar; with a value the
-/// determinate bar; else the activity indicator.
+/// determinate bar; else the activity indicator. A ring where the platform
+/// draws one: in the circular accessory family, or a `progress` the author
+/// rounded into a circle (`border-radius: 50%`, or at least half its box),
+/// as SwiftUI's circular capacity gauge draws the value.
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct SnapshotProgressView: View {
     let node: HeadlessSession.Node
     let environment: SnapshotEnvironment
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         Group {
             if let interval = SnapshotLive.interval(node), let date = environment.frozenDate {
                 let fraction = min(1, max(0, date.timeIntervalSince(interval.lowerBound) / max(0.001, interval.upperBound.timeIntervalSince(interval.lowerBound))))
-                ProgressView(value: (node.props["timeFormat"] ?? node.props["format"]) == "countdown" ? 1 - fraction : fraction)
+                let shown = (node.props["timeFormat"] ?? node.props["format"]) == "countdown" ? 1 - fraction : fraction
+                if circular { gauge(shown, total: 1) } else { ProgressView(value: shown) }
             } else if let interval = SnapshotLive.interval(node) {
-                ProgressView(timerInterval: interval, countsDown: (node.props["timeFormat"] ?? node.props["format"]) == "countdown") { EmptyView() } currentValueLabel: { EmptyView() }
+                if circular {
+                    ProgressView(timerInterval: interval, countsDown: (node.props["timeFormat"] ?? node.props["format"]) == "countdown") { EmptyView() } currentValueLabel: { EmptyView() }
+                        .progressViewStyle(.circular)
+                } else {
+                    ProgressView(timerInterval: interval, countsDown: (node.props["timeFormat"] ?? node.props["format"]) == "countdown") { EmptyView() } currentValueLabel: { EmptyView() }
+                }
             } else if let value = Double(node.props["value"] ?? "") {
-                ProgressView(value: min(value, total), total: total)
+                if circular { gauge(min(value, total), total: total) } else { ProgressView(value: min(value, total), total: total) }
             } else {
                 ProgressView()
             }
         }
         .frame(width: node.contentBox.width, height: node.contentBox.height)
         .offset(x: node.contentBox.minX, y: node.contentBox.minY)
+    }
+
+    /// The ring: a circular capacity gauge, the value's fraction of the
+    /// circle, in the box's colour.
+    @ViewBuilder private func gauge(_ value: Double, total: Double) -> some View {
+        #if os(iOS) || os(watchOS)
+        Gauge(value: value, in: 0...total) { EmptyView() }
+            .gaugeStyle(.accessoryCircularCapacity)
+            .tint(SnapshotColor.color(SnapshotStyle(node).color("accent_color") ?? SnapshotStyle(node).color("text_color"), dark: scheme == .dark))
+        #else
+        ProgressView(value: value, total: total).progressViewStyle(.circular)
+        #endif
+    }
+
+    /// Whether the platform draws the value as a ring here.
+    private var circular: Bool {
+        if environment.family == .accessoryCircular { return true }
+        let box = node.contentBox.size
+        guard box.width > 0, box.height > 0 else { return false }
+        let radii = SnapshotPaint(style: SnapshotStyle(node), dark: scheme == .dark).radii(in: CGRect(origin: .zero, size: box))
+        return radii.allSatisfy { $0.width >= box.width / 2 - 0.5 && $0.height >= box.height / 2 - 0.5 }
     }
 
     private var total: Double { max(Double(node.props["max"] ?? "") ?? 1, Double.leastNonzeroMagnitude) }
@@ -220,7 +251,7 @@ struct SnapshotImageView: View {
         Group {
             if (node.props["imageSource"] ?? "").hasPrefix("symbol:") {
                 symbol(fit: fit).clipShape(clip).widgetAccentable()
-            } else if let raster = environment.rasters.decode(node.props["imageSource"], roots: environment.imageRoots, appGroup: environment.appGroup,
+            } else if let raster = environment.rasters.decode(node.props["imageSource"], roots: environment.imageRoots, appGroup: environment.appGroup, appID: environment.appID,
                                                                 box: box.size, fit: fit, scale: displayScale) {
                 SnapshotRaster(image: Image(decorative: raster.image, scale: 1), natural: raster.natural, fit: fit, box: box.size,
                                fullColor: SnapshotAccent.group(node) == .fullColor)
@@ -317,8 +348,8 @@ public final class SnapshotRasters {
 
     package var keptKeys: [String] { lock.lock(); defer { lock.unlock() }; return kept.map(\.key) }
 
-    public func decode(_ source: String?, roots: [URL], appGroup: URL?, box: CGSize, fit: String, scale: CGFloat) -> Decoded? {
-        guard let source, !source.isEmpty, let url = Self.resolve(source, roots: roots, appGroup: appGroup) else { return nil }
+    public func decode(_ source: String?, roots: [URL], appGroup: URL?, appID: String?, box: CGSize, fit: String, scale: CGFloat) -> Decoded? {
+        guard let source, !source.isEmpty, let url = Self.resolve(source, roots: roots, appGroup: appGroup, appID: appID) else { return nil }
         return decode(url, box: box, fit: fit, scale: scale)
     }
 
@@ -383,17 +414,16 @@ public final class SnapshotRasters {
     }
 
     /// The file a source names: `app:/data/…`, `app:/cache/…` and
-    /// `app:/tmp/…` under the app group's container (its `data`, `cache`
-    /// and `temporary` directories, the running host's names), any other
-    /// name under one of the bundle roots; `..` and a root alone are
-    /// refused, and the resolved path must stay under its root.
-    public static func resolve(_ source: String, roots: [URL], appGroup: URL?) -> URL? {
+    /// `app:/tmp/…` under the app's directories in the group container,
+    /// laid out as the app lays them out (`picker::app_dirs`), so a widget
+    /// reads the file the app wrote; any other name under one of the bundle
+    /// roots; `..` and a root alone are refused, and the resolved path must
+    /// stay under its root.
+    public static func resolve(_ source: String, roots: [URL], appGroup: URL?, appID: String?) -> URL? {
         if source.hasPrefix("app:/") {
             let parts = source.dropFirst(5).split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-            let directories = ["data": "data", "cache": "cache", "tmp": "temporary"]
-            guard let appGroup, parts.count >= 2, let directory = directories[parts[0]],
+            guard let appGroup, let appID, parts.count >= 2, let root = appRoots(group: appGroup, appID: appID)[parts[0]],
                   !parts.dropFirst().contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else { return nil }
-            let root = appGroup.appending(path: directory)
             return confined(parts.dropFirst().reduce(root) { $0.appending(path: $1) }, under: root)
         }
         for root in roots {
@@ -402,6 +432,16 @@ public final class SnapshotRasters {
             if let url = confined(candidate, under: root) { return url }
         }
         return nil
+    }
+
+    /// The app's `app:/` directories under `group`, by their `app:/` name:
+    /// `Library/Application Support/exact/<id>/data`, and `cache` and
+    /// `temporary` under `Library/Caches/exact/<id>`, the layout the app and
+    /// its extension's TypeScript write through (`host/apple/src/picker.rs`).
+    public static func appRoots(group: URL, appID: String) -> [String: URL] {
+        let caches = group.appending(path: "Library/Caches/exact").appending(path: appID)
+        return ["data": group.appending(path: "Library/Application Support/exact").appending(path: appID).appending(path: "data"),
+                "cache": caches.appending(path: "cache"), "tmp": caches.appending(path: "temporary")]
     }
 
     private static func confined(_ candidate: URL, under root: URL) -> URL? {

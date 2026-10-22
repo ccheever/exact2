@@ -12,7 +12,7 @@ pub(super) fn before_prop(
     }
     match prop {
         PropId::SemanticTag => std::iter::once(slot)
-            .chain(arena.children(slot).iter().copied())
+            .chain(rows(arena, slot))
             .map(|s| (s, arena.default_context(s)))
             .collect(),
         PropId::NavigationKey => arena
@@ -25,7 +25,8 @@ pub(super) fn before_prop(
         PropId::AccessibilityRole
         | PropId::AccessibilityControls
         | PropId::Type
-        | PropId::ButtonStyle => {
+        | PropId::ButtonStyle
+        | PropId::AlertPart => {
             let mut before = vec![(slot, arena.default_context(slot))];
             if let Some(parent) = arena.parent(slot) {
                 before.push((parent, arena.default_context(parent)));
@@ -39,19 +40,31 @@ pub(super) fn before_prop(
                     );
                 }
             }
-            if prop == PropId::AccessibilityRole {
-                before.extend(
-                    arena
-                        .children(slot)
-                        .iter()
-                        .copied()
-                        .map(|child| (child, arena.default_context(child))),
-                );
+            if matches!(prop, PropId::AccessibilityRole | PropId::AlertPart) {
+                before.extend(rows(arena, slot).map(|row| (row, arena.default_context(row))));
             }
             before
         }
         _ => Vec::new(),
     }
+}
+
+/// `slot`'s rows, whose defaults its tag, role or part decides: its
+/// children, and an alert's rows in its part boxes too (arena/alert.rs)
+fn rows(arena: &NodeArena, slot: u32) -> impl Iterator<Item = u32> + '_ {
+    arena.children(slot).iter().flat_map(move |&child| {
+        let parts = matches!(
+            arena.props(child).str(PropId::AlertPart),
+            Some("message" | "actions")
+        );
+        std::iter::once(child).chain(
+            parts
+                .then(|| arena.children(child))
+                .into_iter()
+                .flatten()
+                .copied(),
+        )
+    })
 }
 
 pub(super) fn after_prop(

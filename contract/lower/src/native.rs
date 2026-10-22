@@ -101,6 +101,13 @@ pub(crate) fn refused(tag: &str, a: &Attr) -> Option<LowerError> {
                 return None;
             }
         }
+        // The box hears every event Contract names, and a module sends nine
+        // of them (`NativeViews.kinds`): any other event's name on a module
+        // tag is a handler nothing fires, so a prop named like one
+        // (`playing`, `ended`) is refused rather than bound to silence.
+        tags::AttrTarget::Handler(_) if !MODULE_EVENTS.contains(&a.name.as_str()) => {
+            "an event the box hears and a module never sends (a module sends press, change, hover, focus, blur, key, submit, load and message)"
+        }
         tags::AttrTarget::Handler(_) | tags::AttrTarget::Flex => return None,
         // A hatch names its own refusal on a module (`lower-hatch-module`).
         _ if a.name == "hatch" => return None,
@@ -139,6 +146,12 @@ pub(crate) fn name_the_fix(n: &Node, mut e: LowerError) -> LowerError {
 
 /// The props besides ARIA's that any leaf box takes, so a module's too.
 const BOX_PROPS: [&str; 6] = ["testId", "id", "role", "disabled", "inert", "tabindex"];
+
+/// The events a native view sends its box (`ExactNativeEvents`; the Apple
+/// host's `NativeViews.kinds`), the only handlers a module tag can fire.
+const MODULE_EVENTS: [&str; 9] = [
+    "press", "change", "hover", "focus", "blur", "key", "submit", "load", "message",
+];
 
 /// The form-control props (LLP 1069.001, LLP 1069.002) a module's box has
 /// no use for. `checked` is refused on every tag but `input` before this
@@ -324,6 +337,10 @@ mod tests {
             "src",
             "popover",
             "virtualized",
+            "playing",
+            "ended",
+            "timeupdate",
+            "scroll",
         ] {
             let e = super::refused("ghostty-terminal", &attr(name))
                 .unwrap_or_else(|| panic!("{name} was not refused"));

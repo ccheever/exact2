@@ -5,14 +5,33 @@ use super::{accessory, hidden, over, s, symbol, with, LABEL, MARK, TERTIARY};
 use contract_syntax::Node;
 
 /// Whether a row's shown parts are an action cell's: one text, a symbol
-/// that is no accessory before it at most.
+/// that is no accessory before it at most. A symbol an `if` shows (every
+/// branch a symbol or nothing) is one before it at most too.
 pub(super) fn action_cell(children: &[Node]) -> bool {
     let shown: Vec<&Node> = children.iter().filter(|c| !hidden(c)).collect();
     let text = |n: &Node| matches!(n, Node::Element { tag, .. } if tag == "text");
     match shown.as_slice() {
         [title] => text(title),
-        [icon, title] => symbol(icon).is_some_and(|s| accessory(s).is_none()) && text(title),
+        [icon, title] => leading(icon) && text(title),
         _ => false,
+    }
+}
+
+/// A symbol that is no accessory, or an `if` whose every branch shows one
+/// such at most.
+fn leading(node: &Node) -> bool {
+    match node {
+        Node::When {
+            then, otherwise, ..
+        } => [then, otherwise].iter().all(|branch| {
+            let shown: Vec<&Node> = branch.iter().filter(|c| !hidden(c)).collect();
+            match shown.as_slice() {
+                [] => true,
+                [one] => leading(one),
+                _ => false,
+            }
+        }),
+        _ => symbol(node).is_some_and(|s| accessory(s).is_none()),
     }
 }
 

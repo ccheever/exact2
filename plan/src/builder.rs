@@ -836,7 +836,7 @@ impl PlanBuilder {
         surface: Option<SurfacesId>,
     ) -> NodesId {
         let bstart = self.plan.bindings.len() as u32;
-        self.plan.bindings.extend_from_slice(bindings);
+        self.plan.bindings.to_mut().extend_from_slice(bindings);
         let hstart = self.plan.handlers.len() as u32;
         for (event, action, args) in handlers {
             let args = self.args(args);
@@ -846,7 +846,7 @@ impl PlanBuilder {
                 args,
             });
         }
-        self.plan.nodes.push(NodesRow {
+        self.plan.nodes.to_mut().push(NodesRow {
             node_type,
             parent,
             arm,
@@ -872,7 +872,7 @@ impl PlanBuilder {
         looks.sort_by_key(|(state, _)| *state);
         for (state, bindings) in looks {
             let bstart = self.plan.bindings.len() as u32;
-            self.plan.bindings.extend_from_slice(bindings);
+            self.plan.bindings.to_mut().extend_from_slice(bindings);
             self.plan.looks.push(LooksRow {
                 node: id,
                 state: *state,

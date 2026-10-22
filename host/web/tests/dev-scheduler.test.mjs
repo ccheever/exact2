@@ -616,7 +616,7 @@ test('the JS dev loop rebuilds backend selection creation, edits and removal',as
     const appId=JSON.parse(readFileSync(join(app,'app.json'),'utf8')).app.id;
     const authored="import type {Answer} from './app.contract.d.ts';\nexport const appId="+JSON.stringify(appId)+";const origin='http://127.0.0.1:4400';export const grants=`net.fetch ${origin}`;export const answer:Answer=()=>origin;\n";
     writeFileSync(join(app,'app.ts'),authored);
-    const env={...process.env,EXACT_APP_DIR:app};delete env.EXACT_BACKEND_ORIGIN;
+    const env={...process.env,EXACT_APP_DIR:app};delete env.EXACT_BACKEND_ORIGIN;delete env.EXACT_WEB_DIST;delete env.CARGO_TARGET_DIR; // its own target/web-dist, which a suite's shared dist or target would move
     child=spawn(process.execPath,[resolve(import.meta.dir,'../dev.mjs'),'--app','app'],{env,stdio:['ignore','pipe','pipe']});
     for(const stream of [child.stdout,child.stderr])stream.on('data',b=>{log+=b.toString();});
     await until('http://127.0.0.1:4400');

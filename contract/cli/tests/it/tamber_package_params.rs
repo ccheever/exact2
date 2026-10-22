@@ -744,3 +744,114 @@ fn two_tokens_of_one_name_in_two_cases_stay_two() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// LLP 1139 D8: a library component's param is named in full in the app's
+/// design, so `set-param` by its short name writes the new line by the full
+/// one, which the build takes (a short one is `tamber-param-short-library`);
+/// `propose` answers the same diff the write makes.
+#[test]
+fn a_short_name_writes_a_library_params_line_in_full() {
+    let dir = app(
+        "pkg-params-library-short",
+        "tamber t\n\ntheme\n  ink = #111111\n",
+    );
+    let at = dir.join("node_modules/@acme/lib");
+    std::fs::create_dir_all(&at).unwrap();
+    std::fs::write(
+        at.join("package.json"),
+        r#"{"name":"@acme/lib","version":"1.0.0","private":true,"exports":{".":"./index.contract"}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        at.join("index.contract"),
+        CARD.replace("reading.gap", "lib.gap"),
+    )
+    .unwrap();
+    std::fs::write(
+        at.join("lib.tamber"),
+        "tamber lib\n\ntheme\n  lib.gap: length = space.md\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"@acme/lib\"\ncomponent App\n  view\n    column\n      Card()\n",
+    )
+    .unwrap();
+    let file = dir.join("app.tamber");
+    let mut s = Serve::start(&dir, &[]);
+    let op = json!({"op": "set-param", "name": "Card.inset", "value": "20px"});
+    let files = json!({"app.tamber": digest(&file)});
+    let (proposed, _) = s.ask(json!({"method": "propose", "files": files, "ops": [op]}));
+    let (done, _) =
+        s.ask(json!({"method": "transaction", "client": "one", "files": files, "ops": [op]}));
+    assert_eq!(done["ok"]["written"], json!(["app.tamber"]), "{done}");
+    assert_eq!(proposed["ok"]["diff"], done["ok"]["diff"], "{proposed}");
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        text.contains("\n  @acme/lib/index.contract#Card.inset = 20px\n"),
+        "{text}"
+    );
+    let plan = contract::compile_path(&dir.join("app.contract"))
+        .unwrap_or_else(|e| panic!("the design the server wrote builds: {e:?}"));
+    assert!(
+        format!("{plan:?}").contains("20px"),
+        "the plan keeps the set value"
+    );
+    // A later write by the short name finds that line, and so does unset.
+    let op = json!({"op": "set-param", "name": "Card.inset", "value": "24px"});
+    let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": [op]}));
+    assert!(done.get("ok").is_some(), "{done}");
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        text.contains("#Card.inset = 24px\n") && text.matches("Card.inset").count() == 1,
+        "{text}"
+    );
+    let op = json!({"op": "unset-param", "name": "Card.inset"});
+    let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": [op]}));
+    assert!(done.get("ok").is_some(), "{done}");
+    assert!(!std::fs::read_to_string(&file).unwrap().contains("params"));
+    drop(s);
+    // A line already spelled short (as the server wrote it before): a set
+    // respells it in full, its comment and `when` line kept, and builds.
+    let broken = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  ink = #111111\n\nparams\n  Card.inset = 16px  // roomy\n    when density=compact: 8px\n";
+    std::fs::write(&file, broken).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let op = json!({"op": "set-param", "name": "Card.inset", "value": "18px"});
+    let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": [op]}));
+    assert!(done.get("ok").is_some(), "{done}");
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        text.ends_with("\nparams\n  @acme/lib/index.contract#Card.inset = 18px  // roomy\n    when density=compact: 8px\n"),
+        "{text}"
+    );
+    contract::compile_path(&dir.join("app.contract")).unwrap_or_else(|e| panic!("{e:?}"));
+    // Its undo gives the short line back, byte for byte.
+    let (undone, _) =
+        s.ask(json!({"method": "undo", "client": "one", "inverse": done["ok"]["inverse"]}));
+    assert!(undone.get("ok").is_some(), "{undone}");
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), broken);
+    // Unsetting only its `when` line keeps the param's line, respelled.
+    let op = json!({"op": "unset-param", "name": "Card.inset", "when": [{"axis": "density", "value": "compact"}]});
+    let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": [op]}));
+    assert!(done.get("ok").is_some(), "{done}");
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        text.ends_with("\nparams\n  @acme/lib/index.contract#Card.inset = 16px  // roomy\n"),
+        "{text}"
+    );
+    contract::compile_path(&dir.join("app.contract")).unwrap_or_else(|e| panic!("{e:?}"));
+    let (undone, _) =
+        s.ask(json!({"method": "undo", "client": "one", "inverse": done["ok"]["inverse"]}));
+    assert!(undone.get("ok").is_some(), "{undone}");
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), broken);
+    // Unset and set again in one transaction: the new line is in full.
+    let ops = json!([{"op": "unset-param", "name": "Card.inset"}, {"op": "set-param", "name": "Card.inset", "value": "20px"}]);
+    let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": ops}));
+    assert!(done.get("ok").is_some(), "{done}");
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        text.ends_with("\nparams\n  @acme/lib/index.contract#Card.inset = 20px\n"),
+        "{text}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

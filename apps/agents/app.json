@@ -1,0 +1,39 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Agents",
+  "short_name": "Agents",
+  "id": "com.exact.agents",
+  "start_url": "/",
+  "display": "standalone",
+  "app": {
+    "id": "com.exact.agents",
+    "name": "Agents"
+  },
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ]
+    },
+    "macos": {
+      "minimumOS": "26.0",
+      "window": {
+        "width": 1180,
+        "height": 780,
+        "minWidth": 720,
+        "minHeight": 480
+      }
+    },
+    "web": {}
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  }
+}

@@ -615,3 +615,188 @@ fn an_entity_is_drawn_when_its_sprite_draws_whatever_its_emitter_or_mesh_did() {
     assert!(lit > 1000, "{lit} pixels lit");
     assert_eq!(word, "drawn");
 }
+
+#[derive(Default, Args)]
+struct ExplosionArgs {
+    sphere: bool,
+    above: bool,
+    particle: bool,
+}
+struct Explosion;
+impl Game for Explosion {
+    const ID: &'static str = "look-explosion";
+    type Args = ExplosionArgs;
+    fn setup(w: &mut World, args: &ExplosionArgs) {
+        w.insert_resource(Environment {
+            background: Some(Color::hex("#808080")),
+            bloom: None,
+            fog: None,
+            tone_mapping: ToneMapping::None,
+            ..Default::default()
+        });
+        w.spawn((
+            Transform::at(0., 3., 6.).looking_at(Vec3::ZERO, Vec3::Y),
+            Camera::default(),
+        ));
+        w.spawn((
+            Transform::default(),
+            Mesh::plane(30., 30.),
+            Material::rgb(0.3, 0.3, 0.3),
+        ));
+        if args.sphere {
+            // Rivals' explosion: an alpha-blended sphere, drawn as 528 triangles.
+            w.spawn((
+                Transform::at(1., if args.above { 1. } else { -2. }, 0.).with_scale(0.4),
+                Mesh::sphere(1.),
+                Material {
+                    color: [1., 0.6, 0.2, 0.9],
+                    ..Material::glow([6., 2.4, 0.5])
+                },
+            ));
+        }
+        if args.particle {
+            w.spawn((
+                Transform::at(-1., -2., 0.),
+                Emitter {
+                    speed: 0.,
+                    gravity: Vec3::ZERO,
+                    size: [0.4; 2],
+                    color: [[1., 0.6, 0.2, 0.9]; 2],
+                    additive: false,
+                    ..Emitter::sparks().rate(0.).lifetime(30.).burst(1)
+                },
+            ));
+        }
+    }
+    fn tick(w: &mut World, _: &Input, _: &ExplosionArgs) {
+        emitter::step(w);
+    }
+}
+
+fn explosion_look(
+    gpu: &Gpu,
+    direct: Option<bool>,
+    args: ExplosionArgs,
+) -> (serde_json::Value, serde_json::Value) {
+    let mut s = WorldSurface::<Explosion>::default();
+    s.bind(&args.values(), None).unwrap();
+    if let Some(direct) = direct {
+        let format = if direct {
+            wgpu::TextureFormat::Rgba8UnormSrgb
+        } else {
+            wgpu::TextureFormat::Rgba8Unorm
+        };
+        let target = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("explosion control"),
+            size: wgpu::Extent3d {
+                width: 320,
+                height: 180,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let view = target.create_view(&Default::default());
+        for now in [0., 100.] {
+            let mut encoder = gpu.device.create_command_encoder(&Default::default());
+            s.render(
+                &frame(now),
+                &gpu.device,
+                &gpu.queue,
+                &mut encoder,
+                &view,
+                format,
+            );
+            gpu.queue.submit([encoder.finish()]);
+            s.submitted();
+            assert!(s.error().is_none(), "{:?}", s.error());
+            s.renderer_for_test().unwrap().set_direct(direct);
+        }
+    } else {
+        for now in [0, 100] {
+            s.agent(&format!(r#"{{"op":"clock","now":{now}}}"#))
+                .unwrap();
+        }
+    }
+    let saved = s.carry().unwrap().unwrap();
+    let picture: serde_json::Value = serde_json::from_str(
+        &s.agent(r#"{"op":"screenshot","form":"look","width":320,"height":180}"#)
+            .unwrap(),
+    )
+    .unwrap();
+    let draws: serde_json::Value =
+        serde_json::from_str(&s.agent(r#"{"op":"state","draws":true}"#).unwrap()).unwrap();
+    assert_eq!(s.carry().unwrap().unwrap(), saved);
+    (picture, draws)
+}
+
+#[test]
+fn blended_explosion_triangles_are_not_particles_or_a_cover_for_them() {
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    for direct in [None, Some(false), Some(true)] {
+        let (bare, _) = explosion_look(&gpu, direct, ExplosionArgs::default());
+        for above in [false, true] {
+            for particle in [false, true] {
+                let (picture, listing) = explosion_look(
+                    &gpu,
+                    direct,
+                    ExplosionArgs {
+                        sphere: true,
+                        above,
+                        particle,
+                    },
+                );
+                let look = &picture["look"];
+                assert_eq!(look["gaps"], serde_json::json!([]), "{direct:?}: {look}");
+                let tells = look["tells"].as_array().unwrap();
+                if particle {
+                    assert_eq!(tells.len(), 1, "{look}");
+                    assert_eq!(tells[0]["name"], "particles-uncovered");
+                    assert_eq!(
+                        look["particles"],
+                        serde_json::json!([{"batch":"particle dots · alpha", "live":1, "covered":0}])
+                    );
+                } else {
+                    assert!(tells.is_empty(), "{look}");
+                    assert!(look["particles"].is_null(), "{look}");
+                }
+                // Removing the hidden sphere changes no pixel; the visible one contributes.
+                assert_eq!(
+                    picture["data"] == bare["data"],
+                    !above,
+                    "{direct:?}, above={above}"
+                );
+                let primitives: Vec<_> = listing["draws"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|d| d["draw"] == "blended primitives")
+                    .collect();
+                assert_eq!(
+                    primitives
+                        .iter()
+                        .map(|d| d["submitted"].as_u64().unwrap())
+                        .sum::<u64>(),
+                    528,
+                    "{listing}"
+                );
+                for draw in primitives {
+                    assert_eq!(
+                        draw["pass"],
+                        if particle { "translucent" } else { "forward" }
+                    );
+                    assert_eq!(draw["variant"], if direct == Some(true) { 8 } else { 0 });
+                    assert_eq!(draw["winding"], "ccw");
+                    assert!(draw.get("fragments").is_none(), "{draw}");
+                    assert_eq!(draw["covered"], above);
+                }
+            }
+        }
+    }
+}

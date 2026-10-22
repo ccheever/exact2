@@ -401,7 +401,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     package override func becomeFirstResponder() -> Bool {
         guard !formDisabled, !inert, !cssVisibilityHidden else { return false }
         let ok = super.becomeFirstResponder()
-        if ok { presenter?.collections.pinsChanged() }
+        if ok { presenter?.collections.pinsChanged(); inputCanvas?.canvasInput?.focused() }
         if ok, presenter?.menus.focus.quiet != true { presenter?.focus(id) } // a menu's set-aside focus returns quietly (MenuFocusIOS)
         return ok
     }
@@ -410,6 +410,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if ok { showFocusRing(false) }
         if ok { presenter?.collections.pinsChanged() }
         if ok && !isSurfaceControl { inputCanvas?.canvasInput?.blur() }
+        if ok { inputCanvas?.canvasInput?.focusLeft() }
         if ok, presenter?.menus.focus.quiet != true { presenter?.blur(id) }
         return ok
     }
@@ -593,8 +594,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     func layoutSymbol() {
         guard let leaf = symbolView else { return }
         let content = contentBox()
-        leaf.frame = content; leaf.clipsToBounds = true
-        switch style["object_fit"]?.string ?? "fill" {
+        leaf.frame = content; leaf.clipsToBounds = !listSymbol // a list cell's image is its own size, centred, as UIKit's
+        switch listSymbol ? "none" : style["object_fit"]?.string ?? "fill" {
         case "cover": leaf.contentMode = .scaleAspectFill
         case "none": leaf.contentMode = .center
         case "scale-down":
@@ -1065,7 +1066,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         }
     }
     func updateMaterial() {
-        defer { syncGlassSlot(); syncGlassGroup(); settleVibrancy() }
+        defer { syncGlassSlot(); syncGlassGroup(); settleVibrancy(); syncDefaultSurfaceScroll() }
         let kind = materialRequest
         let supported = kind != nil
         let interactive = Materials.glass(kind) && handlers.contains("press") && !disabled
@@ -1103,7 +1104,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
     func applyMaterialRadius() {
         guard let materialView else { return }
-        let radius = BorderPaint.clip(materialView.layer, in: bounds, radii: cornerSizes(in: bounds))
+        let authored = BorderPaint.clip(materialView.layer, in: bounds, radii: cornerSizes(in: bounds))
+        let radius = (writesCorner ? nil : defaultSurfaceRadius) ?? authored
         if #available(iOS 26.0, tvOS 26.0, *) {
             materialView.cornerConfiguration = .corners(radius: .fixed(Double(radius)))
         } else {
@@ -1258,6 +1260,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         applyFieldStyle()
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)
+        decorationChanged(from: old)
         setNeedsDisplay()
     }
 
@@ -1359,14 +1362,24 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         let travel = size.width - sv.bounds.width
         let row = { (v: NodeView) in v.style["display"]?.string == "flex" || v.style["flex_direction"] != nil ? !(v.style["flex_direction"]?.string ?? "row").hasPrefix("column") : false }
         let carousel = travel > 0.5 && (travel > sv.bounds.width / 4 || row(self) || sv.subviews.contains { ($0 as? NodeView).map { $0.frame.width > sv.bounds.width + 0.5 && row($0) } ?? false })
-        sv.alwaysBounceVertical = sv.scrollsY && (size.height > sv.bounds.height + 0.5 || !carousel)
+        // One that fits inside an author's scroller that scrolls down leaves
+        // the drag to it, as a nested UIScrollView does (an `EmptyState` in a
+        // page's `scroll`). The presenter's viewport is no author's.
+        let fits = size.height <= sv.bounds.height + 0.5
+        // Pull to refresh needs its own drag.
+        var nested = false, up = fits && !handlers.contains("refresh") ? sv.superview : nil
+        while let v = up, !nested {
+            if let outer = v as? ScrollView, !(outer is Viewport) { nested = outer.scrollsY }
+            up = v.superview
+        }
+        sv.alwaysBounceVertical = sv.scrollsY && !nested && (!fits || !carousel)
     }
 
     package override func layoutSubviews() {
         if focusRing != nil { showFocusRing(true) }
         if let s = presenter?.session, s.firstLayoutMs == nil { s.firstLayoutMs = ExactEnv.wall() }
         super.layoutSubviews()
-        if materialView != nil { applyMaterialRadius() }
+        if materialView != nil { applyMaterialRadius(); syncDefaultSurfaceScroll() } // its corners, at its size
         syncEllipticalClip()
         if style["perspective"] != nil { applyPerspective() }
         if kind == "image" { if flightLook == nil { presenter?.session?.rasters.resized(self) }; if raster != nil { applyImageLayer() } }

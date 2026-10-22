@@ -573,7 +573,10 @@ impl Plan {
         let mut depth = vec![0u32; first_region + self.regions.len()];
         let up = |site: usize| -> Option<usize> {
             let (parent, arm) = match site.checked_sub(first_region) {
-                None => (self.nodes[site].parent, self.nodes[site].arm),
+                None => {
+                    let node = self.node(NodesId(site as u32));
+                    (node.parent, node.arm)
+                }
                 Some(r) => (self.regions[r].parent, self.regions[r].arm),
             };
             match (parent, arm) {

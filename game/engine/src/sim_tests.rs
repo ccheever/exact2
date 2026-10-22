@@ -87,7 +87,7 @@ fn restore_refuses_a_one_tick_ahead_clock() {
     let good = s.save().unwrap();
     let mut saved: Saved = bin::from_slice(&good[7..]).unwrap();
     saved.world_us = 10_000;
-    let mut bad = b"EXSIM\0\x07".to_vec();
+    let mut bad = b"EXSIM\0\x08".to_vec();
     bad.extend(bin::to_vec(&saved));
     assert!(s
         .restore(&bad)
@@ -126,6 +126,7 @@ fn restore_preflights_input_and_offsets_without_setup() {
             x: 0.,
             y: 0.,
             at_ms: 0.,
+            player: 0,
         };
         match case {
             0 => {
@@ -139,12 +140,15 @@ fn restore_preflights_input_and_offsets_without_setup() {
                 ..Default::default()
             }),
             _ => saved.queue.push(Queued {
-                event: InputEvent::Blur { at_ms: 0. },
+                event: InputEvent::Blur {
+                    at_ms: 0.,
+                    player: 0,
+                },
                 world_us: Some(i64::MAX),
                 ..Default::default()
             }),
         }
-        let mut bad = b"EXSIM\0\x07".to_vec();
+        let mut bad = b"EXSIM\0\x08".to_vec();
         bad.extend(bin::to_vec(&saved));
         assert!(sim.restore(&bad).is_err(), "case {case}");
         assert_eq!(SETUPS.with(|n| n.get()), 0, "case {case}");
@@ -186,6 +190,7 @@ fn restore_constructs_current_bindings_once_without_setup() {
             x: 0.,
             y: 0.,
             at_ms: 0.,
+            player: 0,
         });
         sim.run(34.);
         let saved = sim.save().unwrap();
@@ -233,7 +238,7 @@ fn restore_validates_arguments_before_registration() {
     let good = sim.save().unwrap();
     let mut saved: Saved = bin::from_slice(&good[7..]).unwrap();
     saved.args = r#"{"invalid":true}"#.into();
-    let mut bad = b"EXSIM\0\x07".to_vec();
+    let mut bad = b"EXSIM\0\x08".to_vec();
     bad.extend(bin::to_vec(&saved));
     REGISTERS.with(|n| n.set(0));
     assert!(sim
