@@ -418,6 +418,20 @@ describe('a composer reference is one unit', () => {
     plain.call('composerBeforeInput', [{value: draft, selectionStart: 0, selectionEnd: 3, isComposing: false, cancelable: true, inputType: 'insertText', data: 'z'}], {richComposer: {...plain.projection, blocks: []}});
     expect(plain.suppressed).toBe(0);
   });
+  test('a quote typed over a selection wraps it; composing or a collapsed caret leaves the field\'s own typing', () => {
+    const f = fixture('plain words', 0);
+    f.state.composerSelectionEnd = 5;
+    f.call('composerBeforeInput', [{value: 'plain words', selectionStart: 0, selectionEnd: 5, isComposing: false, cancelable: true, inputType: 'insertText', data: '"'}], {richComposer: {...f.projection, blocks: []}});
+    expect(f.suppressed).toBe(1);
+    settle(f);
+    expect([f.state.draft, f.state.composerSelectionStart, f.state.composerSelectionEnd]).toEqual(['"plain" words', 1, 6]);
+    for (const [from, to, composing] of [[0, 5, true], [5, 5, false]] as const) {
+      const g = fixture('plain words', from);
+      g.state.composerSelectionEnd = to;
+      g.call('composerBeforeInput', [{value: 'plain words', selectionStart: from, selectionEnd: to, isComposing: composing, cancelable: true, inputType: 'insertText', data: '"'}], {richComposer: {...g.projection, blocks: []}});
+      expect(g.suppressed).toBe(0);
+    }
+  });
   test('a caret inside it goes to the nearer edge of its shown label; a range takes it whole', () => {
     const moved = (from: number, to: number, toEnd = to) => {
       const f = fixture(draft, from);

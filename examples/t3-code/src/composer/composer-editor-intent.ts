@@ -30,6 +30,18 @@ function whenMatches(ast: unknown, context: Record<string, boolean>, depth = 0):
   if (left === null || right === null) return null;
   return node.type === 'and' ? left && right : node.type === 'or' ? left || right : null;
 }
+/** composerRequiresModifier: the Send shortcut setting makes plain Return a newline for this prompt. */
+export function composerRequiresModifier(sendShortcut: string, prompt: string): boolean {
+  return sendShortcut === 'mod-enter' || sendShortcut === 'mod-enter-multiline' && /[\r\n]/.test(prompt);
+}
+/** shortcutForContext (keybindings.ts, T3 Code 74541bab17): when Return needs ⌘ to send, a saved ⌘↩ alternate
+ *  send takes ⇧ too, so ⌘↩ sends with the default follow-up behaviour and ⌘⇧↩ with the other. */
+function shortcutForContext(rule: Obj, context: Record<string, boolean>): Obj {
+  const shortcut = obj(rule.shortcut);
+  if (context.composerRequiresModifier && rule.command === 'composer.sendAlternate' && shortcut.key === 'enter' && shortcut.modKey
+    && !shortcut.metaKey && !shortcut.ctrlKey && !shortcut.altKey && !shortcut.shiftKey) return { ...shortcut, shiftKey: true };
+  return shortcut;
+}
 function chordOf(shortcut: Obj): string {
   const key = str(shortcut.key);
   return [...(shortcut.modKey || shortcut.metaKey ? ['Meta'] : []), ...(shortcut.ctrlKey ? ['Control'] : []),
@@ -40,10 +52,10 @@ export function chordCommand(config: Obj, chord: string, extra: Record<string, b
   const rules = Array.isArray(config.keybindings) ? arr(config.keybindings) : DEFAULT_SEND_RULES;
   const context: Record<string, boolean> = { true: true, false: false, isDesktop: true, isWeb: false, terminalFocus: false, terminalOpen: false,
     previewFocus: false, previewOpen: false, usagePageOpen: false, composerFocus: true, editableFocus: true, turnRunning: false,
-    modelPickerOpen: false, draftThreadRoute: false, modalOpen: false, ...extra };
+    modelPickerOpen: false, draftThreadRoute: false, modalOpen: false, composerRequiresModifier: false, ...extra };
   for (let index = rules.length - 1; index >= 0; index--) {
     const rule = rules[index]!;
-    if (chordOf(obj(rule.shortcut)) !== chord) continue;
+    if (chordOf(shortcutForContext(rule, context)) !== chord) continue;
     const match = whenMatches(rule.whenAst, context);
     if (match === false) continue;
     return match === null ? '' : str(rule.command);
@@ -53,7 +65,7 @@ export function chordCommand(config: Obj, chord: string, extra: Record<string, b
 /** Every chord that resolves to `command` in this context, as `aria-keyshortcuts`. */
 export function chordsFor(config: Obj, command: string, extra: Record<string, boolean>): string[] {
   const rules = Array.isArray(config.keybindings) ? arr(config.keybindings) : DEFAULT_SEND_RULES;
-  const chords = [...new Set(rules.filter(rule => rule.command === command).map(rule => chordOf(obj(rule.shortcut))))];
+  const chords = [...new Set(rules.filter(rule => rule.command === command).map(rule => chordOf(shortcutForContext(rule, extra))))];
   return chords.filter(chord => chordCommand(config, chord, extra) === command);
 }
 
@@ -80,14 +92,14 @@ export function gestureChord(modifiers: string, key = 'Enter'): string {
  * while a turn runs is the alternate (the send button follows the held key).
  * A stale or missing gesture is a plain send.
  */
-export function sendIntent(config: Obj, gesture: Obj, running: boolean, draft: boolean, terminalOpen = false): SendIntent {
+export function sendIntent(config: Obj, gesture: Obj, running: boolean, draft: boolean, terminalOpen = false, requiresModifier = false): SendIntent {
   const modifiers = str(gesture.modifiers), age = Number(gesture.ageMs);
   if (!Number.isFinite(age) || age < 0 || age > 2000) return 'foreground';
   if (gesture.source !== 'key') {
     const meta = /\b(meta|control)\b/.test(modifiers), alt = /\balt\b/.test(modifiers), shift = /\bshift\b/.test(modifiers);
     return meta && !alt && !shift && running ? 'alternate' : 'foreground';
   }
-  const command = chordCommand(config, gestureChord(modifiers), { draftThreadRoute: draft, turnRunning: running, terminalOpen });
+  const command = chordCommand(config, gestureChord(modifiers), { draftThreadRoute: draft, turnRunning: running, terminalOpen, composerRequiresModifier: requiresModifier });
   if (command === 'composer.sendAlternate' && running) return 'alternate';
   if (command === 'composer.sendBackground' && draft) return 'background';
   if (command === 'composer.sendAndNewThread' && !draft) return 'background';
@@ -100,8 +112,8 @@ export function sendIntent(config: Obj, gesture: Obj, running: boolean, draft: b
  * here — the alternate while running, start-in-background in a draft, and
  * send-and-new-thread on an existing thread.
  */
-export function sendChords(config: Obj, running: boolean, draft: boolean, terminalOpen = false): string {
-  const context = { draftThreadRoute: draft, turnRunning: running, terminalOpen };
+export function sendChords(config: Obj, running: boolean, draft: boolean, terminalOpen = false, requiresModifier = false): string {
+  const context = { draftThreadRoute: draft, turnRunning: running, terminalOpen, composerRequiresModifier: requiresModifier };
   return [...new Set(['Meta+Enter',
     ...(running ? chordsFor(config, 'composer.sendAlternate', context) : []),
     ...(draft ? chordsFor(config, 'composer.sendBackground', context) : chordsFor(config, 'composer.sendAndNewThread', context))])].join(' ');
