@@ -81,6 +81,10 @@ extension Presenter {
         return view.superview
     }
 
+    func authored(_ view: UIView, inside ancestor: UIView) -> Bool {
+        sequence(first: view, next: listenerParent).contains { $0 === ancestor }
+    }
+
     /// The view a press on `target`, reached from `start` (`listenerParent`),
     /// must land in: the target, or, when the walk left a presentation for a
     /// logical ancestor in another mount, whose own box is not under the

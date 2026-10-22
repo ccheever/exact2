@@ -464,10 +464,11 @@ key, outer text-paragraph ordinal and UTF-16 offset. The runner projects text
 from the same row template, one unloaded row at a time, without committing
 kernel operations; mounted rows retain their current local state. AppKit and
 browser selection use this path for partial and full-document copy. The host
-names its text policy: the web counts button-label paragraphs but leaves their
-default-unselectable text out; AppKit omits native button titles from paragraph
-numbering and resolves `auto` as `TextSelectable.swift` does, including pressable
-and chrome labels. Authored `user-select` still decides. The runner applies the
+names its text policy: the web counts control-label paragraphs (a button, a
+link, a pressable or a control's role, as its stylesheet draws them) but leaves
+their default-unselectable text out; AppKit omits native button titles from
+paragraph numbering and resolves `auto` as `TextSelectable.swift` does,
+including pressable and chrome labels. Authored `user-select` still decides. The runner applies the
 same policy to mounted and unmounted rows. Copy does not mount the selected
 range. This does not claim virtual accessibility
 navigation, Linux geometry, or the image budget below is complete.

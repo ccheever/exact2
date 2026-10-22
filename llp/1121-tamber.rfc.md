@@ -857,9 +857,16 @@ row's value is the expression.
   take), a param's range included. A bare unset base name in a ranged param is checked the
   same way, per column, where it was refused before.
 - **What is refused:** `rem`, `em` or `%` beside a base name (as in any `calc()`), a base name
-  times or over a length (a base name's or px), a length added to a number, and shadow lengths
-  over a base name (`tamber-base-expression`, QUEUE). A base name the app's design sets folds
-  through as before.
+  times or over a length (a base name's or px), and a length added to a number. A base name the
+  app's design sets folds through as before.
+- *Amended 2026-10-20 (stage 12 B3; theme2's sign-off):* **a shadow token's lengths** may be any
+  of these: a bare base name, a length token, or a `calc()`, `min()`, `max()` or `clamp()` over
+  length tokens and base names. One length path for every shadow length: over a base the design
+  leaves unset it is kept, each host folding it in its own column (each base read recorded, so an
+  edit of it sets the row again); over px tokens and set bases it folds to px, so a shadow over
+  `space.md` keeps working when the app sets `space.md`. The compiler checks every column, its
+  blur never negative and its lengths within the limits. A literal `box-shadow` row's lengths
+  stay px (QUEUE).
 
 **Packages.** A package (`packages/reading`) may ship `<package>.tamber` with tokens named
 under its package (`reading.measure`, `reading.body`), which its views use. The app's design
@@ -1268,7 +1275,8 @@ component PostButton
   app or package root, and its name: `post.contract#PostButton`, or
   `@scope/reading/article.contract#Article` for a package's. A package outside the app needs a
   name in its `package.json` (`contract-package-unnamed`, the path fix): its place from the app
-  would spell this machine's directories. A param's full name is that
+  would spell this machine's directories. A root file linked into the app's tree from elsewhere (a symlink, as
+  conform's corpus fixtures are) in no named package is the app's own, named where the link sits (one in a named package keeps its name); a file a `use` reaches is its target's (the path fix's follow-up). A param's full name is that
   identity and the param (`post.contract#PostButton.radius`). The short form
   `PostButton.radius` is accepted wherever it is unambiguous and refused where two
   components share the name (`tamber-param-ambiguous`); an import alias (`use X as Y`)
@@ -1566,7 +1574,7 @@ Android's reader and the terminal.
     `radius.sm/md/lg/full`, each base value from an existing metric or measured, never a
     multiplier, in px/points with no Dynamic Type scaling; an app may override a base name, a
     package may not; only the listed names are reserved; package components stay stage 12's.
-12. **A component library**: `.contract` packages over Tamber, with params (D15) as their
+12. **A component library** (*closed 2026-10-21; LLP 1139, its gate met, §10 there*): `.contract` packages over Tamber, with params (D15) as their
     tweakable surface and anatomy as checked data, keeping exact1 Facet's rule, "a recipe
     styles parts; it never forecloses slots". Its own RFC. **Gate:** set by that RFC; its
     first consumer is named before it starts.
@@ -5566,3 +5574,147 @@ Stage 12 §B's levels, under `tamber/1.15` (stage 12 D1 opened it; B2-levels add
     place of the most specific).
 - **§10's lead sentence** (Grok 3) says `levels: null` for a literal or an expression, as the wire does.
 - **After review round 3 (Astra RIGHT, Grok RIGHT):** two NITs taken: the test summary says `levels: null` for an expression, and the stage-4 `uses` comment in contract/cli/src/lib.rs sits on `tamber_uses` again.
+- **Follow-up: a level per side** (theme2's 19:30 ruling, option (a), from dtool2's T1 reviewers' counterexample). A
+  tuple's value carries a light and a dark side, but its level was one: with every `when` on an axis `under
+  scheme=dark`, the pair arm made the owning line win both sides, though Light follows the line's own value. Each
+  tuple's `level` and `name` are now `{light, dark}`, each side walked on its own as the fold picks it: dark the most specific holding `when` of all, light the
+  most specific holding `when` naming no axis under `scheme=dark`, either the line's own value when none holds (the
+  pair arm above is gone).
+  `levels.base` is the base every tuple reaches on both sides. It changes the type of a field added in this open 1.15
+  window, which no released client reads: a correction within the window, said on the 1.15 line. rt1's D3 and
+  dtool2's T1 read the per-side shape.
+  - Tests: `a_params_line_with_dark_only_whens_wins_dark_and_follows_its_reference_light` (the counterexample: an
+    app `params` line `Map.pin = reading.chain` with dark-only `when` lines: light `package` `reading.pin`, dark
+    `app-param` in both tuples; red with the light side taking dark's `when`s); `a_light_dark_pair_is_walked_per_side`
+    (was `…stops_on_its_line`: the dim tuple's dark side now `package` `reading.pin`); the other tests assert both
+    sides alike where no axis is under `scheme=dark`.
+  - After round 1 (Astra RIGHT WITH CHANGES, Grok RIGHT): `mixed_axis_whens_are_walked_per_side` (Astra 1, Grok 1):
+    `when` lines mixing an axis under `scheme=dark` with a normal one on an app `params` line, and a two-axis normal
+    `when` outranking one under dark on a package token, each side's level, name and value asserted (red with
+    `.all(under)` for `.any(under)`); the docs say the light side takes the most specific `when` naming no axis under
+    dark, not the line's own value alone (Astra 2).
+
+### Stage 12, commit B3: shadows over base names, per host column (draft for theme2)
+
+theme2's 15:30 ruling on the plan (`~/x2theme/x2p4-s12b3-plan.md`; QUEUE's two items, the lead's 15:20Z). D11's
+2026-10-20 amendment reaches a shadow token's lengths. The schema, SCHEMA_DIGEST, FORMAT_DIGEST, `BoxShadows`, its
+codec and the wire don't move: the theme row's value is the shadow's text, its lengths written as B2's expressions.
+
+- **Tamber.** A shadow's length is a `ShadowLength`: px, or a B2 `Residual` over base names the design leaves
+  unset. A bare unset base name (read through `Names::base` first, so the "any other value" refusal no longer fires
+  in a shadow), a token aliasing one, a `Length::Base` token (inlined, its bases read), and a length's `calc()`,
+  `min()`, `max()` or `clamp()` over one (B2's own fold, so `calc(space.md)` is `space.md`) are kept. B2's refusals
+  hold as they are. `Shadows::css()` writes each residual's text: `0px calc(space.md * 2) 4px #000000ff`. The
+  token's `bases` gain every base its shadows read. A literal blur is still refused when negative; one over base
+  names is checked per column by the build. A base name the design sets is its token and folds to px, as before.
+- **Kernel.** `theme::measure_at` folds a shadow entry whose text names a base: `scale::fold_lengths` splits it at
+  white space and commas outside parentheses, folds each item naming a base (each base read as an alias reads it,
+  the design's own first, the read recorded, under the row's own rule for a varying token) with the kernel's
+  `calc()` to px in this process's column, and keeps every other item and separator byte for byte. The unchanged
+  `BoxShadows`/`TextShadow` codec reads the result, so Apple, Linux, Android, the terminal (cells as px) and the
+  wasm web get the column's px by one path. The runner's `set_tokens` keeps what a re-set row read beside what it
+  read before (`ThemeIndex::also_read`), so a later edit of a base a token's new value reads sets the row again.
+- **Lowering.** A shadow token is checked in every column (`scale::refusal`): its lengths must fold, and the row's
+  codec must take the folded text (a blur not negative, a length within a shadow's limits). The first column that
+  fails is refused, `tamber-base-expression`, naming the column and the expression (`card.shadow` is `0px 1px
+  calc(space.lg - space.xs * 3.5) #000000ff`, the shadow `0px 1px -1px #000000ff` on mac, which no host draws: a
+  blur radius is never negative). A row naming the token checks each column's text (`scale::expanded`), as a
+  length's px.
+- **JS target.** The token's CSS is the row's CSS for the build's column (colours as css.rs writes them, every
+  length said) with each length written over a base its property's `var()` or B2's `calc()` over them
+  (`base_scale::shadow`); a shadow over a base name declares the scale's nine properties. A release's static row is
+  the column's px, as the kernel folds it.
+- **Outside Exact.** The DTCG export folds each length with the base's px (the neutral column), the shadow's text in
+  `$extensions.exact.lossy`; `tamber gen`'s CSS writes the neutral column's px (`Shadows::folded`).
+- **The literal's word (QUEUE's item).** A refused shadow, border or gradient literal is looked at again: a word
+  with a `.` that names no token of the design and no role is `tamber-unknown-token` (`` `box-shadow="0px 0px 8px
+  eu.nope"`: `eu.nope` is no token of this app's design and no role``); in a shadow, a length token or a base name
+  is `tamber-kind`, pointing to a shadow token (`` a shadow row's lengths are px: name a shadow token (`x:
+  box-shadow = 0 space.md 4px black`) to read `space.md` ``). A literal shadow stays px (theme2's Q1: QUEUE). The
+  kernel's own message is unchanged.
+- **Wire.** One clause on the `tamber/1.15` line (theme2's Q2): a shadow token's `bases` list the base names its
+  lengths read. Per-column folded shadow text in `explain` and `resolve` is QUEUE's, beside D1's per-column values.
+- **Tests:** `contract/cli/tests/it/tamber_base_shadow.rs` (each kept form and its text, folded in the neutral, mac
+  and iOS columns; `bases`; a base the design sets; B2's refusals in a shadow; a negative blur on mac alone and an
+  unfoldable length, each naming its column; the literal's words; `uses` of an inlined length token; the DTCG
+  export); `tamber_shadows.rs` (a live `set-token space.md` re-setting a shadow row over it; the unknown colour now
+  `tamber-unknown-token`); `tamber_serve_base.rs` (`resolve`'s `lengths` as written, `explain`'s `bases`);
+  `tests/base_expression.rs` (a shadow row in each of the five columns, in its own
+  process); kernel `style::scale` (`fold_lengths`; `measure` of a shadow entry, the design's base first, every read
+  recorded, a varying base refused); tamber `shadow` (text, `bases`, `folded`); web-js `base_scale_tests` (the
+  `var()` text, a release row, a development build's property); host/web `tests/base_scale.rs` (a wasm boot's
+  `box-shadow` in the neutral column, through the kernel).
+
+**After review round 1 (Astra, Grok; theme2's rulings T1–T3):**
+- **A length's function in a shadow folds as a length's** (Astra 1, blocking). `calc(space.md * 2)` in a shadow
+  compiled while `space.md` was unset and was refused, read as a colour, once the design set it. Every `calc()`,
+  `min()`, `max()` and `clamp()` in a shadow now folds by B2's length fold whatever it names: px, a px length token
+  (`calc(gap * 2)`) or a base the design sets give px, an unset base a residual. Main read such a function over px or
+  a length token as a colour and refused it; it is accepted now, by the one path.
+- **`length_texts`** (theme2's T1). `resolve`'s shadow `lengths` keep their type: a length over base names is null
+  there, and a parallel `length_texts` (only when one is) gives every length's text, px ones too (`["0px",
+  "space.md", "calc(space.sm * 2)"]`). The 1.15 clause names `bases` and `length_texts`.
+- **A state look keeps what it newly read** (Grok 1). `looks::op` returns the tokens a look read as resolved again,
+  and `set_tokens` adds them to the look's (`ThemeIndex::looks_read`), as a row's: a `:hover` shadow re-set to read
+  `space.md` follows the next edit of `space.md`. The bits are added, never replaced (Grok 3's nit, left so and said
+  in `also_read`'s comment): a stale bit costs one re-set that changes nothing.
+- **A base name or length token in a border or gradient literal** (Grok 2) is no unknown token: the row's own refusal
+  stands (`lower-css-shorthand`, `lower-attr-value`). Only a dotted identifier is looked up as a token (Astra 4): a
+  letter first, then letters, digits, `.`, `_` and `-`; a number, a dimension (`-1.5px`) or a function
+  (`rgb(0.5 0.25)`) keeps the row's width or colour refusal.
+- **A colour function is kept whole by `fold_lengths`** (Grok 4): `rgb()`, `hsl()`, `lab()`, `oklch()`, `color()`,
+  `color-mix()`, `light-dark()` and their kin are never folded as lengths, a base name inside one left for the codec
+  to refuse.
+- **An export from before the header's shadow clause** (theme2's T3, Grok 5) still finds its baseline, by the header's
+  design digest: kept, or the design's own export; one value edited in it proposes exactly that edit (Astra 5).
+- **Tests:** `a_shadows_function_folds_as_a_lengths_whatever_it_names` (unset then set; `calc(gap * 2)`; px; a pick
+  over both), the literal's words for a border's and a gradient's base name and length token,
+  `state_looks::a_look_follows_a_base_its_shadows_new_value_reads`, `tamber_serve_base`'s `length_texts` (and none
+  for a px shadow), kernel `fold_lengths`' colour functions, tamber `an_export_from_before_the_shadow_clause_still_finds_its_baseline`.
+
+**After review round 2 (Astra RIGHT WITH CHANGES, Grok RIGHT WITH CHANGES; every round 1 item confirmed):**
+- **`fold_lengths` folds only a length** (Astra 1): a bare word, or a `calc()`, `min()`, `max()` or `clamp()` in any
+  case; every other function is kept whole, so a platform colour whose asset is named `space.md`
+  (`-exact-platform-color(ios named:space.md, #000)`) or a `contrast-color()` no longer makes a px shadow unfoldable.
+- **A literal's name is Tamber's** (Astra 2): `scan::dotted_name` is tamber's own `is_name` (now exported) with a `.`,
+  so `_eu.nope` is looked up as a token.
+- **An unkinded shadow of lengths' functions** (Grok 1): `shadow::looks` counts a `calc()`, `min()`, `max()` or
+  `clamp()` as a length, so `card.shadow = 0 max(1px, 2px) calc(2px * 3) black` gets "reads as a shadow: write its
+  kind", not a colour's refusal.
+- **Tests:** kernel `fold_lengths` (a platform colour, `contrast-color()`, `CALC()`);
+  `a_platform_colour_named_for_a_base_is_kept_whole` (box and text); `an_unkinded_shadow_of_functions_asks_for_its_kind`
+  (both repros); the literal's words for `_eu.nope` on a shadow and a border.
+
+**After review round 3 (Astra RIGHT WITH CHANGES, Grok RIGHT WITH CHANGES; every earlier item confirmed):**
+- **One length predicate** (both): `scale::is_length_item` (px, unitless `0`, a bare base name, or a `calc()`,
+  `min()`, `max()` or `clamp()` in any case) is what `fold_lengths` folds and what the JS target's shadow rewrite
+  counts as a length, so a platform colour whose asset is named `space.md` stays a colour there too, on a box and a
+  text shadow, and no inserted length is paired with it.
+- **QUEUE's per-column shadow entry** (Astra) says theme2's shape: `lengths` null for a length over base names, with
+  `length_texts`.
+- **An unkinded value's functions over plain numbers** (Grok) are a number's: `shadow::looks` counts a `calc()`,
+  `min()`, `max()` or `clamp()` as a length only over a dimension, a length token or dial, a named length or an
+  unset base name, so `n = min(1, 2) max(3, 4) calc(5)` keeps its earlier refusal.
+- **Tests:** web-js `a_shadow_over_base_names_writes_their_properties` (the platform colour, box and text, as the
+  row's CSS); kernel `is_length_item`; `an_unkinded_shadow_of_functions_asks_for_its_kind` (functions over base
+  names, and over numbers).
+
+**Follow-up: per-column shadow values** (`tamber/1.16`'s first change, stage 12 having closed: hello bumps; QUEUE's B3 entry beside D1's, the lead's 20:40Z task;
+theme2's 20:50 ruling on `~/x2theme/x2p4-s12-shadowcols-plan.md`). A shadow token's value with a length over unset
+base names gets D1's `columns` in D1's places: `explain`'s value, each `when` line (as the first tuple choosing it
+folds it) and each of `resolve`'s tuples, `{ios, mac, neutral, material: {value}}`, each `value` the whole shadow's
+text as that column's host reads it, by the kernel's own `scale::fold_lengths` over the scale table's column (never
+a copy; a colour, a platform colour named `space.md` included, kept whole). Each of `resolve`'s shadows with
+`length_texts` gains `columns: {col: {value, lengths}}` (Q2): its own text there and every length's px as a number,
+in `lengths`' order, never null. No terminal column for a shadow (Q1): the terminal draws none, the doc's one stated
+exception to D1's "left out only where it doesn't fold". A px-only shadow, or one over a base the app sets (folded
+to px), has no `columns` key. rt1's D1 carry-overs hold: a zero is never negative (`calc(space.md * -0)` compiles to
+a px length of -0, which the per-shadow numbers write 0; the kernel's `calc()` folds no zero to -0), a default's
+columns come from the first tuple choosing it, read per column, and the key is absent, not empty. The code is
+`shadow_columns_of` and `one_shadow_columns` beside `columns_of` in contract/cli/src/tamber_base.rs; D1's length path
+is unchanged.
+- Tests (`contract/cli/tests/it/tamber_serve_shadow_columns.rs`, every expected px from the kernel's evaluator): a box
+  shadow over `space.md` and `calc(space.sm * 2)` (explain, its px-only `when`, resolve's token and per-shadow
+  columns); a `when` line's list with a px-only shadow among two over bases; a default the first tuple doesn't
+  choose; a text shadow; a platform colour named `space.md`; px-only and app-set shadows with no key; a length
+  keeping `terminal` while a shadow has none; no -0.

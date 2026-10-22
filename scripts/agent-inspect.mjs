@@ -688,7 +688,7 @@ function renderAgreement(a) {
 }
 
 /** The `state` op's words (LLP 1116.007 D3.9). `state` is the whole record; `state <target>` a world's own (a game's
- * `world:*` or `world:entity`: its entities); a name that is a state, derive or resource, or a field of the record
+ * `world:*` or `world:entity`: its entities; `state <canvas> input` its world's input); a name that is a state, derive or resource, or a field of the record
  * (`mediaSession`), reads that, down a dotted path (`groceries.0.done`) as an authored `expect state` does. Any other
  * view answers with the whole record, so a name the record holds reads that even when a view carries it as its testId
  * or text (a sequencer's `transport` bar and the record's `transport`). */
@@ -698,6 +698,13 @@ export async function stateOp(s, args) {
   const page = { ...look, ...(args[1] === 'events' ? {world:true, events:true, ...(args[2] ? {event_type:args[2]} : {})} : {}), ...(args.includes('from') ? { from: Number(args[args.indexOf('from') + 1]) } : {}), ...(args.includes('limit') ? { limit: Number(args[args.indexOf('limit') + 1]) } : {}), ...(args.includes('resources') ? { resources: true } : {}) };
   const read = (target) => s.state(target, args[1] === 'under' ? args[2] : undefined, args[1] === 'pose', args[1] === 'busy', page);
   if (args[0] == null) return read();
+  // `state <canvas> input` (LLP 1127.003 D8): the world's controls, the devices and pads held, contexts, bindings, and
+  // what fired at the last tick.
+  if (args[1] === 'input') {
+    const r = await s.op({ op: 'state', ...await s.target(args[0]), world: true });
+    if (!r.world?.input) throw new Error(`state ${args[0]} input: ${args[0]} is not a world's canvas`);
+    return { tick: r.tick, ...r.world.input };
+  }
   const has = (o, k) => o !== null && typeof o === 'object' && Object.hasOwn(o, k);
   const [name, ...fields] = args[0].split('.'), bag = (record) => ({ ...record.resources, ...record.derives, ...record.slots });
   const holds = (record) => has(bag(record), name) || has(record, name);
@@ -719,6 +726,20 @@ export async function stateOp(s, args) {
   }
   // An app's whole record (it has `slots`; a world's reply has none) answered a plain view: read the name it holds.
   return args.length === 1 && has(reply, 'slots') && holds(reply) ? lookup(reply) : reply;
+}
+
+/** The tasks due within 1 ms of `now`, `[name, at]`, soonest first: an `after(1, …)` an input or an answer armed, the web's
+ * `setTimeout(f, 0)`, which runs a commit after the one that armed it. A frozen clock reaches it only when it moves, so
+ * `clock settle` runs it as part of settling and `clock data`, which fires no timer, names it (euxy FRICTION 7). */
+export async function nextCommitTasks(session, now) {
+  const tasks = Object.entries((await session.state())?.tasks ?? {});
+  return tasks.filter(([, at]) => Number.isFinite(at) && at > now && at <= now + 1).sort((a, b) => a[1] - b[1]);
+}
+
+/** `clock settle`'s reply when tasks are still due a commit later after its 16 rounds: not settled, and which. */
+export function settleBound(soon) {
+  const names = soon.map(([name]) => `\`${name}\``).join(', ');
+  return { settled: false, reason: 'tasks', tasks: Object.fromEntries(soon), diagnostic: `clock settle ran 16 rounds of tasks due a commit later and ${names} ${soon.length > 1 ? 'are' : 'is'} due again at ${soon[0][1]} ms: a task that re-arms itself \`after(1, …)\` never settles; \`clock +N\` moves past it` };
 }
 
 /** Explain a refused placed-child tap using the world's own visibility. */

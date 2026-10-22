@@ -76,6 +76,14 @@ extension NodeView {
 }
 
 extension Presenter {
+    /// The session's first root: what hears a key, and a cut, copy or paste,
+    /// while nothing holds the focus, as the DOM's `window` listeners hear
+    /// one whose target is `<body>` (docs/contract-grammar.md#keys). It takes
+    /// no focus by it: no `focus` event, no ring, no Tab stop.
+    var keyRoot: NodeView? {
+        guard let node = root.subviews.first as? NodeView, views[node.id] === node else { return nil }
+        return node
+    }
     /// The `key` handlers at `target` and above it hear `name` with the
     /// modifiers `held` (a chord prefix, `KeyCodes.held`), the physical key
     /// (`code`) and whether it is an auto-repeat, the path fixed before the
@@ -224,7 +232,7 @@ extension Presenter {
         guard event.type == .keyDown || event.type == .flagsChanged && KeyCodes.pressed(event) else { return false }
         let responder = (window ?? event.window)?.firstResponder
         if !passesComposition(event, at: responder) { return false }
-        return keyEvent("key", at: keyTarget(responder), KeyPress(KeyCodes.held(event.modifierFlags) + NodeView.keyName(event),
+        return keyEvent("key", at: keyPath(responder, in: window ?? event.window), KeyPress(KeyCodes.held(event.modifierFlags) + NodeView.keyName(event),
                         code: KeyCodes.code(event), repeats: event.type == .keyDown && event.isARepeat), inline: (responder as? InlineKeyView)?.id)
     }
     /// A keyup at the window's first responder, a modifier's (a flags change
@@ -236,7 +244,7 @@ extension Presenter {
         guard event.type == .keyUp || event.type == .flagsChanged && KeyCodes.released(event) else { return }
         let responder = (window ?? event.window)?.firstResponder
         if !passesComposition(event, at: responder) { return }
-        _ = keyEvent("keyup", at: keyTarget(responder), KeyPress(KeyCodes.held(event.modifierFlags) + NodeView.keyName(event),
+        _ = keyEvent("keyup", at: keyPath(responder, in: window ?? event.window), KeyPress(KeyCodes.held(event.modifierFlags) + NodeView.keyName(event),
                      code: KeyCodes.code(event), up: true), inline: (responder as? InlineKeyView)?.id)
     }
     /// Whether a key reaches the handlers while an input method composes
@@ -268,10 +276,32 @@ extension Presenter {
         node.commitComposition(in: editor)
         composedChord = event
     }
+    /// A press (a mouse-down) outside a node's field or textarea while an
+    /// input method composes text in it commits the text as it stands
+    /// before the press runs, as Chrome's mousedown ends a composition (its
+    /// `compositionend` comes before the press's `click`). AppKit leaves it
+    /// marked through a click on a button, so a press that sends and clears
+    /// the field left the input method a syllable the app no longer had. A
+    /// press inside the field's node (its text, padding or scroller) is the
+    /// input method's own or the field's.
+    func commitCompositionBefore(_ press: NSEvent) {
+        guard let window = press.window, let editor = window.firstResponder as? NSTextView, editor.hasMarkedText(),
+              let node = keyTarget(editor), !node.bounds.contains(node.convert(press.locationInWindow, from: nil)) else { return }
+        node.commitComposition(in: editor)
+    }
     /// A keydown that was a ⌘ chord ending a composition (`endComposition`).
     func endedComposition(_ event: NSEvent?) -> Bool {
         guard let event, let chord = composedChord, event.type == .keyDown else { return false }
         return event === chord || event.timestamp == chord.timestamp && event.keyCode == chord.keyCode && event.windowNumber == chord.windowNumber
+    }
+    /// Where a key at `responder` starts its path: the node it is the focus
+    /// of, or the first root (`keyRoot`) while nothing of this session's in
+    /// `window` holds the focus (`windowHoldsFocus`): at launch, or after the
+    /// focused node unmounted and AppKit gave the window its own focus.
+    func keyPath(_ responder: NSResponder?, in window: NSWindow?) -> NodeView? {
+        if let node = keyTarget(responder) { return node }
+        guard let window, windowHoldsFocus(window) else { return nil }
+        return keyRoot
     }
     /// The node a responder is the focus of: the node itself, or its field
     /// (and the field editor editing it), textarea, native button or date/select control. Any other view a node

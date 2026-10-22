@@ -60,6 +60,15 @@ fn raw_symbols_prerender_as_nonfetching_decorative_images() {
     assert_eq!(doc.matches("alt=\"\"").count(), 3, "{doc}");
 }
 
+/// A role's natural size is the neutral look's `symbol-scale` ems, as the
+/// live renderer gives it, so the page does not move when it paints.
+#[test]
+fn a_role_prerenders_at_the_size_it_paints() {
+    let doc =
+        document("component App\n  view\n    row font-size=20\n      image \"symbol:circle\"\n");
+    assert!(doc.contains("width='24' height='24'"), "{doc}");
+}
+
 fn caltrain() -> (Host<caltrain_data::Caltrain>, String) {
     let plan = caltrain::build().unwrap();
     exact_web::link(exact_web_capabilities::ALL);

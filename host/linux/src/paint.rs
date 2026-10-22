@@ -1356,12 +1356,15 @@ pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
 
 /// A node's effective overflow per axis — the kernel's own rule: a
 /// `ScrollView`/`List` scrolls on y unless its row says otherwise, and an
-/// unset axis beside a non-visible one is scrollable (CSS Overflow §3).
+/// unset axis beside a non-visible one is scrollable (CSS Overflow §3). A
+/// neutral alert and its part boxes read the alert's defaults too
+/// (kernel/src/arena/alert.rs): its message box scrolls.
 pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
     let resolved;
     let s = if look::neutral()
-        && node.props.str(PropId::SemanticTag) == Some("dialog")
-        && node.props.str(PropId::AccessibilityRole) == Some("alertdialog")
+        && (node.props.get(PropId::AlertPart).is_some()
+            || node.props.str(PropId::SemanticTag) == Some("dialog")
+                && node.props.str(PropId::AccessibilityRole) == Some("alertdialog"))
     {
         resolved = node.computed_style(StyleMask::EMPTY);
         &resolved

@@ -161,7 +161,8 @@ enum CssAnimations {
         guard duration > 0, repeatCount != 0, keyTimes.count == values.count, keyTimes.count >= 2 else { return nil }
         let a = CAKeyframeAnimation(keyPath: key == "r" ? "path" : key)
         a.keyTimes = keyTimes
-        a.values = values
+        // Through KVC, so the shared array is kept rather than bridged anew.
+        a.setValue(values, forKey: "values")
         if let timing { a.timingFunctions = timing }
         a.calculationMode = .linear
         a.duration = duration

@@ -34,6 +34,7 @@ mod residual;
 mod session;
 mod shadow;
 mod syntax;
+mod trace;
 mod typeface;
 
 pub use check::{Checked, MAX_TUPLES};
@@ -43,11 +44,13 @@ pub use fmt::format;
 pub use fold::{Folded, Half, Host};
 pub use icon::Icon;
 pub use ir::FORMAT;
+pub use lex::is_name;
 pub use measure::{Kind, Length, Value};
 pub use residual::{Atom, Residual};
 pub use session::{plan, Class, Planned, Refused, Retention, Synthetic};
-pub use shadow::{Shadow, Shadows};
+pub use shadow::{Shadow, ShadowLength, Shadows};
 pub use syntax::{parse, At, Axis, Design, Dial, DialKind, Token, When};
+pub use trace::{traced, ByTuple};
 pub use typeface::Type;
 
 /// A refusal, at a line and column of the source.
@@ -122,9 +125,10 @@ pub struct Vocab {
     /// leaves unset: a value naming it bare is a named length, kept as
     /// written and never folded, so each host reads its own; a length's
     /// `calc()`, `min()`, `max()` or `clamp()` over it is kept too, folded
-    /// as far as it goes ([`Residual`], stage 12 B2); any other value over
-    /// it (a shadow's) is refused (`tamber-base-expression`). One the design
-    /// sets is its token, as any.
+    /// as far as it goes ([`Residual`], stage 12 B2), and so is a shadow's
+    /// length over it ([`ShadowLength`], stage 12 B3); any other value over
+    /// it is refused (`tamber-base-expression`). One the design sets is its
+    /// token, as any.
     pub bases: Vec<String>,
 }
 

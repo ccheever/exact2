@@ -91,6 +91,22 @@ pub enum InputEvent {
         /// Host clock in milliseconds.
         at_ms: f64,
     },
+    /// A gamepad's whole state in the W3C Gamepad API's standard mapping,
+    /// sent when a button or an axis changed.
+    Pad {
+        /// The host's device index.
+        index: u32,
+        /// False when the pad went away or the canvas lost focus.
+        connected: bool,
+        /// False for a pad the host cannot read in the standard mapping.
+        standard: bool,
+        /// Button values in `[0, 1]` by standard index (0 is the bottom face button).
+        buttons: [f32; 17],
+        /// Left x, left y, right x, right y in `[-1, 1]`; positive y is down.
+        axes: [f32; 4],
+        /// Host clock in milliseconds.
+        at_ms: f64,
+    },
     /// Focus left the canvas: whatever was held is released.
     Blur {
         /// Host clock in milliseconds.

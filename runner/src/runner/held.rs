@@ -142,6 +142,16 @@ impl<D: super::DataSource> Runner<D> {
         self.held.modes.contains_key(axis)
     }
 
+    /// Whether the page draws dark where no subtree says otherwise: the
+    /// scheme the app chose (`setScheme`), unless the host holds its own,
+    /// else the window's.
+    pub(super) fn page_dark(&self) -> bool {
+        match self.held.asked.scheme.as_ref().and_then(|s| s.as_str()) {
+            Some(s @ ("dark" | "light")) if !self.held.scheme => s == "dark",
+            _ => self.viewport.preferences.dark,
+        }
+    }
+
     /// The commit's `setScheme`s and `setRootFontSize`s from `from` on,
     /// each kept as asked; one the host holds taken out, not applied.
     pub(super) fn take_held(&mut self, from: usize) {

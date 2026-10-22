@@ -32,6 +32,9 @@ exact-raster = { path = "../raster" }
 # SVG islands (LLP 1055.000 §8 ruling 4): a loaded module on Apple, linked
 # here beside the tiny-skia this host already has.
 exact-svg-raster = { path = "../svg-raster" }
+# An SVG file as an image (LLP 1011.001 D2): parsed into the kernel's SVG
+# nodes and resolved to the scene the painter draws as an island.
+exact-svg-file = { path = "../svg-file" }
 exact-route = { path = "../../route" }
 # A `markup="markdown"` text's pieces (LLP 1045 D4): the painter links Rust,
 # so the reader expands its source here, as Apple's archive does.

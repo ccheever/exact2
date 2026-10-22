@@ -78,7 +78,7 @@ impl<D: DataSource> Host<D> {
             match line {
                 Some(line) => {
                     batch.props(row, &[(PROP, line.clone())], &[]);
-                    m.props.insert(PROP.into(), line);
+                    m.props.insert(PROP, line);
                 }
                 None => {
                     batch.props(row, &[], &[PROP]);

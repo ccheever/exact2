@@ -34,6 +34,7 @@ macro_rules! host {
             $crate::decorations::read(input, len, count)
         }
         $crate::raster_exports!();
+        $crate::svg_image_exports!();
         $crate::textflow_exports!();
         $crate::collapse_exports!();
         $crate::app_module_exports!();
@@ -349,6 +350,12 @@ macro_rules! host {
                 if token != 0 && facts.is_none() { return b.refuse_preparation("unknown composition generation"); }
                 b.prepare_plan_with_delivery(len, ($new)(), hooks, width, height, facts)
             }, |n| n)
+        }
+
+        /// First pixel has been presented; evaluate deferred app logic, uncommitted.
+        #[no_mangle]
+        pub extern "C" fn exact_prepare_data(rt: u32) {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.prepare_data(), |_| ())
         }
 
         /// First pixel has been presented; activate deferred app logic.

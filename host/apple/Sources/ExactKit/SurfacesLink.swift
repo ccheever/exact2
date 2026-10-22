@@ -140,6 +140,10 @@ package protocol MetalView: UIView {
 /// A GPU surface's input: the pointer, keys and touches it takes.
 package protocol CanvasInput: AnyObject {
     func blur()
+    /// The canvas, or a control in it, took the focus.
+    func focused()
+    /// The canvas, or a control in it, gave the focus up.
+    func focusLeft()
     #if os(macOS)
     func pointer(_ event: NSEvent, phase: String) -> Bool
     func key(_ event: NSEvent, down: Bool, source: NodeView) -> Bool
@@ -149,6 +153,10 @@ package protocol CanvasInput: AnyObject {
     func touches(_ values: Set<UITouch>, phase: String, source: NodeView, event: UIEvent?) -> Bool
     func presses(_ presses: Set<UIPress>, down: Bool, source: NodeView) -> Bool
     #endif
+}
+extension CanvasInput {
+    package func focused() {}
+    package func focusLeft() {}
 }
 
 /// The Surfaces module, installed by the composition.

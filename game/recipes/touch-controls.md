@@ -26,7 +26,7 @@ impl Game for Pad {
     }
 }
 let control = |name: &str, phase, x, y| InputEvent::Control {
-    name: name.into(), id: 1, phase, x, y, at_ms: 0. };
+    name: name.into(), id: 1, phase, x, y, at_ms: 0., player: 0 };
 let mut sim = Sim::<Pad>::new(()).unwrap();
 sim.input(control("move", PointerPhase::Down, 48., 48.));
 sim.input(control("move", PointerPhase::Move, 108., 48.));

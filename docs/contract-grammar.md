@@ -206,7 +206,11 @@ belongs to (`contract-use-path`); an `exact:` built-in (`exact:motion`, `exact:c
 and mapped through its `package.json` `exports` (a string, or the `contract` or
 `default` condition), else `index.contract` (`contract-use-package`). A package
 outside the app needs a `name` in its `package.json` (`contract-package-unnamed`):
-its components' identities are named by it (LLP 1121 D15).
+its components' identities are named by it (LLP 1121 D15). A root file linked
+into the app's tree from elsewhere (a symlink, as conform's corpus fixtures are)
+that is in no named package is the app's own, named where the link sits (one in
+a named package keeps the package's name); a file a `use` reaches is its
+target's.
 `contract sources <file>` prints every file a compile reads, as JSON. A file's
 names are its own declarations and the names its `use` lines list, each
 optionally renamed with `as` (LLP 1091): a component, shape, function, style,
@@ -287,7 +291,10 @@ source-call   = IDENT "(" [ arguments ] ")" ;
 ```
 
 There is one `props`, `inject`, `provide`, `slot`, and `view` section at most in
-a component. Only the root may own resources, mutations, and tasks. A task's
+a component. Only the root may own resources, mutations, and tasks, except that
+any component may read the device's facts, `exactViewport()` and `exactPage()`
+with no arguments (`EmptyState` reads `accessibilityTextSize`): they open no
+request, and every instance reads the root's one answer. A task's
 body has exactly one schedule. A gated task (`when cond`, LLP 1092) has its
 timer only while `cond` holds, armed from the commit that made it true; `key=`
 re-arms it from the commit that changed the key (compared as a `for` key),
@@ -321,7 +328,8 @@ different one ends the sequence's voices that have not started (`by edit`)
 and plays the new value from that commit, a new `bpm` without a jump in
 phase. A step whose `note` is not −1, on a track whose `output` names a MIDI
 output, is a note-on there (`velocity` 1–127, `channel` 0–15) and a note-off
-`duration` beats later; a track's `offset` (within ±500 ms) moves its
+`duration` beats later (on `output=""`, no output, it goes to no device and
+`exactMIDI().sent` lists it with `output: ""`); a track's `offset` (within ±500 ms) moves its
 samples', notes' and haptics' times, as a latency is lined up by ear.
 `clockOut="<output id>"` sends Timing Clock 24 times a beat, Start before the
 first tick at a beat at or after 0, and Stop at the stop or the end
@@ -421,7 +429,9 @@ arguments (`type-request-midi-access`). `sendMIDI(output, data, at=)` sends
 no SysEx; a literal one is checked, `type-send-midi`), to an output by `id`
 at `at` on the runner's clock (the commit's time by default, and the past is
 now); what is not well-formed, an output not connected, or the 1,025th
-message waiting is dropped and journaled (note-offs and Stop never are). The
+message waiting is dropped and journaled (note-offs and Stop never are).
+`""` is no output: what is sent there reaches no device, needs no access, and
+`sent` lists it with `output: ""` (an activity log with no device, LLP 1125 D6). The
 runner keeps the queue: a host hands a message to its output 50 ms before it
 is due and holds it until then, so an edit or a stop takes back what is
 still held, and a note already handed still gets its note-off. A sequence's
@@ -1163,9 +1173,9 @@ with no reader (Android, whose field is the platform's own; the terminal; a brow
 field as they last painted it: its text boxes (its glyphs across, their font's content area
 down) through the transform it was painted with, bounded; a field placed by a perspective
 is `unavailable` there (Windows by construction, the same presenter, not yet run on
-Windows). The web's known deviation is Chrome's: an empty field's collapsed range is a zero
-rectangle at the viewport's origin, and an empty line's is at the end of the text before it
-(QUEUE). It reads the layout last drawn, so a `setRangeText` earlier in the same action is
+Windows). The web measures an empty line's and an empty field's caret from a copy of the
+field's text laid out in its box, as Chrome's `createValueRange` answers those at the text
+before the line and at the viewport's origin. It reads the layout last drawn, so a `setRangeText` earlier in the same action is
 not yet measured.
 
 ### Markdown: `markup`, `format`, `select`
@@ -1589,7 +1599,14 @@ macOS; touch hosts show none.
 Windows and Linux keyboards, the Edit menu, an iPad's hardware keyboard) with
 the focus at a node or inside it are heard by the nearest node with the
 handler, itself or an ancestor — so a node with one takes the focus, as a
-`key` node does. An action that takes one more parameter gets a
+`key` node does. With nothing focused they go to the first root, as the
+DOM's go to `<body>` (web, macOS and iOS; the Edit menu's item is enabled
+while the root has the handler; a Mac sheet's own window holds none). On the web and macOS Paste and Match Style
+(⌥⇧⌘V on the Mac) is a `paste` too, as Chrome's is: an app that treats it
+apart tells by the key before it, as a page does. In a field whose node or
+an ancestor hears `paste`, Paste is enabled on the Mac while the clipboard
+holds only files or image data, which the field cannot take itself; the
+paste carries them as `files` and inserts nothing. An action that takes one more parameter gets a
 `ClipboardEvent` whose `text` is the clipboard's plain text: what is pasted,
 and empty on `copy` and `cut`, as the DOM's is until a listener sets it — the
 action writes the clipboard with `copyText`. Its `files` is the paste's
@@ -1852,7 +1869,16 @@ macOS, iOS and iPadOS with a hardware keyboard, Linux):
   handler (such an element takes the focus, as `tabindex="0"` gives it, and
   is in the Tab order), or with a `tabindex`. It then bubbles: the
   focused element's handler hears it first, then every ancestor's, innermost
-  first. With nothing focused, only `aria-keyshortcuts` buttons hear keys.
+  first. With nothing focused (at load, or after the focused element is
+  removed) the path is the first root, the app's outermost node: its
+  `keycapture`, `key` and `keyup` handlers hear the key after the
+  `aria-keyshortcuts` buttons, as the DOM's `window` listeners hear a key
+  whose target is `<body>`, and a `preventDefault()` there cancels the key's
+  default (Tab's move to the first stop; the terminal's scroll). The root
+  takes no focus by it: no `focus` event, no ring, no Tab stop. So on the
+  web, macOS, iOS, Linux and Windows. The terminal's root hears `key` alone,
+  and first, as its focused node's handler does: before the shortcuts and a
+  dialog's Escape. Android hands keys only to a focused field.
   On the Mac a click on a `button`, or on a box that is only pressable, leaves
   the focus where it is, as a click on an AppKit button does: a field beside
   it keeps its caret, and its pending `change` is committed before the `press`
@@ -1872,9 +1898,13 @@ macOS, iOS and iPadOS with a hardware keyboard, Linux):
   field's `input` heard as it was composed (the commit is not heard again). A
   composer's ⌘Enter `key` action sends what was typed. On macOS such a chord
   presses no `aria-keyshortcuts` button, as the web's skip a key that came
-  composing. On the web, Chrome hands the `key` handlers every key while
-  composing (`isComposing`, which Contract does not carry) and commits
-  nothing first.
+  composing. On macOS a press outside the field (a mouse-down anywhere else
+  in its window) commits the composition before the press runs, as
+  Chrome's mousedown ends one, where AppKit would leave it marked: a Send
+  button's action reads committed text, and no syllable stays with the
+  input method once the action clears the field. On the web, Chrome hands
+  the `key` handlers every key while composing (`isComposing`, which
+  Contract does not carry) and commits nothing before a chord's handlers.
 - **Modifiers.** An action that takes one more parameter, typed
   `KeyboardEvent`, hears the event too: the record `{ key: string, shiftKey:
   bool, ctrlKey: bool, altKey: bool, metaKey: bool, code: string, repeat:
@@ -2107,7 +2137,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js) |
 | `setScheme(scheme)`: the app's scheme, `"light"`, `"dark"` or `"system"` (follow the system's appearance) | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |
 | `setRootFontSize(px)`, `setRootFontSize("125%")`, `setRootFontSize("medium")`: CSS's `:root { font-size }`, the root font size every `rem` follows, in px above 0, laid out in the action's own commit; `px` lengths stay. It stands over the host's own size (the browser's setting, iOS Dynamic Type, 16 on macOS and Linux), as an author's `html { font-size: 20px }` stands over a browser's font-size setting, and `"medium"` hands the size back to the host. A percentage (CSS's number syntax, above 0) is that share of the host's size and follows it as the host's changes (LLP 1121 D6). A literal of 0 or less is refused here, a computed one in the log when it runs. Not kept across a launch: set it again from a mount task (LLP 1069.000 D3) | [rem tests](../contract/cli/tests/it/rem.rs) |
-| `share(title=, text=, url=, files=)`: the system share sheet by the Web Share API's names, at least one of `text`, `url` and `files`; `url` absolute `http(s)`. `files=` lists `app:/` files, each behind the app's `fs.read` grant (on Apple a regular file of at most 64 MB, reached through no symbolic link), and `"#id"` entries: a PNG of that element as it is drawn now, at the display's scale, named by the share's `title` (else by the id) (iOS and macOS; the web refuses it, `share: refused: a picture of an element is not available on the web`; Android and Linux refuse files). A literal `#id` no element carries is refused here (`lower-share-picture`), a missing one at run time in the journal. Offer it where `exactPage()`'s `canShareFiles` and `canSharePictures` hold (LLP 1125 D12). The outcome is a journal line | [share corpus](../contract/corpus/share.contract), [Metronome](../apps/metronome/app.contract) |
+| `share(title=, text=, url=, files=)`: the system share sheet by the Web Share API's names, at least one of `text`, `url` and `files`, each its own item of the sheet (pass a picture alone to share only it, as a Share Card button does; `contract vocab share`); `url` absolute `http(s)`. `files=` lists `app:/` files, each behind the app's `fs.read` grant (on Apple a regular file of at most 64 MB, reached through no symbolic link), and `"#id"` entries: a PNG of that element as it is drawn now, at the display's scale, named by the share's `title` (else by the id) (iOS and macOS; the web refuses it, `share: refused: a picture of an element is not available on the web`; Android and Linux refuse files). A literal `#id` no element carries is refused here (`lower-share-picture`), a missing one at run time in the journal. Offer it where `exactPage()`'s `canShareFiles` and `canSharePictures` hold (LLP 1125 D12). The outcome is a journal line | [share corpus](../contract/corpus/share.contract), [Metronome](../apps/metronome/app.contract) |
 | `showNotification(title=, body=, tag=, showTrigger=, navigate=)`, `closeNotification(tag)`: a local notification by the Notification API's names, now or at `showTrigger` (epoch milliseconds); a click opens `navigate=` through the navigation root, cold or warm. A newer one with the same `tag` replaces it, and `closeNotification` takes it away, shown or waiting. Needs the grant `device.notifications <strings key>`; see [notifications](reference.md#notifications) | [notify corpus](../contract/corpus/notify.contract) |
 | `showPicker(id)`, export `saveFile(id, from, suggestedName)`: the host copies the `app:/` file `from` to where the person chooses; `change` at `id` carries the chosen name, `cancel` a dismissal. `saveFile(id, text=…, suggestedName=…)` saves the text itself (UTF-8), no file written first and no grant, so "export what's on screen" is one press | [picker tests](../contract/cli/tests/it/picker.rs), [Fieldnotes](../apps/fieldnotes/app.contract), [Linux's save tests](../host/linux/src/presenter/save_tests.rs) |
 | `showOpenFilePicker(id[, multiple])` | [file-picker corpus](../contract/corpus/file-pickers.contract) |
@@ -2165,8 +2195,9 @@ Syntax is only the first layer. In particular:
   called `name(x)`, as it is declared) but not take a declared shape's constructor name.
 - Action reads see the starting snapshot. Writes land together. Locals are
   immutable and cannot shadow visible names or escape their block.
-- Resources/mutations/tasks are root-owned. A child may own ordinary state,
-  derives, and actions. An action writes only its own admitted slots.
+- Resources/mutations/tasks are root-owned, but a child may read the device's
+  facts (`exactViewport()`, `exactPage()`, no arguments). A child may own
+  ordinary state, derives, and actions. An action writes only its own admitted slots.
 - A `then` handler takes no parameters and must not send its own mutation.
 - A state's initializer reads only props, injects and the states above it; a
   resource, derive, mutation, action or later state it names is

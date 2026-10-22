@@ -45,6 +45,89 @@ final class RasterLoaderTests: XCTestCase {
         XCTAssertEqual(loader.loadingOnScreen, 0)
         XCTAssertEqual(loader.diagnostics["deferred"] as? Int, 0)
     }
+    /// An eager page with more pictures than the core's queue holds paints
+    /// them all with no scroll, resize or reload: a pass that takes a picture
+    /// asks again for the ones the full queue refused, whether or not another
+    /// decode lands after it.
+    func testMoreImagesThanTheQueueHoldsAllPaintWithoutAScroll() throws {
+        let (root, resolver, presenter, first, loader, window) = try fixture()
+        var nodes = [first]
+        defer {
+            loader.testRequest = nil; loader.shutdown(); nodes.forEach { $0.raster = nil }; window.close()
+            try? FileManager.default.removeItem(at: root)
+        }
+        // Refused until every picture's metadata is in: then one pass asks
+        // for all twelve at once, against a queue of three over the core's.
+        loader.testRequest = { _ in (0, 8) }
+        for index in 0..<12 {
+            let node: NodeView
+            if index == 0 { node = first } else {
+                node = NodeView(id: UInt32(index + 1), kind: "image", presenter: presenter)
+                nodes.append(node); presenter.views[node.id] = node; presenter.viewport.addSubview(node)
+            }
+            try png(root, "rail-\(index).png", width: 32, height: 24, identity: index)
+            node.frame = NSRect(x: CGFloat(index % 6) * 40, y: CGFloat(index / 6) * 30, width: 32, height: 24); node.loadGeneration = 1
+            XCTAssertTrue(loader.load(node, source: "rail-\(index).png", resolver: resolver))
+        }
+        settle { loader.diagnostics["deferred"] as? Int == 12 }
+        XCTAssertTrue(nodes.allSatisfy { $0.raster == nil })
+        var refusals = 0
+        loader.testRequest = { [unowned loader] demand in
+            guard exact_raster_stats(loader.id).pending_jobs < 3 else { refusals += 1; return (0, 8) }
+            return (exact_raster_request(loader.id, demand), nil)
+        }
+        loader.reconcile()
+        XCTAssertEqual(refusals, 9, "three admitted, the rest refused")
+        settle { nodes.allSatisfy { $0.raster != nil } }
+        XCTAssertEqual(loader.diagnostics["decoded"] as? Int, 12)
+        XCTAssertEqual(loader.diagnostics["deferred"] as? Int, 0)
+        XCTAssertEqual(loader.loadingOnScreen, 0)
+    }
+    /// Views off screen let go of their pictures when a view on screen waits
+    /// on the budget they fill, and ask for them again when scrolled on
+    /// screen, with no prop change, resize or reload.
+    func testOffScreenPicturesMakeRoomForAnOnScreenOne() throws {
+        let (root, resolver, presenter, node, loader, window) = try fixture()
+        var away: [NodeView] = []
+        defer {
+            loader.shutdown(); node.raster = nil; away.forEach { $0.raster = nil }; window.close()
+            try? FileManager.default.removeItem(at: root)
+        }
+        // A 600 × 600 decode holds 1.4 MiB and peaks at 8.5 MiB with its
+        // staging: seventeen off screen hold 23.7 of the 32 MiB, and an
+        // eighteenth has no room beside them.
+        let side = 600 / window.backingScaleFactor
+        for i in 0..<17 {
+            let view = NodeView(id: UInt32(i + 2), kind: "image", presenter: presenter)
+            view.frame = NSRect(x: 0, y: 10_000 + CGFloat(i) * (side + 10), width: side, height: side)
+            presenter.views[view.id] = view; presenter.viewport.addSubview(view); away.append(view)
+            try autoreleasepool { try png(root, "away-\(i).png", width: 600, height: 600, identity: 30 + i) }
+            view.loadGeneration = 1
+            XCTAssertTrue(loader.load(view, source: "away-\(i).png", resolver: resolver))
+        }
+        settle { away.allSatisfy { $0.raster != nil } }
+        XCTAssertTrue(away.allSatisfy { $0.raster?.image.image.width == 600 })
+        XCTAssertEqual(loader.diagnostics["parked"] as? Int, 0)
+        try png(root, "near.png", width: 600, height: 600, identity: 50)
+        node.frame = NSRect(x: 0, y: 0, width: side, height: side); node.loadGeneration = 1
+        XCTAssertTrue(loader.load(node, source: "near.png", resolver: resolver))
+        settle { node.raster != nil }
+        XCTAssertEqual(node.raster?.image.image.width, 600, "at its size, not halved")
+        let parked = away.filter { $0.raster == nil }
+        XCTAssertFalse(parked.isEmpty, "pictures off screen were let go of")
+        XCTAssertEqual(loader.diagnostics["parked"] as? Int, parked.count)
+        XCTAssertEqual(loader.loadingOnScreen, 0)
+        // Scrolled on screen, a parked view asks again and paints.
+        let back = try XCTUnwrap(parked.first)
+        back.frame.origin = .zero
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: presenter.viewport.contentView)
+        settle { back.raster != nil }
+        XCTAssertEqual(back.raster?.image.image.width, 600)
+        // Its room came from another picture off screen, so as many stay parked.
+        XCTAssertEqual(images(loader).first { $0["view"] as? UInt32 == back.id }?["parked"] as? Bool, false)
+        XCTAssertEqual(away.filter { $0.raster == nil }.count, parked.count)
+        XCTAssertEqual(loader.diagnostics["parked"] as? Int, parked.count)
+    }
     /// A decode ImageIO declines is asked for again after a delay, loading
     /// all the while, and paints with no prop change, reload or new source.
     func testDeclinedDecodeAsksAgainAndPaints() throws {
@@ -506,14 +589,44 @@ final class RasterLoaderTests: XCTestCase {
             }
             try png(root, "local.png", width: 120, height: 60, identity: 90)
             other.load(local, source: "local.png", resolver: resolver)
-            // No main-runloop progress: cancelled HTTP must free the workers
-            // so another session can inspect local metadata independently.
+            // No main-runloop progress: the hanging downloads hold no worker,
+            // so another session inspects local metadata independently.
             let hang = Date(timeIntervalSinceNow: 300)
             while (other.diagnostics["metadataReads"] as? Int ?? 0) == 0 && Date() < hang { Thread.sleep(forTimeInterval: 0.005) }
             XCTAssertEqual(other.diagnostics["metadataReads"] as? Int, 1)
             settle { local.raster != nil }
             XCTAssertEqual(server.accepted, 2) // server still never replied
+            // The downloads are cancelled, not left waiting on the server.
+            let closing = Date(timeIntervalSinceNow: 10)
+            while server.closed < 2 && Date() < closing { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
+            XCTAssertEqual(server.closed, 2, operation)
         }
+    }
+    /// Remote images download at once, as a page's do, and none holds a
+    /// worker: a local image paints while the downloads wait on the network.
+    func testRemoteImagesDownloadTogetherWhileALocalOnePaints() throws {
+        let (root, resolver, presenter, first, loader, window) = try fixture()
+        defer { loader.shutdown(); presenter.views.values.forEach { $0.raster = nil }; window.close(); try? FileManager.default.removeItem(at: root) }
+        try png(root, "body.png", width: 40, height: 40, identity: 3)
+        try png(root, "local.png", width: 40, height: 40, identity: 4)
+        let server = try GatedRasterHTTP(body: Data(contentsOf: root.appendingPathComponent("body.png")))
+        defer { server.stop() }
+        var nodes = [first]
+        for id in 2...5 {
+            let node = NodeView(id: UInt32(id), kind: "image", presenter: presenter)
+            presenter.views[node.id] = node; presenter.viewport.addSubview(node); node.frame = first.frame
+            nodes.append(node)
+        }
+        for (i, node) in nodes.dropLast().enumerated() {
+            loader.load(node, source: "http://127.0.0.1:\(server.port)/\(i)", resolver: resolver)
+        }
+        let together = Date(timeIntervalSinceNow: 10)
+        while server.waiting < 4 && Date() < together { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
+        XCTAssertEqual(server.waiting, 4, "the four requests are in flight together")
+        loader.load(nodes[4], source: "local.png", resolver: resolver)
+        settle { nodes[4].raster != nil }
+        server.open()
+        settle { nodes.allSatisfy { $0.raster != nil } }
     }
     func testExpiredResolverAndReplacementRootDoNotReuseOldPixels() throws {
         let (root, _, presenter, node, loader, window) = try fixture()
@@ -622,13 +735,16 @@ private final class RasterAdmissionFlood: @unchecked Sendable {
 }
 
 /// Loopback-only fixture. It accepts two HTTP connections and sends no bytes;
-/// the native source cancellation, not a server response, must unblock workers.
+/// the native source cancellation, not a server response, must end them
+/// (`closed` counts the connections the client closed).
 private final class HangingRasterHTTP: @unchecked Sendable {
     private let listener: Int32
     private let lock = NSLock()
     private var clients: [Int32] = []
+    private var ended = 0
     let port: UInt16
     var accepted: Int { lock.lock(); defer { lock.unlock() }; return clients.count }
+    var closed: Int { lock.lock(); defer { lock.unlock() }; return ended }
     init() throws {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         listener = fd
@@ -644,7 +760,13 @@ private final class HangingRasterHTTP: @unchecked Sendable {
         DispatchQueue.global().async { [self] in
             for _ in 0..<2 {
                 let client = accept(listener, nil, nil)
-                if client >= 0 { lock.lock(); clients.append(client); lock.unlock() }
+                guard client >= 0 else { continue }
+                lock.lock(); clients.append(client); lock.unlock()
+                Thread.detachNewThread { [self] in
+                    var buffer = [UInt8](repeating: 0, count: 4096)
+                    while recv(client, &buffer, buffer.count, 0) > 0 {}
+                    lock.lock(); ended += 1; lock.unlock()
+                }
             }
         }
     }
@@ -733,5 +855,76 @@ private final class CachingRasterHTTP: @unchecked Sendable {
         }
     }
     func stop() { shutdown(listener, SHUT_RDWR); close(listener) }
+}
+
+/// Loopback HTTP/1.1 with keep-alive. Each request waits for the test to
+/// open the gate; `waiting` is how many wait.
+private final class GatedRasterHTTP: @unchecked Sendable {
+    private let listener: Int32
+    private let lock = NSLock()
+    private let gate = NSCondition()
+    private var inFlight = 0, open_ = false
+    private var clients: [Int32] = []
+    let port: UInt16
+    private let body: Data
+    var waiting: Int { gate.lock(); defer { gate.unlock() }; return inFlight }
+    init(body: Data) throws {
+        self.body = body
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        listener = fd
+        guard fd >= 0 else { throw NSError(domain: "socket", code: 1) }
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size); address.sin_family = sa_family_t(AF_INET)
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let bound = withUnsafePointer(to: &address) { p in p.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
+        guard bound == 0, listen(fd, 16) == 0 else { close(fd); throw NSError(domain: "listen", code: 1) }
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        _ = withUnsafeMutablePointer(to: &address) { p in p.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &length) } }
+        port = UInt16(bigEndian: address.sin_port)
+        Thread.detachNewThread { [self] in
+            while true {
+                let client = accept(listener, nil, nil)
+                if client < 0 { break }
+                lock.lock(); clients.append(client); lock.unlock()
+                Thread.detachNewThread { [self] in serve(client) }
+            }
+        }
+    }
+    /// Lets every waiting request answer.
+    func open() { gate.lock(); open_ = true; gate.broadcast(); gate.unlock() }
+    private func serve(_ client: Int32) {
+        var noPipe: Int32 = 1
+        setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noPipe, socklen_t(MemoryLayout<Int32>.size))
+        var buffer = [UInt8](repeating: 0, count: 4096), pending = Data()
+        while true {
+            while pending.range(of: Data("\r\n\r\n".utf8)) == nil {
+                let count = recv(client, &buffer, buffer.count, 0)
+                if count <= 0 { return }
+                pending.append(contentsOf: buffer.prefix(count))
+            }
+            pending.removeSubrange(..<pending.range(of: Data("\r\n\r\n".utf8))!.upperBound)
+            gate.lock()
+            inFlight += 1
+            let deadline = Date(timeIntervalSinceNow: 30)
+            while !open_ && gate.wait(until: deadline) {}
+            gate.unlock()
+            let header = "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nCache-Control: no-store\r\nContent-Length: \(body.count)\r\n\r\n"
+            let response = Data(header.utf8) + body
+            response.withUnsafeBytes { bytes in
+                var offset = 0
+                while offset < bytes.count {
+                    let sent = send(client, bytes.baseAddress!.advanced(by: offset), bytes.count - offset, 0)
+                    if sent <= 0 { break }; offset += sent
+                }
+            }
+            gate.lock(); inFlight -= 1; gate.unlock()
+        }
+    }
+    func stop() {
+        shutdown(listener, SHUT_RDWR); close(listener)
+        open()
+        lock.lock(); let sockets = clients; clients.removeAll(); lock.unlock()
+        for socket in sockets { shutdown(socket, SHUT_RDWR); close(socket) }
+    }
 }
 #endif

@@ -55,13 +55,34 @@ extension BatchValue {
             return CGColor(colorSpace: space, components: v.map { CGFloat($0) }).map(ColorRange.tagged)
         }
         guard let c = channels(dark: dark, contrast: contrast, elevated: elevated, tint: tint) else { return nil }
-        return CGColor(srgbRed: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
+        return SRGBColors.color(c[0], c[1], c[2], c[3])
     }
     /// The spaces a wide colour crosses the wire in, in their extended forms;
     /// Rust (`push_wide`) sends any other as extended linear sRGB.
     private static let wideSpaces: [String: CFString] = [
         "srgb": CGColorSpace.extendedSRGB, "display-p3": CGColorSpace.extendedDisplayP3,
         "srgb-linear": CGColorSpace.extendedLinearSRGB]
+}
+
+/// One `CGColor` per sRGB colour: a node's background, border and shadow
+/// colours were one each per node (about 110 bytes apiece), where a screen
+/// uses a few dozen colours. A colour is immutable, so sharing one changes
+/// nothing a layer draws. Bounded, for colours that change every frame.
+enum SRGBColors {
+    private struct Key: Hashable { let r, g, b, a: Double }
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var held: [Key: CGColor] = [:]
+
+    /// The colour of 0–255 channels.
+    static func color(_ r: Double, _ g: Double, _ b: Double, _ a: Double) -> CGColor {
+        let key = Key(r: r, g: g, b: b, a: a)
+        lock.lock(); defer { lock.unlock() }
+        if let color = held[key] { return color }
+        let color = CGColor(srgbRed: r / 255, green: g / 255, blue: b / 255, alpha: a / 255)
+        if held.count >= 512 { held.removeAll() }
+        held[key] = color
+        return color
+    }
 }
 
 extension Batch {

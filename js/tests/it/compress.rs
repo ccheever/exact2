@@ -166,7 +166,7 @@ fn half_clear_png(w: u32, h: u32) -> Vec<u8> {
     };
     let mut raw = Vec::new();
     for _ in 0..h {
-        raw.push(0); // filter: none
+        raw.extend([0]); // filter: none (one byte a row, then its pixels)
         for x in 0..w {
             raw.extend_from_slice(if x < w / 2 {
                 &[0, 0, 0, 0]

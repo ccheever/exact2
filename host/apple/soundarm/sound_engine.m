@@ -1,5 +1,14 @@
 // @ref LLP 1096 D8. See the AVAudioEngine calls in sound_render.h.
 #import <AVFAudio/AVFAudio.h>
+
+/// Whether the SDK declares the throwing AVAudioEngine connect and mixer tap (the 27 SDKs).
+#if (defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 270000) \
+    || (defined(__IPHONE_OS_VERSION_MAX_ALLOWED) && __IPHONE_OS_VERSION_MAX_ALLOWED >= 270000) \
+    || (defined(__TV_OS_VERSION_MAX_ALLOWED) && __TV_OS_VERSION_MAX_ALLOWED >= 270000)
+#define EXACT_SOUND_SDK_27 1
+#else
+#define EXACT_SOUND_SDK_27 0
+#endif
 #include "sound_render.h"
 
 #if !__has_feature(objc_arc)
@@ -37,13 +46,19 @@ AVAudioSourceNode *exact_sound_engine_connect(AVAudioEngine *engine, ExactMixer 
         }];
         [engine attachNode:source];
         // The 27 SDKs' connect returns its error; the older one only raises.
+        // The throwing connect and tap exist in the 27 SDKs alone: an older
+        // SDK compiles the raising calls (`EXACT_SOUND_SDK_27`), and the
+        // runtime check keeps them off a 27 system.
+#if EXACT_SOUND_SDK_27
         if (@available(macOS 27.0, iOS 27.0, tvOS 27.0, *)) {
             NSError *error = nil;
             if (![engine connect:source to:engine.mainMixerNode format:format error:&error]) {
                 snprintf(reason, size, "the source did not connect: %s", error.localizedDescription.UTF8String ?: "no reason given");
                 return nil;
             }
-        } else {
+        } else
+#endif
+        {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
             [engine connect:source to:engine.mainMixerNode format:format];
@@ -103,12 +118,14 @@ void exact_sound_engine_dispose(void *engineRef, void *sourceRef) {
 
 bool exact_sound_engine_tap(AVAudioEngine *engine, void (^block)(AVAudioPCMBuffer *, AVAudioTime *), char *reason, size_t size) {
     @try {
+#if EXACT_SOUND_SDK_27
         if (@available(macOS 27.0, iOS 27.0, tvOS 27.0, *)) {
             NSError *error = nil;
             if ([engine.mainMixerNode installTapOnBus:0 bufferSize:256 format:nil error:&error block:block]) return true;
             snprintf(reason, size, "the tap was refused: %s", error.localizedDescription.UTF8String ?: "no reason given");
             return false;
         }
+#endif
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
         [engine.mainMixerNode installTapOnBus:0 bufferSize:256 format:nil block:block];

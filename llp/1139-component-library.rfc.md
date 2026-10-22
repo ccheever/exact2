@@ -1,7 +1,7 @@
 # LLP 1139: A component library over Tamber
 
 **Type:** RFC
-**Status:** **Accepted (2026-10-20): Charlie ruled §9, "Go with recs for now" (LEAD-DECISIONS 14:50Z); each answer is for now and revisitable.** r6 with r6.1–r6.3's wording. Stage 12 C (anatomy), D2 and D4 are built and signed off, landing in this order: C1–C3, D2 and D4, the packages with `apps/library-gate` and the clone's adoption, D3 after B2-levels, the design tool's half, then the gate. Reviews: four blind full rounds and a narrow re-check by GPT-6 Astra (max) and Grok 4.7 (xhigh), every verdict RIGHT WITH CHANGES and every finding taken (`llp/reviews/rfc-2026-10-19-1139-component-library-r{1..5}.{astra,grok}.md`). This is LLP 1121 §5 stage
+**Status:** **Accepted (2026-10-20); stage 12 closed 2026-10-21 with its gate met (§10).** Charlie ruled §9, "Go with recs for now" (LEAD-DECISIONS 14:50Z); each answer is for now and revisitable. r6 with r6.1–r6.3's wording. Stage 12 C (anatomy), D2 and D4 are built and signed off, landing in this order: C1–C3, D2 and D4, the packages with `apps/library-gate` and the clone's adoption, D3 after B2-levels, the design tool's half, then the gate. Reviews: four blind full rounds and a narrow re-check by GPT-6 Astra (max) and Grok 4.7 (xhigh), every verdict RIGHT WITH CHANGES and every finding taken (`llp/reviews/rfc-2026-10-19-1139-component-library-r{1..5}.{astra,grok}.md`). This is LLP 1121 §5 stage
 12, which §5 makes its own RFC. The lead accepted its brief (`~/x2theme/stage12-brief.md`) with answers 1–7 on
 2026-10-19; those answers are fixed here, not reopened. §9 holds the questions for Charlie.
 r6.3 (2026-10-20, theme2, wording only, from stage 12 C's build): a control's label requirement is `aria-label` or
@@ -596,4 +596,43 @@ for now, and revisitable when the library has users or is published.
 
 ## 10. As built
 
-Nothing yet.
+Stage 12 was built and reviewed part by part under LLP 1121's process, each part signed off by theme2 (the design
+tool's code by review2), on `tamber/1.15`. Where a part differs from the text above, the text above was amended in
+r6.1–r6.3 and the rulings are in `~/x2theme/SIGNOFFS.md`.
+
+- **B1, package components' params** (`bec1cbb7a4` and after; x2-perf4): a package design's components declare params,
+  named `<package>/<file>#Name`; the retention key that keeps it fast went through six re-checks to a verbatim key,
+  and the follow-up's retention build and background whole build (reload1, through `dce4be7e40`) bring a name-moving
+  edit from about 2.8 s to about 0.6 s on the clone.
+- **B2, expressions over base names** (`8e71dd32d3`; reload1): kept as written and evaluated in each host's column
+  (LLP 1121 D11's 2026-10-20 amendment); **B2-levels** (`0fc2845866` and the per-side follow-up; x2-perf4): a param's
+  levels on explain and resolve, each tuple's winning level and name per scheme side; **B3** (`2d07317bd7`..`22de44dd62`;
+  x2-perf4): shadows over base names and length tokens, per column.
+- **C, anatomy in the checker** (`750aca50ac`, `ab9f60e07a`, `cc5265fea1`, records `4abdbbc13f`; reload1): parts with their
+  groups, the slot's fixed line (D4), the library lints and D3's component-owned styles, one checker shared with the
+  server; 45 plans and 47 sources' diagnostics byte-identical through every round.
+- **D, the server** (rt1): D1 per-column values (`1b1d067ee3`, opening `tamber/1.15`), D2 the slot check on writes and
+  scrubs (`344c9c2aa6`..), D3 describe's library, parts and variants (`e83c7570cc`), D4 the selection's `library`
+  (`9d38af028f`..`4a2f1f1705`); **the tool** (dtool2): the levels with two resets (T1), variant selects (G1),
+  `contract gallery` (G2), the gallery page with `page: "gallery"` (G3) and the Gallery view (G4).
+- **E, the first library and the consumer** (`4749237d1d` and after; iosfix with x2-perf4): `@exact/cards` (PostCard,
+  AtCard) and `@exact/actions` (PostButton, ActionRow), `apps/library-gate`, and the Bluesky clone's adoption on a
+  signed-out copy with synthetic data.
+
+### Stage 12's gate: met (2026-10-21; runs `~/x2theme/stage12-gate-run.txt` and `stage12-gate-run-noreg.txt`)
+
+| Gate line | Result |
+|---|---|
+| The consumer: the clone's post card, AtCard, action row and Post button from the packages with no visual change | **Met**: 50 shots on web (JS and wasm), iOS, macOS and Linux, light and dark, identical to the baseline built on the same SDK; all four components placed and rendered; conform on the clone no failure beyond the baseline's. Allowlisted: the composer's caret strip and iOS's system keyboard, each with its reason; the web's anti-aliased clip edges at most 2 levels, flat areas strict. |
+| One app value restyles the library | **Met** on 7 hosts: `space.md` and a param live, `cards.pad-start` by rebuild; removing the line restores each. |
+| Anatomy is checked | **Met**: C's compiler tests, every refusal with its span. |
+| The slot renders | **Met**: every variant cell of `apps/library-gate` shows its marker in both glyphs on every required host (Windows and tvOS recorded as skipped). The slot check takes 0.026 ms alone and 0.0002 ms with the packages (bar 10 ms). |
+| No per-OS forks | **Met**: `lower-library-platform` clean over both packages. |
+| No regressions | **Met** (the rerun, differing from the full run's tree only by a QUEUE line): conform 0 failures over 112 targets, as the base; release output identical over 392 comparisons in 8 runs except `apps/library-gate`'s own and `apps/expose` failing alike; `@exact/reading`'s users unchanged. |
+
+**Found and fixed on the way:** a JS boot race in the agent's settle (a list's owed scroll event) and the clone's
+tab-width race; a server that wrote a library param short; a nameless package outside the app leaking its path
+(now `contract-package-unnamed`). **QUEUE:** the intersect and controls boot flakes; per-instance variant pins
+(§9 Q5); apps restyling parts (§9 Q6).
+
+**Stage 12 is closed.**

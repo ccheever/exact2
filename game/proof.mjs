@@ -343,7 +343,7 @@ export function editProvenance() {
 // Read only provenance fields; walk skipped values to preserve the binary name table.
 // Tags and bounds follow engine/src/data/bin.rs. This does not restore gameplay.
 function savedFields(bytes, magic, fields) {
-  const fail = reason => { throw new Error(`pinSave refused: invalid ${magic.startsWith('EXSIM') ? 'EXSIM v7' : 'EXGAME v6'} save: ${reason}`); };
+  const fail = reason => { throw new Error(`pinSave refused: invalid ${magic.startsWith('EXSIM') ? 'EXSIM v8' : 'EXGAME v6'} save: ${reason}`); };
   if (!bytes.subarray(0, magic.length).equals(Buffer.from(magic, 'binary'))) fail('unsupported format');
   if (bytes.length > 2 * 1024 ** 3) fail('load size limit');
   let pos = magic.length;
@@ -420,9 +420,9 @@ function savedFields(bytes, magic, fields) {
   return out;
 }
 function assertSaveEdits(bytes) {
-  const saved = savedFields(bytes, 'EXSIM\0\x07', ['world', 'queue']);
+  const saved = savedFields(bytes, 'EXSIM\0\x08', ['world', 'queue']);
   if (!Buffer.isBuffer(saved.world) || !Array.isArray(saved.queue))
-    throw new Error('pinSave refused: invalid EXSIM v7 world or queue');
+    throw new Error('pinSave refused: invalid EXSIM v8 world or queue');
   const world = savedFields(saved.world, 'EXGAME\0\x06', ['developmentEdits']);
   if (world.developmentEdits !== undefined && typeof world.developmentEdits !== 'boolean')
     throw new Error('pinSave refused: invalid developmentEdits marker');

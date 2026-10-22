@@ -284,7 +284,7 @@ extension Agent {
             guard case .success(let (bar, frame)) = item else { return ["error": "tap #\(v.id): its bar item is not placed in the navigation bar; `clock settle` first waits out a push or sheet still moving"] }
             target = bar; region = frame; barred = true
         }
-        // A tab UIKit's tab bar shows: its item there.
+        // A tab a tab bar shows, UIKit's or the one its tablist is drawn as: its item there.
         if target === v, let item = tabItem(v) {
             switch item {
             case .failure(let refusal): return ["error": "tap #\(v.id): \(refusal.why)"]

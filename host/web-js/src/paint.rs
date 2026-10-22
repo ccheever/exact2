@@ -148,7 +148,10 @@ pub fn needed(plan: &Plan, parts: &[Option<exact_web::host::template::Parts>]) -
         (bits & ROOT == 0
             && (bits & (POSITION | STACK | POLICY | CONTROL | WRAP) != 0
                 || p.props.contains_key("data-exact-zi")))
-            || plan.nodes[i]
+            || plan
+                .nodes
+                .get(i)
+                .unwrap()
                 .bindings
                 .iter()
                 .map(|b| plan.binding(b))
@@ -156,8 +159,8 @@ pub fn needed(plan: &Plan, parts: &[Option<exact_web::host::template::Parts>]) -
                     crate::style::literal(plan, plan.code(b.expr)).is_none()
                         && binding(
                             plan,
-                            NodeType::from_wire(plan.nodes[i].node_type).unwrap(),
-                            b,
+                            NodeType::from_wire(plan.nodes.get(i).unwrap().node_type).unwrap(),
+                            &b,
                         )
                         .is_some()
                 })
@@ -193,7 +196,12 @@ pub fn binding(plan: &Plan, kind: NodeType, b: &BindingsRow) -> Option<(String, 
         StyleId::WrapFlow => return flag(WRAP, "v===\"both\""),
         StyleId::TintColor if kind == NodeType::Image => return flag(POLICY, "v!=null"),
         StyleId::Isolation => return flag(ISOLATION | STACK, "v===\"isolate\""),
-        StyleId::LayoutTransition => return flag(LAYOUT | POLICY, "v!=null"),
+        // Set where the kernel takes the value (rows.rs, GitHub #809).
+        StyleId::LayoutTransition => {
+            let values = crate::style::layout_transitions(plan, plan.code(b.expr));
+            let table = serde_json::to_string(&values.held.keys().collect::<Vec<_>>()).unwrap();
+            return flag(LAYOUT | POLICY, &format!("typeof v===\"string\"&&{table}.includes(v)"));
+        }
         StyleId::ExitAnimation => return flag(POLICY, "v!=null"),
         StyleId::Transition => {
             let properties: std::collections::BTreeMap<_, _> = exact_motion::Property::ALL

@@ -88,21 +88,17 @@ fn cascade_sample(world: vec3<f32>, normal: vec3<f32>, index: u32) -> f32 {
     let uv = clip.xy * vec2(0.5, -0.5) + 0.5;
     if any(uv < vec2(0.0)) || any(uv > vec2(1.0)) || clip.z < 0.0 || clip.z > 1.0 { return 1.0; }
     var sum = 0.0;
-    // The receiver chooses one filter for all nine taps. Keep the manual
-    // footprint path out of the comparison-sampler loop.
-    if footprint > budget {
-        for (var y = -1; y <= 1; y++) {
-            for (var x = -1; x <= 1; x++) {
-                let grid = vec2(f32(x), f32(y)) * frame.texels_softness.w;
-                let tap = grid - axis * dot(grid, axis) * (1.0 - cosine);
+    // The receiver chooses one filter for all nine taps. Each tap branches on it,
+    // rather than a loop of each filter: a wave with receivers of both kinds then
+    // runs one loop, not both in turn.
+    let steep = footprint > budget;
+    for (var y = -1; y <= 1; y++) {
+        for (var x = -1; x <= 1; x++) {
+            let grid = vec2(f32(x), f32(y)) * frame.texels_softness.w;
+            let tap = grid - axis * dot(grid, axis) * (1.0 - cosine);
+            if steep {
                 sum += plane_sample(uv + tap / f32(textureDimensions(shadow_map).x), clip.z + dot(slope, tap), slope, index);
-            }
-        }
-    } else {
-        for (var y = -1; y <= 1; y++) {
-            for (var x = -1; x <= 1; x++) {
-                let grid = vec2(f32(x), f32(y)) * frame.texels_softness.w;
-                let tap = grid - axis * dot(grid, axis) * (1.0 - cosine);
+            } else {
                 sum += textureSampleCompareLevel(shadow_map, shadow_sampler,
                     uv + tap / f32(textureDimensions(shadow_map).x), i32(index), clip.z + dot(slope, tap) - bias);
             }

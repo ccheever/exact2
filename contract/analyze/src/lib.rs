@@ -563,7 +563,7 @@ fn check_node(n: &Node, scope: &Scope, view: &View<'_>, errors: &mut Vec<Analyze
                             |mut e| {
                                 // A hyphenated tag is a native module's (LLP 1024 D1): an
                                 // event's name there is the box's handler, never a prop.
-                                if tag.contains('-') && e.id == "analyze-handler-shape" {
+                                if tag.contains('-') && matches!(e.id, "analyze-handler-shape" | "analyze-unknown-action") {
                                     e.message.push_str(&format!("; on `{tag}` `{}` is an event, so give the module prop another name", a.name));
                                 }
                                 e

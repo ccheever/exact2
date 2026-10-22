@@ -16,6 +16,54 @@ extension NodeView {
     }
 
     var isParagraph: Bool { kind == "text" }
+
+    /// The node box this view stands in: the nearest node view above it,
+    /// past the containers and scroll views a box holds its children in.
+    var nodeSuperview: NodeView? {
+        var at = superview
+        while let v = at, !(v is NodeView) { at = v.superview }
+        return at as? NodeView
+    }
+
+    /// The lines each box above this paragraph draws through its text and
+    /// that box's colour, nearest first (CSS Text Decoration 3 §2.1: a block
+    /// container's lines reach its in-flow children's text). A box out of
+    /// flow or an atomic one (a button, a control) takes none from the boxes
+    /// above it, so the walk stops there.
+    func decoratingAncestors(dark: Bool) -> [(String, [Double]?)] {
+        var out: [(String, [Double]?)] = []
+        var box: NodeView = self
+        while !["absolute", "fixed"].contains(box.style["position_type"]?.string ?? ""),
+              box === self || !(box.actsAsButton || box.kind == "control"),
+              let parent = box.nodeSuperview {
+            if let lines = parent.style["text_decoration_line"]?.string, !lines.isEmpty, lines != "none" {
+                var colored: NodeView? = parent
+                while let c = colored, c.style["text_color"] == nil { colored = c.nodeSuperview }
+                out.append((lines, colored?.textChannels("text_color", dark: dark)))
+            }
+            box = parent
+        }
+        return out
+    }
+
+    /// After a style change: where this box's lines, or their colour,
+    /// changed, the paragraphs it holds draw again.
+    func decorationChanged(from old: NodeStyle) {
+        let lines = style["text_decoration_line"], was = old["text_decoration_line"]
+        guard lines != was || (lines != nil && old["text_color"] != style["text_color"]) else { return }
+        var stack: [PlatformView] = subviews
+        while let v = stack.popLast() {
+            if let node = v as? NodeView, node.isParagraph {
+                node.invalidateText()
+                #if os(macOS)
+                node.needsDisplay = true
+                #else
+                node.setNeedsDisplay()
+                #endif
+            }
+            stack.append(contentsOf: v.subviews)
+        }
+    }
     var paragraphOwner: NodeView { self }
 
     func paragraphLayout() -> Paragraph? {
@@ -157,6 +205,10 @@ extension NodeView {
         // (CSS Text Decoration 3 §2.1); its own text's run already has them.
         if props["text"] == nil || props["markup"] == "markdown", let lines = style["text_decoration_line"]?.string, !lines.isEmpty {
             for i in runs.indices { runs[i].propagate(lines, color: ink) }
+        }
+        // So do the lines of the boxes it stands in, each in that box's colour.
+        for (lines, color) in decoratingAncestors(dark: night) {
+            for i in runs.indices { runs[i].propagate(lines, color: color ?? ink) }
         }
         var spec = TextStyle.spec(runs: runs, style: style, props: props, strut: textRun(""),
                                   color: ink,

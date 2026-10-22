@@ -19,7 +19,9 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod alert_parts;
 pub mod anatomy;
+mod box_transform;
 mod buttons;
 mod cells;
 mod class;
@@ -48,6 +50,7 @@ mod keyframes;
 mod lint;
 mod live_time;
 mod media;
+mod menu_rows;
 mod menus;
 mod metrics;
 pub mod motion;
@@ -55,6 +58,7 @@ mod native;
 mod nodes;
 mod overflow;
 pub mod params;
+mod popover_surface;
 mod routes;
 mod row_look;
 mod scale;
@@ -221,6 +225,9 @@ pub(crate) struct Lowerer<'a> {
     pub font_stacks: BTreeMap<String, StacksId>,
     /// Declared families, for the literal weight/style synthesis diagnostic.
     declared_fonts: BTreeMap<String, DeclaredFont>,
+    /// Each font file whose faces' weights `declare_fonts` read from it, as
+    /// it was then (the design server's write check, `theme::rows`).
+    font_files: Vec<theme::rows::FontFile>,
     /// How many `fn` bodies are being expanded right now (a guard; the type
     /// pass already refuses a cycle).
     pub fn_depth: u32,
@@ -270,7 +277,7 @@ pub(crate) struct Lowerer<'a> {
     host_transforms: std::collections::BTreeSet<(Span, u32)>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct DeclaredFont {
     stack: StacksId,
     /// Each face's heaviest weight (a variable face's range reaches it) and
@@ -407,6 +414,7 @@ fn lower_with_sites(
         arm_scopes: BTreeMap::new(),
         font_stacks: BTreeMap::new(),
         declared_fonts: BTreeMap::new(),
+        font_files: Vec::new(),
         fixed: BTreeMap::new(),
         errors: Vec::new(),
         locale: None,

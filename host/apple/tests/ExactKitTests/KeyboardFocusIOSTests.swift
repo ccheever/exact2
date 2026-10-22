@@ -59,6 +59,25 @@ final class KeyboardFocusIOSTests: XCTestCase {
         return p
     }
 
+    func testPendingNodeFocusKeepsTheResolvedFieldWithoutAUniqueHTMLId() throws {
+        for name: String? in [nil, "", "a"] {
+            let p = focusFields()
+            defer { window.endEditing(true); window.isHidden = true }
+            let node = try XCTUnwrap(p.views[12]), field = try XCTUnwrap(node.field)
+            node.applyProps(set: name.map { ["id": $0] } ?? [:], clear: ["id"])
+            // A sheet's field leaves the window while its controller changes.
+            p.viewport.removeFromSuperview()
+            p.focusNode(node)
+            XCTAssertTrue(p.pendingFocusNode === node, "an unnamed field must wait for its window too")
+            XCTAssertEqual(p.pendingFocusObservation?["target"], name ?? "#12")
+            XCTAssertFalse(field.isFirstResponder)
+            window.addSubview(p.viewport)
+            XCTAssertTrue(field.isFirstResponder)
+            XCTAssertFalse(try XCTUnwrap(p.views[11]?.field).isFirstResponder, "a duplicate id must not redirect focus")
+            XCTAssertNil(p.pendingFocusNode)
+        }
+    }
+
     func testReadOnlySelectionSendsFocusAndBlur() throws {
         let p = focusFields("textarea")
         defer { window.endEditing(true); window.isHidden = true }

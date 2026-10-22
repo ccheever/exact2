@@ -59,7 +59,9 @@ function descendants(path) {
 // A database owns its file exclusively and pins each ancestor with a shared
 // lock. Unrelated files remain usable; replacing an open database or moving its
 // parent fails instead of silently discarding SQLite's later commit.
-export async function lockPaths(appId, paths, timeout = 10000) {
+// `timers`: the realm's own; a module Worker's are taken before its prelude takes the module's (module-worker.js).
+const ownTimers = { set: (f, ms) => setTimeout(f, ms), clear: id => clearTimeout(id) };
+export async function lockPaths(appId, paths, timeout = 10000, timers = ownTimers) {
   if (!globalThis.navigator?.locks) throw failure('Web Locks are unavailable');
   const requested = new Map();
   for (let path of paths) {
@@ -72,7 +74,7 @@ export async function lockPaths(appId, paths, timeout = 10000) {
   }
   const held = [];
   const abort = new AbortController();
-  const timer = setTimeout(() => abort.abort(), timeout);
+  const timer = timers.set(() => abort.abort(), timeout);
   async function release() {
     for (const lock of held) lock.release();
     await Promise.all(held.map(lock => lock.done));
@@ -99,7 +101,7 @@ export async function lockPaths(appId, paths, timeout = 10000) {
   } catch (error) {
     await release();
     throw error;
-  } finally { clearTimeout(timer); }
+  } finally { timers.clear(timer); }
 }
 function requireBelowRoot(path) {
   if (rootPaths.includes(path)) throw failure('operation needs a path below the app root');
@@ -342,13 +344,13 @@ export function createFileStore(appId) {
 }
 
 /** Public capability. Every operation is admitted before opening IndexedDB. */
-export function createFileSystem(appId, grants) {
+export function createFileSystem(appId, grants, timers = ownTimers) {
   const store = createFileStore(appId);
   const fs = { directories: roots, dispose() { store.close(); } };
   function mutate(paths, operation) {
     const previous = mutationTails.get(appId) || Promise.resolve();
     const result = previous.then(async () => {
-      const release = await lockPaths(appId, paths);
+      const release = await lockPaths(appId, paths, undefined, timers);
       try { return await operation(); }
       finally { await release(); }
     });

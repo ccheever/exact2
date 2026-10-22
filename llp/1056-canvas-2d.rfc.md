@@ -235,7 +235,8 @@ On the web a DPR change leaves the bitmap and the page redraws when it chooses. 
 - `"args"`: its surface arguments changed in an accepted commit;
 - `"size"`: a new size generation;
 - `"frame"`: it asked for another frame and the host presents one while it is on screen (D5);
-- `"image"` or `"font"`: an image it named decoded, or a font it used became available (D8, D9).
+- `"image"` or `"font"`: an image it named decoded, or a font it used became available (D8, D9);
+- `"style"`: the colour or direction it draws in (`currentColor`, `direction = "inherit"`, D3) changed, its node's or its scheme's. The runner compares them before each pass; the JS target after each commit, once its host commands (`setScheme`) and the modes it resolves have applied, and when the window's scheme, the root's own style (a development page's held scheme) or the app's mode tuple (`data-x-modes`) changes, or a colour transition ends (until then the canvas keeps the colour it last drew in). Neither target hears `prefers-contrast` (`QUEUE.md`).
 
 Nothing else causes a draw. Requests coalesce **before** execution: a canvas has at most one request queued, and its cause set is the union. Once a list has executed it is never dropped individually. It is applied, or its whole generation is abandoned.
 

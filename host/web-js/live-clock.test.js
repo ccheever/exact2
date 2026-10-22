@@ -7,6 +7,8 @@ import { test, expect, mock, beforeEach, afterAll } from "bun:test";
 // The build copies navigation.js and prompt-glue.js in from host/web and writes names.js.
 mock.module("./navigation.js", () => import("../web/navigation.js"));
 mock.module("./prompt-glue.js", () => ({}));
+mock.module("./alert-message.js", () => ({}));
+mock.module("./menu-rows.js", () => ({}));
 mock.module("./names.js", () => ({ sourceTypes: {} }));
 const { clock, every, advance, armedAt, commit, Refusal } = await import("./rt.js");
 const { beatAfter } = await import("./beat.js");

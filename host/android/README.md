@@ -539,7 +539,8 @@ stream is drawn). A count, then for each live field, in tree order:
   `caret-color` or `accent-color` winning); its font's size in pixels, weight, tracking and line height (the
   computed font, whose own starting size is 16 by the device's font scale); and the revision, start and end of
   the selection a command last set (`setSelectionRange`, `select()`);
-- three strings: its placeholder, its `autocomplete` and its font's file.
+- four strings: its placeholder, its `autocomplete`, its font's file and its axes (`'wght' 650, 'wdth' 75`;
+  empty for none).
 
 A field a statement leaves out is gone, and its view with it. A field that was not painted (its row is out of the
 page's view) keeps its view, its focus and its keyboard, out of sight.

@@ -7,11 +7,11 @@ import { pieces, pageHistory, Head, navigateRoot, Tasks, journal, unopened } fro
 import * as perf from './perf.js';
 import { observe } from './check.js';
 import { faultOp, faultsJson, setFaultLog } from '../web/faults.js';
-import { inertAncestor, displayMode, environment, navigation, unselected, foldEnv, preferFold, typedControl, typeControl, animationClocks, pageReporter } from './navigation.js';
-import { guestOutline, guestTap, guestType, viewBox, reveal, selectAll, scrollRange } from './input-glue.js';
+import { inertAncestor, displayMode, environment, navigation, unselected, foldEnv, preferFold, typedControl, settleValue, animationClocks, pageReporter } from './navigation.js';
+import { guestOutline, guestTap, guestType, viewBox, reveal, selectAll, scrollRange, typeControl } from './input-glue.js';
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
-const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-controls', 'accessibilityControls'], ['id', 'id'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-pressed', 'accessibilityPressed'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['aria-valuenow', 'accessibilityValueNow'], ['aria-valuemin', 'accessibilityValueMin'], ['aria-valuemax', 'accessibilityValueMax'], ['aria-valuetext', 'accessibilityValueText'], ['placeholder', 'placeholder'], ['autocomplete', 'autocomplete'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hatch', 'hatch'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];
+const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['data-alertpart', 'alertPart'], ['aria-controls', 'accessibilityControls'], ['id', 'id'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-pressed', 'accessibilityPressed'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['aria-valuenow', 'accessibilityValueNow'], ['aria-valuemin', 'accessibilityValueMin'], ['aria-valuemax', 'accessibilityValueMax'], ['aria-valuetext', 'accessibilityValueText'], ['placeholder', 'placeholder'], ['autocomplete', 'autocomplete'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hatch', 'hatch'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];
 const TYPES = { TEMPLATE: 'Head', BUTTON: 'Pressable', INPUT: 'TextInput', TEXTAREA: 'TextInput', VIDEO: 'Video', AUDIO: 'Video', IMG: 'Image', IFRAME: 'WebView', A: 'Pressable' };
 /** The view an operation names: its id, else the first node with that testId on an active screen, a covered
  * screen's or an unselected tab's copy only when no active one carries it, as the runner's `target`. */
@@ -202,7 +202,9 @@ export function install(exact) {
   // A scroll-driven animation follows its scroll, not a clock.
   const timed = () => document.getAnimations().filter(a => !a.timeline || a.timeline instanceof DocumentTimeline);
   const anim = {
-    register(t) { clocks.commit(); for (const a of timed()) if (!starts.has(a)) { starts.set(a, clocks.start(a, t) ?? t); if (a.playState === 'paused') held.add(a); } },
+    // One the page held before this module came (`exact.early`, the build's main.js: a spinner of the first render)
+    // began at the clock it was held at, and is the clock's, not paused by its author.
+    register(t) { clocks.commit(); for (const a of timed()) if (!starts.has(a)) { const early = exact.early?.get(a); starts.set(a, clocks.start(a, early ?? t) ?? early ?? t); if (a.playState === 'paused' && early === undefined) held.add(a); } },
     seek(to, sync = true) {
       for (const a of timed()) {
         const timing = a.effect?.getComputedTiming();
@@ -245,6 +247,8 @@ export function install(exact) {
   // motion.js owns post-commit reconciliation. The agent registers a
   // commit's new animations here, and reconciles only when its clock moves.
   exact.After.push(() => seek(false));
+  // What the page held before this module came (main.js's `holdEarly`) is this clock's from here.
+  { const i = exact.After.indexOf(exact.holdEarly); if (i >= 0) { exact.After.splice(i, 1); seek(false); } }
   // Held device requests (LLP 1069.007 D3): `openAuthSession`'s (auth.js).
   const holds = () => [...exact.auth?.holds() ?? [], ...exact.files?.holds() ?? [], ...exact.extensions?.holds?.() ?? []];
   const settleGpu = async () => await exact.gpu?.settled?.() ?? [];
@@ -277,7 +281,7 @@ export function install(exact) {
       }
       case 'layout': {
         // `picture`: the boxes where a screenshot shows them, a transition under way held at its end (`compare`).
-        if (req.picture) anim.hold();
+        if (req.picture) { seek(false); anim.hold(); }
         // Every view, a zero box too (an empty text, a closed popover), as
         // the wasm host's layout reports them.
         // The viewport, its safe-area environment and a port's scroll offsets, as glue.js's reply.
@@ -323,7 +327,7 @@ export function install(exact) {
         }
       // A control's value is set, not typed (LLP 1069.001 D9; navigation.js), as the web host's glue.js sets it.
       // A location typed into the navigation root is its `navigate` (LLP 1038 D11), as glue.js delivers it.
-      case 'type': { const el = views.get(req.id); if (el?.hasAttribute('navigationBack') && req.key == null) return navigateRoot(req.text ?? '') ? { typed: req.id, delivery: 'recognized', handled: true } : { handled: true, error: 'the navigation root has no `navigate` handler' }; return typedControl(el) && req.key == null ? typeControl(el, req) : el instanceof HTMLIFrameElement ? guestType(el, req) : {}; }
+      case 'type': { const el = views.get(req.id); if (el?.hasAttribute('navigationBack') && req.key == null) return navigateRoot(req.text ?? '') ? { typed: req.id, delivery: 'recognized', handled: true } : { handled: true, error: 'the navigation root has no `navigate` handler' }; return typedControl(el) && req.key == null ? typeControl(el, req, inertAncestor, settleValue) : el instanceof HTMLIFrameElement ? guestType(el, req) : {}; }
       case 'reveal': return { ...reveal(views.get(req.id), req.id, inertAncestor), ...tags() }; // before a tap or a type
       case 'logs': { const j = exact.journal, from = Math.max(req.since ?? 0, j.start); return { lines: j.slice(from - j.start), from, next: j.start + j.length }; }
       // `perf <target>` (LLP 1079 D2): the plan sites under a view, with their work (perf.js).
@@ -371,7 +375,11 @@ export function install(exact) {
           const end = performance.now() + 20000;
           // A hatch whose acts keep causing acts never settles (LLP 1075.003.000.001 §2.5): 16 drains of its queue, then say so.
           const drained = exact.hatchActs?.drains() ?? 0, looping = () => exact.hatchActs && exact.hatchActs.drains() - drained > 16 && exact.hatchActs.queued() > 0;
+          // Rounds that ran out with a list's reader's scroll event in the last
+          // (fired in its scroll wait or its frame) found no quiet round.
+          let quiet = false, lastRound = exact.lists?.scrollsFired?.() ?? 0;
           for (let round = 0; round < 16; round++) {
+            lastRound = exact.lists?.scrollsFired?.() ?? 0;
             // A held request is in flight until the agent answers it: never waited on.
             do await new Promise(r => setTimeout(r, 30)); while (exact.inflight.n > holds().length && performance.now() < end && !looping());
             if (looping()) return { clock: exact.clock.now, settled: false, reason: 'hatches' };
@@ -380,6 +388,11 @@ export function install(exact) {
             // Text around shapes lays out in the frames after a commit (flow.js).
             await exact.flowSettle?.();
             if (exact.lists) exact.lists.settle();
+            // A list's offset this moved owes a `scroll` event the browser fires
+            // at a rendering step; its reader's handler runs then (collection-glue
+            // `owedScrolls`): wait those frames, then go round again for what it did.
+            const scrolls = await exact.lists?.fireOwedScrolls();
+            if (scrolls?.fired || scrolls?.owed) continue;
             if (exact.inflight.n > holds().length) continue;
             // Animations (and springs, `settleAt`) that end later move the clock there; an
             // armed `then` runs now, and what it starts is settled in the next round.
@@ -396,7 +409,7 @@ export function install(exact) {
               if (!stopped) break;
               while (exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 1));
             }
-            if (!(to > at) && exact.clock.epoch === epoch) break;
+            if (!(to > at) && exact.clock.epoch === epoch) { quiet = true; break; }
             seek();
             await new Promise(r => requestAnimationFrame(() => r()));
           }
@@ -404,6 +417,9 @@ export function install(exact) {
           if (gpuPending.length) return gpuPendingReply(req, gpuPending);
           const waiting = holds();
           if (waiting.length) return { clock: exact.clock.now, settled: false, reason: 'device', tickets: waiting.map(h => h.ticket) };
+          // A list still owing a scroll event its reader hasn't had, or one whose
+          // handler ran in the last round with no quiet round after, is not settled.
+          if (exact.lists?.owedScrolls?.() || (!quiet && (exact.lists?.scrollsFired?.() ?? 0) !== lastRound)) return { clock: exact.clock.now, settled: false, reason: 'scroll-event' };
           return { clock: exact.clock.now, settled: !exact.inflight.n };
         }
         // A jump that crosses timers stops after each timer whose commit
@@ -441,9 +457,12 @@ export function install(exact) {
       }
       case 'tags': return tags();
       // `screenshot` and `check` (LLP 1116.003 D8): transitions under way shown where they end, for this picture only.
-      case 'picture': return { moving: anim.hold(), ...tags() };
+      // An animation begun since the last commit (a spinner's turn, LLP 1069.001) is put on the clock first: a
+      // picture is the clock's, never the browser's (two of one clock are the same bytes).
+      case 'picture': seek(false); return { moving: anim.hold(), ...tags() };
       case 'check': {
         // `all()` names every view (ids are given as the tree reads them) and marks the ones an unselected route holds.
+        seek(false);
         const moving = anim.hold(), off = new Set(all().filter(n => n.inactive).map(n => views.get(n.id)));
         return { ...observe(views, el => off.has(el)), moving, ...tags() };
       }

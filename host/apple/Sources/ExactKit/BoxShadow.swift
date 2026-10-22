@@ -4,7 +4,7 @@
 // grown by the spread, through `shadowPath` (no offscreen pass to find a
 // shape); they share one container masked to what lies outside the border
 // box, since CSS clips an outer shadow there, so it never shows through a
-// translucent background. The container is the node's lowest sublayer,
+// translucent background, and a lone one is the container's own. The container is the node's lowest sublayer,
 // under its children, as CSS paints it. An inset shadow casts a frame
 // whose hole is the padding box shrunk by the spread, inward; they share a
 // container masked to the padding box, over the background and under the
@@ -72,17 +72,28 @@ final class ShadowCaster: CALayer {
         let extent = box.insetBy(dx: -reach, dy: -reach)
         if frame != extent { frame = extent }
         var local = CGAffineTransform(translationX: -extent.minX, y: -extent.minY)
-        // The first shadow on top: the last sublayer.
-        var casts = sublayers ?? []
-        while casts.count > shadows.count { casts.removeLast().removeFromSuperlayer() }
-        while casts.count < shadows.count { let l = CALayer(); addSublayer(l); casts.append(l) }
-        for (layer, (shape, spec)) in zip(casts, shadows.reversed()) {
-            if layer.frame != bounds { layer.frame = bounds }
+        func cast(_ layer: CALayer, _ shape: CGPath, _ spec: BoxShadowSpec) {
             layer.shadowPath = shape.copy(using: &local)
             if layer.shadowColor != spec.color { layer.shadowColor = spec.color }
             if layer.shadowOffset != spec.offset { layer.shadowOffset = spec.offset }
             if layer.shadowRadius != spec.blur / 2 { layer.shadowRadius = spec.blur / 2 }
             if layer.shadowOpacity != 1 { layer.shadowOpacity = 1 }
+        }
+        // One shadow (most boxes) this layer casts itself, its mask clipping
+        // its own shadow as it would a sublayer's: a layer fewer a box.
+        if shadows.count == 1 {
+            for layer in sublayers ?? [] { layer.removeFromSuperlayer() }
+            cast(self, shadows[0].shape, shadows[0].spec)
+        } else {
+            if shadowOpacity != 0 { shadowOpacity = 0; shadowPath = nil }
+            // The first shadow on top: the last sublayer.
+            var casts = sublayers ?? []
+            while casts.count > shadows.count { casts.removeLast().removeFromSuperlayer() }
+            while casts.count < shadows.count { let l = CALayer(); addSublayer(l); casts.append(l) }
+            for (layer, (shape, spec)) in zip(casts, shadows.reversed()) {
+                if layer.frame != bounds { layer.frame = bounds }
+                cast(layer, shape, spec)
+            }
         }
         let hole = CGMutablePath()
         hole.addRect(CGRect(origin: .zero, size: extent.size))
@@ -92,7 +103,7 @@ final class ShadowCaster: CALayer {
     }
 
     /// The first shadow's colour, as a single caster's was (tests, captures).
-    var firstColor: CGColor? { sublayers?.last?.shadowColor }
+    var firstColor: CGColor? { shadowOpacity > 0 ? shadowColor : sublayers?.last?.shadowColor }
 }
 
 /// The inset shadows: a container masked to the padding box, one sublayer
@@ -177,8 +188,12 @@ extension BoxShadowSpec {
 }
 
 extension NodeView {
-    /// The `box-shadow` list resolved for the view's appearance.
-    var boxShadows: [BoxShadowSpec] { BoxShadowSpec.list(style["box_shadow"], dark: drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: style["box_shadow"])) }
+    /// The `box-shadow` list resolved for the view's appearance; a popover's
+    /// default surface's shadow where its author wrote none (`defaultSurface`).
+    var boxShadows: [BoxShadowSpec] {
+        let list = BoxShadowSpec.list(style["box_shadow"], dark: drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: style["box_shadow"]))
+        return list.isEmpty ? defaultSurfaceShadow.map { [$0] } ?? [] : list
+    }
 
     /// The first outer shadow's colour; nil when there is none.
     var shadowColor: CGColor? { boxShadows.first { !$0.inset }?.color }
@@ -203,7 +218,13 @@ extension NodeView {
         let host = layer
         #endif
         let all = surface == nil && bounds.width > 0 && bounds.height > 0 ? boxShadows : []
-        let sizes = BorderPaint.reduced(BorderPaint.radii(style, in: bounds), in: bounds)
+        var sizes = BorderPaint.reduced(BorderPaint.radii(style, in: bounds), in: bounds)
+        // A default surface's corner where its author wrote none, its shadow cast from it.
+        var outline = outline
+        if let r = defaultSurfaceRadius, !writesCorner {
+            sizes = BorderPaint.reduced(Array(repeating: CGSize(width: r, height: r), count: 4), in: bounds)
+            outline = BorderPaint.roundedRect(bounds, sizes, shape: CornerShape(nil))
+        }
         let shape = CornerShape(style["corner_shape"])
         let outer = all.filter { !$0.inset }
         if let host, !outer.isEmpty {

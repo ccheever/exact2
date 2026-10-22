@@ -432,6 +432,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // seek moves when the platform gives none.
         "metadata" => AttrTarget::MediaMetadata,
         "decorations" => AttrTarget::Prop(PropId::Decorations),
+        "alertPart" => AttrTarget::Prop(PropId::AlertPart),
+        "defaultSurface" => AttrTarget::Prop(PropId::DefaultSurface),
         "seekbackward" => AttrTarget::Handler("seekbackward"),
         "seekforward" => AttrTarget::Handler("seekforward"),
         "seekto" => AttrTarget::Handler("seekto"),
@@ -810,6 +812,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "weight" | "fontWeight" => "font-weight",
         "fontStyle" => "font-style",
         "fontStretch" => "font-stretch",
+        "fontVariationSettings" => "font-variation-settings",
         "fontFamily" => "font-family",
         "background" | "backgroundColor" => "background-color",
         "letterSpacing" => "letter-spacing",

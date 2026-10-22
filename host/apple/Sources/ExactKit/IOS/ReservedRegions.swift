@@ -12,7 +12,7 @@
 import UIKit
 import ObjectiveC
 
-enum ReservedRegions {
+package enum ReservedRegions {
     private static let divisionKind: AnyObject? = {
         guard let kind = NSClassFromString("UIViewReservedRegionKind") as? NSObject.Type else { return nil }
         return kind.perform(NSSelectorFromString("divisionRegionKind"))?.takeUnretainedValue()
@@ -23,7 +23,7 @@ enum ReservedRegions {
 
     /// The view's division regions, active and inactive, in its own
     /// coordinates: each frame includes the margins. `nil` below 27.1.
-    static func divisions(of view: UIView) -> [(frame: CGRect, active: Bool)]? {
+    package static func divisions(of view: UIView) -> [(frame: CGRect, active: Bool)]? {
         guard let kind = divisionKind, view.responds(to: query) else { return nil }
         typealias Query = @convention(c) (AnyObject, Selector, AnyObject, UInt) -> NSArray?
         let imp = view.method(for: query)

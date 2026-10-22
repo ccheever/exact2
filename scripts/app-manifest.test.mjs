@@ -275,3 +275,19 @@ test('requiresSecrets scopes the account placeholder to its widget entry', async
     write('yes'); assert.throws(() => readManifest(dir, 'account'), /requiresSecrets/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('host.ios.appClip is an object of an id and a name, and an unknown key or a malformed id is refused', async () => {
+  const { readManifest } = await import('./app.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'manifest-clip-'));
+  try {
+    const save = (appClip) => writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Shop', app: { id: 'dev.exact.shop', name: 'Shop' }, host: { ios: { appClip } } }));
+    save({});
+    assert.deepEqual(readManifest(dir, 'shop').host.ios.appClip, {});
+    save({ id: 'dev.exact.shop.clip', name: 'Shop Clip' });
+    assert.deepEqual(readManifest(dir, 'shop').host.ios.appClip, { id: 'dev.exact.shop.clip', name: 'Shop Clip' });
+    for (const [appClip, says] of [[{ domains: ['shop.example'] }, /appClip\.domains: not a known key/], [{ id: 'clip' }, /appClip\.id: "clip" does not match/], [true, /appClip/]]) {
+      save(appClip);
+      assert.throws(() => readManifest(dir, 'shop'), says);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

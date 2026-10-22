@@ -3,10 +3,10 @@
 import { agentReads, agentStorageRefusal, directories, emptyRead, storageKey } from './storage-environment.js';
 let fileFactory, sqliteFactory, toldAgent = false;
 
-export function createStorage(win, admitted, scope, key = storageKey(admitted.appId)) {
+export function createStorage(win, admitted, scope, key = storageKey(admitted.appId), timers = undefined) {
   // Once storage has been used, a replacement reserves its owner before the
   // old realm is disposed, retaining the shared SQLite worker across reloads.
-  let fs = key && fileFactory?.(key, admitted.grantSet);
+  let fs = key && fileFactory?.(key, admitted.grantSet, timers);
   let sqlite = key && sqliteFactory?.(key, admitted.grantSet);
   let fsLoading, sqliteLoading;
   const queues = new Map(), waiters = new Map(), retired = new WeakSet();
@@ -53,7 +53,7 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
   const fileSystem = () => fs ? Promise.resolve(fs) : fsLoading ??= import('./storage-fs.js').then(({ createFileSystem }) => {
     fileFactory = createFileSystem;
     if (disposed) throw unavailable();
-    return fs = createFileSystem(key, admitted.grantSet);
+    return fs = createFileSystem(key, admitted.grantSet, timers);
   });
   const databaseSystem = () => sqlite ? Promise.resolve(sqlite) : sqliteLoading ??= import('./storage-sqlite.js').then(({ createSqlite }) => {
     sqliteFactory = createSqlite;

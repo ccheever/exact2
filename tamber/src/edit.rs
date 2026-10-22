@@ -93,6 +93,10 @@ pub enum Op {
         when: Vec<(String, String)>,
         /// The value, a token's.
         value: String,
+        /// The name the param's line has now, when the write spells it
+        /// `name` instead (a library component's param, whose short
+        /// spelling the build refuses, written in full: LLP 1139 D8).
+        respell: Option<String>,
     },
     /// `unset-param name [when …]`: the param's line and its `when` lines
     /// (the component's default applies again), or one `when` line; an
@@ -102,6 +106,9 @@ pub enum Op {
         name: String,
         /// The `when` line's conditions; none is the whole param.
         when: Vec<(String, String)>,
+        /// As `set-param`'s: the line's name now, when the param's line,
+        /// which a `when` line's removal keeps, is spelled `name` instead.
+        respell: Option<String>,
     },
     /// `add-axis-value axis value`, before `before` (else last).
     AddAxisValue {
@@ -376,12 +383,22 @@ pub(crate) fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
             name: n,
             when,
             value: v,
+            respell,
         } => {
             param(n)?;
+            respell.as_deref().map_or(Ok(()), param)?;
             conds(when)?;
             value(v)
         }
-        Op::UnsetParam { name: n, when } => param(n).and_then(|_| conds(when)),
+        Op::UnsetParam {
+            name: n,
+            when,
+            respell,
+        } => {
+            param(n)?;
+            respell.as_deref().map_or(Ok(()), param)?;
+            conds(when)
+        }
         Op::AddAxisValue {
             axis,
             value,
@@ -937,8 +954,17 @@ impl Doc {
                 values,
                 under_dark,
             } => self.add_axis(design, name, values, *under_dark),
-            Op::SetParam { name, when, value } => self.set_param(design, name, when, value),
-            Op::UnsetParam { name, when } => self.unset_param(design, name, when),
+            Op::SetParam {
+                name,
+                when,
+                value,
+                respell,
+            } => self.set_param(design, name, when, value, respell.as_deref()),
+            Op::UnsetParam {
+                name,
+                when,
+                respell,
+            } => self.unset_param(design, name, when, respell.as_deref()),
             Op::RemoveAxisValue { axis, value } => {
                 let a = design
                     .axes
