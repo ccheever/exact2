@@ -1162,8 +1162,9 @@ whose baked digests a re-signer would break. No AppDrop adapter is added; the
 distributable IPA and EAS/AppDrop adapter above stay deferred otherwise.
 
 **AppDrop lane, 2026-10-14 (Eliot; Charlie, waiver, 2026-10-22):** "for decisions,
-recs are ok", accepting the recommendation to waive this lane and make AppDrop
-the remote tester-install path, TestFlight later (LLP 1030.003 §6).
+recs are ok", accepting the recommendation to waive the take for this lane and
+admit AppDrop as the remote tester-install path, TestFlight later (LLP 1030.003
+§6 Q4).
 `deploy.appdrop` makes an iOS binary row of `exact deploy --yes` build the
 `--archive --unsigned` `.ipa` against the stream's release record and publish it
 to AppDrop (creating the link the first time, writing it to app.json), and the
