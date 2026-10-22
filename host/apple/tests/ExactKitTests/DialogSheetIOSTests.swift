@@ -106,6 +106,25 @@ final class DialogSheetIOSTests: XCTestCase {
         try XCTUnwrap(controller.presentedViewController as? DialogSheetController, "the dialog's sheet")
     }
 
+    func testAnExitRetiresTheDialogsSheetSubtree() throws {
+        let (p, controller, scene) = page()
+        p.dialogCommand("showModal", "form")
+        let presented = try sheet(controller)
+        if scene { settle { !p.menus.inTransition } }
+        let dialog = try XCTUnwrap(p.views[2]), field = try XCTUnwrap(p.views[3])
+        XCTAssertTrue(dialog.superview === presented.scroller)
+        p.apply(wireBatch([["op": "exit", "id": 1], ["op": "roots", "ids": []]]))
+        XCTAssertNil(p.views[2], "the dialog retires from its authored ancestry")
+        XCTAssertNil(p.views[3], "its field retires in the same walk")
+        XCTAssertFalse(p.menus.sheets.isOpen(dialog))
+        XCTAssertNil(dialog.superview)
+        XCTAssertFalse(field.field?.isFirstResponder == true)
+        XCTAssertTrue(try XCTUnwrap(p.leaving[1]).members.contains { $0 === dialog })
+        XCTAssertTrue(try XCTUnwrap(p.leaving[1]).members.contains { $0 === field })
+        p.apply(wireBatch([["op": "destroy", "id": 1]]))
+        XCTAssertNil(field.presenter)
+    }
+
     /// A key at the field in the sheet reaches the dialog's authored
     /// ancestors' key handlers; an authored `inert` still silences one.
     func testKeysAtTheSheetFieldReachTheDialogsAuthoredAncestors() throws {

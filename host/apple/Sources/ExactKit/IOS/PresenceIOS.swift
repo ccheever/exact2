@@ -1,8 +1,7 @@
-// Exit animation on UIKit (LLP 1063). An `exit` op names a view leaving
-// with its exit: it and every view under it leave the presenter's maps, so
-// no lookup by id, focus or accessibility finds them, but stay in the window
-// where they were, above their old siblings, taking no input, until the
-// host's `destroy` of the leaving view ends the exit and drops them all.
+// Exit animation on UIKit (LLP 1063). An `exit` retires the leaving view
+// and its authored descendants from every lookup. Its painted subtree stays
+// where it was, inert, until `destroy`; lifted presentations close as their
+// content retires. The final destroy releases every member of the same walk.
 // Its `present` ops keep coming until then: the engine animates it.
 // A view's transform, with a layout transition's box, is in `PressFeedback.swift`.
 #if os(iOS) || os(tvOS)
@@ -14,34 +13,39 @@ struct Leaving {
 }
 
 extension Presenter {
+    /// Retirement follows lifted content as well as routes. Event ancestry
+    /// retains its own inertness rules across a modal presentation.
+    func retirementParent(of view: UIView) -> UIView? {
+        if let node = view as? NodeView, let parent = menus.sheets.authoredParent(of: node) ?? menus.logicalParent(of: node) { return parent }
+        return eventParent(of: view)
+    }
+
     func beginExit(_ id: UInt32) {
         guard let view = views[id] else { return }
-        // The routes under it that a native container holds outside its view
-        // leave with it: a tab's, which its tab container holds, and a
-        // presented route and those pushed over it, which their sheet mounts
-        // (LLP 1123 D2), shown or kept by their stack
-        let held = navigation.controllers.values.map(\.node).filter { (node: NodeView) in
-            views[node.id] === node && !node.isDescendant(of: view) && logicallyWithin(node, view)
+        landFlights(inside: view)
+        var children: [ObjectIdentifier: [NodeView]] = [:]
+        var displaced = Set<ObjectIdentifier>()
+        for node in views.values {
+            var parent = retirementParent(of: node)
+            if parent !== node.superview { displaced.insert(ObjectIdentifier(node)) }
+            while let current = parent, !(current is NodeView) { parent = retirementParent(of: current) }
+            if let parent { children[ObjectIdentifier(parent), default: []].append(node) }
         }
-        // A flying view leaves with its subtree (LLP 1013.000): landed, it is
-        // back in its route, where the walk below finds it
-        for leaving in [view] + held { landFlights(inside: leaving) }
-        var members: [NodeView] = [], seen = Set<UInt32>()
-        var stack: [UIView] = [view] + held
-        while let next = stack.popLast() {
-            if let node = next as? NodeView, views[node.id] === node {
-                guard seen.insert(node.id).inserted else { continue }
-                members.append(node)
-            }
-            stack.append(contentsOf: next.subviews)
+        var members: [NodeView] = [], seen = Set<ObjectIdentifier>()
+        var stack = [view]
+        while let node = stack.popLast() {
+            guard seen.insert(ObjectIdentifier(node)).inserted else { continue }
+            members.append(node)
+            stack.append(contentsOf: children[ObjectIdentifier(node)] ?? [])
         }
-        for leaving in [view] + held { _ = leaving.endEditing(true) }
-        for member in members { member.holdGone() } // a held node that starts to leave is gone (HeldState.swift)
-        for member in members { release(member.id) { _ in } }
-        view.isUserInteractionEnabled = false
-        view.accessibilityElementsHidden = true
-        // A leaving modal no longer hides what stays (LLP 1080.003).
-        view.accessibilityViewIsModal = false
+        for member in members where member === view || displaced.contains(ObjectIdentifier(member)) { _ = member.endEditing(true) }
+        for member in members { member.holdGone() }
+        for member in members {
+            release(member.id) { _ in }
+            member.isUserInteractionEnabled = false
+            member.accessibilityElementsHidden = true
+            member.accessibilityViewIsModal = false
+        }
         view.setGhost(true)
         leaving[id] = Leaving(view: view, members: members)
     }
