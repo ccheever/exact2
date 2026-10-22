@@ -56,7 +56,7 @@ function client(): T3Client {
 }
 const thread: DispatchContext = { composerFocus: false, editableFocus: false, turnRunning: false, modelPickerOpen: false, draftThreadRoute: false, modalOpen: false, settingsOpen: false, diffOpen: false, prNumber: '168' };
 // Commands a visible control or the composer answers (keyboard-dispatch.ts's header, keyboardSettings,
-// T3Composer, T3ComposerQueueKey, the context strip), and rules whose `when` needs a focused terminal or
+// the composer's key action, the context strip), and rules whose `when` needs a focused terminal or
 // preview, an open model picker or the Usage page, none of which an open thread has here.
 const elsewhere = new Set(['sidebar.toggle', 'modelPicker.toggle', 'thread.steerQueuedMessage', 'thread.editQueuedMessage', 'editor.openFavorite']);
 // A `when` is a conjunction (`a && !b`); a rule needs the surface only when a token is that fact itself, so a negated

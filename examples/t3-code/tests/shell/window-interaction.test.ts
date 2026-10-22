@@ -121,7 +121,7 @@ describe('the device tab rename field keeps its keys', () => {
     const button = contractComponent('settings-shortcuts.contract', 'ShortcutButton');
     expect(button.derives({}, { renameHoldsKeys: true, renameHeldCommand, item: { command: 'commandPalette.toggle' } }).held).toBe(true);
     expect(button.derives({}, { renameHoldsKeys: true, renameHeldCommand, item: { command: 'sidebar.toggle' } }).held).toBe(false);
-    const held = ['PrimaryActions', 'ComposerFooter', 'ComposerDock', 'PanelHeaderBar', 'SurfacePanel', 'ThreadDetailsPanel'];
+    const held = ['ComposerDock', 'PanelHeaderBar', 'SurfacePanel', 'ThreadDetailsPanel'];
     const free = ['ModelTrigger', 'TraitsTrigger', 'RuntimeTrigger', 'OverflowTrigger', 'StashKey', 'SidebarToggle'];
     const unguarded: string[] = [], guarded: string[] = [];
     for (const { lines } of contracts()) {

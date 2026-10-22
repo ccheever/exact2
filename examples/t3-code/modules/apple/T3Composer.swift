@@ -1,9 +1,9 @@
 #if os(macOS)
 import AppKit
 
-/// Retains type-to-focus and toolbar geometry around the shared field.
-/// Contract owns Return and formatting; an open command menu's keys press its
-/// hidden key buttons (T3ComposerEditor.menuCommand).
+/// Retains type-to-focus and the anchors' geometry around the shared field.
+/// Contract owns Return, formatting, the send chords and the open menus' keys
+/// (app.contract composerKeyEvent).
 final class T3Composer {
     /// The surface launcher (hatch `t3-launcher`): its letters are its rows' `aria-keyshortcuts`, which Exact's key
     /// route presses (shell-panels.contract SurfaceRow), so type-to-focus leaves them alone (`launcherLetter`).
@@ -16,11 +16,11 @@ final class T3Composer {
         init(_ element: ExactElement) { self.element = element }
     }
     private var anchors: [String: Anchor] = [:]
-    /// Each trigger's [x, width] in its toolbar row, in points (T3's menus
-    /// open above the trigger, start-aligned, so the view needs both edges).
+    /// Each `t3-anchor` hook's [x, width] in its parent view, in points: the label probes'
+    /// natural widths and the rows the layouts fit (the toolbar's controls, the strip, the tab strip).
     private(set) var anchorFrames: [String: [Double]] = [:]
     private var keyMonitor: Any?
-    /// Large pastes and the command menus' keys around the shared field.
+    /// Large pastes around the shared field.
     let editor: T3ComposerEditor
 
     init(changed: @escaping (String) -> Void = { _ in }) {
@@ -103,7 +103,6 @@ final class T3Composer {
 
     /// Internal so focused tests can exercise the actual window/focus guard.
     func handle(_ event: NSEvent) -> NSEvent? {
-        if queuedEditKey(event) { return nil } // ⌥↑ with the caret at the start (T3ComposerQueueKey.swift)
         if let routed = editorKey(event) { return routed.event }
         return event
     }

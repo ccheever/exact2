@@ -46,6 +46,8 @@ use TransportTable, TransportSlot, TransportUpdateSlot, TransportConnect, Transp
 use legacyTipOwner from "./src/sidebar/legacy-sidebar.contract"
 use ShortcutModifierState, emptyShortcutModifierState, areShortcutModifierStatesEqual, shortcutModifierStateAfterKeyboardEvent, anyShortcutModifier, speedModifiers from "./src/shell/shortcut-modifiers.contract"
 use heldModifiers from "./src/shared/press-modifiers.contract"
+use composerChord, composerChordIn from "./src/composer/composer-keys.contract"
+use layoutFrame, optionsTriggerId from "./src/shell/layout-frames.contract"
 routes promptLinks
   home "/"
   incoming "/open"
@@ -74,7 +76,7 @@ component T3Code
     after(1, clearThemeInspecting)
   state elapsed = 0
   resource wallTime = exactTime() as shape Time
-  resource data = snapshot(wallTime.epochAtZero + elapsed, reconnectGraceKey, disconnectDelayKey, viewport.displayMode, restOwner, restResting, restAtEnd, restPulls, transportSeen, composerTyping) as shape Snapshot // full screen drops the traffic lights' inset (presentation.ts); the transcript's viewport (transcript-facts.ts); the connections' news (transport.ts); the typing guard (composer-typing-guard.ts)
+  resource data = snapshot(wallTime.epochAtZero + elapsed, reconnectGraceKey, disconnectDelayKey, viewport.displayMode, restOwner, restResting, restAtEnd, restPulls, transportSeen, composerTyping, layoutFrames) as shape Snapshot // full screen drops the traffic lights' inset (presentation.ts); the transcript's viewport (transcript-facts.ts); the connections' news (transport.ts); the typing guard (composer-typing-guard.ts)
   state reconnectGraceKey = ""
   state disconnectDelayKey = ""
   task reconnectGrace when data.serverUpdate.reconnecting != "" key=data.serverUpdate.reconnecting
@@ -309,6 +311,14 @@ component T3Code
     restScrolled
     restGesture
     releaseUndoClaim
+    composerMenuActive
+    composerMenuHover
+    composerStashActive
+    composerStashHover
+    composerSendHeld
+    frameMoved
+    optionsAnchorX
+    optionsAnchorWidth
   // AssistantCitationSource: View source brings the cited answer's text to min(120pt, a third of the transcript) under
   // its top (the answer's column, `cite-<row>`, has 2pt of padding above it). A row the list has not built is approached
   // by its key first; each later pass places the built answer again until it holds (rows measured as they mount move
@@ -1259,7 +1269,7 @@ component T3Code
   state modelQuery = ""
   state modelTarget = PickerTarget(id="", top=0, bottom=0, left=0) // a General model row's picker
   resource catalog = modelCatalog(browseProvider, modelQuery, data.revision, modelTarget.id) as shape PickerCatalog
-  resource editor = composerEditor(data.revision, wallTime.epochAtZero + elapsed) as shape ComposerEditorView // composer-editor.ts
+  resource editor = composerEditor(data.revision, wallTime.epochAtZero + elapsed, layoutFrames) as shape ComposerEditorView // composer-editor.ts
   resource chip = composerChip(data.revision) as shape ChipPopover // a skill chip's details popover (composer-chip-popover.ts)
   mutation chipObserved as shape ChipPopover queue refreshes chip
   mutation chipPressed as shape ChipPopover queue refreshes chip
@@ -1584,9 +1594,32 @@ component T3Code
     let composing = composerComposing and (k == "Shift" or k == "Control" or k == "Alt" or k == "Meta" or k == "CapsLock")
     composerShift = e.shiftKey
     composerCommand = heldCommand
+    let chord = composerChord(k, e)
+    // thread.editQueuedMessage (⌥↑ by default; ChatView's window keydown listener, in the capture phase) edits the last
+    // queued message only with the caret collapsed before everything (isCaretAtStart); elsewhere the key moves the caret.
+    let queuedEdit = shortcuts.filter((item) => item.kind == "composer-key" and item.chord == chord)
+    let caretAtStart = composerSelectionCurrent and composerSelectionStart == 0 and composerSelectionEnd == 0
+    // ComposerStashMenu's window keydown listener (capture): Escape, ↑ ↓, Return and ⌘⌫ with the composer focused.
+    let stashKey = editor.stash.menuOpen and not editor.menu.open and (k == "Escape" or (editor.stash.count > 0 and (k == "ArrowDown" or k == "ArrowUp" or k == "Enter" or (k == "Backspace" and heldCommand))))
+    // onComposerCommandKey: the open command menu takes Escape, and ↑ ↓ Return Tab while it lists rows, unless the
+    // chord is a send that is not a plain one (composerSubmissionIntentForKey: alternate or background).
+    let menuKey = editor.menu.open and (k == "Escape" or (editor.menu.count > 0 and (k == "ArrowDown" or k == "ArrowUp" or (k == "Tab" and not e.shiftKey) or (k == "Enter" and not composerChordIn(data.composer.sendCommandChords, chord)))))
     if composerComposing and not composing and composerRichCurrent and composerSelectionCurrent
       send composerFieldChanged = composerFieldObserved(ComposerFieldObservation(generation=richComposer.generation, snapshotOwner=data.snapshotOwner, owner=richComposerOwner, value=composerText, start=composerSelectionStart, end=composerSelectionEnd, composing=composing, live=composerFieldLive, focused=composerFocused, inputSerial=composerFieldInputSerial), false)
-    if not composing and richComposer.mode == "rich" and e.metaKey and not e.ctrlKey and not e.shiftKey and not e.altKey and (k == "b" or k == "B" or e.code == "KeyB" or k == "i" or k == "I" or e.code == "KeyI")
+    if not composing and queuedEdit.length > 0 and caretAtStart
+      // A held key is consumed and does nothing more, as editLatest(event.repeat) does.
+      preventDefault()
+      stopPropagation()
+      if not e.repeat
+        match first(queuedEdit)
+          case some(item)
+            command(item.target, item.extra, "", 0)
+          case none
+    else if not composing and stashKey
+      preventDefault()
+      stopPropagation()
+      composerStashKey(k)
+    else if not composing and richComposer.mode == "rich" and e.metaKey and not e.ctrlKey and not e.shiftKey and not e.altKey and (k == "b" or k == "B" or e.code == "KeyB" or k == "i" or k == "I" or e.code == "KeyI")
       preventDefault()
       stopPropagation()
       // The Markdown editor's own command, at its selection, one undo step (LLP 1045 D6), after any edit still waiting.
@@ -1603,9 +1636,65 @@ component T3Code
       stopPropagation()
       if data.connected
         menuPick("interaction", "", data.composer.planActive ? "default" : "plan")
+    else if not composing and menuKey
+      preventDefault()
+      stopPropagation()
+      composerMenuKey(k)
+    else if not composing and k == "Enter" and composerChordIn(data.composer.sendChords, chord)
+      // A send chord (⌘↩, and the server's composer.send* bindings here) sends with its modifiers, which the send
+      // resolves through the keybindings (composer-editor-intent.ts sendIntent). The Send buttons declare these chords
+      // only while the composer is unfocused, since an `aria-keyshortcuts` press precedes every key handler.
+      preventDefault()
+      stopPropagation()
+      if not e.repeat
+        submit(`key:${heldModifiers(e.metaKey, e.ctrlKey, e.altKey, e.shiftKey)}`)
     else
       composerGrammarKey(k, e, composing)
     composerComposing = composing
+  // The open command menu's highlight (ComposerCommandMenu), scoped to the query it was made under
+  // (resolveComposerMenuActiveItemId), and the stash menu's. The composer's keys and the rows' hover move them.
+  state composerMenuHighlight = 0
+  state composerMenuHighlightKey = ""
+  derive composerMenuActive = (composerMenuHighlightKey == editor.menu.searchKey and composerMenuHighlight < editor.menu.count ? composerMenuHighlight : 0)
+  action composerMenuMove(delta: number)
+    composerMenuHighlight = (composerMenuActive + delta + editor.menu.count) % max(1, editor.menu.count)
+    composerMenuHighlightKey = editor.menu.searchKey
+  action composerMenuHover(index: number, over: bool)
+    if over
+      composerMenuHighlight = index
+      composerMenuHighlightKey = editor.menu.searchKey
+  action composerMenuKey(k: string)
+    if k == "Escape"
+      editorOp("dismiss", "", "")
+    else if k == "ArrowDown" or k == "ArrowUp"
+      composerMenuMove(k == "ArrowDown" ? 1 : -1)
+    else
+      match first(editor.menu.rows.filter((row) => row.index == composerMenuActive))
+        case some(row)
+          editorOp("pick", row.id, "")
+        case none
+  state composerStashHighlight = 0
+  derive composerStashActive = (composerStashHighlight < editor.stash.count ? composerStashHighlight : 0)
+  action composerStashMove(delta: number)
+    composerStashHighlight = (composerStashActive + delta + editor.stash.count) % max(1, editor.stash.count)
+  action composerStashHover(index: number, over: bool)
+    if over
+      composerStashHighlight = index
+  action composerStashKey(k: string)
+    if k == "Escape"
+      editorOp("stash-menu", "", "close")
+    else if k == "ArrowDown" or k == "ArrowUp"
+      composerStashMove(k == "ArrowDown" ? 1 : -1)
+    else
+      match first(editor.stash.rows.filter((entry) => entry.index == composerStashActive))
+        case some(entry)
+          editorOp(k == "Enter" ? "stash-restore" : "stash-delete", entry.id, "")
+        case none
+  // Each opening of the stash menu starts at its first row.
+  task composerStashClosed when not editor.stash.menuOpen and composerStashHighlight != 0
+    after(1, composerStashReset)
+  action composerStashReset
+    composerStashHighlight = 0
   action composerGrammarKey(k: string, e: KeyboardEvent, composing: bool)
     let heldCommand = e.metaKey or e.ctrlKey
     let chipKeys = composerRichCurrent and composerSelectionCurrent and not composing and not editor.menu.open and not editor.stash.menuOpen and not heldCommand
@@ -1703,6 +1792,8 @@ component T3Code
   // useThreadJumpHintVisibility: the hints show THREAD_JUMP_HINT_SHOW_DELAY_MS after a thread.jump.N shortcut's
   // modifiers are held alone and hide at once when they are not (shouldShowThreadJumpHintsForModifiers; the
   // sidebar's view lists those modifiers, none while the terminal has the focus or a search is open).
+  // useShortcutModifierState's ⌘ or Control: Send shows the follow-up alternate (queue or steer) while one is held.
+  derive composerSendHeld = shortcutModifiers.metaKey or shortcutModifiers.ctrlKey
   derive threadJumpsHeld = (data.legacy.enabled ? data.legacy.jumpModifiers : data.sidebar.jumpModifiers).includes(heldModifiers(shortcutModifiers.metaKey, shortcutModifiers.ctrlKey, shortcutModifiers.altKey, shortcutModifiers.shiftKey))
   state threadJumpHintsShown = false
   derive threadJumpHints = threadJumpHintsShown and threadJumpsHeld
@@ -1779,7 +1870,25 @@ component T3Code
   action closeOptions
     optionsOpen = ""
     focus("composer")
+  // The trigger a composer menu opens from, measured as it opens and again with the layout frames while it is open:
+  // ComposerMenus aligns the menu to its start, or its end (the implement pill, the meter). -1 while the trigger is not
+  // laid out (a shortcut for a control in the overflow).
+  state optionsAnchorX = -1
+  state optionsAnchorWidth = 0
+  // The window-space boxes the TypeScript layouts read, by name (src/shell/layout-frames.ts): the composer's drawer
+  // and overlay, its menus' rows, the chat canvas and the thread details card, the device tools. Each box's `resize`
+  // measures them all again, so a box that only moves is measured with the box whose change of size moved it.
+  state layoutFrames = ""
+  action frameMoved(w: number, h: number)
+    layoutFrames = [layoutFrame("chat", frame("frame-chat")), layoutFrame("overlay", frame("frame-overlay")), layoutFrame("shoulder", frame("frame-shoulder")), layoutFrame("dock", frame("frame-dock")), layoutFrame("stack", frame("frame-stack")), layoutFrame("card", frame("composer-surface")), layoutFrame("toolbar", frame("frame-toolbar")), layoutFrame("strip", frame("frame-strip")), layoutFrame("notices", frame("frame-notices")), layoutFrame("details-content", frame("frame-details-content")), layoutFrame("details-density-compact", frame("frame-details-density-compact")), layoutFrame("details-full-top", frame("frame-details-full-top")), layoutFrame("details-vcs", frame("frame-details-vcs")), layoutFrame("details-full-tail", frame("frame-details-full-tail")), layoutFrame("details-lineage", frame("frame-details-lineage")), layoutFrame("details-full-git", frame("frame-details-full-git")), layoutFrame("details-pr-list", frame("frame-details-pr-list")), layoutFrame("device-area", frame("frame-device-area"))].filter((row) => row != "").join(";")
+    if optionsOpen != ""
+      measureOptionsTrigger(optionsOpen)
+  action measureOptionsTrigger(name: string)
+    let trigger = frame(optionsTriggerId(name))
+    optionsAnchorX = trigger.unavailable or trigger.width <= 0 ? -1 : trigger.x
+    optionsAnchorWidth = trigger.unavailable ? 0 : trigger.width
   action openOptions(name: string)
+    measureOptionsTrigger(name)
     focus(optionsOpen == name ? "composer" : name == "effort" ? "composer-menu" : name == "runtime" ? `composer-menu-item-${data.composer.runtimeSelected}` : name == "branch" ? "branch-search" : name == "workspace" ? "composer-menu" : "composer-menu-item-0")
     optionsOpen = optionsOpen == name ? "" : name
     branchQuery = ""
@@ -2400,12 +2509,16 @@ component T3Code
       typingSerial = typingSerial + 1
     send localChanged = command("draft", "", value, 0)
   action send(held: string) // held: a pointer press's own modifiers (press-modifiers.contract), "" from a key or a call
+    submit(held == "" ? "" : `pointer:${held}`)
+  // gesture: what pressed Send, as composer-editor-intent.ts pressGesture reads it: `pointer:<modifiers>`,
+  // `key:<modifiers>` (a send chord in the composer), or "" (a plain press, a key with no chord, a call).
+  action submit(gesture: string)
     if not commandPending and editor.overLimit and data.requestMode != "question"
       send localChanged = command("editorlocal:arm-limit", "", "", 0)
     if not commandPending and (not editor.overLimit or data.requestMode == "question")
       if data.requestMode == "question" or (data.canSend and (composerText != "" or data.snapshotDrafts.length > 0))
         commandPending = true
-        send changed = command("send", held == "" ? "" : `pointer:${held}`, composerText, 0)
+        send changed = command("send", gesture, composerText, 0)
         composerTyping = false
         draftOwner = "__unset__"
         jumpRequest = jumpRequest + 1
@@ -2537,7 +2650,7 @@ component T3Code
   action canvasGesture(value: string)
     canvasGestureValue = value
     detailsOpen = detailsOpen and value == "" // a drag on the player is outside the details popover (Base UI's outside press; a press: T3Window outsidePressDown)
-  resource canvas = chatCanvas(data.revision, conversationWidth, viewport.height, conversationWidth >= 1012 and data.projectId != "", data.look.chatMax, data.messages.length > 0 or data.threadId != "", canvasGestureValue, `${shell.panel.deviceMini.key}|${shell.panel.browserMini.key}`, shell.panel.deviceMini.show or shell.panel.browserMini.show, conversationWidth >= 1012, detailsOpen) as shape ChatCanvasView
+  resource canvas = chatCanvas(data.revision, conversationWidth, viewport.height, conversationWidth >= 1012 and data.projectId != "", data.look.chatMax, data.messages.length > 0 or data.threadId != "", canvasGestureValue, `${shell.panel.deviceMini.key}|${shell.panel.browserMini.key}`, shell.panel.deviceMini.show or shell.panel.browserMini.show, conversationWidth >= 1012, detailsOpen, layoutFrames) as shape ChatCanvasView
   state detailsEpoch = 0
   derive detailsPopover = canvas.ready ? canvas.popover : conversationWidth < 1012
   derive detailsShown = detailsOpen and detailsPopover and detailsEpoch == canvas.popoverEpoch

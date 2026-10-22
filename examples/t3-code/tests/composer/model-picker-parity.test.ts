@@ -14,6 +14,7 @@ import { sourceControlRows } from '../../src/settings/source-control-view';
 import { connected } from '../support/composer-controls-fixture';
 import { fleet } from '../../src/connections/settings-b-fleet';
 import { appPath } from '../support/app-files';
+import { contractComponent } from '../support/contract-action-fixture';
 
 const ready = { enabled: true, installed: true, availability: 'available', auth: { status: 'authenticated' }, status: 'ready' };
 const codexError = { instanceId: 'codex', driver: 'codex', displayName: 'Codex', enabled: true, installed: true, auth: { status: 'unauthenticated' }, status: 'error',
@@ -51,8 +52,7 @@ async function draft() {
   const context = await connected();
   obj(obj(context.native.config.environment).capabilities).requiredWorktreeBootstrap = true;
   await context.client.refresh(context.native, context.disk);
-  const shiftPress = () => { context.native.gesture = { modifiers: 'shift', source: 'pointer', ageMs: 12 }; };
-  return { ...context, shiftPress };
+  return context;
 }
 beforeEach(() => { fleet.entries.clear(); fleet.saved = []; });
 afterEach(() => { fleet.entries.clear(); fleet.saved = []; });
@@ -140,7 +140,7 @@ describe('a search highlights its first row a person can choose', () => {
 });
 
 describe('Shift adds a model to a draft\'s several and keeps the picker open', () => {
-  test('the picker\'s own Shift (n 1) adds and removes without the native gesture; `multiple` says the picker stays open', async () => {
+  test('the picker\'s own Shift (n 1) adds and removes; `multiple` says the picker stays open', async () => {
     const { client: c, native, disk, command } = await connected();
     obj(obj(native.config.environment).capabilities).requiredWorktreeBootstrap = true;
     await c.refresh(native, disk);
@@ -161,43 +161,33 @@ describe('Shift adds a model to a draft\'s several and keeps the picker open', (
     expect(c.modelId).toBe('model-b');
     void native; void disk;
   });
-  // A real Shift+click also fills the native press recorder (T3ComposerIntent), which hands each press out once.
-  // The review of PR #374 found the picker's n 1 skipping that read, so the press stayed for the next pick.
-  test('a real Shift+click (the native press and n 1) adds a model, and the next one removes the draft\'s original model', async () => {
-    const { client: c, native, command, shiftPress } = await draft();
-    shiftPress();
-    await command('model', 'model-b', 'codex', 1);
-    expect(snapshot(c).composer.fanoutKeys).toEqual(['codex:model-a', 'codex:model-b']);
-    expect(native.gesture).toEqual({}); // taken by this pick
-    shiftPress();
-    await command('model', 'model-a', 'codex', 1);
-    expect(snapshot(c).composer.fanout).toBe(false);
-    expect([c.providerId, c.modelId]).toEqual(['codex', 'model-b']);
-  });
-  test('a ⌘N jump right after a Shift+click switches to its model (the Shift press is not read again)', async () => {
-    const { client: c, command, shiftPress } = await draft();
-    shiftPress();
+  test('a ⌘N jump right after a Shift+click switches to its model', async () => {
+    const { client: c, command } = await draft();
     await command('model', 'model-b', 'codex', 1);
     expect(snapshot(c).composer.fanout).toBe(true);
-    // modelPicker.jump.N is the dispatch's plain pick (n 0); a key press fills no pointer press.
+    // modelPicker.jump.N is the dispatch's plain pick (n 0).
     await command('model', 'model-b', 'codex-work', 0);
     expect(snapshot(c).composer.fanout).toBe(false);
     expect([c.providerId, c.modelId]).toEqual(['codex-work', 'model-b']);
   });
-  test('a press the picker could not see still adds (the native fallback)', async () => {
-    const { client: c, command, shiftPress } = await draft();
-    shiftPress();
-    await command('model', 'model-b', 'codex', 0);
-    expect(snapshot(c).composer.fanoutKeys).toEqual(['codex:model-a', 'codex:model-b']);
+  test('Shift+Return on a focused row adds its model, as Shift+click does; a plain Return is the row\'s press', () => {
+    const row = contractComponent('model-picker.contract', 'ModelRow');
+    const selects: unknown[][] = [];
+    const key = (modifiers: Record<string, boolean>) => row.call('rowKey', {}, { row: { id: 'model-b', providerId: 'codex', reason: '' }, busy: false,
+      preventDefault: () => selects.push(['preventDefault']), select: (...args: unknown[]) => selects.push(args) },
+      ['Enter', { key: 'Enter', code: 'Enter', repeat: false, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...modifiers }]);
+    key({ shiftKey: true });
+    key({});
+    key({ shiftKey: true, metaKey: true });
+    expect(selects).toEqual([['preventDefault'], ['model-b', 'codex', true]]);
   });
   // Read from the Contract source: the row's press, and the root's pick that keeps the picker open.
 });
 
 describe('the trigger is named by its model names; the Plan toggle reports pressed', () => {
   test('the names: the model the trigger shows, or every chosen model of a draft\'s several', async () => {
-    const { client: c, command, shiftPress } = await draft();
+    const { client: c, command } = await draft();
     expect(snapshot(c).modelLabel).toBe('Model A');
-    shiftPress();
     await command('model', 'model-b', 'codex', 1);
     expect(snapshot(c).composer.fanoutAria).toBe('Model A, Model B');
   });

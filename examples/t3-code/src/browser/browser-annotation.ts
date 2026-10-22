@@ -214,19 +214,16 @@ export function annotatingInThread(client: T3Client, environmentId: string, thre
   }
   return false;
 }
-/** PickPreload's editor sends on ⌘/Ctrl+Return in the page: Electron's guest page has the keys. Here the window's
- *  shortcuts come before the page, and the send button declares Meta+Enter, so ⌘Return in the overlay sent the composer
- *  without the annotation and left the overlay open (drive 5). While Annotate is on, the send button leaves Meta+Enter
- *  out and the key reaches the page (composer-presentation.ts). */
+/** PickPreload's editor sends on ⌘/Ctrl+Return in the page: Electron's guest page has the keys. While Annotate is on,
+ *  the composer's send chords leave Meta+Enter out, so the key stays the page's (composer-presentation.ts). */
 export function sendChordsWhileAnnotating(chords: string, annotating: boolean): string {
   return annotating ? chords.split(' ').filter(chord => chord !== '' && chord !== 'Meta+Enter').join(' ') : chords;
 }
 
 /** PreviewView's onSendAnnotation (ChatView: `onSend(undefined, "auto", "foreground", …)`): the send an annotation's ⌘↩
- *  asks for is a foreground send with the "auto" dispatch mode. The ⌘↩ was the page's key, not the composer's, but the
- *  window's key monitor saw it (T3ComposerIntent), and in a draft ⌘↩ resolves to composer.sendBackground: drive 7 found
- *  the thread started out of view. `applyAnnotation` marks the send; the client's send takes the mark (once, within
- *  10 s, so a send its guards refused does not mark a later one). */
+ *  asks for is a foreground send with the "auto" dispatch mode, whatever gesture the press names. `applyAnnotation`
+ *  marks the send; the client's send takes the mark (once, within 10 s, so a send its guards refused does not mark a
+ *  later one). */
 const annotationSends = new WeakMap<object, number>();
 export function markAnnotationSend(client: T3Client, at = composerNow(client)): void { annotationSends.set(client, at); }
 export function takeAnnotationSend(client: T3Client, at = composerNow(client)): boolean {

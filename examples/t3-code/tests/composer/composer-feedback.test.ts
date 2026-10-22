@@ -169,8 +169,7 @@ describe('/feedback is an ordinary message elsewhere', () => {
     const context = await connected();
     obj(obj(context.native.config.environment).capabilities).requiredWorktreeBootstrap = true;
     await context.client.refresh(context.native, context.disk);
-    context.native.gesture = { modifiers: 'shift', source: 'pointer', ageMs: 12 };
-    await context.command('model', 'model-b', 'codex');
+    await context.command('model', 'model-b', 'codex', 1);
     expect(snapshot(context.client).composer.fanout).toBe(true);
     await composerBranches(context.client, context.native, false, '');
     await context.command('send', '', '/feedback');

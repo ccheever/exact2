@@ -516,9 +516,11 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
   Files editor's caret under the press that mounted it), and the data module's sleep
   (`timelineSleep`: data modules have no timers, and an answer that awaits a promise another
   answer settles is refused as pending on nothing when no fetch or storage step is in flight).
-- Composer OS adapters (`T3ComposerAttach`, `T3ComposerIntent`, `T3ComposerQueueKey` and
-  `T3ComposerEditor`) retain large-paste folding, type-to-focus, the queued edit's key, and a
-  video's first frame and typed link. A drop on the chat column or a sidebar row, a paste's files
+- Composer OS adapters (`T3ComposerAttach` and `T3ComposerEditor`) retain large-paste folding,
+  type-to-focus and a video's first frame and typed link. The send chords, the queued edit's ⌥↑ and
+  the open menus' keys are the composer's own `key` action (`app.contract` `composerKeyEvent`); the
+  layouts' window-space boxes are `frame` reads on `resize` (`layoutFrames`, `src/shell/layout-frames.ts`),
+  and a composer menu's trigger is measured with `frame` as the menu opens. A drop on the chat column or a sidebar row, a paste's files
   and Attach files are Contract's `dragenter`, `dragleave`, `drop`, `paste`
   (`ClipboardEvent.files`) and `input type="file"`; TypeScript stages each file
   (`composer-attach-stage.ts`), reads it at send and removes it (`composer-staged-copies.ts`).

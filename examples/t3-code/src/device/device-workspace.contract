@@ -4,7 +4,7 @@
 //   Reconnect).
 // - DeviceWorkspaceView: DeviceWorkspace + DeviceStreamView's flat picture (the app module's
 //   `t3-media` hook, T3DeviceStream.swift) under DeviceControlsRail; the Text size and More menus
-//   open to the rail's left beside their triggers (measured by `t3-frame`).
+//   open to the rail's left beside their triggers.
 // - DeviceMiniPlayer: ThreadPreviewMiniPlayer's device player floated over the chat.
 // `local` is the window's chatLocal (`surface-session-*` reaches device-session.ts), `command`
 // the gated writes (`shell:surface-session-*`). Glyphs are lucide's, from the reference build.
@@ -237,13 +237,15 @@ component RailToggleButton
 // `t3-media` hook) under DeviceControlsRail, beside DeviceToolsPanel (static from a 700pt-wide
 // area, else over the screen).
 component DeviceWorkspaceView
+  inject
+    frameMoved: action
   props
     ws: DeviceWorkspace
     local: action
     command: action
   view
-    row flex=1 min-height=0 width="100%" position="relative" hatch="t3-frame" data-frame="device-area"
-      column flex=1 min-height=0 min-width=0 height="100%" position="relative" hatch="t3-frame" data-frame="device-workspace" testId="device-workspace"
+    row flex=1 min-height=0 width="100%" position="relative" id="frame-device-area" resize=frameMoved
+      column flex=1 min-height=0 min-width=0 height="100%" position="relative" testId="device-workspace"
         if ws.alert != ""
           text ws.alert flex-shrink=0 padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" font-size="0.75rem" line-height="1rem" color=deviceDestructive() role="alert"
         box flex=1 min-height=0 width="100%" position="relative" background-color=deviceBackground()
