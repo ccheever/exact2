@@ -313,7 +313,7 @@ final class BoxLayerIOSTests: XCTestCase {
         XCTAssertNotNil(sides.layer.contents, "sides in two colours draw")
         XCTAssertNil(sides.layer.backgroundColor, "and so does its background, once")
         let corners = node(["background_color": white, "border_radius_top_left": 8, "border_radius_bottom_right": 20])
-        XCTAssertNotNil(corners.layer.contents, "two radii draw")
+        XCTAssertNil(corners.layer.contents, "unequal radii use a shape mask")
         XCTAssertEqual(corners.layer.cornerRadius, 0)
     }
 
