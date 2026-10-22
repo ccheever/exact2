@@ -881,5 +881,5 @@ test('tamber/1.16: inspect select moves only the inspecting client\'s selection,
   expect(selectRequest(channel, { client: 'other', build: 'web-1', select: { up: 1 } }, () => at).status).toBe(409);
   frames.length = 0;
   expect(selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 2 } }, () => ({ levels: [[0, 4], [1]], plan: 'g1', from: 2 }))).toEqual({ ok: { builds: ['web-1'] } });
-  expect(frames.filter(f => f.kind === 'inspect')).toEqual([{ kind: 'inspect', select: { up: 2, levels: [[0, 4], [1]], plan: 'g1', from: 2 } }]);
+  expect(frames.filter(f => f.kind === 'inspect')).toEqual([{ kind: 'inspect', select: { up: 2, levels: [[0, 4], [1]], plan: 'g1', from: 2, instance: undefined } }]);
 });
