@@ -233,9 +233,15 @@ fn call(plan: &Plan, extension: &str, row: &ModulesRow, out: &mut String) -> Res
         ("source", "a source")
     };
     let (f, at) = (field_name(declared), format!("{extension}.{declared}"));
-    let answer = match json_of(plan, row)["answers"] == true {
-        true => "m::serde_json::Value".to_owned(),
-        false => rust_type(plan, plan.sources[row.source.0 as usize].ty)?,
+    let ty = plan.sources[row.source.0 as usize].ty;
+    // A send that answers nothing (LLP 1133.004 D5): its reply is `()`.
+    let nothing = plan.types[ty.0 as usize].kind == TypeKind::Unit;
+    let answer = if nothing {
+        "()".to_owned()
+    } else if json_of(plan, row)["answers"] == true {
+        "m::serde_json::Value".to_owned()
+    } else {
+        rust_type(plan, ty)?
     };
     match params(plan, row).next() {
         Some(options) => {
@@ -257,6 +263,16 @@ fn call(plan: &Plan, extension: &str, row: &ModulesRow, out: &mut String) -> Res
              m::request({extension:?}, {verb:?}, {declared:?}, m::serde_json::json!({{}}))\n    }}"
         )
         .unwrap(),
+    }
+    if nothing {
+        writeln!(
+            out,
+            "    /// The reply to [`{f}`]'s request: done, or the module's error.\n    \
+             pub fn {f}_reply(outcome: &exact_runner::Outcome) -> Result<(), m::ModuleError> {{\n        \
+             m::reply({at:?}, outcome).map(|_| ())\n    }}"
+        )
+        .unwrap();
+        return Ok(());
     }
     writeln!(
         out,

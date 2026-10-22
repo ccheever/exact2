@@ -483,6 +483,9 @@ export function parseFlags(argv) {
     else if (argv[i] === '--fail-fetch') flags.failFetch = [flags.failFetch, argv[++i]].filter(Boolean).join('\n');
     // A module's permission as the drive starts (LLP 1133.002 §6): `--permission geolocation=granted`, a `prefer` before the first op.
     else if (argv[i] === '--permission') { const [name, state] = String(argv[++i]).split('='); (flags.permission ??= {})[`permission.${name}`] = state; }
+    // A relaunch whose platform hands it a listed entry (LLP 1133.004 §7): `--notification '<entry>'`, the
+    // entry as `state.notifications` printed it, delivered as its tap would be before the first op.
+    else if (argv[i] === '--notification') (flags.launchEntries ??= []).push({ launch: 'notification', entry: argv[++i] });
     // A module answered by its implementation, not the substitute (LLP 1133.001 D7's behaviour tests; Apple, Android).
     else if (argv[i] === '--bind') flags.bind = [flags.bind, argv[++i]].filter(Boolean).join(',');
     else rest.push(argv[i]);
@@ -1187,4 +1190,13 @@ export function proofProductChanges(receipt, bin, app, root = ROOT) {
   for (const [path,hash] of Object.entries(record.products))
     if (!existsSync(path) || createHash('sha256').update(readFileSync(path)).digest('hex') !== hash) changed.push(path);
   return changed;
+}
+
+/** Each `--notification '<entry>'` (LLP 1133.004 §7): the entry handed to the relaunched app, as the platform hands a
+ * closed app its click, before the drive's first op. */
+export async function launchEntries(s, flags) {
+  for (const entry of flags.launchEntries ?? []) {
+    const r = await s.op({ op: 'launchEntry', ...entry });
+    if (r?.error) throw new Error(r.error);
+  }
 }

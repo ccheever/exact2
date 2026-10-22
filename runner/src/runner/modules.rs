@@ -39,6 +39,8 @@ mod admit;
 mod agent;
 mod bound;
 mod ceremony;
+mod declared;
+mod events;
 mod fed;
 mod handles;
 mod invoke;
@@ -50,6 +52,8 @@ mod samples;
 mod views;
 pub use admit::CallOrigin;
 use admit::{Origins, Route};
+pub use declared::AppState;
+pub(super) use events::EMITTED;
 pub use presence::{PresenceAnswer, PresenceAsk};
 use std::sync::{Arc, Mutex};
 
@@ -79,6 +83,11 @@ pub(super) struct Extensions {
     agent: BTreeSet<String>,
     /// The bound live sources that have had a reader, until released.
     live: BTreeSet<String>,
+    /// What the declared substitute keeps (LLP 1133.004 §7): keyed lists,
+    /// values, and the effects held on a permission ticket.
+    declared: declared::Declared,
+    /// Module events not yet heard (D6).
+    pub(super) events: events::Events,
     /// Each bound live source's Contract readers, by resource, with the
     /// arguments each last asked with (`bound.rs`).
     readers: BTreeMap<String, BTreeMap<usize, String>>,
@@ -527,6 +536,14 @@ impl<D: DataSource> Runner<D> {
             }
             return Some(Decision::Now(status));
         }
+        // A name admitted with no permission is never held or refused, and
+        // a request answers the status in every state but `prompt` (LLP
+        // 1133.004 §7).
+        match sub["admission"].as_str() {
+            Some("none") => return None,
+            Some("request") if state != "prompt" => return None,
+            _ => {}
+        }
         // A denial that only gates part of what a call can ask fails a call
         // that asks for that part alone (`continues`: Face ID refused, the
         // passcode still works, LLP 1133.010 D12).
@@ -536,11 +553,7 @@ impl<D: DataSource> Runner<D> {
         if state == "denied" && self.denial_fails(&sub, args) && !answers_denied {
             return Some(Decision::Now(json!({ "error": permission["denied"] })));
         }
-        let asks = match self.plan.str(row.request) {
-            "always" => send,
-            "when-prompt" => !send,
-            _ => false,
-        };
+        let asks = self.asks(row, send);
         if state == "prompt" && asks && self.status_asks(row, &sub) {
             return Some(Decision::Hold(Waits::Permission));
         }
@@ -548,6 +561,15 @@ impl<D: DataSource> Runner<D> {
         // the permission says so, naming the request that asks (D11).
         (state == "prompt" && !asks && permission["whilePrompt"].is_object())
             .then(|| Decision::Now(permission["whilePrompt"].clone()))
+    }
+
+    /// Whether a call of `row` may show the platform's prompt.
+    fn asks(&self, row: &ModulesRow, send: bool) -> bool {
+        match self.plan.str(row.request) {
+            "always" => send,
+            "when-prompt" => !send,
+            _ => false,
+        }
     }
 
     /// Whether a denial fails a call with `args`: always, unless the
@@ -946,9 +968,13 @@ impl<D: DataSource> Runner<D> {
         }
         let mut args = v.get("args").cloned().unwrap_or(json!({}));
         self.clamp_bounds(&row, &mut args);
+        let origin = self.data_origin();
+        // A send that answers nothing (LLP 1133.004 D5) settles once done.
+        if self.is_effect(&row) {
+            return Some(self.effect_call(&row, args, origin));
+        }
         let held_args = args.clone();
         let timeout = self.timeout(&row, &args);
-        let origin = self.data_origin();
         let route = self.route(&row);
         let reader = self.data_reader(&row, &args);
         self.extensions.samples.asking = Some((reader.clone(), origin));
@@ -1178,6 +1204,12 @@ impl<D: DataSource> Runner<D> {
 
     /// The agent answered hold `hold`, already spent: §6's transitions.
     pub(super) fn module_answered(&mut self, hold: u64, answer: &HoldAnswer) {
+        if self.effect_answered(hold, answer) {
+            return;
+        }
+        if self.effect_answered(hold, answer) {
+            return;
+        }
         let Some(h) = self.extensions.held.iter().find(|h| h.hold == hold) else {
             return;
         };

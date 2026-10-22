@@ -34,6 +34,20 @@
 //
 // An error is answered as `{"error": code}`. At the session's end each
 // adapter's `destroy` is called and waited for, a second at most (item 1).
+// An interface that declares events (LLP 1133.004 D6) gives its init two
+// more: `emit: @escaping (String, [Any]) -> Void`, which raises one with the
+// device's origin, and `activation: @escaping (String, [Any], String?) ->
+// [AnyHashable: Any]`, the `userInfo` entry for content whose opening
+// raises one (or opens the location given) through the host's delegate.
+//
+// A request naming `extension` is the runner's call of one of its names
+// (`{"extension", "source"|"send", "args"}`), its release of a live source
+// (`{"extension", "release"}`), or data code's synchronous form (`{"extension",
+// "sync", "args"}`, through `call`), and goes to that extension's adapter,
+// made once a session on its first request; the app's own module never sees
+// it. An error is answered as `{"error": code}`. `changed(topic)` asks the
+// topic's readers again; `log` is a journal line in a development build and
+// nothing in a production one.
 import Foundation
 import CoreGraphics
 import Security
@@ -46,6 +60,11 @@ open class ExactExtensionAdapter {
     public init() {}
     open func later(_ name: String, _ args: [String: Any], preferred: Any?, origin: String, request: Int?, reply: ExactReply) {
         reply.send(["error": "NotSupportedError"])
+    }
+    /// The implementation's own answer to `name`, read by the host itself
+    /// (the permission's status, before a call not the app's).
+    open func ask(_ name: String, _ args: [String: Any], answer: @escaping ([String: Any]) -> Void) {
+        answer(["error": "NotSupportedError"])
     }
     open func call(_ name: String, _ args: [String: Any]) throws -> [String: Any] {
         ["error": "NotSupportedError"]
@@ -147,6 +166,17 @@ enum ExactExtensions {
         } else if let shown = request["foreground"] as? Bool {
             a.foreground(shown)
             reply.send([:])
+        } else if let name = (request["source"] ?? request["send"]) as? String, let admit = request["admit"] as? [String: Any],
+                  let status = admit["status"] as? String, let field = admit["field"] as? String {
+            // A call not the app's that would ask (LLP 1133.002 D12, LLP 1133.004 D6): refused while the
+            // implementation's own status reads `prompt`, since only a person may answer the prompt.
+            let origin = request["origin"] as? String ?? "device"
+            a.ask(status, [:]) { answer in
+                guard answer[field] as? String != "prompt" else {
+                    return reply.send(["error": admit["denied"] as? String ?? "NotAllowedError", "message": "person-required"])
+                }
+                a.later(name, args ?? [:], preferred: request["preferred"], origin: origin, request: request["request"] as? Int, reply: reply)
+            }
         } else if let name = (request["source"] ?? request["send"]) as? String {
             a.later(name, args ?? [:], preferred: request["preferred"], origin: request["origin"] as? String ?? "app", request: request["request"] as? Int, reply: reply)
         } else {
@@ -313,7 +343,49 @@ extension ExactExtensions {
             invoke: { [weak m] handle, handler, args, reply in
                 let body: [String: Any] = ["extension": name, "handle": handle, "handler": handler, "args": args]
                 Invocations.invoke(m?.hatches, body, reply: reply)
+            },
+            emit: { [weak module] event, args in module?.emit(name, event, args) },
+            activation: { [weak module] event, args, navigate in
+                module?.activation(name, event, args, navigate: navigate) ?? [:]
             })
     }
 }
 #endif
+extension ExactModuleContext {
+    /// Raise `extensionName`'s event `name` with `args` (LLP 1133.004 D6):
+    /// delivered in order, once, with the device's origin. Its one channel
+    /// to the runner is `changed`; the sequence number keeps two alike from
+    /// coalescing as two announcements of one topic do. Any thread: the
+    /// count is the main thread's, so a call from elsewhere hops there.
+    public func emit(_ extensionName: String, _ name: String, _ args: [Any]) {
+        guard Thread.isMainThread else {
+            let boxed = ExactEmitted(args)
+            return DispatchQueue.main.async { [weak self] in self?.emit(extensionName, name, boxed.args) }
+        }
+        emitted &+= 1
+        let body: [String: Any] = ["extension": extensionName, "event": name, "args": args, "seq": emitted]
+        guard JSONSerialization.isValidJSONObject(body), let json = try? JSONSerialization.data(withJSONObject: body) else {
+            diagnostics.log("\(extensionName).\(name): its arguments are not JSON")
+            return
+        }
+        changed("exact-event:" + String(decoding: json, as: UTF8.self))
+    }
+
+    /// The `userInfo` entry for content the module posts whose activation
+    /// raises `name` (LLP 1133.004 D6, D7): the host's notification delegate
+    /// reads it when the person opens the notification, opens `navigate` if
+    /// given, else raises the event on the session that posted it.
+    public func activation(_ extensionName: String, _ name: String, _ args: [Any], navigate: String? = nil) -> [AnyHashable: Any] {
+        let json = (try? JSONSerialization.data(withJSONObject: args)).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
+        var entry: [String: Any] = poster
+        entry["extension"] = extensionName; entry["event"] = name; entry["args"] = json
+        if let navigate { entry["navigate"] = navigate }
+        return ["exact": entry]
+    }
+}
+
+/// An emitted event's arguments on their way to the main thread.
+private final class ExactEmitted: @unchecked Sendable {
+    let args: [Any]
+    init(_ args: [Any]) { self.args = args }
+}

@@ -218,6 +218,15 @@ public final class Agent {
             session.picker.saveAnswered(answer, request: req)
             session.picker.documentAnswered(answer, request: req)
             ShareSheet.answered(answer, in: session)
+            listedAnswered(answer)
+            Agent.reply(tagged(answer))
+            return
+        }
+        // A relaunch handed a listed entry (`--notification '<entry>'`, LLP 1133.004 §7).
+        if op == "launchEntry" {
+            let data = Data(session.agent(line).utf8)
+            let answer = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? ["error": "unreadable reply"]
+            listedAnswered(answer)
             Agent.reply(tagged(answer))
             return
         }
@@ -378,6 +387,14 @@ public final class Agent {
     /// (LLP 1035.002 D3) — read after the operation, so a reply's tags name
     /// the world it left behind; a reply's own `clock` (where a `clock` call
     /// landed) is kept. An error is left alone.
+    /// A listed entry's click under the agent (LLP 1133.004 §7): its location
+    /// opened, or the event the runner queued heard now.
+    func listedAnswered(_ answer: [String: Any]) {
+        guard answer["ref"] != nil else { return }
+        if let location = answer["navigate"] as? String { session.openLocation(location) }
+        else if answer["event"] != nil { session.deliverModuleEvents() }
+    }
+
     func tagged(_ r: [String: Any]) -> [String: Any] {
         let r = session.canvases.restoreReply(r)
         guard r["error"] == nil,
