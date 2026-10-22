@@ -145,12 +145,19 @@ extension NodeView {
     /// Reach into `band` past the box: the scroll view's frame grows by it
     /// and its `contentInset` by `inset` (all of it unless said), so the content stays where it was, and
     /// the logical `scrollTop` (`scrollTopInset`) is kept across the change;
-    /// a list following its end stays at its end.
+    /// a list following its end, or a virtualized list at its end, stays there.
     func setPageBand(_ band: UIEdgeInsets, inset own: UIEdgeInsets? = nil) {
         guard let sv = scrollView else { return }
         let own = own ?? band
         let end = { max(-sv.adjustedContentInset.top, sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height) }
-        let atEnd = props["scrollFollowEnd"] == "true" && sv.contentOffset.y >= end() - 1
+        // A virtualized list at its end stays there too. Its runner follows the end
+        // (`paragraph.rs` keeps `scrollFollowEnd` from this view), but cannot see a
+        // band handed to UIKit's inset: a list that appears in a route mid-push grows
+        // under the bar as the push lands, its port keeps its size, and the kept
+        // scrollTop would only move the offset, which reads as the reader leaving
+        // the end.
+        let follows = props["scrollFollowEnd"] == "true" || presenter?.collections.entries[id] != nil
+        let atEnd = follows && sv.contentOffset.y >= end() - 1
         let old = pageBand, oldOwn = bandInset, top = sv.contentOffset.y + scrollTopInset(sv)
         more.pageBand = band; more.bandInset = own
         sv.frame = scrollFrame

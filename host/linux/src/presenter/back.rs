@@ -150,7 +150,8 @@ impl<D: DataSource> Presenter<D> {
     /// happens: a desktop app is not left by its Back key.
     pub(crate) fn back_key_down(&mut self, name: &str, code: &str, repeat: bool, now_ms: f64) {
         let kernel = self.host.kernel();
-        let hears = self.focus.is_some_and(|id| {
+        // With nothing focused the root's handlers hear it (`key_event`).
+        let hears = self.focus.is_none_or(|id| {
             self.display.allows(kernel, id)
                 && kernel
                     .node(id)

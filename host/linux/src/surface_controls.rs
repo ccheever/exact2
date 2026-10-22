@@ -20,6 +20,14 @@ pub(crate) fn disabled_control(n: &exact_kernel::NodeRef<'_>) -> bool {
         }
 }
 
+/// Where the pads' states go: the canvas that has them, and each connected
+/// pad's last reading, so moving the pads releases them on the old canvas
+/// and gives the new one each pad as it is.
+#[derive(Default)]
+pub(crate) struct PadRoute {
+    owner: Option<u32>,
+    readings: std::collections::BTreeMap<u8, ([f32; 17], [f32; 4])>,
+}
 /// The contact of a control pressed without a pointer: a declared shortcut,
 /// as the web's assistive click (gpu-glue.js) presses it. It moves no focus,
 /// so a focused world keeps its keyboard and its held keys.
@@ -277,11 +285,90 @@ impl<D: DataSource> Presenter<D> {
             self.surfaces
                 .input(view, serde_json::json!({"t":"blur","at":self.host.now()}));
         }
+        // The pads leave their canvas; the next pad state finds one again.
+        let now = self.host.now();
+        self.move_pads(None, None, now);
         if let Some(e) = self.set_focus(None, self.host.now()) {
             eprintln!("exact: {e}");
         }
     }
 
+    /// A gamepad's state (LLP 1127.003 D2, D9) goes to the canvas that has
+    /// the pads: the focus's canvas, or with no focus the first canvas that
+    /// takes input; an editor's focus takes them from every canvas.
+    /// `at` is when the device reported it, in the host's clock.
+    pub fn hardware_pad(
+        &mut self,
+        index: u8,
+        connected: bool,
+        buttons: [f32; 17],
+        axes: [f32; 4],
+        at: f64,
+    ) {
+        let was = if connected {
+            self.pads.readings.insert(index, (buttons, axes)).is_some()
+        } else {
+            self.pads.readings.remove(&index).is_some()
+        };
+        let target = self.pad_target();
+        if target != self.pads.owner {
+            return self.move_pads(target, (!connected && was).then_some(index), at);
+        }
+        if let Some(view) = target.filter(|_| connected || was) {
+            self.send_pad(view, index, connected.then_some((buttons, axes)), at);
+        }
+    }
+    fn pad_target(&self) -> Option<u32> {
+        match self.focus {
+            Some(id) => self.input_surface(id),
+            None => {
+                let mut canvases = self.surfaces.canvases.keys().copied();
+                canvases.find(|view| self.surfaces.wants_input(*view))
+            }
+        }
+    }
+    /// The focus moved: the pads follow it to its canvas, or leave every
+    /// canvas for an editor.
+    pub(crate) fn pads_follow_focus(&mut self) {
+        let target = self.pad_target();
+        if target != self.pads.owner {
+            let now = self.host.now();
+            self.move_pads(target, None, now);
+        }
+    }
+    /// The old canvas hears every pad go (and `gone`, one that just did); the
+    /// new one hears every connected pad as it is now. `at` is the move's
+    /// time: the report's that caused it, or the focus change's.
+    fn move_pads(&mut self, target: Option<u32>, gone: Option<u8>, at: f64) {
+        let readings: Vec<_> = self.pads.readings.iter().map(|(i, r)| (*i, *r)).collect();
+        if let Some(old) = self.pads.owner.take() {
+            for index in readings.iter().map(|(i, _)| *i).chain(gone) {
+                self.send_pad(old, index, None, at);
+            }
+        }
+        self.pads.owner = target;
+        if let Some(view) = target {
+            for (index, reading) in readings {
+                self.send_pad(view, index, Some(reading), at);
+            }
+        }
+    }
+    /// The pads' last readings are no longer known (a host stopped reading
+    /// them while unfocused): no canvas receives them again until each pad
+    /// reports itself.
+    pub fn forget_pads(&mut self) {
+        let now = self.host.now();
+        self.move_pads(None, None, now);
+        self.pads.readings.clear();
+    }
+    fn send_pad(&mut self, view: u32, index: u8, reading: Option<([f32; 17], [f32; 4])>, at: f64) {
+        let (buttons, axes) = reading.unwrap_or_default();
+        self.surfaces.input(
+            view,
+            json!({"t":"pad","index":index,"connected":reading.is_some(),"standard":true,
+            "buttons":buttons,"axes":axes,"at":at}),
+        );
+    }
     /// Route device keys through the same targeted path as agent keys.
     pub fn hardware_key(&mut self, code: &str, key: &str, down: bool, repeat: bool) {
         self.restore_controls();
@@ -296,12 +383,11 @@ impl<D: DataSource> Presenter<D> {
             self.key_up(key, code, self.host.now());
         }
         // A Control or Meta chord is a shortcut, as a browser's: the focus's
-        // `key` handlers hear it, and no canvas or control starts with it.
+        // `key` handlers hear it (the root's with nothing focused), and no
+        // canvas or control starts with it.
         if down && self.held & 0b1100_1100 != 0 {
-            if self.focus.is_some() {
-                let name = if code == "NumpadEnter" { "Enter" } else { key };
-                self.key_down_with(name, code, repeat, self.host.now());
-            }
+            let name = if code == "NumpadEnter" { "Enter" } else { key };
+            self.key_down_with(name, code, repeat, self.host.now());
             return;
         }
         let contact = if code == "Space" {
@@ -373,12 +459,16 @@ impl<D: DataSource> Presenter<D> {
             })
         }) {
             let _ = self.type_key(id, code, key, down, repeat);
-        } else if down && code == "Tab" {
-            // From no focus, Tab takes the first stop (LLP 1088 D7.3).
-            self.key_down("Tab", self.host.now());
-        } else if down && self.back_key(key) {
-            // And a Back key goes back (LLP 1115.000 D5.4).
-            self.key_down_with(key, code, repeat, self.host.now());
+        } else if down {
+            // With nothing focused the root's handlers hear the key; then Tab
+            // takes the first stop (LLP 1088 D7.3) and a Back key goes back
+            // (LLP 1115.000 D5.4).
+            let name = match key {
+                "Space" => " ",
+                "NumpadEnter" => "Enter",
+                name => name,
+            };
+            self.key_down_with(name, code, repeat, self.host.now());
         }
         if code == "Escape"
             && self.focus.is_some_and(|id| {

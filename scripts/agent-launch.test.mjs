@@ -556,7 +556,8 @@ test('widget addresses occupy the command word and accept only strict reads or a
   for (const line of ['tags', 'logs', 'tap entry', 'screenshot a.png window', 'screenshot a.png compare b.png', 'screenshot a.png over 600 every 50', 'screenshot a.apng']) {
     expect(() => parseFlags(['ios', 'widget', 'next-trains', line])).toThrow('widget: tree, state');
   }
-  expect(() => parseFlags(['ios', 'widget', 'next-trains', '--scale', '2', 'tree'])).toThrow('--scale is unavailable');
+  expect(parseFlags(['ios', 'widget', 'next-trains', '--scale', '2', 'tree']).flags.widget).toEqual({entry:'next-trains', scale:'2'});
+  expect(() => parseFlags(['ios', 'widget', 'next-trains', '--scale', '4', 'tree'])).toThrow('--scale: 1, 2 or 3');
   for (const size of ['xxxl', '390xNaN', '0x900']) expect(() => parseFlags(['ios', '--size', size, 'tree'])).toThrow('--size:');
   expect(() => parseFlags(['ios', 'widget', 'next-trains', '--props', '[]', 'tree'])).toThrow('JSON object');
   const calls = [], session = { clock: async value => {calls.push(value); return {clock:60000};}, op: async request => {calls.push(request); return request;} };

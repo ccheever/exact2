@@ -43,6 +43,7 @@ struct App<D: DataSource> {
     samples: Vec<(f64, f64, f64)>,
     frame_limit: Option<u64>,
     first_tap: Option<String>,
+    pads: crate::pad_poll::Pads,
 }
 
 impl<D: DataSource> Drop for App<D> {
@@ -171,6 +172,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         samples: Vec::new(),
         frame_limit,
         first_tap,
+        pads: Default::default(),
     };
     if let Err(e) = event_loop.run_app(&mut state) {
         eprintln!("exact-windows: {e}");
@@ -473,6 +475,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
                     self.buttons = 0;
                     let _ = p.pointer_lost(now);
                     p.blur();
+                    // Unfocused, the pads are not read: what they were is no longer known.
+                    p.forget_pads();
+                    self.pads.forget();
                 }
             }
             WindowEvent::Occluded(occluded) => {
@@ -552,10 +557,21 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
         }
     }
     fn about_to_wait(&mut self, events: &ActiveEventLoop) {
-        let Some(p) = &self.presenter else { return };
+        let Some(p) = &mut self.presenter else { return };
         if self.minimized {
             events.set_control_flow(ControlFlow::Wait);
             return;
+        }
+        // Pads are polled while the window has focus (below: when it wakes for them).
+        if self.focused {
+            let at = self.started.elapsed().as_secs_f64() * 1000.;
+            self.pads.poll(
+                Instant::now(),
+                crate::pads::read,
+                |index, connected, buttons, axes| {
+                    p.hardware_pad(index, connected, buttons, axes, at)
+                },
+            );
         }
         if self.frame_limit.is_some() || p.wants_display_frames() || p.host().motion() {
             if Instant::now() >= self.next_frame {
@@ -574,6 +590,14 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
             events.set_control_flow(ControlFlow::WaitUntil(deadline));
         } else {
             events.set_control_flow(ControlFlow::Wait);
+        }
+        // While focused the window wakes to poll the pads: often while one is
+        // connected, and steadily for one that connects.
+        if self.focused {
+            let soon = self.pads.next_poll(Instant::now());
+            if !matches!(events.control_flow(), ControlFlow::WaitUntil(t) if t <= soon) {
+                events.set_control_flow(ControlFlow::WaitUntil(soon));
+            }
         }
     }
 }

@@ -131,6 +131,13 @@ pub(super) fn inline_use(
     for st in &c.states {
         child_subst.insert(st.name.clone(), Expr::Ident(names[&st.name].clone(), *span));
     }
+    // Its device facts read the root's one resource for them.
+    for r in c.resources.iter().filter(|r| super::reads_device(r)) {
+        child_subst.insert(
+            r.name.clone(),
+            Expr::Ident(super::hoisted(&c.name, &r.name), *span),
+        );
+    }
     // Closure-convert child props/injects into hidden action
     // parameters. A handler evaluates these curried arguments
     // at its exact node site, so intervening `if`/`match`
@@ -264,6 +271,12 @@ pub(super) fn inline_use(
             action_subst.insert(
                 st.name.clone(),
                 Expr::Ident(names[&st.name].clone(), st.span),
+            );
+        }
+        for r in c.resources.iter().filter(|r| super::reads_device(r)) {
+            action_subst.insert(
+                r.name.clone(),
+                Expr::Ident(super::hoisted(&c.name, &r.name), r.span),
             );
         }
         let resolved: Vec<Expr> = {

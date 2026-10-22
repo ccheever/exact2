@@ -775,35 +775,35 @@ function fileCard(object, name) {
 }
 
 /** exact-update's `safe_name`: a relative path whose segments use only the
- * POSIX portable filename characters, so no filesystem can fold or normalize
- * two names into one file. */
+ * POSIX portable filename characters and `@` (`photo@2x.png`), so no
+ * filesystem can fold or normalize two names into one file. */
 function safeAssetName(name) {
   if (typeof name !== 'string' || !name) throw new Error('an asset has no nonempty name');
   for (const part of name.split('/')) {
     if (!part || part === '.' || part === '..') throw new Error(`the asset name ${name} is not a relative path`);
-    if (!/^[A-Za-z0-9._-]+$/.test(part)) throw new Error(`the asset name ${name} is not portable: segments use A-Z, a-z, 0-9, '.', '_' and '-'`);
+    if (!/^[A-Za-z0-9._@-]+$/.test(part)) throw new Error(`the asset name ${name} is not portable: segments use A-Z, a-z, 0-9, '.', '_', '-' and '@'`);
   }
 }
 
 /** exact-update's `check_asset_names`: a roster stages as distinct files on a
  * case-insensitive filesystem (APFS's default), so no two names differ only
  * by case and none is a file where another needs a directory. The bake and
- * every client refuse the same rosters. */
+ * every client refuse the same rosters, and name every refused name at once. */
 export function portableAssetNames(names) {
-  const files = new Map(), directories = new Map();
+  const files = new Map(), directories = new Map(), problems = [];
   for (const name of names) {
-    safeAssetName(name);
-    const folded = name.toLowerCase(); // ASCII after safeAssetName
-    const other = files.get(folded);
-    if (other !== undefined) throw new Error(other === name ? `the envelope names the asset ${name} twice` : `the assets ${other} and ${name} differ only by case, one file on a case-insensitive filesystem`);
-    if (directories.has(folded)) throw new Error(`the asset ${name} is a file where ${directories.get(folded)} needs a directory`);
+    try { safeAssetName(name); } catch (error) { problems.push(error.message); continue; }
+    const folded = name.toLowerCase(), other = files.get(folded); // ASCII after safeAssetName
+    if (other !== undefined) { problems.push(other === name ? `the envelope names the asset ${name} twice` : `the assets ${other} and ${name} differ only by case, one file on a case-insensitive filesystem`); continue; }
+    if (directories.has(folded)) { problems.push(`the asset ${name} is a file where ${directories.get(folded)} needs a directory`); continue; }
     for (let end = folded.indexOf('/'); end !== -1; end = folded.indexOf('/', end + 1)) {
       const directory = folded.slice(0, end);
-      if (files.has(directory)) throw new Error(`the asset ${files.get(directory)} is a file where ${name} needs a directory`);
+      if (files.has(directory)) problems.push(`the asset ${files.get(directory)} is a file where ${name} needs a directory`);
       if (!directories.has(directory)) directories.set(directory, name);
     }
     files.set(folded, name);
   }
+  if (problems.length) throw new Error(problems.join('\n'));
 }
 
 /** Parse and authenticate one origin head by the same pre-download rules as

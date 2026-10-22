@@ -26,6 +26,8 @@ final class TextSpecs {
     var cached: Spec?
     var raster: CGImage?
     var rasterLayer: CALayer?
+    /// The view whose layer `rasterLayer` is when the ink is one colour.
+    var rasterTint: TintInk?
     var rasterFrame = CGRect.zero
     var rasterScale: CGFloat = 1
     var flowShapes: [TextFlowShape] = []
@@ -131,6 +133,7 @@ final class NodeExtras {
     var symbolFound = false
     var symbolKey: String?
     var symbolRefusal: String?
+    var listSymbol = false
     var focusRing: CAShapeLayer?
     var scrollEventQueued: Bool = false
     var lastScrollEvent: (offset: CGPoint, topInset: CGFloat) = (.zero, 0)
@@ -199,6 +202,7 @@ extension NodeView {
     var cachedTextSpec: Spec? { get { specs?.cached } set { if newValue != nil || specs != nil { textMore.cached = newValue } } }
     var textRaster: CGImage? { get { specs?.raster } set { if newValue != nil || specs != nil { textMore.raster = newValue } } }
     var textRasterLayer: CALayer? { get { specs?.rasterLayer } set { if newValue != nil || specs != nil { textMore.rasterLayer = newValue } } }
+    var textRasterTint: TintInk? { get { specs?.rasterTint } set { if newValue != nil || specs != nil { textMore.rasterTint = newValue } } }
     var textRasterFrame: CGRect { get { specs?.rasterFrame ?? .zero } set { if newValue != .zero || specs != nil { textMore.rasterFrame = newValue } } }
     var textRasterScale: CGFloat { get { specs?.rasterScale ?? 1 } set { if newValue != 1 || specs != nil { textMore.rasterScale = newValue } } }
     var flowShapes: [TextFlowShape] { get { specs?.flowShapes ?? [] } set { if !newValue.isEmpty || specs != nil { textMore.flowShapes = newValue } } }
@@ -322,6 +326,9 @@ extension NodeView {
     var symbolFound: Bool { get { extras?.symbolFound ?? false } set { if newValue || extras != nil { more.symbolFound = newValue } } }
     var symbolKey: String? { get { extras?.symbolKey } set { if newValue != nil || extras != nil { more.symbolKey = newValue } } }
     var symbolRefusal: String? { get { extras?.symbolRefusal } set { if newValue != nil || extras != nil { more.symbolRefusal = newValue } } }
+    /// A grouped list's custom row's leading symbol, drawn as UIKit's list
+    /// draws a cell's image (`GroupedCustomRowsIOS.swift`).
+    package var listSymbol: Bool { get { extras?.listSymbol ?? false } set { guard newValue != listSymbol else { return }; more.listSymbol = newValue; symbolKey = nil; updateSymbol() } }
     var focusRing: CAShapeLayer? { get { extras?.focusRing } set { if newValue != nil || extras != nil { more.focusRing = newValue } } }
     var scrollEventQueued: Bool { get { extras?.scrollEventQueued ?? false } set { if newValue || extras != nil { more.scrollEventQueued = newValue } } }
     var lastScrollEvent: (offset: CGPoint, topInset: CGFloat) { get { extras?.lastScrollEvent ?? (.zero, 0) } set { if newValue.offset != .zero || newValue.topInset != 0 || extras != nil { more.lastScrollEvent = newValue } } }

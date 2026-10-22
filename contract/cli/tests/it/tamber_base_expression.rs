@@ -4,7 +4,8 @@
 //! (`contract/cli/tests/base_expression.rs`). The compiler checks it in
 //! every column and names the one it fails in, a param's range included.
 //! What is no length's `calc()`, `min()`, `max()` or `clamp()` over px and
-//! numbers is refused, and a shadow over a base name still is.
+//! numbers is refused. A shadow over a base name is stage 12 B3's
+//! (`tamber_base_shadow.rs`).
 
 use exact_kernel::style::scale;
 use std::path::PathBuf;
@@ -267,34 +268,8 @@ fn what_is_no_lengths_function_over_px_is_refused() {
         assert_eq!((got.as_str(), name), (id, name), "{message}");
         assert!(message.contains(said), "{name}: {message}");
     }
-    // A shadow's lengths over a base name: still refused, naming shadows.
-    let shadow = "component App\n  view\n    column box-shadow=\"card.shadow\"\n      text \"a\"\n";
-    for (name, theme) in [
-        (
-            "shadow",
-            "  card.shadow: box-shadow = 0 space.md 4px black\n",
-        ),
-        (
-            "shadow-token",
-            "  lift: length = calc(space.md * 2)\n  card.shadow: box-shadow = 0 lift 4px black\n",
-        ),
-        (
-            "shadow-alias",
-            "  lift: length = space.md\n  card.shadow: box-shadow = 0 lift 4px black\n",
-        ),
-        (
-            "shadow-calc",
-            "  card.shadow: box-shadow = 0 calc(space.md * 2) 4px black\n",
-        ),
-        (
-            "shadow-calc-alias",
-            "  lift: length = space.md\n  card.shadow: box-shadow = 0 calc(lift * 2) 4px black\n",
-        ),
-    ] {
-        let (id, message) = refused(name, theme, shadow);
-        assert_eq!(id, "tamber-base-expression", "{name}: {message}");
-        assert!(message.contains("shadow"), "{name}: {message}");
-    }
+    // A shadow's lengths over one are kept (stage 12 B3,
+    // `tamber_base_shadow.rs`).
 }
 
 /// Outside Exact (the DTCG export) an expression is the neutral column's

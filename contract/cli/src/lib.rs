@@ -23,6 +23,7 @@ pub fn paint_row(a: &contract_syntax::Attr) -> bool {
 }
 mod declaration;
 pub mod functions;
+pub mod gallery;
 mod grants;
 /// The Lean backend: a program as a term of `semantics/` (LLP-free; see
 /// `semantics/README.md`).

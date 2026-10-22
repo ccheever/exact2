@@ -5,7 +5,14 @@
 // in a narrow button,
 // and glass buttons in a glass group with a
 // fading one, and a value chosen from three, a radio group of radios (LLP
-// 1116.004 D5.2). The platform draws each; the web draws its stated look.
+// 1116.004 D5.2), and the same with radios that paint the chosen one, which
+// is the author's drawn control (LLP 1104 D2). The platform draws each; the
+// web draws its stated look.
+style Chosen
+  background-color="-exact-fill"
+  border-radius=8
+style Plain
+  padding=6
 component NativeButtons
   state presses = 0
   state fading = false
@@ -185,4 +192,8 @@ component NativeButtons
       row role="radiogroup" aria-label="Period" testId="period" align-self="stretch"
         for p in ["Day", "Week", "Month"] key=p
           button role="radio" aria-checked=(period == p) press=choose(p) testId=`period-${p}` flex=1
+            text p
+      row role="radiogroup" aria-label="Tint" testId="tint" align-self="stretch"
+        for p in ["Day", "Week", "Month"] key=p
+          button role="radio" aria-checked=(period == p) press=choose(p) class=(period == p ? Chosen : Plain) testId=`tint-${p}` flex=1
             text p

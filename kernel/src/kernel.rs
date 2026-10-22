@@ -40,8 +40,9 @@ pub(crate) use block::{apply as apply_block, publication_start, Blocks};
 pub use block::{BlockAxis, HostBlock};
 pub use cover::HostCover;
 pub(crate) use cover::{
-    added_padding as cover_padding, apply as apply_cover,
+    applied_padding as cover_padding, apply as apply_cover,
     children_changed as cover_children_changed, published_extent,
+    style_changed as cover_style_changed,
 };
 pub use sticky::StickyConstraint;
 
@@ -1059,6 +1060,8 @@ impl std::fmt::Debug for Kernel {
 
 #[cfg(test)]
 mod block_tests;
+#[cfg(test)]
+mod cover_tests;
 #[cfg(test)]
 mod presented_height_tests;
 

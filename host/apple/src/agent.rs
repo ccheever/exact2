@@ -9,8 +9,13 @@ impl<D: DataSource> Host<D> {
     /// the engine, which is what the presenter's `clock` advances to.
     pub fn agent(&self, request: &str) -> String {
         if exact_runner::agent::field_str(request, "op").as_deref() == Some("settle") {
-            return match self.engine.settle_time() {
-                Some(t) => format!("{{\"settle\":{}}}", exact_runner::agent::num(t * 1000.0)),
+            let engine = self.engine.settle_time().map(|t| t * 1000.0);
+            return match engine
+                .into_iter()
+                .chain(self.runner.text_axes_settle_ms())
+                .reduce(f64::max)
+            {
+                Some(t) => format!("{{\"settle\":{}}}", exact_runner::agent::num(t)),
                 None => "{\"settle\":null}".to_string(),
             };
         }

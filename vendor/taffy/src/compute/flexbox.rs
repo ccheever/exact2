@@ -4469,8 +4469,11 @@ mod intrinsic_tests {
             let grid = tree.new_with_children(Style {
                 display: Display::Grid,
                 size: Size { width: length(800.0), height: auto() },
-                grid_template_columns: vec![length(800.0)],
-                grid_template_rows: vec![max_content()],
+                rare: crate::style::RareStyle {
+                    grid_template_columns: vec![length(800.0)],
+                    grid_template_rows: vec![max_content()],
+                    ..crate::style::RareStyle::DEFAULT
+                }.into(),
                 ..Default::default()
             }, &[column]).unwrap();
             tree.compute_layout(grid, Size {

@@ -200,8 +200,7 @@ pub struct Presenter<D: DataSource> {
     /// Where the pointer last moved for hover (`hover_at`): a frame that
     /// moves content under it hovers again there (`follow_pointer`).
     hover_point: Option<(f32, f32)>,
-    /// The node holding the pointer's `pointerdown` until it lifts: the
-    /// innermost hearing a pointer event, which hears the moves.
+    /// The node holding the pointer's `pointerdown` until it lifts: the innermost hearing a pointer event, which hears the moves.
     pointer_held: Option<exact_kernel::NodeKey>,
     /// The nodes from the held one up that hear `pointerdown` or
     /// `pointerup`, innermost first: each hears the up.
@@ -209,9 +208,9 @@ pub struct Presenter<D: DataSource> {
     /// During a pointer or wheel walk, a retired contact is cancelled when it
     /// ends so no other walk runs inside it ([`Presenter::retire_pointer`]).
     pointer_walking: bool,
-    /// The held pointer's buttons as DOM counts them: 1 primary, 2
-    /// secondary, 4 middle (review b5-b 1).
+    /// The held pointer's buttons as DOM counts them: 1 primary, 2 secondary, 4 middle (review b5-b 1).
     pointer_buttons: u8,
+    pub(crate) pads: crate::surfaces::controls::PadRoute,
     pub(crate) control_bindings: BTreeMap<(u32, u32), crate::surfaces::ControlBinding>,
     pub(crate) control_contact: Option<(ViewId, f32, f32)>,
     boxes: Vec<PaintedBox>,
@@ -484,6 +483,7 @@ impl<D: DataSource> Presenter<D> {
             pointer_walking: false,
             pointer_buttons: 0,
             control_contact: None,
+            pads: Default::default(),
             control_bindings: BTreeMap::new(),
             boxes: Vec::new(),
             boxes_serial: 0,

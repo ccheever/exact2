@@ -973,15 +973,16 @@ fn a_region_at_the_plan_root_is_refused() {
     plan.regions[0].parent = None;
     // Remove the root node so the site count stays one.
     let root_children: Vec<usize> = (0..plan.nodes.len())
-        .filter(|i| plan.nodes[*i].parent == Some(exact_plan::NodesId(0)))
+        .filter(|i| plan.nodes.get(*i).unwrap().parent == Some(exact_plan::NodesId(0)))
         .collect();
     for i in root_children {
-        plan.nodes[i].parent = None;
+        plan.nodes.to_mut()[i].parent = None;
     }
-    plan.nodes.remove(0);
+    plan.nodes.to_mut().remove(0);
     // Every surviving parent index moves down with the removal.
     for parent in plan
         .nodes
+        .to_mut()
         .iter_mut()
         .map(|n| &mut n.parent)
         .chain(plan.regions.iter_mut().map(|r| &mut r.parent))

@@ -355,6 +355,11 @@ fn the_conform_fixture_reads_its_facts() {
         slot(&p, "geometry"),
         "caret width 0 mention on its line true from it true wide true inside true past true"
     );
+    tap(&mut p, "measure-lines");
+    assert_eq!(
+        slot(&p, "lines"),
+        "empty line at the start true between true height true width 0; empty field where a typed one starts true width 0"
+    );
 }
 
 /// Where two directions meet the caret ends the run its offset closes, as
@@ -383,9 +388,8 @@ fn a_caret_between_directions_ends_the_run_before_it() {
 
 /// A collapsed range answers where the caret is painted (theme2's 18:42
 /// ruling, G3): an empty field's at its start, an empty line's on that
-/// line, with the text's height there. (Chrome's own answers there, a zero
-/// rectangle at the viewport's origin and the preceding text's end, are the
-/// web's stated deviation.)
+/// line, with the text's height there, as the web's glue now measures it
+/// too (conform's decorations fixture compares the facts).
 #[test]
 fn an_empty_field_and_an_empty_lines_caret_are_where_it_is_painted() {
     let mut p = boot(&app("width=200 height=120", "", &[(0, 0)], ""));

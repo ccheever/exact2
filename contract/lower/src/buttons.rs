@@ -169,6 +169,78 @@ impl Lowerer<'_> {
     }
 }
 
+/// The literal value of `name` among `attrs`, the last written.
+fn literal<'a>(attrs: &'a [Attr], name: &str) -> Option<&'a str> {
+    match &attrs.iter().rev().find(|a| a.name == name)?.value {
+        Expr::Str(v, _) => Some(v),
+        _ => None,
+    }
+}
+
+impl Lowerer<'_> {
+    /// The `appearance: none` a `role="radiogroup"` takes when one of its
+    /// radios paints itself, decided here once, as LLP 1104 D2 decides a
+    /// button: a radio whose class or own rows write a background, border
+    /// or radius on any arm (CSS UI 4 §7.2.1's disabling rows) makes the
+    /// group the author's drawn control on every host, never the
+    /// platform's segmented one (LLP 1115: what the author writes wins).
+    /// None when the group says its own `appearance` or no radio paints.
+    pub(crate) fn painted_radio_group(
+        &self,
+        attrs: &[Attr],
+        class: &[Attr],
+        children: &[Node],
+        span: Span,
+    ) -> Result<Option<Attr>, LowerError> {
+        let all = || class.iter().chain(attrs);
+        if literal(attrs, "role") != Some("radiogroup") || all().any(|a| a.name == "appearance") {
+            return Ok(None);
+        }
+        if !self.paints_a_radio(children)? {
+            return Ok(None);
+        }
+        // Written, as the author's paint is what asked for it: every host
+        // keeps a group whose `appearance: none` is written as authored.
+        Ok(Some(Attr {
+            name: "appearance".into(),
+            value: Expr::Str("none".into(), span),
+            span,
+            written: true,
+        }))
+    }
+
+    /// Whether a `button role="radio"` among `nodes` (through `if`, `for`
+    /// and `match`, the children a group's control is made of) writes a
+    /// disabling row.
+    fn paints_a_radio(&self, nodes: &[Node]) -> Result<bool, LowerError> {
+        for node in nodes {
+            let paints = match node {
+                Node::Element { tag, attrs, .. }
+                    if tag == "button" && literal(attrs, "role") == Some("radio") =>
+                {
+                    let class = self.class_rows(attrs)?.map(|(_, r)| r).unwrap_or_default();
+                    class
+                        .iter()
+                        .chain(attrs)
+                        .any(|a| rows(a).into_iter().any(crate::fields::disables))
+                }
+                Node::When {
+                    then, otherwise, ..
+                } => self.paints_a_radio(then)? || self.paints_a_radio(otherwise)?,
+                Node::Each { body, .. } => self.paints_a_radio(body)?,
+                Node::Match { some, none, .. } => {
+                    self.paints_a_radio(&some.1)? || self.paints_a_radio(none)?
+                }
+                _ => false,
+            };
+            if paints {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+}
+
 /// Why a default button is bare (LLP 1116.014 D1): the edit that fixes it
 /// depends on which.
 enum Bare {

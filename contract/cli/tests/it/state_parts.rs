@@ -198,7 +198,10 @@ fn a_host_states_look_is_recorded_one_a_state() {
         looks[0].bindings.len, 4,
         "a border colour is its four sides"
     );
-    let own: Vec<u16> = plan.nodes[node.0 as usize]
+    let own: Vec<u16> = plan
+        .nodes
+        .get(node.0 as usize)
+        .unwrap()
         .bindings
         .iter()
         .map(|b| plan.binding(b).id)

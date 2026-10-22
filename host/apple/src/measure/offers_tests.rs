@@ -406,6 +406,10 @@ mod storage {
             && actual.line_height.to_bits() == expected.line_height.to_bits()
             && actual.letter_spacing.to_bits() == expected.letter_spacing.to_bits()
             && actual.font_stretch.to_bits() == expected.font_stretch.to_bits()
+            && actual.variation_count == expected.variation_count
+            && actual.variation_tags == expected.variation_tags
+            && actual.variation_values.map(f32::to_bits)
+                == expected.variation_values.map(f32::to_bits)
     }
 
     extern "C" fn inspect_request(ctx: *mut c_void, request: *const CRequest) -> CMetrics {
@@ -463,6 +467,7 @@ mod storage {
             font_weight: 537,
             font_style: FontStyle::Italic,
             font_stretch: 87.5,
+            font_variations: exact_kernel::style::FontVariations::parse(r#""GRAD" 150"#).unwrap(),
             font_family: 23,
             line_height: heights[variant],
             letter_spacing: -0.125,
@@ -474,6 +479,7 @@ mod storage {
             font_weight: 411,
             font_style: FontStyle::Normal,
             font_stretch: 100.0,
+            font_variations: Default::default(),
             font_family: 7,
             line_height: Some(30.25),
             letter_spacing: -0.0,
@@ -503,6 +509,9 @@ mod storage {
                 letter_spacing: -0.125,
                 font_variant_numeric: 0,
                 font_stretch: 87.5,
+                variation_count: 1,
+                variation_tags: [u32::from_be_bytes(*b"GRAD"), 0, 0, 0, 0, 0, 0, 0],
+                variation_values: [150.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
             },
             CRun {
                 text: "".as_ptr(),
@@ -516,6 +525,9 @@ mod storage {
                 letter_spacing: -0.0,
                 font_variant_numeric: 0,
                 font_stretch: 100.0,
+                variation_count: 0,
+                variation_tags: [0; 8],
+                variation_values: [0.0; 8],
             },
         ];
         let widths = [

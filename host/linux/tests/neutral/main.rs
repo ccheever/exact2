@@ -58,6 +58,12 @@ const APP: &str = r##"component App
         button appearance="auto" buttonStyle="filled" testId="dark-filled"
           text "Go"
         input type="checkbox" testId="dark-check"
+        input type="checkbox" role="switch" testId="dark-switch"
+        input type="checkbox" role="switch" checked=true testId="dark-switch-on"
+      button appearance="auto" -exact-control-size="mini" testId="mini"
+        text "Go"
+      button appearance="auto" -exact-control-size="small" testId="small"
+        text "Go"
 "##;
 
 // neutral.css styles every direct route header, including one whose two
@@ -235,6 +241,15 @@ fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
     assert_eq!(size(&mut p, "large-check"), (25.0, 25.0));
     // A field has no floor: its line, its padding and its edge.
     assert_eq!(size(&mut p, "large-field").1, 25.0 + 2.0 * 8.75 + 2.0);
+    // A mini or small button is titled as the page titles it at a 16 px root,
+    // in the subheadline's 14 px: its line, its padding and its edge.
+    for name in ["mini", "small"] {
+        assert_eq!(
+            size(&mut p, name).1,
+            14.0 * 1.25 + 2.0 * 14.0 * 0.4375 + 2.0,
+            "{name}"
+        );
+    }
 
     // The colours are the role table's neutral column. The page's ground is
     // white; a line that marks a control's edge is the label's ink at 45%.
@@ -248,8 +263,8 @@ fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
     assert_eq!(pixel(&mut p, "check", 10.0, 0.0), line);
     assert_eq!(pixel(&mut p, "checked", 10.0, 1.0), blue);
     assert_eq!(pixel(&mut p, "radio", 10.0, 0.0), line);
-    // The switch: the control's line with a thumb in the page's ground at
-    // its start; on, the accent with the thumb at its end.
+    // The switch: the control's line with a white thumb at its start; on,
+    // the accent with the thumb at its end.
     assert_eq!(pixel(&mut p, "switch", 30.0, 10.0), line);
     assert_eq!(pixel(&mut p, "switch", 10.0, 10.0), white);
     assert_eq!(pixel(&mut p, "switch-on", 10.0, 10.0), blue);
@@ -269,6 +284,9 @@ fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
     assert_eq!(pixel(&mut p, "dark", 2.0, 2.0), [0x12; 3]);
     assert_eq!(pixel(&mut p, "dark-filled", 3.0, 18.0), [0x68, 0xa5, 0xfe]);
     assert_eq!(pixel(&mut p, "dark-check", 10.0, 10.0), [0x1e; 3]);
+    // A switch's thumb is white there too, off or on.
+    assert_eq!(pixel(&mut p, "dark-switch", 10.0, 10.0), white);
+    assert_eq!(pixel(&mut p, "dark-switch-on", 26.0, 10.0), white);
 
     // A state adds one thing: where a pointer hovers, a wash of the label's
     // ink over the outline button; held down, a stronger one.
@@ -281,6 +299,14 @@ fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
     assert_eq!(pixel(&mut p, "unsaid", 3.0, 18.0), [237; 3]);
     p.pointer_cancel(0.0).unwrap();
     assert_eq!(pixel(&mut p, "filled", 3.0, 18.0), blue, "and no other");
+    // Held, a filled button shows UIKit's highlight instead: its fill at 75%
+    // in light, mixed 20% with white in dark.
+    for (name, held) in [("filled", [72, 140, 224]), ("dark-filled", [134, 183, 254])] {
+        let (x, y, _, _) = p.rect_of(id(&p, name)).unwrap();
+        assert!(p.pointer_down(x + 4.0, y + 4.0, 0.0).unwrap());
+        assert_eq!(pixel(&mut p, name, 3.0, 18.0), held, "{name} held");
+        p.pointer_cancel(0.0).unwrap();
+    }
 
     // A list's rows (LLP 1115.000 D16), as the page's sheet draws them: one
     // line in the separator's role inside each row's bottom edge but the

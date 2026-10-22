@@ -1419,3 +1419,7 @@ mod normal_tests {
 #[cfg(test)]
 #[path = "node_pose_tests.rs"]
 mod node_pose_tests;
+
+#[cfg(test)]
+#[path = "skin_of_tests.rs"]
+mod skin_of_tests;

@@ -79,6 +79,27 @@ impl ThemeIndex {
         self.rows.get(&(view, style as u16))
     }
 
+    /// `view`'s `style`, set again, read `tokens` too: a token's new value
+    /// may read one its old value didn't (a shadow over a base the design
+    /// sets, LLP 1121 stage 12 B3), which an edit of that one then sets
+    /// again. The bits are added, never replaced: a row whose text no
+    /// longer reads a token keeps its bit, which costs at most one re-set
+    /// that changes nothing (bits are already shared by names, `name_bit`),
+    /// where replacing them could drop a read the parse didn't repeat.
+    pub(crate) fn also_read(&mut self, view: ViewId, style: StyleId, tokens: u64) {
+        if let Some(row) = self.rows.get_mut(&(view, style as u16)) {
+            row.tokens |= tokens;
+        }
+    }
+
+    /// `view`'s state looks, resolved again, read `tokens` too, added as
+    /// [`ThemeIndex::also_read`] adds a row's.
+    pub(crate) fn looks_read(&mut self, view: ViewId, tokens: u64) {
+        if let Some(l) = self.looks.get_mut(&view) {
+            l.tokens |= tokens;
+        }
+    }
+
     /// `view`'s `style` reads no token now.
     pub(super) fn drop_row(&mut self, view: ViewId, style: StyleId) {
         if !self.rows.is_empty() {
@@ -214,11 +235,17 @@ impl super::NodeInst {
         let row = plan.node(self.node);
         // A row it sets passes its text on when that read a token, else
         // nothing; a row it does not set, its implied row's or the one around.
-        let inherited = std::array::from_fn(|k| match binding_of(plan, row, INHERITED[k]) {
-            Some(b) if self.themed.sets(b) => {
-                self.themed.get(b).then(|| self.last[b].clone()).flatten()
-            }
-            _ => match self.implied.as_ref().and_then(|implied| implied[k].clone()) {
+        let inherited = std::array::from_fn(|k| match binding_of(plan, &row, INHERITED[k]) {
+            Some(b) if self.themed.sets(b) => self
+                .themed
+                .get(b)
+                .then(|| self.emitted(plan, u.sites, b))
+                .flatten(),
+            _ => match self
+                .rare
+                .as_ref()
+                .and_then(|r| r.implied.as_ref()?[k].clone())
+            {
                 Some(text) => Some(text),
                 None => u.theme.inherited[k].clone(),
             },
@@ -282,7 +309,7 @@ impl super::NodeInst {
     /// unwritten, though what it implies has not changed since.
     fn unimply(&mut self, style: StyleId) {
         let k = INHERITED.iter().position(|s| *s == style);
-        if let (Some(k), Some(implied)) = (k, self.implied.as_mut()) {
+        if let (Some(k), Some(implied)) = (k, self.rare.as_mut().and_then(|r| r.implied.as_mut())) {
             implied[k] = None;
         }
     }
@@ -298,16 +325,17 @@ impl super::NodeInst {
     ) {
         let plan = u.env.plan;
         let row = plan.node(self.node);
+        let (view, tuple) = (self.view, self.tuple);
         for (k, style) in INHERITED.into_iter().enumerate() {
             // Its own row stands: an implied one is set again when it goes.
-            if binding_of(plan, row, style).is_some_and(|b| self.themed.sets(b)) {
-                if let Some(implied) = self.implied.as_mut() {
+            if binding_of(plan, &row, style).is_some_and(|b| self.themed.sets(b)) {
+                if let Some(implied) = self.rare.as_mut().and_then(|r| r.implied.as_mut()) {
                     implied[k] = None;
                 }
                 continue;
             }
             let want = u.theme.inherited[k].clone();
-            let implied = self.implied.get_or_insert_with(Default::default);
+            let implied = self.rare().implied.get_or_insert_with(Default::default);
             if want == implied[k] && !force {
                 continue;
             }
@@ -319,11 +347,11 @@ impl super::NodeInst {
                     let tokens = exact_kernel::style::theme::take_named();
                     if set.is_ok() {
                         u.ids.theme.put(
-                            self.view,
+                            view,
                             ThemedRow {
                                 style,
                                 text: text.clone(),
-                                tuple: self.tuple,
+                                tuple,
                                 written: false,
                                 implied: true,
                                 tokens,
@@ -335,11 +363,11 @@ impl super::NodeInst {
                     let mut mask = exact_kernel::StyleMask::default();
                     mask.set(style);
                     u.ops.push(exact_kernel::Op::ClearStyle {
-                        id: self.view,
+                        id: view,
                         mask,
                         written: false,
                     });
-                    u.ids.theme.drop_row(self.view, style);
+                    u.ids.theme.drop_row(view, style);
                 }
                 None => {}
             }

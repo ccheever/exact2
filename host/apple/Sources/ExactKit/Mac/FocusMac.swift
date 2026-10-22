@@ -44,6 +44,7 @@ extension NodeView {
         focusVisible = !isNativeButton && nativeValueControl == nil && presenter?.focusByPointer != true
         presenter?.collections.pinsChanged()
         presenter?.selection.focusEntered(self)
+        inputCanvas?.canvasInput?.focused()
         presenter?.focus(id)
         // A row of an open menu taking the focus is its highlight, which
         // AppKit's menu tells as its selected child changing (Accessibility.swift).
@@ -67,6 +68,7 @@ extension NodeView {
         presenter?.selection.focusLeft()
         presenter?.collections.pinsChanged()
         if !isSurfaceControl { inputCanvas?.canvasInput?.blur() }
+        inputCanvas?.canvasInput?.focusLeft()
         presenter?.blur(id)
     }
     /// Dates and selects have the same single native focus owner as a field.

@@ -31,7 +31,7 @@ pub(crate) enum QuadFact {
 
 /// The pipeline a quad draw bound (`Quads::bind`): `8 × direct +` its kind's
 /// index (a particle's `4 × soft + 2 × textured + additive`, a sprite's alpha
-/// mode, 4 for a placed child), and whether it writes depth.
+/// mode, 0 for a blended primitive, 4 for a placed child), and whether it writes depth.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct QuadPipeline {
     pub variant: usize,
@@ -79,6 +79,7 @@ impl Quads {
                 let blend = if additive { "additive" } else { "alpha" };
                 format!("{what} · {blend}{}", if soft { " · soft" } else { "" })
             }
+            Kind::Primitive(_) => "blended primitives".into(),
             Kind::Sprite(i) => format!(
                 "sprite {}",
                 self.sprites
@@ -103,6 +104,7 @@ impl Quads {
             count: self.draws[index].range.len() as u32,
             variant: pipeline.variant,
             depth: pipeline.depth,
+            triangles: matches!(self.draws[index].kind, Kind::Primitive(_)),
         }
     }
 

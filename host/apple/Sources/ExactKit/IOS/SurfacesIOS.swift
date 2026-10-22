@@ -54,6 +54,10 @@ extension Presenter {
 /// A lifted popover belongs to its sheet even though UIKit places its layer
 /// beside the sheet's controller view, outside that controller's responders.
 enum ViewPresentation {
+    static func isPresented(_ controller: UIViewController, above ancestor: UIViewController) -> Bool {
+        sequence(first: controller.presentingViewController, next: { $0?.presentingViewController })
+            .contains { $0 === ancestor }
+    }
     static func controller(for view: UIView, fallbackToWindow: Bool = false) -> UIViewController? {
         if let sheet = PopoverLayer.containing(view)?.sheet { return sheet }
         var responder: UIResponder? = view

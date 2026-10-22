@@ -45,6 +45,12 @@ pub enum Unit {
     /// [`crate::LENGTH_RAMPS`] (LLP 1137): a platform metric that grows with
     /// the text size as a text style does.
     Ramp(u8),
+    /// `min(<text style>, <length>)` on a `font-size`: the style's size at
+    /// the root font size, at most the row's number of pixels, as UIKit's
+    /// `UIFontMetrics.scaledFont(for:maximumPointSize:)` caps one (a
+    /// calendar's day numbers stop growing at AX1, where seven columns of two
+    /// digits still fit). The one unit whose number is no factor ([`Unit::px`]).
+    TextStyleAtMost(u8),
 }
 
 impl Unit {
@@ -60,6 +66,27 @@ impl Unit {
             Unit::Ramp(id) => crate::LENGTH_RAMPS
                 .get(usize::from(id))
                 .map_or(0.0, |(_, sizes)| ramp(sizes, root)),
+            Unit::TextStyleAtMost(id) => text_style_size(id, root),
+        }
+    }
+
+    /// A capped text style as the web writes it: the style's `rem` at CSS's
+    /// `medium`, held to the cap by the browser's `min()`.
+    pub fn capped_css(self, n: f32) -> String {
+        let rem = self.basis(MEDIUM, MEDIUM, 1.0) / MEDIUM;
+        format!(
+            "min({}rem, {}px)",
+            exact_num::Shortest(f64::from(rem)),
+            exact_num::Shortest(f64::from(n))
+        )
+    }
+
+    /// The pixels `n` of this unit is: `n` times [`Unit::basis`], or for a
+    /// capped text style, the style's size held to `n`.
+    pub fn px(self, n: f32, root: f32, reference: f32, device: f32) -> f32 {
+        match self {
+            Unit::TextStyleAtMost(_) => self.basis(root, reference, device).min(n),
+            _ => n * self.basis(root, reference, device),
         }
     }
 }
@@ -243,6 +270,7 @@ impl Relative {
                 Unit::TextStyle(id) => out.extend_from_slice(&[2, *id]),
                 Unit::Hairline => out.push(3),
                 Unit::Ramp(id) => out.extend_from_slice(&[4, *id]),
+                Unit::TextStyleAtMost(id) => out.extend_from_slice(&[5, *id]),
             }
             out.extend_from_slice(&n.to_bits().to_le_bytes());
         }
@@ -285,6 +313,9 @@ pub fn parse(text: &str) -> Option<(Unit, f32)> {
     if let Some(id) = text_style(text) {
         return Some((Unit::TextStyle(id), 1.0));
     }
+    if let Some(capped) = text_style_at_most(text) {
+        return Some(capped);
+    }
     if let Some(unit) = named_length(text) {
         return Some((unit, 1.0));
     }
@@ -305,6 +336,22 @@ pub fn parse(text: &str) -> Option<(Unit, f32)> {
     (!number.is_empty() && n.is_finite()).then_some((unit, n))
 }
 
+/// `min(<text style>, <px length>)`, in either order: a capped text style.
+fn text_style_at_most(text: &str) -> Option<(Unit, f32)> {
+    let t = text.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']);
+    t.get(..4).filter(|h| h.eq_ignore_ascii_case("min("))?;
+    let args = t[4..].strip_suffix(')')?;
+    let (a, b) = args.split_once(',')?;
+    let (a, b) = (a.trim(), b.trim());
+    let (style, cap) = match (text_style(a), text_style(b)) {
+        (Some(id), None) => (id, b),
+        (None, Some(id)) => (id, a),
+        _ => return None,
+    };
+    let px = super::parse_pixel_length(cap)?;
+    (px.is_finite() && px > 0.0).then_some((Unit::TextStyleAtMost(style), px))
+}
+
 /// The row's relative length when `value` is one, refused when the row
 /// admits no length or no negative one.
 pub(crate) fn of(id: StyleId, value: &StyleValue) -> Result<Option<(Unit, f32)>, StyleValueError> {
@@ -314,7 +361,7 @@ pub(crate) fn of(id: StyleId, value: &StyleValue) -> Result<Option<(Unit, f32)>,
     let Some((unit, n)) = parse(text) else {
         return Ok(None);
     };
-    if matches!(unit, Unit::TextStyle(_)) && id != StyleId::FontSize {
+    if matches!(unit, Unit::TextStyle(_) | Unit::TextStyleAtMost(_)) && id != StyleId::FontSize {
         return Err(StyleValueError::WrongKind {
             style: id,
             expected: "a length: a text style is a `font-size`",
@@ -406,7 +453,9 @@ pub(crate) fn prepare(id: StyleId, value: &StyleValue) -> Result<PreparedLength,
         let dashed = text
             .trim_start_matches(['\t', '\n', '\u{c}', '\r', ' '])
             .starts_with('-');
-        if dashed && (text_style(text).is_some() || named_length(text).is_some()) {
+        if (dashed && (text_style(text).is_some() || named_length(text).is_some()))
+            || text_style_at_most(text).is_some()
+        {
             let relative = of(id, value)?;
             return Ok((relative, relative.map(|r| provisional(id, r))));
         }
@@ -434,7 +483,7 @@ pub(crate) fn prepare(id: StyleId, value: &StyleValue) -> Result<PreparedLength,
 /// What the row holds until the kernel resolves it: the length at CSS's
 /// initial font size, in the form the row's codec reads as pixels.
 pub(crate) fn provisional(id: StyleId, (unit, n): (Unit, f32)) -> StyleValue<'static> {
-    pixels(id, n * unit.basis(MEDIUM, MEDIUM, 1.0))
+    pixels(id, unit.px(n, MEDIUM, MEDIUM, 1.0))
 }
 
 fn pixels(id: StyleId, px: f32) -> StyleValue<'static> {
@@ -467,6 +516,44 @@ impl StyleProps {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `min(<text style>, <length>)`: the style's size at the root font size
+    /// up to the cap, either way round, on a `font-size` only.
+    #[test]
+    fn a_capped_text_style_is_its_size_up_to_the_cap() {
+        let id = text_style("-exact-subheadline").unwrap();
+        for text in [
+            "min(-exact-subheadline, 31px)",
+            "min(31px, -exact-subheadline)",
+            " MIN(-exact-subheadline,31px) ",
+        ] {
+            assert_eq!(
+                parse(text),
+                Some((Unit::TextStyleAtMost(id), 31.0)),
+                "{text}"
+            );
+        }
+        let (unit, n) = parse("min(-exact-subheadline, 31px)").unwrap();
+        for root in [17.0, 23.0, 53.0] {
+            let style = text_style_size(id, root);
+            assert_eq!(unit.px(n, root, 0.0, 1.0), style.min(31.0), "at {root}");
+        }
+        assert!(text_style_size(id, 53.0) > 31.0, "the cap holds at AX5");
+        assert!(
+            of(
+                StyleId::Width,
+                &StyleValue::Text("min(-exact-subheadline, 31px)".into())
+            )
+            .is_err(),
+            "a text style is a font-size"
+        );
+        assert_eq!(parse("min(-exact-subheadline)"), None);
+        assert_eq!(
+            parse("min(12px, 31px)"),
+            None,
+            "no text style: CSS's own min()"
+        );
+    }
 
     /// LLP 1137: a length ramp is its length at the root font size, read
     /// along the body sizes as a text style's size is, and is no font's size.

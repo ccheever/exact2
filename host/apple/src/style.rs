@@ -25,6 +25,7 @@ use exact_kernel::{
 use exact_motion::Property;
 use std::fmt::Write as _;
 
+mod axes;
 #[cfg(test)]
 mod crossing_tests;
 mod kept;
@@ -268,6 +269,7 @@ pub(crate) fn style_json_rows(
                 out.push(']');
                 true
             }
+            RowValue::FontVariations(v) => axes::font_axes_json(&mut out, v),
             // @ref LLP 1077 D3 — `{"o":[x,y],"b":blur,"c":colour}`; no `c`
             // is currentcolor, the text's own.
             RowValue::TextShadow(t) => match t.shadow() {
@@ -1124,10 +1126,13 @@ pub fn glass_auto_spacing(node: &NodeRef<'_>) -> Option<f32> {
 
 /// [`glass_auto_spacing`] in a node's props: the points as `glassGroup` and
 /// `glassGroupAuto`, so a change to the prop sends them.
-pub fn glass_auto_props(node: &NodeRef<'_>, out: &mut exact_kernel::SortedMap<String, String>) {
+pub fn glass_auto_props(
+    node: &NodeRef<'_>,
+    out: &mut exact_kernel::SortedMap<&'static str, String>,
+) {
     if let Some(points) = glass_auto_spacing(node) {
-        out.insert(PropId::GlassGroup.name().to_string(), num(points));
-        out.insert("glassGroupAuto".to_string(), "true".to_string());
+        out.insert(PropId::GlassGroup.name(), num(points));
+        out.insert("glassGroupAuto", "true".to_string());
     }
 }
 

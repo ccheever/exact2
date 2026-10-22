@@ -124,7 +124,7 @@ pub(super) fn mark(
 }
 
 /// The switch: a pill in the control's line, the accent when on, and a
-/// thumb in the ink that reads on each, at the inline start until on.
+/// white thumb on either, as Apple's is, at the inline start until on.
 pub(super) fn switch(
     backend: &mut dyn Backend,
     node: &NodeRef<'_>,
@@ -138,17 +138,17 @@ pub(super) fn switch(
     if dim {
         backend.push_opacity(look::number(metric::MARK_DISABLED_ALPHA));
     }
-    let (track, thumb) = if on {
-        look::accents(super::control::accent(node, dark), dark)
+    let track = if on {
+        look::accents(super::control::accent(node, dark), dark).0
     } else {
-        (look::line(dark), role("-exact-background", dark))
+        look::line(dark)
     };
     backend.fill(&Shape::new(content, [h / 2.0; 4]), track, ts);
     let d = h * look::number(metric::SWITCH_THUMB);
     let at_end = on != rtl(node);
     let cx = if at_end { x + w - h / 2.0 } else { x + h / 2.0 };
     let circle = (cx - d / 2.0, y + (h - d) / 2.0, d, d);
-    backend.fill(&Shape::new(circle, [d / 2.0; 4]), thumb, ts);
+    backend.fill(&Shape::new(circle, [d / 2.0; 4]), [0xff; 4], ts);
     if dim {
         backend.pop_opacity();
     }

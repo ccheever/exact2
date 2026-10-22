@@ -89,6 +89,8 @@ impl<D: DataSource> Runner<D> {
             .iter()
             .zip(&self.timers)
             .any(|(t, s)| t.frame && s.armed)
+            // A font axis moving (LLP 1019 §13 D10).
+            || self.text_axes.running()
     }
 
     /// Soonest timer deadline in this runner's clock domain; no host polling.
@@ -105,6 +107,10 @@ impl<D: DataSource> Runner<D> {
             // A drop's hold waits a second for its move (LLP 1094 D8).
             .chain(self.reorder_deadline())
             .chain(self.live_times.due())
+            .chain(
+                (self.text_axes.running() && !self.clock.presenting)
+                    .then(|| super::virtual_frame(self.now_ms, 1)),
+            )
             .chain(self.queues.next_due.iter().copied())
             // A sequence's fill, count-in's end, end and answer (LLP 1125 D3).
             .chain([

@@ -23,7 +23,8 @@ package enum TextStyle {
                    family: Int(style["font_family"]?.number ?? 0), italic: style["font_style"]?.string == "italic",
                    lineHeight: height, letterSpacing: CGFloat(Float(style["letter_spacing"]?.number ?? 0)),
                    numeric: Int(style["font_variant_numeric"]?.number ?? 0),
-                   stretch: CGFloat(Float(style["font_stretch"]?.number ?? 100)))
+                   stretch: CGFloat(Float(style["font_stretch"]?.number ?? 100)),
+                   variations: FontAxis.of(style["font_variation_settings"]))
     }
     package static func spec(runs input: [Run], style: NodeStyle, props: [String: String], strut: Run,
                              color: [Double] = [0, 0, 0, 255], language: String = "") -> Spec {

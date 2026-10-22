@@ -214,6 +214,11 @@ impl<D: DataSource> Links<D> {
                 } else {
                     None
                 },
+                text_axes: if uses.has(Capability::Transitions) {
+                    all.text_axes
+                } else {
+                    None
+                },
             },
             device: DeviceLinks {
                 auth: DeviceLinks::<D>::ALL.auth,

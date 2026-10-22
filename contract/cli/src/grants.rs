@@ -17,7 +17,7 @@
 mod literals;
 
 use super::CompileError;
-use contract_syntax::{File, Span, Stmt};
+use contract_syntax::{Expr, File, Span, Stmt};
 use contract_types::strings::Strings;
 use std::path::Path;
 
@@ -78,31 +78,77 @@ fn sources(dir: &Path, depth: usize, out: &mut Vec<std::path::PathBuf>) {
     }
 }
 
+/// The commands of `file`'s actions, in order, through `if`, `match` and calls.
+fn commands(file: &File) -> Vec<(&str, &[Expr], Span)> {
+    fn walk<'f>(stmts: &'f [Stmt], out: &mut Vec<(&'f str, &'f [Expr], Span)>) {
+        for s in stmts {
+            match s {
+                Stmt::Command { name, args, span } => out.push((name, args, *span)),
+                Stmt::If {
+                    then, otherwise, ..
+                } => {
+                    walk(then, out);
+                    walk(otherwise, out);
+                }
+                Stmt::Match { some, none, .. } => {
+                    walk(&some.1, out);
+                    walk(none, out);
+                }
+                Stmt::Call { body, .. } => walk(body, out),
+                _ => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for a in file.components.iter().flat_map(|c| &c.actions) {
+        walk(&a.body, &mut out);
+    }
+    out
+}
+
+/// Whether the file's MIDI provably reaches no device: it never asks for
+/// access, so none is granted; it sends only to `""`, no output, whose
+/// messages `sent` lists with no device (LLP 1125 D6); and its `exactMIDI()`
+/// reads, by shapes this file declares, `sent` alone, not the `state` or
+/// ports a grant would change. An activity log of that kind needs no grant.
+fn midi_silent(file: &File, commands: &[(&str, &[Expr], Span)]) -> bool {
+    let reads_sent_only = |r: &contract_syntax::ResourceDecl| match &r.shape {
+        contract_syntax::TypeExpr::Named(shape, _) => file
+            .shapes
+            .iter()
+            .find(|s| s.name == *shape)
+            .is_some_and(|s| s.fields.iter().all(|f| f.name == "sent")),
+        _ => false,
+    };
+    commands.iter().all(|(name, args, _)| match *name {
+        "requestMIDIAccess" => false,
+        "sendMIDI" => matches!(args.first(), Some(Expr::Str(o, _)) if o.is_empty()),
+        _ => true,
+    }) && file
+        .components
+        .iter()
+        .flat_map(|c| &c.resources)
+        .filter(|r| r.source == "exactMIDI")
+        .all(reads_sent_only)
+}
+
 /// The first place `file` reaches `device`: a resource reading one of its
 /// sources, else a command, in any action.
 fn first_use(file: &File, device: &Device) -> Option<(Span, String)> {
-    fn walk(stmts: &[Stmt], device: &Device) -> Option<(Span, String)> {
-        stmts.iter().find_map(|s| match s {
-            Stmt::Command { name, span, .. } if device.commands.contains(&name.as_str()) => {
-                Some((*span, format!("`{name}`")))
-            }
-            Stmt::If {
-                then, otherwise, ..
-            } => walk(then, device).or_else(|| walk(otherwise, device)),
-            Stmt::Match { some, none, .. } => walk(&some.1, device).or_else(|| walk(none, device)),
-            Stmt::Call { body, .. } => walk(body, device),
-            _ => None,
-        })
+    let commands = commands(file);
+    if device.name == "midi" && midi_silent(file, &commands) {
+        return None;
     }
-    let components = || file.components.iter();
-    components()
+    file.components
+        .iter()
         .flat_map(|c| &c.resources)
         .find(|r| device.sources.contains(&r.source.as_str()))
         .map(|r| (r.span, format!("`{}()`", r.source)))
         .or_else(|| {
-            components()
-                .flat_map(|c| &c.actions)
-                .find_map(|a| walk(&a.body, device))
+            commands
+                .iter()
+                .find(|(name, _, _)| device.commands.contains(name))
+                .map(|(name, _, span)| (*span, format!("`{name}`")))
         })
 }
 

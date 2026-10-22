@@ -1,7 +1,7 @@
 // `state <name>` (agent-inspect.mjs `stateOp`, LLP 1116.007 D3.9): a state, derive or resource (or a field of the record)
 // reads by name, down a dotted path, as `expect state` does, even where a view carries the name; a plain view's is the record.
 import { test, expect } from 'bun:test';
-import { render, renderTrace, stateOp, tapRefusal } from './agent-inspect.mjs';
+import { render, renderTrace, stateOp, tapRefusal, nextCommitTasks, settleBound } from './agent-inspect.mjs';
 
 test('log rendering skips canvas error rows and preserves journal order', () => {
   const error = { canvas: 7, error: 'journal unavailable' };
@@ -85,4 +85,19 @@ test('a covered target\'s refusal names the tasks waiting on the clock', async (
   expect((await covered({ boot: 1, splash: 900, charge: null })).message).toBe('tap #333: node #6 covers its middle; the agent\'s clock stands at 0 ms, and the app\'s tasks wait on it (`boot` at 1 ms, `splash` at 900 ms): if what covers it leaves on a timer, `clock +900` runs them');
   expect((await covered({ splash: 900 }, 1000)).message).toBe('tap #333: node #6 covers its middle');
   expect((await covered({})).message).toBe('tap #333: node #6 covers its middle');
+});
+
+// A task due a commit later (an `after(1, …)` an answer armed, euxy FRICTION 7) is what `clock settle` runs and
+// `clock data` names; one due later, one spent and one past are not.
+test('the tasks due a commit later are those within 1 ms of the clock', async () => {
+  const session = { state: async () => ({ tasks: { importLink: 1001, later: 1002, spent: null, past: 999, now: 1000, adopt: 1000.5 } }) };
+  expect(await nextCommitTasks(session, 1000)).toEqual([['adopt', 1000.5], ['importLink', 1001]]);
+  expect(await nextCommitTasks(session, 2000)).toEqual([]);
+});
+
+// Past its 16 rounds, `clock settle` is not settled while a task is still due a commit later, and names it.
+test('a settle that runs out of rounds says which tasks are still due', () => {
+  const r = settleBound([['chain', 17]]);
+  expect([r.settled, r.reason, r.tasks]).toEqual([false, 'tasks', { chain: 17 }]);
+  expect(r.diagnostic).toContain('`chain` is due again at 17 ms');
 });
