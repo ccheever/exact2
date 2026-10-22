@@ -5,7 +5,7 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnOwned } from './test-children.mjs';
-import { DRIVEN, ROOT, TOOL_ORIGIN, drive, edit, lines, stop, toolTurns } from './design-tool-harness.mjs';
+import { DRIVEN, ROOT, TOOL_ORIGIN, edit, lines, stop, toolTurns } from './design-tool-harness.mjs';
 
 toolTurns();
 
@@ -48,7 +48,8 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
       }
     };
     // Real time in one step, not several: a jump that crosses one of the tool's timers first waits on what
-    // is in flight, its changes poll held up to 20 s, and a `+N real` step counts that wait as time passed.
+    // is in flight, up to 20 s (the agent's bound; the server holds the tool's changes poll 25 s), and a
+    // `+N real` step counts that wait as time passed.
     const wait = ['clock +4000 real', 'clock data'];
     const drive = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', ...DRIVEN.args, '--url', url, '--storage', `design-tool-scrub-${process.pid}`, '--json',
       'type name Ada', 'tap save-name', 'clock data', ...wait,
