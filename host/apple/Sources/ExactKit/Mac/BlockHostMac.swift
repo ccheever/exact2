@@ -74,6 +74,10 @@ final class BlockHost {
     /// its authored parent leaves it there.
     func owns(_ node: NodeView) -> Bool { entries[node.id]?.node === node }
 
+    /// The subtrees in containers of their own, in the order they were
+    /// shown: the page a walk of the root does not reach.
+    var shown: [NodeView] { entries.values.sorted { $0.turn < $1.turn }.map(\.node) }
+
     /// Event paths keep the authored parent across a native container.
     /// A home that has disappeared ends the path.
     func parent(of node: NodeView) -> NSView? {

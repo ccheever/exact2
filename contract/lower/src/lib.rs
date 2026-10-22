@@ -1084,11 +1084,11 @@ impl<'a> Lowerer<'a> {
         if a.name == "-exact-menu"
             && (tag != "button"
                 || !matches!(&a.value, Expr::Str(value, _) if matches!(value.as_str(),
-                    "app" | "file" | "edit" | "view" | "go" | "window" | "help")))
+                    "about" | "app" | "file" | "edit" | "view" | "go" | "window" | "help" | "none")))
         {
             return err(
                 "lower-menu-placement",
-                "`-exact-menu` belongs to a button and takes a literal app, file, edit, view, go, window or help",
+                "`-exact-menu` belongs to a button and takes a literal about, app, file, edit, view, go, window, help or none",
                 a.span,
             );
         }

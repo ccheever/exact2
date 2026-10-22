@@ -960,20 +960,26 @@ More: docs/recipes/list-rows.md
 ## menubar: adding commands to the Mac menu bar
 names: -exact-menu, -exact-menu-remove
 
-On a button, `-exact-menu` is a literal `app`, `file`, `edit`, `view`, `go`,
-`window` or `help`. It adds an item even without a chord and overrides
+On a button, `-exact-menu` is a literal `about` (directly under About), `app`,
+`file`, `edit`, `view`, `go`, `window`, `help` or `none` (no item; the chord
+stays a shortcut). It adds an item even without a chord and overrides
 `aria-keyshortcuts` chord filing. The item's label is the button's accessible
-label or text; `disabled` disables it. Hidden/removed buttons leave the menu.
-Other hosts keep the ordinary button and ignore the hint. The agent taps the
-button. A root `-exact-menu-remove="show-tab-bar autofill close-all"` removes
-selected standard items and their menu equivalents. The fixed ids are `close-all`, `autofill`, `show-tab-bar`, `show-all-tabs`, `enter-full-screen`,
+label or text; `disabled` disables it. An item in the app menu or Help is the
+app's: enabled with no key window, under a sheet and under a Contract modal dialog.
+Hidden/removed buttons leave the menu. Other hosts keep the ordinary button
+and ignore the hint. The agent taps the button. A root
+`-exact-menu-remove="show-tab-bar autofill close-all"` removes selected
+standard items and their menu equivalents. The fixed ids are `close-all`, `autofill`, `show-tab-bar`, `show-all-tabs`, `enter-full-screen`,
 `minimize`, `zoom`, `bring-all-to-front`, `show-previous-tab`, `show-next-tab`,
-`move-tab-to-new-window`, `merge-all-windows`.
+`move-tab-to-new-window`, `merge-all-windows`, `back` (Go ▸ Back), `develop` (the
+Develop menu; its chords stay), `paste-and-match-style`, `find`,
+`spelling-and-grammar`, `substitutions`, `transformations`, `app-help` (Help ▸
+*App* Help), `actual-size`, `zoom-in`, `zoom-out`.
 The whitespace-separated list must be literal; unknown ids and nested use fail
 with `lower-menu-remove`, naming the set. Empty removes nothing; duplicates
 are harmless. The view’s root is a node, not a conditional. Root replacement and
-window switching restore the appropriate menu. App buttons, other standard
-items and development Develop remain. Other hosts ignore removal (LLP 1021 §5.3).
+window switching restore the appropriate menu. App buttons and other standard
+items remain. Other hosts ignore removal (LLP 1021 §5.3).
 
 ```contract
 component App
@@ -1149,6 +1155,10 @@ bar the page may draw in, beside the window's controls. On the Mac, under
 window `78 0 822×32`. It is all zero in full screen and while the window has a toolbar (an
 app with routes has one), and undefined elsewhere: in a browser tab, on iOS, Linux and
 Windows, and on a Mac window that does not cover its title bar. Give each a fallback.
+`"display_override": ["window-controls-overlay"]` in `app.json` gives a Mac window the
+platform's tall title row (an empty unified toolbar, about 52 points) while it shows no
+toolbar of its own, whatever `viewport-fit` says, and the area is that row beside the
+traffic lights; `exactViewport().displayMode` is then `window-controls-overlay`.
 
 ```contract
 component App

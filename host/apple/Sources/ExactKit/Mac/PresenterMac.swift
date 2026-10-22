@@ -864,15 +864,17 @@ package final class Presenter {
 
     /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
     var pressHeld = ""
-    package func press(_ id: UInt32, fromNativeMenu: Bool = false, held: String = "", bubbled: Bool = false) {
-        pressHeld = held; defer { pressHeld = "" }
-        guard let node = textHost(id), !(bubbled ? node.authoredInert : node.inert), !node.disabled,
+    /// The click being sent as a press, given by the mouse paths only (`pressMount`, FocusMac.swift).
+    var pressClick: NSEvent?
+    package func press(_ id: UInt32, fromNativeMenu: Bool = false, held: String = "", bubbled: Bool = false, outsideModal: Bool = false, click: NSEvent? = nil) {
+        pressHeld = held; defer { pressHeld = "" } // `outsideModal`: an app-wide menu item's (ShortcutsMac `enabled`)
+        guard let node = textHost(id), !(bubbled || outsideModal ? node.authoredInert : node.inert), !node.disabled,
               fromNativeMenu || (segments.shown(node) ?? sidebar.shows(node) ?? !node.isHiddenOrHasHiddenAncestor) || toolbar.contains(node) else { return }
         commitPendingEdit() // the press no longer ends a field's editing (FocusMac.swift)
         let command = dialogs.command(node, fromNativeMenu: fromNativeMenu, bubbled: bubbled)
         let popover = menus.command(node, fromNativeMenu: fromNativeMenu, bubbled: bubbled)
         if command == nil && popover == nil, node.id == id, let url = node.defaultLink, node.activateLink(url, bubbled: bubbled) { return }
-        if (command == nil && popover == nil) || node.handlers.contains("press") { onPress?(id) }
+        if (command == nil && popover == nil) || node.handlers.contains("press") { pressClick = click ?? pressClick; onPress?(id); pressClick = nil }
         command?()
         popover?()
     }
@@ -1430,15 +1432,13 @@ struct TextViewportIndex {
     init(_ paragraphs: [NodeView]) {
         var positions: [ObjectIdentifier: Int] = [:]
         for node in paragraphs {
-            guard let document = node.enclosingScrollView?.documentView else { continue }
+            // A paragraph outside every scroll view (a heading over a split's
+            // detail pane, a popover's text) is in view wherever its window
+            // is: its window's content view stands in as its document.
+            guard let document = node.enclosingScrollView?.documentView ?? node.window?.contentView else { continue }
             let key = ObjectIdentifier(document)
-            let index: Int
-            if let found = positions[key] { index = found }
-            else {
-                index = groups.count
-                positions[key] = index
-                groups.append(Group(document: document, entries: []))
-            }
+            let index = positions[key] ?? groups.count
+            if index == groups.count { positions[key] = index; groups.append(Group(document: document, entries: [])) }
             let rect = node.convert(node.bounds, to: document)
             groups[index].entries.append(Entry(node: node, rect: rect, bottom: rect.maxY))
         }

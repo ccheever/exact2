@@ -1489,6 +1489,7 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
 mod finite_tests;
 #[cfg(test)]
 mod tests;
+pub(crate) mod top_layer;
 // A `touch-action` value's pinch and pan parts.
 mod decoration;
 #[cfg(test)]

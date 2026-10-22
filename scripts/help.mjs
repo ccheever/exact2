@@ -34,7 +34,7 @@ const DRIVE = [
   ['--timing platform · --bind <extension>', 'Apple: UIKit\'s transitions keep their own timing (default: frozen) · Apple, Android: a module answered by its implementation, not the substitute'],
   ['--touch platform', 'iOS simulator: every tap a real touch, through the XCTest runner'],
   ['--epoch <ISO|ms|now>', 'the date at the clock\'s zero (default 2026-01-01)'],
-  ['--locale <tag> · --time-zone <zone> · --seed <n>', 'default en-US, UTC, 1'],
+  ['--locale <tag> · --format-locale <tag> · --time-zone <zone> · --seed <n>', 'default en-US, the locale (the Region\'s format, exactTime().formatLocale), UTC, 1'],
   ['--fail-fetch <prefix> · --permission <name>=<state>', 'each fetch whose URL starts with it fails, from the first data load · a module\'s permission at the start (geolocation=granted)'],
   ['--url <url>', 'web: drive a page already served (the dev loop\'s) instead of building'],
   ['--browser chrome|firefox|webkit', 'web (default chrome; bunx playwright@1.64.1 install firefox webkit)'],
