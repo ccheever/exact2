@@ -56,6 +56,7 @@ shape ScheduledEditorData
   title: string
   error: string
   busy: bool
+  saving: bool
   saved: bool
   dirty: bool
   canSave: bool
@@ -242,7 +243,7 @@ component SettingsScheduledEditor
               if data.webhookNote.length > 0
                 text data.webhookNote color=colors.muted font-size=roles.footnote.size
           button press=save() disabled=(not data.canSave) min-height=42 border-radius=14 background-color=colors.primary opacity=(data.canSave ? 1 : 0.45)
-            text (data.busy ? "Saving…" : data.editing ? "Save changes" : "Create task") color=colors.primaryForeground font-weight=500 font-size=roles.body.size
+            text (data.saving ? "Saving…" : data.editing ? "Save changes" : "Create task") color=colors.primaryForeground font-weight=500 font-size=roles.body.size
 component SettingsScheduledModel
   props
     data: ScheduledEditorData
