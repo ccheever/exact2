@@ -94,6 +94,21 @@ final class FormRowsMacTests: XCTestCase {
         XCTAssertEqual(mini.frame.size, mini.intrinsicContentSize, "the size it reports is the size it is drawn at")
     }
 
+    func testAFormPickerUsesTheInlineMenusEighteenPointHeight() throws {
+        let p = form([
+            ["op": "create", "id": 2, "kind": "list", "props": ["listStyle": "inset-grouped"]],
+            ["op": "create", "id": 3, "kind": "control", "props": ["type": "select"], "handlers": ["change"]],
+            ["op": "children", "id": 2, "ids": [3]],
+            ["op": "children", "id": 1, "ids": [2]],
+        ])
+        let picker = try XCTUnwrap(p.controls.controls[3] as? NSPopUpButton)
+        XCTAssertEqual(picker.bezelStyle, .inline)
+        picker.addItem(withTitle: "One")
+        XCTAssertEqual(p.controls.naturalSize(picker).height, 18, "with 20 points of row padding, the reference's 38-point picker row")
+        p.apply(wireBatch([["op": "children", "id": 2, "ids": []], ["op": "children", "id": 1, "ids": [2, 3]]]))
+        XCTAssertEqual(picker.bezelStyle, .push)
+    }
+
     /// A pressable row whose sheet says `appearance: auto` is a push button
     /// round its parts: from the row's padding edge to as far past its title
     /// as the title is in, as high as the row's content, under the title and

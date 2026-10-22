@@ -18,6 +18,13 @@ private final class RowBezel: NSButton {
 }
 
 extension NodeView {
+    var inGroupedForm: Bool {
+        for view in sequence(first: self as NSView, next: \.superview) {
+            if let node = view as? NodeView, node.kind == "list" { return node.props["listStyle"] != nil }
+        }
+        return false
+    }
+
     /// A pressable that is no control, on which the sheet's `appearance` is
     /// `auto`: a row the platform draws as its push button.
     var drawsRowBezel: Bool { kind != "control" && pressable && style["appearance"]?.string == "auto" }
