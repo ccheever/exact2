@@ -88,10 +88,12 @@ export function handleSource(path: string): AttachSource {
 
 async function mkdir(fs: StageFiles, path: string): Promise<void> { try { await fs.mkdir(path, { recursive: true }); } catch { /* it exists */ } }
 
-/** `from` copied to `to`: an app file in place, a document by its bytes (`doc:` paths refuse copyFile). */
-async function copy(fs: StageFiles, from: string, to: string): Promise<void> {
-  if (from.startsWith('app:/')) await fs.copyFile(from, to);
-  else await fs.writeFile(to, new Uint8Array(await fs.readFile(from)));
+/** `from` copied to `to`: an app file in place, a document by its bytes (`doc:` paths refuse copyFile), which it returns. */
+async function copy(fs: StageFiles, from: string, to: string): Promise<Uint8Array | null> {
+  if (from.startsWith('app:/')) { await fs.copyFile(from, to); return null; }
+  const bytes = new Uint8Array(await fs.readFile(from));
+  await fs.writeFile(to, bytes);
+  return bytes;
 }
 
 /** A name without path separators, for the scratch copy compressImage reads. */
@@ -148,13 +150,18 @@ async function stageFile(fs: StageFiles, source: AttachSource, size: number, fil
   const file: Obj = { kind: 'file', name, sizeBytes: size, mimeType };
   if (size <= 0 || fileLimit <= 0 || size > Math.min(fileLimit, MAX_FILE_BYTES)) return file;
   const id = uuid(), to = `${STAGED}/${stagedName({ id, name, mimeType })}`;
+  let read: Uint8Array | null;
   try {
     await mkdir(fs, STAGED);
-    await copy(fs, source.path, to);
+    read = await copy(fs, source.path, to);
   } catch { return { kind: 'unreadable', name, sizeBytes: size }; }
   file.id = id;
   if (videoMimeType({ name, mimeType }) !== null) {
-    const frame = videoFrameSize(new Uint8Array(await fs.readFile(to).catch(() => new ArrayBuffer(0))));
+    // `moov` may follow the media data, and storage.fs reads whole files only, so the header costs a read of the video
+    // (at most MAX_FILE_BYTES) once: a dropped or pasted one's bytes are already read by its copy, a picked one is read
+    // from its staged copy.
+    const bytes = read ?? new Uint8Array(await fs.readFile(to).catch(() => new ArrayBuffer(0)));
+    const frame = videoFrameSize(bytes);
     if (frame) { file.videoWidth = frame.width; file.videoHeight = frame.height; }
   }
   return file;

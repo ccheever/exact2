@@ -6,7 +6,7 @@ import type { Native } from '../../src/client/protocol';
 import { T3Client } from '../../src/client/client';
 import {
   adoptComposerFiles, base64Utf8, composerFileAttachments, composerFileRecords, draftFiles, fileAttachments, fileChipContexts, fileChipLink,
-  fileContextRecords, fileSendBlock, fileStagingLimit, formatAttachmentSize, nextPastedTextFileName, pruneFiles, referencedFiles, stageFold, foldPaste,
+  fileContextRecords, fileSendBlock, fileStagingLimit, formatAttachmentSize, nextPastedTextFileName, pruneFiles, referencedFiles, stageFold, foldPaste, heldPaste,
 } from '../../src/composer/composer-editor-files';
 
 describe('large paste folding (textPaste.ts, foldPastedText)', () => {
@@ -65,10 +65,11 @@ describe('large paste folding (textPaste.ts, foldPastedText)', () => {
 });
 
 describe('fold, chip and send', () => {
-  function harness() {
+  function harness(armed = { menu: false }) {
     const calls: Obj[] = [];
     const native: Native = { available: true, watch() {}, async later(input) {
       const request = obj(input) as Obj; calls.push(request);
+      if (request.op === 'composerPasteAsText') { const value = { armed: armed.menu }; armed.menu = false; return { ok: true, generation: 1, value }; }
       return { ok: true, generation: 1, value: request.op === 'editorEdit' ? { applied: acceptComposerEdit(client, request) } : {} };
     } };
     const rpcs: Obj[] = [], client = new T3Client();
@@ -111,7 +112,27 @@ describe('fold, chip and send', () => {
       ['error', 'Pasted text is too large for this message', 'Remove some text or an attachment, then paste again.'],
       ['error', 'Pasted text is too large to attach', 'Reduce the clipboard contents or save a smaller excerpt as a file.']]);
     expect(draftFiles(client.local)).toEqual([]);
-    expect(calls).toEqual([]);
+    expect(calls.filter(call => call.op !== 'composerPasteAsText')).toEqual([]);
+  });
+  test('Paste as Text chosen from the menu, or a held paste its bytes keep under the threshold, goes in as the field\'s paste', async () => {
+    const armed = { menu: true }, { native, client, calls } = harness(armed);
+    const current = observeComposer(client, 'before ');
+    const held = { id: 6, snapshotOwner: current.snapshotOwner, fieldOwner: current.owner, value: current.value, text: 'x'.repeat(130_000), start: 7, end: 7 };
+    await foldPaste(client, native, 'too-large-message', held, 'f1');
+    expect(toasts(client)).toEqual([]);
+    expect(calls.filter(call => call.op === 'editorEdit')).toMatchObject([{ start: 7, end: 7, expect: '', text: held.text }]);
+    expect(armed.menu).toBe(false);
+    // "measure": 20,000 ASCII units are 20,000 bytes, under 32 KB.
+    calls.length = 0;
+    const after = observeComposer(client, 'before ');
+    await foldPaste(client, native, 'measure', { ...held, id: 7, value: after.value, text: 'y'.repeat(20_000) }, 'f2');
+    expect(calls.filter(call => call.op === 'editorEdit')).toMatchObject([{ text: 'y'.repeat(20_000) }]);
+    expect(draftFiles(client.local)).toEqual([]);
+  });
+  test('a held record reads back from attachFiles\' files', () => {
+    expect(heldPaste(['fold\tsnap\tfield\t2\t5\t123', 'value', 'text'])).toEqual({ disposition: 'fold', snapshotOwner: 'snap', fieldOwner: 'field', start: 2, end: 5, id: 123, value: 'value', text: 'text' });
+    expect(heldPaste(['fold\tsnap', 'value', 'text'])).toBeNull();
+    expect(heldPaste(['doc:/1/a.txt'])).toBeNull();
   });
   test('a staged file whose bytes were lost cannot send and draws unresolved', async () => {
     const { native, client } = harness();

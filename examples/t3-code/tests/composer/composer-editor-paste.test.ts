@@ -26,11 +26,14 @@ const uuid = (n: number) => `1b4e28ba-2fa1-11d2-883f-0016d3cca42${n}`;
 /** The client fixture's server, with the shared field's insert and edit answered here. */
 class EditorBackend extends Backend {
   client: T3Client | null = null;
+  /** Edit › Paste as Text chosen with the pointer (T3Menus.swift), until a paste reads it. */
+  menuArmed = false;
   /** Runs while the editor view awaits its one read, the file metadata (before the reply reaches TypeScript). */
   onSync: () => void | Promise<void> = () => {};
   override async later(input: unknown): Promise<unknown> {
     const request = obj(input);
     if (request.op === 'editorInsert' || request.op === 'editorEdit') { this.calls.push(request); return this.good({ applied: this.client && acceptComposerEdit(this.client, request) }); }
+    if (request.op === 'composerPasteAsText') { const armed = this.menuArmed; this.menuArmed = false; return this.good({ armed }); }
     return super.later(input);
   }
 }
@@ -166,6 +169,18 @@ describe('a drop, a paste and Attach files (addComposerAttachments)', () => {
     await attachIncoming(client, native, 'paste', incoming(['doc:/2/image.png']));
     const second = (client.local.snapshotDrafts[client.draftKey] ?? [])[1]!;
     expect(ops(native, 'editorInsert').map(call => call.text).at(-1)).toContain(str(second.id));
+  });
+
+  test('Paste as Text chosen from the menu gives a pasted image no chip, as its key does', async () => {
+    const { client, native } = await opened();
+    client.local.drafts[client.draftKey] = 'look at this';
+    observeComposer(client, client.draft, true);
+    memoryFiles({ 'doc:/1/image.png': png(4, 3) });
+    native.menuArmed = true;
+    await attachIncoming(client, native, 'paste', incoming(['doc:/1/image.png']));
+    expect(ops(native, 'editorInsert')).toEqual([]);
+    expect((client.local.snapshotDrafts[client.draftKey] ?? []).map(image => str(image.name))).toEqual(['image.png']);
+    expect(native.menuArmed).toBe(false);
   });
 
   test('a video or audio file is staged under its typed name; a video\'s display size comes from its header', async () => {
