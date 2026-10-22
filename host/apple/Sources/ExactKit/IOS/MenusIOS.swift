@@ -287,8 +287,8 @@ final class MenuHost {
         // A bar item's popover that was no menu when its item was made (a
         // pull-down item opens its own): with a press of its own, after it,
         // whatever the press made it; without one the bar opens it (`openFromBar`).
-        if !eligible(source), eligible(source, inBar: true), let invocation = presenter?.invocation(of: source), invocation.opensPopover,
-           !isConfirmation(invocation.target) {
+        if source !== presentationOwner, !eligible(source), eligible(source, inBar: true), let invocation = presenter?.invocation(of: source),
+           invocation.opensPopover, !isConfirmation(invocation.target) {
             _ = openFromBar(source)
             return
         }
@@ -824,8 +824,9 @@ final class MenuHost {
             // it (HTML's light dismiss); the button that opened it may since
             // name something else.
             if let pop = entry.popover, touchedNodes.contains(where: { (eligible($0) || eligible($0, inBar: true)) && presenter?.invocation(of: $0)?.target === pop }) { continue }
-            // A touch on the bar leaves what a bar item opened: the item's own tap toggles it (`openFromBar`).
-            if inBar, let id = entry.source, let source = presenter?.views[id], case .success? = presenter?.navigation.barItem(source) { continue }
+            // A touch on the bar item that opened it is not outside it: the item's own tap toggles it (`openFromBar`).
+            if inBar, let id = entry.source, let source = presenter?.views[id], case .success(let (bar, item))? = presenter?.navigation.barItem(source),
+               item.contains(touched.convert(CGPoint(x: touched.bounds.midX, y: touched.bounds.midY), to: bar)) { continue }
             drop(name)
         }
     }
