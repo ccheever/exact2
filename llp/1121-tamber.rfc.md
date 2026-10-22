@@ -900,6 +900,19 @@ and no dial its values read (`tamber-unknown-token`; references across packages 
 A refusal in a package's design points at its line there (a token's, a `when`'s, a refused
 block's); one about the file (unreadable, a namespace taken twice) names the file.
 
+*Amended 2026-10-22 (stage 13, package icon tokens; theme2's 03:22 ruling):* **an SVG path is
+relative to the `assets/` of the design file it is written in.** A package's design may declare
+`icons`, each named under its namespace (`reading.star`; else `tamber-package-name`) and naming
+only its own package's icons (an app's or another package's is `tamber-unknown-token`, as for its
+tokens). The app's design overrides one by its full name under its own `icons`, whole, and D7
+keeps one as it keeps a package token. A package's `svg "star.svg"` reads
+`<package root>/assets/star.svg`, the app's `<app>/assets/`; so does a package component's icon
+param default written as a literal `icon(svg …)` (Q1: a package is self-contained wherever it is
+used), while an app's `params` line setting that param is the app's and reads the app's. An icon
+naming another reads the file beside the line that writes the `icon(…)`. In v1 a package's SVG
+must be a one-colour template (Q2 (a); `tamber-icon-svg` otherwise): the web, which alone draws a
+file as written, stages the app's `assets/` only (QUEUE).
+
 ### D12 — Every language gets generated names over the one table
 
 `bun exact.mjs tamber gen <target>` writes bindings from the IR, generated and never
@@ -5718,3 +5731,35 @@ is unchanged.
   columns); a `when` line's list with a px-only shadow among two over bases; a default the first tuple doesn't
   choose; a text shadow; a platform colour named `space.md`; px-only and app-set shadows with no key; a length
   keeping `terminal` while a shadow has none; no -0.
+
+### Stage 13: package icon tokens (draft for theme2)
+
+theme2's 03:22 ruling on `~/x2theme/x2p4-s13-package-icons-plan.md` (Q1 yes, Q2 (a)); QUEUE "What a package's
+design can't do yet" (1). D11 is amended (above).
+- **Tamber.** An `Icon` carries `written`, the line its `icon(…)` is written on: its own value's, or, for an icon
+  naming another, that one's (`icon::aliased` carries the value's line with its text).
+- **The join** (contract/lower/src/theme/packages.rs). A package's `icons` block is no longer
+  `tamber-package-block`: its icons are named under its namespace as its tokens are, banded into the app's design
+  as its tokens are (the app's icon of one name is the icon, whole), and `references` refuses one naming an icon
+  that isn't its own package's. LLP 1139 D8's check reads a library package's icons as names it defines, and an
+  app icon under its namespace that it doesn't define is `tamber-package-unknown`, as a token is.
+- **Where an SVG is read** (contract/lower/src/icons.rs). `written_in` finds the package design an icon's
+  `written` line is in (a package's band, or a param's line whose identity is a package design's); `Home::of` is
+  that package's root (the new `DesignSource::root`, from the resolved `Package.root`) or the app's. `svg_of`,
+  `draws` and `declare` take it per icon; a refusal names the package's file ("the package `@acme/reading`'s
+  `assets/star.svg`"), and a package's non-template SVG is `tamber-icon-svg`: "a package's pictures are one-colour
+  templates in v1". A missing file is `tamber-icon-svg`, as an app's is.
+- **Readers.** The source graph lists a package's SVG under its root, with the package's origin (one not there yet
+  is consulted); the design server's `draws`, `tamber check`'s copy and the ops check of an icon param's SVG read
+  the per-icon root; the levels walker reads a package's icons as its tokens.
+- **Wire** (one clause on `tamber/1.16`). `describe`'s icon rows gain `package` and `file`, and `explain` of a
+  package icon `package`, `file`, `identity`, `package_value` under an app override, and its value as its package
+  writes it (`tamber_packages::owner` learns icons for rows; a write's ops still take tokens alone, no new op).
+- **Unchanged:** every app's plan and `tamber check` output (no app has a package icon), and `@exact/cards` and
+  `@exact/actions`, whose icons are still path functions (their move to icon tokens is the follow-up).
+- **Tests:** `contract/cli/tests/it/package_icons.rs` (the namespace and its refusal; an alias within the package
+  and an app icon naming a package's; a package icon naming the app's refused; the app's override whole; D7 keeping
+  only a read one; the package's `assets/` and not the app's same-named file; a missing one naming the package's
+  file; a non-template one refused; the source graph; describe and explain rows and `package_value`; the levels
+  walker; a write's check of a package default's SVG), `library_rules.rs` (a library's icons as its names), and `tamber_package_params.rs`'s `a_package_icon_params_svg_is_a_source` now expects the package's
+  `assets/` (and an app `params` line the app's).

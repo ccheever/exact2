@@ -250,11 +250,13 @@ pub(crate) fn param_values(
                 }
             })),
             Ok(folding) if refused.is_empty() => {
-                // An icon param's SVG is the app's file (D10), as the build
-                // reads it.
+                // An icon param's SVG is a file beside the design it is
+                // written in (D10; a package's default's, its package's, stage 13), as the build reads it.
                 for i in folding.icons.iter().filter(|i| i.name.starts_with(contract_lower::params::PREFIX)) {
-                    if let Some(svg) = i.svg.as_ref().filter(|f| !dir.join("assets").join(f).is_file()) {
-                        refused.push(json!({"file": file, "id": "tamber-icon-svg", "message": message(&format!("`{}`: `assets/{svg}` is no file of the app", i.name))}));
+                    let home = contract_lower::icons::Home::of(i, Some(dir), &app.packages, list);
+                    if let Some(svg) = i.svg.as_ref().filter(|f| !home.svg(f).is_some_and(|p| p.is_file())) {
+                        let whose = home.package.map_or_else(|| "the app".to_string(), |p| format!("the package `{p}`"));
+                        refused.push(json!({"file": file, "id": "tamber-icon-svg", "message": message(&format!("`{}`: `assets/{svg}` is no file of {whose}", i.name))}));
                     }
                 }
                 // A value set charged to its line, a default to its own.

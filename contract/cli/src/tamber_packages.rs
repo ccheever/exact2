@@ -262,25 +262,42 @@ fn in_package(dir: &std::path::Path, file: &std::path::Path) -> Result<Option<St
         .then(|| "node_modules".to_string()))
 }
 
-/// The package design that defines `name`, and its line for it.
-fn owner<'a>(app: &'a AppParams, name: &str) -> Option<(&'a DesignSource, exact_tamber::Token)> {
+/// The package design that defines the token `name`, and its line for it;
+/// with `icons`, an icon of that name too (stage 13): what a row says of
+/// it, where a write's ops take tokens alone (no op writes an icon).
+fn owner<'a>(
+    app: &'a AppParams,
+    name: &str,
+    icons: bool,
+) -> Option<(&'a DesignSource, exact_tamber::Token)> {
     app.packages.iter().find_map(|p| {
         let design = exact_tamber::parse(&p.text).ok()?;
-        let token = design.tokens.into_iter().find(|t| t.name.value == name)?;
+        let icons = design.icons.into_iter().filter(|_| icons);
+        let token = design
+            .tokens
+            .into_iter()
+            .chain(icons)
+            .find(|t| t.name.value == name)?;
         Some((p, token))
     })
 }
 
-/// Whether the app's design text `design` defines `name`.
+/// Whether the app's design text `design` defines `name`, a token or an
+/// icon.
 fn defines(design: &str, name: &str) -> bool {
-    exact_tamber::parse(design).is_ok_and(|d| d.tokens.iter().any(|t| t.name.value == name))
+    exact_tamber::parse(design).is_ok_and(|d| {
+        d.tokens
+            .iter()
+            .chain(&d.icons)
+            .any(|t| t.name.value == name)
+    })
 }
 
 /// What a package token's row says: its package, the file its value comes
 /// from (the app's design `file` when the app sets it, else the package's),
 /// and its identity, `<package>/<file>#<token>`. None for the app's own.
 pub(crate) fn about(app: &AppParams, design: &str, file: &str, name: &str) -> Option<Value> {
-    let (source, _) = owner(app, name)?;
+    let (source, _) = owner(app, name, true)?;
     let from = match defines(design, name) {
         true => file.to_string(),
         false => source.home.clone(),
@@ -339,7 +356,7 @@ pub(crate) fn package_value(app: &AppParams, design: &str, name: &str) -> Option
     if !defines(design, name) {
         return None;
     }
-    let (source, token) = owner(app, name)?;
+    let (source, token) = owner(app, name, true)?;
     let whens: Vec<Value> = token
         .whens
         .iter()
@@ -369,7 +386,7 @@ pub(crate) fn ops(
 ) -> Result<(), Value> {
     let refuse = |m: String| Err(json!({"message": m}));
     let base = |name: &str| contract_lower::BASE_SCALE.contains(&name);
-    let theirs = |name: &str| owner(app, name).is_some() || base(name);
+    let theirs = |name: &str| owner(app, name, false).is_some() || base(name);
     let namespace = |name: &str| {
         app.packages.iter().find(|p| {
             let ns = p
@@ -407,7 +424,7 @@ pub(crate) fn ops(
                 }
                 defined.insert(name.clone());
                 // The package's written kind (a shadow's must be written), its `when`s not.
-                let kind = owner(app, name).and_then(|(_, t)| t.kind);
+                let kind = owner(app, name, false).and_then(|(_, t)| t.kind);
                 *op = Op::AddToken {
                     name: name.clone(),
                     kind,

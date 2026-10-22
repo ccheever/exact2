@@ -7,7 +7,7 @@
 //! whose Apple name it is, else the icon whose `sf` it is.
 
 use crate::LowerError;
-use contract_syntax::Span;
+use contract_syntax::{DesignSource, Span};
 use exact_tamber as tamber;
 use std::cell::RefCell;
 use std::path::Path;
@@ -85,15 +85,81 @@ fn drawn(
     }
 }
 
+/// The package design an icon's sources are written in (LLP 1121 D11,
+/// stage 13): a package's icon (its line in the package's band), a package
+/// component's icon param's default (its line a param's, `params`, the list
+/// the design was laid with), or one naming either; none for the app's
+/// (its icons, an inline theme's, and its `params` lines). Its SVG is read
+/// under that package's `assets/`, the app's under the app's.
+pub fn written_in<'a>(
+    icon: &tamber::Icon,
+    packages: &'a [DesignSource],
+    params: &[crate::params::ParamToken],
+) -> Option<&'a DesignSource> {
+    if let Some((band, _)) = crate::theme::packages::band(icon.written) {
+        return packages.get(band);
+    }
+    let at = icon.written.checked_sub(crate::params::LINE)? as usize;
+    let file = params.get(at)?.identity.rsplit_once('#')?.0;
+    packages
+        .iter()
+        .find(|p| p.package.is_some() && p.home == file)
+}
+
+/// Where an icon's SVG is read: under `root`'s `assets/`, and, for a
+/// package's, the package by name.
+#[derive(Debug, Clone, Copy)]
+pub struct Home<'a> {
+    /// The directory whose `assets/` it is under; none when the source
+    /// was compiled apart from any file.
+    pub root: Option<&'a Path>,
+    /// The package whose design writes it; none for the app's.
+    pub package: Option<&'a str>,
+}
+
+impl<'a> Home<'a> {
+    /// `icon`'s: its package's root ([`written_in`]), else `app`.
+    pub fn of(
+        icon: &tamber::Icon,
+        app: Option<&'a Path>,
+        packages: &'a [DesignSource],
+        params: &[crate::params::ParamToken],
+    ) -> Self {
+        match written_in(icon, packages, params) {
+            Some(p) => Home {
+                root: p.root.as_deref().map(Path::new),
+                package: p.package.as_deref(),
+            },
+            None => Home {
+                root: app,
+                package: None,
+            },
+        }
+    }
+
+    /// The SVG's file on disk.
+    pub fn svg(&self, file: &str) -> Option<std::path::PathBuf> {
+        Some(self.root?.join("assets").join(file))
+    }
+
+    /// `assets/<file>` as a refusal names it: a package's by its package.
+    fn shown(&self, file: &str) -> String {
+        match self.package {
+            Some(p) => format!("the package `{p}`'s `assets/{file}`"),
+            None => format!("`assets/{file}`"),
+        }
+    }
+}
+
 /// An icon's SVG as the build reads it: none without one; refused where
 /// its path has a `|` (it joins the source form's parts), it is not under
-/// the app's `assets/`, it doesn't read as one, or a template is over its
-/// size (its path travels in the plan and in every literal source).
-fn svg_of(
-    icon: &tamber::Icon,
-    root: Option<&Path>,
-) -> Result<Option<crate::icon_svg::Svg>, String> {
-    let (file, root) = match (&icon.svg, root) {
+/// its design file's `assets/` (the app's, or its package's), it doesn't
+/// read as one, a template is over its size (its path travels in the plan
+/// and in every literal source), or a package's is no template (stage 13,
+/// Q2: the web, which alone draws an SVG as written, stages the app's
+/// `assets/` only).
+fn svg_of(icon: &tamber::Icon, home: Home) -> Result<Option<crate::icon_svg::Svg>, String> {
+    let (file, root) = match (&icon.svg, home.root) {
         (None, _) => return Ok(None),
         (Some(_), None) => return Err(format!("`{}`: an icon's SVG is under the app's `assets/`; compile this source with `compile_path`", icon.name)),
         (Some(file), _) if file.contains('|') => {
@@ -104,20 +170,22 @@ fn svg_of(
     std::fs::read_to_string(root.join("assets").join(file))
         .map_err(|e| e.to_string())
         .and_then(|t| Ok((t.len(), crate::icon_svg::read(&t)?)))
-        .and_then(
-            |(len, svg)| match svg.not_template.is_none() && len > MAX_SVG {
-                true => Err(format!("it is over {} KiB", MAX_SVG / 1024)),
-                false => Ok(Some(svg)),
-            },
-        )
-        .map_err(|why| format!("`{}`: `assets/{file}`: {why}", icon.name))
+        .and_then(|(len, svg)| match &svg.not_template {
+            None if len > MAX_SVG => Err(format!("it is over {} KiB", MAX_SVG / 1024)),
+            Some(why) if home.package.is_some() => Err(format!(
+                "a package's pictures are one-colour templates in v1 ({TEMPLATE}), and this is not ({why}). To fix it, {}",
+                svg.fix
+            )),
+            _ => Ok(Some(svg)),
+        })
+        .map_err(|why| format!("`{}`: {}: {why}", icon.name, home.shown(file)))
 }
 
 /// Which source each target the app at `root` ships draws for `icon`
 /// (`describe`'s icon entry, LLP 1121 stage 9 C), its SVG read as the build
-/// reads it ([`svg_of`]); one the build refuses draws as none.
-pub fn draws(icon: &tamber::Icon, root: &Path) -> Vec<(String, Option<&'static str>)> {
-    let svg = svg_of(icon, Some(root)).ok().flatten();
+/// reads it ([`svg_of`], under `home`); one the build refuses draws as none.
+pub fn draws(icon: &tamber::Icon, root: &Path, home: Home) -> Vec<(String, Option<&'static str>)> {
+    let svg = svg_of(icon, home).ok().flatten();
     targets(Some(root))
         .into_iter()
         .map(|t| {
@@ -188,12 +256,13 @@ fn targets(root: Option<&Path>) -> Vec<Target> {
     out
 }
 
-/// Read each icon's SVG and check each target the app ships (read by
-/// [`clear`]) has a source; `span` places a refusal at the icon's line.
-/// `exported`: whether an icon is kept for code outside the views (D7).
-pub(crate) fn declare(
+/// Read each icon's SVG (under its `home`) and check each target the app
+/// ships (read by [`clear`]) has a source; `span` places a refusal at the
+/// icon's line. `exported`: whether an icon is kept for code outside the
+/// views (D7).
+pub(crate) fn declare<'a>(
     icons: &[tamber::Icon],
-    root: Option<&Path>,
+    home: &dyn Fn(&tamber::Icon) -> Home<'a>,
     span: &dyn Fn(u32, u32) -> Span,
     exported: &dyn Fn(&str) -> bool,
 ) -> Vec<LowerError> {
@@ -206,7 +275,8 @@ pub(crate) fn declare(
             message,
             span: at,
         };
-        let svg = match svg_of(icon, root) {
+        let home = home(icon);
+        let svg = match svg_of(icon, home) {
             Ok(svg) => svg,
             Err(why) => {
                 errors.push(refuse("tamber-icon-svg", why));
@@ -226,8 +296,9 @@ pub(crate) fn declare(
                 (Some(s), Some(file)) => refuse(
                     "tamber-icon-svg",
                     format!(
-                        "`{}`: `assets/{file}` is no one-colour shape ({}), and the app ships {target}, which draws an icon only as {TEMPLATE}{} (the web alone draws any SVG as written). To fix it, {}; or start from an SVG already in that form (Material Symbols' are){}",
+                        "`{}`: {} is no one-colour shape ({}), and the app ships {target}, which draws an icon only as {TEMPLATE}{} (the web alone draws any SVG as written). To fix it, {}; or start from an SVG already in that form (Material Symbols' are){}",
                         icon.name,
+                        home.shown(file),
                         s.not_template.as_deref().unwrap_or(""),
                         if apple(target) { " or as an SF Symbol (an `sf` source)" } else { "" },
                         s.fix,
