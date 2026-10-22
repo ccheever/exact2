@@ -45,9 +45,10 @@ struct HeaderShape: Equatable {
         /// A face that says more than a title or symbol (a dot beside its
         /// label, a font of the author's), drawn as painted (`ChipFace`).
         let chip: ChipFace?
-        /// Whether the button opens a popover (`Invocation.opensPopover`):
-        /// the item's menu, its rows read when it opens, as LLP 1021 D3's
-        /// pull-down.
+        /// Whether the button opens a menu-shaped popover or a confirmation
+        /// (`MenuHost.pullsDown`): the item's menu, its rows read when it
+        /// opens, as LLP 1021 D3's pull-down. Any other popover opens as
+        /// itself, from the item (`MenuHost.openFromBar`).
         let menu: Bool
         /// The popover's `aria-label`: the menu's title, as an in-page
         /// button's is (MenusIOS: "Open location in", "Sort by").
@@ -131,7 +132,7 @@ struct HeaderShape: Equatable {
             badge = button.isNativeButton || isReadout ? nil : BadgeFace(button)
             chip = badge == nil && !isReadout ? ChipFace(button) : nil
             let invocation = button.presenter?.invocation(of: button)
-            menu = invocation?.opensPopover == true
+            menu = invocation.map { $0.opensPopover && button.presenter?.menus.pullsDown($0.target) == true } == true
             menuTitle = menu ? invocation?.target.props["accessibilityLabel"] ?? "" : ""
             self.symbol = symbol
             title = text
@@ -580,7 +581,18 @@ final class BarPress: NSObject {
     let id: UInt32
     weak var host: NavigationHost?
     init(_ id: UInt32, _ host: NavigationHost) { self.id = id; self.host = host }
-    @objc func press() { _ = host?.act(id, 0) }
+    @objc func press() {
+        guard let host, let node = host.presenter.views[id] else { return }
+        // A popover that is no menu, named with no press of its own, opens
+        // from the item (`MenuHost.openFromBar`); with a press, after it
+        // (`MenuHost.invoke`).
+        if !node.handlers.contains("press"), let invocation = host.presenter.invocation(of: node), invocation.opensPopover,
+           !host.presenter.menus.pullsDown(invocation.target) {
+            _ = host.presenter.menus.openFromBar(node)
+            return
+        }
+        _ = host.act(id, 0)
+    }
 }
 
 /// One stack Exact built: its delegate, whether its routes may show the bar
@@ -641,7 +653,14 @@ extension NavigationHost {
         // An item whose button only opens a menu is UIKit's pull-down, which
         // no public API opens: under the agent's painted popovers it opens
         // painted (`agentOpen(barItem:)`); under UIKit's menus a real touch opens it.
-        if !node.handlers.contains("press"), !node.disabled, presenter.invocation(of: node)?.opensPopover == true {
+        if !node.handlers.contains("press"), !node.disabled, let invocation = presenter.invocation(of: node), invocation.opensPopover {
+            // A popover that is no menu opens as itself, from the item, as
+            // from a native button in the page (LLP 1021 D3 covers menus only).
+            if !presenter.menus.pullsDown(invocation.target) {
+                return presenter.menus.openFromBar(node)
+                    ? ["tapped": id, "delivery": "host-activation", "native": "bar-button-item", "popover": "lifted"]
+                    : ["error": "bar item #\(id) opens nothing now: it is ineligible or names no popover"]
+            }
             switch presenter.menus.agentOpen(barItem: node) {
             case true?: return ["tapped": id, "delivery": "host-activation", "native": "bar-pull-down", "menu": "painted"]
             case false?: return ["error": "bar item #\(id) opens nothing now: its menu's button is ineligible or names no popover"]

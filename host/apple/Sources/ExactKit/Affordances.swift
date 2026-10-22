@@ -61,6 +61,14 @@ extension NodeView {
         #endif
     }
 
+    /// Whether it is drawn as a list cell's image (iOS's custom grouped row).
+    var drawsListSymbol: Bool {
+        #if os(iOS) || os(tvOS)
+        listSymbol
+        #else
+        false
+        #endif
+    }
     /// What the symbol's look reads from its style, for the image's key: a
     /// change makes it again. Its colours are resolved into the
     /// configuration, so every trait they resolve by is here too, and the
@@ -68,7 +76,7 @@ extension NodeView {
     var symbolLookKey: String {
         [style["symbol_rendering"]?.string ?? "", (style["symbol_palette"] ?? .null).key,
          "\(number("symbol_value", -1))", (style["tint_color"] ?? .null).key, "\(drawsDark)",
-         "\(drawsHighContrast ?? SystemColor.highContrast)", "\(drawsElevated)", "\(SystemColor.generation)", bakedTintKey, bakedInkKey].joined(separator: "|")
+         "\(drawsHighContrast ?? SystemColor.highContrast)", "\(drawsElevated)", "\(SystemColor.generation)", bakedTintKey, bakedInkKey, "\(drawsListSymbol)"].joined(separator: "|")
     }
     /// The inherited tint, when the look bakes it into the image: a
     /// hierarchical glyph without its own tint or tinted by it (`Highlight`
@@ -108,6 +116,11 @@ extension NodeView {
     /// `face`: as a native control's face draws it, without the page's ink.
     func symbolConfiguration(_ base: SymbolConfig, face: Bool = false) -> SymbolConfig {
         let tint = symbolTint ?? (face ? nil : symbolInk) ?? unsaidSymbolTint
+        #if os(iOS) || os(tvOS)
+        // A list cell's image is the large scale of its size, as UIKit's
+        // `UIListContentConfiguration` asks (`preferredSymbolConfiguration`).
+        let base = drawsListSymbol ? base.applying(SymbolConfig(scale: .large)) : base
+        #endif
         switch style["symbol_rendering"]?.string {
         case "hierarchical": return base.applying(SymbolConfig(hierarchicalColor: tint))
         case "multicolor": return base.applying(SymbolConfig.preferringMulticolor())

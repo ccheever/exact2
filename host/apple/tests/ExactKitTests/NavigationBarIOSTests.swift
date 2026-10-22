@@ -416,6 +416,52 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertTrue(refusal?.hasPrefix("unsupported: bar item") == true, "\(refusal ?? "nil")")
     }
 
+    /// LLP 1021 D3: only a menu-shaped popover is a bar item's pull-down. An
+    /// item opening any other popover (Harmony's pins and members) is a plain
+    /// item whose tap opens the popover itself, lifted and anchored under the
+    /// item, as a native button in the page opens one; a second tap closes it.
+    func testABarItemOpeningAPopoverThatIsNoMenuOpensItFromTheItem() throws {
+        let session = try fixture("bar-popover", module: false)
+        let agent = Agent(session: session)
+        XCTAssertNil(agent.tap(["id": Int(try node(session, "open-plain").id)])["error"])
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        until("the plain route is pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
+        let plain = try XCTUnwrap(nav.topViewController)
+        let about = try XCTUnwrap(plain.navigationItem.rightBarButtonItems?.first { $0.accessibilityLabel == "About" }, "the invoker is an item")
+        XCTAssertNil(about.menu, "no pull-down: its popover is no menu")
+        XCTAssertNotNil(about.action)
+        let pop = try node(session, "plain-about")
+        try tap(about)
+        until("the popover opens") { session.presenter.menus.isOpen(pop) && pop.window != nil && !pop.isHidden }
+        let bar = nav.navigationBar.convert(nav.navigationBar.bounds, to: nil)
+        let frame = pop.convert(pop.bounds, to: nil)
+        XCTAssertGreaterThan(frame.minY, bar.minY, "from the item in the bar: \(frame) \(bar)")
+        XCTAssertLessThan(frame.minY, bar.maxY + 20, "beside the item, not centred on the page: \(frame)")
+        XCTAssertGreaterThan(frame.maxX, bar.midX, "on the item's side, the trailing one: \(frame)")
+        // A real touch light-dismisses before the item acts (PopoverTouch):
+        // one on the item that opened it is not outside it, so the item's
+        // tap toggles it; one elsewhere on the bar is.
+        let invoker = try node(session, "about-plain")
+        guard case .success(let (barView, itemRect))? = session.presenter.navigation.barItem(invoker) else { return XCTFail("the item's rect") }
+        let onItem = UIView(frame: itemRect), elsewhere = UIView(frame: CGRect(x: 0, y: 0, width: 20, height: 20))
+        barView.addSubview(onItem); barView.addSubview(elsewhere)
+        defer { onItem.removeFromSuperview(); elsewhere.removeFromSuperview() }
+        session.presenter.menus.lightDismiss(onItem)
+        XCTAssertTrue(session.presenter.menus.isOpen(pop), "a touch on its item is not outside it")
+        // The agent's tap dismisses on the hidden button first: that is its invoker too.
+        session.presenter.menus.lightDismiss(invoker)
+        XCTAssertTrue(session.presenter.menus.isOpen(pop), "nor is the agent's, on the item's button")
+        try tap(about)
+        until("a second tap closes it") { !session.presenter.menus.isOpen(pop) }
+        try tap(about)
+        until("it opens again") { session.presenter.menus.isOpen(pop) }
+        session.presenter.menus.lightDismiss(elsewhere)
+        until("a touch elsewhere on the bar dismisses it") { !session.presenter.menus.isOpen(pop) }
+        // A press of its own runs first; the item's popover then opens from it (`invoke`).
+        session.presenter.menus.invoke(invoker)
+        until("an invocation after a press opens it") { session.presenter.menus.isOpen(pop) }
+    }
+
     /// LLP 1075.003 §9.6: a header's `input type="search"` is the item's
     /// search controller; what the reader types is the field's `input`.
     func testAHeaderSearchFieldIsTheItemsSearchControllerAndTypingIsItsInput() throws {

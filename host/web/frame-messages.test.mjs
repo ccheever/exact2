@@ -10,6 +10,7 @@ test('iframe replies keep order and ownership, with no queue across replacement 
     if (path === '/navigation.js') return new Response(Bun.file(new URL('./navigation.js', import.meta.url)));
     if (path === '/prompt-glue.js') return new Response(Bun.file(new URL('./prompt-glue.js', import.meta.url)));
     if (path === '/alert-message.js') return new Response(Bun.file(new URL('./alert-message.js', import.meta.url)));
+    if (path === '/menu-rows.js') return new Response(Bun.file(new URL('./menu-rows.js', import.meta.url)));
     if (path.startsWith('/guest')) return new Response(`<body>Guest<script>window.received=[];addEventListener('message',e=>{received.push(e.data);document.body.textContent=JSON.stringify(received);parent.postMessage({seen:e.data},'*')})</script>`, { headers: { 'content-type': 'text/html' } });
     return new Response(`<main id="exact-root"></main><script type="module">
       import * as frames from '/frame-messages.js';

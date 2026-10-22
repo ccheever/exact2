@@ -54,6 +54,7 @@ pub struct Bridge<D: DataSource> {
 mod clock;
 mod midi;
 mod mode;
+mod presence;
 
 #[cfg(test)]
 mod refusal_tests;
@@ -1199,6 +1200,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_fonts() -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().fonts())
+        }
+
+        /// Whether the booted plan needs the presence module (`presence::needed`): 1 or 0.
+        #[no_mangle]
+        pub extern "C" fn exact_presence() -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow().presence())
         }
 
         /// Dispatch an event; returns the batch's length.

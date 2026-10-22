@@ -107,7 +107,7 @@ pub fn generate(app_contract: &Path, out: &Path) -> Result<Gallery, String> {
     let mut taken: HashSet<String> = ["Gallery", "noop"].iter().map(|s| s.to_string()).collect();
     let placed = placed(&file, &sources, &mut taken);
     let shapes = shapes(&placed, &file, &sources, &mut taken);
-    let inert = Inert::new(placed.iter().map(|p| p.component), &mut taken);
+    let inert = Inert::new(placed.iter().map(|p| p.component), &file, &mut taken);
     let compiler = compiler_records();
     assets(&root, &out)?;
     // An app with no design file of its own: the gallery has none either, the packages' still folded.
@@ -996,7 +996,7 @@ fn args(
                 // What the view says of the prop before its type: the
                 // action its handler calls, the role a symbol names.
                 None => match &p.ty {
-                    Some(TypeExpr::Named(t, _)) if t == "action" => inert.action(c, &p.name),
+                    Some(TypeExpr::Named(t, _)) if t == "action" => inert.action(c, file, &p.name),
                     Some(TypeExpr::Named(t, _))
                         if t == "string" && inert::names_symbol(c, &p.name) =>
                     {

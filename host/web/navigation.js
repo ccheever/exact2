@@ -543,24 +543,29 @@ export function afterPaintPieces(load, o) {
   } };
 }
 // @ref LLP 1063 — -exact-exit-animation and -exact-layout-transition play in
-// `presence-glue.js`, fetched when a batch first carries either row. A batch
+// `presence-glue.js`, fetched when a batch first carries either row, or after first paint where the plan names either
+// (`preload`: a bound layout transition may declare nothing at boot; a batch before it lands, at boot or a person's first
+// press, still jumps); the agent waits for it (`pending`, bounded by its deadline). A batch
 // with an exit that arrives before the module does waits for it, and every
 // batch after it waits behind it, so no exit is lost and order holds; the
 // caller hands them back through `apply`. `live` is the module, once loaded.
 export function presenceLoader(load, root, apply, log) {
-  let live = null, loading = null, unavailable = false;
-  const held = [];
+  let live = null, loading = null, unavailable = false, scheduled = null;
+  const held = [], row = op => op.op === 'exit' || /(^|;)\s*--exact-(layout-transition|exit-animation)\s*:/.test((op.css ?? '').replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, '""'));
   const release = () => { for (const batch of held.splice(0)) apply(batch); };
   const start = () => loading ??= load('./presence-glue.js', 'presence')
     .then(create => { live = create(root); release(); })
     .catch(error => { unavailable = true; loading = null; log(`presence module: unavailable; motion skipped: ${error}`); release(); });
   return {
     get live() { return live; },
+    preload() { if (!live && !unavailable && !loading) scheduled ??= new Promise(resolve => afterPaint(() => { scheduled = null; resolve(unavailable ? null : start()); })); },
+    pending: () => live || unavailable ? null : loading ?? scheduled,
+    landed(ms) { const p = this.pending(); let t; return !p ? Promise.resolve(true) : Promise.race([p.then(() => true), new Promise(r => { t = setTimeout(r, ms, false); })]).finally(() => clearTimeout(t)); }, // whether no load is left within `ms`
     resize(batch) { return { ...batch, presenceSnap: true }; },
     hold(batch) {
       if (live || unavailable) return false;
       const ops = batch.ops ?? [];
-      if (ops.some(op => op.op === 'exit' || op.css?.includes('--exact-'))) start();
+      if (ops.some(row)) start();
       if (!held.length && !(loading && ops.some(op => op.op === 'exit'))) return false;
       held.push(batch);
       return true;
@@ -1483,7 +1488,7 @@ export function popoverCommand(method, id, source, say) {
   try { pop[method](method === "hidePopover" || !anchor ? undefined : { source: anchor }); }
   catch (e) { say(`${method} "${id}" refused: ${e.name}`); }
 }
-const popoverSources = new WeakMap();
+const popoverSources = new WeakMap(); /** What opened popover `pop` last (its `beforetoggle`'s source): a menu's invoker, for menu-rows.js. */ export const popoverSource = pop => popoverSources.get(pop) ?? null;
 globalThis.document?.addEventListener?.("beforetoggle", e => {
   if (e.target.hasAttribute("popover") && e.newState === "open") { popoverSources.set(e.target, e.source ?? null); e.target.toggleAttribute("data-exact-chooser", !!e.source?.checkVisibility() && e.target.getAttribute("role") === "alertdialog" && !e.target.querySelector(":scope > [data-exact-text], input")); } // a chooser (LLP 1021) its invoker opened, the invoker still shown: neutral.css draws it there, as a menu
 }, true);

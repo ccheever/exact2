@@ -10,7 +10,7 @@ use super::tamber_serve::{digest, Serve};
 use serde_json::{json, Value};
 use std::path::Path;
 
-fn transaction(s: &mut Serve, dir: &Path, op: Value) -> Value {
+pub(super) fn transaction(s: &mut Serve, dir: &Path, op: Value) -> Value {
     s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&dir.join("app.tamber"))}, "ops": [op]}))
         .0
 }
@@ -18,7 +18,7 @@ fn transaction(s: &mut Serve, dir: &Path, op: Value) -> Value {
 /// The server refuses `op`, and `contract build` refuses the design the
 /// write would leave (`written`), with the same id and words, at the same
 /// row.
-fn same_words(dir: &Path, design: &str, contract: &str, op: Value, written: &str) {
+pub(super) fn same_words(dir: &Path, design: &str, contract: &str, op: Value, written: &str) {
     std::fs::write(dir.join("app.tamber"), design).unwrap();
     std::fs::write(dir.join("app.contract"), contract).unwrap();
     let mut s = Serve::start(dir, &[]);
