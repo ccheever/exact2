@@ -228,7 +228,16 @@ fn three_messages_then_a_close_and_the_worker_stays_free() {
         matches!(&end, Outcome::Failed { kind: FailureKind::Network, message } if message == "the event stream ended"),
         "{end:?}"
     );
-    assert!(settled(&core), "the stream's reservation ends with it");
+    // The terminal outcome can drain before the async transport's physical
+    // end is processed. Its reservation belongs to that later event.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !settled(&core) {
+        assert!(
+            Instant::now() < deadline,
+            "the ended stream kept its reservation"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
 }
 
 #[test]
