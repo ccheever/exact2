@@ -112,6 +112,23 @@ test('a package vendored in the app, reached by a relative use, has its SVG edit
   writeFileSync(app, before);
 }, 120_000);
 
+test('a package vendored in the app whose SVG is not there yet has it announced when made (stage 13)', async () => {
+  const star = d => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="${d}"/></svg>`;
+  const vendor = join(dir, 'vendor/rack');
+  mkdirSync(join(vendor, 'assets'), { recursive: true });
+  writeFileSync(join(vendor, 'package.json'), JSON.stringify({ name: '@acme/rack', version: '1.0.0', exports: { '.': './index.contract' } }));
+  writeFileSync(join(vendor, 'index.contract'), 'component RackCard\n  params\n    glyph: icon = "icon(svg \\"pin.svg\\")"\n  view\n    image "symbol:param.glyph"\n');
+  const app = join(dir, 'app.contract');
+  const before = readFileSync(app, 'utf8');
+  let { seq } = await post({ after: 0, wait: false }, '/__tamber/events');
+  writeFileSync(app, `use RackCard from "./vendor/rack/index.contract"\n${before.replace('      NotesCard()\n', '      NotesCard()\n      RackCard()\n')}`);
+  await until(async () => (await post({ after: seq, wait: false }, '/__tamber/events')).events?.find(e => e.event === 'changed' && e.edited?.includes('@acme/rack/assets/')));
+  ({ seq } = await post({ after: 0, wait: false }, '/__tamber/events'));
+  writeFileSync(join(vendor, 'assets/pin.svg'), star('M1 1h22v22H1Z'));
+  await until(async () => (await post({ after: seq, wait: false }, '/__tamber/events')).events?.find(e => e.event === 'changed' && e.edited?.includes('@acme/rack/assets/')));
+  writeFileSync(app, before);
+}, 120_000);
+
 test('a package design made where none was is announced; a client\'s hello never carries paths', async () => {
   const hello = await post({ method: 'hello', paths: true });
   expect(hello.ok.watch).toBeUndefined();
