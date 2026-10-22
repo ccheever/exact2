@@ -113,7 +113,11 @@ extension NodeView {
         let box = r.flatMap { $0.count == 4 ? NSRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) : nil }
         applyKernelContentBox(box, padding: NodeView.sentPadding(payload))
         let cell = box != nil && payload["cell"] as? Bool == true
-        if cell != fieldInCell { fieldInCell = cell; styleNativeField() }
+        if cell != fieldInCell {
+            fieldInCell = cell
+            styleNativeField()
+            styleTextArea()
+        }
     }
 }
 
