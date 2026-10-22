@@ -18,7 +18,10 @@ extension ExactSession {
 public final class ExactView: NSView {
     public let session: ExactSession
     public override func selectAll(_ sender: Any?) { session.presenter.selection.selectAll() }
-    @objc public func copy(_ sender: Any?) { session.presenter.selection.copy() }
+    /// The first root's `copy` with nothing focused (`RootEdits`), else the text selection's.
+    @objc public func copy(_ sender: Any?) { if !rootEdits.perform(#selector(NodeView.copy(_:))) { session.presenter.selection.copy() } }
+    /// Edit ▸ Cut, Copy and Paste with nothing focused, after the window in its responder chain.
+    private lazy var rootEdits: RootEdits = { let edits = RootEdits(); edits.presenter = session.presenter; return edits }()
     /// Edit ▸ Speech over the selected text, as a browser speaks a page's
     /// selection (#141); a field's `NSTextView` answers first while it has
     /// the focus. Spoken Content's voice and rate, as AppKit's own.
@@ -80,6 +83,12 @@ public final class ExactView: NSView {
     public var onWindowSidebar: (() -> Void)? {
         get { session.presenter.sidebar.onWanted }
         set { session.presenter.sidebar.onWanted = newValue; session.presenter.navigation.split.onWanted = newValue }
+    }
+    /// The window's owner put `window-controls-overlay`'s toolbar in the
+    /// title bar (LLP 1039 D8): the title-bar area is beside the traffic
+    /// lights in its band, and the display mode is that overlay.
+    public var controlsOverlay = false {
+        didSet { if controlsOverlay != oldValue { session.tellPreferences() } }
     }
     public var hasWindowToolbar: Bool {
         guard let toolbar = session.presenter.toolbar.toolbar else { return false }
@@ -244,7 +253,7 @@ public final class ExactView: NSView {
     }
 
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
-        if newWindow !== window { session.natives.windowLeaving(window) }   // its window hatch ends while the window is there
+        if newWindow !== window { session.natives.windowLeaving(window); rootEdits.leave(window) }   // its window hatch ends while the window is there
         super.viewWillMove(toWindow: newWindow)
     }
 
@@ -259,6 +268,7 @@ public final class ExactView: NSView {
         if session.presenter.toolbar.window !== window { session.presenter.toolbar.detach() }
         else { session.presenter.toolbar.sync() }
         if let shortcutMonitor { NSEvent.removeMonitor(shortcutMonitor); self.shortcutMonitor = nil }
+        if let window { rootEdits.join(window) }
         if window != nil {
             // Text editors can consume control chords before the responder chain.
             // Route declared commands first, scoped to this session's focused view.
@@ -278,6 +288,8 @@ public final class ExactView: NSView {
                 if event.type != .keyDown && event.type != .keyUp {
                     // A click is a new place for Tab to start from (`tabStart`): the window's, as before.
                     if event.type == .leftMouseDown || event.type == .rightMouseDown {
+                        // A press outside a field composing text commits it before the press runs, as Chrome's mousedown does.
+                        self.session.presenter.commitCompositionBefore(event)
                         self.session.presenter.tabStart = nil
                         // A press on a held node, or in it, lets its hold go (HeldState.swift), whatever view takes it.
                         self.session.presenter.heldPointerDown(event)
@@ -324,7 +336,7 @@ public final class ExactView: NSView {
             session.presenter.regions = regions
             session.regions(regions)
         }
-        let area = TitleBarAreaMac.rect(of: self, cover: viewportFit == "cover")
+        let area = TitleBarAreaMac.rect(of: self, cover: viewportFit == "cover" || controlsOverlay, overlay: controlsOverlay)
         if !titlebarTold || area != session.presenter.titlebarArea {
             titlebarTold = true
             session.presenter.titlebarArea = area

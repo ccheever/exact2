@@ -5,6 +5,7 @@
 //! Unsupported rows are reported in [`Skipped`].
 
 mod clears;
+pub mod control_size;
 mod decorations;
 mod fonts;
 mod selection;
@@ -285,15 +286,8 @@ fn css_text_in(
                 out.push_str("color-scheme:inherit;")
             }
             (StyleId::UserSelect, RowValue::Enum(v)) => selection::push(&mut out, v),
-            // LLP 1069.011.001 D8–D9: browser-owned absolute sizes and corners.
-            (StyleId::ControlSize, RowValue::Enum(size)) => {
-                let size = match *size {
-                    "mini" => "x-small",
-                    size @ ("small" | "large") => size,
-                    _ => "medium",
-                };
-                push_text!(&mut out, "--exact-control-font-size:{};", size);
-            }
+            (StyleId::ControlSize, RowValue::Enum(size)) => control_size::push(&mut out, size),
+            // LLP 1069.011.001 D9: browser-owned corners.
             (StyleId::ControlCornerStyle, RowValue::Enum(corner)) => {
                 out.push_str("--exact-control-radius:");
                 out.push_str(if *corner == "capsule" {

@@ -123,7 +123,7 @@ export const RADIUS_FULL = 9999;
 
 /** Length `name`'s value on `host`, in points: the design's own token
  * (`overrides`), else a base name's in the kernel's table, in the host's
- * column (a metric's reference read in that column; radius.full
+ * column (a metric's reference read in that column, a stretch's too; radius.full
  * [`RADIUS_FULL`]; the terminal's cells by `grid`'s width); undefined for a
  * name neither has, a host with no column, or cells with no grid. */
 export function baseLength(schema, overrides, name, host, grid = null) {
@@ -131,6 +131,8 @@ export function baseLength(schema, overrides, name, host, grid = null) {
   const row = schema.scale.find(r => r[0] === name), column = COLUMN[host];
   if (!row || !column) return undefined;
   let cell = row[SCALE_CELL[column]];
+  // A stretch reads its metric as `=metric` does (stage 13 D5).
+  if (typeof cell?.stretch === 'string') cell = cell.stretch;
   if (typeof cell === 'string' && cell.startsWith('=')) {
     const metric = schema.metrics.find(r => r[0] === cell.slice(1));
     if (!metric) return undefined;
@@ -345,7 +347,7 @@ export function check(host, layout, image, expect, base = () => undefined) {
  * SHA-256): a host that runs another, as the Android reader would on its own
  * bake were the push not read, fails loudly. The reader runs an app's APK
  * (`app`), which the drive gives the plan to (pushed, in place of its bake). */
-function drive(host, plan, png, steps = [], app = null) {
+export function drive(host, plan, png, steps = [], app = null) {
   const launch = host === 'android' ? ['--reader', '--app', app, '--plan', plan] : ['--plan', plan];
   // The terminal host headless, its own verbs: `plan` (the running plan's
   // SHA-256), the steps, then `layout` (its reply carries each corner's
@@ -356,10 +358,12 @@ function drive(host, plan, png, steps = [], app = null) {
   const ran = (run.stdout ?? '').split('\n').map(l => /"plan":"([0-9a-f]{64})"/.exec(l)?.[1]).find(Boolean);
   const want = createHash('sha256').update(readFileSync(plan)).digest('hex');
   if (run.status === 0 && ran !== want) throw new Error(`${host} runs ${ran ? `another plan (${ran.slice(0, 12)}…)` : 'a plan it does not name'}, not ${want.slice(0, 12)}…: not measured`);
-  // The last layout: the one after the steps.
-  const line = (run.stdout ?? '').split('\n').findLast(l => l.startsWith('{') && l.includes('"nodes"'));
+  // The last layout: the one after the steps; any a step asked for before
+  // it, in order, as `earlier`.
+  const layouts = (run.stdout ?? '').split('\n').filter(l => l.startsWith('{') && l.includes('"nodes"'));
+  const line = layouts.at(-1);
   if (run.error || run.status !== 0 || !line) throw new Error(`the drive failed${run.error ? ` (${run.error.message})` : run.signal ? ` (${run.signal})` : ''}\n${run.stdout ?? ''}${run.stderr ?? ''}`);
-  return JSON.parse(line);
+  return Object.assign(JSON.parse(line), { earlier: layouts.slice(0, -1).map(l => JSON.parse(l)) });
 }
 
 /** An agent step as the terminal's verbs take it: a verb's text tail (`type

@@ -385,6 +385,12 @@ impl Checker {
         self.verdicts.get(key) == Some(&Verdict::Failed)
     }
 
+    /// [`Checker::failed`] as last polled, for a caller holding no `&mut`
+    /// (the write check's rows, `tamber_scrub`).
+    pub fn seen_failed(&self, key: &str) -> bool {
+        self.verdicts.get(key) == Some(&Verdict::Failed)
+    }
+
     /// Whether a build was sent and its result not yet read (a test's).
     #[cfg(test)]
     pub fn busy(&mut self) -> bool {

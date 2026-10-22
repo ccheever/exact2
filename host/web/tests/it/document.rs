@@ -60,6 +60,15 @@ fn raw_symbols_prerender_as_nonfetching_decorative_images() {
     assert_eq!(doc.matches("alt=\"\"").count(), 3, "{doc}");
 }
 
+/// A role's natural size is the neutral look's `symbol-scale` ems, as the
+/// live renderer gives it, so the page does not move when it paints.
+#[test]
+fn a_role_prerenders_at_the_size_it_paints() {
+    let doc =
+        document("component App\n  view\n    row font-size=20\n      image \"symbol:circle\"\n");
+    assert!(doc.contains("width='24' height='24'"), "{doc}");
+}
+
 fn caltrain() -> (Host<caltrain_data::Caltrain>, String) {
     let plan = caltrain::build().unwrap();
     exact_web::link(exact_web_capabilities::ALL);
@@ -479,6 +488,55 @@ component App
         !post.contains("inert") && !post.contains("visibility"),
         "{post}"
     );
+}
+
+// LLP 1115.000 D4.15 — a route's header iOS makes its bar of is marked as
+// navigation.js marks it (`appBarBack`), by the kernel's rule
+// (`exact_kernel::bars::header_bar`): its first child, holding one heading
+// text, on a route that does not say `navigationBar="none"`, unless its
+// author wrote `appearance: none`. A row whose role is `heading` is no
+// heading text. So a page built ahead of time sizes its bar's symbols as
+// the glue will.
+#[test]
+fn a_header_that_is_its_routes_bar_is_marked() {
+    let src = r#"
+routes nav
+  tab home "/"
+    full "/full"
+    bare "/bare"
+    row "/row"
+    own "/own"
+component App
+  action back
+    nav = back(nav)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationBar=(e.name == "full" ? "none" : "auto")
+          header testId=`header-${e.name}` appearance=(e.name == "own" ? "none" : "auto")
+            if e.name == "row"
+              row role="heading" aria-level=1
+                text "Row"
+            else
+              if e.name != "bare"
+                text e.name role="heading" aria-level=1
+"#;
+    let tag = |launch: &str, test_id: &str| {
+        let doc = host(src, Says(""), launch).document().unwrap().root;
+        let at = doc.find(&format!("data-testid=\"{test_id}\"")).unwrap();
+        let start = doc[..at].rfind('<').unwrap();
+        doc[start..at + doc[at..].find('>').unwrap() + 1].to_owned()
+    };
+    for (launch, header, bar) in [
+        ("/", "header-home", true),
+        ("/full", "header-full", false),
+        ("/bare", "header-bare", false),
+        ("/row", "header-row", false),
+        ("/own", "header-own", false),
+    ] {
+        let tag = tag(launch, header);
+        assert_eq!(tag.contains("data-exact-bar"), bar, "{tag}");
+    }
 }
 
 // @ref LLP 1075.003 §3.3, §3.7 — with tabs, each tab's panel holds its own

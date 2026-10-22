@@ -61,6 +61,7 @@ impl App {
         ));
         std::fs::create_dir_all(dir.join("assets")).unwrap();
         for (name, bytes) in files {
+            std::fs::create_dir_all(dir.join(name).parent().unwrap()).unwrap();
             std::fs::write(dir.join(name), bytes).unwrap();
         }
         std::fs::write(dir.join("app.contract"), source).unwrap();
@@ -312,4 +313,68 @@ fn expect_sound_parses_and_reaches_the_driver() {
         let e = contract::tests(&format!("test \"t\"\n  {bad}\n")).unwrap_err();
         assert!(e.message.contains(why), "{bad}: {e}");
     }
+}
+
+/// A sound's path written or built where no `playSound` literal is checked (a
+/// step's `src`, a `fn`) warns when no declared sound can be it: the euxy port's
+/// kit samples, built from the kit's name with none declared, played nothing.
+#[test]
+fn a_path_no_declared_sound_can_be_warns() {
+    let kick = || wav(1, 16, 1, 48_000, 480, &[]);
+    let app = App::new(
+        &[("assets/kick.wav", kick()), ("assets/kit/kick.wav", kick())],
+        r#"sound "assets/kick.wav"
+sound "assets/kit/kick.wav"
+
+fn sample(kit: string, slot: string): string = `assets/audio/${kit}/${slot}.wav`
+fn ours(slot: string): string = `assets/${slot}.wav`
+fn song(kit: string): string = `assets/songs/${kit}.wav`
+
+component A
+  state kit = "808"
+  state recording = "assets/recording.wav"
+  derive built = sample(kit, "kick")
+  derive near = ours("kick")
+  derive written = "assets/snare.wav"
+  derive joined = "assets/drums/" + kit + ".wav"
+  derive split = "assets/" + kit + "/" + "kick.wav"
+  derive mixed = `assets/audio/${kit}/` + kit + ".wav"
+  derive inner = "assets/" + `kit/${kit}.wav`
+  derive declared = "assets/kick.wav"
+  derive exported = `export ${kit}.wav`
+  derive shared = "assets/shared.wav"
+  action next
+    if kit == "808"
+      recording = "assets/next.wav"
+  view
+    column
+      audio recording
+      audio song(shared)
+      button "Next" press=next
+      text `${built}${near}${written}${joined}${split}${mixed}${inner}${declared}${exported}`
+"#,
+    );
+    let (compiled, warnings) =
+        contract::compile_path_all_warned(&app.0.join("app.contract"), false);
+    compiled.unwrap();
+    let said: Vec<(u32, &str)> = warnings
+        .iter()
+        .filter(|w| w.id == "lower-sound-undeclared")
+        .map(|w| (w.span.line, w.message.as_str()))
+        .collect();
+    let built = |written: &str, pattern: &str| {
+        format!("`{written}` builds a sound's path, and no `sound` line fits `{pattern}`: each step or `playSound` that plays one is dropped at run time and nothing sounds (the journal says `… is not a declared sound`); declare every file it can name at the top level, a `sound \"…\"` line each")
+    };
+    assert_eq!(
+        said,
+        [
+            (4, built("assets/audio/${…}/${…}.wav", "assets/audio/*/*.wav").as_str()),
+            (13, "\"assets/snare.wav\" is not a declared sound, so each step or `playSound` that plays it is dropped at run time and nothing sounds (the journal says `\"assets/snare.wav\" is not a declared sound`); declare it at the top level: `sound \"assets/snare.wav\"`"),
+            (14, built("assets/drums/${…}.wav", "assets/drums/*.wav").as_str()),
+            (16, built("assets/audio/${…}/${…}.wav", "assets/audio/*/*.wav").as_str()),
+            // A media source exempts the name it is, not the names its arguments read.
+            (20, "\"assets/shared.wav\" is not a declared sound, so each step or `playSound` that plays it is dropped at run time and nothing sounds (the journal says `\"assets/shared.wav\" is not a declared sound`); declare it at the top level: `sound \"assets/shared.wav\"`"),
+        ],
+        "{warnings:?}"
+    );
 }

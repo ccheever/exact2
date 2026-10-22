@@ -248,7 +248,7 @@ fn authored_isolation_auto_yields_to_required_isolation() {
     // Contract. Exercise the live host directly with a literal plan.
     let mut plan = fixture_plan("", "2>1>isolation:auto & 3>2>position:absolute;z-index:1 & 4>1>isolation:isolate & 5>1>isolation:auto & 6>1>opacity:0.5");
     for i in [4, 5] {
-        plan.nodes[i].node_type = NodeType::Canvas as u8;
+        plan.nodes.to_mut()[i].node_type = NodeType::Canvas as u8;
     }
     let (host, batch) = boot(&plan);
     let mut css = BTreeMap::new();

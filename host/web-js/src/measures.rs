@@ -120,7 +120,7 @@ pub fn row(id: StyleId) -> bool {
 /// refused ([`refuse_inline`]).
 pub fn inline_tokens(plan: &Plan) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
-    for node in &plan.nodes {
+    for node in plan.nodes.iter() {
         let attributes = exact_kernel::NodeType::from_wire(node.node_type)
             .map_or(&[][..], exact_web::host::template::attribute_rows);
         for b in node.bindings.iter() {

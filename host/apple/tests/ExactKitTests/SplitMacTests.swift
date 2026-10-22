@@ -432,6 +432,23 @@ final class SplitMacTests: XCTestCase {
         XCTAssertFalse(p.navigation.canGoBack)
     }
 
+    /// The text pump paints the detail's pane as it paints the page: a route
+    /// there is out of the root, and its kept heading, outside every scroll
+    /// view, is in view. Left out, a rasterized heading kept the pixels of
+    /// the appearance it was first painted in (black in Dark Mode).
+    func testTheDetailPanesTextIsThePumpsToPaint() throws {
+        let session = try boot(tabs: false, size: CGSize(width: 900, height: 500))
+        let columns = compose(ExactView(session: session), width: 900, sidebar: false)
+        try press("row-a")
+        let title = try node("title-a")
+        XCTAssertTrue(title.isDescendant(of: columns.detailPane))
+        XCTAssertNil(title.enclosingScrollView)
+        let shown = session.presenter.selection.shownParagraphs
+        XCTAssertTrue(shown.contains { $0 === title })
+        XCTAssertTrue(TextViewportIndex(shown).candidates().contains { $0 === title })
+        XCTAssertEqual(shown.count, Set(shown.map(ObjectIdentifier.init)).count, "each paragraph once")
+    }
+
     func testARetainedListObeysTheCurrentSplitRule() throws {
         let source = """
         routes nav

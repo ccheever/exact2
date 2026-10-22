@@ -72,8 +72,8 @@ pub(crate) enum AutoFlow<'a> {
 }
 
 pub(crate) fn is_exclusion(arena: &NodeArena, slot: u32) -> bool {
-    let s = arena.style(slot);
-    s.position_type == PositionType::Absolute && s.wrap_flow == WrapFlow::Both
+    crate::style::top_layer::layout_position(arena, slot) == PositionType::Absolute
+        && arena.style(slot).wrap_flow == WrapFlow::Both
 }
 
 // A length that resolves without the containing block's height: points, or
@@ -109,9 +109,12 @@ fn in_flow(arena: &NodeArena, slot: u32) -> bool {
     let s = arena.effective_style(slot);
     let offset = |d: Dimension| d == Dimension::Auto || own_length(d, arena.env());
     // A static or sticky box's insets do not move its layout; a relative one's
-    // must not depend on the context's height.
-    matches!(s.position_type, PositionType::Static | PositionType::Sticky)
-        || (s.position_type == PositionType::Relative && offset(s.top) && offset(s.bottom))
+    // must not depend on the context's height. A popover is out of flow.
+    match crate::style::top_layer::layout_position(arena, slot) {
+        PositionType::Static | PositionType::Sticky => true,
+        PositionType::Relative => offset(s.top) && offset(s.bottom),
+        PositionType::Absolute => false,
+    }
 }
 
 /// Each visible context under the root and whether it refuses auto height.
@@ -126,10 +129,7 @@ pub(crate) fn contexts(arena: &NodeArena, exclusions: &[u32]) -> Contexts {
         // @ref LLP 1074 T1 — the exclusion is placed against its containing
         // block. Auto-height flow is proven only where that is the context.
         let contains = arena.is_root(context)
-            || arena
-                .computed_source(context, crate::StyleId::PositionType)
-                .position_type
-                != PositionType::Static;
+            || crate::style::top_layer::layout_position(arena, context) != PositionType::Static;
         let refusal = out.entry(context).or_insert_with(|| {
             (!orders(arena, context) || !contains).then_some(FlowRefusal::Context)
         });
