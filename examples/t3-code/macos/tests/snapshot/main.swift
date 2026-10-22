@@ -13,6 +13,18 @@ expect(T3SnapshotAccessibility.uniqueWindow([(13, bounds)], windowId: 12, bounds
 expect(T3SnapshotAccessibility.uniqueWindow([(nil, bounds)], windowId: 12, bounds: bounds) == 0, "unique unknown-ID geometry can match")
 expect(T3SnapshotAccessibility.uniqueWindow([(12, nil), (12, nil)], windowId: 12, bounds: bounds) == nil, "duplicate exact identity is unavailable")
 print("5 selected-window identity checks passed")
+// DesktopSnapShot.test.ts "test-mac-capture": the failed step and how, never the GNOME extension.
+expect(T3SnapShot.testCaptureMessage(.missing) == "Could not capture a test snapshot. No window is available to capture.", "no window to capture")
+let grants = " macOS grants Screen Recording and Accessibility to each app separately. In System Settings, open Privacy & Security and check that \"T3 Code (Exact)\" is allowed for both."
+expect(T3SnapShot.testCaptureMessage(.exited(1), appName: "T3 Code (Exact)") == "Could not capture a test snapshot. Capturing the window failed: screencapture exited with code 1." + grants, "an exit code names the command")
+expect(T3SnapShot.testCaptureMessage(.timedOut, appName: "T3 Code (Exact)") == "Could not capture a test snapshot. Capturing the window timed out." + grants, "a killed command timed out")
+expect(T3SnapShot.testCaptureMessage(.failed) == "Could not capture a test snapshot. Capturing the window failed.", "without an app name, no grant hint")
+// captureFromShortcut: dropped during a flight (unverified), and within 200 ms of the last accepted press.
+expect(T3SnapShot.acceptsShortcut(animating: true, now: 10, last: nil) == (false, false), "a press during a flight is dropped")
+expect(T3SnapShot.acceptsShortcut(animating: false, now: 10, last: nil) == (true, true), "the first press captures")
+expect(T3SnapShot.acceptsShortcut(animating: false, now: 10.1, last: 10) == (true, false), "a press within the cooldown verifies but does not capture")
+expect(T3SnapShot.acceptsShortcut(animating: false, now: 10.25, last: 10) == (true, true), "a press after the cooldown captures")
+print("8 test-capture message and shortcut gate checks passed")
 
 let active = T3SnapshotLifetime(owner: "draft-a")
 expect(active.canPublish(owner: "draft-a", enabled: true, closing: false), "active capture may publish")

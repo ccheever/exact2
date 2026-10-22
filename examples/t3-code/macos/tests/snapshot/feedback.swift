@@ -30,13 +30,15 @@ func runFeedbackChecks() {
     expect(landing.begin(id: "a", image: image, bounds: bounds, flash: true), "flight begins with motion on")
     let panel = landing.flights["a"]!.panel
     expect(panel.isVisible, "overlay panel is ordered in")
+    expect(!landing.isAnimating, "a card over its source is not a flight (SnapShotTransition.isAnimating)")
     landing.land(id: "a", target: target, reveal: { order.append("reveal") }) { landed in order.append("done:\(landed)"); completions += 1 }
+    expect(landing.isAnimating, "the card flying to its attachment is animating")
     landing.land(id: "a", target: target, reveal: { order.append("reveal-2") }) { landed in order.append("again:\(landed)"); completions += 1 }
     expect(landing.flights["a"] != nil, "landing flight stays tracked until it completes")
     spin(0.05); expect(panel.isVisible && completions == 0, "panel survives while landing")
     spin(1.0)
     expect(order == ["reveal", "done:true", "again:true"], "reveal precedes teardown; a second land joins the same completion: \(order)")
-    expect(!panel.isVisible && landing.flights.isEmpty, "landed panel is closed and released")
+    expect(!panel.isVisible && landing.flights.isEmpty && !landing.isAnimating, "landed panel is closed and released")
 
     // Destroy and disable close a panel that is mid-landing; completions report cancellation.
     for end in ["destroy", "cancel", "dismiss"] {
