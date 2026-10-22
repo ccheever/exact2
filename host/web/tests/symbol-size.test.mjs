@@ -209,3 +209,36 @@ for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand
     await suite.close();
   }
 }, 30000);
+
+for (const [file, [stand, names, run]] of Object.entries(RUNTIMES)) test(`chromium: scale-down measures a cached placeholder after assigning its source (${file})`, async () => {
+  const source = readFileSync(resolve(ROOT, file), 'utf8');
+  const suite = await suiteBrowser('chromium', { timeout: 10000 });
+  try {
+    const page = await suite.newPage();
+    await page.setContent(`<div id="exact-root">
+      ${own('cached', 'circle', 'font-size:20px;object-fit:scale-down')}
+      ${own('padded', 'circle', 'font-size:20px;object-fit:scale-down;width:19px;height:19px;padding:3px')}
+      ${button('titled-cached', own('following', 'circle', 'object-fit:scale-down') + title('Circle', 'font-size:26px;font-weight:600'))}
+      </div><script>${stand} ${glueDeclarations(source, names)} globalThis.paint = () => { ${run} };</script>`);
+    // Decoding these exact URLs makes assigning src resolve the intrinsic size synchronously.
+    await page.evaluate(async () => {
+      globalThis.placeholders = await Promise.all([20, 26].map(async point => {
+        const image = new Image();
+        image.src = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}"/>`)}`;
+        await image.decode();
+        return image;
+      }));
+    });
+    const result = await page.evaluate(() => {
+      const cached = document.getElementById('cached'), before = cached.clientWidth;
+      globalThis.paint();
+      return { before, after: cached.clientWidth, symbols: ['cached', 'padded', 'following'].map(id => {
+        const el = document.getElementById(id), cs = getComputedStyle(el);
+        return [id, cs.fontSize, el.style.getPropertyValue('--exact-symbol-fit')];
+      }) };
+    });
+    expect(result).toEqual({ before: 0, after: 20, symbols: [
+      ['cached', '20px', '20px 20px'], ['padded', '20px', 'contain'], ['following', '26px', '26px 26px'],
+    ] });
+  } finally { await suite.close(); }
+}, 10000);
