@@ -11,6 +11,25 @@ final class TableListMacTests: XCTestCase {
     private var fixture: TableFixture?
     override func tearDown() { fixture?.close(); fixture = nil; super.tearDown() }
 
+    func testARowExitSurvivesTheTablesReloadUntilItsDestroy() throws {
+        let f = try TableFixture(count: 0, source: Self.plain)
+        fixture = f
+        let row = try f.node("row-0")
+        XCTAssertTrue(row.superview is TableRowCell)
+        let before = row.convert(row.bounds, to: f.document)
+        f.presenter.apply(wireBatch([["op": "exit", "id": row.id]]))
+        f.table.reloadData()
+        f.table.layoutSubtreeIfNeeded()
+        XCTAssertTrue(row.window === f.window, "a leaving row must outlive its table cell")
+        XCTAssertEqual(row.convert(row.bounds, to: f.document), before)
+        XCTAssertTrue(row.inert)
+        XCTAssertTrue(row.accessibilityHiddenWritten)
+        XCTAssertTrue(f.presenter.leaving[row.id]?.view === row)
+        f.presenter.apply(wireBatch([["op": "destroy", "id": row.id]]))
+        XCTAssertNil(row.superview)
+        XCTAssertNil(f.presenter.leaving[row.id])
+    }
+
     /// A page of lists, one of each kind the rule tells apart.
     private static let kinds = """
     component Lists
