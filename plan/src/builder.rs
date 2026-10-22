@@ -653,6 +653,26 @@ impl PlanBuilder {
         self.plan.modules.push(row);
     }
 
+    /// A native module's event the root hears (LLP 1133.004 D6): `action`
+    /// runs with its arguments.
+    pub fn module_event(
+        &mut self,
+        extension: &str,
+        declared: &str,
+        action: ActionsId,
+        raised: &str,
+        hold: u32,
+    ) {
+        let row = ModuleEventsRow {
+            extension: self.str(extension),
+            declared: self.str(declared),
+            action,
+            raised: self.str(raised),
+            hold,
+        };
+        self.plan.module_events.push(row);
+    }
+
     /// A run of argument expressions.
     pub fn args(&mut self, exprs: &[Code]) -> ArgsRange {
         let start = self.plan.args.len() as u32;
