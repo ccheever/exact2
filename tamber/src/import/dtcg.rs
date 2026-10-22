@@ -1429,6 +1429,8 @@ fn planned(
     let wins: BTreeSet<usize> = winners.iter().flat_map(|w| w.values().copied()).collect();
     let mut unmapped = Vec::new();
     let mut mapped = 0;
+    // (indexed: a source of many unused defs is no square of them)
+    let unused_why: HashMap<usize, &String> = read.unused.iter().map(|(i, w)| (*i, w)).collect();
     for (i, d) in defs.iter().enumerate() {
         let report = |why: String, token: Option<String>| Unmapped {
             block: d.file.clone(),
@@ -1440,8 +1442,8 @@ fn planned(
             why,
             token,
         };
-        if let Some((_, why)) = read.unused.iter().find(|(j, _)| *j == i) {
-            unmapped.push(report(why.clone(), None));
+        if let Some(why) = unused_why.get(&i) {
+            unmapped.push(report((*why).clone(), None));
             continue;
         }
         if let Some(first) = collided.get(&d.path) {

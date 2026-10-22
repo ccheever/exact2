@@ -38,14 +38,13 @@ use std::collections::BTreeMap;
 
 /// The node properties Pencil reads as pixels (an effect's `radius` and a
 /// shadow's `blur` among them).
-const PIXELS: [&str; 11] = [
+const PIXELS: [&str; 10] = [
     "cornerRadius",
     "gap",
     "padding",
     "fontSize",
     "letterSpacing",
     "strokeWidth",
-    "thickness",
     "width",
     "height",
     "radius",
@@ -62,9 +61,25 @@ const SIDES: [&str; 8] = [
     "bottomRight",
     "bottomLeft",
 ];
-/// Maps of the author's own names (a shader's inputs): no key in one is a
-/// property, so nothing in one decides a kind.
-const OPAQUE: [&str; 1] = ["uniforms"];
+/// A typed object's maps of the author's own names (a shader's `uniforms`,
+/// a script's `inputs`, any `metadata`): no key in one is a property, so
+/// nothing in one decides a kind.
+const OPAQUE: [&str; 3] = ["uniforms", "inputs", "metadata"];
+/// Properties whose `$…` text is a name or a reference of Pencil's own (an
+/// id, a component's `ref`, a URL), never a variable bound.
+const NOT_BINDINGS: [&str; 9] = [
+    "id",
+    "name",
+    "ref",
+    "geometry",
+    "url",
+    "href",
+    "scriptUri",
+    "deviceId",
+    "slot",
+];
+/// An axis's or value's name, at most (a report says it in every tuple's words).
+const AXIS_NAME: usize = 64;
 /// The axes, and values of one, a file may declare.
 const AXES: usize = 16;
 const VALUES: usize = 64;
@@ -149,13 +164,16 @@ impl<'de> serde::Deserialize<'de> for Doc {
 /// whether Pencil reads that property as pixels.
 type Uses = BTreeMap<String, (usize, bool)>;
 
-/// Where a value sits: its key, its parent's key, and whether it is inside a
-/// gradient (whose sizes and centres are fractions of the box) or a map of
-/// the author's own names.
+/// Where a value sits: its key, its parent's key, the `type` of the object
+/// holding it and of the one holding that (a shadow's, for its `offset`),
+/// and whether it is inside a gradient (whose sizes and centres are
+/// fractions of the box) or a map of the author's own names.
 #[derive(Clone, Copy, Default)]
 struct At<'a> {
     key: Option<&'a str>,
     parent: Option<&'a str>,
+    holder: Option<&'a str>,
+    outer: Option<&'a str>,
     gradient: bool,
     opaque: bool,
 }
@@ -168,9 +186,12 @@ fn readers(v: &Value, at: At, out: &mut BTreeMap<String, Uses>) -> Result<(), St
     crate::budget::spend(1)?;
     match v {
         Value::String(s) => {
-            if let (Some(name), Some(k)) = (s.strip_prefix('$'), at.key) {
+            let key = at.key.filter(|k| !NOT_BINDINGS.contains(k));
+            if let (Some(name), Some(k)) = (s.strip_prefix('$'), key) {
                 let side = (SIDES.contains(&k) && at.parent.is_some_and(|p| PIXELS.contains(&p)))
-                    || (matches!(k, "x" | "y") && at.parent == Some("offset"));
+                    || (matches!(k, "x" | "y")
+                        && at.parent == Some("offset")
+                        && at.outer == Some("shadow"));
                 let pixel = !at.gradient && !at.opaque && (PIXELS.contains(&k) || side);
                 let label = match (side || at.opaque || at.gradient, at.parent) {
                     (true, Some(p)) => format!("{p}.{k}"),
@@ -193,15 +214,21 @@ fn readers(v: &Value, at: At, out: &mut BTreeMap<String, Uses>) -> Result<(), St
             }
         }
         Value::Object(m) => {
-            crate::budget::members(m)?;
-            let gradient = at.gradient || m.get("type").and_then(Value::as_str) == Some("gradient");
+            crate::budget::spend(m.len() as u64)?;
+            let ty = m.get("type").and_then(Value::as_str);
+            let gradient = at.gradient || ty == Some("gradient");
+            // (a map of the author's names only as a typed object's property: a descendant's id is none)
+            let opaque =
+                at.opaque || (at.holder.is_some() && at.key.is_some_and(|p| OPAQUE.contains(&p)));
             for (k, x) in m {
                 crate::budget::spend(k.len() as u64)?;
                 let inner = At {
                     key: Some(k),
                     parent: at.key,
+                    holder: ty,
+                    outer: at.holder,
                     gradient,
-                    opaque: at.opaque || at.key.is_some_and(|p| OPAQUE.contains(&p)),
+                    opaque,
                 };
                 readers(x, inner, out)?;
             }
@@ -273,6 +300,9 @@ fn read(file: &str, doc: &Doc) -> Result<(Read, Vec<String>), String> {
     let mut axes: Vec<(String, Vec<String>)> = Vec::new();
     for (axis, values) in themes {
         crate::budget::spend(axis.len() as u64)?;
+        if axis.chars().count() > AXIS_NAME {
+            return Err(format!("an axis named in more than {AXIS_NAME} characters"));
+        }
         let values: Vec<String> = values
             .as_array()
             .filter(|v| !v.is_empty() && v.len() <= VALUES)
@@ -280,6 +310,12 @@ fn read(file: &str, doc: &Doc) -> Result<(Read, Vec<String>), String> {
             .ok_or_else(|| format!("`themes.{axis}` is a list of 1 to {VALUES} values"))?;
         for v in &values {
             crate::budget::spend(v.len() as u64)?;
+            if v.chars().count() > AXIS_NAME {
+                return Err(format!(
+                    "`themes.{}` names a value in more than {AXIS_NAME} characters",
+                    axis.chars().take(AXIS_NAME).collect::<String>()
+                ));
+            }
         }
         axes.push((axis.clone(), values));
     }
@@ -338,8 +374,9 @@ fn read(file: &str, doc: &Doc) -> Result<(Read, Vec<String>), String> {
         }
         Ok(r)
     }
-    for (name, def) in all {
-        if types[name.as_str()] != "number" {
+    for (i, (name, def)) in all.iter().enumerate() {
+        // (only the declaration that stands: a discarded one aliases nothing)
+        if types[name.as_str()] != "number" || last[name.as_str()] != i {
             continue;
         }
         parent.entry(name).or_insert(name);
@@ -386,17 +423,20 @@ fn read(file: &str, doc: &Doc) -> Result<(Read, Vec<String>), String> {
     for (i, (name, def)) in all.iter().enumerate() {
         crate::budget::spend(1)?;
         if last[name.as_str()] != i {
-            crate::budget::spend(name.len() as u64)?;
-            out.unused(
-                vec![Def {
-                    file: label.clone(),
-                    path: name.clone(),
-                    ty: None,
-                    value: Value::Null,
-                    refused: None,
-                }],
-                "declared again later in `variables`, which stands",
-            );
+            // (each of its entries reported, so the count is every entry the file holds)
+            for _ in 0..entries_of(def).map_or(1, |e| e.len()) {
+                crate::budget::spend(name.len() as u64)?;
+                out.unused(
+                    vec![Def {
+                        file: label.clone(),
+                        path: name.clone(),
+                        ty: None,
+                        value: Value::Null,
+                        refused: None,
+                    }],
+                    "declared again later in `variables`, which stands",
+                );
+            }
             continue;
         }
         let ty = types[name.as_str()];
@@ -501,13 +541,26 @@ fn read(file: &str, doc: &Doc) -> Result<(Read, Vec<String>), String> {
                             ));
                         }
                         Some(t) if *t != ty => {
+                            let short = |x: &str| x.chars().take(20).collect::<String>();
                             refused.get_or_insert(format!(
-                                "an alias to `{target}`, a {t}, from a {ty}"
+                                "an alias to `{}`, a {}, from a {}",
+                                target.chars().take(80).collect::<String>(),
+                                short(t),
+                                short(ty)
                             ));
                         }
                         _ => {}
                     }
                     Value::String(format!("{{{target}}}"))
+                }
+                // (a Pencil value is a scalar: an object or a list, which DTCG would read as an alias or a
+                // composite, is none)
+                None if value.is_object() || value.is_array() => {
+                    refused.get_or_insert(
+                        "a value of no Pencil shape (a colour, number, string or boolean)"
+                            .to_string(),
+                    );
+                    Value::Null
                 }
                 None if value.as_str().is_some_and(|s| {
                     s.trim_start().starts_with('{') && s.trim_end().ends_with('}')
