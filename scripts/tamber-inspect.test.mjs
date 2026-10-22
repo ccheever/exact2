@@ -850,6 +850,15 @@ test('tamber/1.16: an inherited row\'s ancestor named by its source from the pag
   expect(sitesUp(map, 2, 2)).toEqual([0]);
   expect(sitesUp(map, 2, 9)).toEqual([0]);
   expect(sitesUp(map, 7, 1)).toEqual([]);
+  // A component that only renders another (Wrap → Label: Wrap owns no node): one up from Label's node is the next copy
+  // out that owns one, here the app's own.
+  const wrapped = { nodes: [
+    { file: 'app.contract', line: 3, chain: [] },
+    { file: 'label.contract', line: 2, chain: [{ file: 'wrap.contract', line: 4, col: 3 }, { file: 'app.contract', line: 5, col: 7 }] },
+  ] };
+  expect(sitesUp(wrapped, 1, 1)).toEqual([0]);
+  // The raw `selected` event the server republishes carries no fromSite either.
+  expect(JSON.stringify(published(selected, new Map()))).not.toContain('fromSite');
 });
 
 test('tamber/1.16: inspect select moves only the inspecting client\'s selection, with sites to choose from, and is checked', () => {
