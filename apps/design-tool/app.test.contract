@@ -153,6 +153,9 @@ test "the component panel's other kinds: a duration's slider writes ms, an icon 
   expect state editValue == "400ms"
   expect text "dial-app.tamber#MapCard.glyph-value" == "sf star · material star"
   expect tree missing "dial-app.tamber#MapCard.glyph-field"
+  // (That edit's proposal is docked over the window's bottom, the grid's cell under it: cancelled first.)
+  tap "cancel-edit"
+  clock data
   // A param's branch open in the editor, then another param edited in the
   // panel: that draft is the panel's, not a stale branch draft.
   tap "cell-surface.card-0-light"

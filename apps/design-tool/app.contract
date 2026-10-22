@@ -916,6 +916,15 @@ component DesignTool
   // The server's files and their digests, folded below the canvas and the tokens (the hands-on pass: 25 rows came
   // before either on the clone).
   state filesShown = false
+  // A proposal opened by a press (Back to the default, Back to the package): focus goes to the dock once its Apply can
+  // be pressed (the dock, not Apply: Apply is disabled while the proposal is read again on each answer, and a
+  // disabled button drops the focus), Tab then reaching Apply. Never for a typed draft, whose next key is the
+  // field's (review2 06:54).
+  state focusApply = false
+  // The edit a panel began (a dial's, a param's, its row's Back to the package), whose proposal docks at the window's
+  // bottom: the panels sit far above the panel's own place. One begun from the token grid stays in place, under it.
+  state dockedFor = ""
+  derive docked = editKind != "" and dockedFor == `${editKind}|${editTarget}`
   state historyPages = 1
   resource history = loadHistory(historyShown, historyPages, since, epoch) as shape History else empty(ok=true)
   mutation committed as shape Committed refreshes changeset, scope
@@ -976,6 +985,10 @@ component DesignTool
   // edited, none once shown for this visit.
   derive foldedRows = initialFor == inspected.visit ? [] : inspected.rows.filter(r => r.initial and not (editTarget != "" and (editTarget == r.edit or editTarget == r.state))).map(r => r.name)
   derive foldedHeld = initialFor == inspected.visit ? [] : inspected.heldRows.filter(r => r.initial and not (editTarget != "" and (editTarget == r.edit or editTarget == r.state))).map(r => r.name)
+  // Apply can be pressed: the proposal is in, for this draft, and nothing it rests on moved.
+  derive applyReady = not (not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or partsStale or stateStale or pending(written) or not canPropose or (branch.readOnly != "" and editTarget == branch.token and editKind == branchOp))
+  task focusProposal when focusApply and editKind != "" and applyReady key=`${editKind}|${editTarget}`
+    after(1, focusTheApply)
   task follow when not pending(changes) and changes.ok key=changes.answer
     after(1, advance)
   task retry when not pending(changes) and not changes.ok key=changes.answer
@@ -1081,6 +1094,7 @@ component DesignTool
       send written = cancelScrub(scrubAsk)
     editKind = op
     editTarget = name
+    dockedFor = `${op}|${name}`
     editWhen = ""
     // A panel edit: the param's own line, no branch editor draft or mode scope.
     draftFor = ""
@@ -1096,6 +1110,7 @@ component DesignTool
       send written = cancelScrub(scrubAsk)
     editKind = op
     editTarget = name
+    dockedFor = `${op}|${name}`
     editWhen = ""
     // A panel edit: the param's own line, no branch editor draft or mode scope.
     draftFor = ""
@@ -1118,6 +1133,7 @@ component DesignTool
       send written = cancelScrub(scrubAsk)
     editKind = op
     editTarget = name
+    dockedFor = `${op}|${name}`
     editWhen = ""
     // A panel edit: the param's own line, no branch editor draft or mode scope.
     draftFor = ""
@@ -1133,8 +1149,10 @@ component DesignTool
       send written = cancelScrub(scrubAsk)
     editKind = "unset-param"
     editTarget = name
+    dockedFor = `unset-param|${name}`
     editWhen = ""
     editValue = ""
+    focusApply = true
     // A panel edit: the param's own line, no branch editor draft or mode scope.
     draftFor = ""
     rawFor = ""
@@ -1349,6 +1367,19 @@ component DesignTool
     editTarget = name
     editWhen = ""
     editValue = ""
+  action panelBackToPackage(name: string)
+    // Back to the package from a param's row: as backToBase, its proposal docked.
+    file = ""
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
+    editKind = "remove-token"
+    editTarget = name
+    editWhen = ""
+    editValue = ""
+    focusApply = true
+    dockedFor = `remove-token|${name}`
   action openBase(name: string)
     openedBase = openedBase.concat([name])
   action editRename(v: string)
@@ -1486,6 +1517,9 @@ component DesignTool
     historyShown = not historyShown
   action toggleFiles
     filesShown = not filesShown
+  action focusTheApply
+    focusApply = false
+    focus("proposal-dock")
   action moreHistory
     historyPages = historyPages + 1
   action newerHistory
@@ -1937,13 +1971,13 @@ component DesignTool
                           if g.name != ""
                             text g.name font="-exact-subheadline"
                           for r in g.params key=r.c.name
-                            ParamControl(locked=(not canPropose), r=r, won=(levels.answer == design.answer ? levels.rows.filter(l => l.name == r.c.name) : []), focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn), onBackToPackage=backToBase(r.packageToken))
+                            ParamControl(locked=(not canPropose), r=r, won=(levels.answer == design.answer ? levels.rows.filter(l => l.name == r.c.name) : []), focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn), onBackToPackage=panelBackToPackage(r.packageToken))
                           if g.more.length > 0
                             button press=toggleMore(`${k.identity}|${g.name}`) testId=`more-${k.name}-${g.name}`
                               text (opened.includes(`${k.identity}|${g.name}`) ? "Fewer" : `More (${g.more.length})`)
                             if opened.includes(`${k.identity}|${g.name}`)
                               for r in g.more key=r.c.name
-                                ParamControl(locked=(not canPropose), r=r, won=(levels.answer == design.answer ? levels.rows.filter(l => l.name == r.c.name) : []), focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn), onBackToPackage=backToBase(r.packageToken))
+                                ParamControl(locked=(not canPropose), r=r, won=(levels.answer == design.answer ? levels.rows.filter(l => l.name == r.c.name) : []), focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn), onBackToPackage=panelBackToPackage(r.packageToken))
               column gap=8 testId="tokens"
                 text "Tokens" role="heading" aria-level=2
                 column overflow-x="auto" align-items="flex-start" testId="grid"
@@ -2113,11 +2147,15 @@ component DesignTool
                     text "The copy this edit was opened on is no longer current: select it again." color="-exact-system-orange" font="-exact-footnote" testId="state-stale"
                   input value=editValue input=stateValue disabled=(not canPropose) aria-label=(editKind == "set-row" ? "The row's value" : "The state part's value") testId="state-value"
               if editKind != ""
-                column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="proposal"
+                // A panel's edit docks it at the window's bottom (the second hands-on pass: a param's proposal opened
+                // about 16,500 px below its field), at most 40% of it, scrolling inside; a grid edit's stays here.
+                column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" position=(docked ? "sticky" : "relative") bottom=0 z-index=5 max-height=(docked ? "40vh" : "none") overflow-y=(docked ? "auto" : "visible") box-shadow=(docked ? "0 -2px 12px rgba(0, 0, 0, 0.18)" : "none") id="proposal-dock" tabindex=-1 role="region" aria-label="Proposal" testId="proposal"
                   if editKind == "set-token" and editTarget == setForAppName and setForAppNote != ""
                     text setForAppNote font="-exact-footnote" color="-exact-secondary-label" testId="set-for-app-note"
                   if draftStale or partsStale
                     text "The branch this edit was for has changed: choose the cell and type it again." color="-exact-system-orange" testId="draft-stale"
+                  // Said to a screen reader as it comes: a typed draft keeps the focus in its field.
+                  text (proposal.ok and proposal.active and not pending(proposal) ? "Proposal ready: Apply or Cancel." : "") aria-live="polite" font="-exact-footnote" color="-exact-secondary-label" testId="proposal-ready"
                   if not proposal.ok
                     text proposal.error color="-exact-system-red" white-space="pre-wrap" testId="proposal-error"
                   else if proposal.active
@@ -2138,7 +2176,7 @@ component DesignTool
                           text "Cancel scrub"
                   else
                     row gap=8
-                      button press=apply disabled=(not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or partsStale or stateStale or pending(written) or not canPropose or (branch.readOnly != "" and editTarget == branch.token and editKind == branchOp)) buttonStyle="filled" testId="apply"
+                      button id="proposal-apply" press=apply disabled=(not applyReady) buttonStyle="filled" testId="apply"
                         text (canWrite ? "Apply" : "Propose for review")
                       if editKind == "set-dial" or editKind == "set-token" or editKind == "set-param"
                         button press=startScrub disabled=(not hello.live or not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or proposal.chip != "live" or not proposal.scrubbable or draftStale or partsStale or pending(written) or not canWrite or (branch.readOnly != "" and editTarget == branch.token and editKind == branchOp)) testId="scrub-start"
