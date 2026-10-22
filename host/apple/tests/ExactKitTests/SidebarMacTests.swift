@@ -47,6 +47,8 @@ final class SidebarMacTests: XCTestCase {
                       text "Today"
                     button press=open testId=`open-${e.name}`
                       text "Open"
+                    button press=set("renamed") testId=`rename-${e.name}`
+                      text "Rename"
                     button press=set("disabled") testId=`disabled-${e.name}`
                       text "Disable"
                     button press=set("badge") testId=`badge-${e.name}`
@@ -62,8 +64,8 @@ final class SidebarMacTests: XCTestCase {
           row role="tablist" testId="tabs" aria-label="Places" display=(mode == "hidden" ? "none" : "flex")
             appearance=(mode == "authored" ? "none" : "auto")
             button role="tab" aria-controls="panel-today" aria-selected=(nav.tab == "today") press=pick("today") testId="tab-today" flex=1
-              image "symbol:calendar"
-              text "Today"
+              image (mode == "renamed" ? "symbol:book" : "symbol:calendar")
+              text (mode == "renamed" ? "Renamed" : "Today")
             button appearance="none" role="tab" aria-controls="panel-history" aria-selected=(nav.tab == "history") press=pick("history") testId="tab-history" flex=1
               disabled=(mode == "disabled")
               image "symbol:chart"
@@ -130,6 +132,23 @@ final class SidebarMacTests: XCTestCase {
     private func choose(_ split: ExactSidebarController, _ row: Int) {
         // A person's choice of a row, as the table asks its delegate on the way down.
         XCTAssertEqual(split.table.delegate?.tableView?(split.table, shouldSelectRow: row), false, "the table never selects by itself")
+    }
+
+    func testANativeTabsChangedFaceReachesItsSidebarRow() throws {
+        let session = try boot(size: CGSize(width: 700, height: 500))
+        let view = ExactView(session: session)
+        let split = compose(view)
+        let tab = try node("tab-today")
+        XCTAssertTrue(tab.isNativeButton)
+        XCTAssertEqual(try cell(split, 0).textField?.stringValue, "Today")
+        let batch = session.runtime.press(try node("rename-today").id, now: session.now())
+        XCTAssertTrue(batch.controls, "the native face travels in controls")
+        session.apply(batch)
+        let row = try XCTUnwrap(session.presenter.sidebar.shown?.rows.first)
+        XCTAssertEqual(row.face.title, "Renamed")
+        XCTAssertEqual(row.face.base, "book")
+        XCTAssertEqual(try cell(split, 0).textField?.stringValue, "Renamed")
+        XCTAssertEqual(split.table.selectedRowIndexes, [0])
     }
 
     func testTheRootTabBarIsASourceListWhoseRowsPressTheAuthoredTabsAndFollowTheApp() throws {
