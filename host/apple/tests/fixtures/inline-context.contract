@@ -1,0 +1,17 @@
+component InlineContext
+  state presses = 0
+  state contexts = 0
+  action pressed
+    presses = presses + 1
+  action context
+    contexts = contexts + 1
+  view
+    column padding-top=100 padding-left=20 gap=30
+      text `${presses} ${contexts}` testId="facts"
+      text font-size=22
+        text "Before "
+        text "#tag" press=pressed contextmenu=context contextPopover="tag-menu" testId="tag"
+        text " plain text"
+      view id="tag-menu" popover="auto"
+        button "See tag posts" press=pressed
+        button "Mute tag" press=pressed
