@@ -529,6 +529,16 @@ names no take; `:focus-within` remains out.
   main executable has a consumer. The likely first, an in-process wasmtime loader
   (LLP 1028), would need only `allow-jit` or `allow-unsigned-executable-memory`,
   never `disable-library-validation`.
+- **Admitted (Daehyeon Mun, 2026-10-23, waived; LLP 1133.007):** desktop
+  processes (`spawn`, `execFile`, supervision, the login environment) and
+  `home:` and `bundle:` paths on macOS and Linux (Windows at stage 3,
+  unclaimed until it is driven), absent elsewhere; a password field's held
+  secret on every host with the field.
+  Consumer: the T3 Code clone's local server and SSH environments. Take:
+  waived (Daehyeon Mun, 2026-10-23): nothing refuses processes by name, no
+  doing-list item is in this area, and the change retires app Swift. Still
+  refused: a pseudo-terminal, shell command lines, daemons that outlive
+  the app, and processes on iOS, Android and the web.
 - ~~Snapback / update economy.~~ Moved 2026-09-03 (Charlie: "you can pull out snapback
   for now"), in LLP 1026 D11's minimal form only: an installed app fetches a signed
   bundle of static files from a baked-in origin, after first pixel, into an on-disk
