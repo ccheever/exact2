@@ -516,8 +516,9 @@ names no take; `:focus-within` remains out.
   never `disable-library-validation`.
 - **Admitted (Daehyeon Mun, 2026-10-23, waived; LLP 1133.007):** desktop
   processes (`spawn`, `execFile`, supervision, the login environment) and
-  `home:` and `bundle:` paths on macOS, Linux and Windows, absent
-  elsewhere; a password field's held secret on every host with the field.
+  `home:` and `bundle:` paths on macOS and Linux (Windows at stage 3,
+  unclaimed until it is driven), absent elsewhere; a password field's held
+  secret on every host with the field.
   Consumer: the T3 Code clone's local server and SSH environments. Take:
   waived (Daehyeon Mun, 2026-10-23): nothing refuses processes by name, no
   doing-list item is in this area, and the change retires app Swift. Still
