@@ -142,6 +142,8 @@ const moduleWatched = new Map(); // module key -> sources
 globalThis.__exact_module = body => {
   const key = `${body.extension}.${body.source}`;
   if (body.source && watching) (moduleWatched.get(key) ?? moduleWatched.set(key, new Set()).get(key)).add(watching);
+  // A module data code imports and the plan does not name (direct.js, LLP 1133.006 D8).
+  if (globalThis.exact?.direct?.has(body.extension)) return globalThis.exact.direct.call(body);
   return globalThis.exact?.extensions?.call?.(body) ?? Promise.resolve({ error: 'NotSupportedError' });
 };
 (globalThis.exact ??= {}).announceModule = topic => announce(topic, 'module');

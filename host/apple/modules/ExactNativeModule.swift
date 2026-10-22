@@ -1454,7 +1454,8 @@ private let table: UnsafeMutableRawPointer = {
     // `heldStacks`: `tabContainer` takes a tab Exact holds without a
     // navigation controller, whose `ExactTab.controller` builds it.
     let words = "\"hatches\":{\"heldStacks\":true,\"words\":[" + ExactHatchKey._words.map { "\"\($0)\"" }.joined(separator: ",") + "]}"
-        + ",\"extensions\":{\"names\":[" + ExactExtensions.names.map { "\"\($0)\"" }.joined(separator: ",") + "]}"
+        + ",\"extensions\":{\"names\":[" + ExactExtensions.names.map { "\"\($0)\"" }.joined(separator: ",") + "]"
+        + ",\"admission\":{" + ExactExtensions.names.map { "\"\($0)\":\(exactExtensionAdmission[$0] ?? "{}")" }.joined(separator: ",") + "}}"
         // `app.onLine` is asked of the host (`on_line`), not read from the facts.
         + ",\"facts\":{\"onLine\":\"asks\"}"
     let text = "{" + (roster.keys.sorted().map { tag in

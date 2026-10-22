@@ -253,6 +253,10 @@ prefix of the event's arguments (an untyped parameter takes the event's type;
 (`contract-event-root`). Each event is delivered once, in order, as its own
 commit; a host raises one only once the app has drawn its first frame, so one
 that starts the app is held until then.
+A name that takes positional parameters (`"params"`, LLP 1133.006 D8:
+`@exact/clipboard`'s `write(items)`) and a shape keyed by string
+(`ClipboardItem`) are data code's only: Contract has no form of them, and a
+`use` of one finds no such name.
 Fonts are app-wide. A used file cannot declare routes. The root file's first
 component remains the root. A name both declared and used
 (`contract-use-shadows`), one name used from two declarations

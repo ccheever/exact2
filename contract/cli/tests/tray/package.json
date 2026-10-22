@@ -1,0 +1,11 @@
+{
+  "name": "@fixture/tray",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A module outside exact2's tree that proves the seam LLP 1133.006 D8 adds: bytes, a path and a record keyed by string in a declaration, positional parameters and a call sequence, a bound implementation's sends admitted, and an implementation that is its own substitute.",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./web": "./web/exact.json"
+  }
+}

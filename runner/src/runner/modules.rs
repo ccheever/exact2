@@ -35,6 +35,7 @@ use exact_plan::{ModulesRow, TypesId, Value};
 use serde_json::{json, Map, Value as Json};
 use std::collections::{BTreeMap, BTreeSet};
 
+mod admitted;
 mod bound;
 mod declared;
 mod events;
@@ -70,6 +71,9 @@ pub(super) struct Extensions {
     declared: declared::Declared,
     /// Module events not yet heard, and the origin of the commit now (D6).
     pub(super) events: events::Events,
+    /// What admits a bound implementation's sends, and what they reported
+    /// (LLP 1133.006 D8 item 3).
+    admitted: admitted::Admitted,
 }
 
 /// A module request the runner holds for the agent.
@@ -546,8 +550,8 @@ impl<D: DataSource> Runner<D> {
     /// names a module's source or send, `{"extension": …, "source": …,
     /// "args": {…}}`, admitted here as a Contract read or send is, before any
     /// module. `None` for any other body.
-    pub(super) fn module_call(&mut self, body: &[u8]) -> Option<Dispatch> {
-        let v: Json = serde_json::from_slice(body).ok()?;
+    pub(super) fn module_call(&mut self, request: &Request) -> Option<Dispatch> {
+        let v: Json = serde_json::from_slice(&request.body).ok()?;
         let extension = v.get("extension")?.as_str()?;
         let (declared, send) = match (v["source"].as_str(), v["send"].as_str()) {
             (Some(name), None) => (name, false),
@@ -555,10 +559,11 @@ impl<D: DataSource> Runner<D> {
             _ => return None,
         };
         let key = format!("{extension}.{declared}");
-        // A bound module answers it: the handler, past this admission. A
-        // call data code makes while a device-origin answer is in flight is
-        // the device's (LLP 1133.002 D12, least privileged when unsure): it
-        // carries the host's admission, as a Contract call's does.
+        // A bound module answers it: a source's read through the handler, a
+        // send past its admission (LLP 1133.006 D8 item 3). A call data code
+        // makes while a device-origin answer is in flight is the device's
+        // (LLP 1133.002 D12, least privileged when unsure): a Contract
+        // module's carries the host's admission, as a Contract call's does.
         if self.extensions.bound.contains(extension) {
             if !send {
                 self.bound_read(&key);
@@ -566,7 +571,19 @@ impl<D: DataSource> Runner<D> {
             let row = (self.plan.modules.iter())
                 .find(|m| self.key(m) == key)
                 .cloned();
-            if let Some(row) = row.filter(|_| self.extensions.events.origin() != Origin::Person) {
+            let device = row.filter(|_| self.extensions.events.origin() != Origin::Person);
+            if send {
+                let body = match &device {
+                    Some(row) => {
+                        let body = self.bound_request(row, v["args"].clone()).body;
+                        serde_json::from_slice(&body).unwrap_or(v.clone())
+                    }
+                    None => v.clone(),
+                };
+                let extension = extension.to_owned();
+                return Some(self.admitted_send(&extension, declared, &body, request));
+            }
+            if let Some(row) = device {
                 let request = self.bound_request(&row, v["args"].clone());
                 let handler = self.native_slot().handler();
                 return Some(Dispatch::Run(Work::Later(Box::new(
@@ -994,7 +1011,8 @@ impl<D: DataSource> Runner<D> {
     /// (a resource that reads it, or whose data code did), and the tickets
     /// held. `None` for a plan that names none.
     pub fn extensions_json(&self) -> Option<String> {
-        if self.plan.modules.is_empty() {
+        let admitted = self.extensions.admitted.extensions();
+        if self.plan.modules.is_empty() && admitted.is_empty() {
             return None;
         }
         let mut out = Map::new();
@@ -1029,6 +1047,20 @@ impl<D: DataSource> Runner<D> {
                 if let Some(held) = entry["held"].as_array_mut() {
                     held.push(json!({ "ticket": h.hold, "name": declared, "waits": match h.waits { Waits::Permission => "permission", Waits::Value => "value", Waits::Raise => "raise" } }));
                 }
+            }
+        }
+        // A bound implementation's sends from data code (LLP 1133.006 §7):
+        // counted, its last reported state, even with no row in the plan.
+        for extension in admitted {
+            let Some(state) = self.extensions.admitted.state(&extension) else {
+                continue;
+            };
+            let bound = self.extensions.bound.contains(&extension);
+            let entry = out.entry(extension).or_insert_with(
+                || json!({ "bound": bound, "preferred": {}, "readers": {}, "held": [] }),
+            );
+            for (k, v) in state.as_object().into_iter().flatten() {
+                entry[k] = v.clone();
             }
         }
         for (extension, event) in self.queued_events() {
