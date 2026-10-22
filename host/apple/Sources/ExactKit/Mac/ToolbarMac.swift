@@ -94,6 +94,8 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     private var syncing = false
     private var savedTitle = ""
     private var appliedTitle = ""
+    private var savedSubtitle = ""
+    private var appliedSubtitle = ""
     /// The active head's title (LLP 1048.003 D1) and the window's own title
     /// before one arrived: the head's is the window's title, under a
     /// projected toolbar heading, and its absence gives the app's back.
@@ -231,6 +233,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         if let window, let old, window.toolbar === old {
             window.toolbar = nil
             if window.title == appliedTitle { window.title = savedTitle }
+            if window.subtitle == appliedSubtitle { window.subtitle = savedSubtitle }
         }
         items.removeAll(); symbols.removeAll(); order.removeAll(); owner = nil; heading = nil
         header = nil; decide(nil); beside = nil; decideBeside(nil)
@@ -558,6 +561,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         let installing = toolbar == nil
         if installing {
             savedTitle = window.title
+            savedSubtitle = window.subtitle
             // An identifier of its own: AppKit keeps every toolbar of one
             // identifier in a process the same, item for item, and each
             // window's bar is its own route's (an insertion in one window
@@ -599,7 +603,10 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             // Standard toolbar items own their image sizing, tint and glass.
             // An svg-only icon's path is a template image too (stage 9 A2).
             let symbol = face?.symbol ?? image?.faceSymbol ?? ""
-            if symbol.isEmpty {
+            if let badge = BadgeFace(node) {
+                item.image = badge.image
+                symbols.removeValue(forKey: node.id)
+            } else if symbol.isEmpty {
                 if item.image !== image?.image { item.image = image?.image }
                 symbols.removeValue(forKey: node.id)
             } else if symbols[node.id] != symbol {
@@ -612,7 +619,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             if item.isNavigational != navigational { item.isNavigational = navigational }
             prominence(item, node, face)
             // Text-bearing authored buttons remain labeled in icon-only mode.
-            let title = face.map { $0.title ?? "" } ?? text(node)
+            let title = BadgeFace(node) != nil ? "" : face.map { $0.title ?? "" } ?? text(node)
             if item.title != title { item.title = title }
             let enabled = !node.disabled && !node.inert && window.attachedSheet == nil
             if item.isEnabled != enabled { item.isEnabled = enabled }
@@ -655,6 +662,8 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         while toolbar.items.count > order.count { toolbar.removeItem(at: toolbar.items.count - 1) }
         // Shown as it will answer, without waiting for AppKit's next validation.
         if back, backItem.isEnabled != navigation.canGoBack { backItem.isEnabled = navigation.canGoBack }
+        appliedSubtitle = header?.subtitle?.accessibleText ?? ""
+        if window.subtitle != appliedSubtitle { window.subtitle = appliedSubtitle }
         appliedTitle = title(over: savedTitle)
         if window.title != appliedTitle { window.title = appliedTitle }
         let content = contentSize, attaching = window.toolbar !== toolbar
@@ -772,8 +781,9 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     func observation(_ node: NodeView) -> [String: Any]? {
         guard contains(node), let toolbar else { return nil }
         let titled = node === heading || (projected && node === header?.heading)
-        var result: [String: Any] = ["view": node === owner ? "NSToolbar" : (titled ? "NSWindow.title" : "NSToolbarItem"),
-                                   "placement": "window", "title": window?.title ?? "",
+        let subtitled = projected && node === header?.subtitle
+        var result: [String: Any] = ["view": node === owner ? "NSToolbar" : (titled ? "NSWindow.title" : subtitled ? "NSWindow.subtitle" : "NSToolbarItem"),
+                                   "placement": "window", "title": window?.title ?? "", "subtitle": window?.subtitle ?? "",
                                    "geometry": "system-owned", "attached": window?.toolbar === toolbar]
         if let item = items[node.id] ?? (headers.contains { $0.backs.contains { $0 === node } } && order.contains(Self.backIdentifier) ? backItem : nil) {
             result["identifier"] = item.itemIdentifier.rawValue
