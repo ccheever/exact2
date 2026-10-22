@@ -103,7 +103,12 @@ final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
     }
 
     func deliver(id: String, date: Date, info: [AnyHashable: Any]) {
-        guard let location = info["navigate"] as? String, !location.isEmpty,
+        // A module's activation entry (LLP 1133.004 D6, D7): its own session
+        // fields, and a location to open or an event to raise.
+        let activation = info["exact"] as? [AnyHashable: Any]
+        let info = activation ?? info
+        let location = (info["navigate"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        guard location != nil || activation != nil,
               let label = info["session"] as? String,
               let owner = info["owner"] as? String else { return }
         let key = "\(id):\(date.timeIntervalSince1970)"
@@ -121,7 +126,10 @@ final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
             if sessions.isEmpty { FileHandle.standardError.write(Data("\(line)\n".utf8)) }
             return
         }
-        session.openLocation(location)
+        if let location { session.openLocation(location) }
+        else if let activation, let name = activation["extension"] as? String, let event = activation["event"] as? String {
+            session.raiseModuleEvent(extension: name, event: event, args: activation["args"] as? String ?? "[]", activation: true)
+        }
         activate?(session)
     }
 

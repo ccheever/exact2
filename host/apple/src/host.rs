@@ -467,6 +467,7 @@ impl<D: DataSource> Host<D> {
         // Its own roles from here, not those of the session it replaces (a
         // caller's scope is that one's; LLP 1121 stage 5).
         let _roles = runner.bind_roles();
+        runner.share_app_state(activation::app_state());
         runner.set_device_links(links.device);
         if links.activities {
             runner.link_activities().map_err(HostError::Runner)?;

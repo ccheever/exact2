@@ -95,6 +95,8 @@ public final class ExactPackageContext {
     private let pictureFn: (UInt32, String) -> Void
     private let orientationFn: () -> Double
     private let invokeFn: (String, String, [String: Any], @escaping ([String: Any]) -> Void) -> Void
+    private let emitFn: (String, [Any]) -> Void
+    private let activationFn: (String, [Any], String?) -> [AnyHashable: Any]
 
     public init(agent: Bool, session: String, changed: @escaping (String) -> Void,
                 log: @escaping (String) -> Void, now: @escaping () -> Double,
@@ -102,11 +104,26 @@ public final class ExactPackageContext {
                 audioSession: ExactAudioSession = ExactAudioSession { _, _, _, _ in nil },
                 picture: @escaping (UInt32, String) -> Void = { _, _ in },
                 surfaces: ExactSurfaces = ExactSurfaces { _ in nil }, orientation: @escaping () -> Double = { 0 },
-                invoke: @escaping (String, String, [String: Any], @escaping ([String: Any]) -> Void) -> Void = { _, _, _, reply in reply(["error": "NotSupportedError"]) }) {
+                invoke: @escaping (String, String, [String: Any], @escaping ([String: Any]) -> Void) -> Void = { _, _, _, reply in reply(["error": "NotSupportedError"]) },
+                emit: @escaping (String, [Any]) -> Void = { _, _ in },
+                activation: @escaping (String, [Any], String?) -> [AnyHashable: Any] = { _, _, _ in [:] }) {
         self.agent = agent; self.session = session
         changedFn = changed; logFn = log; nowFn = now
         self.tracks = tracks; fileFn = file; self.audioSession = audioSession; pictureFn = picture
         self.surfaces = surfaces; orientationFn = orientation; invokeFn = invoke
+        emitFn = emit; activationFn = activation
+    }
+
+    /// Raise the interface's event `name` with `args` (LLP 1133.004 D6):
+    /// delivered in order, once, with the device's origin. Any thread.
+    public func emit(_ name: String, _ args: [Any]) { emitFn(name, args) }
+
+    /// The `userInfo` entry for a notification the implementation posts
+    /// whose opening raises event `name` with `args`, or opens `navigate`
+    /// (LLP 1133.004 D6, D7): the host's notification delegate reads it and
+    /// raises the event, a person's activation, on the session that posted it.
+    public func activation(_ name: String, _ args: [Any], navigate: String? = nil) -> [AnyHashable: Any] {
+        activationFn(name, args, navigate)
     }
 
     /// The app's handler `handler` run for the work `handle` names (LLP

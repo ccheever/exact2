@@ -198,13 +198,22 @@ impl<D: DataSource> Runner<D> {
         let topics = std::mem::take(&mut *self.announced.lock().unwrap_or_else(|e| e.into_inner()));
         let mut receipts = Vec::new();
         for topic in topics {
+            // An event a bound implementation emitted, said through its
+            // module's `changed` (LLP 1133.004 D6): raised, not a topic.
+            if let Some(event) = topic.strip_prefix(super::modules::EMITTED) {
+                self.raise_emitted(event);
+                continue;
+            }
             match self.changed(&topic) {
                 Ok(Some(receipt)) => receipts.push(receipt),
                 Ok(None) => {}
                 Err(error) => return (receipts, Some(error)),
             }
         }
-        (receipts, None)
+        // Then the module events raised meanwhile (LLP 1133.004 D6).
+        let (events, error) = self.deliver_module_events();
+        receipts.extend(events);
+        (receipts, error)
     }
 
     /// The device says `topic` changed (LLP 1016.002): every resource whose

@@ -6,6 +6,10 @@
 //! the call writes is `some(value)`, one it omits is `none`, and a platform's
 //! words are a record of their own, `none` when the call writes none of them.
 //! An omitted word so stays distinct from a written one (D2).
+//!
+//! A send that answers nothing is called as a statement, as a host command
+//! is (LLP 1133.004 D5), its arguments rewritten the same way; an event is
+//! bound by `name=action` on the root (`module_events.rs`).
 
 use crate::CompileError;
 use contract_syntax::{Expr, Field, File, ModuleDecl, ModuleKind, ShapeDecl, Span, Stmt, TypeExpr};
@@ -58,6 +62,10 @@ pub(crate) fn desugar(file: &mut File) -> Result<(), Vec<CompileError>> {
             let Some(m) = modules.get(&r.source) else {
                 continue;
             };
+            if m.kind == ModuleKind::Event {
+                errors.push(event_kind(m, r.span));
+                continue;
+            }
             if m.kind == ModuleKind::Send {
                 errors.push(error(
                     "contract-module-kind",
@@ -69,7 +77,7 @@ pub(crate) fn desugar(file: &mut File) -> Result<(), Vec<CompileError>> {
                 ));
                 continue;
             }
-            check_answers(m, &r.args, &r.shape, &r.name, r.span, &mut errors);
+            check_answers(m, &r.args, Some(&r.shape), &r.name, r.span, &mut errors);
             if r.identity.is_some() {
                 errors.push(error(
                     "contract-module-with",
@@ -91,6 +99,8 @@ pub(crate) fn desugar(file: &mut File) -> Result<(), Vec<CompileError>> {
             stmts(&mut a.body, &modules, &shapes, &surfaces, &mut errors);
         }
     }
+    crate::module_events::bind(file, &mut errors);
+    agent_states(file, &mut errors);
     if errors.is_empty() {
         Ok(())
     } else {
@@ -116,6 +126,21 @@ fn stmts(
                 let Some(m) = modules.get(source.as_str()) else {
                     continue;
                 };
+                if m.kind == ModuleKind::Event {
+                    errors.push(event_kind(m, *span));
+                    continue;
+                }
+                if m.kind == ModuleKind::Send && m.answers.is_none() {
+                    errors.push(error(
+                        "contract-module-answers",
+                        format!(
+                            "`{}` answers nothing: call it as a statement, `{source}(…)`",
+                            m.declared
+                        ),
+                        *span,
+                    ));
+                    continue;
+                }
                 if m.kind == ModuleKind::Source {
                     errors.push(error(
                         "contract-module-kind",
@@ -128,7 +153,35 @@ fn stmts(
                     continue;
                 }
                 if let Some(shape) = shapes.get(target.as_str()) {
-                    check_answers(m, args, shape, target, *span, errors);
+                    check_answers(m, args, Some(shape), target, *span, errors);
+                }
+                match call(m, std::mem::take(args), *span, surfaces) {
+                    Ok(rewritten) => *args = rewritten,
+                    Err(e) => errors.extend(e),
+                }
+            }
+            Stmt::Command { name, args, span } => {
+                let Some(m) = modules.get(name.as_str()) else {
+                    continue;
+                };
+                let refusal = match (m.kind, &m.answers) {
+                    (ModuleKind::Send, None) => None,
+                    (ModuleKind::Send, Some(_)) => Some(format!(
+                        "`{}` answers: a mutation sends it, `send m = {name}(…)`",
+                        m.declared
+                    )),
+                    (ModuleKind::Source, _) => Some(format!(
+                        "`{}` is a source of `{}`: a resource reads it, `resource r = {name}(…) as shape …`",
+                        m.declared, m.package
+                    )),
+                    (ModuleKind::Event, _) => {
+                        errors.push(event_kind(m, *span));
+                        continue;
+                    }
+                };
+                if let Some(message) = refusal {
+                    errors.push(error("contract-module-kind", message, *span));
+                    continue;
                 }
                 match call(m, std::mem::take(args), *span, surfaces) {
                     Ok(rewritten) => *args = rewritten,
@@ -154,7 +207,7 @@ fn stmts(
 /// The records a call of `m` builds: its options, with a field per
 /// platform that has words for it, and each platform's words.
 fn records(m: &ModuleDecl) -> Vec<ShapeDecl> {
-    if takes_nothing(m) {
+    if takes_nothing(m) || m.kind == ModuleKind::Event {
         return Vec::new();
     }
     let mut fields = m.options.clone();
@@ -503,13 +556,15 @@ fn member(name: &str, ty: &TypeExpr, value: &Expr) -> Option<CompileError> {
 fn check_answers(
     m: &ModuleDecl,
     args: &[Expr],
-    shape: &TypeExpr,
+    shape: Option<&TypeExpr>,
     name: &str,
     span: Span,
     errors: &mut Vec<CompileError>,
 ) {
-    let answers = typed_answer(m, args).unwrap_or_else(|| m.answers.clone());
-    if !same(shape, &answers) {
+    let Some(answers) = typed_answer(m, args).or_else(|| m.answers.clone()) else {
+        return;
+    };
+    if !shape.is_some_and(|shape| same(shape, &answers)) {
         errors.push(error(
             "contract-module-answers",
             format!(
@@ -537,8 +592,100 @@ fn typed_answer(m: &ModuleDecl, args: &[Expr]) -> Option<TypeExpr> {
     })
 }
 
+/// The agent's own top-level state keys, which a module's declared list or
+/// value cannot take (LLP 1133.004 §7).
+const RESERVED_STATES: &[&str] = &[
+    "slots",
+    "derives",
+    "resources",
+    "mutationFailures",
+    "mutationRequests",
+    "device",
+    "writes",
+    "failed",
+    "pending",
+    "streams",
+    "watches",
+    "faults",
+    "background",
+    "tasks",
+    "queued",
+    "sounds",
+    "transport",
+    "midi",
+    "extensions",
+    "wakelock",
+    "head",
+    "focus",
+    "language",
+    "storage",
+    "keyboard",
+    "navigation",
+    "media",
+    "mediaSession",
+    "window",
+    "canvas",
+    "surfaceRefusals",
+    "reorder",
+    "scrollIntoView",
+    "presence",
+    "hatches",
+    "store",
+    "delivery",
+    "logic",
+    "collections",
+    "clock",
+    "epoch",
+    "incarnation",
+    "error",
+];
+
+/// Each declared list's and value's state name is one module's, and none of
+/// the agent's own keys: two modules' `count`s would read as one.
+fn agent_states(file: &File, errors: &mut Vec<CompileError>) {
+    let mut owner: HashMap<String, String> = HashMap::new();
+    for m in &file.modules {
+        let sub: serde_json::Value = serde_json::from_str(&m.substitute).unwrap_or_default();
+        for state in [&sub["list"]["state"], &sub["set"]["state"]] {
+            let Some(state) = state.as_str() else {
+                continue;
+            };
+            if RESERVED_STATES.contains(&state) {
+                errors.push(error(
+                    "contract-module-state",
+                    format!("`{}` declares the agent's state `{state}`, which is the agent's own: name it another way", m.package),
+                    m.span,
+                ));
+            } else if let Some(other) = owner.get(state).filter(|o| **o != m.package) {
+                errors.push(error(
+                    "contract-module-state",
+                    format!(
+                        "`{}` and `{other}` both declare the agent's state `{state}`",
+                        m.package
+                    ),
+                    m.span,
+                ));
+            } else {
+                owner.insert(state.to_owned(), m.package.clone());
+            }
+        }
+    }
+}
+
+/// An event named where a call stands.
+fn event_kind(m: &ModuleDecl, span: Span) -> CompileError {
+    error(
+        "contract-module-kind",
+        format!(
+            "`{}` is an event of `{}`: the root hears it, `{}=action` on the root component's outermost node",
+            m.declared, m.package, m.name
+        ),
+        span,
+    )
+}
+
 /// Two written types alike, wherever each was written.
-fn same(a: &TypeExpr, b: &TypeExpr) -> bool {
+pub(crate) fn same(a: &TypeExpr, b: &TypeExpr) -> bool {
     match (a, b) {
         (TypeExpr::Named(a, _), TypeExpr::Named(b, _)) => a == b,
         (TypeExpr::Enum(a, _), TypeExpr::Enum(b, _)) => a == b,
@@ -548,7 +695,7 @@ fn same(a: &TypeExpr, b: &TypeExpr) -> bool {
     }
 }
 
-fn written(t: &TypeExpr) -> String {
+pub(crate) fn written(t: &TypeExpr) -> String {
     match t {
         TypeExpr::Named(n, _) => n.clone(),
         TypeExpr::Enum(members, _) => format!(
@@ -581,7 +728,7 @@ fn twice(name: &str, at: Span) -> CompileError {
     )
 }
 
-fn error(id: &str, message: String, span: Span) -> CompileError {
+pub(crate) fn error(id: &str, message: String, span: Span) -> CompileError {
     CompileError {
         pass: "use",
         id: id.into(),

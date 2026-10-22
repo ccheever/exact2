@@ -301,6 +301,9 @@ pub struct Shapes {
     /// The sounds the app declares, by path (LLP 1096 D1): a literal
     /// `playSound` source names one.
     pub sounds: std::collections::BTreeSet<String>,
+    /// The native modules' sends that answer nothing, by program-unique
+    /// name: a statement naming one sends it (LLP 1133.004 D5).
+    pub effects: std::collections::BTreeSet<String>,
     /// Where `x.length` reads a record's field (`lists::LengthReads`).
     pub(crate) lengths: Arc<std::sync::Mutex<lists::LengthReads>>,
 }
@@ -1147,6 +1150,10 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
     }
     shadows::declare(file, &mut shapes);
     shapes.sounds = file.sounds.iter().map(|s| s.source.clone()).collect();
+    shapes.effects = (file.modules.iter())
+        .filter(|m| m.kind == contract_syntax::ModuleKind::Send && m.answers.is_none())
+        .map(|m| m.name.clone())
+        .collect();
     routes::declare(file, &mut shapes)?;
     selection::declare(&mut shapes);
     geometry::declare(&mut shapes);

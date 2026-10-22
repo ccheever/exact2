@@ -32,6 +32,7 @@ mod logic;
 mod manifest;
 mod map;
 mod midi;
+mod module_events;
 mod module_rust;
 mod modules;
 pub mod native;

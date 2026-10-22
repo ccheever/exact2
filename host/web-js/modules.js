@@ -15,9 +15,17 @@
 // (`implementation` in its declaration) is answered by its implementation,
 // told `agent: true`, behind the permission and tickets here, with the
 // agent's preferred value laid over each answer; every other by the
-// substitute. The web has no tool or wake door, so a call's origin is `app`,
-// or `tool` from a handler a module called back (`invoke`, LLP 1133.016 D9).
-import { data, Resources, commit, R, Failed, nextTicket, say, clock, Clocked, After, time, Store } from "./rt.js";
+// substitute. The web has no wake door, so a call's origin is `app`, `tool`
+// from a handler a module called back (`invoke`, LLP 1133.016 D9), or
+// `device` from an event a package emitted (LLP 1133.004 D6).
+//
+// A send that answers nothing (type `u`) is a host command of the source's
+// name, run once its commit stands (LLP 1133.004 D5), and its declared list,
+// value and admission answer under the agent (§7). An event the root hears
+// is raised by the host (an activation the implementation binds, `isTrusted`
+// only) or emitted (the device's origin), and heard in order, once, each as
+// its own commit (D6).
+import { data, Resources, commit, R, Failed, nextTicket, say, clock, Clocked, After, time, Store, Hosts, navigateRoot, locationOf, inflight, Origin } from "./rt.js";
 import { reportTime } from "./navigation.js";
 import { packageViews } from "./views.js";
 import { packagePictures } from "./pictures.js";
@@ -27,11 +35,20 @@ import { samples, groupOf } from "./samples.js";
 // `rows`: source → [extension.name, send, substitute, type, request, options' type, live];
 // `bound`: extension → a loader of its web implementation, where the app binds one
 // (LLP 1133.001 D4), which answers outside the agent;
-// `views`: a package view's tag → [extension, displayed, binding props] (views.js).
-export function modules(rows, bound = {}, views = {}) {
+// `views`: a package view's tag → [extension, displayed, binding props] (views.js);
+// `events`: extension.event → [its action, taken when heard; activation | emit; hold; its parameters' types; its name].
+export function modules(rows, bound = {}, views = {}, events = {}) {
   const byKey = new Map(), preferred = new Map(), permission = new Map(), held = [];
   for (const [source, [key, send, sub, type, request, options, live]] of Object.entries(rows)) byKey.set(key, { source, key, send, sub, type, request, options, live });
   const sampled = samples();
+  // The origin of the commit running now (LLP 1133.002 D12): the device's while an emitted event's handler runs, and,
+  // since data code and an answer's commit cannot say which request they follow, while any request such a handler
+  // made is still in flight (`deviceBase`, the in-flight count before it): the least privileged origin.
+  let origin = "app", deviceBase = null;
+  const originNow = () => deviceBase !== null ? "device" : origin;
+  Origin.now = originNow;
+  After.push(() => { if (deviceBase !== null && inflight.n <= deviceBase) deviceBase = null; });
+  const asks = (row, send) => row.request === "always" ? send : row.request === "when-prompt" ? !send : false;
   // A request's own timeout, the option its declaration's `timeout` names: from a Contract call's record, or data code's object.
   const timeoutOf = (row, args) => {
     const name = row.sub.timeout, at = name && row.options ? Object.keys(row.options).indexOf(name) : -1;
@@ -82,13 +99,14 @@ export function modules(rows, bound = {}, views = {}) {
   };
   const permissionsOf = row => [row.sub.permission, ...Object.values(row.sub.permissionBy ?? {})].filter(Boolean);
   const permissionNamed = (row, name) => permissionsOf(row).find(p => p.name === name);
+  // A name admitted with no permission is never held or refused, and a request answers the status in every state but
+  // `prompt` (`admission`, LLP 1133.004 §7).
   const decidePermission = (row, send, p = row.sub.permission) => {
-    if (!p) return null;
+    if (!p || row.sub.admission === "none") return null;
     const state = stateOf(p.name);
     if (!send && isStatus(row)) return { now: { ...(valueOf(row) ?? {}), [p.field]: row.sub.web?.[p.field] ?? state } };
-    if (state === "denied") return { now: { error: p.denied } };
-    const asks = row.request === "always" ? send : row.request === "when-prompt" ? !send : false;
-    return state === "prompt" && asks ? { hold: "permission" } : null;
+    if (state === "denied" && row.sub.admission !== "request") return { now: { error: p.denied } };
+    return state === "prompt" && asks(row, send) ? { hold: "permission" } : null;
   };
   const decide = (row, send, args = {}) => {
     // A target's own restriction holds under the agent too (§6): the web has no precision request.
@@ -328,7 +346,16 @@ export function modules(rows, bound = {}, views = {}) {
     if (!bound[extension]) return null;
     if (!loaded.has(extension)) loaded.set(extension, chunk(extension).then(m => {
       const context = { changed: key => byKey.has(key) && reask([key]), agent: clock.agent, now: () => { time(); return clock.now; }, foreground: shown, log: say, tracks, files, audioSession,
-        revokePicture: source => pictures?.revokePicture(source), pictureChanged: source => pictures?.pictureChanged(source), invoke: invoker(extension) };
+        revokePicture: source => pictures?.revokePicture(source), pictureChanged: source => pictures?.pictureChanged(source), invoke: invoker(extension),
+        // A package's own raising has the device's origin; a person's is the host's to give (LLP 1133.004 D6).
+        emit: (name, args) => raise(`${extension}.${name}`, args, "device"),
+        // Only an event that is the web's user activation (HTML's activation-triggering input events, and `click`), and
+        // trusted, is a person's; any other type binds nothing.
+        activation: (target, type, name, args, { navigate } = {}) => !ACTIVATING.has(type) ? say(`${extension}.${name}: a ${type} is no person's activation; nothing is bound`) : target.addEventListener(type, e => {
+          if (!e.isTrusted) return say(`${extension}.${name}: an untrusted ${type} raises nothing`);
+          try { globalThis.focus?.(); } catch {}
+          if (navigate) navigateRoot(locationOf(navigate)); else raise(`${extension}.${name}`, args, "app");
+        }) };
       const impl = m.implementation?.(context) ?? null;
       if (clock.agent) impl?.preferred?.(preferredOf(extension));
       ready.set(extension, impl);
@@ -388,9 +415,15 @@ export function modules(rows, bound = {}, views = {}) {
   // `how`: the call's origin, the reader or mutation that asked (`name`), whose newer call cancels this one, and a held
   // sheet's answer (`sheet`, LLP 1133.018 D13 item 4). The implementation is told the origin and the request's number,
   // which its `cancel(request)` is given, and under the agent the sheet's answer or else the preferred value.
-  const viaImplementation = (row, args, reader, how = {}) => implementation(row)?.then(impl => {
+  const viaImplementation = (row, args, reader, how = {}) => implementation(row)?.then(async impl => {
     const name = row.key.slice(row.key.indexOf(".") + 1);
     if (!impl?.[name]) return { error: "NotSupportedError" };
+    // A call not the app's that would ask is refused while the platform's state is `prompt` (LLP 1133.002 D12).
+    const p = row.sub.permission;
+    if ((how.origin ?? "app") !== "app" && p?.status && row.sub.admission !== "none" && asks(row, row.send) && impl[p.status]) {
+      const status = await impl[p.status]({});
+      if (status?.[p.field] === "prompt") { say(`${row.key}: refused, person-required (${how.origin} origin)`); return { error: p.denied }; }
+    }
     if (row.live) live.add(row.key);
     const request = ++requests, asker = how.name ?? reader;
     if (row.send && asker && impl.cancel) forwarded.set(asker, { key: row.key, request, impl });
@@ -413,6 +446,97 @@ export function modules(rows, bound = {}, views = {}) {
     }
     return answered.then(json => { handled(row, args, json); polled(row, args, json); return overlaid(row, json); });
   });
+  // ---- a send that answers nothing, and its declared substitute (LLP 1133.004 D5, §7)
+  const lists = new Map(), setValues = new Map(), effects = [];
+  const listOf = row => [...byKey.values()].filter(r => extensionOf(r) === extensionOf(row) && r.sub.list).map(r => r.sub.list.state);
+  const applyEffect = (row, args) => {
+    const name = row.key.split(".")[1], sub = row.sub;
+    if (sub.list) {
+      const entries = lists.get(sub.list.state) ?? [], value = args[sub.list.key] ?? null, ref = nextTicket();
+      const kept = value == null ? entries : entries.filter(e => e.fields[sub.list.key] !== value);
+      kept.push({ ref, row, fields: { ...Object.fromEntries(Object.keys(row.options ?? {}).map(k => [k, null])), ...args } });
+      lists.set(sub.list.state, kept);
+      say(`${name}: listed${typeof value === "string" ? ` (${value})` : ""} @${ref}`);
+    }
+    if (sub.unlist) {
+      for (const state of listOf(row)) lists.set(state, (lists.get(state) ?? []).filter(e => e.fields[sub.unlist] !== args[sub.unlist]));
+      say(`${name}: unlisted`);
+    }
+    if (sub.set) {
+      const from = sub.set.from, given = from ? args[from] : undefined;
+      const value = !from ? (sub.set.value ?? null) : given == null ? (sub.set.absent ?? null) : given === 0 ? (sub.set.zero ?? null) : given;
+      setValues.set(`${extensionOf(row)}/${sub.set.state}`, value);
+      say(`${name}: ${sub.set.state} ${JSON.stringify(value)}`);
+    }
+  };
+  /** One call: done (`null`), refused (`{error}`), or held on the permission ticket until it is answered. */
+  const effect = (row, args, from = originNow()) => {
+    const before = origin;
+    if (from === "device") origin = "device";
+    try { return effectNow(row, args, from); } finally { origin = before; }
+  };
+  const effectNow = (row, args, from) => {
+    const name = row.key.split(".")[1];
+    const byValue = ceremonies.grants(row, args);
+    if (byValue) { say(`${row.key}: refused, ${byValue.message}`); return Promise.resolve(byValue); }
+    const why = admit(row, args, from);
+    if (why) { say(`${row.key}: refused, ${why}`); return Promise.resolve(why.startsWith("person-required") ? { error: "NotAllowedError", message: "person-required" } : { error: "NotAllowedError" }); }
+    const real = route(row) === "real" ? viaImplementation(row, args, null, { origin: from }) : null;
+    if (real) return real.then(r => { if (errorCode(r)) say(`${name}: refused: ${errorCode(r)}`); return errorCode(r) ? r : null; });
+    const p = row.sub.permission, state = p && row.sub.admission !== "none" ? stateOf(p.name) : null;
+    if (state === "denied") { say(`${name}: refused: ${p.denied}`); return Promise.resolve({ error: p.denied }); }
+    if (state === "prompt" && asks(row, true)) {
+      // Only a person answers a prompt (LLP 1133.002 D12).
+      if (from !== "app") { say(`${row.key}: refused, person-required (${from} origin)`); return Promise.resolve({ error: p.denied }); }
+      return new Promise(resolve => { const h = { ticket: nextTicket(), row, args, resolve }; effects.push(h); say(`device permission ${h.ticket} held (agent)`); });
+    }
+    applyEffect(row, args);
+    return Promise.resolve(null);
+  };
+  const settleEffects = (name, state) => {
+    for (const h of effects.filter(h => h.row.sub.permission?.name === name)) {
+      if (state === "prompt") continue;
+      effects.splice(effects.indexOf(h), 1);
+      if (state === "granted") { applyEffect(h.row, h.args); h.resolve(null); }
+      else { say(`${h.row.key.split(".")[1]}: refused: ${h.row.sub.permission.denied}`); h.resolve({ error: h.row.sub.permission.denied }); }
+    }
+  };
+  for (const row of byKey.values()) if (row.send && row.sub.effect) Hosts[row.source] = Object.assign((from, record) => { effect(row, object(record, row.options) ?? {}, from); }, { origin: true });
+  const delivered = e => { const at = e.row.sub.list.at, t = at ? e.fields[at] : null; return t == null || t <= now(); };
+  // ---- events (LLP 1133.004 D6)
+  const unheard = [];
+  const raise = (key, args, from) => {
+    const declared = events[key];
+    if (!declared) return say(`${key}: no handler hears it`);
+    const [, raised, bound] = declared;
+    unheard.push({ key, args: Array.isArray(args) ? args : [], origin: raised === "activation" ? from : "device" });
+    // Each event's own bound: past it, its own oldest is dropped.
+    while (unheard.filter(q => q.key === key).length > bound) { const old = unheard.splice(unheard.findIndex(q => q.key === key), 1)[0]; say(`${key}: dropped (${typeof old.args[0] === "string" ? old.args[0] : JSON.stringify(old.args[0] ?? null)})`); }
+    say(`${key}: raised`);
+    queueMicrotask(hear);
+  };
+  const hear = () => {
+    while (unheard.length) {
+      const { key, args, origin: from } = unheard.shift(), [action, , , types, name] = events[key];
+      let values;
+      try { values = types.map((t, i) => value(args[i] ?? null, t, key)); } catch (e) { say(`${key}: refused: ${e.message}`); continue; }
+      say(`${key}: heard by ${name}`);
+      const before = origin;
+      origin = from;
+      const base = inflight.n;
+      try { action()(...values); } finally { origin = before; }
+      if (from === "device" && inflight.n > base) deviceBase = deviceBase === null ? base : Math.min(deviceBase, base);
+    }
+  };
+  /** An entry's click (§7): its `navigate` field opened, else its event raised as an activation. */
+  const activate = (row, entry, ref) => {
+    const tap = row.sub.list.tap ?? {}, location = tap.navigate ? entry[tap.navigate] : null;
+    if (typeof location === "string") { navigateRoot(locationOf(location)); return { ref, navigate: location, delivery: "substituted" }; }
+    if (!tap.event) return { ref, delivery: "substituted" };
+    const args = (tap.args ?? []).map(a => typeof a === "string" ? entry[a] ?? null : a && typeof a === "object" ? Object.fromEntries(Object.entries(a).map(([k, f]) => [k, entry[f] ?? null])) : a);
+    raise(`${extensionOf(row)}.${tap.event}`, args, "app");
+    return { ref, event: tap.event, delivery: "substituted" };
+  };
   // The handlers a handle's work may call back (LLP 1133.016 D15 item 1): those its call's `handlers` path lists
   // (`tools[].name`), or those of the handle its `handlersFrom` option names. A call back for any other is refused.
   const handlers = new Map();
@@ -567,16 +691,17 @@ export function modules(rows, bound = {}, views = {}) {
       supersede(row, name);
       const given = sampled.clamp(row, args?.[0] !== undefined ? object(args[0], row.options) : {}, say);
       const timeout = row.send ? timeoutOf(row, args) : null, reader = row.send ? null : name;
-      let d = admitted(row, given, "app", row.send, timeout);
+      const origin = originNow();
+      let d = admitted(row, given, origin, row.send, timeout);
       const n = (asked.get(name) ?? 0) + 1;
       asked.set(name, n);
       if (reader && sampled.sampled(row)) d = sampledAnswer(row, d, given, reader);
       if (d.forward && row.send && row.sub.gesture && ready.has(extensionOf(row))) {
         const impl = ready.get(extensionOf(row)), declared = row.key.slice(row.key.indexOf(".") + 1);
-        if (impl?.[declared]) return Promise.resolve(impl[declared](given, { origin: "app", request: ++requests })).then(json => { handled(row, given, json); return answer(row, json); });
+        if (impl?.[declared]) return Promise.resolve(impl[declared](given, { origin, request: ++requests })).then(json => { handled(row, given, json); return answer(row, json); });
       }
-      if (d.forward) return viaImplementation(row, given, reader, { name }).then(json => { disposeDropped(row, json, name, n); if (reader) sampled.answered(row, reader, json); return answer(row, json); });
-      if (d.hold) return hold(row, d.hold, name, false, timeout, route(row) === "agent" ? sheet => viaImplementation(row, given, reader, { name, sheet }) : null, given);
+      if (d.forward) return viaImplementation(row, given, reader, { name, origin }).then(json => { disposeDropped(row, json, name, n); if (reader) sampled.answered(row, reader, json); return answer(row, json); });
+      if (d.hold) return hold(row, d.hold, name, false, timeout, route(row) === "agent" ? sheet => viaImplementation(row, given, reader, { name, sheet, origin }) : null, given);
       // A send refused now fails its mutation, as on native, rather than the action that sent it.
       return row.send && errorCode(d.now) ? Promise.resolve().then(() => answer(row, d.now)) : answer(row, d.now);
     };
@@ -614,6 +739,7 @@ export function modules(rows, bound = {}, views = {}) {
       const d = decideTimed(h.row, h.send, h.timeout);
       if (d.hold) { h.waits = d.hold; h.ticket = nextTicket(); h.deadline = d.hold === "value" && h.timeout != null ? clock.now + h.timeout : null; say(`device ${capability(h)} ${h.ticket} held (agent)`); } else release(h, d.now);
     }
+    settleEffects(name, state);
     reask([...byKey.values()].filter(r => permissionNamed(r, name)).map(r => r.key));
   };
   const settleValues = () => {
@@ -654,6 +780,11 @@ export function modules(rows, bound = {}, views = {}) {
         if (preferred.has(row.key)) e.preferred[declared] = preferred.get(row.key);
         if (!row.send) e.readers[declared] = [...new Set([...Resources.filter(r => r.source === row.source || r.watches?.includes(row.key)).map(r => r.name), ...(globalThis.exact?.moduleReaders?.(row.key) ?? [])])];
         for (const h of held.filter(h => h.row === row && !h.queued)) e.held.push({ ticket: h.ticket, name: declared, origin: "app", waits: h.waits });
+        for (const h of effects.filter(h => h.row === row)) e.held.push({ ticket: h.ticket, name: declared, origin: "app", waits: "permission" });
+      }
+      for (const q of unheard) {
+        const extension = q.key.split(".")[0], e = out[extension] ??= { bound: false, preferred: {}, readers: {}, held: [] };
+        (e.queued ??= []).push({ event: q.key.split(".")[1], args: q.args, origin: q.origin });
       }
       // What a loaded implementation discloses of its own (`state()`: a language model's sessions, LLP 1133.016 §9).
       for (const [extension, e] of Object.entries(out)) {
@@ -665,6 +796,26 @@ export function modules(rows, bound = {}, views = {}) {
       for (const [extension, c] of pictureCounts) if (out[extension]) out[extension].pictures = { ...c };
       return out;
     },
+    // A package's emit, as its context raises it: the device's (the tests' way in, the agent binding no implementation).
+    raiseForTests: (key, args = []) => raise(key, args, "device"),
+    // Each declared list and value, by its state name (§7), for the agent's top-level state.
+    declared() {
+      const out = {};
+      for (const row of byKey.values()) {
+        if (row.sub.list) out[row.sub.list.state] = (lists.get(row.sub.list.state) ?? []).map(e => ({ ...e.fields, delivered: delivered(e), ref: e.ref }));
+        if (row.sub.set) out[row.sub.set.state] = setValues.get(`${extensionOf(row)}/${row.sub.set.state}`) ?? null;
+      }
+      return out;
+    },
+    // A relaunched page's launch flag (`--notification '<entry>'`): the entry as its tap would deliver it.
+    launch(req) {
+      const row = [...byKey.values()].find(r => r.sub.list?.launch === req.launch);
+      if (!row) return { error: `--${req.launch}: no module of this app lists entries a launch hands over` };
+      let entry;
+      try { entry = typeof req.entry === "string" ? JSON.parse(req.entry) : req.entry; } catch (e) { return { error: `--${req.launch}: not JSON: ${e.message}` }; }
+      say(`launch --${req.launch}`);
+      return activate(row, entry ?? {}, 0);
+    },
     // A call from data code (ts-data.js `__exact_module`): JSON, as the native runtime answers it.
     // `kept`: whether the answer that made the call still wants its reply; a registration it no longer does is disposed of (D11).
     call(body, kept = () => true) {
@@ -672,7 +823,8 @@ export function modules(rows, bound = {}, views = {}) {
       if (!row || row.send !== !!body.send) return Promise.resolve({ error: "NotSupportedError" });
       const args = sampled.clamp(row, { ...(body.args ?? {}) }, say);
       const timeout = row.send ? timeoutOf(row, args) : null, reader = !row.send && sampled.sampled(row) ? `data ${groupOf(args)}` : null;
-      const origin = body.origin === "tool" ? "tool" : "app";
+      const origin = body.origin === "tool" ? "tool" : originNow();
+      if (row.sub.effect) return effect(row, args, origin);
       let d = admitted(row, args, origin, row.send, timeout);
       if (reader) d = sampledAnswer(row, d, args, reader);
       if (d.forward) return viaImplementation(row, args, null, { origin }).then(json => { if (reader) sampled.answered(row, reader, json); return complete(kept() ? json : ceremonies.dropped(row, json), row.type); });
@@ -681,12 +833,29 @@ export function modules(rows, bound = {}, views = {}) {
       if (row.sub.ceremony || row.sub.records) ceremonies.record({ row, args }, errorCode(d.now) ?? "recorded");
       return Promise.resolve(complete(d.now, row.type));
     },
-    holds: () => held.filter(h => !h.queued).map(h => ({ name: h.name, ticket: h.ticket, device: { capability: capability(h),
+    holds: () => [...held.filter(h => !h.queued).map(h => ({ name: h.name, ticket: h.ticket, device: { capability: capability(h),
       args: h.waits === "permission" ? { capability: h.permission, request: h.row.key.split(".")[1], origin: "app" } : h.waits === "ceremony" ? ceremonies.args(h)
         // A sheet shows what the call asked (the properties, the event).
         : h.waits === "choose" ? { request: h.row.key.split(".")[1], origin: "app", options: h.args ?? {} } : { request: h.row.key.split(".")[1] } } })),
-    // `tap @t allow|deny|cancel`, `type @t <value>`; undefined for a ticket that is not a module's.
+      ...effects.map(h => ({ name: h.row.key, ticket: h.ticket, device: { capability: "permission", args: { capability: h.row.sub.permission.name, request: h.row.key.split(".")[1], origin: "app" } } }))],
+    // `tap @t allow|deny|cancel`, `type @t <value>`, `tap @ref` on a listed entry; undefined for a ticket that is not a module's.
     answer(req) {
+      const entry = req.op === "tap" && [...lists.values()].flat().find(e => e.ref === req.ticket);
+      if (entry) {
+        if (!delivered(entry)) return { error: `@${req.ticket} is not delivered yet: advance the clock past its time` };
+        const state = entry.row.sub.list.state;
+        lists.set(state, lists.get(state).filter(e => e !== entry));
+        say(`${state} @${req.ticket}: tapped`);
+        return activate(entry.row, entry.fields, req.ticket);
+      }
+      const e = effects.find(x => x.ticket === req.ticket);
+      if (e) {
+        if (req.op !== "tap" || !["allow", "deny", "cancel"].includes(req.choice)) return { error: `@${e.ticket} (permission): tap takes cancel | allow | deny` };
+        say(`device permission ${e.ticket} ${req.choice === "cancel" ? "cancelled" : `answered: ${req.choice}`}`);
+        if (req.choice === "cancel") { effects.splice(effects.indexOf(e), 1); say(`${e.row.key.split(".")[1]}: refused: ${e.row.sub.permission.denied}`); e.resolve({ error: e.row.sub.permission.denied }); }
+        else setPermission(e.row.sub.permission.name, req.choice === "allow" ? "granted" : "denied");
+        return { ticket: req.ticket, capability: "permission", answered: req.choice, delivery: "substituted" };
+      }
       const h = held.find(x => x.ticket === req.ticket);
       if (!h) return undefined;
       const cap = capability(h);
@@ -817,6 +986,9 @@ const given = (args, arg) => arg === "*" || (args?.[arg] != null && args[arg] !=
 
 /** `app:/<root>/<file…>` with no empty, `.` or `..` segment (the runner's `plain_app_path`). */
 const appPath = p => p.startsWith("app:/") && p.slice(5).split("/").length >= 2 && p.slice(5).split("/").every(s => s && s !== "." && s !== ".." && !s.includes("\0"));
+
+/** HTML's activation-triggering input events, and `click`: what a person's activation is. */
+const ACTIVATING = new Set(["click", "keydown", "mousedown", "pointerdown", "pointerup", "touchend"]);
 
 /** The code of an error answer, `{"error": "POSITION_UNAVAILABLE"}`, which may say more in a `message`, and each
  * platform's own code beside it (`apple`, `android`; LLP 1133.011 D1), as the runner's `error_code`. */

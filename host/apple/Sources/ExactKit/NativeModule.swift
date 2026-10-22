@@ -584,7 +584,9 @@ final class NativeViews {
         if let instanceFailure { return .failure(instanceFailure) }
         guard let session else { return .failure(NativeFailure(state: "unavailable", message: "the session ended")) }
         let roots = NativeViews.roots(session: session)
-        let context: [String: Any] = ["agent": ExactEnv.agentMode, "data": roots.data, "cache": roots.cache, "temporary": roots.temporary]
+        // Who posts what an activation is for (LLP 1133.004 D7), as the host's delegate matches it.
+        let context: [String: Any] = ["agent": ExactEnv.agentMode, "data": roots.data, "cache": roots.cache, "temporary": roots.temporary,
+                                      "session": session.label, "owner": session.notificationOwnerID, "process": session.app.notificationProcessID]
         let json = (try? JSONSerialization.data(withJSONObject: context)) ?? Data()
         var error = [UInt8](repeating: 0, count: 512)
         let host = UnsafeMutableRawPointer(bitPattern: UInt(session.runtime.rt))
