@@ -4,7 +4,7 @@
 // when the snapshot carries a new request. The desktop reference downloads through Electron's own Save dialog
 // (apps/desktop/src/preview/Manager.ts: "Electron opens a native Save dialog for a download with no save path").
 
-/** The app's own files: the storage Exact hands the data module (the native module answers only the preferences). */
+/** The app's own files: the storage Exact hands the data module. */
 export interface AppFiles {
   fs: {
     readFile(path: string): Promise<ArrayBuffer>;
@@ -18,6 +18,8 @@ export function adoptAppFiles(storage: unknown): void {
   const fs = (storage as { fs?: Partial<AppFiles['fs']> } | null)?.fs;
   if (fs?.readFile && fs.writeFile && fs.mkdir) files = storage as AppFiles;
 }
+/** The storage the last answer handed over, or null before any (the build, a test that hands none). */
+export function adoptedFiles(): AppFiles | null { return files; }
 export function appFiles(): AppFiles {
   if (!files) throw new Error('The app\'s files are unavailable.');
   return files;

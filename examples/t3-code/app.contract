@@ -262,6 +262,9 @@ component T3Code
   action streamCloseMiniDialog
     close(`server-browser-dialog-${serverMiniFrame.runtimeId}`)
   provide
+    interacted
+    renameHoldsKeys
+    renameFocused
     inlineDocumentViewportWidth
     inlineDocumentViewportHeight
     inlineDocumentShortcut
@@ -708,6 +711,30 @@ component T3Code
     elapsed = performanceNow()
     windowReturns = windowReturns + 1
     transportSignal("foreground") // returning to the app: probe a live socket, look for a better route, wake a waiting retry
+  // When the reader last pointed, typed or scrolled, to the second: the window listeners of backgroundActivityReporter.ts
+  // (pointermove, keydown, wheel) and useLiveRefresh.ts (those and pointerdown). T3Window's root hears them; a hovering
+  // pointer's move goes only to the innermost node that hears `pointermove`, so each such node calls this too. The data
+  // module gets each new second (activityInteraction); the first after six idle minutes is useLiveRefresh's resume, which
+  // reads the pull request surfaces again (activityResumed, LIVE_REFRESH_IDLE_AFTER_MS).
+  state interactedAt = 0
+  mutation interactionNoted as shape number
+  mutation interactionResumed as shape number refreshes prList, prDetail
+  action interacted
+    let now = performanceNow()
+    if now - interactedAt >= 360000
+      interactedAt = now
+      send interactionResumed = activityResumed(wallTime.epochAtZero + now)
+    else if now - interactedAt >= 1000
+      interactedAt = now
+      send interactionNoted = activityInteraction(wallTime.epochAtZero + now)
+  // While the device tab's rename field has the focus (panel.contract PanelTabNameField), the keys its keydown's
+  // stopPropagation keeps from the reference's bubble-phase window listeners stand aside: those keybinding chords
+  // (settings-shortcuts.contract renameHeldCommand) and the Escape buttons, since an `aria-keyshortcuts` button hears its
+  // chord before any field. The capture-phase listeners (sidebar.toggle, the chat's, the composer's and thread commands,
+  // ThreadUndoShortcut, ReopenClosedViewShortcut) still hear a key there, as in the reference.
+  state renameHoldsKeys = false
+  action renameFocused(on: bool)
+    renameHoldsKeys = on
   mutation timelineDisclosureChanged as shape Change refreshes data then dispatchTimelineReads
   mutation timelineReadsRefreshed as shape TimelineReadsResult refreshes data
   mutation timelineReadsRefreshedNext as shape TimelineReadsResult refreshes data

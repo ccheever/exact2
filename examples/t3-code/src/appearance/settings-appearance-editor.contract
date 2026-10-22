@@ -49,6 +49,7 @@ component ThemeEditorHost
 component ThemeEditorPanel
   inject
     rem: number
+    interacted: action
   props
     editor: EditorView
     inspecting: bool
@@ -92,6 +93,7 @@ component ThemeEditorPanel
   action inspectUp(e: PointerEvent)
     inspectPointer(true, e)
   action inspectPointer(pick: bool, e: PointerEvent)
+    interacted()
     let hits = elementsFromPoint(e.clientX, e.clientY)
     let matches = hits.filter((id) => usage.filter((group) => group.nodes.map((node) => node.id).includes(id)).length > 0)
     let hitId = matches.slice(0, 1).join("")

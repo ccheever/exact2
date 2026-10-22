@@ -3,7 +3,7 @@ import { describe, test, expect } from 'bun:test';
 import { contractFns } from '../support/contract-fn-fixture';
 import { T3Client } from '../../src/client/client';
 import { snapshot, transcriptPresentation, modelCatalog, providerBanner, projectIdentity, providerBadge } from '../../src/client/presentation';
-import { environmentFetchFailure, parsePairing, nativeFiles, type Native, type Files } from '../../src/client/protocol';
+import { environmentFetchFailure, parsePairing, preferenceFiles, PREFERENCE_PATH, type Native, type Files } from '../../src/client/protocol';
 import { obj, arr, str, type Obj } from '../../src/client/domain';
 import { answerClient as answer } from '../../app'; // the client against this file's scripted bridge
 import { chatLocal } from '../../src/timeline/timeline-presentation';
@@ -405,56 +405,72 @@ describe('answer cancellation', () => {
   });
 });
 
-describe('native preference persistence', () => {
-  test('the app data source never starts Exact filesystem work', async () => {
+describe('the preference file in Exact\'s app storage', () => {
+  test('app.ts reads and writes app:/data/t3-code.json through the storage an answer gets', async () => {
     const native = new Backend();
-    const forbidden = async () => { throw new Error('Exact filesystem must not be used by this app'); };
-    const files: Files = { fs: { mkdir: forbidden, readFile: forbidden, atomicWriteFile: forbidden } };
-    const state = await answer('snapshot', [], null, files, native);
+    const state = await answer('snapshot', [], null, native.disk.files, native);
     expect(obj(state).syncComplete).toBe(true);
-    expect(await answer('settings', ['env1', 'deleted-project'], null, files, native)).toMatchObject({ available: false, permission: '', overridden: false, environmentPermission: '' });
-    expect(await answer('settings', ['deleted-environment', 'p1'], null, files, native)).toMatchObject({ available: false, permission: '', overridden: false, environmentPermission: '' });
-    expect(await answer('settings', ['env1', 'p1'], null, files, native)).toMatchObject({ available: true, permission: 'full-access' });
-    await answer('command', ['draft', '', 'Bridge draft', 0], null, files, native);
+    expect(await answer('settings', ['env1', 'deleted-project'], null, native.disk.files, native)).toMatchObject({ available: false, permission: '', overridden: false, environmentPermission: '' });
+    expect(await answer('settings', ['deleted-environment', 'p1'], null, native.disk.files, native)).toMatchObject({ available: false, permission: '', overridden: false, environmentPermission: '' });
+    expect(await answer('settings', ['env1', 'p1'], null, native.disk.files, native)).toMatchObject({ available: true, permission: 'full-access' });
+    await answer('command', ['draft', '', 'Bridge draft', 0], null, native.disk.files, native);
     expect(obj(obj(JSON.parse(native.preferencesText)).drafts)['env1:new:p1']).toBe('Bridge draft');
+    expect(native.calls.some(call => call.op === 'readPreferences' || call.op === 'writePreferences')).toBe(false);
   });
-  test('loads and saves the versioned preference file solely through native tickets', async () => {
-    const native = new Backend(), files = nativeFiles(native), client = new T3Client();
+  test('a relaunch reads what was saved; an older file still loads', async () => {
+    const native = new Backend(), files = preferenceFiles(native.disk.files), client = new T3Client();
     await client.refresh(native, files);
-    await client.command('draft', '', 'Native saved draft', 0, native, files);
+    await client.command('draft', '', 'Saved draft', 0, native, files);
     await client.command('sidebar', '', 'closed', 315, native, files);
     const relaunched = new T3Client();
-    await relaunched.refresh(native, nativeFiles(native));
-    expect(relaunched.draft).toBe('Native saved draft');
+    await relaunched.refresh(native, preferenceFiles(native.disk.files));
+    expect(relaunched.draft).toBe('Saved draft');
     expect(relaunched.local.sidebarWidth).toBe(315);
     expect(relaunched.local.sidebarOpen).toBe(false);
     expect(obj(JSON.parse(native.preferencesText)).version).toBe(1);
-    expect(native.calls.filter(call => call.op === 'writePreferences')).toHaveLength(2);
+    expect(native.disk.box.writes).toBe(2);
+    // A file an older clone wrote: version 1 with only some keys.
+    const older = new Backend();
+    older.preferencesText = JSON.stringify({ version: 1, sidebarWidth: 280, drafts: { 'env1:new:p1': 'From an older build' } });
+    const reader = new T3Client();
+    await reader.refresh(older, preferenceFiles(older.disk.files));
+    expect(reader.draft).toBe('From an older build');
+    expect(reader.local.sidebarWidth).toBe(280);
+  });
+  test('a missing file is a first launch; a drive with no scratch store keeps nothing and shows nothing', async () => {
+    const native = new Backend(), client = new T3Client();
+    native.disk.box.refuse.write = 'agent';
+    const files = preferenceFiles(native.disk.files);
+    await client.refresh(native, files);
+    expect(client.ready).toBe(true);
+    await client.command('draft', '', 'Kept in memory', 0, native, files);
+    expect(client.error).toBe('');
+    expect(native.preferencesText).toBe('');
+    await expect(files.fs.readFile('app:/data/other.json')).rejects.toThrow('The preference path is invalid.');
+  });
+  test('a file over 16 MB or not UTF-8 is refused, and so is a save over 16 MB', async () => {
+    const files = preferenceFiles({ fs: { async mkdir() {}, async stat() { return { size: 16 * 1024 * 1024 + 1 }; }, async readFile() { return new ArrayBuffer(0); }, async atomicWriteFile() {} } } as Files);
+    await expect(files.fs.readFile(PREFERENCE_PATH)).rejects.toMatchObject({ kind: 'Limit', message: 'Saved drafts and preferences are too large.' });
+    await expect(files.fs.atomicWriteFile(PREFERENCE_PATH, new Uint8Array(16 * 1024 * 1024 + 1))).rejects.toMatchObject({ kind: 'Limit' });
+    const broken = preferenceFiles({ fs: { async mkdir() {}, async readFile() { return new Uint8Array([0xff, 0xfe]).buffer; }, async atomicWriteFile() {} } });
+    await expect(broken.fs.readFile(PREFERENCE_PATH)).rejects.toMatchObject({ kind: 'Persistence', message: 'Saved drafts and preferences are not valid UTF-8.' });
   });
   test('a preference read failure is visible and retryable without overwriting pending operations', async () => {
-    const native = new Backend(), files = nativeFiles(native), client = new T3Client();
-    const original = native.later.bind(native);
-    let fail = true;
+    const native = new Backend(), files = preferenceFiles(native.disk.files), client = new T3Client();
     native.preferencesText = JSON.stringify({ version: 1, drafts: { 'env1:new:p1': 'Saved before failure' } });
-    native.later = async input => {
-      if (obj(input).op === 'readPreferences' && fail) return { ok: false, generation: 1, error: { kind: 'Persistence', message: 'Read denied', uncertain: false } };
-      return original(input);
-    };
+    native.disk.box.refuse.read = 'EACCES';
     await client.refresh(native, files);
-    expect(client.error).toBe('Read denied');
-    expect(native.calls.some(call => call.op === 'writePreferences')).toBe(false);
-    fail = false;
+    expect(client.error).toBe(`Could not read saved drafts and preferences: denied: ${PREFERENCE_PATH}`);
+    expect(native.disk.box.writes).toBe(0);
+    native.disk.box.refuse.read = '';
     await client.refresh(native, files);
     expect(client.ready).toBe(true);
     expect(client.draft).toBe('Saved before failure');
   });
-  test('a failed native operation save prevents the server mutation', async () => {
-    const native = new Backend(), files = nativeFiles(native), client = new T3Client();
+  test('a failed operation save prevents the server mutation', async () => {
+    const native = new Backend(), files = preferenceFiles(native.disk.files), client = new T3Client();
     await client.refresh(native, files);
-    const original = native.later.bind(native);
-    native.later = async input => obj(input).op === 'writePreferences'
-      ? { ok: false, generation: 1, error: { kind: 'Persistence', message: 'Write denied', uncertain: false } }
-      : original(input);
+    native.disk.box.refuse.write = 'EACCES';
     await client.command('send', '', 'Keep this draft', 0, native, files);
     expect(native.committed).toEqual([]);
     expect(client.draft).toBe('Keep this draft');

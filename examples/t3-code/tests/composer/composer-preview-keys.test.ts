@@ -59,7 +59,7 @@ describe('the image preview\'s zoomable image', () => {
     const state = dialog.state();
     const calls: string[] = [];
     const scope = { ...base, preview, ciExp, ciSpan, frame: () => ({ x: 100, y: 50, width: 1000, height: 600 }), command: (op: string) => calls.push(op),
-      dialogFallback: () => calls.push('fallback'), preventDefault: () => calls.push('prevent'), stopPropagation: () => calls.push('stop') } as Record<string, unknown>;
+      dialogFallback: () => calls.push('fallback'), preventDefault: () => calls.push('prevent'), stopPropagation: () => calls.push('stop'), interacted: () => {} } as Record<string, unknown>;
     const derived = () => dialog.derives(state, scope);
     const act = (name: string, ...args: unknown[]): unknown => dialog.call(name, state, { ...scope, ...derived() }, args);
     scope.place = (x: number, y: number, at: number) => act('place', x, y, at);

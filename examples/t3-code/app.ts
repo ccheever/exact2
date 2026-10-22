@@ -36,12 +36,13 @@ import { pairingFields } from './src/connections/pairing-fields';
 import { pagesHome } from './src/pages/pages-home';
 import { usagePage, usageKeys, plotWidth } from './src/usage/pages-usage';
 import { pagesSource } from './src/pages/pages-sources';
+import { noteInteraction } from './src/pull-requests/pages-pr-refresh';
 import { ariaChord } from './src/shell/keyboard-dispatch';
 import { snapshot, modelCatalog } from './src/client/presentation';
 import { chatLinkMenuView } from './src/timeline/external-link-menu';
 import { noteComposerTyping } from './src/composer/composer-typing-guard';
 import { arr, obj, str, type Obj } from './src/client/domain';
-import { nativeFiles, type Native, type Files } from './src/client/protocol';
+import { preferenceFiles, type Native, type Files } from './src/client/protocol';
 import { adoptAppFiles } from './src/media/save-file';
 import { noteTranscriptFacts } from './src/timeline/transcript-facts';
 import { paletteView } from './src/palette/palette-view';
@@ -77,8 +78,9 @@ export const appId = 'com.exact.t3code.macos';
 // under the hardened runtime they are refused without a prompt unless the app claims both (build-desktop-artifact.ts).
 // Save file and the media menu's Save fetch a server's signed asset and write it under app:/tmp/saves for the window's
 // Save panel; a draft's staged copy is read and saved from composer-files (save-file.ts, attachment-files.ts). An image
-// chip's accent fetches the image and scales it under app:/tmp/image-accent (image-accent.ts).
-export const grants = 'net.websocket ws:\nnet.websocket wss:\nnet.fetch http:\nnet.fetch https:\nsecret.keep t3-catalog\nfs.read app:/tmp/saves\nfs.write app:/tmp/saves\nfs.read app:/data/composer-files\nfs.write app:/data/composer-files\nfs.write app:/data/snapshots/drafts\nfs.read doc:/\nfs.read app:/tmp/picked\nfs.read app:/tmp/composer-stage\nfs.write app:/tmp/composer-stage\nfs.read app:/tmp/browser-frames\nfs.write app:/tmp/browser-frames\nfs.read app:/tmp/image-accent\nfs.write app:/tmp/image-accent\ndevice.local-network purpose.local-network\ndevice.camera purpose.camera\ndevice.microphone purpose.microphone';
+// chip's accent fetches the image and scales it under app:/tmp/image-accent (image-accent.ts). The preference
+// file is t3-code.json (protocol.ts preferenceFiles).
+export const grants = 'net.websocket ws:\nnet.websocket wss:\nnet.fetch http:\nnet.fetch https:\nsecret.keep t3-catalog\nfs.read app:/data/t3-code.json\nfs.write app:/data/t3-code.json\nfs.read app:/tmp/saves\nfs.write app:/tmp/saves\nfs.read app:/data/composer-files\nfs.write app:/data/composer-files\nfs.write app:/data/snapshots/drafts\nfs.read doc:/\nfs.read app:/tmp/picked\nfs.read app:/tmp/composer-stage\nfs.write app:/tmp/composer-stage\nfs.read app:/tmp/browser-frames\nfs.write app:/tmp/browser-frames\nfs.read app:/tmp/image-accent\nfs.write app:/tmp/image-accent\ndevice.local-network purpose.local-network\ndevice.camera purpose.camera\ndevice.microphone purpose.microphone';
 const client = new T3Client();
 const transport = new Transport();
 
@@ -87,6 +89,12 @@ const transport = new Transport();
 // Its return is the generated `Answer`'s, per source, which a dispatcher over every source cannot name (`answerClient`'s is `any` too).
 export function answer(source: string, args: unknown[], store: unknown, storage: Files, native: Native | null | undefined): any {
   transport.store = store as SecretStore;
+  // The window's last interaction, each new second (app.contract `interacted`): the activity reporter's and useLiveRefresh's.
+  if (source === 'activityInteraction' || source === 'activityResumed') {
+    const at = Number(args[0]) || 0;
+    transport.activity.interaction(at); noteInteraction(client, at, source === 'activityResumed');
+    return at;
+  }
   if (source === 'serverBrowserUpload') { adoptAppFiles(storage); return native?.available ? serverStreamUpload(client, transport.wrap(native, source) as Native, String(args[0] ?? ''), String(args[1] ?? ''), args[2] as StreamPicked[]) : null; }
   if (source === 'serverBrowserDecode') { adoptAppFiles(storage); return serverStreamDecode(client, String(args[0] ?? '')); }
   if (source === 'serverBrowserStatus') { noteNow(client, Number(args[1]) || 0); return serverStreamFrame(client, String(args[0] ?? '')); }
@@ -115,7 +123,7 @@ export function answer(source: string, args: unknown[], store: unknown, storage:
 export async function answerClient(source: string, args: unknown[], _store: unknown, _storage: Files, native: Native | null | undefined) {
   if (native?.available) native = composerFieldNative(client, letGoAware(native), () => composerFieldOwner(client));
   adoptAppFiles(_storage); // the app's own files: Save's bytes, a draft's staged copy (save-file.ts)
-  const storage = native?.available ? nativeFiles(native) : _storage;
+  const storage = preferenceFiles(_storage);
   if (source === 'highlightSlice') return highlightSlice(); // a background highlight turn
   if (source === 'promptLinkView') return promptLinkView(client);
   if (source === 'promptLinksReady') return promptLinksReady(client);
