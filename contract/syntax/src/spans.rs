@@ -91,7 +91,7 @@ structs! {
     TimelineDecl { name, span }
     ColorProfileDecl { name, attrs, span }
     ThemeDecl { entries, span }
-    DesignSource { path, home, text, source_id, bindable, package }
+    DesignSource { path, home, text, source_id, bindable, package, root }
     KeyframeDecl { selectors, attrs, span }
     RoutesDecl { slot, rows, span }
     RouteDecl { name, pattern, parent, tab, notfound, fields, span }
