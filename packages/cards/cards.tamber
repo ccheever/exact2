@@ -97,6 +97,8 @@ theme
   // and picture; the names, handle, counts and the actions' row.
   cards.banner-height: length = 150px
   cards.banner-compact: length = 100px
+  // How far the status bar's fade reaches below the safe area's top.
+  cards.banner-shade-reach: length = 20px
   // The avatar overlaps the banner's bottom by its overlap, whatever the
   // banner's height; its box is the picture and its ring each side.
   cards.avatar-overlap: length = 46px

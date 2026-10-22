@@ -70,14 +70,14 @@ component ProfileHeader
         scale=(1 + min(pull, 150) / 150)
         if bannerSrc != ""
           image bannerSrc position="absolute" inset=0 width="100%" height="100%" object-fit="cover" alt=""
-        // A dark fade under the status bar. Its 20 below the safe area's top
-        // stays a literal: a calc() can't name a token, nor a token an env()
-        // (QUEUE).
+        // A dark fade under the status bar, its reach below the safe area's top
+        // the box's bottom padding.
         box position="absolute"
           top=0
           left=0
           right=0
-          height="calc(env(safe-area-inset-top) + 20px)"
+          height="env(safe-area-inset-top)"
+          padding-bottom="cards.banner-shade-reach"
           background-image="linear-gradient(to bottom, cards.banner-shade, transparent)"
       column part="avatar"
         position="absolute"
@@ -169,11 +169,11 @@ component ProfileHeader
             text note font-size="cards.text-size" color="param.meta"
           else
             row gap="cards.profile-counts-gap" flex-wrap="wrap"
-              row press=openFollowers testId=`profile-followers-${id}` aria-label=`${followers} ${followersNoun}`
+              row press=openFollowers role="button" testId=`profile-followers-${id}` aria-label=`${followers} ${followersNoun}`
                 text font-size="cards.text-size" line-height="cards.profile-meta-line" color="param.meta"
                   text followers font-weight=600 class=Name
                   text ` ${followersNoun}`
-              row press=openFollows testId=`profile-follows-${id}` aria-label=`${follows} following`
+              row press=openFollows role="button" testId=`profile-follows-${id}` aria-label=`${follows} following`
                 text font-size="cards.text-size" line-height="cards.profile-meta-line" color="param.meta"
                   text follows font-weight=600 class=Name
                   text " following"
