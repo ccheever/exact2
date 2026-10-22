@@ -82,7 +82,8 @@ extension NavigationHost {
     /// Whether Back goes now: a way back, and nothing modal over the page
     /// (a dialog in the top layer, a sheet on the window).
     var canGoBack: Bool {
-        presenter.dialogs.active == nil && presenter.viewport.window?.attachedSheet == nil && back != nil
+        back != nil && (presenter.dialogs.active == nil && presenter.viewport.window?.attachedSheet == nil
+            || pushedRoute.map { presenter.dialogs.active === $0.route && presenter.dialogs.routeActive } == true)
     }
 
     /// The platform's Back, taken: the authored control pressed, else the
@@ -118,7 +119,7 @@ extension NavigationHost {
     /// why the app refused it ("" when it did not).
     func agentBack() -> (way: String, refused: String)? {
         if pushedRoute != nil {
-            if presenter.dialogs.active != nil || presenter.viewport.window?.attachedSheet != nil { return ("route", "a dialog or a sheet is open over the page") }
+            if !canGoBack && back != nil { return ("route", "a dialog or a sheet is open over the page") }
             return ("route", goBack() ? "" : "its navigationBack control is disabled or has no press handler")
         }
         if let (_, route) = sheetRoute { return ("sheet", dismiss(route) ?? "") }

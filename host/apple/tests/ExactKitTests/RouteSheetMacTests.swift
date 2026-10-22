@@ -200,6 +200,52 @@ final class RouteSheetMacTests: XCTestCase {
         return taken
     }
 
+    func testPushesStayInTheirModalSegmentAndBackReturnsWithinTheSheet() throws {
+        let f = try SheetFixture(page: """
+        component Proof
+          state screen = "home"
+          action open(s: string)
+            screen = s
+          view
+            column navigationKey=screen navigationBack="back" width="100%" height="100%"
+              column navigationKey="home" testId="home"
+                button testId="open" press=open("modal")
+                  text "Open"
+              if screen != "home"
+                column navigationKey="modal" navigationPresentation="modal" testId="modal" width=400
+                  header
+                    text "Modal" role="heading"
+                    button id="back" press=open("home")
+                      text "Cancel"
+                  button testId="push" press=open("detail")
+                    text "Push"
+              if screen == "detail"
+                column navigationKey="detail" testId="detail" width=400
+                  header
+                    button id="back" press=open("modal") testId="detail-back"
+                      text "Back"
+                    text "Detail" role="heading"
+                  input testId="detail-field" value="Edit" autofocus=true
+        """)
+        fixture = f
+        try f.press("open")
+        let first = try sheet(f).window
+        try f.press("push")
+        let (window, chrome) = try sheet(f)
+        XCTAssertTrue(window === first, "a push changes the content of the existing sheet")
+        XCTAssertTrue(try f.node("detail").window === window)
+        XCTAssertTrue(try f.node("modal").isHidden)
+        XCTAssertEqual(chrome.title.stringValue, "Detail")
+        let back = try XCTUnwrap(chrome.subviews.compactMap { $0 as? NSButton }.first { $0.title == "Back" && !$0.isHidden })
+        XCTAssertLessThan(back.frame.midY, RouteChrome.titleRow)
+        back.performClick(nil); f.settle()
+        XCTAssertTrue(try sheet(f).window === first)
+        XCTAssertEqual(try sheet(f).chrome.title.stringValue, "Modal")
+        XCTAssertFalse(try f.node("modal").isHidden)
+        try sheet(f).chrome.cancel.performClick(nil); f.settle()
+        XCTAssertNil(f.window.attachedSheet)
+    }
+
     /// Shelf's shape. The route is in a sheet on the window, as large as its
     /// content; its heading is the sheet's title row and Cancel and Save the
     /// sheet's buttons at the bottom right, Save the default; the header is
