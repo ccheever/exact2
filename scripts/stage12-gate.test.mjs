@@ -153,7 +153,7 @@ test('release identity: every source compared and identical in every run, but li
   const row = (source, status, run = 'a..b') => ({ run, commits: ['Stage 12 E: x'], source, status });
   const file = rows => { const f = join(dir, `${Math.random()}.json`); writeFileSync(f, JSON.stringify(rows)); return f; };
   const sources = ['apps/a/app.contract', 'apps/expose/app.contract'];
-  const id = (f, src = sources, runs = ['a..b']) => releaseIdentity(f, src, runs);
+  const id = (f, src = sources, runs = ['a..b']) => releaseIdentity(f, src, runs, () => true);
   expect(id(null).status).toBe('WAITS');
   expect(id(file([])).status).toBe('FAIL');
   expect(id(file([row('apps/a/app.contract', 'identical'), row('apps/expose/app.contract', 'both failed'), row('apps/library-gate/app.contract', 'build failed')])).status).toBe('PASS');
@@ -165,6 +165,9 @@ test('release identity: every source compared and identical in every run, but li
   const short = id(file([row('apps/a/app.contract', 'identical'), row('apps/expose/app.contract', 'both failed'), row('apps/a/app.contract', 'identical', 'c..d')]));
   expect(short.status).toBe('FAIL');
   expect(short.evidence.join('\n')).toContain('NOT COMPARED apps/expose/app.contract over c..d');
+  // An app not in the tree at either end of a run (added since) has nothing to compare there.
+  const later = releaseIdentity(file([row('apps/a/app.contract', 'identical'), row('apps/expose/app.contract', 'both failed')]), [...sources, 'apps/later/app.contract'], ['a..b'], (rev, src) => src !== 'apps/later/app.contract');
+  expect([later.status, later.evidence.join('\n').includes('apps/later')]).toEqual(['PASS', false]);
   expect(short.evidence.join('\n')).toContain('NOT A RUN OF STAGE 12 E c..d');
   // A run the history has that the file leaves out fails; so does a row with no commits.
   const ok = [row('apps/a/app.contract', 'identical'), row('apps/expose/app.contract', 'both failed')];
