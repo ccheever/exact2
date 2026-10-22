@@ -581,6 +581,13 @@ component StageNine
       box width=26 height=26 border-radius=13 background-color="#0ea5e9" border-width=3 border-style="solid" border-color="#0f172a" filter="blur(2px)"
       box width=26 height=26 background-color="#22c55e" filter="drop-shadow(3px 4px 2px #0f172a) hue-rotate(90deg) saturate(1.5)"
         box width=12 height=12 margin-left=7 margin-top=7 background-color="#fde047"
+    // CSS `filter` on an image: the decoded picture is the chain's input, as
+    // a box's subtree is (a muted logo is `brightness(0.6)`).
+    row testId="fx-image-filter" class=Tile gap=6 flex-wrap="wrap" align-content="center" justify-content="center"
+      image "assets/train.png" width=48 height=18 object-fit="contain" aria-label="Unfiltered"
+      image "assets/train.png" width=48 height=18 object-fit="contain" filter="brightness(0.6)" aria-label="Darkened"
+      image "assets/train.png" width=48 height=18 object-fit="contain" filter="grayscale(1) contrast(1.4)" aria-label="Grey"
+      image "assets/train.png" width=48 height=18 object-fit="contain" filter="invert(1) opacity(0.6)" aria-label="Inverted"
     svg testId="fx-css" class=Tile viewBox="0 0 120 80"
       defs
         filter id="tint" color-interpolation-filters="sRGB"
