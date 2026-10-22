@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   addPending, applyDispatch, applyHistoryPage, channel, channelVersion, createStore, dms, expireTyping,
-  failPending, firstUnread, guildChannels, guilds, latestWindow, removePending, sidebarVersion, typingUsers, unread,
+  failPending, firstUnread, guildChannels, guilds, latestWindow, removePending, sidebarVersion, storeSeq, typingUsers, unread,
   user, windowAfter, windowAround, windowBefore, type DiscordObject, type MessageWindow, type Store,
 } from './store.ts';
 import { snowflakeFromMs } from './ids.ts';
@@ -126,21 +126,22 @@ describe('READY and sidebar', () => {
     expect(readyAgain(s, '103')).toMatchObject({ sidebar: true });
     expect(channelVersion(s, cid)).toBe(version + 1);
     expect(sidebarVersion(s)).toBe(side + 1);
-    expect(windowAround(s, cid, '100').rows).toEqual(before);
+    expect(windowAround(s, cid, '100').rows).toEqual(before.filter(row => row.id !== null));
     expect(windowAround(s, cid, '100')).toMatchObject({ reachesNewest: false, moreAfter: true, fetchAfter: '100' });
     expect(ids(windowAround(s, cid, '20'))).toEqual(['19', '20', '21']);
-    expect(latestWindow(s, cid)).toMatchObject({ rows: [], fetchLatest: true });
+    expect(keys(s)).toEqual(['pending', 'failed']);
+    expect(latestWindow(s, cid)).toMatchObject({ fetchLatest: true });
     expect(typingUsers(s, cid, 200)).toEqual([]);
     expect(user(s, other.id)).toBeNull();
     expect(channel(s, '2000')).toBeNull();
     expect(guilds(s)).toEqual([{ id: '10', name: 'reconnected' }]);
     expect(unread(s, cid)).toEqual({ unread: true, lastReadId: '99', mentionCount: 2 });
     applyHistoryPage(s, cid, { limit: 5 }, page(99, 103));
-    expect(keys(s)).toEqual(['96', '97', '98', '100', 'pending', 'failed', '101', '102', '103']);
+    expect(keys(s)).toEqual(['96', '97', '98', '100', '101', '102', '103', 'pending', 'failed']);
     expect(latestWindow(s, cid)).toMatchObject({ reachesNewest: true, fetchAfter: null, fetchLatest: false });
     expect(latestWindow(s, cid).rows.find(row => row.key === 'failed')).toMatchObject({ status: 'failed', error: 'offline' });
     send(s, '104', { author: me, nonce: 'pending' });
-    expect(keys(s)).toEqual(['96', '97', '98', '100', 'pending', 'failed', '101', '102', '103']);
+    expect(keys(s)).toEqual(['96', '97', '98', '100', '101', '102', '103', 'pending', 'failed']);
     expect(latestWindow(s, cid).rows.find(row => row.key === 'pending')).toMatchObject({ id: '104', status: 'sent' });
     expect(removePending(s, cid, 'failed')).toEqual({ channels: [cid], sidebar: false });
   });
@@ -171,8 +172,9 @@ describe('READY and sidebar', () => {
     applyHistoryPage(s, cid, { after: '110', limit: 5 }, []);
     addPending(s, cid, { nonce: 'mine', content: 'hello', nowMs: 100 });
     readyAgain(s, '110');
-    expect(latestWindow(s, cid)).toMatchObject({ rows: [], fetchLatest: true });
-    expect(windowAround(s, cid, 'mine')).toMatchObject({ reachesNewest: false });
+    expect(keys(s)).toEqual(['mine']);
+    expect(latestWindow(s, cid)).toMatchObject({ fetchLatest: true });
+    expect(windowAround(s, cid, 'mine')).toMatchObject({ reachesNewest: true });
     expect(windowAround(s, cid, 'mine').rows[0]).toMatchObject({ status: 'pending', key: 'mine' });
   });
   test('READY clears typing and advances versions even for a channel absent from its metadata', () => {
@@ -271,8 +273,9 @@ describe('contiguous history runs', () => {
   });
   test('late latest-page completion joins messages received since its request', () => {
     const s = seeded('100');
+    const since = storeSeq(s);
     send(s, '101');
-    applyHistoryPage(s, cid, { limit: 5 }, page(96, 100));
+    applyHistoryPage(s, cid, { limit: 5 }, page(96, 100), { since });
     expect(ids(latestWindow(s, cid))).toEqual(['96', '97', '98', '99', '100', '101']);
   });
   test('seeded overlapping pages preserve the same sorted set under different arrival orders', () => {
@@ -687,4 +690,259 @@ test('a thousand real-shaped MESSAGE_CREATEs append within 500 ms', () => {
   expect(latestWindow(s, cid, 200).rows).toHaveLength(200);
   expect(latestWindow(s, cid).rows.at(-1)?.id).toBe(messages.at(-1)!.id);
   expect(windowAround(s, cid, messages[0].id, 3).rows[0].attachments[0]).toMatchObject({ width: 640, height: 480 });
+});
+
+describe('review regressions', () => {
+  test('CREATE does not connect a before page through an uncached previous last id', () => {
+    const s = seeded();
+    send(s, '101');
+    applyHistoryPage(s, cid, { before: '100', limit: 5 }, page(97, 99));
+    expect(ids(latestWindow(s, cid))).toEqual(['101']);
+    expect(windowAround(s, cid, '98')).toMatchObject({ fetchAfter: '99', reachesNewest: false });
+    applyHistoryPage(s, cid, { after: '99', limit: 5 }, page(100, 101));
+    expect(ids(latestWindow(s, cid))).toEqual(['97', '98', '99', '100', '101']);
+  });
+
+  for (const reconnect of [true, false]) test(`pending confirmation keeps gaps after ${reconnect ? 'READY' : 'a disjoint latest page'}`, () => {
+    const s = seeded();
+    applyHistoryPage(s, cid, { limit: 5 }, page(96, 100));
+    addPending(s, cid, { nonce: 'mine', content: 'hello', nowMs: 0 });
+    if (reconnect) {
+      readyAgain(s, '200');
+      expect(keys(s)).toEqual(['mine']);
+    }
+    applyHistoryPage(s, cid, { limit: 3 }, page(198, 200));
+    expect(keys(s)).toEqual(['198', '199', '200', 'mine']);
+    send(s, '201', { author: me, nonce: 'mine' });
+    expect(keys(s)).toEqual(['198', '199', '200', 'mine']);
+    expect(ids(windowAround(s, cid, '99'))).toEqual(['96', '97', '98', '99', '100']);
+    expect(windowAround(s, cid, '99').fetchAfter).toBe('100');
+    expect(windowAround(s, cid, '150')).toMatchObject({ rows: [], fetchAround: '150' });
+  });
+
+  test('two exclusive cursors do not conceal their unfetched shared endpoint', () => {
+    const s = seeded('103');
+    applyHistoryPage(s, cid, { before: '100', limit: 5 }, page(97, 99));
+    applyHistoryPage(s, cid, { after: '100', limit: 5 }, page(101, 103));
+    expect(ids(latestWindow(s, cid))).toEqual(['101', '102', '103']);
+    expect(windowAround(s, cid, '98')).toMatchObject({ fetchAfter: '99', reachesNewest: false });
+    applyHistoryPage(s, cid, { around: '100', limit: 3 }, page(99, 101));
+    expect(ids(latestWindow(s, cid))).toEqual(['97', '98', '99', '100', '101', '102', '103']);
+  });
+
+  test('a late CREATE below the live run does not stretch its lower bound', () => {
+    const s = seeded();
+    send(s, '101');
+    send(s, '50');
+    expect(ids(latestWindow(s, cid))).toEqual(['101']);
+    expect(ids(windowAround(s, cid, '50'))).toEqual(['50']);
+    expect(windowAround(s, cid, '75')).toMatchObject({ rows: [], fetchAround: '75' });
+  });
+
+  test('channel metadata advertising an unseen head demotes the live run before the next CREATE', () => {
+    const s = seeded();
+    applyHistoryPage(s, cid, { limit: 5 }, page(96, 100));
+    event(s, 'CHANNEL_UPDATE', { id: cid, last_message_id: '200' });
+    send(s, '201');
+    expect(ids(latestWindow(s, cid))).toEqual(['201']);
+    expect(windowAround(s, cid, '150')).toMatchObject({ rows: [], fetchAround: '150' });
+    expect(windowAround(s, cid, '99').fetchAfter).toBe('100');
+  });
+
+  test('late pages retain gateway edits, embeds and reactions but fill missing fields', () => {
+    const s = seeded();
+    applyHistoryPage(s, cid, { limit: 1 }, [msg(100, { reactions: [] })]);
+    const since = storeSeq(s);
+    event(s, 'MESSAGE_UPDATE', { id: '100', content: 'edited', edited_timestamp: '2026-10-22T12:02:00Z' });
+    event(s, 'MESSAGE_UPDATE', { id: '100', embeds: [{ title: 'new embed' }] });
+    event(s, 'MESSAGE_REACTION_ADD', { message_id: '100', user_id: me.id, emoji: { name: '👍', id: null } });
+    expect(storeSeq(s)).toBeGreaterThan(since);
+    applyHistoryPage(s, cid, { limit: 1 }, [msg(100, { edited_timestamp: null, reactions: [], flags: 4 })], { since });
+    expect(latestWindow(s, cid).rows[0]).toMatchObject({ content: 'edited', edited_timestamp: '2026-10-22T12:02:00Z',
+      embeds: [{ title: 'new embed' }], reactions: [{ count: 1, me: true }], flags: 4 });
+  });
+
+  for (const type of ['MESSAGE_REACTION_REMOVE', 'MESSAGE_REACTION_REMOVE_EMOJI', 'MESSAGE_REACTION_REMOVE_ALL']) {
+    test(`a late page keeps ${type}`, () => {
+      const s = seeded();
+      const emoji = { id: null, name: '👍' };
+      const snapshot = msg(100, { reactions: [{ emoji, count: 1, me: true }] });
+      applyHistoryPage(s, cid, { limit: 1 }, [snapshot]);
+      const since = storeSeq(s);
+      event(s, type, { message_id: '100', user_id: me.id, emoji });
+      applyHistoryPage(s, cid, { limit: 1 }, [snapshot], { since });
+      expect(latestWindow(s, cid).rows[0].reactions).toEqual([]);
+    });
+  }
+
+  test('edit timestamps order content even without a request sequence', () => {
+    const s = seeded();
+    const edited = msg(100, { content: 'new', edited_timestamp: '2026-10-22T12:02:00.000Z' });
+    applyHistoryPage(s, cid, { limit: 1 }, [edited]);
+    applyHistoryPage(s, cid, { limit: 1 }, [msg(100, { edited_timestamp: '2026-10-22T12:01:00.000Z' })]);
+    event(s, 'MESSAGE_UPDATE', { id: '100', content: 'older', edited_timestamp: null });
+    expect(latestWindow(s, cid).rows[0]).toMatchObject({ content: 'new', edited_timestamp: edited.edited_timestamp });
+    applyHistoryPage(s, cid, { limit: 1 }, [msg(100, { content: 'newest', edited_timestamp: '2026-10-22T12:03:00.000Z' })]);
+    expect(latestWindow(s, cid).rows[0].content).toBe('newest');
+  });
+
+  test('edit timestamps retain their fractional precision', () => {
+    const s = seeded();
+    applyHistoryPage(s, cid, { limit: 1 }, [msg(100, { content: 'new', edited_timestamp: '2026-10-22T12:02:00.000002+00:00' })]);
+    applyHistoryPage(s, cid, { limit: 1 }, [msg(100, { content: 'old', edited_timestamp: '2026-10-22T12:02:00.000001Z' })]);
+    expect(latestWindow(s, cid).rows[0].content).toBe('new');
+  });
+
+  test('a reaction dispatch protects the row even when its cached count already matches', () => {
+    const s = seeded();
+    applyHistoryPage(s, cid, { limit: 1 }, [msg(100, { reactions: [] })]);
+    const since = storeSeq(s);
+    event(s, 'MESSAGE_REACTION_REMOVE_ALL', { message_id: '100' });
+    applyHistoryPage(s, cid, { limit: 1 }, [msg(100, { reactions: [{ emoji: { id: null, name: '👍' }, count: 1, me: false }] })], { since });
+    expect(latestWindow(s, cid).rows[0].reactions).toEqual([]);
+  });
+
+  test('fresh READY marks rows stale and a covering page removes missed deletions', () => {
+    const s = seeded();
+    applyHistoryPage(s, cid, { limit: 5 }, page(96, 100));
+    addPending(s, cid, { nonce: 'mine', content: 'hello', nowMs: 0 });
+    readyAgain(s, '100');
+    expect(latestWindow(s, cid).stale).toBe(true);
+    applyHistoryPage(s, cid, { around: '98', limit: 5 }, page(96, 100).filter(row => row.id !== '99'));
+    expect(latestWindow(s, cid)).toMatchObject({ stale: false });
+    expect(ids(latestWindow(s, cid))).toEqual(['96', '97', '98', '100', null]);
+    send(s, '99');
+    expect(ids(latestWindow(s, cid))).not.toContain('99');
+  });
+
+  test('a page verifies only the rows it covers, and RESUMED keeps verified rows', () => {
+    const s = seeded();
+    applyHistoryPage(s, cid, { limit: 5 }, page(96, 100));
+    event(s, 'RESUMED', {});
+    expect(latestWindow(s, cid).stale).toBe(false);
+    readyAgain(s, '100');
+    applyHistoryPage(s, cid, { around: '97', limit: 3 }, page(96, 98));
+    expect(windowAround(s, cid, '97', 3).stale).toBe(false);
+    expect(latestWindow(s, cid, 2).stale).toBe(true);
+    applyHistoryPage(s, cid, { after: '98', limit: 3 }, page(99, 100));
+    expect(latestWindow(s, cid).stale).toBe(false);
+  });
+
+  test('a page removes missing rows inside its cursor range but retains the excluded cursor', () => {
+    for (const direction of ['before', 'after'] as const) {
+      const s = seeded();
+      applyHistoryPage(s, cid, { limit: 5 }, page(96, 100));
+      const query = direction === 'before' ? { before: '100', limit: 3 } : { after: '96', limit: 3 };
+      const rows = direction === 'before' ? [msg(98), msg(97), msg(96)] : [msg(100), msg(99), msg(98)];
+      applyHistoryPage(s, cid, query, rows);
+      expect(ids(latestWindow(s, cid))).toEqual(direction === 'before' ? ['96', '97', '98', '100'] : ['96', '98', '99', '100']);
+    }
+  });
+
+  test('latest pages reconcile a deleted head, including a now-empty channel', () => {
+    const s = seeded();
+    applyHistoryPage(s, cid, { limit: 5 }, page(96, 100));
+    readyAgain(s, '100');
+    applyHistoryPage(s, cid, { limit: 5 }, page(96, 99), { since: storeSeq(s) });
+    expect(ids(latestWindow(s, cid))).toEqual(['96', '97', '98', '99']);
+    expect(channel(s, cid)?.last_message_id).toBe('99');
+    expect(latestWindow(s, cid).stale).toBe(false);
+    applyHistoryPage(s, cid, { limit: 5 }, [], { since: storeSeq(s) });
+    expect(latestWindow(s, cid)).toMatchObject({ rows: [], reachesStart: true, reachesNewest: true, stale: false });
+    expect(channel(s, cid)?.last_message_id).toBeNull();
+    send(s, '100');
+    expect(latestWindow(s, cid).rows).toEqual([]);
+  });
+
+  test('without since, a latest page keeps rows newer than its own: they may have arrived in flight', () => {
+    const s = seeded();
+    applyHistoryPage(s, cid, { limit: 5 }, page(96, 100));
+    send(s, '101');
+    applyHistoryPage(s, cid, { limit: 5 }, page(96, 100));
+    expect(ids(latestWindow(s, cid))).toEqual(['96', '97', '98', '99', '100', '101']);
+  });
+
+  test('an empty latest snapshot retains messages created after its request', () => {
+    const s = createStore();
+    const since = storeSeq(s);
+    send(s, '101');
+    applyHistoryPage(s, cid, { limit: 5 }, [], { since });
+    expect(ids(latestWindow(s, cid))).toEqual(['101']);
+    expect(latestWindow(s, cid)).toMatchObject({ reachesStart: true, reachesNewest: true });
+  });
+
+  test('a request begun before READY cannot verify stale rows in the new session', () => {
+    const s = seeded();
+    applyHistoryPage(s, cid, { limit: 5 }, page(96, 100));
+    const since = storeSeq(s);
+    readyAgain(s, '100');
+    applyHistoryPage(s, cid, { around: '98', limit: 5 }, page(96, 100), { since });
+    expect(latestWindow(s, cid).stale).toBe(true);
+    applyHistoryPage(s, cid, { around: '98', limit: 5 }, page(96, 100), { since: storeSeq(s) });
+    expect(latestWindow(s, cid).stale).toBe(false);
+  });
+
+  test('deleting the newest rolls back unread state and DM order only over known history', () => {
+    const s = seeded('90');
+    event(s, 'CHANNEL_UPDATE', { id: cid, type: 1, last_message_id: '100' });
+    event(s, 'CHANNEL_CREATE', { id: '2001', type: 1, last_message_id: '99' });
+    applyHistoryPage(s, cid, { limit: 5 }, [msg(100), msg(99), msg(90)]);
+    event(s, 'MESSAGE_DELETE', { id: '100' });
+    event(s, 'MESSAGE_ACK', { message_id: '99' });
+    expect(channel(s, cid)?.last_message_id).toBe('99');
+    expect(unread(s, cid).unread).toBe(false);
+    event(s, 'MESSAGE_DELETE_BULK', { ids: ['90', '99'] });
+    expect(channel(s, cid)?.last_message_id).toBeNull();
+    expect(dms(s).map(row => row.id)).toEqual(['2001', cid]);
+    const gap = seeded();
+    applyHistoryPage(gap, cid, { around: '50', limit: 3 }, page(49, 51));
+    event(gap, 'MESSAGE_DELETE', { id: '100' });
+    expect(channel(gap, cid)?.last_message_id).toBeNull();
+  });
+
+  test('a pending-only tail cannot answer a jump to an old message', () => {
+    const s = seeded('500');
+    addPending(s, cid, { nonce: 'mine', content: 'hello', nowMs: 0 });
+    expect(windowAround(s, cid, '50')).toMatchObject({ rows: [], fetchAround: '50', fetchLatest: false });
+    expect(latestWindow(s, cid)).toMatchObject({ fetchAround: null, fetchLatest: true });
+  });
+
+  for (const v of [1, 2]) test(`PASSIVE_UPDATE_V${v} advances channel metadata, preserves cursors and remembers members`, () => {
+    const s = seeded();
+    const version = channelVersion(s, cid), side = sidebarVersion(s);
+    const type = `PASSIVE_UPDATE_V${v}`;
+    const channelsKey = v === 1 ? 'channels' : 'updated_channels';
+    const membersKey = v === 1 ? 'members' : 'updated_members';
+    const payload = { guild_id: '10', [channelsKey]: [{ id: cid, last_message_id: '101', last_pin_timestamp: 'pinned' }],
+      [membersKey]: [{ user: { id: '3', username: 'new member' } }] };
+    applyDispatch(s, type, payload, 0);
+    expect(channel(s, cid)).toMatchObject({ last_message_id: '101', last_pin_timestamp: 'pinned' });
+    expect(unread(s, cid)).toEqual({ unread: true, mentionCount: 0, lastReadId: '100' });
+    expect(sidebarVersion(s)).toBe(side + 1);
+    expect(channelVersion(s, cid)).toBe(version + 1);
+    expect(user(s, '3')?.username).toBe('new member');
+    applyDispatch(s, type, { guild_id: '10', [channelsKey]: [{ id: cid, last_message_id: '99', last_pin_timestamp: null }] }, 0);
+    expect(channel(s, cid)).toMatchObject({ last_message_id: '101', last_pin_timestamp: null });
+    expect(unread(s, cid).lastReadId).toBe('100');
+    expect(sidebarVersion(s)).toBe(side + 1);
+  });
+
+  test('batched reaction adds match singles, including an existing me reaction', () => {
+    const single = seeded(), batch = seeded();
+    const emoji = { id: null, name: '👍' }, custom = { id: '42', name: 'party' };
+    for (const s of [single, batch]) applyHistoryPage(s, cid, { limit: 1 }, [msg(100, {
+      reactions: [{ emoji, count: 1, me: true }],
+    })]);
+    const reactions = [{ emoji, users: ['2', '1', '3'] }, { emoji: custom, users: ['1', '2'] }];
+    for (const r of reactions) for (const user_id of r.users) {
+      event(single, 'MESSAGE_REACTION_ADD', { message_id: '100', emoji: r.emoji, user_id });
+    }
+    const version = channelVersion(batch, cid);
+    event(batch, 'MESSAGE_REACTION_ADD_MANY', { message_id: '100', reactions });
+    expect(latestWindow(batch, cid).rows[0].reactions).toEqual(latestWindow(single, cid).rows[0].reactions);
+    expect(channelVersion(batch, cid)).toBe(version + 1);
+    expect(latestWindow(batch, cid).rows[0].reactions).toEqual([
+      { emoji, count: 3, me: true }, { emoji: custom, count: 2, me: true },
+    ]);
+  });
 });

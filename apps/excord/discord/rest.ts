@@ -1,6 +1,6 @@
 // REST requests as data, and the rate limiter and history pager they pass through (llp/0001 §2).
 // The caller does the `fetch` and reports each response to `onResponse`; time is an argument.
-import { snowflakeFromMs } from './ids.ts';
+export { makeNonce, type NonceState } from './ids.ts';
 
 export interface RestRequest {
   method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
@@ -109,9 +109,6 @@ export function gateway(ctx: RestContext): RestRequest { return request(ctx, 'GE
 
 /** Build the current-user request. */
 export function me(ctx: RestContext): RestRequest { return request(ctx, 'GET', '/users/@me'); }
-
-/** Make the client's time-based send nonce; the caller supplies the clock. */
-export function makeNonce(nowMs: number): string { return snowflakeFromMs(nowMs); }
 
 interface Bucket {
   limit: number | null;

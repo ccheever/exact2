@@ -4,7 +4,7 @@ import {
   me, onResponse, pageDone, pageRequest, pagerInit, removeReaction, routeKey, sendMessage, typing,
   type Limiter, type RestRequest,
 } from './rest.ts';
-import { cmpId, msFromSnowflake, snowflakeFromMs } from './ids.ts';
+import { cmpId, msFromSnowflake, snowflakeFromMs, type NonceState } from './ids.ts';
 
 const ctx = { origin: 'http://127.0.0.1:8767/', headers: { Authorization: 'fixture-token' } };
 const base = 'http://127.0.0.1:8767/api/v9';
@@ -33,11 +33,51 @@ describe('snowflakes', () => {
       const first = snowflakeFromMs(ms);
       expect(msFromSnowflake(first)).toBe(ms);
       expect(msFromSnowflake((BigInt(first) + 4194303n).toString())).toBe(ms);
-      expect(makeNonce(ms)).toBe(first);
+      expect(makeNonce(ms, { lastMs: null, sequence: 0 })).toBe(first);
     }
     expect(snowflakeFromMs(1420070400000)).toBe('0');
     expect(() => snowflakeFromMs(0)).toThrow();
     expect(() => msFromSnowflake('nope')).toThrow();
+  });
+  test('1,000 sends in one millisecond have distinct increasing nonces', () => {
+    const state: NonceState = { lastMs: null, sequence: 0 };
+    const nowMs = 1792627200000;
+    const nonces = Array.from({ length: 1000 }, () => makeNonce(nowMs, state));
+    expect(new Set(nonces).size).toBe(1000);
+    for (let i = 0; i < nonces.length; i++) {
+      expect(msFromSnowflake(nonces[i])).toBe(nowMs);
+      expect(BigInt(nonces[i]) - BigInt(snowflakeFromMs(nowMs))).toBe(BigInt(i));
+      if (i) expect(cmpId(nonces[i - 1], nonces[i])).toBeLessThan(0);
+    }
+  });
+  test('nonces stay increasing across clock rollback and sequence overflow', () => {
+    const nowMs = 1792627200000;
+    const state: NonceState = { lastMs: null, sequence: 0 };
+    let previous = makeNonce(nowMs, state);
+    for (const time of [nowMs - 1000, nowMs - 500, nowMs, nowMs + 1]) {
+      const nonce = makeNonce(time, state);
+      expect(cmpId(nonce, previous)).toBeGreaterThan(0);
+      previous = nonce;
+    }
+    const full: NonceState = { lastMs: nowMs, sequence: 4194303 };
+    const overflow = makeNonce(nowMs - 1, full);
+    expect(overflow).toBe(snowflakeFromMs(nowMs + 1));
+    expect(cmpId(makeNonce(nowMs, full), overflow)).toBeGreaterThan(0);
+    const beforeInvalid = { ...state };
+    for (const time of [0, NaN, Infinity, nowMs + 0.5]) {
+      expect(() => makeNonce(time, state)).toThrow();
+      expect(state).toEqual(beforeInvalid);
+    }
+  });
+  test('a retry reuses its pending send nonce while a new send gets another', () => {
+    const state: NonceState = { lastMs: null, sequence: 0 };
+    const nowMs = 1792627200000;
+    const pending = { content: 'hello', nonce: makeNonce(nowMs, state) };
+    const first = sendMessage(ctx, '123', pending);
+    const next = sendMessage(ctx, '123', { content: 'next', nonce: makeNonce(nowMs, state) });
+    const retry = sendMessage(ctx, '123', pending);
+    expect(retry.body).toBe(first.body);
+    expect(JSON.parse(next.body!).nonce).not.toBe(pending.nonce);
   });
 });
 

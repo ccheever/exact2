@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { constants, createDeflate } from 'node:zlib';
-import { identifyPayload, identity } from './client.ts';
+import { identifyPayload, identity, restHeaders } from './client.ts';
 import {
   heartbeatDue, initialGateway, nextHeartbeatAt, snapshot, step,
   type GatewayState, type StepResult,
@@ -144,15 +144,76 @@ describe('gateway session', () => {
     expect(state.reconnectAttempts).toBe(0);
   });
 
-  test('server-requested heartbeat is immediate without moving the periodic deadline', () => {
+  test('server-requested heartbeat is immediate and resets the periodic deadline', () => {
     const state = established();
     const result = message(state, { op: 1, d: null }, 100);
     expect(sent(result)).toEqual([{ op: 1, d: 1 }]);
     expect(state.awaitingAck).toBe(true);
-    expect(nextHeartbeatAt(state)).toBe(250);
+    expect(nextHeartbeatAt(state)).toBe(1100);
     message(state, { op: 11 }, 101);
-    expect(step(state, { type: 'heartbeat', nowMs: 250 }).send).toHaveLength(1);
-    expect(message(state, { op: 1 }, 251).send).toHaveLength(1);
+    expect(step(state, { type: 'heartbeat', nowMs: 250 }).send).toEqual([]);
+    expect(step(state, { type: 'heartbeat', nowMs: 1100 }).send).toHaveLength(1);
+    expect(message(state, { op: 1 }, 1101).send).toHaveLength(1);
+    expect(nextHeartbeatAt(state)).toBe(2101);
+  });
+
+  for (const nowMs of [249, 250, 251]) {
+    test(`server heartbeat at ${nowMs} grants a full interval for its ACK`, () => {
+      const state = established();
+      const requested = message(state, { op: 1 }, nowMs);
+      expect(sent(requested)).toEqual([{ op: 1, d: 1 }]);
+      expect(requested.close).toBeUndefined();
+      expect(state.awaitingAck).toBe(true);
+      expect(state.lastHeartbeatAtMs).toBe(nowMs);
+      expect(nextHeartbeatAt(state)).toBe(nowMs + 1000);
+      for (const tick of [Math.max(250, nowMs), nowMs + 999]) {
+        const waiting = step(state, { type: 'heartbeat', nowMs: tick });
+        expect(waiting.close).toBeUndefined();
+        expect(waiting.send).toEqual([]);
+        expect(state.awaitingAck).toBe(true);
+      }
+      const missed = step(state, { type: 'heartbeat', nowMs: nowMs + 1000 });
+      expect(missed.close).toEqual({ code: 4000, reason: 'heartbeat ACK missing' });
+      expect(missed.send).toEqual([]);
+    });
+  }
+
+  test('READY refreshes authentication for REST, RESUME and the next fresh IDENTIFY', () => {
+    const state = fresh();
+    open(state);
+    step(state, { type: 'message', data: hello, nowMs: 0 });
+    const refreshedToken = 'fixture-refreshed-token';
+    const received = message(state, { ...ready, d: { ...ready.d, auth_token: refreshedToken } }, 1);
+    expect(received.changes).toContainEqual({ kind: 'token', token: refreshedToken });
+    let credential = token;
+    let headers = restHeaders(id, credential);
+    for (const change of received.changes) {
+      if (change.kind === 'token') {
+        credential = change.token;
+        headers = restHeaders(id, credential);
+      }
+    }
+    expect(credential).toBe(refreshedToken);
+    expect(headers.Authorization).toBe(refreshedToken);
+    const reconnect = step(state, { type: 'close', code: 1006, reason: refreshedToken, nowMs: 10 });
+    let nowMs = retry(state);
+    const resumed = step(state, { type: 'message', data: hello, nowMs });
+    expect(sent(resumed)).toEqual([{ op: 6, d: { token: refreshedToken, session_id: 'fixture-session', seq: 1 } }]);
+    const invalid = message(state, { op: 9, d: false }, nowMs + 1);
+    nowMs = retry(state);
+    const identified = step(state, { type: 'message', data: hello, nowMs });
+    expect(sent(identified)).toEqual([{ op: 2, d: identifyPayload(id, refreshedToken) }]);
+    const statusChanges = [received, reconnect, resumed, invalid, identified]
+      .flatMap(result => result.changes.filter(change => change.kind === 'status'));
+    for (const secret of [token, refreshedToken]) {
+      expect(JSON.stringify(snapshot(state))).not.toContain(secret);
+      expect(JSON.stringify(statusChanges)).not.toContain(secret);
+    }
+    for (const authToken of [undefined, null, '', 123, refreshedToken]) {
+      const unchanged = message(state, { ...ready, d: { ...ready.d, auth_token: authToken } }, nowMs + 1);
+      expect(state.token).toBe(refreshedToken);
+      expect(unchanged.changes.filter(change => change.kind === 'token')).toEqual([]);
+    }
   });
 
   test('RECONNECT preserves the session and uses its resume URL', () => {
@@ -213,13 +274,19 @@ describe('gateway session', () => {
     }
   });
 
-  test('4007/4009 identify fresh; every other recoverable close resumes', () => {
+  test('1000/1001/4007/4009 identify fresh; every other recoverable close resumes', () => {
     for (const code of [4007, 4009, 1000, 1001, 1006, 4000, 4001, 4002, 4003, 4005, 4008]) {
       const state = established();
-      step(state, { type: 'close', code, nowMs: 10 });
+      const closed = step(state, { type: 'close', code, nowMs: 10 });
+      const freshSession = [1000, 1001, 4007, 4009].includes(code);
+      if (freshSession) {
+        expect(state.sessionId).toBeNull();
+        expect(state.seq).toBeNull();
+        expect(state.resumeGatewayUrl).toBeNull();
+        expect(closed.connect?.url).toContain('gateway.fixture.invalid');
+      }
       const nowMs = retry(state);
       const next = step(state, { type: 'message', data: hello, nowMs });
-      const freshSession = code === 4007 || code === 4009;
       expect(sent(next)[0].op).toBe(freshSession ? 2 : 6);
       expect(state.identifies.length).toBe(freshSession ? 2 : 1);
     }
