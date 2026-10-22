@@ -219,19 +219,22 @@ describe('labels redraw by key', () => {
 
 function rows(value: T3Client) { return transcriptRows(value); }
 
-describe('mermaid fences (5e35272)', () => {
+describe('mermaid fences', () => {
   const flow = 'graph TD\n  A --> B';
   const markdown = `Look:\n\n\`\`\`mermaid\n${flow}\n\`\`\`\n\n\`\`\`ts\nconst a = 1;\n\`\`\`\n`;
-  test('only settled mermaid fences carry a diagram, loading in each theme until its page reports', async () => {
+  test('closed mermaid fences carry a diagram, also while the reply streams, loading in each theme until its page reports', async () => {
     const { mermaidFences, messageDiagrams } = await import('../../src/timeline/timeline-mermaid');
     expect(mermaidFences(markdown)).toEqual([flow]);
-    const [diagram] = messageDiagrams(markdown, false);
+    const [diagram] = messageDiagrams(markdown);
     expect(diagram).toMatchObject({ id: '0', code: flow, light: { diagram: 'loading' }, dark: { diagram: 'loading' } });
-    // The Mermaid page (assets/mermaid/index.html) takes the fence, its theme and the font in its fragment.
+    // The Mermaid page (assets/mermaid/index.html) takes the fence, its theme, the font and its surface in its fragment.
     const page = new URL(diagram!.srcDark, 'exact-app://app/');
     expect(page.pathname).toBe('/assets/mermaid/index.html');
-    expect(Object.fromEntries(new URLSearchParams(page.hash.slice(1)))).toMatchObject({ theme: 'dark', source: flow });
-    expect(messageDiagrams(markdown, true)).toEqual([]);
+    expect(Object.fromEntries(new URLSearchParams(page.hash.slice(1)))).toMatchObject({ theme: 'dark', source: flow, view: 'chat' });
+    // A streaming reply draws the fences it has closed (isClosedCodeFence); the one still open stays a code block.
+    const streaming = `${markdown}\n\`\`\`mermaid\ngraph TD\n  C --> D\n\`\``;
+    expect(messageDiagrams(streaming).map(entry => entry.code)).toEqual([flow]);
+    expect(messageDiagrams(`${streaming}\``).map(entry => entry.code)).toEqual([flow, 'graph TD\n  C --> D']);
   });
   test('a page\'s report lands per theme and source; an error offers Retry only when Retry may help, and Retry loads the page again', async () => {
     const { diagramFor, noteMermaidFrame, retryMermaid } = await import('../../src/timeline/timeline-mermaid');
@@ -248,6 +251,11 @@ describe('mermaid fences (5e35272)', () => {
     // A report that is not JSON, names no source or no size changes nothing.
     for (const junk of ['nope', JSON.stringify({ status: 'rendered', width: 1, height: 1, theme: 'dark', source: '' }), JSON.stringify({ status: 'rendered', width: 0, height: 5, theme: 'dark', source: code })]) noteMermaidFrame(junk);
     expect(diagramFor('0', code).dark.diagram).toBe('loading');
+    // Pele lays a diagram out for its page's width, so a file's page and the preview's keep out of the lane's report.
+    noteMermaidFrame(JSON.stringify({ status: 'rendered', width: 60, height: 200, theme: 'light', source: code, view: 'file' }));
+    noteMermaidFrame(JSON.stringify({ status: 'rendered', width: 30, height: 400, theme: 'light', source: code, view: 'preview' }));
+    expect(diagramFor('0', code).light).toMatchObject({ width: 120.5, height: 80 });
+    expect(diagramFor('0', code, 'file').light).toMatchObject({ width: 60, height: 200 });
   });
   test('a user message with a mermaid fence presents its diagram beside its code highlights', () => {
     const value = client([user('u', 0, markdown)]);

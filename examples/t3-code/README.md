@@ -171,9 +171,13 @@ The app has no desktop self-update feed, so its own download/restart step is abs
 - Conversation: bounded history with older-page loading, streaming assistant and
   tool rows, work-log inspector, checkpoints and changed files, fork dividers, answered
   questions, mention and file chips, Markdown with code blocks (wrap, copy) and Mermaid
-  diagrams: each fence renders in the Mermaid page (`assets/mermaid/`, an `iframe` per fence,
-  LLP 1020.001) with the Mermaid and DOMPurify builds the reference locks, which
-  `tools/generate/` vendors into `assets/mermaid/vendor/`. A failed workspace
+  diagrams: each closed fence, also while its reply streams, renders in the Mermaid page
+  (`assets/mermaid/`, an `iframe` per fence, LLP 1020.001) with the pele and DOMPurify builds
+  the reference locks, which `tools/generate/` vendors into `assets/mermaid/vendor/`; pele lays
+  a diagram out for the lane's width. With Settings › Appearance › Render math on, a display
+  formula (`$$…$$` or `\[…\]` opening and closing a line, or a ```math fence) is typeset by
+  the reference's KaTeX in the math page (`assets/math/`, an `iframe` per formula); inline math
+  stays TeX source until Markdown text has an inline atom (draft PR #888). A failed workspace
   preparation offers Retry (`prepared-run.retry`), and the failure row hides once a retry
   supersedes it (`workspace-retry.ts`, 737993303d). Code colouring follows Shiki for
   every declarator of a `const`/`let`/`var` list, object keys versus type annotations,

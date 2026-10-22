@@ -84,6 +84,8 @@ export const CLIENT_DEFAULTS = {
   // The address bar's search engine (contracts settings.ts BrowserSearchEngine, default DuckDuckGo) and the custom
   // search URL, a `%s` template kept when the engine is switched away from Custom so switching back restores it.
   browserSearchEngine: 'duckduckgo', browserCustomSearchUrl: '',
+  // Opt-in TeX typesetting in rendered Markdown (mathRenderingEnabled, default off).
+  mathRenderingEnabled: false,
 } as const;
 export type ClientPrefs = { -readonly [K in keyof typeof CLIENT_DEFAULTS]: (typeof CLIENT_DEFAULTS)[K] extends number ? number : (typeof CLIENT_DEFAULTS)[K] extends boolean ? boolean : string };
 const CHOICES: Record<string, readonly string[]> = {
@@ -708,7 +710,8 @@ const THEME_MIX = 'themeMix';
 const RESTORE_ROWS: readonly (readonly [string, 'device' | 'server' | 'browser', readonly string[]])[] = [
   ['Theme', 'device', ['theme']], ['Follow system', 'device', ['appearanceMode']], ['Theme mix', 'device', [THEME_MIX]], ['Contrast', 'device', ['appearanceContrast']],
   ['Glass opacity', 'device', ['glassOpacity']],
-  ['Diff colors', 'device', ['diffColorScheme']], ['Chat width', 'device', ['chatWidth']], ['Panel animations', 'device', ['panelAnimationDurationMs']],
+  ['Diff colors', 'device', ['diffColorScheme']], ['Chat width', 'device', ['chatWidth']], ['Render math', 'device', ['mathRenderingEnabled']],
+  ['Panel animations', 'device', ['panelAnimationDurationMs']],
   ['Environment identification', 'device', ['environmentIdentificationMode']], ['Time format', 'device', ['timestampFormat']], ['Thread notifications', 'device', ['notificationMode']],
   ['In-app notifications', 'device', ['inAppNotificationsEnabled']], ['Visible threads', 'device', ['sidebarThreadPreviewCount']], ['Project Grouping', 'device', ['projectGrouping']],
   ['Project order', 'device', ['sidebarProjectSortOrder']], ['Working section', 'device', ['sidebarWorkingShelfEnabled']],

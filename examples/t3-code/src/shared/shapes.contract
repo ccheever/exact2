@@ -5,6 +5,7 @@ use CodeToken from "../timeline/markdown.contract"
 use DiffFindView, FindDiffSegment from "../diff/diff-find.contract"
 use CodeHighlight from "../timeline/markdown.contract"
 use MermaidDiagram from "../timeline/markdown.contract"
+use MathFrame from "../timeline/markdown-math.contract"
 use MarkdownEnv from "../timeline/markdown.contract"
 use WorktreeSetupView from "../timeline/timeline-worktree-shapes.contract"
 use MinimapItem from "../timeline/timeline-minimap.contract"
@@ -552,6 +553,8 @@ shape Snapshot
   // The thread's last code copy (Copy code, Copy table); the root clears its check after 1.2 s (#123).
   codeCopyNonce: number
   diagramPreview: MermaidDiagram[]
+  // What the math pages reported (markdown-math.ts), which every MathBlock reads.
+  mathFrames: MathFrame[]
   planSaveOpen: bool
   planSavePath: string
   planSaveRoot: string
