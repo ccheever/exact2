@@ -465,7 +465,7 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
         #if os(iOS)
         guard let item else { return }
         let sticks = field.map { f in
-            f.style["position_type"]?.string == "sticky" && ["top", "bottom"].contains { f.style[$0]?.length(basis: 0) != nil }
+            f.layoutPosition == "sticky" && ["top", "bottom"].contains { f.style[$0]?.length(basis: 0) != nil }
         } ?? false
         let hides = (field?.props["value"] ?? "").isEmpty && !sticks
         if item.hidesSearchBarWhenScrolling != hides { item.hidesSearchBarWhenScrolling = hides }
@@ -1214,10 +1214,10 @@ extension NavigationHost {
     /// the scroller, leave the scroller its route's top and bottom edges. A
     /// dialog given back to layout to show in Exact's views counts as laid out.
     static func inFlow(_ v: NodeView) -> Bool {
-        if v.props["popover"] != nil, v.style["position_type"]?.string != "sticky" { return false }
-        // A sticky popover is in flow while laid out, as a dialog is (`MenuHost.layOut`).
+        // A popover lays out absolute (`layoutPosition`), unless sticky; a
+        // sticky one is in flow while laid out, as a dialog is (`MenuHost.layOut`).
         let dialog = v.props["semanticTag"] == "dialog" || v.props["popover"] != nil
-        return v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
+        return v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.layoutPosition)
             && (!dialog || v.presenter?.menus.isLaidOut(v) == true)
     }
 

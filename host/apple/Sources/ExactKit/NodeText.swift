@@ -34,8 +34,7 @@ extension NodeView {
         var out: [(String, [Double]?)] = []
         var box: NodeView = self
         // A popover is out of flow too (the kernel's top layer), unless sticky.
-        while !["absolute", "fixed"].contains(box.style["position_type"]?.string ?? ""),
-              box.props["popover"] == nil || box.style["position_type"]?.string == "sticky",
+        while !["absolute", "fixed"].contains(box.layoutPosition),
               box === self || !(box.actsAsButton || box.kind == "control"),
               let parent = box.nodeSuperview {
             if let lines = parent.style["text_decoration_line"]?.string, !lines.isEmpty, lines != "none" {

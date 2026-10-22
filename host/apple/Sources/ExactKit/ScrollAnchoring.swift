@@ -64,10 +64,10 @@ enum ScrollAnchoring {
         /// for one anywhere in the scroller (§2.4, "becomes or stops being
         /// absolutely positioned"), not only on the anchor's chain.
         var positioned: Set<UInt32> = []
-        mutating func note(_ id: UInt32, from old: NodeStyle, to new: NodeStyle) {
+        mutating func note(_ id: UInt32, from old: NodeStyle, to new: NodeStyle, popover: Bool) {
             if ScrollAnchoring.layoutKeys.contains(where: { old[$0] != new[$0] }) { layout.insert(id) }
             // Out of flow is absolute or fixed (Chromium's `IsOutOfFlowPositioned`).
-            let outOfFlow = { (s: NodeStyle) in ["absolute", "fixed"].contains(s["position_type"]?.string ?? "") }
+            let outOfFlow = { (s: NodeStyle) in ["absolute", "fixed"].contains(NodeView.layoutPosition(s, popover: popover)) }
             if outOfFlow(old) != outOfFlow(new) { positioned.insert(id) }
         }
         mutating func reset() { layout.removeAll(keepingCapacity: true); positioned.removeAll(keepingCapacity: true) }
@@ -77,7 +77,7 @@ enum ScrollAnchoring {
     /// and an absolute one whose containing block is outside the scroller.
     static func excluded(_ node: NodeView, scroller: NodeView) -> Bool {
         if node.style["display"]?.string == "none" { return true }
-        switch node.style["position_type"]?.string {
+        switch node.layoutPosition {
         case "fixed", "sticky": return true
         case "absolute":
             var above = node.superview
@@ -93,8 +93,7 @@ enum ScrollAnchoring {
     /// Whether a box is an absolute box's containing block: positioned, or
     /// transformed or filtered (CSS Positioned Layout §3.1, CSS Transforms).
     private static func containsAbsolute(_ n: NodeView) -> Bool {
-        if let p = n.style["position_type"]?.string, p != "static" { return true }
-        if n.props["popover"] != nil { return true } // laid out absolute (the kernel's top layer)
+        if n.layoutPosition != "static" { return true }
         return ["transform", "translate", "translate_percent", "rotate", "scale", "filter"].contains { n.style[$0] != nil }
     }
 
