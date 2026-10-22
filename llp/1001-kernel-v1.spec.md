@@ -493,13 +493,14 @@ not yet map the role to native presentation. A red colour or action label never
 implies the flag.
 
 `menuRemove` (263, string) carries root `-exact-menu-remove`: a literal list of
-the standard AppKit item ids in LLP 1021 §5.3. AppKit suppresses those items
+the standard AppKit item ids in LLP 1021 §5.3 and §5.3.1. AppKit suppresses those items
 and their menu equivalents; all other hosts ignore this non-CSS presentation
 hint. It changes no layout or window capability.
 
 `menuPlacement` (261, string) is `-exact-menu` on a button (LLP 1021 §5.3,
-Charlie, 2026-10-12): a literal `app`, `file`, `edit`, `view`, `go`, `window`
-or `help`. AppKit adds the button to that menu even without a shortcut.
+Charlie, 2026-10-12; §5.3.1, 2026-10-22): a literal `about`, `app`, `file`,
+`edit`, `view`, `go`, `window`, `help` or `none`. AppKit adds the button to
+that menu even without a shortcut; `none` keeps its chord with no item.
 Declared deviation: HTML has no application menu; web, UIKit, Linux,
 Windows, Android and terminal hosts retain the ordinary button and ignore
 this hint. Dispatch and layout are unchanged.

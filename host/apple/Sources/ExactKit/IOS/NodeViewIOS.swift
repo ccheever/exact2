@@ -1168,7 +1168,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // A `link`, pressable or a box with the role, is a link to VoiceOver, never also a button (LLP 1115.000 D11.6).
             let link = props["accessibilityRole"] == "link"
             accessibilityTraits.insert(link ? .link : .button); accessibilityTraits.remove(link ? .button : .link)
-            if props["accessibilitySelected"] == "true" { accessibilityTraits.insert(.selected) } else { accessibilityTraits.remove(.selected) }
+            // `aria-current` (not `false`) is the selected trait too: UIKit has no
+            // current, and a bar's current item is its selected one (theme2 2026-10-22 06:40).
+            let current = props["accessibilityCurrent"].map { !["", "false"].contains($0) } ?? false
+            if props["accessibilitySelected"] == "true" || current { accessibilityTraits.insert(.selected) } else { accessibilityTraits.remove(.selected) }
             setAccessibilityToggle(pressedState)
             if let checked = checkedRole { setAccessibilityChecked(checked.role, checked.checked) }
             if #available(iOS 18, tvOS 18, *) {

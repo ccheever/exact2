@@ -422,6 +422,7 @@ extension NodeView {
         defer { handoff?.dispatched() }
         if ownsPress || (touched === self && !pressesAnAncestor && !contact.routesToCanvas) {
             handoff = touched.focusForPress(target: ownsPress ? self : nil)
+            handoff?.point = touches.first?.location(in: nil)
         }
         guard pressContact === contact, incarnation == contact.incarnation else { return }
         if let path = contact.path, let presenter, !path.isLive(in: presenter) { cancelPressContact(); return }

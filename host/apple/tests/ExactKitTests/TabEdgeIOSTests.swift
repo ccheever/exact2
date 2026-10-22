@@ -115,9 +115,9 @@ final class TabEdgeIOSTests: XCTestCase {
     /// The `scrolls` route holds a menu between its header and its scroller
     /// and a `dialog` after it. Closed, neither is laid out, and the scroller
     /// keeps both edges. A menu given back to layout to show in Exact's views
-    /// (a context preview, the agent's painted popover) takes its place in
-    /// the flow as the kernel lays it out, and counts there; closed again,
-    /// the scroller has its place and its edges back.
+    /// (a context preview, the agent's painted popover) is laid out out of
+    /// the flow, as HTML's top layer is, so the scroller keeps its place and
+    /// its edges while it shows, and after it closes.
     func testAClosedMenuAndDialogBesideTheScrollerLeaveItItsEdges() throws {
         let session = try fixture()
         let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
@@ -133,8 +133,9 @@ final class TabEdgeIOSTests: XCTestCase {
         session.presenter.menus.layOut(menu)
         spin(0.2)
         XCTAssertGreaterThan(menu.bounds.height, 0, "the menu is laid out")
-        XCTAssertTrue(NavigationHost.inFlow(menu), "in the flow, which the scroller's edges read")
-        XCTAssertGreaterThan(box(content).minY, before.minY, "the menu above it moves it, as the kernel lays it out")
+        // Out of the flow, as HTML's top layer is: opening it moves nothing.
+        XCTAssertFalse(NavigationHost.inFlow(menu), "an open popover is out of its parent's flow")
+        XCTAssertEqual(box(content), before, "so the scroller beside it stays where it was")
         session.presenter.menus.coverClosed()
         spin(0.3)
         XCTAssertFalse(NavigationHost.inFlow(menu))
