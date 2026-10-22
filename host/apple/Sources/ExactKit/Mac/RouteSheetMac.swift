@@ -176,7 +176,7 @@ final class RouteChrome: NSView {
         addSubview(content, positioned: .below, relativeTo: nil)
     }
 
-    private var top: CGFloat { title.isHidden ? 0 : Self.titleRow + 1 }
+    private var top: CGFloat { title.isHidden && back.isHidden ? 0 : Self.titleRow + 1 }
     private var bottom: CGFloat { cancel.isHidden && confirm.isHidden ? 0 : Self.buttonRow + 1 }
     /// The height the rows take beside the content.
     var rows: CGFloat { top + bottom }
@@ -194,10 +194,11 @@ final class RouteChrome: NSView {
     }
 
     /// What the rows show now; true when a row came or went, so the sheet's size is another.
-    func show(title words: String?, cancel: (String, UInt32, Bool)?, confirm: (String, UInt32, Bool)?, escapes: Bool) -> Bool {
+    func show(title words: String?, back offered: Bool, cancel: (String, UInt32, Bool)?, confirm: (String, UInt32, Bool)?, escapes: Bool) -> Bool {
         let before = rows
+        back.isHidden = !offered
         title.isHidden = (words ?? "").isEmpty
-        above.isHidden = title.isHidden
+        above.isHidden = top == 0
         if let words, title.stringValue != words { title.stringValue = words }
         for (button, said) in [(self.cancel, cancel), (self.confirm, confirm)] {
             button.isHidden = said == nil
@@ -217,7 +218,7 @@ final class RouteChrome: NSView {
     override func layout() {
         super.layout()
         let size = bounds.size
-        if !title.isHidden {
+        if top > 0 {
             back.sizeToFit()
             back.frame.origin = NSPoint(x: Self.edge, y: (Self.titleRow - back.frame.height) / 2)
             let fit = title.fittingSize, x = back.isHidden ? Self.titleStart : back.frame.maxX + Self.gap
@@ -385,9 +386,9 @@ extension DialogHost {
         if sheet.window.title != name { sheet.window.title = name }
         let row = { (node: NodeView?) in node.map { (SheetHeader.words(of: $0), $0.id, !$0.disabled) } }
         chrome.onBack = { [weak presenter] in _ = presenter?.navigation.goBack() }
-        chrome.back.isHidden = entry.routeBase === entry.dialog || !presenter.navigation.backOffered
+        let back = entry.dialog.props["navigationBar"] != "none" && entry.routeBase !== entry.dialog && presenter.navigation.backOffered
         chrome.back.isEnabled = presenter.navigation.back != nil
-        let changed = chrome.show(title: header?.title, cancel: chrome.back.isHidden ? row(header?.cancel) : nil, confirm: row(header?.confirm),
+        let changed = chrome.show(title: header?.title, back: back, cancel: back ? nil : row(header?.cancel), confirm: row(header?.confirm),
                                   escapes: dismissalOwner(of: entry.dialog).props["closedby"] != "none")
         guard fits, changed else { return }
         // Its rows take another height: the content's maximum and the window's size follow.
