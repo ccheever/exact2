@@ -5,7 +5,7 @@
 // design's `params` block when it has one, else the default as written.
 // Pure functions of `describe`; app.ts's design read uses them.
 import type { Result } from './app.contract.d.ts';
-import { controlOf, numberOf } from './dials.ts';
+import { controlOf, numberOf, sides } from './dials.ts';
 
 type Design = Result<'loadDesign'>;
 type Panel = Design['components'][number];
@@ -174,19 +174,29 @@ export function componentsOf(list: { identity: string; name: string; params: Par
   });
 }
 
+// A role a page paints by the platform: Exact's (`-exact-…`, any case) or a CSS system colour.
+const SYSTEM = new Set(['canvas', 'canvastext', 'linktext', 'visitedtext', 'activetext', 'buttonface', 'buttontext', 'buttonborder', 'field', 'fieldtext', 'highlight', 'highlighttext', 'selecteditem', 'selecteditemtext', 'mark', 'marktext', 'graytext', 'accentcolor', 'accentcolortext']);
+const isRole = (v: string) => /^-exact-/i.test(v.trim()) || SYSTEM.has(v.trim().toLowerCase());
+
 /** A colour param's look (the second hands-on pass, #4; review2 09:29): its colour in each of the token grid's
- * columns, in their order and with their labels, and the chain to it in words. A param the app sets reads its own
- * values (one per tuple); one following a token reads that token's cells as the grid draws them. The words follow
- * the token: what it follows (its dials) or its value, the platform's role for a role, Exact's base for a base name
- * the app leaves unset. */
-export function lookOf(columns: { label: string; tuple: number; dark: boolean }[], stored: ReadonlyMap<string, { css: string }[][]>, rows: { name: string; start?: string; follows?: string }[]) {
+ * columns, in their order and with their labels, and the chain to it in words. A param the app sets, or one naming
+ * no token, reads its own values (one per tuple, its scheme side taken as a swatch shows it); one following a token
+ * reads that token's cells as the grid paints them (a residual by its fallback). The words follow the token: what the
+ * app's row for it follows (its dials) or its value, the platform's role where that is a role (or the token is one
+ * the app does not set), Exact's base for a base name the app leaves unset. */
+export function lookOf(columns: { label: string; tuple: number; dark: boolean }[], stored: ReadonlyMap<string, { css: string; srgb?: string; residual?: boolean }[][]>, rows: { name: string; start?: string; follows?: string }[]) {
   return (token: string, p: Param) => {
-    const sides = !p.set && token ? stored.get(token) : undefined;
-    const swatches = columns.map(c => ({ label: c.label, css: sides ? sides[c.tuple]?.[c.dark ? 1 : 0]?.css ?? '' : String(p.values?.[c.tuple] ?? '') })).filter(s => s.css);
-    // (What the token follows, its dials, as the grid's row says; else its value.)
+    const cells = !p.set && token ? stored.get(token) : undefined;
+    const swatches = columns.map(c => {
+      const v = cells?.[c.tuple]?.[c.dark ? 1 : 0];
+      const css = v ? (v.residual ? v.srgb ?? '' : v.css) : sides(String(p.values?.[c.tuple] ?? ''))[c.dark ? 1 : 0];
+      return { label: c.label, css };
+    }).filter(s => s.css && !/^-exact-/i.test(s.css));
     const row = rows.find(r => r.name === token), written = row?.follows || row?.start || '';
-    const role = token.startsWith('-') || /^-exact-/i.test(written);
-    const words = p.set ? `set for this app: ${p.set.value}` : !token ? '' : role ? `${token} → the platform's role` : written ? `${token} → ${written}` : `${token} → Exact's base`;
+    const def = typeof p.default === 'string' ? p.default : '';
+    const words = p.set ? `set for this app: ${p.set.value}`
+      : token ? `${token} → ${row ? (isRole(written) ? "the platform's role" : written || "Exact's base") : isRole(token) ? "the platform's role" : "Exact's base"}`
+      : isRole(def) ? `${def} → the platform's role` : '';
     return { swatches, words };
   };
 }
