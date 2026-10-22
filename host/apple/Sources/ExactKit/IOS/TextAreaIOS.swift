@@ -132,7 +132,18 @@ final class TextField: UITextField {
     // DOM's clipboard events, before the field's own (#125, Clipboard.swift).
     override func copy(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.copy(_:))) { super.copy(sender) } }
     override func cut(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.cut(_:))) { super.cut(sender) } }
-    override func paste(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.paste(_:))) { super.paste(sender) } }
+    override func paste(_ sender: Any?) {
+        NodeView.fieldEdit(owner, #selector(NodeView.paste(_:))) {
+            if super.canPerformAction(#selector(paste(_:)), withSender: sender) { super.paste(sender) }
+        }
+    }
+    #if os(iOS)
+    override func pasteAndMatchStyle(_ sender: Any?) { paste(sender) }
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if owner?.pastesFiles(action) == true { return isEnabled && owner?.props["editable"] != "false" }
+        return super.canPerformAction(action, withSender: sender)
+    }
+    #endif
 }
 
 package final class TextArea: UITextView {
@@ -348,7 +359,18 @@ package final class TextArea: UITextView {
         }
     }
     package override func cut(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.cut(_:))) { super.cut(sender) } }
-    package override func paste(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.paste(_:))) { super.paste(sender) } }
+    package override func paste(_ sender: Any?) {
+        NodeView.fieldEdit(owner, #selector(NodeView.paste(_:))) {
+            if super.canPerformAction(#selector(paste(_:)), withSender: sender) { super.paste(sender) }
+        }
+    }
+    #if os(iOS)
+    package override func pasteAndMatchStyle(_ sender: Any?) { paste(sender) }
+    package override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if owner?.pastesFiles(action) == true { return isEditable }
+        return super.canPerformAction(action, withSender: sender)
+    }
+    #endif
     // Keep TextKit's line pitch equal to the authored CSS line box. Updating
     // storage attributes preserves the value and selected range; replacing
     // attributedText would reset a selection (including a read-only one).
