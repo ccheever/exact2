@@ -185,10 +185,13 @@ extension NodeView {
     }
     #endif
 
-    /// Whether its author's corners differ from one another, as written (a
-    /// row each, or `border-radius` for the ones it covers), whatever the box.
+    /// Whether its author's corners are not one circle, as written (a row
+    /// each, or `border-radius` for the ones it covers, an unwritten one 0),
+    /// whatever the box: they differ, or one is a percentage (an ellipse on
+    /// a box that isn't square), which the glass can't follow.
     var unevenCorners: Bool {
-        Set(["top_left", "top_right", "bottom_right", "bottom_left"].map { (style["border_radius_" + $0] ?? style["border_radius"] ?? .null).key }).count > 1
+        let corners = ["top_left", "top_right", "bottom_right", "bottom_left"].map { (style["border_radius_" + $0] ?? style["border_radius"] ?? .number(0)).key }
+        return Set(corners).count > 1 || corners.contains { $0.contains("%") }
     }
 
     /// Whether its author wrote a corner, even 0: theirs, not the default's.
