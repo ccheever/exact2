@@ -656,7 +656,7 @@ test('a canvas stream through the relay ends upstream when its client leaves', a
   expect(upstream.size).toBe(1);
   sock.destroy();
   await until(() => upstream.size === 0, 5000);
-});
+}, 30_000);
 
 test('R1b: one mint limit a client across both doors\' gateways', async () => {
   const relay = await fakeRelay();

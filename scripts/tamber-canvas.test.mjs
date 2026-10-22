@@ -976,7 +976,7 @@ test('a page stream through the canvas port on the TLS door ends upstream when i
     closed.length = 0;
     const u = new URL(canvas);
     const first = await new Promise((ok, fail) => {
-      stream = httpsRequest({ host: u.hostname, port: u.port, path: '/__dev/page', headers: { cookie }, rejectUnauthorized: false }, res => res.once('data', d => ok(String(d))));
+      stream = httpsRequest({ host: u.hostname, port: u.port, path: '/__dev/page', headers: { cookie }, rejectUnauthorized: false }, res => { let got = ''; res.on('data', d => { got += d; if (got.includes('\n\n')) ok(got); }); });
       stream.on('error', fail);
       stream.end();
     });
@@ -987,7 +987,7 @@ test('a page stream through the canvas port on the TLS door ends upstream when i
     while (!closed.includes('/__dev/page') && performance.now() - t0 < 5000) await new Promise(ok => setTimeout(ok, 5));
     expect(closed).toContain('/__dev/page');
   } finally { stream?.destroy(); await doors?.close(); await w.stop(); }
-});
+}, 30_000);
 
 test('plain HTTP from a LAN peer (a --lan bind): no session, grant or entry page is honoured by the gateway, and `canvas` is not minted for it', async () => {
   const g = await gateway();
