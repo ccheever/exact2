@@ -143,9 +143,4 @@ extension MenuHost {
         return nil
     }
 }
-extension NodeView {
-    /// Whether an overlay (`InvokerButton`: UIKit's pull-down, or a
-    /// confirmation's opener) lies over this invoker and holds its press look.
-    var hasMenuOverlay: Bool { subviews.contains { $0 is InvokerButton } }
-}
 #endif

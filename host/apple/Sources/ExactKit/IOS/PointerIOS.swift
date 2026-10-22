@@ -368,9 +368,7 @@ extension NodeView {
         // A Markdown run's link has no view of its own (MarkupRuns): its target is the press.
         if !contact.bubbled, let href = inlineLink(at: local(touch.location(in: nil))) { linkPressed = href; return }
         if handlers.contains("press") || defaultLink != nil || presenter?.menus.closesPresentedContent(self) == true
-            || contact.bubbled && isNativeButton && presenter?.invocation(of: self) != nil
-            // A custom invoker of a popover no overlay holds the look for (`MenuHost.sync`).
-            || !contact.bubbled && isButton && presenter?.invocation(of: self)?.opens == true && !hasMenuOverlay { pressed = true } else {
+            || contact.bubbled && isNativeButton && presenter?.invocation(of: self) != nil { pressed = true } else {
             contact.responder = pressResponder
             contact.responderIncarnation = (contact.responder as? NodeView)?.incarnation
             if let node = contact.responder as? NodeView {
