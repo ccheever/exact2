@@ -852,38 +852,43 @@ final class ComboboxAccessibilityClientMacTests: XCTestCase {
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.accessory)
         NSApp.finishLaunching()
-        let p = Presenter()
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = p.viewport
-        defer { window.close() }
-        p.apply(wireBatch([
-            ["op": "create", "id": 1, "kind": "view"],
-            ["op": "roots", "ids": [1]],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 300.0],
-            ["op": "create", "id": 11, "kind": "input", "handlers": ["input"],
-             "props": ["value": "Pira", "accessibilityRole": "combobox", "accessibilityLabel": "Book", "accessibilityExpanded": "false", "testId": "book-combo"]],
-            ["op": "children", "id": 1, "ids": [11]],
-            ["op": "frame", "id": 11, "x": 10.0, "y": 40.0, "w": 280.0, "h": 24.0],
-        ]))
-        p.syncAccessibility()
-        window.orderFront(nil)
-        let client = AXClient(), attributes = ["AXRole", "AXRoleDescription", "AXDescription", "AXValue", "AXExpanded"]
-        let field = try XCTUnwrap(p.views[11]?.field)
-        XCTAssertEqual(field.accessibilityRole(), .comboBox)
-        XCTAssertEqual(field.cell?.accessibilityAttributeValue(.role) as? String, "AXComboBox")
-        let collapsed = try XCTUnwrap(client.attributes(of: "Book", attributes, matching: "AXDescription"))
-        XCTAssertEqual(collapsed["AXRole"], "AXComboBox")
-        XCTAssertEqual(collapsed["AXRoleDescription"], NSAccessibility.Role.comboBox.description(with: nil))
-        XCTAssertEqual(collapsed["AXDescription"], "Book")
-        XCTAssertEqual(collapsed["AXValue"], "Pira")
-        XCTAssertEqual(collapsed["AXExpanded"], "0")
-        p.apply(wireBatch([["op": "props", "id": 11, "set": ["accessibilityExpanded": "true", "value": "Piranesi"]]]))
-        let expanded = try XCTUnwrap(client.attributes(of: "Book", attributes, matching: "AXDescription"))
-        XCTAssertEqual(expanded["AXExpanded"], "1")
-        XCTAssertEqual(expanded["AXValue"], "Piranesi")
-        p.apply(wireBatch([["op": "props", "id": 11, "clear": ["accessibilityRole", "accessibilityExpanded"]]]))
-        XCTAssertEqual(client.attributes(of: "Book", attributes, matching: "AXDescription")?["AXRole"], "AXTextField")
+        for type in ["search", "text"] {
+            let label = "Book (\(type))"
+            let p = Presenter()
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = p.viewport
+            defer { window.close() }
+            p.apply(wireBatch([
+                ["op": "create", "id": 1, "kind": "view"],
+                ["op": "roots", "ids": [1]],
+                ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 300.0],
+                ["op": "create", "id": 11, "kind": "input", "handlers": ["input"],
+                 "props": ["type": type, "value": "Pira", "accessibilityRole": "combobox", "accessibilityLabel": label, "accessibilityExpanded": "false", "testId": "book-combo"]],
+                ["op": "children", "id": 1, "ids": [11]],
+                ["op": "frame", "id": 11, "x": 10.0, "y": 40.0, "w": 280.0, "h": 24.0],
+            ]))
+            p.syncAccessibility()
+            window.orderFront(nil)
+            window.layoutIfNeeded()
+            let client = AXClient(), attributes = ["AXRole", "AXRoleDescription", "AXDescription", "AXValue", "AXExpanded"]
+            let field = try XCTUnwrap(p.views[11]?.field)
+            XCTAssertEqual(field is NSSearchField, type == "search")
+            XCTAssertEqual(field.accessibilityRole(), .comboBox)
+            XCTAssertEqual(field.cell?.accessibilityAttributeValue(.role) as? String, "AXComboBox")
+            let collapsed = try XCTUnwrap(client.attributes(of: label, attributes, matching: "AXDescription"), "the \(type) input")
+            XCTAssertEqual(collapsed["AXRole"], "AXComboBox")
+            XCTAssertEqual(collapsed["AXRoleDescription"], NSAccessibility.Role.comboBox.description(with: nil))
+            XCTAssertEqual(collapsed["AXDescription"], label)
+            XCTAssertEqual(collapsed["AXValue"], "Pira")
+            XCTAssertEqual(collapsed["AXExpanded"], "0")
+            p.apply(wireBatch([["op": "props", "id": 11, "set": ["accessibilityExpanded": "true", "value": "Piranesi"]]]))
+            let expanded = try XCTUnwrap(client.attributes(of: label, attributes, matching: "AXDescription"))
+            XCTAssertEqual(expanded["AXExpanded"], "1")
+            XCTAssertEqual(expanded["AXValue"], "Piranesi")
+            p.apply(wireBatch([["op": "props", "id": 11, "clear": ["accessibilityRole", "accessibilityExpanded"]]]))
+            XCTAssertEqual(client.attributes(of: label, attributes, matching: "AXDescription")?["AXRole"], "AXTextField")
+        }
     }
 
 }
