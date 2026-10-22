@@ -378,8 +378,7 @@ extension NodeView {
         if !contact.bubbled, let href = inlineLink(at: local(touch.location(in: nil))) { linkPressed = href; return }
         if handlers.contains("press") || defaultLink != nil || presenter?.menus.closesPresentedContent(self) == true
             || contact.bubbled && isNativeButton && presenter?.invocation(of: self) != nil { pressed = true } else {
-            if !isNativeButton, let presenter, let invocation = presenter.invocation(of: self),
-               invocation.opensPopover, !presenter.menus.pullsDown(invocation.target) {
+            if !isNativeButton, presenter?.showsPopoverPress(of: self) == true {
                 setInvokerLook(contact, true)
             }
             contact.responder = pressResponder
