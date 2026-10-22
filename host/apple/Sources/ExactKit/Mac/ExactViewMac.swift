@@ -84,6 +84,12 @@ public final class ExactView: NSView {
         get { session.presenter.sidebar.onWanted }
         set { session.presenter.sidebar.onWanted = newValue; session.presenter.navigation.split.onWanted = newValue }
     }
+    /// The window's owner put `window-controls-overlay`'s toolbar in the
+    /// title bar (LLP 1039 D8): the title-bar area is beside the traffic
+    /// lights in its band, and the display mode is that overlay.
+    public var controlsOverlay = false {
+        didSet { if controlsOverlay != oldValue { session.tellPreferences() } }
+    }
     public var hasWindowToolbar: Bool {
         guard let toolbar = session.presenter.toolbar.toolbar else { return false }
         return window?.toolbar === toolbar
@@ -330,7 +336,7 @@ public final class ExactView: NSView {
             session.presenter.regions = regions
             session.regions(regions)
         }
-        let area = TitleBarAreaMac.rect(of: self, cover: viewportFit == "cover")
+        let area = TitleBarAreaMac.rect(of: self, cover: viewportFit == "cover" || controlsOverlay, overlay: controlsOverlay)
         if !titlebarTold || area != session.presenter.titlebarArea {
             titlebarTold = true
             session.presenter.titlebarArea = area
