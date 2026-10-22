@@ -340,14 +340,19 @@ final class SidebarMacTests: XCTestCase {
         // Its action reaches the split view controller from inside the page, up the responder chain; the
         // sidebar goes and the page takes the window, then comes back. AppKit animates both.
         func toggled(_ hidden: Bool, _ why: String) {
-            XCTAssertEqual(view.tryToPerform(#selector(NSSplitViewController.toggleSidebar(_:)), with: item), true, why)
-            let limit = Date().addingTimeInterval(10)
-            // The animation has ended when the sidebar's pane is hidden, or shown at its width.
+            let completed = expectation(description: why)
+            NSAnimationContext.runAnimationGroup { _ in
+                XCTAssertEqual(view.tryToPerform(#selector(NSSplitViewController.toggleSidebar(_:)), with: item), true, why)
+            } completionHandler: {
+                completed.fulfill()
+            }
+            wait(for: [completed], timeout: 30)
+            window.layoutIfNeeded()
+            split.view.layoutSubtreeIfNeeded()
             let settled = {
                 split.collapsed == hidden && split.splitView.arrangedSubviews.first?.isHidden == hidden
                     && abs(view.frame.width - (hidden ? 700 : 700 - split.sidebarWidth - split.splitView.dividerThickness)) < 1.5
             }
-            while !settled(), Date() < limit { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
             XCTAssertTrue(settled(), "\(why): collapsed \(split.collapsed), page \(view.frame.width)")
         }
         toggled(true, "hidden by the person")
