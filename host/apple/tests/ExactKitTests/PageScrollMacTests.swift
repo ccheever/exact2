@@ -1,9 +1,43 @@
 #if os(macOS)
 import AppKit
 import XCTest
+import ObjectiveC
 @testable import ExactKit
 
 final class PageScrollMacTests: XCTestCase {
+    private static var preferredStyle: NSScroller.Style = .overlay
+    @objc private class func forcedScrollerStyle() -> NSScroller.Style { preferredStyle }
+
+    func testPreferredStyleChangesRetileAndRefitThePage() throws {
+        _ = NSApplication.shared
+        let original = try XCTUnwrap(class_getClassMethod(NSScroller.self, #selector(getter: NSScroller.preferredScrollerStyle)))
+        let replacement = try XCTUnwrap(class_getClassMethod(Self.self, #selector(Self.forcedScrollerStyle)))
+        method_exchangeImplementations(original, replacement)
+        defer { method_exchangeImplementations(original, replacement) }
+        Self.preferredStyle = .overlay
+        let p = Presenter()
+        p.viewport.frame.size = NSSize(width: 600, height: 400)
+        let child = FlippedView(frame: NSRect(x: 0, y: 0, width: 600, height: 1000))
+        p.root.addSubview(child)
+        p.fitDocument()
+        var sizes: [NSSize] = []
+        p.viewport.visibleSizeChanged = {
+            sizes.append(p.viewportSize)
+            child.frame.size.width = p.viewportSize.width
+            p.fitDocument()
+        }
+        for style in [NSScroller.Style.legacy, .overlay, .legacy] {
+            Self.preferredStyle = style
+            NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+            XCTAssertEqual(p.viewport.scrollerStyle, style)
+            XCTAssertEqual(child.frame.width, p.viewportSize.width)
+            XCTAssertEqual(p.root.frame.width, p.viewportSize.width)
+            XCTAssertTrue(p.viewport.horizontalScroller!.isHidden, "a fitting page has no sideways scroll")
+            XCTAssertEqual(p.viewportSize.width < 600, style == .legacy)
+        }
+        XCTAssertFalse(sizes.isEmpty)
+    }
+
     private func fixture(xOverflow: Bool = false, yOverflow: Bool = false) -> (Presenter, NSView) {
         _ = NSApplication.shared
         let p = Presenter()

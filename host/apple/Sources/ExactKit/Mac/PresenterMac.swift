@@ -168,7 +168,6 @@ package final class Presenter {
         viewport.hasVerticalScroller = true
         viewport.hasHorizontalScroller = true
         viewport.autohidesScrollers = true
-        viewport.scrollerStyle = .overlay
         viewport.automaticallyAdjustsContentInsets = false
         viewport.contentInsets = NSEdgeInsetsZero
         viewport.drawsBackground = true
