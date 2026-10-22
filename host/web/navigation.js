@@ -1081,10 +1081,10 @@ export function placeReporter(params, platform = globalThis) {
     if (AGENT_ADMITTED && params.has('agent')) {
       const value = Number(params.get('seed') ?? 1);
       if (!Number.isSafeInteger(value) || value < 0 || value >= 2 ** 32) throw new Error('seed: a whole number from 0 through 2^32 - 1 (4294967295)');
-      return [params.get('locale') ?? 'en-US', params.get('timeZone') ?? 'UTC', value].join('\0');
+      return [params.get('locale') ?? 'en-US', params.get('timeZone') ?? 'UTC', value, params.get('formatLocale') ?? ''].join('\0');
     }
     if (seed === undefined) seed = platform.crypto.getRandomValues(new Uint32Array(1))[0];
-    return [platform.navigator.language, platform.Intl.DateTimeFormat().resolvedOptions().timeZone, seed].join('\0');
+    return [platform.navigator.language, platform.Intl.DateTimeFormat().resolvedOptions().timeZone, seed, platform.Intl.DateTimeFormat().resolvedOptions().locale].join('\0'); // the last: ECMA-402's default locale, which a browser's formatters use
   };
 }
 // @ref LLP 1027.000.000 D3 — under the agent the date at the clock's zero is the drive's epoch (default

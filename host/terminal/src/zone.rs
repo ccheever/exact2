@@ -59,12 +59,14 @@ pub(crate) fn launch(
                 .or_else(|| iana_time_zone::get_timezone().ok())
                 .unwrap_or_else(|| "UTC".into()),
             seed: 0.,
+            format_locale: String::new(),
         }
     } else {
         Place {
             locale: env("EXACT_AGENT_LOCALE").unwrap_or_else(|| "en-US".into()),
             time_zone: env("EXACT_AGENT_TIME_ZONE").unwrap_or_else(|| "UTC".into()),
             seed: 1.,
+            format_locale: env("EXACT_AGENT_FORMAT_LOCALE").unwrap_or_default(),
         }
     };
     // Each fact falls back alone: a zone the runner cannot use keeps the locale.
@@ -79,6 +81,19 @@ pub(crate) fn launch(
             place.time_zone = "UTC".into();
             chrono_tz::UTC
         });
+    if place.validate().is_err() && !place.format_locale.is_empty() {
+        let without = Place {
+            format_locale: String::new(),
+            ..place.clone()
+        };
+        if without.validate().is_ok() {
+            notes.push(format!(
+                "terminal format locale refused: {}; using the locale",
+                place.format_locale
+            ));
+            place = without;
+        }
+    }
     if place.validate().is_err() {
         notes.push(format!(
             "terminal locale refused: {}; using en-US",
@@ -153,6 +168,7 @@ mod tests {
             "EXACT_AGENT_EPOCH" => Some("1790000000000".into()),
             "EXACT_AGENT_TIME_ZONE" => Some("America/Toronto".into()),
             "EXACT_AGENT_LOCALE" => Some("fr-CA".into()),
+            "EXACT_AGENT_FORMAT_LOCALE" => Some("fr-FR".into()),
             _ => panic!("headless launch read {key}"),
         });
         assert!(notes.is_empty());
@@ -161,7 +177,11 @@ mod tests {
             (time.epoch_at_zero, time.utc_offset),
             (1_790_000_000_000., -240.)
         );
-        assert_eq!(facts.place.unwrap().locale, "fr-CA");
+        let place = facts.place.unwrap();
+        assert_eq!(
+            (place.locale.as_str(), place.format_locale.as_str()),
+            ("fr-CA", "fr-FR")
+        );
         let (default, _) = launch(false, |_| None);
         assert_eq!(default.time.unwrap().epoch_at_zero, AGENT_EPOCH);
     }
@@ -170,6 +190,7 @@ mod tests {
     fn refused_places_and_times_fall_back_to_valid_facts_with_a_note() {
         for (key, value) in [
             ("EXACT_AGENT_LOCALE", "bad@locale"),
+            ("EXACT_AGENT_FORMAT_LOCALE", "bad@locale"),
             ("EXACT_AGENT_TIME_ZONE", "Bad/Zone"),
             ("EXACT_AGENT_EPOCH", "not a date"),
         ] {

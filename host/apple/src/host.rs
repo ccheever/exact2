@@ -1111,39 +1111,46 @@ impl<D: DataSource> Host<D> {
 
     /// The date (LLP 1027.000.000): re-answer `exactTime` in one commit.
     pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> String {
-        match self.runner.set_time(epoch_at_zero, utc_offset) {
-            Ok(Some(receipt)) => self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => self.finish(Batch::new(), None),
-            Err(e) => self.finish(Batch::new(), Some(format!("time: {e:?}"))),
-        }
+        let answer = self.runner.set_time(epoch_at_zero, utc_offset);
+        self.told(answer, "time")
     }
 
     /// The user's display preferences (LLP 1061 D4): re-answer
     /// `exactViewport` in one commit; the same preferences commit nothing.
     pub fn set_preferences(&mut self, preferences: exact_runner::Preferences) -> String {
-        match self.runner.set_preferences(preferences) {
-            Ok(Some(receipt)) => self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => self.finish(Batch::new(), None),
-            Err(e) => self.finish(Batch::new(), Some(format!("preferences: {e:?}"))),
-        }
+        let answer = self.runner.set_preferences(preferences);
+        self.told(answer, "preferences")
     }
 
     /// The page's visibility, connectivity and share sheet (LLP 1069.000
     /// D2): re-answer `exactPage` in one commit; the same facts commit nothing.
     pub fn set_page(&mut self, page: exact_runner::Page) -> String {
-        match self.runner.set_page(page) {
+        let answer = self.runner.set_page(page);
+        self.told(answer, "page")
+    }
+
+    /// The viewer's locale and zone, beside the date: one commit when it changes.
+    pub fn set_place(
+        &mut self,
+        locale: &str,
+        time_zone: &str,
+        seed: Option<f64>,
+        format_locale: Option<&str>,
+    ) -> String {
+        let answer = self
+            .runner
+            .set_place_formatted(locale, time_zone, seed, format_locale);
+        self.told(answer, "place")
+    }
+
+    /// A told fact's answer: its commit, an empty batch when the fact is
+    /// unchanged, or the refusal named by `what`.
+    fn told(
+        &mut self,
+        answer: Result<Option<exact_kernel::CommitReceipt>, RunnerError>,
+        what: &str,
+    ) -> String {
+        match answer {
             Ok(Some(receipt)) => self.commit(
                 &[Timed {
                     at_ms: self.now_ms,
@@ -1152,27 +1159,8 @@ impl<D: DataSource> Host<D> {
                 None,
             ),
             Ok(None) => self.finish(Batch::new(), None),
-            Err(e) => self.finish(Batch::new(), Some(format!("page: {e:?}"))),
+            Err(e) => self.finish(Batch::new(), Some(format!("{what}: {e:?}"))),
         }
-    }
-
-    /// The viewer's locale and zone, beside the date: one commit when it changes.
-    pub fn set_place(&mut self, locale: &str, time_zone: &str, seed: Option<f64>) -> String {
-        let (receipts, error) = match self.runner.set_place(locale, time_zone, seed) {
-            Ok(Some(receipt)) => (
-                vec![Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => (vec![], None),
-            Err(e) => (vec![], Some(format!("place: {e:?}"))),
-        };
-        if receipts.is_empty() {
-            return self.finish(Batch::new(), error);
-        }
-        self.commit(&receipts, error)
     }
 
     /// The viewport's change into `batch`, after what it holds (`set_view`).

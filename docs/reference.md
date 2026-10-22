@@ -787,6 +787,7 @@ Agent sessions use `exactTime()` launch facts `seed: 1` (LLP 1069.007), `locale:
 `timeZone: "UTC"` and `epochAtZero` 2026-01-01T00:00:00Z (LLP 1027.000.000 D3, with the
 zone's `utcOffset` at that instant, answered again when the virtual date crosses a DST change) on every host. Override them at session setup with
 `bun scripts/agent.mjs web --seed 42 --locale fr-CA --time-zone America/Toronto --epoch 2026-09-21T14:13:20Z tree`
+(`--format-locale en-KR` gives `formatLocale` a Region of its own; unsaid, it is the locale)
 or `open({host, seed: 42, locale: "fr-CA", timeZone: "America/Toronto", epoch: "2026-09-21T14:13:20Z"})`;
 a test file writes them as launch lines (`epoch "2026-09-21T14:13:20Z"`, `time-zone "America/Toronto"`,
 [authored tests](contract-grammar.md#authored-tests)), which override the flags.
@@ -802,14 +803,16 @@ back when it exits, however it exits (LLP 1121 stage 9 F2).
 Seeds are whole numbers from 0 through 2^32 − 1, the range every host draws (LLP 1116.005 D5); an epoch is an ISO date, Unix milliseconds, or `now`: the machine's clock,
 read once by the driver at launch, for a drive against a live backend on real time (`snapback4 dev`). Native carriers pass
 `EXACT_AGENT_SEED`, `EXACT_AGENT_LOCALE`, `EXACT_AGENT_TIME_ZONE` and `EXACT_AGENT_EPOCH`
-(milliseconds); direct agent launches can set these too. Web agent pages accept
-`?agent=1&seed=42&locale=fr-CA&timeZone=America/Toronto&epoch=1790000000000`.
+(milliseconds), and `EXACT_AGENT_FORMAT_LOCALE` when given; direct agent launches can set these too. Web agent pages accept
+`?agent=1&seed=42&locale=fr-CA&timeZone=America/Toronto&epoch=1790000000000` (and `&formatLocale=`).
 The driver supplies its own defaults unless an option (or `open({env: ...})`)
 overrides them. `clock +N` moves the date (`epochAtZero + performanceNow()`); `state.time`
 reports all five facts. Before the first host report, the runner
 also supplies usable `en-US`/`UTC` and seed 0. Ordinary launches draw their seed
 from secure platform entropy. A development reload retains that launch's seed.
-Linux takes its locale from the first nonempty `LC_ALL`, `LC_MESSAGES`, or `LANG`,
+Linux takes its locale from the first nonempty `LC_ALL`, `LC_MESSAGES`, or `LANG`, and
+`formatLocale` from `LC_TIME` by POSIX's precedence (`LC_ALL`, then `LC_TIME`, then `LANG`; with
+none set, `formatLocale` is the locale),
 normalizes POSIX names to BCP 47 (`C`/`POSIX` use `en-US`), and reads the zone from
 `TZ` when it names a zoneinfo entry, otherwise the system's IANA zone (UTC fallback).
 
