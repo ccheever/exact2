@@ -38,6 +38,61 @@ final class PageScrollMacTests: XCTestCase {
         XCTAssertFalse(sizes.isEmpty)
     }
 
+    func testOverflowingRootUsesTheVisibleViewportAtLaunchAndAfterResize() throws {
+        _ = NSApplication.shared
+        let original = try XCTUnwrap(class_getClassMethod(NSScroller.self, #selector(getter: NSScroller.preferredScrollerStyle)))
+        let replacement = try XCTUnwrap(class_getClassMethod(Self.self, #selector(Self.forcedScrollerStyle)))
+        method_exchangeImplementations(original, replacement)
+        defer { method_exchangeImplementations(original, replacement) }
+        Self.preferredStyle = .legacy
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let source = """
+        shape Viewport
+          width: number
+          height: number
+        component App
+          resource viewport = exactViewport() as shape Viewport
+          view
+            main width="100%" height="100%" padding=20
+              text `${viewport.width}x${viewport.height}` testId="size"
+
+        """
+        let contract = dir.appendingPathComponent("app.contract"), plan = dir.appendingPathComponent("app.plan")
+        try source.write(to: contract, atomically: true, encoding: .utf8)
+        let compiler = Process()
+        compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"]))
+        compiler.arguments = ["build", contract.path, "-o", plan.path]
+        try compiler.run(); compiler.waitUntilExit()
+        XCTAssertEqual(compiler.terminationStatus, 0)
+        let session = ExactApp.shared.makeSession(label: "page-viewport")
+        let initial = NSSize(width: 1000, height: 700)
+        XCTAssertNil(session.boot(plan: try Data(contentsOf: plan), size: initial).error)
+        let view = ExactView(session: session)
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: initial), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        defer { window.close(); session.destroy() }
+        let p = session.presenter
+        for style in [NSScroller.Style.overlay, .legacy] {
+            Self.preferredStyle = style
+            NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+            let visible = p.viewportSize
+            let label = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "size" })
+            XCTAssertEqual(label.props["text"], "\(Int(visible.width))x\(Int(visible.height))", "style changes update the resource without a resize")
+        }
+        for size in [initial, NSSize(width: 800, height: 600), initial] {
+            window.setContentSize(size)
+            view.layoutSubtreeIfNeeded()
+            let visible = p.viewportSize
+            let label = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "size" })
+            XCTAssertEqual(label.props["text"], "\(Int(visible.width))x\(Int(visible.height))")
+            if ExactEnv.agentMode { XCTAssertEqual(visible, size, "the agent keeps overlay even with overflow") }
+            XCTAssertEqual(p.root.subviews.first?.frame.width, visible.width + 40)
+        }
+    }
+
     private func fixture(xOverflow: Bool = false, yOverflow: Bool = false) -> (Presenter, NSView) {
         _ = NSApplication.shared
         let p = Presenter()
