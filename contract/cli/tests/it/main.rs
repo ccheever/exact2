@@ -104,6 +104,7 @@ mod negative_margin;
 mod notify;
 mod overlay;
 mod package_designs;
+mod package_icons;
 mod packages;
 mod page_transition;
 mod pan;

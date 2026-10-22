@@ -11,6 +11,15 @@ shape FileDigest
 shape CanvasCheck
   refused: string
 
+shape ChainLink
+  text: string
+  up: number
+
+// A move of the selection up the chain (`inspect` `select`): sent, or why not.
+shape SelectUp
+  ok: bool
+  error: string
+
 shape Hello
   ok: bool
   error: string
@@ -185,6 +194,10 @@ shape Imported
 // root font size from its status, its pin, whether its status has caught
 // up with the last pin frame the server sent it (any client's pin, or a
 // hand-back), and the last command it could not apply.
+shape RefusalCount
+  id: string
+  count: number
+
 shape InspectRefusal
   id: string
   host: string
@@ -273,7 +286,8 @@ shape Inspected
   node: number
   readOnly: string
   source: string
-  chain: string[]
+  // Each call site above it, innermost first, and how many up it is (tamber/1.16 `inspect` `select`).
+  chain: ChainLink[]
   // The grid column of the branch that won for it (its modes and scheme),
   // and that column's place, whole (every axis's value, the scheme).
   modes: string
@@ -350,6 +364,10 @@ shape Changes
   // The builds whose page refused inspect mode, said in the Inspector (at most three), and how many more.
   refusals: InspectRefusal[]
   refusedMore: number
+  // Each build's refusal events, counted (one more each, the same words again included).
+  refusalCounts: RefusalCount[]
+  // The builds whose page can't move a selection up the chain (it answered `unsupported inspect` to a move).
+  noStep: string[]
   // The files' digests as the poll has them: what a design read follows
   // (a build's status, a scrub's frame or a proposal moves `seq`, not them).
   files: string
@@ -773,6 +791,7 @@ component DesignTool
   // impact the inspector shows.
   resource inspected = loadSelection(changes.answer, design.answer, appAxes.answer) as shape Inspected else empty()
   mutation inspectSent as shape Pinned refreshes inspected
+  mutation selectedUp as shape SelectUp refreshes inspected
   mutation holdSent as shape Pinned refreshes inspected
   state impactToken = ""
   resource uses = loadUses(impactToken, changes.paced) as shape Uses else empty(ok=true)
@@ -924,6 +943,27 @@ component DesignTool
   // The server's files and their digests, folded below the canvas and the tokens (the hands-on pass: 25 rows came
   // before either on the clone).
   state filesShown = false
+  // A move up the chain (tamber/1.16 `select`): the selection it moved from, and the chain length it should land at;
+  // the page's own tree may have fewer above it (a rebuild), and its selection then lands higher, said so.
+  state upFromKey = ""
+  state upExpect = -1
+  // Said of the selection the move lands on alone (the first after it), kept for that visit of it (a click away and
+  // back is another).
+  state upNote = ""
+  state upNoteKey = ""
+  derive upFailed = match selectedUp { case some(r) => not r.ok, case none => false }
+  task upLanded when upExpect >= 0 and inspected.has and inspected.key != upFromKey key=inspected.key
+    after(1, landUp)
+  task upRefused when upExpect >= 0 and not pending(selectedUp) and upFailed key=upFromKey
+    after(1, dropUp)
+  // The page refusing it (its own `unsupported`, said in the Inspector's refusals) ends the move too.
+  state upRefusalsAt = ""
+  derive refusalsKey = changes.refusalCounts.filter(r => r.id == inspected.build).map(r => `${r.count}`).join("")
+  task upPageRefused when upExpect >= 0 and refusalsKey != upRefusalsAt key=refusalsKey
+    after(1, dropUp)
+  // A page that can't step (it answered `unsupported inspect`): the move is over, and its up control greyed.
+  task upCantStep when upExpect >= 0 and changes.noStep.includes(inspected.build) key=`${upFromKey}|cant`
+    after(1, dropUp)
   // The edit a panel began (a dial's, a param's, its row's Back to the package), whose proposal docks at the window's
   // bottom: the panels sit far above the panel's own place. One begun from the token grid stays in place, under it.
   state dockedFor = ""
@@ -1188,6 +1228,14 @@ component DesignTool
   action toggleInspect
     if not pending(inspectSent)
       send inspectSent = sendInspect(client, not inspected.inspecting)
+  action selectUp(up: number)
+    if not pending(selectedUp)
+      // How deep the selection it lands on should be, from the selection it moves from (review2 11:33).
+      upFromKey = inspected.key
+      upRefusalsAt = refusalsKey
+      upExpect = inspected.chain.length - up
+      upNote = ""
+      send selectedUp = sendSelectUp(client, inspected.build, up)
   action showInitial(key: string)
     initialFor = key
   action editState(target: string, value: string)
@@ -1560,6 +1608,12 @@ component DesignTool
     filesShown = not filesShown
   action markReady
     readyFor = draftReadyKey
+  action landUp
+    upNote = inspected.chain.length < upExpect ? `The page's tree had fewer above it: it selected ${inspected.source}.` : ""
+    upNoteKey = inspected.visit
+    upExpect = -1
+  action dropUp
+    upExpect = -1
   action moreHistory
     historyPages = historyPages + 1
   action newerHistory
@@ -1798,8 +1852,21 @@ component DesignTool
               else
                 column gap=4 testId="selection"
                   text inspected.source font="-exact-headline" testId="selection-source"
-                  for c in inspected.chain key=c
-                    text `in ${c}` color="-exact-secondary-label" font="-exact-footnote"
+                  // Each a press that selects that ancestor on the build, as a click on it would (tamber/1.16).
+                  if changes.noStep.includes(inspected.build) and inspected.chain.length > 0
+                    text "This build can't move its selection up the chain: click the node itself." color="-exact-secondary-label" font="-exact-footnote" testId="selection-up-none"
+                  for c in inspected.chain key=c.up
+                    button press=selectUp(c.up) disabled=(not inspected.inspecting or pending(selectedUp) or changes.noStep.includes(inspected.build)) aria-label=`Select ${c.text}` testId=`selection-up-${c.up}`
+                      text `in ${c.text}` color="-exact-secondary-label" font="-exact-footnote"
+                  if upNote != "" and upNoteKey == inspected.visit
+                    text upNote color="-exact-system-orange" font="-exact-footnote" testId="selection-up-note"
+                  // (A move refused: the server's or the page's words.)
+                  match selectedUp
+                    case some(r)
+                      if not r.ok
+                        text r.error color="-exact-system-red" font="-exact-footnote" white-space="pre-wrap" testId="selection-up-error"
+                    case none
+                      text "" display="none"
                   text `${inspected.build}${inspected.modes != "" ? ` · ${inspected.modes}` : ""}` color="-exact-secondary-label" font="-exact-footnote" testId="selection-build"
                   if inspected.libraryIdentity != ""
                     column gap=2 testId="selection-library"

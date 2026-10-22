@@ -227,7 +227,8 @@ async function nodeOf(el) {
       if (row) found = { at, ...ownRow(t, at, row, lv) };
       else if (e?.b && t.implied.includes(name)) { const row = impliedRow(t, at, name, lv); if (row) found = { at, ...row }; }
     }
-    if (found) { const { at, ...row } = found; style[name] = { ...row, source: "inherited", from: viewOf(at) }; continue; }
+    // (And the ancestor's plan site, which the design server names by its source: tamber/1.16 `fromAt`.)
+    if (found) { const { at, ...row } = found; style[name] = { ...row, source: "inherited", from: viewOf(at), ...(siteOf(at) != null ? { fromSite: siteOf(at) } : {}) }; continue; }
     style[name] = { value: t.initial[name], source: "initial" };
   }
   const modes = modesOf(el);
@@ -269,7 +270,7 @@ async function selectedReport(el, click = null) {
   let selected = { node: viewOf(el), type: node.type, testId: node.testId, site: node.site, instance: node.instance, planDigest: x?.plan ?? null, tuple: node.modes ?? null, rows: Object.entries(node.style).map(([name, row]) => ({ name, ...row })), held: globalThis.exact?.heldOf?.(el)?.held ?? null, trimmed: false };
   // (The held node, named by this runtime's ids, where the glue could not number it.)
   if (selected.held && selected.held.node == null && selected.held.el) selected.held.node = viewOf(selected.held.el);
-  if (bytes(envelope(selected)) > REPORT_BYTES) selected = { ...selected, rows: selected.rows.map(({ name, value, computed: c, source, from, token }) => ({ name, value, ...(c ? { computed: c } : {}), source, from, token })), trimmed: true };
+  if (bytes(envelope(selected)) > REPORT_BYTES) selected = { ...selected, rows: selected.rows.map(({ name, value, computed: c, source, from, fromSite, token }) => ({ name, value, ...(c ? { computed: c } : {}), source, from, fromSite, token })), trimmed: true };
   while (bytes(envelope(selected)) > REPORT_BYTES && selected.rows.length) selected = { ...selected, rows: selected.rows.slice(0, Math.floor(selected.rows.length / 2)) };
   if (bytes(envelope(selected)) > REPORT_BYTES) return { kind: "unsupported", what: "inspect", detail: "the selected node's identity alone is larger than a report" };
   return envelope(selected);
@@ -292,6 +293,26 @@ async function select(el, clicked = false, click = null) {
     try { const { el: _, ...kept } = inspecting.selected; sessionStorage.setItem(key + ".selected", JSON.stringify({ ...kept, seq: inspecting.seq, session: inspecting.session, clicks })); } catch { /* storage refused */ }
   }
   env.report(r);
+}
+// `inspect` `{select: {up, levels, plan, from, instance}}` (tamber/1.16): the selection moves up its call sites, as a click on
+// the node it lands on would select it. `levels` are the plan sites of each enclosing copy that owns a node, nearest
+// first (past the outermost call, the app's own), by the server's map for the selection at site `from` (instance path `instance`) under `plan`:
+// it lands in the first level with a node above the selection, on the outermost there, by this page's own tree.
+async function selectUp({ levels, plan, from, instance }) {
+  const el = inspecting.selected?.el;
+  // (No selection here to move, or none above it of that copy: staleness, not inability; its selection as it is.)
+  if (!inspecting.on || !el?.isConnected || !Array.isArray(levels)) { await refresh(); return; }
+  // (Only the selection, its instance and the plan the server took its sites from. One that moved since on its way
+  // here is no inability (theme2 15:02): the page reports its selection as it is now, and the tool's chain follows.)
+  if (inspecting.selected.plan !== (globalThis.exact?.plan ?? null) || plan !== inspecting.selected.plan || from !== inspecting.selected.site || JSON.stringify(instance ?? []) !== inspecting.selected.instance) { await refresh(); return; }
+  // The first level with a node above the selection, by this page's tree; in it, the outermost.
+  for (const level of levels) {
+    const want = new Set(level);
+    let found = null;
+    for (let at = above(el); at; at = above(at)) if (want.has(siteOf(at))) found = at;
+    if (found) { await select(found); return; }
+  }
+  await refresh();
 }
 async function refresh() {
   const was = inspecting.selected;
@@ -394,6 +415,8 @@ function chrome() {
   (modal ?? document.body).append(cover, box, banner);
   for (const { mark } of marks) (modal ?? document.body).append(mark);
   topLayer(cover); topLayer(box); topLayer(banner);
+  // (Rebuilt with boxes still up: said again.)
+  legend(marks.length);
 }
 function setInspect(on, local = false) {
   if (on === inspecting.on) { if (on) chrome(); return; }
@@ -418,18 +441,26 @@ function setInspect(on, local = false) {
 // plan leaves them; an empty one, or `clear`, clears them.
 const marks = [];
 const resized = typeof ResizeObserver === "function" ? new ResizeObserver(() => place()) : null;
-function unmark() { resized?.disconnect(); for (const { mark } of marks.splice(0)) mark.remove(); }
+function unmark(quiet = false) { resized?.disconnect(); for (const { mark } of marks.splice(0)) mark.remove(); if (!quiet) legend(0); }
+// The banner says what the dashed boxes are while they show (the second hands-on pass, #7): what is outlined, a
+// selection's every copy or what the tool's Outline asked; its words written only when they change (a live region).
+const legend = (n) => {
+  const t = inspecting.banner?.firstChild, words = n > 0 ? `Inspecting: ${n} outlined in dashes (the selection's every copy, or what the tool outlined); click a view to select it` : "Inspecting: click a view to select it";
+  if (t?.nodeType === 3 && t.nodeValue !== words) t.nodeValue = words;
+};
 function place() {
   for (const { mark, el } of marks) {
     const r = el.getBoundingClientRect();
     Object.assign(mark.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, display: el.isConnected ? "block" : "none" });
   }
+  // (A view gone takes its box: the count said is of those still shown.)
+  if (marks.length) legend(marks.filter(({ el }) => el.isConnected).length);
 }
 function outlineSites(frame) {
   if (frame.clear) { unmark(); return; }
   if (!inspecting.on) return;
   if (globalThis.exact?.plan !== frame.plan || !Array.isArray(frame.sites)) return;
-  unmark();
+  unmark(true);
   const wanted = new Set(frame.sites.map(String));
   const found = [...document.querySelectorAll("[data-site]")].filter((el) => wanted.has(el.dataset.site) && !el.closest("[data-exiting]"));
   if (!(inspecting.session && typeof frame.click === "string" && frame.click.startsWith(`${inspecting.session}.`))) found[0]?.scrollIntoView({ block: "nearest" });
@@ -442,6 +473,7 @@ function outlineSites(frame) {
     resized?.observe(el);
   }
   place();
+  legend(found.length);
 }
 
 /** An `inspect` or `outline` frame from the build channel. */
@@ -535,6 +567,7 @@ async function holdNow(m) {
 
 export async function frame(m) {
   if (m.kind === "outline") { outlineSites(m); return; }
+  if (m.select) { await selectUp(m.select); return; }
   if (m.kind === "hold") { await hold(m); return; }
   if (m.refresh) { if (m.status) await env.status(); await refresh(); return; }
   if (m.on && m.seq != null && m.seq === inspecting.left) { const facts = env.facts(); env.report({ kind: "selected", selected: null, inspect: m.seq, plan: facts.plan, revision: facts.revision }); return; }

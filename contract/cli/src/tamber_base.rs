@@ -364,7 +364,7 @@ impl Server {
         if let Some(icons) = ir["icons"].as_array_mut() {
             for entry in icons {
                 if let Some(icon) = folding.icons.iter().find(|i| entry["name"] == i.name) {
-                    entry["draws"] = crate::tamber_explain::draws(&self.dir, icon);
+                    entry["draws"] = crate::tamber_explain::draws(&self.dir, &app, icon);
                 }
             }
         }
@@ -376,14 +376,15 @@ impl Server {
             .iter()
             .find(|(f, _, _)| *f == file)
             .map_or("", |(_, t, _)| t.as_str());
-        crate::tamber_packages::mark(
-            ir["tokens"]
-                .as_array_mut()
-                .map_or(&mut [][..], |r| &mut r[..]),
-            &app,
-            text,
-            &file,
-        );
+        // Its icons' too (stage 13, *1.16*).
+        for rows in ["tokens", "icons"] {
+            crate::tamber_packages::mark(
+                ir[rows].as_array_mut().map_or(&mut [][..], |r| &mut r[..]),
+                &app,
+                text,
+                &file,
+            );
+        }
         let mut out = json!({"ir": ir, "files": files_json(&snap), "meta": {"dials": dials, "tokens": tokens}, "pairs": pairs, "warnings": warnings, "base": base, "targets": targets});
         crate::tamber_packages::packaged(&app, &mut out, false);
         Ok(out)
@@ -437,6 +438,8 @@ impl Server {
                 .collect();
             let mut out = json!({"token": name, "tuples": tuples, "files": files_json(&snap)});
             levelled(&mut out);
+            // A package's icon names its package and file, as a token does (stage 13, *1.16*).
+            crate::tamber_packages::fields(&app, &snap, &file, &name, &mut out, false);
             return Ok(out);
         }
         let token = folding
@@ -576,6 +579,8 @@ impl Server {
             crate::tamber_explain::icon(&self.dir, &design, &app, &snap, &folding, &name)
         {
             self.levelled(&app, &design, text.as_deref(), &name, &mut icon);
+            // A package's icon names its package and file, as a token does (stage 13, *1.16*).
+            crate::tamber_packages::fields(&app, &snap, &design, &name, &mut icon, true);
             return Ok(icon);
         }
         // A base name (*1.14*), not a param named like one: its row, with

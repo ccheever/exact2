@@ -901,7 +901,7 @@ package final class Presenter {
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
                 let color = v.style["text_color"], old = v.style
                 v.applyStyle(v.presented(op.style))
-                anchorChanges.note(id, from: old, to: v.style)
+                anchorChanges.note(id, from: old, to: v.style, popover: v.props["popover"] != nil)
                 flats.styleChanged(id)
                 if v.surface != nil { v.applySurface() }
                 // Paint motion re-sends a style per frame (LLP 1055.000 D6):
@@ -1163,7 +1163,7 @@ package final class Presenter {
     private func contextPanel(_ preview: NodeView) -> NodeView? {
         var parent = preview.superview as? NodeView
         while let node = parent {
-            if node.style["position_type"]?.string == "absolute" { return node }
+            if node.layoutPosition == "absolute" { return node }
             parent = node.superview as? NodeView
         }
         return nil
@@ -1295,9 +1295,7 @@ package final class Presenter {
             // nearest positioned ancestor, expressed in the parent coordinates.
             var containing = parent
             while containing !== root && containing.superview !== root {
-                if let node = containing as? NodeView,
-                   node.style["position_type"]?.string != nil,
-                   node.style["position_type"]?.string != "static" { break }
+                if let node = containing as? NodeView, node.layoutPosition != "static" { break }
                 // A route's root, whose container is its controller's view, is as far as a presented one goes
                 guard let ancestor = containing.superview, ancestor is NodeView || ancestor === root else { break }
                 containing = ancestor

@@ -138,15 +138,11 @@ fn a_package_design_is_named_for_its_package_and_its_tokens_under_it() {
 }
 
 #[test]
-fn axes_dials_params_lines_icons_and_exports_are_not_a_packages() {
+fn axes_dials_params_lines_and_exports_are_not_a_packages() {
     let dir = Dir::new("blocks");
     let cases = [
         ("axes\n  density = compact | roomy\n\n", "an axis"),
         ("dials\n  warmth: number = 0 in 0..1\n\n", "a dial"),
-        (
-            "icons\n  reading.book = icon(sf \"book\")\n\n",
-            "an icon token",
-        ),
         ("exports\n  reading.card\n\n", "an `exports` line"),
         ("params\n  Card.fill = #123456\n\n", "a `params` line"),
     ];
@@ -163,11 +159,12 @@ fn axes_dials_params_lines_icons_and_exports_are_not_a_packages() {
         assert!(e.message.contains(said), "{block}: {e}");
     }
     // A component's params are a package's (stage 12 B1;
-    // `tamber_package_params.rs`): `component … params` builds.
+    // `tamber_package_params.rs`), and so are its icons (stage 13,
+    // `package_icons.rs`): `component … params` and `icons` build.
     package(
         &dir,
         "reading",
-        Some("tamber reading\n\ncomponent MapCard\n  params\n    pin: color = #112233\n\ntheme\n  reading.card = #112233\n  reading.gap = 12px\n"),
+        Some("tamber reading\n\ncomponent MapCard\n  params\n    pin: color = #112233\n\nicons\n  reading.book = icon(sf \"book\")\n\ntheme\n  reading.card = #112233\n  reading.gap = 12px\n"),
     );
     plan(&app(&dir, &["reading"], None));
 }

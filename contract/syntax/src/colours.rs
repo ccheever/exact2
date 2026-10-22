@@ -47,4 +47,8 @@ pub struct DesignSource {
     /// The package whose design this is (LLP 1121 D11), by its
     /// `package.json` name (`@exact/reading`); none for the app's.
     pub package: Option<String>,
+    /// The package's directory, where its `assets/` are (an icon's SVG is
+    /// read under the assets of the root whose file writes it, stage 13); none for
+    /// the app's, whose `assets/` are the app's.
+    pub root: Option<String>,
 }
