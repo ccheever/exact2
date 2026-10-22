@@ -149,6 +149,33 @@ fn grouped_list(file: &File, tag: &str, attrs: &[Attr]) -> bool {
     matches!(crate::grouped::style(tag, &expanded), Ok(Some(_)))
 }
 
+/// Each element of `nodes` by its address, numbered in the order lowering
+/// lowers them (depth first, in order): a style's row is keyed by the element
+/// applying it, and refused once for its first, as the build refuses it.
+fn order(nodes: &[Node], out: &mut std::collections::HashMap<usize, usize>) {
+    for node in nodes {
+        if matches!(node, Node::Element { .. }) {
+            let next = out.len() + 1;
+            out.insert(node as *const Node as usize, next);
+        }
+        match node {
+            Node::Element { children, .. } | Node::Use { children, .. } => order(children, out),
+            Node::When {
+                then, otherwise, ..
+            } => {
+                order(then, out);
+                order(otherwise, out);
+            }
+            Node::Each { body, .. } => order(body, out),
+            Node::Match { some, none, .. } => {
+                order(&some.1, out);
+                order(none, out);
+            }
+            Node::Children { .. } => {}
+        }
+    }
+}
+
 /// The address of `node` and of every node inside it, into `out`.
 fn addresses(node: &Node, out: &mut std::collections::HashSet<usize>) {
     out.insert(node as *const Node as usize);
@@ -279,6 +306,8 @@ impl Said {
         // (`grouped::folds`) holds one text lowering builds anew, at its
         // first arm's place: the chain's rows are left to the build
         // (`left`).
+        let mut lowered = std::collections::HashMap::new();
+        order(&root.view, &mut lowered);
         let mut stack: Vec<(&Node, Around)> =
             root.view.iter().map(|n| (n, Around::default())).collect();
         while let Some((node, around)) = stack.pop() {
@@ -419,7 +448,7 @@ impl Said {
                             fonts,
                             computed,
                             within: within.clone(),
-                            element: Span::default(),
+                            element: 0,
                         });
                     }
                     // A style's rows where an element applies it, as lowering
@@ -427,10 +456,13 @@ impl Said {
                     // a name replace the style's), each judged here with the
                     // element's fonts and typing, keyed by the element too.
                     // Left to the build: a choice of styles, an element whose
-                    // class rows lowering rewrites before judging them (an
-                    // SVG element's, coerced; a box's `transform`; a grouped
-                    // list's rows and sheet; an `audio`'s `display`), and one
-                    // a `for` or `match` binds a name around.
+                    // class rows lowering rewrites or judges otherwise first
+                    // (an SVG element's, coerced; a box's `transform`; a
+                    // grouped list's, or one `grouped::style` refuses, and its
+                    // rows and sheet; a `button`'s, which `button_appearance`
+                    // reads first, a native one refusing rows of its own; an
+                    // `audio`'s `display`), and one a `for` or `match` binds a
+                    // name around.
                     let plain_class = a
                         .iter()
                         .find(|r| r.name == "class")
@@ -442,7 +474,7 @@ impl Said {
                         || tag == "svg"
                         || grouped != Grouped::No
                         || yielding.is_some()
-                        || (tag == "list" && grouped_list(file, tag, a))
+                        || tag == "button"
                         || tag == "audio";
                     let style = |name: &str| {
                         file.styles
@@ -456,7 +488,13 @@ impl Said {
                     };
                     let class = class.filter(|(_, rows)| {
                         let joined: Vec<Attr> = rows.iter().chain(own).cloned().collect();
+                        let plain: Vec<Attr> = rows
+                            .iter()
+                            .chain(a.iter().filter(|a| a.name != "class"))
+                            .cloned()
+                            .collect();
                         matches!(crate::box_transform::lower(tag, in_svg, &joined), Ok(None))
+                            && matches!(crate::grouped::style(tag, &plain), Ok(None))
                     });
                     for r in class
                         .iter()
@@ -485,7 +523,10 @@ impl Said {
                             fonts,
                             computed,
                             within: within.clone(),
-                            element: *span,
+                            element: lowered
+                                .get(&(node as *const Node as usize))
+                                .copied()
+                                .unwrap_or(0),
                         });
                     }
                     let inside = svg || tag == "svg";
