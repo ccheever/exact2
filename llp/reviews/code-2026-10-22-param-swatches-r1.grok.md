@@ -1,0 +1,15 @@
+# Code review: the design tool's colour param swatches and chain words, round 1 of 2 (grok)
+
+- **Family:** xAI. Grok via the grok CLI, reasoning effort xhigh, Edit and Write denied, a throwaway worktree.
+- **Method:** round 1 of 2; HEAD `7b3cf1768c` (shas before the rebase onto main). The author (Claude) is not a reviewer.
+- **Verdict:** nothing blocks; three SHOULD-FIXes and a NIT, taken in the round 1 fix commit.
+
+I'll review the component-panel swatch change at HEAD only: read-only, against the 09:29 conditions, starting with the diff and the grid's column contract.The commit is small and local. Next I’ll check column indexing, stored sides, and how a set param’s values line up with the grid.Nothing blocks. A colour param that follows a token gets one swatch per grid column, in `columnsOf` order, indexed the same way the grid paints cells (`sides[tuple][dark ? 1 : 0]`). The Badge checks for Light, `Dark · dark-style=dim · density=compact`, a set line, and a length all match that path. Three gaps sit beside it.
+
+1. **SHOULD-FIX** `apps/design-tool/components.ts:185` — A set param (and any colour param that names no token) takes `describe`'s `values[tuple]`, one string for the whole tuple. When the two scheme sides differ, that string is `light-dark(light, dark)` (`tamber/src/fold.rs:161`, written by `contract/cli/src/tamber_params.rs:465`). Light and Dark columns of the same tuple both get that string as `background-color` and as their aria-label/title, and the row never sets `color-scheme`, so both chips follow the page. A literal with no `when` really is one colour on both sides (`levelSelf`); a set token or a `light-dark()` value is not. The tuple index itself is right: param `values` are one entry per tuple, not the deduped `entries` list on IR tokens.
+
+2. **SHOULD-FIX** `apps/design-tool/components.ts:185` — For a token whose value is a role, the stored side's `css` is the role name (`-exact-secondary-label` on `text.system`) and the grid paints `srgb`, the fallback (`apps/design-tool/app.ts:674` and `:682`). `lookOf` keeps only `css`, so the swatch's background is the role name and shows no colour. The aria-label does carry that name.
+
+3. **SHOULD-FIX** `apps/design-tool/components.ts:188` — A role is decided with `token.startsWith('-')`, so the override token `-exact-label` (folded value `light-dark(#0f1419ff, #e7e9eaff)`, source `text.primary`, dials empty) is worded `-exact-label → the platform's role`. The value check `/^-exact-/i` does handle `-Exact-Label`, and it sees a role value when `follows` is empty (`text.system` → `start`). The name prefix fires first, and dials in `follows` hide a role sitting in `start`. The new expectation locks the wrong sentence in: `apps/design-tool/app.test.contract:2137`.
+
+4. **NIT** `apps/design-tool/components.ts:189` — Empty `follows` correctly falls through to `start` (`'' || start`). `→ Exact's base` runs when both `follows` and `start` are empty, including a row that is present. An unset base row is in the list with `start` set to its first scale column, so it would be worded with that length. Colour params do not hit those rows.
