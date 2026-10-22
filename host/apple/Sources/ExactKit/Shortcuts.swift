@@ -29,8 +29,15 @@ extension Presenter {
     /// of its action on the assistive contact, which moves no focus, then
     /// its authored `press`, if it has one, as the web's click runs both. A
     /// disabled button takes its key and presses nothing, as on the web.
-    func pressShortcut(_ node: NodeView) {
+    /// An app-wide menu item (the Mac's app menu and Help) presses it under
+    /// a modal dialog too.
+    func pressShortcut(_ node: NodeView, appWide: Bool = false) {
         guard !node.disabled else { return }
+        #if os(macOS)
+        let press = { self.press($0, outsideModal: appWide) }
+        #else
+        let press = { self.press($0) }
+        #endif
         guard node.isSurfaceControl else { return press(node.id) }
         let contact = NodeView.assistiveContact
         if node.control("down", id: contact) { _ = node.control("up", id: contact) }

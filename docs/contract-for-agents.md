@@ -2336,7 +2336,10 @@ in 1970, and one stored is meaningless after a relaunch. Anything stored or sent
 `exactTime` source and add `time.epochAtZero + performanceNow()`. There is no
 `now()`: it is refused (`type-now-renamed`) with those two repairs. Its fields, which a shape declares as it reads them:
 `epochAtZero` (Unix milliseconds when `performanceNow()` read zero), `utcOffset` (minutes east
-of UTC), `locale` (BCP 47), `timeZone` (IANA), `resolvedLocale` (the language of
+of UTC), `locale` (BCP 47, the first preferred language), `formatLocale` (BCP 47, the
+regional format the platform's own formatters use: macOS and iOS's Region, so English
+with a Korean region is `en-US` and `en-KR`; `locale` where a host keeps none apart),
+`timeZone` (IANA), `resolvedLocale` (the language of
 the string table the app shows, `""` with no tables) and `seed` (a whole number
 below 2^32, drawn once per launch, so `%` and `>>> 0` take all of it; mix a round
 into it in 32-bit steps, as the [random recipe](recipes/random-and-shuffle.md) does). A read does not itself schedule a future render, and a
@@ -2420,7 +2423,8 @@ does (open the conversation). iOS presents UIKit's context menu, with the row
 lifting and the preview popping into the screen its press pushes; macOS an
 `NSMenu` without the preview; the web and the agent open the popover anchored to
 the node. The node's own `contextmenu` action runs first, so one popover can
-serve every row of a list. The agent opens it with `tap <node> contextmenu`
+serve every row of a list. A node inside an open popover opens its menu over
+that popover, which stays open, as HTML nests them. The agent opens it with `tap <node> contextmenu`
 ([LLP 1021](../llp/1021-menus.rfc.md) §5.1).
 
 #### A confirmation
@@ -2517,18 +2521,26 @@ runs it); and draw the web's `›` as an `aria-hidden` text, since the native
 menus draw their own arrow ([LLP 1021](../llp/1021-menus.rfc.md) §5.2).
 
 For the Mac menu bar, put `-exact-menu="app"` on an ordinary button to add
-an item without a shortcut. Literal destinations are `app`, `file`, `edit`,
-`view`, `go`, `window`, `help`; explicit placement overrides the usual
-`aria-keyshortcuts` chord filing. Its accessible label or text titles it,
-and `disabled` disables it. Keep the button reachable: the agent taps it,
+an item without a shortcut. Literal destinations are `about` (directly under
+About, where Check for Updates… goes), `app`, `file`, `edit`, `view`, `go`,
+`window`, `help`, and `none` (no item: the chord stays a shortcut);
+explicit placement overrides the usual `aria-keyshortcuts` chord filing. Its
+accessible label or text titles it, and `disabled` disables it. An item in the
+app menu or Help is the app's, so it stays enabled while no window is key and
+under a sheet or a Contract modal dialog. Keep the button reachable: the agent taps it,
 and other hosts show that ordinary button, with no application menu.
 On the root, `-exact-menu-remove="show-tab-bar autofill close-all"` removes
 selected standard items. Its whitespace-separated list must be literal; unknown
 ids and non-root use are refused. The fixed ids are `close-all`, `autofill`, `show-tab-bar`, `show-all-tabs`, `enter-full-screen`,
 `minimize`, `zoom`, `bring-all-to-front`, `show-previous-tab`, `show-next-tab`,
-`move-tab-to-new-window`, `merge-all-windows`.
-Other standard items and the development Develop menu remain; other hosts
-ignore removal. See the grammar’s “The Mac’s menu bar”.
+`move-tab-to-new-window`, `merge-all-windows`, `back` (Go ▸ Back), `develop` (the
+Develop menu; its chords stay), `paste-and-match-style`, `find`,
+`spelling-and-grammar`, `substitutions`, `transformations`, `app-help` (Help ▸
+*App* Help), `actual-size`, `zoom-in`, `zoom-out`.
+Other standard items remain; other hosts ignore removal. View has Actual Size
+⌘0, Zoom In ⌘+ and Zoom Out ⌘-, which scale the root font size, the app's
+`setRootFontSize` included, and leave `px` as it is. See the grammar’s “The
+Mac’s menu bar”.
 
 
 `frame(id)` and `measure("literal-id")` are action-only geometry reads returning
@@ -2661,7 +2673,8 @@ stored size again. Do not multiply a scale factor into every size instead.
 Platform facts are reserved sources (`exactViewport`, `exactPage`, `exactDelivery`,
 `exactSurface`, `exactTime`); the bake refuses a declared field the source does
 not have. `exactViewport().displayMode` is a string: the current CSS display
-mode on the web, `fullscreen` or `standalone` on macOS, `standalone` on other
+mode on the web, `fullscreen`, `window-controls-overlay` (the tall title row
+`display_override` asks for) or `standalone` on macOS, `standalone` on other
 native hosts. Declare it on the resource's shape; `state.device.displayMode`
 reports it too. `prefer display-mode fullscreen` substitutes it on Apple;
 browser drivers refuse that override, so test real fullscreen transitions. This reads the window, not a fullscreen navigation route.
@@ -3217,6 +3230,15 @@ CSS overflow accepts `visible`, `hidden`, `clip`, `scroll`, and `auto`.
 permits scrolling, with indicators shown only when content overflows. A visible
 axis beside hidden/scroll/auto computes to auto, as on the web.
 
+`filter` on a box or an `image` takes CSS's functions in order (`blur`,
+`brightness`, `contrast`, `drop-shadow`, `grayscale`, `hue-rotate`, `invert`,
+`opacity`, `saturate`, `sepia`): `image "logo.png" filter="brightness(0.6)"`
+dims a logo. The element and its content are drawn, then filtered (Filter
+Effects 1 §12); the web, macOS and iOS draw it, and Linux draws it unfiltered
+for now (SVG Gallery's `fx-box-filter` and `fx-image-filter`). `url(#id)`
+naming an SVG `filter` works on SVG elements everywhere, but on a box or an
+image only on the web: Apple does not take it there yet (LLP 1055.000 §0).
+
 `backdrop-filter="blur(8px) saturate(1.14)"` filters content behind a box;
 the two functions may appear in either order. On macOS it samples only the
 parent's subtree: the parent's own paint and earlier siblings. Content behind
@@ -3253,8 +3275,9 @@ pads with them stays under the status bar
 ([pitfall](agent-pitfalls.md#native-presentation-and-navigation-ios)).
 Sizes, padding and radii clamp negative results to zero; margins and insets keep
 them. `env(titlebar-area-x|y|width|height)` is the title bar beside a Mac window's
-traffic lights under `viewport-fit="cover"` and is undefined elsewhere, so give it a
-fallback (`contract vocab titlebar-area`). Unsupported: `rem`/`em`, a unitless number where a length goes
+traffic lights under `viewport-fit="cover"` (in the tall title row an app without routes
+gets from `"display_override": ["window-controls-overlay"]` in `app.json`) and is undefined
+elsewhere, so give it a fallback (`contract vocab titlebar-area`). Unsupported: `rem`/`em`, a unitless number where a length goes
 (write `0px`, not `0`), `var()`, more than 32 values or 32 levels (LLP 1001 §2,
 "Comparisons").
 
@@ -3752,7 +3775,14 @@ role or a base name, or compute over one (`color-mix`, `light-dark`,
 `textarea`, `select`, `progress`, a native `button`) with what its platform
 needs (`checked` and `aria-label` or `aria-labelledby`, a range's
 `min`/`max`, …;
-`lower-library-control`); and nothing in the package reads the host it runs
+`lower-library-control`); each of its buttons (a `button`, or a node of
+`role="button"`) is named, by `aria-label`, `aria-labelledby` or a text of
+its own, and one whose look reads a state prop (a bool named `selected`,
+`current`, `pressed`, `checked`, `on`, `active` or `expanded`, in a `?:`,
+`match` or class) says it aloud through `aria-selected`, `aria-pressed`,
+`aria-current`, `aria-checked` or `aria-expanded`, or a label that reads it
+(also `lower-library-control`; any other bool, a size or an ink, is
+presentation); and nothing in the package reads the host it runs
 on (`exactDelivery`, `exactSurface`, `exactViewport().displayMode` read
 from the viewport wherever the package passes it: an alias, a `provide`, a
 `fn`; a prop's `displayMode` is the app's data; `lower-library-platform`). Not checked yet: an injected value whose
@@ -3761,7 +3791,14 @@ for them). Its names are its API: an app line or a Contract row naming a
 name under its namespace that it doesn't define, or a param line naming one
 it lacks, fails the build (`tamber-package-unknown`; the nine base names are
 no package's), and its params are named in full, a short name that names
-none too (`tamber-param-short-library`).
+none too (`tamber-param-short-library`). The in-repo `@exact/actions`'
+`BarItem` and `HeaderButton` are for an app's own authored bar and header (a
+design's, as Bluesky's are); the platform's `tabs` and `header` routes stay
+the platform's, and no library component wraps them. A `BarItem` says its
+selection as the bar's current item (`aria-current="page"`, iOS's selected
+trait) and takes no long press itself: an item held for more puts
+`contextmenu` on its slot fill (Bluesky's Profile avatar), so the press lands
+on the fill rather than the whole column.
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
 `contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust|swift|kotlin .` writes bindings into

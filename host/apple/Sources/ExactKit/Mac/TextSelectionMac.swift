@@ -113,19 +113,28 @@ package final class TextSelection {
     /// much as a paragraph (`refreshVisibleText`, X82).
     var shownParagraphs: [NodeView] {
         if let shown { return shown }
-        guard let presenter else { return [] }
         var result: [NodeView] = []
-        let tops: [NSView] = [presenter.root] + presenter.dialogs.presented + presenter.menus.presented
         for top in tops { texts(in: top) { result.append($0) } }
         shown = result
         return result
     }
 
+    /// The views the session's page is shown in: the root, then each subtree
+    /// the host moved out of it into a container of its own (a split's
+    /// detail pane, a sheet, a popover), then the dialogs and popovers
+    /// presented. A walk of the root alone misses a pane's text, which the
+    /// pump then never paints again: a rasterized heading there kept the
+    /// ink of the appearance it was first painted in.
+    private var tops: [NSView] {
+        guard let presenter else { return [] }
+        let presented = presenter.dialogs.presented + presenter.menus.presented
+        let moved = presenter.blocks.shown.filter { node in !presented.contains { $0 === node } }
+        return [presenter.root] + moved + presented
+    }
+
     var paragraphs: [NodeView] {
         if let ordered { return ordered.filter(selectable) }
-        guard let presenter else { return [] }
         var result: [NodeView] = []
-        let tops: [NSView] = [presenter.root] + presenter.dialogs.presented + presenter.menus.presented
         // Which text is hidden or inert is asked each time: `inert` changes
         // with a prop or a dialog, which leave this order as it is.
         for top in tops { texts(in: top) { if $0.textSelectable || $0.inlineText.contains(where: \.selectsAll) { result.append($0) } } }

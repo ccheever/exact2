@@ -81,6 +81,10 @@ final class SegmentsTests: XCTestCase {
         let book = Segments.split(viewport: CGSize(width: 951, height: 669), dividers: [CGRect(x: 455.5, y: 0, width: 40, height: 669)])
         XCTAssertEqual(book.ending(at: CGSize(width: 951, height: 405)).rects.map(\.height), [405, 405])
         XCTAssertEqual(ViewportFold.flat.ending(at: CGSize(width: 100, height: 50)), .flat)
+        // `resizes-visual`, as Chrome: only the last row ends at the visual viewport, so a number pad's
+        // top above the band leaves the upper segment whole and the lower 0 tall.
+        XCTAssertEqual(laptop.ending(at: CGSize(width: 669, height: 411.67), lastRow: true).rects.map(\.height), [455.5, 0])
+        XCTAssertEqual(book.ending(at: CGSize(width: 951, height: 405), lastRow: true).rects.map(\.height), [405, 405])
     }
 
     func testTheEvenSplitCentresTheGapAndRefusesByName() throws {

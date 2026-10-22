@@ -313,6 +313,16 @@ final class BackMacTests: XCTestCase {
         p.apply(wireBatch([["op": "props", "id": 20, "set": [:], "clear": ["accessibilityKeyShortcuts"]]]))
         XCTAssertFalse(back.isHidden)
         XCTAssertEqual(back.keyEquivalent, "[")
+        // `-exact-menu-remove="back"` takes Back and its ⌘[ (LLP 1021 §5.3.1), and Go with it.
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["menuRemove": "back"]]]))
+        XCTAssertTrue(p.navigation.canGoBack)
+        XCTAssertTrue(back.isHidden)
+        XCTAssertTrue(item.isHidden)
+        XCTAssertFalse(bar.performKeyEquivalent(with: NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: "[", charactersIgnoringModifiers: "[", isARepeat: false, keyCode: 33)!))
+        p.apply(wireBatch([["op": "props", "id": 1, "set": [:], "clear": ["menuRemove"]]]))
+        XCTAssertFalse(back.isHidden)
+        XCTAssertFalse(item.isHidden)
         // No navigation root: no Back, and so no Go menu.
         p.apply(wireBatch([["op": "props", "id": 1, "set": [:], "clear": ["navigationBack"]]]))
         XCTAssertTrue(back.isHidden)

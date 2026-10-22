@@ -10,11 +10,11 @@ import type { Answer, Result, Sources } from './app.contract.d.ts';
 import { buildKey, placeOf, schemeOf, selectionView, staleness, visitOf, type Selected } from './inspector';
 // The panel's controls and the grid's cells by kind.
 import { cellText, colourLiteral, panelOf, sides } from './dials';
-import { componentsOf, levelsOf } from './components';
+import { componentsOf, levelsOf, lookOf } from './components';
 import { baseColumns, groupOf, shippedOf, sourceOf, writable } from './base';
 import { pageOf } from './origins';
 import { pairingSources } from './pairing';
-import { gridSources } from './grid'; import { refusalOf, refusalRows, refuse, restoreRefusals, takeRefusals } from './refusals';
+import { gridSources } from './grid'; import { canvasRefusal } from './canvas-check'; import { refusalOf, refusalRows, refuse, restoreRefusals, takeRefusals } from './refusals';
 import { GONE, wire, type Reply } from './wire';
 import { heldEvent, holdingOf, holdNote, letGo, type Holding } from './holds';
 import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
@@ -632,7 +632,7 @@ async function rescopeFor(file: string, op: Record<string, unknown>, token: stri
 
 const sources: Sources = {
   ...pairingSources(call, pairWith, remote),
-  ...gridSources(call, () => buildsNow, () => selectionNow, () => designAxes),
+  ...gridSources(call, () => buildsNow, () => selectionNow, () => designAxes), loadCanvasCheck: () => canvasRefusal(API),
   loadHello: async () => {
     const { error, reply } = await call('/__tamber', { method: 'hello' });
     if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [], page: '', frame: '', live: false, scope: '', local: false, client: '', epoch: '' };
@@ -742,7 +742,7 @@ const sources: Sources = {
         names: [...names],
         icons: (ir.icons ?? []).map((i: { name: string; sf: string | null; material: string | null; svg: string | null }) => ({ name: i.name, sf: i.sf ?? '', material: i.material ?? '', svg: i.svg ?? '' })),
         // A param's line is the app design's: the panel only while that is open.
-        components: file && file !== designFile ? [] : componentsOf(ir.components, designFile, names, new Set(Object.keys(read.files ?? {})), (v => { const t = tokenOfIn(ir)(v); return t ?? (names.has(v.trim()) ? v.trim() : null); }), new Map(ir.tokens.filter((t: { package?: string | null }) => t.package).map((t: { name: string; package: string }) => [t.name, t.package])), new Set([...baseRows.values()].filter((r: { name: string; override?: unknown }) => !r.override && !ir.tokens.some((t: { name: string }) => t.name === r.name)).map((r: { name: string }) => String(r.name)))),
+        components: file && file !== designFile ? [] : componentsOf(ir.components, designFile, names, new Set(Object.keys(read.files ?? {})), (v => { const t = tokenOfIn(ir)(v); return t ?? (names.has(v.trim()) ? v.trim() : null); }), new Map(ir.tokens.filter((t: { package?: string | null }) => t.package).map((t: { name: string; package: string }) => [t.name, t.package])), new Set([...baseRows.values()].filter((r: { name: string; override?: unknown }) => !r.override && !ir.tokens.some((t: { name: string }) => t.name === r.name)).map((r: { name: string }) => String(r.name))), lookOf(columns, stored, tokens)),
       };
     } catch (e) {
       if ((e as { code?: string }).code === 'bake') throw e;
@@ -1013,7 +1013,7 @@ const sources: Sources = {
     if (client !== polled) { polled = client; inspectOn.clear(); resync = true; }
     const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch, client, ...(heldAt.epoch === epoch ? { held: heldAt.revision } : {}) } : { after: 0, wait: false, client }, 40000);
     answers += 1;
-    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, clients: `${clientMoves}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows(), ...refusalRows(buildsNow.values()) });
+    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, committable: `${session} ${fileChanges} ${commitsTold}`, clients: `${clientMoves}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows(), ...refusalRows(buildsNow.values()) });
     if (error) return { ok: false, error, missed: false, ...state() };
     if (gen !== polls) return { ok: true, error: '', missed: false, ...state() };
     const r = reply as { events?: unknown[]; seq?: number; epoch?: string; missed?: boolean; held?: number; proposals?: any[] };
@@ -1204,11 +1204,11 @@ const sources: Sources = {
     };
   },
   loadScope: async ([client]) => {
-    // What a commit would take now (a dry run, of the run the poll is on),
-    // so Commit is on when there is something, writes from before the tool
-    // opened among them, a refusal to say, or no answer (it says why when
-    // pressed). Read again with each poll answer (while a scrub is open,
-    // only when the files move or a commit is told).
+    // What a commit would take now (a dry run, of the run the poll is on), so Commit is on when there is something,
+    // writes from before the tool opened among them, a refusal to say, or no answer (it says why when pressed).
+    // Read again only when the files move, a commit is told or the server starts again; never for no one
+    // (`design-tool:`, before the name).
+    if (!client || client === 'design-tool:') return { open: 0, refused: false, unavailable: false };
     const dry = await call('/__tamber', { method: 'commit', client, dry: true }, 15000, heldToken || undefined);
     const refused = ((dry.reply.error as { refused?: unknown[] } | undefined)?.refused ?? []).length;
     const nothing = /nothing to commit|written nothing/.test(dry.error);

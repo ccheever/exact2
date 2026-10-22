@@ -391,7 +391,14 @@ final class MenuHost: NSObject {
                 presenter.session?.log("context menu \(name) refused: no popover has that id")
                 return
             }
-            while let last = self.entries.last { self.close(last.popover, restoreFocus: false) }
+            // A source in an open popover nests its menu there, as HTML's
+            // popover stack nests one shown with that source: the popovers
+            // holding it stay open, every auto popover above them closes,
+            // and a manual one stays.
+            let holder = self.entries.lastIndex { $0.value != "manual" && self.contains($0.popover, source) }
+            for entry in self.entries[(holder.map { $0 + 1 } ?? 0)...].reversed() where entry.value != "manual" {
+                self.close(entry.popover, restoreFocus: false)
+            }
             if ExactEnv.agentMode { self.show(pop, from: source, run: run, contextMenu: true); return }
             // A new presentation only if it has an item: it retires picks of the last.
             guard pop.container.subviews.contains(where: { ($0 as? NodeView).map { $0.isButton && $0.props["contextPreview"] != "true" } ?? false }) else { return }
@@ -657,25 +664,8 @@ final class MenuHost: NSObject {
         }
     }
 
-    func isMenuShaped(_ pop: NodeView) -> Bool {
-        // A popover inside the menu (a submenu authored in its parent) is no
-        // row of it: closed, it is `display: none` on the web.
-        let rows = pop.container.subviews.compactMap { $0 as? NodeView }
-            .filter { $0.props["contextPreview"] != "true" && $0.props["popover"] == nil }
-        func textOnly(_ node: NodeView) -> Bool {
-            node.kind == "text" && node.container.subviews.compactMap { $0 as? NodeView }.allSatisfy(textOnly)
-        }
-        return !rows.isEmpty && rows.allSatisfy { row in
-            if row.props["semanticTag"] == "hr" { return true }
-            guard row.isButton else { return false }
-            if row.isNativeButton { return true }
-            if let face = row.face, face.fits, !face.raster { return true }
-            // Text, and at most one image: the item's title and its image.
-            let content = row.container.subviews.compactMap { $0 as? NodeView }
-            let images = content.filter { $0.kind == "image" && $0.container.subviews.isEmpty }
-            return images.count <= 1 && content.allSatisfy { textOnly($0) || images.contains($0) }
-        }
-    }
+    /// Whether `pop` is menu-shaped (`NodeView.menuShaped`, LLP 1021 D3).
+    func isMenuShaped(_ pop: NodeView) -> Bool { pop.menuShaped }
     /// LLP 1021 §5, "Submenus": the popover `row` opens as a submenu, a
     /// menu-shaped one (D3) it shows or toggles (`Invocation`),
     /// not a confirmation, and not already on `path` (the popovers from the

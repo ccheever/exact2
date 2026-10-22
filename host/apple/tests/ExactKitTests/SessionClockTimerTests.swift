@@ -43,6 +43,11 @@ final class SessionClockTimerTests: XCTestCase {
         for _ in 0..<64 { XCTAssertLessThan(LaunchPlace(environment: [:]).seed, 1 << 32) }
         XCTAssertEqual(LaunchPlace(environment: ["EXACT_AGENT": "1", "EXACT_AGENT_SEED": "4294967296"]).seed, 1)
         XCTAssertEqual(custom.epoch, 1_790_000_000_000)
+        // The Region's format: the agent's own, else none (the runner answers
+        // the locale); off the agent, `Locale.current`.
+        XCTAssertEqual(defaults.formatLocale, "")
+        XCTAssertEqual(LaunchPlace(environment: ["EXACT_AGENT": "1", "EXACT_AGENT_FORMAT_LOCALE": "en-KR"]).formatLocale, "en-KR")
+        XCTAssertEqual(LaunchPlace(environment: [:]).formatLocale, Locale.current.identifier(.bcp47))
         let session = ExactApp.shared.makeSession()
         defer { session.destroy() }
         let launch = session.launchPlace

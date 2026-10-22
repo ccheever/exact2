@@ -99,7 +99,7 @@ import { openRemote, pluginOnLoopback, remoteArgs } from './tamber-remote.mjs';
 import { planAlone, stopImports } from './tamber-isolate.mjs';
 import { designPath, manifestTamber } from './tamber-design-path.mjs'; export { designPath };
 import { importReview, marked } from './tamber-import-review.mjs'; export { importTheme } from './tamber-import-review.mjs';
-import { canvasGateway } from './tamber-canvas.mjs';
+import { canvasGateway } from './tamber-canvas.mjs'; import { answerCanvasCheck, canvasCheck, canvasLine } from './tamber-frame.mjs';
 import { packageDesigns } from './tamber-package-designs.mjs';
 import { serveTool } from './tamber-tool-files.mjs';
 export { serveTool, serveToolFiles } from './tamber-tool-files.mjs';
@@ -1372,7 +1372,7 @@ export async function toolCommand(argv) {
     try { same = upstream?.app != null && realpathSync(upstream.app) === realpathSync(dir); } catch { /* gone */ }
     if (!same) { console.error(`tamber tool: ${target} ${upstream ? `serves ${upstream.app ? `the design of ${upstream.app}` : 'no design server'}` : 'does not answer'}, not ${dir}'s`); return 1; }
     if (!(await listenOn(port, () => listen({ host: '127.0.0.1', port, handle: (req, res, url, access) => forward(req, res, url, access, target), stop: async () => {} })))) return 1;
-    console.log(`${url}\n  (the design tool, through the dev loop at ${target}; ctrl-c to stop)`);
+    console.log(`${url}\n  (the design tool, through the dev loop at ${target}; ctrl-c to stop)`); tellCanvas(await canvasCheck(target, TOOL_ORIGIN));
   } else {
     // The design server up (or refused) before the port is taken, so a
     // refusal leaves nothing listening.
@@ -1396,6 +1396,8 @@ export async function toolCommand(argv) {
   await new Promise(() => {});
 }
 
+// Whether the loop's page lets this tool frame it, said on the terminal once each time it starts refusing (tamber-frame.mjs).
+let canvasSaid = ''; const tellCanvas = check => { const { line, said } = canvasLine(check, TOOL_ORIGIN, canvasSaid); canvasSaid = said; if (line) console.error(line); };
 /** `listening()`, false and said when the tool's port is another's. */
 async function listenOn(port, listening) {
   try { await listening(); return true; } catch (e) {
@@ -1416,6 +1418,7 @@ async function listenOn(port, listening) {
  * the dev loop at `target` as it came (the token only to a local request,
  * which the loop judges again by this request from loopback). */
 export async function forward(req, res, url, access, target) {
+  if (url.pathname === '/__tamber/tool/canvas-check') { await answerCanvasCheck(req, res, access, target, TOOL_ORIGIN, tellCanvas); return true; }
   if (url.pathname === '/__tamber/tool' || url.pathname.startsWith('/__tamber/tool/')) { serveTool(req, res, url, access); return true; }
   if (url.pathname !== '/__tamber' && !url.pathname.startsWith('/__tamber/')) return false;
   if (!access.local) { notFound(res); return true; }
