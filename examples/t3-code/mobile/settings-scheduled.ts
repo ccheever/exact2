@@ -123,7 +123,7 @@ export function mobileScheduledEditor() {
   const options = descriptors.map(descriptor => { const value = resolvedCurrent(descriptor, arr(selection.options)); return { id:str(descriptor.id),label:str(descriptor.label),boolean:descriptor.type==='boolean',on:value===true,
     choices:arr(descriptor.options).filter(option => option.id !== 'ultracode' && !(Array.isArray(descriptor.promptInjectedValues)&&descriptor.promptInjectedValues.includes(option.id ?? null))).map(option=>({id:str(option.id),label:str(option.label),selected:option.id===value})) }; });
   const provider = arr(config.providers).find(provider => provider.instanceId === selection.instanceId), supported = provider?.supportedRuntimeModes;
-  return { present:!!state, id:state?.id??0, title:draft?.task?'Edit scheduled task':'New scheduled task', error:state?.error??'', busy:state?.busy??false, saved:state?.saved??false,
+  return { present:!!state, id:state?.id??0, title:draft?.task?'Edit scheduled task':'New scheduled task', error:state?.error??'', busy:state?.busy??false, saving:state?.busy??false, saved:state?.saved??false,
     dirty:!!state&&state.initial!==JSON.stringify([state.environmentId,mobileTaskSignature(state.draft)]), canSave:!!state&&state.canOperate&&state.connected&&!state.missing&&!state.busy&&!state.saved,
     connected:state?.connected??false, missing:state?.missing??false, taskId:str(draft?.task?.id), environmentId:state?.environmentId??'', environmentLabel:state?.label??'', editing:!!draft?.task,
     name:draft?.title??'',prompt:draft?.prompt??'',projectId:draft?.projectId??'',modelLabel:current?.label||str(selection.model)||'Choose model',
