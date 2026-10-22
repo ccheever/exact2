@@ -100,26 +100,29 @@ final class TextDecorationMacTests: XCTestCase {
             if hidden { a[.exactHidden] = true }
             return NSAttributedString(string: text, attributes: a)
         }
-        let string = NSMutableAttributedString(attributedString: part("MMMM", ink: .blue, hidden: true))
-        string.append(part("WWWW", ink: .black, hidden: false))
-        let line = CTLineCreateWithAttributedString(string)
-        let hiddenWidth = CTLineGetOffsetForStringIndex(line, 4, nil)
-        let (w, h) = (400, 60)
-        let ctx = try XCTUnwrap(CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
-                                          space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-        ctx.translateBy(x: 0, y: 15)
-        XCTAssertTrue(TextLinePaint.drawShadowed(line, in: ctx, scale: 1))
-        let px = try XCTUnwrap(ctx.data).assumingMemoryBound(to: UInt8.self)
-        var struck = 0, blue = 0, struckLeft = 0
-        for y in 0..<h { for x in 0..<w {
-            let i = (y * w + x) * 4
-            guard px[i + 3] > 200 else { continue }
-            if px[i] > 200, px[i + 1] < 80, px[i + 2] < 80 { struck += 1; if CGFloat(x) < hiddenWidth - 2 { struckLeft += 1 } }
-            if px[i + 2] > 200, px[i] < 80 { blue += 1 }
-        } }
-        XCTAssertGreaterThan(struck, 40, "the shown text keeps its line-through")
-        XCTAssertEqual(struckLeft, 0, "the hidden text has no line")
-        XCTAssertEqual(blue, 0, "the hidden text has no glyphs")
+        for shadowed in [false, true] {
+            let string = NSMutableAttributedString(attributedString: part("MMMM", ink: .blue, hidden: true))
+            string.append(part("WWWW", ink: .black, hidden: false))
+            if shadowed { string.addAttribute(.exactShadow, value: TextRunShadow([0, 2, 1, 0, 0, 0, 128]), range: NSRange(location: 4, length: 4)) }
+            let line = CTLineCreateWithAttributedString(string)
+            let hiddenWidth = CTLineGetOffsetForStringIndex(line, 4, nil)
+            let (w, h) = (400, 60)
+            let ctx = try XCTUnwrap(CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                              space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            ctx.translateBy(x: 0, y: 15)
+            XCTAssertTrue(TextLinePaint.drawShadowed(line, in: ctx, scale: 1))
+            let px = try XCTUnwrap(ctx.data).assumingMemoryBound(to: UInt8.self)
+            var struck = 0, blue = 0, struckLeft = 0
+            for y in 0..<h { for x in 0..<w {
+                let i = (y * w + x) * 4
+                guard px[i + 3] > 200 else { continue }
+                if px[i] > 200, px[i + 1] < 80, px[i + 2] < 80 { struck += 1; if CGFloat(x) < hiddenWidth - 2 { struckLeft += 1 } }
+                if px[i + 2] > 200, px[i] < 80 { blue += 1 }
+            } }
+            XCTAssertGreaterThan(struck, 40, "the shown text keeps its line-through")
+            XCTAssertEqual(struckLeft, 0, "the hidden text has no line")
+            XCTAssertEqual(blue, 0, "the hidden text has no glyphs")
+        }
     }
 }
 #endif
