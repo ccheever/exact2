@@ -377,7 +377,6 @@ extension Agent {
         guard let id = req["id"] as? Int else { return reply }
         // A flat leaf (FlatLeavesIOS) is a layer in the view it is drawn in: answered as one, its own id kept.
         let leaf = presenter.textHost(UInt32(id)) == nil ? presenter.flats.leaves[UInt32(id)] : nil
-        guard presenter.textHost(UInt32(id)) != nil || leaf != nil else { return ["error": "stale node #\(id)"] }
         let includePlan = req["plan"] as? Bool == true
         guard let d = session.agent("{\"op\":\"node\",\"id\":\(id),\"plan\":\(includePlan)}").data(using: .utf8),
               var node = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return ["error": "node #\(id): unreadable"] }
@@ -393,7 +392,10 @@ extension Agent {
             reply["node"] = node
             return reply
         }
-        guard let v = presenter.textHost(UInt32(id)) else { return ["error": "stale node #\(id)"] }
+        // A live node with no view of its own (a native button's face draws
+        // its svg): the runner's rows, and that nothing was mounted for it.
+        // A stale id the runner refuses, above.
+        guard let v = presenter.textHost(UInt32(id)) else { return Self.unmounted(node, into: reply, now: session.now()) }
         if presenter.menus.ownsConfirmationNode(v) {
             node["space"] = ["unavailable": "UIAlertAction exposes no public action geometry"]
             node["native"] = ["presentation": "confirmation"]
