@@ -75,7 +75,10 @@ fn propagated(kernel: &Kernel, leaf: &exact_kernel::NodeRef<'_>, owner: ViewId, 
     /// The box `id` stands in, unless `id` is out of flow or atomic.
     fn beyond(kernel: &Kernel, id: ViewId) -> Option<ViewId> {
         let node = kernel.node(id)?;
-        let out_of_flow = node.style.position_type == PositionType::Absolute;
+        // A popover is out of flow too (the kernel's top layer), unless sticky.
+        let out_of_flow = node.style.position_type == PositionType::Absolute
+            || (node.props.str(exact_kernel::PropId::Popover).is_some()
+                && node.style.position_type != PositionType::Sticky);
         let atomic = matches!(node.node_type, NodeType::Pressable | NodeType::Control);
         (!out_of_flow && !atomic).then_some(node.parent).flatten()
     }
