@@ -396,6 +396,28 @@ for (const provider of ['github', 'gitlab', 'bitbucket', 'azure-devops'] as cons
   });
 }
 
+test('a failed viewed-files write still tells the readers: the batch may have applied some paths', async () => {
+  const reference = { projectId: 'project-1', host: 'github.com', repository: 'acme/web', number: 7 };
+  const invalidated: string[] = [];
+  const clientFor = (environment: string): Record<string, Handler> => ({
+    'pullRequests.routing': () => ({ host: reference.host, provider: 'github', accountId: '123', viewer: 'maria-rcks' }),
+    'pullRequests.routingIdentity': () => ({ host: reference.host, provider: 'github', accountId: '123', viewer: 'maria-rcks' }),
+    'pullRequests.filesViewed': () => ({ files: [], truncated: false }),
+    'pullRequests.setFilesViewed': () => { throw new Error('GraphQL: 1 of 2 paths failed'); },
+    'pullRequests.runAction': () => { throw new Error('merge refused'); },
+    'pullRequests.invalidate': () => { invalidated.push(environment); return {}; },
+  });
+  const host = new FakeHost({ [ORIGIN]: clientFor('origin'), [LOCAL]: clientFor('local') });
+  const route = new PullRequestRouter();
+  await route.request(host, 'pullRequests.filesViewed', reference, false);
+  await expect(route.request(host, 'pullRequests.setFilesViewed', { ...reference, files: [{ path: 'a.ts', viewed: true }] }, true)).rejects.toThrow('1 of 2 paths failed');
+  expect(invalidated.length).toBeGreaterThan(0);
+  // Any other failed write changed nothing, so nobody is told.
+  invalidated.length = 0;
+  await expect(route.request(host, 'pullRequests.runAction', { ...reference, action: 'merge' }, true)).rejects.toThrow('merge refused');
+  expect(invalidated).toEqual([]);
+});
+
 // The clone's Viewed flush sends the write detached (its reply comes back in a later
 // answer), so `dispatch` routes it as `request` does and `afterWrite` is the invalidations after the host accepted it.
 describe('a routed write sent detached (dispatch, afterWrite)', () => {

@@ -18,14 +18,14 @@ describe('composer placeholder and phase', () => {
     const base = { connected: true, approval: false, question: false, choiceOnly: false, projectRequired: false, providerUnavailable: false, phase: 'ready' };
     expect(composerPlaceholder(base)).toBe('Ask anything, @tag files/folders, $use skills, or / for commands');
     expect(composerPlaceholder({ ...base, phase: 'disconnected' })).toBe('Ask for changes, send follow-ups, or attach images');
-    expect(composerPlaceholder({ ...base, approval: true })).toBe('Resolve this approval request to continue');
+    expect(composerPlaceholder({ ...base, approval: true })).toBe('Send a message to decline and redirect the agent');
     expect(composerPlaceholder({ ...base, question: true, choiceOnly: true })).toBe('Choose an option above');
     expect(composerPlaceholder({ ...base, question: true })).toBe('Type your own answer, or leave this blank to use the selected option');
     expect(composerPlaceholder({ ...base, projectRequired: true })).toBe('Choose a project above to start a thread');
     expect(composerPlaceholder({ ...base, providerUnavailable: true })).toBe('Enable a provider in Settings to send a message');
     expect(composerPlaceholder({ ...base, connected: false })).toBe('Connect to your T3 server to send a message');
     // A pending request keeps its own prompt while the server is unreachable.
-    expect(composerPlaceholder({ ...base, connected: false, approval: true })).toBe('Resolve this approval request to continue');
+    expect(composerPlaceholder({ ...base, connected: false, approval: true })).toBe('Send a message to decline and redirect the agent');
     expect(composerPlaceholder({ ...base, connected: false, question: true, choiceOnly: true })).toBe('Choose an option above');
     expect(composerPlaceholder({ ...base, planReady: true })).toBe('Add feedback to refine the plan, or leave this blank to implement it');
   });
@@ -114,6 +114,23 @@ describe('model picker catalog', () => {
     expect(catalog.models[2]!.label).toBe('1 models');
     expect(catalog).toMatchObject({ count: 4, legacyCount: 1 });
     expect(catalog.models[1]!.isNew).toBe(true);
+  });
+  test('a favorited legacy model rises with the favorites; unfavorited, it returns to the collapsed Legacy section', () => {
+    const legacyClient = (active: string) => client({ providerId: 'codex', modelId: active, config: { providers: [provider('codex', [{ slug: 'current', name: 'Current model' },
+      { slug: 'legacy-favorite', name: 'Legacy favorite', isLegacy: true }, { slug: 'current-favorite', name: 'Current favorite' }, { slug: 'other-legacy', name: 'Other legacy', isLegacy: true }])] } });
+    const c = legacyClient('current');
+    c.local.favoriteModels = [JSON.stringify(['codex', 'current-favorite']), JSON.stringify(['codex', 'legacy-favorite'])];
+    const rows = (catalog: ReturnType<typeof pickerCatalog>) => catalog.models.map(row => [row.kind, row.name]);
+    expect(rows(pickerCatalog(c, 'codex', '', badge))).toEqual([['model', 'Legacy favorite'], ['model', 'Current favorite'], ['model', 'Current model'],
+      ['legacy', 'Legacy models'], ['legacy-model', 'Other legacy']]);
+    c.local.favoriteModels = [JSON.stringify(['codex', 'current-favorite'])];
+    expect(rows(pickerCatalog(c, 'codex', '', badge))).toEqual([['model', 'Current favorite'], ['model', 'Current model'],
+      ['legacy', 'Legacy models'], ['legacy-model', 'Legacy favorite'], ['legacy-model', 'Other legacy']]);
+    // The active model's Legacy section opens expanded only when that model is not a favorite.
+    const favorite = legacyClient('legacy-favorite');
+    favorite.local.favoriteModels = [JSON.stringify(['codex', 'legacy-favorite'])];
+    expect(pickerCatalog(favorite, 'codex', '', badge).legacyDefault).toBe(false);
+    expect(pickerCatalog(legacyClient('other-legacy'), 'codex', '', badge).legacyDefault).toBe(true);
   });
   test('search crosses instances, ranks by field and boosts favorites; rail hides', () => {
     const c = two();

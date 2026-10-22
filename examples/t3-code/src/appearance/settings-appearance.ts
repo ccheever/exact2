@@ -75,7 +75,7 @@ export const alpha = (color: string, amount: number) => { const [r, g, b, a] = p
 
 /** The tokens this module paints, in the stock index.css vocabulary, per appearance. */
 type Tokens = Record<'canvas' | 'sidebar' | 'sidebarBorder' | 'rowActive' | 'sidebarText' | 'sidebarMuted' | 'sidebarIcon' | 'text' | 'muted' | 'heading' | 'description'
-  | 'card' | 'cardBorder' | 'divider' | 'input' | 'field' | 'accent' | 'accentText' | 'switchOff' | 'thumb' | 'popover' | 'popoverBorder' | 'highlight' | 'kbd' | 'output' | 'line' | 'rowHover' | 'sectionMuted' | 'tileActive'
+  | 'card' | 'cardBorder' | 'divider' | 'input' | 'field' | 'accent' | 'accentText' | 'switchOff' | 'thumb' | 'thumbOff' | 'popover' | 'popoverBorder' | 'highlight' | 'kbd' | 'output' | 'line' | 'rowHover' | 'sectionMuted' | 'tileActive'
   | 'border' | 'backdrop' | 'footer' | 'surface', string>;
 function tokens(themeId: string, mode: 'light' | 'dark', contrast: number, custom: CustomTheme[], glass = 80): Tokens {
   const stock = themeId === 't3-code' || !(themeId in THEMES || custom.some(theme => theme.id === themeId));
@@ -101,6 +101,8 @@ function tokens(themeId: string, mode: 'light' | 'dark', contrast: number, custo
     sidebarText: ink(sidebarText, sidebar), sidebarMuted: alpha(ink(sidebarMuted, sidebar), 0.8), sidebarIcon: mix(ink(sidebarMuted, sidebar), 0.6, sidebar),
     card: alpha(card, 0.4), cardBorder: edge(alpha(border, 0.6), text), divider: edge(alpha(border, 0.5), text), input: edge(input, text),
     field: stock ? (dark ? '#ffffff07' : '#fcfcfc') : canvas, accent: stock ? (dark ? '#346bf1' : '#1b4ed8') : r.accent, accentText: r.accentForeground,
+    // ui/switch: a switched-off thumb is muted-foreground in dark mode, so it stays visible on the dark track.
+    thumbOff: dark ? ink(mutedText, canvas) : canvas,
     switchOff: edge(input, text), thumb: canvas, // The reference blurs what is behind a glass surface; the native top layer has no backdrop
     // filter, so the glass mix is composited over the canvas it would mostly show.
     popover: mix(stock ? (dark ? '#111111' : '#ffffff') : r.surfaceOverlay, 0.18 + 0.82 * glass / 100, canvas),
@@ -198,6 +200,8 @@ export function appearanceSections(prefs: ClientPrefs, artworkVisible: boolean, 
     row('persistComposerContextStrip', 'composer-context', 'Composer context', 'Keep branch and worktree controls below the composer after a thread starts.', 'switch'),
     row('chatWidth', 'chat-width', 'Chat width', 'Set how wide messages and the composer can grow on large screens.', 'select',
       select('chatWidth', [['comfortable', 'Comfortable (default)'], ['wide', 'Wide'], ['full', 'Full']], { comfortable: 'Comfortable', wide: 'Wide', full: 'Full' }[prefs.chatWidth])),
+    row('mathRenderingEnabled', 'math-rendering', 'Render math', 'Typeset LaTeX math, such as $x^2$ or \\[x^2\\], in messages and Markdown previews. The composer keeps TeX source editable.', 'switch',
+      { resetLabel: 'math rendering' }),
   ];
   const motion = [row('panelAnimationDurationMs', 'panel-animations', 'Panel animations', 'Set how fast panels open and close.', 'slider', { ...slider('panelAnimationDurationMs', 0, 400, 25, ' ms'), info: 'preview' })];
   const font = (familyKey: 'fontFamilySans' | 'fontFamilyCode' | 'fontFamilyComposer' | 'fontFamilyTerminal', sizeKey: 'fontSizeInterface' | 'fontSizeCode' | 'fontSizePrompt' | 'fontSizeTerminal',

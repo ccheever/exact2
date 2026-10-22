@@ -22,7 +22,8 @@ import { turnItemHasDetail, turnItemNeedsDetailFetch } from './timeline-item-det
 import { arr, num, obj, str, type Activity, type Message, type Obj } from '../client/domain';
 import { ClientError, activeRun, type Files, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
-import { availableRevertTurnCounts, deriveRows, findRevertCheckpoint, rowKey, turnFoldRunIds, type Row, type RowInput } from './timeline-rows';
+import { latestUnheldRun } from './worktree-card-run';
+import { availableRevertTurnCounts, deriveRows, findRevertCheckpoint, rowKey, runTurnEnded, turnFoldRunIds, type Row, type RowInput } from './timeline-rows';
 import { displayFailed, entryDisplayLabel, entryIcon, inspectorDetail, isToolLike, liveThoughtLine, thoughtText, threadReadLabel, workspaceRelativePath, type WorkEntry } from './timeline-worklog';
 import { eventRow } from './timeline-events';
 import { messageCodeBlocks } from '../highlight/timeline-highlight';
@@ -32,6 +33,7 @@ import { openInlineDocumentImage, cachedAttachmentUrl, forgetAttachmentUrl, forg
 import { revealCitation } from './citation-source';
 import { minimapItems, type MinimapRow } from './timeline-minimap';
 import { diagramPreviewAction, diagramPreviewView, messageDiagrams, noteMermaidFrame, retryMermaid } from './timeline-mermaid';
+import { mathFrames, noteMathFrame } from './markdown-math';
 import { setupView, threadWorktreeSetup, worktreeDetailsOpen, worktreeSetupAction } from './timeline-worktree';
 import { chippedAttachmentIds, markdownEnv, messageChips, shouldCollapseUserMessage } from './message-chips';
 import { hasQuestionAnswer, notificationChildThreadId, notificationSubagent, plainOutput, questionAnswerPreview, questionHistory, questionTextPreview, runlessWorkStartedAt, type InspectorCode } from './timeline-inspect';
@@ -54,6 +56,7 @@ import { assistantCanFork, inspectorExtras, NO_INSPECTOR_EXTRAS } from './timeli
 import { completeSave } from '../media/save-file';
 import { inlineDocumentKey, inlineDocumentView, inlineDocumentEvent } from './inline-documents';
 import { keptThread } from '../client/keep-alive';
+import { userMessagePresentation } from './user-message';
 
 /** formatShortTimestamp: the wall-clock time alone, in the selected format. */
 export function shortTime(value: unknown, format: string): string {
@@ -143,6 +146,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op === 'revert-answer') return answerRevert(client, native, view, value, storage);
   if (op === 'diagram-retry') return retryMermaid(value, id); // id: the theme whose page failed
   if (op === 'diagram-frame') return noteMermaidFrame(value); // a Mermaid page's report (assets/mermaid/render.js)
+  if (op === 'math-frame') return noteMathFrame(value); // a math page's report (assets/math/render.js)
   if (op === 'setup-details' || op === 'setup-cancel' || op === 'setup-terminal') return worktreeSetupAction(client, native, op);
   if (op === 'diagram-open' || op === 'diagram-close') return diagramPreviewAction(client, op, value);
   // A table's Copy as Markdown / CSV (the check morph, no toast) and a thread chip's open.
@@ -297,7 +301,7 @@ export function timelineSnapshot(client: T3Client) {
     revertPending: view.revert?.threadId === client.threadId ? view.revert.messageId : '', ...planSaveView(client),
     minimap: minimapItems(rows), citing: view.citing > 0,
     citeJump: view.citeJump.threadId === client.threadId ? { key: view.citeJump.key, nonce: view.citeJump.nonce } : { key: '', nonce: 0 },
-    ...imagePreviewView(client), ...diagramPreviewView(client) };
+    ...imagePreviewView(client), ...diagramPreviewView(client), mathFrames: mathFrames() };
 }
 
 /** The working root that path labels are made relative to (filePathDisplay). */
@@ -352,6 +356,7 @@ function rowInput(client: T3Client, setup = threadWorktreeSetup(client)): RowInp
   const provider = arr(client.config.providers).find(provider => provider.instanceId === obj(obj(projection.thread).modelSelection).instanceId);
   return { rows: client.thread ? arr(projection.visibleTurnItems) : [], runs, attempts: arr(projection.attempts), nodes: arr(projection.nodes),
     checkpoints: arr(projection.checkpoints), isWorking: !!running || runless !== '', runningRunId: str(running?.id), latestRun: runs[runs.length - 1] ?? null,
+    latestRunTurnEnded: runTurnEnded(projection, latestUnheldRun(projection)), // deriveLatestThreadRun's run, without the usage-limit presentation
     // orchestrationV2RunWorkStartedAt: a wake run keeps the start of the work it continues.
     activeStartedAt: running ? str(running.workStartedAt ?? running.startedAt ?? running.requestedAt) : runless, runlessWorkActive: runless !== '', worktreeSetup: setup.snapshot,
     expandedRuns: threadFindExpanded(client) ? new Set(runs.map(run => str(run.id))) : open('fold'), expandedAttempts: threadFindExpanded(client) ? new Set(arr(projection.attempts).map(attempt => str(attempt.id))) : open('attempt'), expandedGroups: open('group'), root, rollback: provider?.supportsConversationRollback !== false,
@@ -457,7 +462,7 @@ function present(row: Row, context: PresentContext): Message {
       const markdown = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(str(row.entry.item.markdown)), context.threads);
       return { ...base, kind: 'plan', title: proposedPlanTitle(markdown) ?? 'Proposed plan', body: planBody(markdown), runId: str(row.entry.item.runId),
         completed: row.entry.item.streaming !== true, streaming: row.entry.item.streaming === true, sourceThreadId: str(row.entry.row.sourceThreadId), meta: false, collapsible: planCollapsible(markdown), code: messageCodeBlocks(markdown), chips: messageChips({ ...row.entry.item, text: markdown }, context.root, context.threads, row.id),
-        diagrams: messageDiagrams(markdown, row.entry.item.streaming === true),
+        diagrams: messageDiagrams(markdown),
         copied: view.copies.get(row.id)?.nonce ?? 0 };
     }
     case 'checkpoint': return { ...base, kind: 'checkpoint', title: 'Changes', checkpointId: str(row.entry.item.checkpointId), runId: str(row.entry.item.runId),
@@ -481,7 +486,7 @@ function present(row: Row, context: PresentContext): Message {
         const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(str(item.text)), context.threads);
         return { ...common, kind: 'assistant', title: 'Assistant', canFork: forkable(context.client, row.entry.row, item), body: text || (item.streaming === true ? '' : '(empty response)'), chips: messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client),
           meta: row.meta, streaming: item.streaming === true || row.inProgress, code: messageCodeBlocks(text),
-          diagrams: messageDiagrams(text, item.streaming === true || row.inProgress) };
+          diagrams: messageDiagrams(text) };
       }
       if (context.workflow && context.workflow.messageId === str(item.messageId)) {
         const opening = workflowOpeningMessage(context.workflow, { agents: [], providers: context.providers, threads: context.threads }, threadFindView(context.client).highlight);
@@ -490,7 +495,7 @@ function present(row: Row, context: PresentContext): Message {
       const intent = str(item.inputIntent), sender = userMessagePresentation(item);
       const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(sender.text), context.threads), chips = messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client), attached = messageAttachments(item), chipped = chippedAttachmentIds(chips);
       // A file with a chip in the prose needs no standalone row (images always show).
-      return { ...common, kind: 'user', title: 'You', body: text, revert: row.revert, images: attached.images, attachFiles: attached.attachFiles.filter(file => !chipped.has(file.id)), chips, code: messageCodeBlocks(text), diagrams: messageDiagrams(text, false),
+      return { ...common, kind: 'user', title: 'You', body: text, revert: row.revert, images: attached.images, attachFiles: attached.attachFiles.filter(file => !chipped.has(file.id)), chips, code: messageCodeBlocks(text), diagrams: messageDiagrams(text),
         collapsible: shouldCollapseUserMessage(text),
         // A queued message that was sent reads as any other; only a steer keeps its marker.
         intent: intent === 'steer' || intent === 'promoted_queued_to_steer' ? 'Steer' : '',
@@ -501,25 +506,9 @@ function present(row: Row, context: PresentContext): Message {
   }
 }
 
-const LEGACY_AUTOMATION_PREFIX = /^\[Triggered by schedule task: [^\r\n]+\]\r?\n\r?\n/;
-const LEGACY_AUTOMATION_MESSAGE_ID = /^scheduled-task-message:(.+):\d+:(?:scheduled|manual)$/;
-/**
- * resolveUserMessagePresentation (client-runtime userMessage.ts): who sent a user message the user
- * did not type. Older scheduled messages carry their attribution in the prompt itself; a restart
- * continuation the server sent as the agent is T3 Code's.
- */
-export function userMessagePresentation(item: Obj): { text: string; attribution: '' | 'automation' | 'agent' | 't3code'; scheduledTaskId: string } {
-  const text = str(item.text);
-  if (typeof item.scheduledTaskId === 'string') return { text, attribution: 'automation', scheduledTaskId: item.scheduledTaskId };
-  const legacyPrefix = LEGACY_AUTOMATION_PREFIX.exec(text);
-  const legacyTaskId = legacyPrefix ? LEGACY_AUTOMATION_MESSAGE_ID.exec(str(item.messageId))?.[1] : undefined;
-  if (legacyPrefix && (legacyTaskId !== undefined || item.createdBy === 'agent')) return { text: text.slice(legacyPrefix[0].length), attribution: 'automation', scheduledTaskId: legacyTaskId ?? '' };
-  return { text, attribution: item.createdBy !== 'agent' ? '' : item.creationSource === 'server' ? 't3code' : 'agent', scheduledTaskId: '' };
-}
-
 type RowActivity = Activity & Required<Pick<Activity, 'tone' | 'ok' | 'reasoning' | 'expandable' | 'detail' | 'status' | 'targetId' | 'answer' | 'retryRunId' | 'outputState' | 'detailOpen' | 'iconLight' | 'iconDark'
   | 'results' | 'changePath' | 'stats' | 'additions' | 'deletions' | 'diffRunId' | 'diffPath' | 'startedMs' | 'initials' | 'driverIcon' | 'targetLabel' | 'modelLine' | 'effort' | 'speed' | 'speedLabel'
-  | 'replArguments' | 'linkPrefix' | 'linkTitle' | 'linkThreadId' | 'terminal' | 'terminalTruncated' | 'terminalSpans' | 'toolImages'>> & { timeTip: string };
+  | 'replArguments' | 'linkPrefix' | 'linkTitle' | 'linkThreadId' | 'badge' | 'badgeColor' | 'terminal' | 'terminalTruncated' | 'terminalSpans' | 'toolImages'>> & { timeTip: string };
 const blankActivity = (activity: Activity): RowActivity => ({
   tone: '', ok: true, reasoning: false, expandable: true, detail: '', status: '', targetId: '', answer: '', retryRunId: '', timeTip: '',
   ...activity, replArguments: activity.replArguments ?? [], terminal: activity.terminal ?? false, terminalTruncated: activity.terminalTruncated ?? false, terminalSpans: activity.terminalSpans ?? [], toolImages: activity.toolImages ?? [], outputState: activity.outputState ?? '', detailOpen: activity.detailOpen ?? false, iconLight: activity.iconLight ?? '', iconDark: activity.iconDark ?? '',
@@ -527,7 +516,7 @@ const blankActivity = (activity: Activity): RowActivity => ({
   deletions: activity.deletions ?? 0, diffRunId: activity.diffRunId ?? '', diffPath: activity.diffPath ?? '', startedMs: activity.startedMs ?? 0,
   initials: activity.initials ?? '', driverIcon: activity.driverIcon ?? '', targetLabel: activity.targetLabel ?? '',
   modelLine: activity.modelLine ?? '', effort: activity.effort ?? '', speed: activity.speed ?? '', speedLabel: activity.speedLabel ?? '',
-  linkPrefix: activity.linkPrefix ?? '', linkTitle: activity.linkTitle ?? '', linkThreadId: activity.linkThreadId ?? '' });
+  linkPrefix: activity.linkPrefix ?? '', linkTitle: activity.linkTitle ?? '', linkThreadId: activity.linkThreadId ?? '', badge: activity.badge ?? '', badgeColor: activity.badgeColor ?? '' });
 
 /**
  * Timeline rows as Contract draws them, every Message field present. T3 shows

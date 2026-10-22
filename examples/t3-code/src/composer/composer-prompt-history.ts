@@ -1,7 +1,8 @@
-// composerPromptHistory.ts at T3 Code 9c161462c9 (MIT; LICENSE-T3).
+// composerPromptHistory.ts at T3 Code 74541bab17 (MIT; LICENSE-T3).
 import type { T3Client } from '../client/client';
-import { messages } from '../client/domain';
+import { messages, obj, visibleTurnItems, type ThreadState } from '../client/domain';
 import { historyEntries } from './composer-editor-menu';
+import { userMessagePresentation } from '../timeline/user-message';
 
 type Entry = { id: string; prompt: string };
 type Position = { entryId: string; recalled: string };
@@ -28,13 +29,19 @@ export function promptHistoryStep(entries: readonly Entry[], position: Position 
   return entry ? { position: { entryId: entry.id, recalled: entry.prompt }, prompt: entry.prompt } : { position: null, prompt: '' };
 }
 
+/** The thread's messages, each user message with who sent it when the user did not type it (an automation or an agent). */
+export function attributedMessages(thread: ThreadState) {
+  const rows = visibleTurnItems(thread);
+  return messages(thread).map((message, index) => ({ ...message, attribution: userMessagePresentation(obj(rows[index]?.item)).attribution }));
+}
+
 function history(client: T3Client, owner: string, value: string) {
   let state = positions.get(client);
   if (!state || state.owner !== owner || state.generation !== client.generation || state.snapshotOwner !== client.snapshotOwner) {
     state = { owner, generation: client.generation, snapshotOwner: client.snapshotOwner, position: null, pending: new Map() };
     positions.set(client, state);
   }
-  const entries = client.thread ? historyEntries(messages(client.thread)) : [];
+  const entries = client.thread ? historyEntries(attributedMessages(client.thread)) : [];
   return { state, previous: promptHistoryStep(entries, state.position, value, true), next: promptHistoryStep(entries, state.position, value, false) };
 }
 export function composerHistoryAvailability(client: T3Client, owner: string, value: string): { historyPrevious: boolean; historyNext: boolean } {

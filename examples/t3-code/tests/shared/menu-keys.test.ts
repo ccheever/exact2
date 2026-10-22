@@ -175,7 +175,10 @@ describe('public popover triggers execute one ordered command sequence', () => {
     ['pages-usage-prices.contract', 'UsagePricesApply', 'triggerKey'], ['project-scripts.contract', 'ScriptRow', 'triggerKey'],
     ['shell-details.contract', 'OpenInRow', 'triggerKey'], ['files-surface.contract', 'FileHeader', 'editorsKey'],
     ['requests.contract', 'ApprovalActions', 'menuKey'], ['diff.contract', 'DiffToolbar', 'scopeKey'], ['device-workspace.contract', 'RailMenuButton', 'triggerKey'],
+    ['add-project-machine.contract', 'AddMachineTargetSelect', 'triggerKey'], ['add-project-machine.contract', 'AddMachineSubmenu', 'rowKey'],
   ];
+  // Submenu triggers open on Enter, Space (and ArrowRight, Base UI's submenu key); their arrows belong to the parent menu.
+  const submenu = (name: string) => name === 'EnvironmentIconMenu' || name === 'AddMachineSubmenu';
   test('the inventory includes every opener and no retired invoker, focus redirect, watcher or counter remains', async () => {
     const found: string[] = [];
     for (const file of files) {
@@ -214,7 +217,7 @@ describe('public popover triggers execute one ordered command sequence', () => {
       : name === 'PrRowStack' ? [['control', 'quick-stack', 'repo:42']]
       : name === 'ThreadRow' ? [['hoverCard', '', false]]
       : name === 'GitRows' ? [['local', 'git-open', 'menu', '']] : [];
-    const keys = name === 'EnvironmentIconMenu' ? ['Enter', ' ', 'Space'] : ['ArrowDown', 'ArrowUp', 'Enter', ' ', 'Space'];
+    const keys = name === 'AddMachineSubmenu' ? ['Enter', ' ', 'Space', 'ArrowRight'] : submenu(name) ? ['Enter', ' ', 'Space'] : ['ArrowDown', 'ArrowUp', 'Enter', ' ', 'Space'];
     for (const key of keys) {
       calls.length = 0;
       owner.call(action, {}, scope, [key, event()]);
@@ -230,7 +233,7 @@ describe('public popover triggers execute one ordered command sequence', () => {
       owner.call(action, {}, { ...scope, [itemName]: [] }, [key, event()]);
       expect(calls).toEqual([['preventDefault'], ['stopPropagation'], ...prep, ['showPopover', popup, { source: sourceId }]]);
     }
-    for (const key of ['Escape', 'Tab', 'Home', 'End', 'a', ...(name === 'EnvironmentIconMenu' ? ['ArrowDown', 'ArrowUp'] : [])]) {
+    for (const key of ['Escape', 'Tab', 'Home', 'End', 'a', ...(submenu(name) ? ['ArrowDown', 'ArrowUp'] : [])]) {
       calls.length = 0;
       owner.call(action, {}, scope, [key, event()]);
       expect(calls).toEqual([]);

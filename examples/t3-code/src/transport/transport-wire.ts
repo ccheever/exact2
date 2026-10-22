@@ -1,5 +1,5 @@
 // The Effect RPC wire T3's server speaks over its socket, and the HTTP pieces every
-// connection shares (T3 Code 9c161462c9, MIT, see LICENSE-T3: packages/client-runtime/src/rpc/
+// connection shares (T3 Code 74541bab17, MIT, see LICENSE-T3: packages/client-runtime/src/rpc/
 // protocol.ts and session.ts frame JSON with effect's RpcSerialization.layerJson;
 // connection/compatibility.ts, supervisor.ts retryDelayMs, rpc/client.ts's expected-failure
 // retry; authorization/remote.ts bootstrapRemoteBearerSession; connection/errors.ts
@@ -19,14 +19,26 @@ export function letGoAbort(error: unknown): boolean {
 
 /** A failure as the native bridge reported it (`{kind, message, uncertain, reason, detail, context}`). */
 export class TransportFailure extends Error {
+  /**
+   * The request never reached a live session, or its session ended before the reply (EnvironmentRpcUnavailableError's
+   * place here). A read that fails so is asked again once the connection is back, so it shows no failure.
+   */
+  unavailable = false;
   constructor(readonly kind: string, message: string, readonly uncertain = false, readonly reason = '', readonly detail = '', readonly context: Record<string, string> = {}) {
     super(message);
   }
-  json() { return { kind: this.kind, message: this.message, uncertain: this.uncertain, reason: this.reason, detail: this.detail, ...(Object.keys(this.context).length ? { context: this.context } : {}) }; }
-  with(fields: { message?: string; uncertain?: boolean }) {
-    return new TransportFailure(this.kind, fields.message ?? this.message, fields.uncertain ?? this.uncertain, this.reason, this.detail, this.context);
+  json() {
+    return { kind: this.kind, message: this.message, uncertain: this.uncertain, reason: this.reason, detail: this.detail,
+      ...(Object.keys(this.context).length ? { context: this.context } : {}), ...(this.unavailable ? { unavailable: true } : {}) };
+  }
+  with(fields: { message?: string; uncertain?: boolean; unavailable?: boolean }) {
+    const next = new TransportFailure(this.kind, fields.message ?? this.message, fields.uncertain ?? this.uncertain, this.reason, this.detail, this.context);
+    next.unavailable = fields.unavailable ?? this.unavailable;
+    return next;
   }
 }
+/** A request refused because its session is not connected. */
+export const notConnected = () => new TransportFailure('Disconnected', 'The server is not connected.').with({ unavailable: true });
 
 /**
  * failRemoteRequest (rpc/http.ts) for a request that got no answer: past its deadline, the timeout; otherwise
@@ -162,6 +174,12 @@ const SECRET_REQUEST_FAILURE_MESSAGES: Record<string, string> = {
 const GIT_FAILURE_REASONS = ['authentication_failed', 'branch_already_exists', 'branch_checked_out_in_worktree', 'host_key_unverified', 'not_a_repository',
   'path_already_exists', 'ref_not_found', 'remote_unreachable', 'tag_would_be_clobbered'];
 
+/** AssetWorkspaceAssetNotFoundError's resource and, from a server that sends it, the host path it checked. */
+function assetNotFoundContext(value: Record<string, unknown>): Record<string, string> {
+  const resource = isObject(value.resource) ? value.resource : {};
+  return Object.fromEntries(Object.entries({ resourceTag: text(resource._tag), resourcePath: text(resource.path), checkedPath: text(value.checkedPath) }).filter(([, field]) => field));
+}
+
 function typed(value: unknown): TransportFailure {
   if (!isObject(value)) return failure(value);
   const tag = text(value._tag) || text(value.name) || 'RPC';
@@ -177,10 +195,18 @@ function typed(value: unknown): TransportFailure {
   // PullRequestOperationError's and PullRequestUnavailableError's messages are getters, not wire fields.
   if (!message && tag === 'PullRequestOperationError' && field('detail')) message = `Pull request operation ${field('operation')} failed: ${field('detail')}`;
   if (!message && tag === 'PullRequestUnavailableError') message = pullRequestUnavailable(field('reason'), field('provider'));
+  // AssetWorkspaceAssetNotFoundError's message is a getter too (contracts assets.ts).
+  if (!message && tag === 'AssetWorkspaceAssetNotFoundError') {
+    const kind = isObject(value.resource) ? text(value.resource._tag) : '';
+    message = kind === 'media-file' ? 'Media file was not found.' : kind === 'tool-output-image' ? 'Tool output image was not found.' : 'Workspace asset was not found.';
+  }
+  // DeviceEasAccountError's message is its reason, through a getter (contracts device.ts).
+  if (!message && tag === 'DeviceEasAccountError') message = field('reason');
   if (!message && field('detail')) message = field('detail');
   if (!message && 'cause' in value) message = failure(value.cause).message;
   if (!message || message === 'The server request failed.') message = `The server refused the request (${tag}).`;
-  const context = tag === 'ProjectReadFileError' ? Object.fromEntries(CONTEXT_FIELDS.filter(key => text(value[key])).map(key => [key, text(value[key])])) : {};
+  const context = tag === 'ProjectReadFileError' ? Object.fromEntries(CONTEXT_FIELDS.filter(key => text(value[key])).map(key => [key, text(value[key])]))
+    : tag === 'AssetWorkspaceAssetNotFoundError' ? assetNotFoundContext(value) : {};
   return new TransportFailure(tag, message, false, field('reason'), field('detail'), context);
 }
 
@@ -315,9 +341,15 @@ export const QUICK_PROBE_MS = 3_000;
 export const FOREGROUND_PROBE_MS = 15_000;
 /** CONNECTION_ESTABLISHMENT_TIMEOUT, plus the second the native transport waited past it. */
 export const SOCKET_OPEN_TIMEOUT_MS = 16_000;
-/** The Ping cadence and the silence after which the server counts as gone. */
-export const PING_INTERVAL_MS = 10_000;
-export const PONG_TIMEOUT_MS = 35_000;
+/**
+ * The Ping cadence (makeProtocolSocket's 5 s default) and the silence after which the server counts as gone
+ * (PING_TIMEOUT, rpc/protocol.ts). Any frame counts as the server's voice; the timeout is checked when the next
+ * Ping is due, and only once a Ping went unanswered, so a late tick sends a Ping before it gives up.
+ */
+export const PING_INTERVAL_MS = 5_000;
+export const PONG_TIMEOUT_MS = 15_000;
+/** UNRESPONSIVE_HOST_HINT (errors/network.ts): a host that stopped answering on an open connection, so the network path worked. */
+export const UNRESPONSIVE_HOST_HINT = 'It may be overloaded, asleep, or off the network.';
 /** MAX_EXPECTED_FAILURE_RETRY_DELAY_MS and the first retry (`retryExpectedFailureAfter`). */
 export const STREAM_RETRY_FIRST_MS = 250;
 export const STREAM_RETRY_MAX_MS = 30_000;

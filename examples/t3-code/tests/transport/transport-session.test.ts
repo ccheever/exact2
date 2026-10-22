@@ -249,17 +249,81 @@ describe('streams (rpc/client.ts)', () => {
 });
 
 describe('liveness and the reconnect ladder (supervisor.ts)', () => {
-  test('a Ping every ten seconds; a server that stays silent for 35 s is reconnected', async () => {
+  // makeProtocolSocket (pingInterval 5 s, PING_TIMEOUT 15 s); rpc/session.ts names the silence; supervisor.ts (#18469).
+  test('a Ping every five seconds; a host silent for 15 s is reconnected, and only what waited on it hears why', async () => {
     const { drive, server } = await paired();
     // The connected tick runs every second, so the Ping goes at its next tick.
-    await drive.advance(11_000);
+    await drive.advance(6_000);
     expect(drive.socketAt(0)!.sent.filter(frame => frame._tag === 'Ping').length).toBeGreaterThan(0);
-    // Silence: the server stops answering Pings.
+    // The host freezes: nothing it is sent is answered.
     server.respond = () => [];
-    await drive.advance(36_000);
+    let failed: Obj | null = null;
+    const { generation } = value(await drive.op({ op: 'status' })) as { generation?: number };
+    void drive.bridge.later({ op: 'request', method: 'git.status', payload: {}, ...(generation === undefined ? {} : { generation }) }).then(reply => { failed = reply as Obj; });
+    await drive.advance(14_000);
+    expect(value(await drive.op({ op: 'status' })).state).toBe('connected');
+    // The last Pong counts from the tick after it; the Ping due 20 s after it finds the silence (the ladder waits 1 s or more).
+    await drive.advance(6_500);
     const status = value(await drive.op({ op: 'status' }));
     expect(status.state).toBe('reconnecting');
-    expect(String(status.message)).toMatch(/The server stopped responding\. Reconnecting in \ds…/);
+    // A session came up, so losing it is not a failed connection: the reconnect names no failure.
+    expect(String(status.message)).toMatch(/^Reconnecting in \ds…$/);
+    expect(status.failureKind).toBe('');
+    expect((failed as Obj | null)?.error).toMatchObject({
+      kind: 'Network', uncertain: true, unavailable: true,
+      message: 'Server env-1 stopped responding for 15s. It may be overloaded, asleep, or off the network.',
+    });
+  });
+
+  test('any frame counts as the host answering, and a late tick sends a Ping before it gives up', async () => {
+    const { drive, server } = await paired();
+    server.methods.sub = () => undefined;
+    await drive.op({ op: 'subscribe', key: 'k', method: 'sub', payload: {} });
+    const id = String(server.rpcs.at(-1)!.id);
+    // Pongs stop, but stream values keep coming.
+    const respond = server.respond.bind(server);
+    server.respond = socket => respond(socket).filter(frame => frame._tag !== 'Pong');
+    for (let second = 0; second < 30; second += 1) { server.chunk(id, [{ second }]); await drive.advance(1_000, 1_000); }
+    expect(value(await drive.op({ op: 'status' })).state).toBe('connected');
+    // A tick a minute late (the Mac slept): the first thing it does is ask, not give up.
+    server.respond = respond;
+    const pings = drive.socketAt(0)!.sent.filter(frame => frame._tag === 'Ping').length;
+    await drive.advance(60_000, 60_000);
+    expect(drive.socketAt(0)!.sent.filter(frame => frame._tag === 'Ping').length).toBe(pings + 1);
+    await drive.advance(2_000);
+    expect(value(await drive.op({ op: 'status' })).state).toBe('connected');
+  });
+
+  test('a frame counts from the tick that sees it, so held ticks do not shorten the 15 s of silence', async () => {
+    const { drive, server } = await paired();
+    server.methods.sub = () => undefined;
+    await drive.op({ op: 'subscribe', key: 'k', method: 'sub', payload: {} });
+    const id = String(server.rpcs.at(-1)!.id);
+    await drive.advance(2_000);
+    // The window's timers are held for 13 s while the socket keeps delivering frames.
+    for (let second = 0; second < 13; second += 1) {
+      drive.now += 1_000;
+      server.chunk(id, [{ second }]);
+      await drive.turn();
+    }
+    // The host goes quiet just as the ticks resume: 7 s of silence is not 15.
+    server.respond = () => [];
+    await drive.advance(7_000, 1_000);
+    expect(value(await drive.op({ op: 'status' })).state).toBe('connected');
+  });
+
+  test('a socket that never opens still reports its failure on the ladder', async () => {
+    const server = new FakeServer(ORIGIN);
+    const drive = new Drive(server);
+    expect((await drive.op(pairing())).ok).toBe(true);
+    // The host answers HTTP but refuses every new socket, then drops the live one.
+    server.accept = () => null;
+    server.restart();
+    await drive.settle();
+    await drive.advance(2_500);
+    const status = value(await drive.op({ op: 'status' }));
+    expect(status.state).toBe('reconnecting');
+    expect(String(status.message)).toMatch(/^Server env-1 could not establish a WebSocket connection\. Reconnecting in \d+s…$/);
   });
 
   test('a server restart reconnects after the ladder delay and resubscribes nothing by itself', async () => {

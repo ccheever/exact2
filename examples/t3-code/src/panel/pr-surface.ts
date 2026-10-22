@@ -22,6 +22,7 @@ import { repositorySelector } from '../composer/composer-editor-menu';
 import { readDetail, peekDetail, forgetDetails, mergeAsk, askMerge, confirmMerge, performAction, startHandoff, closeMerge, toggleShowAll } from '../details/pr-row-actions';
 import { rowExtra, emptyExtra, type RowExtra } from '../details/pr-row';
 import type { MergeAsk } from '../details/pr-row-actions';
+import { breakdownKey, presentChangeBreakdown, readChangeBreakdowns, releaseChangeBreakdowns } from '../pull-requests/pr-change-breakdown';
 
 export type PrTarget = { projectId: string; host: string; repository: string; number: number; url: string; environmentId?: string };
 export type PrRow = {
@@ -175,9 +176,14 @@ export async function prRowsView(client: T3Client, native: Native, input: { stat
   }
   if (detail && reference) {
     const key = lifecycle(str(detail.state, 'open'), detail.isDraft === true);
+    // The card's change breakdown (PullRequestChangeBreakdownRows), read once the card was first pointed at.
+    const split = { reference, additions: num(detail.additions), deletions: num(detail.deletions) };
+    // The card's request ends when the card shows another pull request.
+    releaseChangeBreakdowns(client, 'card', new Set([breakdownKey(client, split)]));
+    await readChangeBreakdowns(client, native, [split]);
     // The split row's checks, trailing action and tooltip card (pr-row.ts).
     Object.assign(main, { icon: lifecycleIcon(key), state: key, tinted: true, split: true },
-      rowExtra(client, detail, reference, { key: main.key, lifecycleKey: key, rightGap: input.rightGap ?? 0, inline: input.inline === true }));
+      rowExtra(client, detail, reference, { key: main.key, lifecycleKey: key, rightGap: input.rightGap ?? 0, inline: input.inline === true, breakdown: presentChangeBreakdown(client, split, { total: false }) }));
     // `detail?.state ?? pr?.state`: the host's answer decides whether the watch still runs.
     if (str(detail.state, 'open') !== 'open') Object.assign(main, { watching: false, watchKey: '' });
   }

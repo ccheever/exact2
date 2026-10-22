@@ -27,6 +27,6 @@ export const EMPTY_GIT: Awaited<ReturnType<typeof gitDetails>> = {
   confirmTitle: '', confirmDescription: '', confirmContinue: '', confirmFeatureReason: '', publishStep: 0, publishProviders: [], publishRows: [], publishProvider: 'github', publishProviderLabel: 'GitHub',
   publishHost: 'github.com', publishPlaceholder: 'owner/repo', publishRepository: '', publishVisibility: 'private', publishRemote: 'origin', publishProtocol: 'ssh',
   publishAdvanced: false, publishPending: false, publishError: '', publishAnyReady: false, publishCanNext: false, publishCanSubmit: false, publishPushed: false,
-  publishName: '', publishUrl: '', publishSummary: '', envPick: false, envOptions: [], envCount: 1,
+  publishName: '', publishUrl: '', publishSummary: '', envPick: false, envOptions: [], envAdd: [], envAddMenuWidth: 160, envCount: 1,
   branch: HIDDEN_BRANCH,
 };

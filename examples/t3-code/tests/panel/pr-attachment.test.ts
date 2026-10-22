@@ -9,6 +9,7 @@ import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import { panelState, surfaceLocal, panelView, availability } from '../../src/panel/panel-surfaces';
 import { openPullRequestIn } from '../../src/panel/pr-attachment-surfaces';
+import { syncRightPanels } from '../../src/panel/saved-panel';
 import { filesLocal } from '../../src/panel/files-surface';
 import { prRowsView, prTarget, rowAction, checksRollup, statusTooltip, providerOfUrl, prSurfaceId, threadPrTarget, forgetRowDetail, sidebarPrBadge } from '../../src/panel/pr-surface';
 import { previewKind, previewDelimiter, findAttachment } from '../../src/panel/attachment-surface';
@@ -164,10 +165,11 @@ describe('the Pull request (P) surface', () => {
     await surfaceLocal(client, native, 'open', '', 'pull-request');
     const state = panelState(client), id = state.active, revision = state.userRevision;
     await surfaceLocal(client, native, 'pr-tab', id, 'code');
-    // The revision moves, so the panels' save writes the choice at once (syncRightPanels skips an untouched panel).
-    expect([(await panelView(client, null, 1)).pr.tab, state.userRevision]).toEqual(['code', revision + 1]);
-    await surfaceLocal(client, native, 'pr-tab', id, 'code');
-    expect(state.userRevision).toBe(revision + 1);
+    // An automatic update upstream: not the person's panel choice, but the panels' save writes it at once.
+    expect([(await panelView(client, null, 1)).pr.tab, state.userRevision]).toEqual(['code', revision]);
+    const owner = { local: {} as object };
+    expect(syncRightPanels(owner, new Map([['saved', state]]))).toBe(true);
+    expect(JSON.stringify(owner.local)).toContain('"detailTab":"code"');
     await surfaceLocal(client, native, 'pr-tab', id, 'nonsense');
     await surfaceLocal(client, native, 'open', '', 'pull-request');
     expect((await panelView(client, null, 1)).pr).toMatchObject({ surface: id, tab: 'code' });
@@ -260,7 +262,7 @@ describe('sent attachment preview (AttachmentFilePreview)', () => {
     expect(view.attachment.code.map(block => block.code)).toContain('const x = 1;');
     expect(view.attachment.md.chips).toEqual([]);
     expect(view.attachment.diagrams.map(diagram => [diagram.code, diagram.dark.diagram])).toEqual([[flow, 'loading']]);
-    noteMermaidFrame(JSON.stringify({ status: 'rendered', width: 120, height: 80, theme: 'dark', source: flow }));
+    noteMermaidFrame(JSON.stringify({ status: 'rendered', width: 120, height: 80, theme: 'dark', source: flow, view: 'file' }));
     view = await panelView(client, native, 1);
     expect(view.attachment.diagrams[0]).toMatchObject({ code: flow, dark: { diagram: 'rendered', width: 120 } });
     diagramPreviewAction(client, 'diagram-open', flow);

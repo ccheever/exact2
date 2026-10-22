@@ -88,9 +88,10 @@ export function chipPopover(press: Obj, skills: Obj[], startOf?: Parameters<type
   if (press.open !== true || str(press.kind) !== 'skill') return { ...NO_CHIP, seq };
   const frame = Array.isArray(press.frame) ? (press.frame as unknown[]).map(Number) : [];
   const name = str(press.name), label = str(press.label) || name;
-  // ComposerSkillNodeView: `skill?.description ?? skillDescription ?? "No description…"`.
-  const skill = skills.find(candidate => str(candidate.name) === name);
-  const description = skill && typeof skill.description === 'string' ? skill.description : NO_DESCRIPTION;
+  // ComposerSkillNodeView (T3 Code 74541bab17): the provider's user-invocable skill by that name, its
+  // description or else its short description, trimmed; the label is the provider's current display name.
+  const skill = skills.find(candidate => str(candidate.name) === name && candidate.enabled !== false && candidate.userInvocable !== false);
+  const description = (skill && (str(skill.description).trim() || str(skill.shortDescription).trim())) || NO_DESCRIPTION;
   return { ...NO_CHIP, seq, open: true, surface: str(press.surface), kind: 'skill', label, title: `Skill ${label}`, description, path: skill ? str(skill.path) : '',
     x: frame[0] || 0, y: frame[1] || 0, width: frame[2] || 0, height: frame[3] || 0 };
 }

@@ -10,7 +10,7 @@
 //                                         restarts behind the latter) and a thread on its branch
 //   bun env.mjs status                    each environment: pid, port, id, label, projects and threads with ids
 //   bun env.mjs stop <name|all>           stops the servers this fixture started (recorded pids only; all: the stand-ins too)
-//   bun env.mjs drive [--local] [--pair second,third] [--keep-welcome] [--storage S] [--size WxH] [--json] -- <op> …
+//   bun env.mjs drive [--local] [--pair second,third] [--keep-welcome] [--storage S] [--size WxH] [--seed N] [--json] -- <op> …
 //                                         an agent drive of the bundle: with --local "This machine" too,
 //                                         each named environment paired in the welcome wizard (fresh
 //                                         tokens, kept off the terminal), the wizard finished, then the ops
@@ -55,10 +55,12 @@ export const redact = (text) => text.replace(/#token=[^\s"'\\]+/g, "#token=<reda
 
 /**
  * The driver's flags from a drive's options: --size (1280x840 unless given), --storage, --epoch (the date
- * at the driver's clock zero; `now` puts a seeded hub's resets at their real distance) and --json.
+ * at the driver's clock zero; `now` puts a seeded hub's resets at their real distance), --seed (the app's
+ * random ids under the agent; a drive against a server an earlier drive used needs a new one) and --json.
  */
 export const driverFlags = (options) => ["--size", flag(options, "--size") ?? "1280x840", "--storage", flag(options, "--storage") ?? "t3-fixtures",
-  ...(flag(options, "--epoch") ? ["--epoch", flag(options, "--epoch")] : []), ...(options.includes("--json") ? ["--json"] : [])];
+  ...(flag(options, "--epoch") ? ["--epoch", flag(options, "--epoch")] : []), ...(flag(options, "--seed") ? ["--seed", flag(options, "--seed")] : []),
+  ...(options.includes("--json") ? ["--json"] : [])];
 
 /** Runs one agent drive with fresh pairings; returns the driver's exit status. */
 export function drive(argv) {

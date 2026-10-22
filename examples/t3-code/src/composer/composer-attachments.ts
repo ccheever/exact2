@@ -1,5 +1,6 @@
 import { requestComposerField, type ComposerFieldCompletion } from './composer-field-request';
 import { removeStaged } from './composer-staged-copies';
+import { stagedInUse } from './composer-copied-chips';
 import { composerFieldCurrent } from './composer-field-bridge';
 import { composerFieldOwner } from './auto-balance-owner';
 // The composer shelf's references and video tiles, adapted from T3 Code (MIT;
@@ -121,7 +122,7 @@ export async function videoOp(client: T3Client, native: Native, op: string, id: 
     const previous = draftFiles(client.local);
     setDraftFiles(client.local, previous.filter(candidate => candidate !== file));
     try { await client.persist(nativeFiles(current)); } catch (error) { setDraftFiles(client.local, previous); throw error; }
-    if (file.status === 'staged') await removeStaged(file.id);
+    if (file.status === 'staged' && !stagedInUse(client.local, file.id)) await removeStaged(file.id);
   } });
   return '';
 }

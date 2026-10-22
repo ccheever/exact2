@@ -1,4 +1,4 @@
-// Timeline rows adapted from T3 Code 9c161462c9 (MIT, see LICENSE-T3):
+// Timeline rows adapted from T3 Code 9c161462c9 (MIT, see LICENSE-T3; the turn-ended live row at 74541bab17):
 // apps/web/src/session-logic.ts deriveTimelineEntriesFromVisibleTurnItems and
 // apps/web/src/components/chat/MessagesTimeline.logic.ts deriveMessagesTimelineRows
 // (turn folds, superseded attempts, live work, working and thinking rows).
@@ -46,6 +46,8 @@ export type Row =
 export interface RowInput {
   rows: Obj[]; runs: Obj[]; attempts: Obj[]; nodes: Obj[]; checkpoints: Obj[];
   isWorking: boolean; runningRunId: string; latestRun: Obj | null; activeStartedAt: string;
+  /** The latest run is still open but its provider turn ended, so nothing is generating while the server settles it. */
+  latestRunTurnEnded?: boolean;
   /** A provider-native subagent's runless work is live (ChatView runlessWorkStartedAt). */
   runlessWorkActive?: boolean;
   /** The visible worktree setup of a new worktree thread (timeline-worktree.ts). */
@@ -323,7 +325,7 @@ export function deriveRows(input: RowInput): Row[] {
     rows.push({ kind: 'working', id: 'working-indicator-row', createdAt: input.activeStartedAt });
   }
   // A setup that owns the working slot shows no activity row of its own.
-  if (input.isWorking && !setupOwnsWorkingSlot && !compacting && (!activity || latestFailed)) {
+  if (input.isWorking && input.latestRunTurnEnded !== true && !setupOwnsWorkingSlot && !compacting && (!activity || latestFailed)) {
     // A failed latest tool hands the row back to thinking; its group stays
     // reachable through the same disclosure the live row offers.
     if (latestFailed && anchor) {
@@ -582,6 +584,20 @@ export function availableRevertTurnCounts(projection: Obj): Set<number> {
     if (turn?.providerThreadId === providerThread.id && typeof run.ordinal === 'number') available.add(run.ordinal);
   }
   return available;
+}
+
+/**
+ * threadExecution.ts summarizeThreadRun's turnEnded: a run in an activity status whose active attempt's latest
+ * provider turn (latestProviderTurnForAttempt) is neither pending nor running.
+ */
+export function runTurnEnded(projection: Obj, run: Obj | null | undefined): boolean {
+  if (!run || !['preparing', 'starting', 'running', 'waiting'].includes(str(run.status)) || run.activeAttemptId == null) return false;
+  let latest: Obj | undefined;
+  for (const turn of arr(projection.providerTurns)) {
+    if (turn.runAttemptId !== run.activeAttemptId) continue;
+    if (!latest || Number(turn.ordinal) > Number(latest.ordinal)) latest = turn;
+  }
+  return !!latest && latest.status !== 'pending' && latest.status !== 'running';
 }
 
 export function runList(projection: Obj): Obj[] { return arr(projection.runs); }

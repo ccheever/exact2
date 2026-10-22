@@ -1,11 +1,11 @@
 // Contract-independent HTML/MCP metadata and guest requests; all inputs are synthetic.
 import { expect, test } from 'bun:test';
 import { compactDynamicToolOutput, htmlRenderFromToolItem, mcpAppFromToolItem } from '../../src/timeline/inline-tool-output';
-import { htmlRenderFrameHeight, htmlRenderOutlineBoxes, htmlRenderTheme, htmlRenderThemeFragment, readHtmlRenderContentHeight, readHtmlRenderImageRequest, readHtmlRenderKeyDown, readHtmlRenderLinkRequest, readHtmlRenderReference } from '../../src/timeline/html-render';
+import { HTML_RENDER_MAX_FIT_HEIGHT, htmlRenderFrameHeight, htmlRenderTheme, htmlRenderThemeFragment, readHtmlRenderContentHeight, readHtmlRenderImageRequest, readHtmlRenderKeyDown, readHtmlRenderLinkRequest, readHtmlRenderReference } from '../../src/timeline/html-render';
 import { readMcpAppReference, mcpAppFileName, clampMcpAppHeight } from '../../src/timeline/mcp-app';
 import { STANDARD } from '../../src/appearance/settings-appearance-editor';
 
-const html = { attachmentId: 'page-1', title: ' Page ', height: 500, heights: [[320, 900], [728, 500], [1000, 400]], outline: 't0,0,182,10,2' };
+const html = { attachmentId: 'page-1', title: ' Page ', height: 500, heights: [[320, 900], [728, 500], [1000, 400]] };
 const app = { attachmentId: 'app-1', server: 'weather', tool: 'forecast', resourceUri: 'ui://forecast/index.html' };
 
 test('provider envelopes retain render metadata and reject failed or foreign tool results', () => {
@@ -26,14 +26,17 @@ test('untrusted result envelopes have byte, nesting and block budgets', () => {
   expect(compactDynamicToolOutput({ error: 'refused', htmlRender: html })).toEqual({ isError: true, htmlRender: { ...html, title: 'Page' } });
 });
 
-test('measured frame and skeleton fit the nearby layout widths and live page height', () => {
+test('the frame fits the nearby measured widths until the live page reports its height, which wins', () => {
   const ref = readHtmlRenderReference(html)!;
   expect(htmlRenderFrameHeight(ref, 520)).toBe(900);
   expect(htmlRenderFrameHeight(ref, 860)).toBe(500);
   expect(htmlRenderFrameHeight(ref, 860, 750)).toBe(750);
-  expect(htmlRenderFrameHeight({ ...ref, height: 300 }, 520, 800)).toBe(300);
-  expect(htmlRenderOutlineBoxes(ref, 364)[0]).toMatchObject({ kind: 'text', width: 364, lines: 2 });
-  expect(readHtmlRenderReference({ ...html, heights: [[-1, 20]] })?.outline).toBeUndefined();
+  // The live page wins over the agent's height and the 2000 cap, up to the fit cap (#22131).
+  expect(htmlRenderFrameHeight({ ...ref, height: 300 }, 520, 800)).toBe(800);
+  expect(htmlRenderFrameHeight({ ...ref, height: 400 }, 728, 2344.2)).toBe(2345);
+  expect(htmlRenderFrameHeight(ref, 728, 90_000)).toBe(HTML_RENDER_MAX_FIT_HEIGHT);
+  expect(htmlRenderFrameHeight(ref, 728, 12)).toBe(80);
+  expect(readHtmlRenderReference({ ...html, outline: 't0,0,182,10,2' })).not.toHaveProperty('outline');
   expect(readHtmlRenderReference({ ...html, height: Infinity })).toBeUndefined();
 });
 

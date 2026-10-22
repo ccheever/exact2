@@ -99,7 +99,7 @@ final class T3ComposerEditor {
         return element
     }
 
-    /// An open command or stash menu's keys (ChatComposer onComposerCommandKey):
+    /// An open command or stash menu's keys (ChatComposer onComposerCommandKey, ComposerStashMenu):
     /// its hidden key buttons are mounted only while it is open, and take ↑, ↓,
     /// Return, Tab (the highlighted item) and Escape before the field's own command.
     func menuCommand(_ selector: Selector, in view: NSTextView) -> Bool {
@@ -115,7 +115,7 @@ final class T3ComposerEditor {
         case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
             return press("Enter") || press("stash-Enter")
         case #selector(NSResponder.insertTab(_:)): return press("Enter")
-        case #selector(NSResponder.cancelOperation(_:)): return press("Escape")
+        case #selector(NSResponder.cancelOperation(_:)): return press("Escape") || press("stash-Escape")
         case #selector(NSResponder.deleteToBeginningOfLine(_:)): return press("stash-Delete")
         default: return false
         }

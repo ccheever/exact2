@@ -1,5 +1,6 @@
 import { look } from '../../src/appearance/settings-appearance-look';
 import { describe, test, expect } from 'bun:test';
+import { contractFns } from '../support/contract-fn-fixture';
 import { T3Client } from '../../src/client/client';
 import { snapshot, transcriptPresentation, modelCatalog, providerBanner, projectIdentity, providerBadge } from '../../src/client/presentation';
 import { environmentFetchFailure, parsePairing, nativeFiles, type Native, type Files } from '../../src/client/protocol';
@@ -862,6 +863,25 @@ test('provider account badges distinguish configured siblings and valid accents'
   expect(providerBadge({...named,accentColor:'red'},[named])).toMatchObject({providerBadge:''});
   const acp={driver:'acpRegistry',displayName:'Local Agent',acpRegistryAgentId:'one'};
   expect(providerBadge(acp,[acp,{driver:'acpRegistry',acpRegistryAgentId:'two'}])).toMatchObject({providerBadge:''});
+  // A disabled sibling does not badge an enabled instance; a disabled (historical) owner is still told apart.
+  const enabled={...named,enabled:true}, disabled={instanceId:'codex',driver:'codex',displayName:'Personal',enabled:false};
+  expect(providerBadge(enabled,[enabled,disabled])).toMatchObject({providerBadge:''});
+  expect(providerBadge(disabled,[enabled,disabled])).toMatchObject({providerBadge:'PE'});
+});
+
+// providerInstanceDisplay.test.ts providerAccentForegroundColor: the higher WCAG contrast of black and white initials,
+// the Contract table against the reference's own arithmetic over every grey and a spread of hues.
+test('badge initials stay readable on light accent colors', () => {
+  const { providerAccentInk } = contractFns('accent-ink.contract');
+  const reference = (accent: string) => {
+    const linear = (offset: number) => { const value = Number.parseInt(accent.slice(offset, offset + 2), 16) / 255; return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4; };
+    const luminance = 0.2126 * linear(1) + 0.7152 * linear(3) + 0.0722 * linear(5);
+    return (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05) ? '#000000' : '#ffffff';
+  };
+  for (const [accent, ink] of [['#b5f23d', '#000000'], ['#2563eb', '#ffffff'], ['#777777', '#000000']]) expect(providerAccentInk(accent as never)).toBe(ink);
+  const hex = (n: number) => n.toString(16).padStart(2, '0');
+  const samples = [...Array(256).keys()].map(v => `#${hex(v)}${hex(v)}${hex(v)}`).concat([...Array(512).keys()].map(i => `#${hex((i * 37) % 256)}${hex((i * 91) % 256)}${hex((i * 151) % 256)}`.toUpperCase()));
+  for (const accent of samples) expect([accent, providerAccentInk(accent as never)]).toEqual([accent, reference(accent)]);
 });
 
 

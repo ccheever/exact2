@@ -7,13 +7,15 @@
 // The Files explorer, file tabs and the linked pull requests list are restored, and so are the
 // Diff, the Device surface with its device, pull request details and attachments (saved-surfaces.ts).
 // As the migration does, an active surface that was not kept falls back to the first kept one while
-// the panel is open, and a panel with nothing kept stays closed.
+// the panel is open, and a panel with nothing kept stays closed. The turn whose diff was last offered
+// proactively (`proactiveDiffTurnId`, 74541bab17) is kept with the panel, also when it keeps no surface,
+// so a closed proactive diff stays closed after a relaunch.
 import { arr, obj, str, type Obj } from '../client/domain';
 import type { PanelState, Surface } from './panel-surfaces';
 import { keepRestored, readRestored, RESTORED_KINDS, type RestoredSurface, type SurfaceEntry } from './saved-surfaces';
 
 export type SavedSurface = { id: string; kind: 'files' | 'file' | 'pull-requests'; path: string; line: number; folderTrail?: string } | RestoredSurface;
-export type SavedPanel = { visible: boolean; active: string; surfaces: SavedSurface[]; maximized?: true };
+export type SavedPanel = { visible: boolean; active: string; surfaces: SavedSurface[]; maximized?: true; proactiveDiffTurnId?: string };
 type Holder = { local: object };
 const KEPT = new Set(['files', 'file', 'pull-requests']);
 const MAX_PANELS = 200;
@@ -31,12 +33,13 @@ function keep(surface: SurfaceEntry): SavedSurface | null {
 }
 
 /** One panel as saved: its kept surfaces, the active one (or the first while open), open only with something kept. */
-export function savedPanel(state: { surfaces: readonly SurfaceEntry[]; active: string; visible: boolean; maximized?: boolean }): SavedPanel | null {
+export function savedPanel(state: { surfaces: readonly SurfaceEntry[]; active: string; visible: boolean; maximized?: boolean; proactiveDiffTurnId?: string }): SavedPanel | null {
   const surfaces = state.surfaces.map(keep).filter((entry): entry is SavedSurface => !!entry);
-  if (!surfaces.length) return null;
+  const offered = typeof state.proactiveDiffTurnId === 'string' && state.proactiveDiffTurnId ? { proactiveDiffTurnId: state.proactiveDiffTurnId } : {};
+  if (!surfaces.length) return 'proactiveDiffTurnId' in offered ? { visible: false, active: '', surfaces, ...offered } : null;
   const kept = surfaces.some(entry => entry.id === state.active);
   const visible = state.visible;
-  return { visible, active: kept ? state.active : visible ? surfaces[0]!.id : '', surfaces, ...(state.maximized === true ? { maximized: true } : {}) };
+  return { visible, active: kept ? state.active : visible ? surfaces[0]!.id : '', surfaces, ...(state.maximized === true ? { maximized: true } : {}), ...offered };
 }
 
 const local = (owner: Holder) => owner.local as { rightPanels?: Record<string, SavedPanel> };
@@ -49,6 +52,7 @@ export function adoptRightPanels(next: object, saved: Obj): void {
     const panel = savedPanel({
       surfaces: arr(entry.surfaces).map(readRestored),
       active: str(entry.active), visible: entry.visible === true, maximized: entry.maximized === true,
+      ...(typeof entry.proactiveDiffTurnId === 'string' ? { proactiveDiffTurnId: entry.proactiveDiffTurnId } : {}),
     });
     if (key && panel) panels[key] = panel;
   }
@@ -60,7 +64,7 @@ export function syncRightPanels(owner: Holder, panels: ReadonlyMap<string, Panel
   const record = local(owner), next: Record<string, SavedPanel> = { ...(record.rightPanels ?? {}) };
   for (const [key, state] of panels) {
     // An untouched panel (not restored yet, never used this session) leaves its saved state alone.
-    if (!state.surfaces.length && !state.userRevision) continue;
+    if (!state.surfaces.length && !state.userRevision && state.proactiveDiffTurnId === undefined) continue;
     const panel = savedPanel(state);
     if (panel) next[key] = panel; else delete next[key];
   }
@@ -82,7 +86,8 @@ export function restoreRightPanel(owner: Holder & { preferencesLoaded: boolean; 
   if (seen.has(key)) return false;
   seen.add(key);
   const saved = local(owner).rightPanels?.[key];
-  if (!saved || state.surfaces.length || state.userRevision) return false;
+  if (saved?.proactiveDiffTurnId && state.proactiveDiffTurnId === undefined) state.proactiveDiffTurnId = saved.proactiveDiffTurnId;
+  if (!saved || !saved.surfaces.length || state.surfaces.length || state.userRevision) return false;
   state.surfaces = saved.surfaces.map((entry): Surface => ({
     id: entry.id, kind: entry.kind, path: entry.path, line: entry.line, reveal: 0,
     ...('folderTrail' in entry && entry.folderTrail !== undefined ? { folderTrail: entry.folderTrail } : {}),

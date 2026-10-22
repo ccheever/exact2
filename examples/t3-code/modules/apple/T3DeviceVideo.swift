@@ -214,6 +214,9 @@ final class T3H264Decoder {
             var buffer: CMSampleBuffer?
             guard CMSampleBufferCreateReady(allocator: kCFAllocatorDefault, dataBuffer: block, formatDescription: format, sampleCount: 1, sampleTimingEntryCount: 1, sampleTimingArray: &timing, sampleSizeEntryCount: 1, sampleSizeArray: &sizes, sampleBufferOut: &buffer) == noErr, let buffer else { return self?.report() ?? () }
             var info = VTDecodeInfoFlags()
+            // Without kVTDecodeFrame_EnableTemporalProcessing the decoder emits every frame once it is decoded
+            // (VTErrors.h), so an SPS without the VUI's reorder limits holds nothing back. The reference adds them
+            // (client-runtime device/avcConfig.ts simulatorAvcConfig) because Chromium's decoder queues frames otherwise.
             let status = VTDecompressionSessionDecodeFrame(session, sampleBuffer: buffer, flags: [], infoFlagsOut: &info) { status, _, image, _, _ in
                 guard status == noErr, let image else { return }
                 var cg: CGImage?

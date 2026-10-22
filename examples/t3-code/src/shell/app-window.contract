@@ -45,11 +45,13 @@ use ThemeEditorHost from "../appearance/settings-appearance-editor.contract"
 use SidebarOverlays from "../sidebar/sidebar-overlays.contract"
 use ChatCanvasView from "./chat-canvas.contract"
 use TerminalDrawerView, TerminalDrawer from "../terminal/terminal.contract"
-use HoverTip, HoverLayer, HoverText, HoverScopes, HoverCode from "./hover-layer.contract"
+use HoverTip, HoverLayer, HoverText, HoverScopes, HoverCode, HoverModelName from "./hover-layer.contract"
 use StripPrTipCard from "../composer/strip-pr-badge.contract"
 use PaFreshnessCard from "../pull-requests/pages-pr-actions.contract"
 use WorkflowMemberCard from "../details/lineage-workflows.contract"
 use PrLinkPreviewCard from "../pull-requests/pages-pr-links.contract"
+use PrBreakdownCard from "../pull-requests/pr-breakdown.contract"
+use PrCardView from "../details/pr-row.contract"
 use ChipPopover, ChipPopoverLayer, ChipPopoverEscape from "../composer/composer-chip-popover.contract" // a skill chip's details
 use CitationCommentLayer from "../timeline/citation-comment.contract" // a citation chip's comment
 use CiteAction, CiteOffer, citeLineFrame, citeLineShown, citeRestored from "../timeline/diff-cite.contract" // Cite over the timeline
@@ -371,6 +373,9 @@ component T3Window
     dialogForget
     dialogFallback
     rem = data.look.fontSize
+    chatLaneWidth = 0 // TimelineRow provides its lane's width to the transcript's tables
+    renderMath = data.look.math
+    mathFrames = data.mathFrames
     wizardSteps = data.look.wizardSteps // the setup wizards' step list and panel follow the theme (ui/wizard.tsx)
     wizardPanel = data.look.wizardPanel
     still = viewport.prefersReducedMotion
@@ -1029,12 +1034,21 @@ component T3Window
             else if hoverTip.kind == "pr-badge"
               // Held to the larger room the layer can flip into, less its 4 pt offset.
               StripPrTipCard(tips=branches.prTips, maxHeight=(max(hoverTip.y - 61, viewport.height - hoverTip.y - hoverTip.height - 9) - 4), testId=hoverTip.testId, command=command)
+            else if hoverTip.kind == "pr-card"
+              for row in details.prRows.rows.concat(details.prRows.rest).filter((entry) => entry.key == hoverTip.text).slice(0, 1) key=row.key
+                PrCardView(card=row.extra.card, testId=hoverTip.testId)
+            else if hoverTip.kind == "breakdown"
+              // The split under the pointer, from the view that holds it: the detail, a Pull Requests row or a linked row.
+              for split in [prDetail.breakdown].concat(prList.groups.map((group) => group.rows.map((row) => row.breakdown)).flat()).concat(shell.panel.prs.rows.map((row) => row.breakdown)).filter((entry) => entry.ref == hoverTip.text).slice(0, 1) key=split.ref
+                PrBreakdownCard(breakdown=split, diff=prDetail.diffScheme, testId=hoverTip.testId)
             else if hoverTip.kind == "workflow-member"
               WorkflowMemberCard(tip=hoverTip)
             else if hoverTip.kind == "scopes"
               HoverScopes(tip=hoverTip)
             else if hoverTip.kind == "code"
               HoverCode(tip=hoverTip)
+            else if hoverTip.kind == "model-name"
+              HoverModelName(tip=hoverTip)
             else
               HoverText(tip=hoverTip)
       // Separate close/open layouts preserve replacement focus lineage without a child-owned timer.

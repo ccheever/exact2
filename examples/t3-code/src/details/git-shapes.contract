@@ -125,5 +125,8 @@ shape GitCard
   publishSummary: string
   envPick: bool
   envOptions: RunOnOption[]
+  // "Add to another machine" (useAddProjectTargets), offered under the Run on rows.
+  envAdd: RunOnOption[]
+  envAddMenuWidth: number
   envCount: number
   branch: GitBranch

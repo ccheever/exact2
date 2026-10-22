@@ -19,8 +19,10 @@ import { openInEditorHere } from '../connections/remote-open'; // remote Open (O
 import { letGo } from '../client/let-go';
 import { markUnread } from '../sidebar/sidebar-commands';
 import { canStopNativeSubagent, canStopWorkflow } from '../details/lineage-workflows';
+import { visiblePullRequests } from '../panel/shell-pr';
 import { replaceLinkedPrompt } from '../prompt-links/linked-prompt';
 import { openHome } from '../pages/home-landing';
+import { addMachineLocal } from './add-project-dialog';
 
 function threadOf(client: T3Client, threadId: string) {
   const thread = client.shell.threads.find(candidate => candidate.id === threadId);
@@ -91,37 +93,59 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
 }
 
 /**
- * ThreadRelationshipsPanel stopSubagent → interruptThreadTurn({ threadId: child }): `thread.stop` on the child when the
- * server advertises threadStop; otherwise the child thread's active run, else the latest run while it still owns
- * background work, is interrupted with its queue held. A failure is the toast
- * "Could not stop subagent".
+ * ThreadRelationshipsPanel stopSubagent → interruptThreadTurn({ threadId: owner, subagentId }) over the owner's fresh
+ * projection. A provider-native task stops by `subagent.stop` alone. An app-owned task with a child thread first
+ * gets the parent's `subagent.stop`, whose failure is ignored, and then its child thread is stopped: `thread.stop`
+ * when the server advertises threadStop; otherwise the child's active run, else its latest run while it still owns
+ * background work, is interrupted with its queue held, and with neither its pull request watches are turned off. A
+ * failure is the toast "Could not stop subagent".
  */
 async function stopSubagent(client: T3Client, native: Native, storage: Files, childThreadId: string): Promise<void> {
   try {
     if (client.writable === false) return;
     const access = client.restAccess(native);
-    const nativeAgent = arr(client.projection?.subagents).find(agent => agent.childThreadId === childThreadId && agent.origin === 'provider_native');
-    if (nativeAgent) {
-      const owner = str(nativeAgent.threadId) || client.threadId;
-      const projection = obj(await access.request('orchestration.getThreadProjection', { threadId: owner }));
-      const agent = arr(projection.subagents).find(candidate => candidate.id === nativeAgent.id);
-      if (!canStopNativeSubagent(agent)) return;
+    const listed = arr(client.projection?.subagents).find(agent => agent.childThreadId === childThreadId);
+    if (!listed) return;
+    const owner = str(listed.threadId) || client.threadId;
+    const fresh = obj(await access.request('orchestration.getThreadProjection', { threadId: owner }));
+    const agent = arr(fresh.subagents).find(candidate => candidate.id === listed.id);
+    if (agent?.origin !== 'app_owned' || !str(agent.childThreadId)) {
+      if (agent?.runId == null || (agent.origin === 'provider_native' && !canStopNativeSubagent(agent))) return;
       const [commandId] = await access.ids(1);
-      await access.dispatch(storage, { type: 'subagent.stop', commandId, threadId: owner, runId: str(agent!.runId), subagentId: str(agent!.id) }, 'Stop subagent');
+      await access.dispatch(storage, { type: 'subagent.stop', commandId, threadId: owner, runId: str(agent.runId), subagentId: str(agent.id) }, 'Stop subagent');
       return;
     }
+    // The parent ends the task even when its child lost track of it (#19002). Older
+    // servers reject this for app-owned tasks, so the child stop below still runs.
+    if (agent.runId != null) {
+      try {
+        const [commandId] = await access.ids(1);
+        await access.dispatch(storage, { type: 'subagent.stop', commandId, threadId: owner, runId: str(agent.runId), subagentId: str(agent.id) }, 'Stop subagent');
+      } catch (error) {
+        if (letGo(error)) throw error;
+        if (client.error === messageOf(error)) client.error = '';
+      }
+    }
+    const child = str(agent.childThreadId);
     if (client.threadStopOffered) {
       const [commandId] = await access.ids(1);
-      await access.dispatch(storage, { type: 'thread.stop', commandId, threadId: childThreadId }, 'Stop subagent');
+      await access.dispatch(storage, { type: 'thread.stop', commandId, threadId: child }, 'Stop subagent');
       return;
     }
-    const projection = childThreadId === client.threadId ? client.projection : obj(await access.request('orchestration.getThreadProjection', { threadId: childThreadId }));
+    const projection = child === client.threadId ? client.projection : obj(await access.request('orchestration.getThreadProjection', { threadId: child }));
     const runs = arr(obj(projection).runs);
-    const background = arr(client.shell.threads.find(thread => thread.id === childThreadId)?.pendingBackgroundTasks).length > 0;
+    const background = arr(client.shell.threads.find(thread => thread.id === child)?.pendingBackgroundTasks).length > 0;
     const run = activeRun(obj(projection)) ?? (background ? runs[runs.length - 1] : undefined);
-    if (!run) return;
+    if (!run) {
+      for (const link of visiblePullRequests(obj(obj(projection).thread).pullRequests)) {
+        if (link.watch === undefined) continue;
+        const [commandId] = await access.ids(1);
+        await access.dispatch(storage, { type: 'thread.pull-request.watch', commandId, threadId: child, host: link.host, repository: link.repository, number: link.number, watching: false }, 'Stop pull request watch');
+      }
+      return;
+    }
     const [commandId] = await access.ids(1);
-    await access.dispatch(storage, { type: 'run.interrupt', commandId, threadId: childThreadId, runId: str(run.id), holdQueue: true }, 'Stop subagent');
+    await access.dispatch(storage, { type: 'run.interrupt', commandId, threadId: child, runId: str(run.id), holdQueue: true }, 'Stop subagent');
   } catch (error) {
     if (letGo(error)) throw error;
     if (client.error === messageOf(error)) client.error = ''; // the toast stands in for the transcript banner
@@ -156,6 +180,7 @@ export async function shellLocal(client: T3Client, native: Native, op: string, i
   // ThreadDetailsControl in the inline presentation: toggles this thread's docked card (remembered).
   if (op === 'details-inline') { toggleInline(client, detailsKey(client)); return ''; }
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // panel-surfaces.ts
+  if (op.startsWith('add-machine-')) return addMachineLocal(client, native, op.slice(12), id, value); // Add to another machine (add-project-dialog.ts)
   const thread = client.shell.threads.find(candidate => candidate.id === id);
   if (op === 'copy-path') {
     const project = client.shell.projects.find(candidate => candidate.id === (thread?.projectId ?? client.projectId));
@@ -228,10 +253,21 @@ function formParams(value: string): Record<string, string> {
  * the command's message `toasted:` so the form stays open without its own
  * error text.
  */
+const WEBHOOK_FAILURE = /^(Invalid filter|Invalid age limit|Invalid webhook settings|Signing secret is required): /;
 export function settingsFailure(client: T3Client, op: string, id: string, value: string, message: string): string {
   if (!message) return '';
   let title = '', description = message;
   const form = formParams(value);
+  if (op === 'rest:task' && form.action === 'save' && message.split('\n').every(line => WEBHOOK_FAILURE.test(line))) {
+    // The webhook trigger's checks (scheduled-webhook.ts webhookSchedule): one toast per line, as submit()
+    // raises one reportFailure per invalid field.
+    const lines = message.split('\n');
+    for (let index = 0; index < lines.length; index++) {
+      const match = WEBHOOK_FAILURE.exec(lines[index]!)!;
+      pushToast(client, { kind: 'error', title: match[1]!, description: lines[index]!.slice(match[0].length), stacked: true });
+    }
+    return WEBHOOK_FAILURE.exec(lines[0]!)![1]!;
+  }
   if (op === 'rest:task' && form.action === 'save') {
     if (/^Scheduled task is incomplete|^Enter a task name and prompt/.test(message)) { title = 'Scheduled task is incomplete'; description = 'Add a title, prompt, project, and model.'; }
     else if (/interval of at least one minute/.test(message)) { title = 'Invalid interval'; description = 'Enter an interval of at least one minute.'; }

@@ -199,4 +199,24 @@ describe('media views', () => {
     const refused = fakeClient(() => ({}), { projection: { visibleTurnItems: items, messages: [], thread: {} }, rpc: async () => { throw new Error('no'); } });
     expect((await markdownMediaUrls(refused.client, native, '/repo', 5)).map(entry => entry.id)).toEqual(['media-failed:/tmp/a.png', 'media-failed:/tmp/b.mp4']);
   });
+
+  test('a rendered Markdown file signs its images again when the workspace changes or the connection returns (ChatMarkdownAssetImage)', async () => {
+    let signature = 0;
+    const { client, rpcs } = fakeClient(() => ({}), { rpc: async (_native: Native, method: string, payload: Call) => { rpcs.push({ method, ...payload }); return { relativeUrl: `/api/assets/f/a.png?sig=${++signature}` }; } });
+    const text = ['![a](/tmp/a.png)\n![b](/tmp/b.mp4)'];
+    const signed = async (mutationId: string | null) => (await markdownMediaUrls(client, native, '/repo', 5, text, { mutationId }))[0]!.url;
+    expect(await signed('["c1",null]')).toBe('http://127.0.0.1:16260/api/assets/f/a.png?sig=1');
+    expect(rpcs.length).toBe(2);
+    // The same workspace: nothing is signed again.
+    expect(await signed('["c1",null]')).toBe('http://127.0.0.1:16260/api/assets/f/a.png?sig=1');
+    expect(rpcs.length).toBe(2);
+    // A settled command changed the workspace: the image is signed again, the video is not.
+    expect(await signed('["c2",null]')).toBe('http://127.0.0.1:16260/api/assets/f/a.png?sig=3');
+    expect(rpcs.map(rpc => (rpc.resource as Call).path)).toEqual(['/tmp/a.png', '/tmp/b.mp4', '/tmp/a.png']);
+    // Offline nothing signs; back online the image signs again.
+    (client as unknown as { connection: string }).connection = 'reconnecting';
+    await signed('["c2",null]');
+    (client as unknown as { connection: string }).connection = 'connected';
+    expect(await signed('["c2",null]')).toBe('http://127.0.0.1:16260/api/assets/f/a.png?sig=4');
+  });
 });

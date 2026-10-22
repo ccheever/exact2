@@ -1,6 +1,6 @@
 // The tracked clone's labels, banner, send block and toast coordinator, derived from
-// T3 Code 1e2ecbd975 (MIT, see LICENSE-T3): packages/contracts/src/projectClone.ts,
-// components/ProjectCloneToastCoordinator.tsx and the clone banner of ChatView.tsx (the
+// T3 Code (MIT, see LICENSE-T3): packages/contracts/src/projectClone.ts (1e2ecbd975),
+// components/ProjectCloneToastCoordinator.tsx and the clone banner of ChatView.tsx (74541bab17; the
 // reference ships no test for the two components).
 import { describe, expect, test } from 'bun:test';
 import { cloneToast, projectCloneBanner, projectCloneDisplayName, projectCloneProgressSummary, projectCloneSendBlockReason, syncCloneToasts, type CloneToast, type ToastPort, type TrackedToast } from '../../src/shell/project-clones';
@@ -74,13 +74,14 @@ describe('ProjectCloneToastCoordinator', () => {
     syncCloneToasts(tracked, [], 'env', '', port);
     expect(log).toEqual(['add clone:env:p1 error Failed to clone pr-demo', 'close 1']);
   });
-  test("the toast steps aside while the project's draft is open and returns when it is not", () => {
-    const { port, log } = fakePort(), tracked = new Map<string, TrackedToast>();
-    syncCloneToasts(tracked, [clone()], 'env', '', port);
-    syncCloneToasts(tracked, [clone()], 'env', 'p1', port);
-    syncCloneToasts(tracked, [clone({ percent: 60 })], 'env', 'p1', port);
-    syncCloneToasts(tracked, [clone({ percent: 60 })], 'env', 'other', port);
-    expect(log).toEqual(['add clone:env:p1 loading Cloning pr-demo', 'close 1', 'add clone:env:p1 loading Cloning pr-demo']);
+  test("the toast steps aside while the project's draft is open, and its progress stays out of toasts after (74541bab17)", () => {
+    const { port, log } = fakePort(), tracked = new Map<string, TrackedToast>(), silenced = new Set<string>();
+    syncCloneToasts(tracked, [clone()], 'env', '', port, silenced);
+    syncCloneToasts(tracked, [clone()], 'env', 'p1', port, silenced);
+    syncCloneToasts(tracked, [clone({ percent: 60 })], 'env', 'p1', port, silenced);
+    syncCloneToasts(tracked, [clone({ percent: 60 })], 'env', 'other', port, silenced);
+    syncCloneToasts(tracked, [clone({ phase: 'failed', error: 'boom' })], 'env', 'other', port, silenced);
+    expect(log).toEqual(['add clone:env:p1 loading Cloning pr-demo', 'close 1', 'add clone:env:p1 error Failed to clone pr-demo']);
   });
   test('× dismisses for good; a toast its own button closed comes back on the next change', () => {
     const { port, log, live, closers } = fakePort(), tracked = new Map<string, TrackedToast>();
