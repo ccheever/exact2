@@ -55,7 +55,7 @@ export const easHostsOf = (settings: Obj): EasHost[] => arr(settings.easDeviceHo
 // ── Views ──────────────────────────────────────────────────────────────────
 type EasApp = { id: string; fullName: string };
 type Account = { seq: number; status: 'checking' | 'signed-in' | 'failed'; message: string; apps: EasApp[] };
-type Editor = { serial: number; isNew: boolean; host: EasHost; account: Account };
+type Editor = { serial: number; isNew: boolean; host: EasHost; account: Account; mount: number };
 type EasState = { editor: Editor | null; serial: number };
 const states = new WeakMap<T3Client, EasState>();
 const stateOf = (client: T3Client) => { let state = states.get(client); if (!state) states.set(client, state = { editor: null, serial: 0 }); return state; };
@@ -100,6 +100,10 @@ export async function easAccountCheck(client: T3Client, native: Native, input: R
   const editor = stateOf(client).editor;
   if (!editor || String(editor.serial) !== input.serial) return '';
   const seq = Number(input.seq);
+  // Check 1 is a dialog's first: one that mounts again (Settings closed and reopened over the open editor) counts
+  // from 1, so its checks start over and answers to the earlier dialog's checks are dropped.
+  if (seq === 1) { editor.mount++; editor.account = { seq: 0, status: 'checking', message: '', apps: [] }; }
+  const mount = editor.mount;
   // A cleared token is sent as empty, so the check does not fall back to the saved one that Save is about to drop.
   const payload: Obj = { ...(input.tokenKind === 'saved' && !editor.isNew ? { hostId: editor.host.id } : {}),
     ...(input.tokenKind === 'new' ? { accessToken: str(input.token) } : input.tokenKind === 'cleared' ? { accessToken: '' } : {}) };
@@ -112,7 +116,7 @@ export async function easAccountCheck(client: T3Client, native: Native, input: R
     account = { seq, status: 'failed', message: failure(error), apps: [] };
   }
   const current = stateOf(client).editor;
-  if (current === editor && seq >= current.account.seq) current.account = account;
+  if (current === editor && current.mount === mount && seq >= current.account.seq) current.account = account;
   return '';
 }
 
@@ -139,7 +143,7 @@ export async function easHostsCommand(client: T3Client, native: Native, op: stri
     const host = op === 'eas-open' ? newEasDeviceHost(randomId()) : easHostsOf(obj(client.config.settings)).find(entry => entry.id === input.id);
     if (!host) throw new ClientError('That EAS host is no longer configured.');
     // The editor checks the account as it opens: its first answer is the check its dialog sends on mount (seq 1).
-    state.editor = { serial: ++state.serial, isNew: op === 'eas-open', host, account: { seq: 0, status: 'checking', message: '', apps: [] } };
+    state.editor = { serial: ++state.serial, isNew: op === 'eas-open', host, account: { seq: 0, status: 'checking', message: '', apps: [] }, mount: 0 };
     return '';
   }
   if (op === 'eas-save') {

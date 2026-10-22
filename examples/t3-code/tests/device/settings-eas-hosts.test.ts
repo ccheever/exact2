@@ -6,7 +6,8 @@ import type { Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { easAccountCheck, easEditorView, easHostProblem, easHostsCommand, easHostsView, easSessionLimits, newEasDeviceHost, updateEasDeviceHosts } from '../../src/device/settings-eas-hosts';
 import { toasts } from '../../src/shell/toast';
-import { contractFns } from '../support/contract-action-fixture';
+import { contractComponent, contractFns } from '../support/contract-action-fixture';
+import { appPath } from '../support/app-files';
 
 const REDACTED = '••••••';
 
@@ -103,6 +104,40 @@ describe('the EAS hosts row and editor', () => {
     // A check from an editor that has since closed answers nothing.
     await easAccountCheck(client, native, { serial: String(Number(editor.serial) - 1), seq: '9', tokenKind: 'cleared', token: '' });
     expect(easEditorView(client).accountSeq).toBe(3);
+  });
+
+  test('a dialog that mounts again over the open editor starts its checks over; the earlier dialog\'s answers are dropped', async () => {
+    const { client, replies } = fixture();
+    await easHostsCommand(client, native, 'eas-open', {}, false);
+    const { serial } = easEditorView(client);
+    replies['device.easAccount'] = () => ({ signedInAs: 'first', credentialSource: 'env', apps: [] });
+    for (const seq of ['1', '2', '3']) await easAccountCheck(client, native, { serial, seq, tokenKind: 'cleared', token: '' });
+    expect(easEditorView(client)).toMatchObject({ accountSeq: 3, accountStatus: 'signed-in' });
+    // The earlier dialog's check 4 is still in flight when Settings closes and opens again.
+    let answerLate: (value: Obj) => void = () => {};
+    replies['device.easAccount'] = () => new Promise<Obj>(resolve => { answerLate = resolve; }) as unknown as Obj;
+    const late = easAccountCheck(client, native, { serial, seq: '4', tokenKind: 'cleared', token: '' });
+    replies['device.easAccount'] = () => ({ signedInAs: 'second', credentialSource: 'env', apps: [] });
+    const remount = easAccountCheck(client, native, { serial, seq: '1', tokenKind: 'cleared', token: '' });
+    expect(easEditorView(client)).toMatchObject({ accountSeq: 0, accountStatus: 'checking' });
+    await remount;
+    expect(easEditorView(client)).toMatchObject({ accountSeq: 1, accountStatus: 'signed-in', accountMessage: 'Signed in as second with EXPO_TOKEN on the server.' });
+    answerLate({ signedInAs: 'first', credentialSource: 'env', apps: [] });
+    await late;
+    expect(easEditorView(client)).toMatchObject({ accountSeq: 1, accountMessage: 'Signed in as second with EXPO_TOKEN on the server.' });
+  });
+
+  test('Enter in Name, the token or a limit saves a valid draft, as the reference\'s form submits', async () => {
+    const dialog = contractComponent('src/device/settings-eas-hosts.contract', 'EasHostDialog');
+    const sent: [string, string][] = [];
+    const rest = (op: string, value: string) => { sent.push([op, value]); };
+    for (const [problem, busy] of [['', false], ['Idle minutes must be smaller than session minutes.', false], ['', true]] as const)
+      dialog.call('submitDraft', dialog.state(), { problem, busy, saveInput: 'serial=1&label=Cloud', rest }, []);
+    expect(sent).toEqual([['eas-save', 'serial=1&label=Cloud']]);
+    const source = await Bun.file(appPath('src/device/settings-eas-hosts.contract')).text();
+    for (const field of ['id="eas-host-name"', 'id="eas-host-token"']) expect(source.split('\n').find(line => line.includes(field))).toContain('submit=submitDraft');
+    expect(source.split('\n').filter(line => line.includes('EasLimitField(label=') && line.includes('submit=submitDraft')).length).toBe(3);
+    expect(source.split('\n').find(line => line.includes('input id=fieldId'))).toContain('submit=submit ');
   });
 
   test('Save writes the draft beside the other hosts; an invalid draft is refused with the editor\'s reason', async () => {
