@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, watch, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Coordination, GiB, command, processIdentity } from './state.mjs';
+import { Coordination, GiB, command, processIdentity, terminalProof } from './state.mjs';
 
 const fixtures = [];
 afterEach(() => {
@@ -63,6 +63,30 @@ function waitFile(file) {
 const proof = task => ({ thread: { threadId: task.thread, worktreePath: task.worktree, status: 'completed', activeRunId: null, pendingRequestCount: 0, updatedAt: 'fixture' } });
 const audit = (task, operation, processes = [], auditorThreadId = task.thread) => ({ taskId: task.id, worktree: task.worktree, auditorThreadId, operation, processes, noUnrecordedDescendants: true });
 const own = task => ['--task', task.id, '--thread', task.thread];
+
+test('only empty read-only native investigations accept matching terminal native proof', async () => {
+  const f = fixture(); await f.c(f.main).init('coordinator');
+  const t = await f.c(f.a).register('NATIVE', '/root/investigation');
+  const native = { worktreePath: t.worktree, nativeCollaboration: { agents: [{ agent_name: t.thread, agent_status: { completed: 'read-only report' } }] } };
+  expect(() => terminalProof({ ...native, worktreePath: f.b }, t)).toThrow('active or unknown');
+  expect(() => terminalProof({ ...native, nativeCollaboration: { agents: [{ agent_name: t.thread, agent_status: 'running' }] } }, t)).toThrow('active or unknown');
+  expect(() => terminalProof(native, { ...t, thread: 't3-worker' })).toThrow('active or unknown');
+  for (const key of ['outputs', 'processes', 'pending']) expect(() => terminalProof(native, { ...t, [key]: [{}] })).toThrow('active or unknown');
+  const evidence = join(f.dir, 'report.log'); writeFileSync(evidence, 'read-only evidence');
+  await f.c(f.a).preserve(t.id, t.thread, [evidence]);
+  await f.c(f.a).resource(t.id, t.thread, 'storage', 'fixture:native');
+  await expect(f.c(f.main).recover(t.id, 'coordinator', native)).rejects.toThrow('owns resources');
+  expect((await f.c(f.main).status()).leases['storage:fixture:native']).toBeDefined();
+  await f.c(f.a).resource(t.id, t.thread, 'storage', 'fixture:native', true);
+  const inventory = [{ host: 'fixture', udid: 'native-phone', state: 'Shutdown' }];
+  await f.c(f.main).enroll('coordinator', { host: 'fixture', udid: 'native-phone', class: 'phone', runtime: 'fixture' }, inventory, true);
+  await f.c(f.a).claimDevice(t.id, t.thread, 'fixture', 'phone', 'fixture');
+  await expect(f.c(f.main).recover(t.id, 'coordinator', native)).rejects.toThrow('owns resources');
+  await f.c(f.a).releaseDevice(t.id, t.thread, 'fixture', 'native-phone', inventory);
+  await f.c(f.main).recover(t.id, 'coordinator', native);
+  await f.c(f.main).retire(t.id, 'coordinator', native);
+  expect(existsSync(f.a)).toBe(false);
+});
 
 test('fresh output directories match trailing-slash ignore rules before creation', async () => {
   const f = fixture(); await f.start();
