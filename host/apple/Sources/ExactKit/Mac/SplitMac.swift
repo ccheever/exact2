@@ -241,7 +241,10 @@ final class SplitHost {
     /// and laid out at its size, and the list's selected row.
     private func present() {
         queued = false
-        held = held.filter { presenter.views[$0.key] === $0.value.route }
+        for (id, entry) in held where presenter.views[id] !== entry.route {
+            held[id] = nil
+            presenter.blocks.release(entry.route)
+        }
         rowOf = rowOf.filter { presenter.views[$0.key] != nil }
         seen = seen.filter { presenter.views[$0] != nil }
         guard let controller, capable else {
