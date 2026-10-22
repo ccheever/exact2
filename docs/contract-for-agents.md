@@ -3225,6 +3225,15 @@ CSS overflow accepts `visible`, `hidden`, `clip`, `scroll`, and `auto`.
 permits scrolling, with indicators shown only when content overflows. A visible
 axis beside hidden/scroll/auto computes to auto, as on the web.
 
+`filter` on a box or an `image` takes CSS's functions in order (`blur`,
+`brightness`, `contrast`, `drop-shadow`, `grayscale`, `hue-rotate`, `invert`,
+`opacity`, `saturate`, `sepia`): `image "logo.png" filter="brightness(0.6)"`
+dims a logo. The element and its content are drawn, then filtered (Filter
+Effects 1 §12); the web, macOS and iOS draw it, and Linux draws it unfiltered
+for now (SVG Gallery's `fx-box-filter` and `fx-image-filter`). `url(#id)`
+naming an SVG `filter` works on SVG elements everywhere, but on a box or an
+image only on the web: Apple does not take it there yet (LLP 1055.000 §0).
+
 `backdrop-filter="blur(8px) saturate(1.14)"` filters content behind a box;
 the two functions may appear in either order. On macOS it samples only the
 parent's subtree: the parent's own paint and earlier siblings. Content behind
