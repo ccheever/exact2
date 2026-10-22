@@ -203,6 +203,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var imageSource: String?
     var loadGeneration = 0
     package var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
+    var keyboardPressed = false
     var press = PressFeedback() // LLP 1061: the feedback `pressed` drives
     var pressPaint = PressPaint() // LLP 1061 D7: the author's pressed paint
     var presentedAlpha: CGFloat = 1, disabledShown = false // the opacity presented, and whether the disabled look halves it (PressLookMac.swift)
@@ -273,6 +274,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             return
         }
         if pressable, props["href"] == nil ? presses : name == "Enter" {
+            if name == " " { keyboardPressed = true; pressed = true }
             let canvas = inputCanvas, ownerWindow = window
             presenter?.press(id)
             finishPress(canvas: canvas, window: ownerWindow, pointer: false)
@@ -282,8 +284,14 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         super.keyDown(with: event)
     }
     package override func keyUp(with event: NSEvent) {
+        if NodeView.keyName(event) == " " { releaseKeyboardPress() }
         guard !inert else { return }
         if inputCanvas?.canvasInput?.key(event, down: false, source: self) != true { super.keyUp(with: event) }
+    }
+    func releaseKeyboardPress() {
+        guard keyboardPressed else { return }
+        keyboardPressed = false
+        pressed = false
     }
     package override func flagsChanged(with event: NSEvent) {
         guard !inert else { return }
