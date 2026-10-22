@@ -170,6 +170,17 @@ pub(super) fn enqueued(ticket: u64, name: &str, request: &Request) -> String {
             token
         ),
         None if request.storage.is_some() => text!("storage {} ({})", ticket, name),
+        // A child's program, never its arguments or environment (LLP 1133.007 D2).
+        None if request.is_process() => {
+            let (kind, program) = crate::process::summary(&request.body);
+            let program = program.map_or(String::new(), |p| format!(" {p}"));
+            let origin = request.process_origin();
+            let origin = match origin {
+                crate::TurnOrigin::Person => String::new(),
+                other => format!(" (origin {})", other.name()),
+            };
+            format!("process {ticket} ({name}): {kind}{program}{origin}")
+        }
         None => text!(
             "request {} ({}): {} {}",
             ticket,

@@ -16,7 +16,7 @@ export const MODE_FACT = { mode: ['<axis>=<value>'] }; // `prefer`'s mode group 
 /** The CLI's facts (`prefer <name> <value> …`) as the wire's three groups; an unknown fact or value is refused naming what is expected.
  * A fact answers to its near spellings (`color-scheme`, `colorScheme`, `reduced-motion` for the `prefers-` names): round 9, three builds. */
 export function preferGroups(facts) {
-  const media = {}, page = {}, fold = {}, mode = {}, midi = {}, extension = {};
+  const media = {}, page = {}, fold = {}, mode = {}, midi = {}, extension = {}, origin = {};
   const all = { ...PREFERENCES, ...PAGE_FACTS, ...FOLD_FACTS, ...MODE_FACT, ...MIDI_FACTS };
   const expected = () => Object.entries(all).map(([n, v]) => `${n} ${v.join('|')}`).join(', ');
   const norm = n => String(n).toLowerCase().replace(/[^a-z]/g, '').replace(/^prefers?/, '');
@@ -32,6 +32,8 @@ export function preferGroups(facts) {
       continue;
     }
     if (name === 'midi.state' && MIDI_FACTS['midi.state'].includes(value)) { midi.state = value; continue; }
+    // The origin later inputs run as (LLP 1133.007 D13): a stand-in for a tool, wake or headless turn, which nothing makes yet.
+    if (name === 'origin' && ['person', 'tool', 'wake', 'headless'].includes(String(value))) { origin.origin = String(value); continue; }
     if (name === 'midi.inputs' || name === 'midi.outputs') { midi[name.slice(5)] = (Array.isArray(value) ? value : String(value).split(',')).map(n => String(n).trim()).filter(Boolean); continue; }
     if ((Object.hasOwn(PREFERENCES, name) ? PREFERENCES[name] : []).includes(value)) media[name] = value;
     else if ((Object.hasOwn(PAGE_FACTS, name) ? PAGE_FACTS[name] : []).includes(String(value))) page[name] = PAGE_FACTS[name][0] === 'true' ? String(value) === 'true' : String(value);
@@ -47,7 +49,7 @@ export function preferGroups(facts) {
     else throw new MalformedOperation(`prefer: ${name} ${value}: expected ${expected()}`);
   }
   if (fold.gap != null && fold.cols == null) throw new MalformedOperation('prefer: gap needs segments <cols>x<rows>');
-  return { media, page, fold, mode, midi, extension };
+  return { media, page, fold, mode, midi, extension, origin };
 }
 
 /** The request a native host answers: `media` rides along when nothing else does (an empty request is refused there by name). */

@@ -473,6 +473,16 @@ export function parseFlags(argv) {
     else if (argv[i] === '--permission') { const [name, state] = String(argv[++i]).split('='); (flags.permission ??= {})[`permission.${name}`] = state; }
     // A module answered by its implementation, not the substitute (LLP 1133.001 D7's behaviour tests; Apple, Android).
     else if (argv[i] === '--bind') flags.bind = [flags.bind, argv[++i]].filter(Boolean).join(',');
+    // What a child process is under the agent (LLP 1133.007 §7), said to a native host in the variables its executor reads:
+    // `--process <target>=<file>|script:<file.json>|real` (`all=real` every target), `--login-env NAME=value`, `--home <dir>`.
+    else if (argv[i] === '--process' || argv[i] === '--login-env') {
+      const value = argv[++i] ?? '', [name, spec] = [value.slice(0, value.indexOf('=')), value.slice(value.indexOf('=') + 1)];
+      if (!value.includes('=') || !name || !spec) throw new Error(`${argv[i - 1]} ${value}: expected ${argv[i - 1] === '--process' ? '<target>=<file>|script:<file.json>|real' : 'NAME=value'}`);
+      const key = argv[i - 1] === '--process' ? 'EXACT_AGENT_PROCESS' : 'EXACT_AGENT_LOGIN_ENV', file = spec.replace(/^script:/, '');
+      const line = argv[i - 1] === '--process' && spec !== 'real' ? `${name}=${spec.startsWith('script:') ? 'script:' : ''}${resolve(file)}` : `${name}=${spec}`;
+      process.env[key] = [process.env[key], line].filter(Boolean).join('\n');
+    }
+    else if (argv[i] === '--home') process.env.EXACT_AGENT_HOME = resolve(argv[++i] ?? '.');
     else rest.push(argv[i]);
   }
   if ((flags.widget || flags.activity) && !argv.some(arg => arg === '--help' || arg === '-h')) validateWidget(flags, rest);

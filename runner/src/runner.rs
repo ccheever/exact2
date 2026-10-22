@@ -89,6 +89,8 @@ mod queue;
 pub use queue::QUEUE_BOUND;
 pub mod router;
 pub use lists::{ListTextPolicy, ListTextPosition};
+mod processes;
+pub use processes::ChildState;
 mod settlement;
 mod sockets;
 pub use sockets::{SocketReader, SocketState};
@@ -328,6 +330,9 @@ struct PendingReq {
     /// A mutation's: the write it carries (`writes.rs`), which only its
     /// reply lands or ends.
     write: Option<u64>,
+    /// The origin of the turn that asked it: its answer's turns, and a
+    /// child's mapper, carry it (LLP 1133.007 D13).
+    turn: crate::process::TurnOrigin,
 }
 
 /// An open stream's messages so far, and those the host coalesced away
@@ -464,6 +469,8 @@ pub struct Runner<D: DataSource> {
     sockets: Vec<crate::SocketSend>,
     /// The host's live count of a socket's buffered bytes (D7), if it has one.
     socket_reader: Option<sockets::SocketReader>,
+    /// Turn origins and the agent's process clock (LLP 1133.007).
+    processes: processes::Processes,
     mutation_requests: u64,
     /// Resources an action asked to re-request; consumed by the next settle
     /// that can ask them (LLP 1054.000.000 D2).
@@ -921,6 +928,7 @@ impl<D: DataSource> Runner<D> {
             requests: Vec::new(),
             sockets: Vec::new(),
             socket_reader: None,
+            processes: Default::default(),
             mutation_requests: 0,
             refresh_next: Vec::new(),
             writes: writes::Writes::default(),

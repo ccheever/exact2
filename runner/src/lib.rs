@@ -63,6 +63,7 @@ pub mod lists;
 pub mod notify;
 pub mod page;
 pub mod perf;
+pub mod process;
 pub mod request;
 pub mod runner;
 pub mod save_file;
@@ -98,6 +99,7 @@ pub use instance::collection::{
 };
 pub use instance::{DocNode, DocTree, DocTreeError, ListLinks, SurfaceUpdate, LISTS};
 pub use page::Page;
+pub use process::{ProcessOp, TurnOrigin, WorkClock, PROCESS_URL};
 pub use request::{
     io_grants, Answer, Dispatch, FailureKind, HttpScheduling, Message, Outcome, Placement,
     Redirect, Reply, Request, RequestOut, Response, SocketOp, SocketOrigin, SocketSend,
@@ -117,7 +119,7 @@ pub use runner::{
     Write, BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS, PICKED, QUEUE_BOUND, RESIZE_UNDELIVERED,
     TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };
-pub use runner::{LiveApplied, LiveRefusal, Place, Tamber};
+pub use runner::{ChildState, LiveApplied, LiveRefusal, Place, Tamber};
 /// The binding core's names (LLP 1121 D12): what `contract tamber gen rust`
 /// writes (`pub const SURFACE_CARD: Token<Color>`) and resolves.
 pub mod tamber {

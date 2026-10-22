@@ -7,6 +7,7 @@
       "dependencies": {
         "@exact/actions": "workspace:*",
         "@exact/cards": "workspace:*",
+        "@exact/child-process": "workspace:*",
         "@exact/geolocation": "workspace:*",
         "@exact/lists": "workspace:*",
         "@exact/reading": "workspace:*",
@@ -28,6 +29,10 @@
     "packages/cards": {
       "name": "@exact/cards",
       "version": "0.1.0",
+    },
+    "packages/child-process": {
+      "name": "@exact/child-process",
+      "version": "1.0.0",
     },
     "packages/geolocation": {
       "name": "@exact/geolocation",
@@ -54,6 +59,8 @@
     "@exact/actions": ["@exact/actions@workspace:packages/actions"],
 
     "@exact/cards": ["@exact/cards@workspace:packages/cards"],
+
+    "@exact/child-process": ["@exact/child-process@workspace:packages/child-process"],
 
     "@exact/geolocation": ["@exact/geolocation@workspace:packages/geolocation"],
 

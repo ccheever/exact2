@@ -293,6 +293,21 @@ workers kept through a quiet spell otherwise keep every page a job reached
 dirty for the process's life: 80 KB in euxy on iOS after its launch's reads.
 Replay on a refresh.
 
+## Local patch 18, Exact's desktop processes: the grant families
+
+`grant.rs` reads exact2 LLP 1133.007's lines: `process.spawn <target>`
+(`path:<name>`, or an absolute, `app:`, `home:` or `bundle:` path, file or
+directory, by whole names; a `doc:` path is no program), a
+`Grant::ProcessSpawn` with its `SpawnTarget` admitting
+`Operation::ProcessSpawn { program }`; `secret.hold <name>`, refused
+beside a `secret.keep` of the same name (`secret-name-twice`); and the
+`home:/` and `bundle:/` namespaces in every path line, which `map_fs`
+leaves for the host to resolve, with `home:/` alone refused
+(`home-grant-whole`). `env.read login:<NAME>` needs nothing: a login
+variable is its own name. `boundary.rs` names the two capabilities.
+exact2's `grants` crate is the same grammar, and its parity test reads the
+shared corpus. Replay on a refresh.
+
 ## Qualification boundaries
 
 Exact's continuation snapshots the image work visible to its runtime owner turn.

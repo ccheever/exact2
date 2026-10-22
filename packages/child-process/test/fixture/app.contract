@@ -1,0 +1,31 @@
+// The stage drives' fixture (LLP 1133.007 §10): a child its data module
+// spawns, writes to on `drain`, restarts and reads to its close, and a
+// mutation that writes to, ends and signals it through the kept handle.
+shape Line
+  text: string
+
+component Fixture
+  resource server = server() as shape Line
+  resource status = status() as shape Line
+  mutation poked as shape Line
+  action write
+    send poked = poke("write")
+  action end
+    send poked = poke("end")
+  action kill
+    send poked = poke("kill")
+  view
+    column gap=8 padding=16
+      text server.text testId="server"
+      text status.text testId="status"
+      match poked
+        case some(p)
+          text p.text testId="poked"
+        case none
+          text "" testId="poked"
+      button press=write testId="write"
+        text "Write"
+      button press=end testId="end"
+        text "End"
+      button press=kill testId="kill"
+        text "Kill"

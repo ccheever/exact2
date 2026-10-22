@@ -631,8 +631,11 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             None => malformed("reveal needs an id"),
         },
         Some("clock") => clock(p, line),
-        // A fetch fault (LLP 1103) is the runner's; the device facts are this presenter's.
-        Some("prefer") if top_level(line, "faults") => p.host().agent(line),
+        // A fetch fault (LLP 1103) and a turn's origin (LLP 1133.007 D13) are the
+        // runner's; the device facts are this presenter's.
+        Some("prefer") if top_level(line, "faults") || top_level(line, "origin") => {
+            p.host().agent(line)
+        }
         // @ref LLP 1125 §4 — MIDI ports the agent names, and a message from one.
         Some("prefer" | "midi") if top_level(line, "midi") || top_level(line, "input") => {
             match p.midi_agent(line) {

@@ -311,5 +311,14 @@
   {"spec":"fs.read \"C:/../escape\"", "ok":false},
   {"spec":"fs.read C:relative", "ok":false},
   {"spec":"fs.read \"\\\\\\\\server\\\\share\"", "ok":false},
-  {"spec":"fs.read \"\\\\\\\\.\\\\C:\\\\x\"", "ok":false}
+  {"spec":"fs.read \"\\\\\\\\.\\\\C:\\\\x\"", "ok":false},
+  {"spec":"process.spawn path:ssh\nprocess.spawn /usr/bin/tar\nprocess.spawn home:/.t3/runtime/versions\nprocess.spawn bundle:/Helpers/t3/bin/t3\nenv.read login:PATH\nsecret.hold ssh.password", "ok":true},
+  {"spec":"fs.read home:/.ssh\nfs.write home:/.t3\nfs.read bundle:/Resources/t3-runtime", "ok":true, "fs":[["fs.read","home:/.ssh/config",true],["fs.read","home:/.ssh2",false],["fs.read","/.ssh/config",false],["fs.write","home:/.t3/userdata/x.json",true],["fs.read","bundle:/Resources/t3-runtime/a.tar",true],["fs.write","bundle:/Resources/t3-runtime/a.tar",false]]},
+  {"spec":"fs.read home:/", "ok":false},
+  {"spec":"process.spawn home:/", "ok":false},
+  {"spec":"process.spawn ssh", "ok":false},
+  {"spec":"process.spawn path:bin/ssh", "ok":false},
+  {"spec":"process.spawn doc:/chosen", "ok":false},
+  {"spec":"secret.hold a\nsecret.keep a", "ok":false},
+  {"spec":"secret.hold Bad", "ok":false}
 ]

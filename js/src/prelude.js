@@ -30,8 +30,7 @@
   // The engine's own Date, through its prototype: a browser realm under a
   // page's fake clock (Playwright's `clock.install`) has a fake `Date` that
   // keeps the real prototype.
-  var NativeDate = global.Date.prototype.constructor;
-  var construct = Reflect.construct;
+  var NativeDate = global.Date.prototype.constructor, construct = Reflect.construct;
   var InputDate = new Proxy(NativeDate, {
     apply: function () { return refuseAmbient("Date()"); },
     construct: function (target, args, newTarget) {
@@ -70,8 +69,7 @@
   // source has none of: the prelude's runs the tracker's own callback alone,
   // at the next checkpoint (`checkpoint` below), which is when a browser
   // fires the event, and refuses every other.
-  var reports = [], nextReport = 1;
-  var tracker = global.HermesInternal;
+  var reports = [], nextReport = 1, tracker = global.HermesInternal;
   if (tracker && typeof tracker.enablePromiseRejectionTracker === "function") {
     tracker.enablePromiseRejectionTracker({
       allRejections: true,
@@ -150,8 +148,7 @@
   // (D2, D3). `subtle` has what is built, the same on every executor: over
   // ibex2's `crypto` and the bytes door natively, over the realm's own on the
   // web. Every other `subtle` member refuses by name (D1).
-  var platformCrypto = global.crypto;
-  var fillRandom = platformCrypto.getRandomValues.bind(platformCrypto);
+  var platformCrypto = global.crypto, fillRandom = platformCrypto.getRandomValues.bind(platformCrypto);
   var platformSubtle = platformCrypto.subtle; // the web's, in a secure context
   // Natively: `(op, name, arrayBuffer) -> string`, the byte work in Rust.
   var bytesDoor = global.__exact_bytes;
@@ -483,10 +480,6 @@
   // ends its watch on `signal`.
   var pending = new Map(), currentCall = null, mapping = null, inMapper = false; // the answer a fetch belongs to; a socket's mapper answering a frame (D7); any mapper call
   global.__exact_async_context = Object.freeze({ current: function () { return currentCall; }, swap: function (call) { var before = currentCall; currentCall = call; return before; } }); // the bundle's async helper resumes each step under its answer (LLP 1133.002 D14)
-  // A fetch's `signal` is watched through Ibex's own abort hooks natively,
-  // which run before any listener and so cannot be stopped by one; a
-  // browser realm's signal is the browser's, watched by a listener, and
-  // checked again when the reply lands. Either watch ends with the fetch.
   // Calls with storage steps in flight, settled or not: a step a settled
   // call left behind is still the module's work (see `settle`).
   var storing = new Set();
@@ -515,9 +508,7 @@
   // issued; one in flight at a time. So only the issuer of the operation in
   // flight waits on the store's shared completions: one completion wakes one
   // waiter, and the next answer's read sees the write issued before it.
-  var MAX_QUEUED = 256;
-  var queue = [];
-  var head = null;
+  var MAX_QUEUED = 256, queue = [], head = null;
   function issue(op) {
     head = op;
     var promise;
@@ -539,6 +530,8 @@
   }
   // The operation in flight's owner, or null.
   function headOwner() { return head ? owner(head.call) : null; }
+  // A fetch's `signal` is watched through Ibex's own abort hooks natively, which no listener can stop; a browser
+  // realm's is the browser's, watched by a listener and checked again when the reply lands. Either ends with the fetch.
   var abortHooks = global.__exact_ibex2_abort_hooks;
   delete global.__exact_ibex2_abort_hooks;
   function watchAbort(signal, aborted) {
@@ -624,15 +617,13 @@
       if (buffered() + op.size > SOCKET_BYTES) throw quota("socket buffer exceeds 1 MiB");
       sent.ops++; sent.bytes += op.size;
       if (op.op === "close") sent.closed.push(owner);
-      host(17, String(ticket), JSON.stringify({ op: op.op, data: op.data, code: op.code, reason: op.reason }));
+      host(17, String(ticket), JSON.stringify(op.wire || { op: op.op, data: op.data, code: op.code, reason: op.reason }));
     }
+    function amount() { var n = buffered(), call = turn(), ops = call && call.socketOps; for (var i = 0; ops && i < ops.length; i++) if (ops[i].owner === owner) n += ops[i].size; return n; }
+    owner.stage = stage; owner.amount = amount; // a child's handle stages through them (js/src/process.js)
     owner.handle = Object.freeze({
       get readyState() { return owner.state; },
-      get bufferedAmount() {
-        var n = buffered(), call = turn(), ops = call && call.socketOps;
-        for (var i = 0; ops && i < ops.length; i++) if (ops[i].owner === owner) n += ops[i].size;
-        return n;
-      },
+      get bufferedAmount() { return amount(); },
       send: function (data) {
         if (typeof data === "string") return stage({ op: "text", data: data, size: utf8Length(data) });
         if (!(data instanceof ArrayBuffer) && !ArrayBuffer.isView(data)) throw new TypeError("socket.send expects a string, ArrayBuffer or ArrayBufferView");
@@ -657,11 +648,12 @@
   // A turn's staged operations to the host, with its answer.
   function handSocketOps(call, door) { // door 17: a promise-answering mutation's first answer turn, counted toward its bounds
     var ops = call.socketOps || [], sent = door === 17 && (call.socketSent = { ops: ops.length, bytes: 0, closed: [] }); call.socketOps = null;
-    ops.forEach(function (op) { if (sent) { sent.bytes += op.size; if (op.op === "close") sent.closed.push(op.owner); } host(door || 14, String(op.owner.ticket), JSON.stringify({ op: op.op, data: op.data, code: op.code, reason: op.reason })); });
+    ops.forEach(function (op) { if (sent) { sent.bytes += op.size; if (op.op === "close") sent.closed.push(op.owner); } host(door || 14, String(op.owner.ticket), JSON.stringify(op.wire || { op: op.op, data: op.data, code: op.code, reason: op.reason })); });
   }
 
   global.Response = Response;
-  global.fetch = function (url, init) {
+  // `own(ticket, call)`, a stream's owner other than a WebSocket's: a child process's (js/src/process.js).
+  function request(url, init, own) {
     if (overlaying || mapping) return Promise.reject(overlaying ? inOverlay("fetch()") : new Error("fetch() is unavailable in a socket's mapper: it answers each frame now"));
     var call = currentCall;
     // A continuation running as an answer already given still fetches: the
@@ -763,12 +755,12 @@
     if (signal && signal.aborted) return Promise.reject(signal.reason);
     var ticket = nextTicket++;
     // A WebSocket stream owns a two-way socket (LLP 1016.000 D7).
-    var socket = stream && /^wss?:/i.test(String(url));
+    var socket = stream && (!!own || /^wss?:/i.test(String(url)));
     var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, timeout_ms: timeout, body_from: bodyFrom, redirect: redirect }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;
-    var owner = socket ? (call.socket = socketOwner(ticket, call.mutation)) : null;
+    var owner = socket ? (call.socket = own ? own(ticket, call) : socketOwner(ticket, call.mutation)) : null;
     return new Promise(function (resolve, reject) {
       // `early`: made while its answer was still in flight (its body, or its
       // own continuation), so that answer's own, whoever else is pending.
@@ -778,7 +770,8 @@
       // stream itself runs until the runner lets its ticket go.
       if (signal) p.release = watchAbort(signal, function () { if (owner) owner.state = 3; if (settled(ticket)) reject(signal.reason); });
     });
-  };
+  }
+  global.fetch = function (url, init) { return request(url, init); };
 
   // --- signing in through the system browser (LLP 1069.006) ---------------
   // `authCallback()` is this carrier's callback, known before PAR: a native
@@ -1395,8 +1388,9 @@
     else if (o.closed) event = { type: "close", data: "", lastEventId: "", coalesced: 0, code: o.closed.code, reason: o.closed.reason, wasClean: o.closed.wasClean };
     else if (o.failed) event = { type: "error", data: "", lastEventId: "", coalesced: 0, kind: o.failed.kind, message: o.failed.message, status: 0 };
     else event = { type: "error", data: o.response.body, lastEventId: "", coalesced: 0, kind: "Response", message: "HTTP " + o.response.status, status: o.response.status };
-    // The socket's state as of this event (D7): `open` opens it, an end closes it.
-    if (socket) socket.state = !o.message ? 3 : event.type === "open" && socket.state === 0 ? 1 : socket.state;
+    // The socket's state as of this event (D7): `open` opens it, an end closes it. A child's owner reads its own events.
+    if (socket && socket.event) event = socket.event(o, event);
+    else if (socket) socket.state = !o.message ? 3 : event.type === "open" && socket.state === 0 ? 1 : socket.state;
     currentCall = call; inMapper = true;
     // Its mapper may reply on it answering `open` or a `message` (never on wasm, where it never opens): handed over however the call ends, sent if the frame's commit stands.
     var turn = mapping = socket && o.message && socket.state === 1 ? { owner: socket, socketOps: null, overload: null } : null;
@@ -1483,6 +1477,8 @@
     storing.delete(call);
     call.error = storageError(message);
   };
+  // The child-process module's seam (LLP 1133.007), natively only: js/src/process.js takes it, and it is gone.
+  if (global.__exact_process_host) global.__exact_process_seam = Object.freeze({ request: request, socketOwner: socketOwner, host: host, copyBytes: copyBytes, toBase64: toBase64 });
   global.__exact_fulfill = function (ticket, outcomeJson) {
     var p = settled(Number(ticket));
     if (!p) return;

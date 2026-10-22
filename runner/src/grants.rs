@@ -67,11 +67,31 @@ pub fn parse_with(spec: &str, link: GrantsLink) -> Result<Grants<'_>, Vec<String
             }
         }
     }
+    errors.extend(secret_twice(&lines));
     if errors.is_empty() {
         Ok(Grants { lines })
     } else {
         Err(errors)
     }
+}
+
+/// A name both `secret.keep` and `secret.hold` names (LLP 1133.007 D8,
+/// `secret-name-twice`): the grammar reads one line at a time here, so the
+/// whole set is checked apart.
+fn secret_twice<'a>(lines: impl IntoIterator<Item = &'a &'a str>) -> Option<String> {
+    let (mut kept, mut held) = (Vec::new(), Vec::new());
+    for line in lines {
+        let mut words = line.split_whitespace();
+        match (words.next(), words.next()) {
+            (Some("secret.keep"), Some(name)) => kept.push(name),
+            (Some("secret.hold"), Some(name)) => held.push(name),
+            _ => {}
+        }
+    }
+    let name = held.into_iter().find(|name| kept.contains(name))?;
+    Some(format!(
+        "`{name}` is both kept and held (secret-name-twice): a secret is `secret.keep` or `secret.hold`, not both"
+    ))
 }
 
 /// The line that admits a request to `url`, of the app's grants `spec`
@@ -97,6 +117,29 @@ pub fn admitting<'a>(spec: &'a str, scope: Option<&'a str>, url: &str) -> Option
             line.split_whitespace().next(),
             Some("net.fetch" | "net.websocket")
         ) && GrantSet::parse(line).is_ok_and(|set| set.permits(&operation))
+    })
+}
+
+/// The line that admits a stream `request`, as [`admitting`] for a URL; for
+/// a child process, the first `process.spawn` line that names its program
+/// (LLP 1133.007 D2's `state.streams`).
+pub fn admitting_request<'a>(
+    spec: &'a str,
+    scope: Option<&'a str>,
+    request: &crate::Request,
+) -> Option<&'a str> {
+    if !request.is_process() {
+        return admitting(spec, scope, &request.url);
+    }
+    let program = crate::process::summary(&request.body).1?;
+    let operation = exact_grants::Operation::ProcessSpawn { program };
+    let lines = |text: &'a str| text.lines().map(str::trim).filter(|l| !l.is_empty());
+    if scope.is_some_and(|scope| lines(scope).any(|l| !lines(spec).any(|a| a == l))) {
+        return None;
+    }
+    lines(scope.unwrap_or(spec)).find(|line| {
+        line.starts_with("process.spawn ")
+            && exact_grants::GrantSet::parse(line).is_ok_and(|set| set.permits(&operation))
     })
 }
 
@@ -170,6 +213,8 @@ fn normalized(spec: &str) -> (Vec<NormalizedLine>, Option<String>) {
             }
         }
     }
+    let sources: Vec<&str> = lines.iter().map(|l| l.source.as_str()).collect();
+    errors.extend(secret_twice(&sources));
     let error = (!errors.is_empty()).then(|| refusal(&errors));
     (lines, error)
 }
@@ -241,10 +286,27 @@ fn grant_json(grant: &exact_grants::Grant, out: &mut String) {
             }
             out.push(']');
         }
-        Grant::EnvRead(name) | Grant::SecretKeep(name) | Grant::StorageKv(name) => {
+        Grant::ProcessSpawn(exact_grants::SpawnTarget::Path(prefix)) => {
+            out.push_str("[\"process-spawn\"");
+            for component in prefix.components() {
+                out.push(',');
+                quote(component, out);
+            }
+            out.push(']');
+        }
+        Grant::ProcessSpawn(exact_grants::SpawnTarget::Name(name)) => {
+            out.push_str("[\"process-spawn\",\"path:\",");
+            quote(name, out);
+            out.push(']');
+        }
+        Grant::EnvRead(name)
+        | Grant::SecretKeep(name)
+        | Grant::StorageKv(name)
+        | Grant::SecretHold(name) => {
             let kind = match grant {
                 Grant::EnvRead(_) => "env-read",
                 Grant::SecretKeep(_) => "secret-keep",
+                Grant::SecretHold(_) => "secret-hold",
                 _ => "storage-kv",
             };
             out.push('[');
