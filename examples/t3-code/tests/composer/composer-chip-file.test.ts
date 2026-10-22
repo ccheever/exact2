@@ -10,7 +10,7 @@ import type { Native } from '../../src/client/protocol';
 import { performChipAct } from '../../src/composer/composer-chip-details';
 import { composerFileLocal, composerFileView, pastedPreview } from '../../src/composer/composer-chip-file';
 import { observeComposer, acceptComposerEdit } from '../support/composer-field-fixture';
-import { setDraftFiles, takeFold, type DraftFile } from '../../src/composer/composer-editor-files';
+import { setDraftFiles, foldPaste, type DraftFile } from '../../src/composer/composer-editor-files';
 import { attachmentView } from '../../src/panel/attachment-surface';
 import { lastSave, memoryAppFiles, serveAssets } from '../support/asset-server';
 
@@ -24,7 +24,7 @@ const file = (patch: Partial<DraftFile>): DraftFile => ({ id: ID, contextId: `fi
 function harness(files: DraftFile[], prompt = `see [notes.js](t3-context://v1/file/file_${ID}) now`) {
   const calls: Obj[] = [];
   const reply = (_request: Obj): Obj => ({ ok: true, generation: 0, value: {} });
-  // The staged copy under the app's data (T3ComposerAttach.swift writes it), and the server's asset once sent.
+  // The staged copy under the app's data (composer-attach-stage.ts writes it), and the server's asset once sent.
   const appFiles = memoryAppFiles(new Map([[`app:/data/composer-files/${ID}`, new TextEncoder().encode('const a = 1;\nexport { a };')]]));
   server?.restore();
   server = serveAssets(() => ({ body: 'const a = 1;\nexport { a };' }));
@@ -77,7 +77,7 @@ describe('a file chip\'s press opens AttachmentFilePreview over the draft\'s byt
     const { calls, native, client } = harness([]);
     const fold = harness([]);
     const current = observeComposer(fold.client, '');
-    await takeFold(fold.client, fold.native, { id: 1, snapshotOwner: current.snapshotOwner, fieldOwner: current.owner, value: '', text: 'pasted words', start: 0, end: 0, expect: '' }, ID);
+    await foldPaste(fold.client, fold.native, 'fold', { id: 1, snapshotOwner: current.snapshotOwner, fieldOwner: current.owner, value: '', text: 'pasted words', start: 0, end: 0 }, ID);
     const pasted = fold.client.local.composerFiles as DraftFile[];
     await performChipAct(fold.client, fold.native, { act: 'file', context: pasted[0]!.contextId });
     expect((await composerFileView(fold.client, fold.native, 1)).file).toMatchObject({ origin: 'Draft', name: 'pasted-text.txt', preview: 'code' });

@@ -6,16 +6,15 @@
 // uploads (client.ts uploadSnapshots): a PNG, JPEG, GIF or WebP within its limits keeps its bytes and type; a PNG or
 // JPEG over 2000 px is fitted in its own type; one over 10 MB, and a HEIC, is encoded by `compressImage`, as a PNG
 // when it can hold transparency and else as a JPEG (the reference's WebP has no encoder here). A plain file within the
-// server's limit is copied to `composer-files/<id>` for its chip; a video's or audio file's typed link, and a video's
-// first frame, are the module's (`composerAttachMedia`, T3ComposerAttach.swift).
-import { bridgeReply, type Native } from '../client/protocol';
+// server's limit is copied into `composer-files/` for its chip, a video or audio file under its typed name
+// (composer-staged-copies.ts stagedName), and a video's display size is read from its header (videoFrameSize).
 import type { Obj } from '../client/domain';
 import { appFiles } from '../media/save-file';
 import { uuid } from '../transport/transport-wire';
 import { MAX_FILE_BYTES } from './composer-editor-files';
-import { videoMimeType } from './composer-video';
+import { videoFrameSize, videoMimeType } from './composer-video';
 import { IMAGE_ATTACHMENT_MAX_EDGE } from './image-attachment-size';
-import { DRAFTS, STAGED } from './composer-staged-copies';
+import { DRAFTS, STAGED, stagedName } from './composer-staged-copies';
 import { imageHeader } from './composer-image-header';
 
 /** One file to attach: its path, its name, and the MIME type its source recorded ("" when none did). */
@@ -89,10 +88,12 @@ export function handleSource(path: string): AttachSource {
 
 async function mkdir(fs: StageFiles, path: string): Promise<void> { try { await fs.mkdir(path, { recursive: true }); } catch { /* it exists */ } }
 
-/** `from` copied to `to`: an app file in place, a document by its bytes (`doc:` paths refuse copyFile). */
-async function copy(fs: StageFiles, from: string, to: string): Promise<void> {
-  if (from.startsWith('app:/')) await fs.copyFile(from, to);
-  else await fs.writeFile(to, new Uint8Array(await fs.readFile(from)));
+/** `from` copied to `to`: an app file in place, a document by its bytes (`doc:` paths refuse copyFile), which it returns. */
+async function copy(fs: StageFiles, from: string, to: string): Promise<Uint8Array | null> {
+  if (from.startsWith('app:/')) { await fs.copyFile(from, to); return null; }
+  const bytes = new Uint8Array(await fs.readFile(from));
+  await fs.writeFile(to, bytes);
+  return bytes;
 }
 
 /** A name without path separators, for the scratch copy compressImage reads. */
@@ -144,21 +145,24 @@ async function stageImage(fs: StageFiles, source: AttachSource, size: number): P
 }
 
 /** A plain file: copied into composer-files/ when the server takes files of its size (`fileLimit`, 0 when it takes none). */
-async function stageFile(fs: StageFiles, native: Native, source: AttachSource, size: number, fileLimit: number): Promise<Obj> {
+async function stageFile(fs: StageFiles, source: AttachSource, size: number, fileLimit: number): Promise<Obj> {
   const name = source.name, mimeType = videoMimeType({ name, mimeType: source.type }) ?? (source.type || 'application/octet-stream');
   const file: Obj = { kind: 'file', name, sizeBytes: size, mimeType };
   if (size <= 0 || fileLimit <= 0 || size > Math.min(fileLimit, MAX_FILE_BYTES)) return file;
-  const id = uuid();
+  const id = uuid(), to = `${STAGED}/${stagedName({ id, name, mimeType })}`;
+  let read: Uint8Array | null;
   try {
     await mkdir(fs, STAGED);
-    await copy(fs, source.path, `${STAGED}/${id}`);
+    read = await copy(fs, source.path, to);
   } catch { return { kind: 'unreadable', name, sizeBytes: size }; }
   file.id = id;
-  const video = videoMimeType({ name, mimeType }) !== null;
-  if (video || mimeType.startsWith('audio/')) {
-    const media = await bridgeReply(native, { op: 'composerAttachMedia', id, ext: extension(name), video }).catch(() => null);
-    const value = media?.ok ? media.value as Obj : {};
-    if (Number(value.videoWidth) > 0 && Number(value.videoHeight) > 0) { file.videoWidth = value.videoWidth; file.videoHeight = value.videoHeight; }
+  if (videoMimeType({ name, mimeType }) !== null) {
+    // `moov` may follow the media data, and storage.fs reads whole files only, so the header costs a read of the video
+    // (at most MAX_FILE_BYTES) once: a dropped or pasted one's bytes are already read by its copy, a picked one is read
+    // from its staged copy.
+    const bytes = read ?? new Uint8Array(await fs.readFile(to).catch(() => new ArrayBuffer(0)));
+    const frame = videoFrameSize(bytes);
+    if (frame) { file.videoWidth = frame.width; file.videoHeight = frame.height; }
   }
   return file;
 }
@@ -172,8 +176,8 @@ export async function statSource(source: AttachSource): Promise<{ folder: boolea
  * One file of `size` bytes as addAttachedFiles takes it (`kind` image, file, unsupported-image, image-unreadable,
  * image-too-large or unreadable). `fileLimit`: the server's file staging limit (attachStagingLimit).
  */
-export async function stageAttachment(native: Native, source: AttachSource, size: number, fileLimit: number): Promise<Obj> {
+export async function stageAttachment(source: AttachSource, size: number, fileLimit: number): Promise<Obj> {
   const kind = classifyAttachment(source.name, source.type);
   if (kind === 'unsupported-image') return { kind, name: source.name, sizeBytes: size };
-  return kind === 'image' ? stageImage(files(), source, size) : stageFile(files(), native, source, size, fileLimit);
+  return kind === 'image' ? stageImage(files(), source, size) : stageFile(files(), source, size, fileLimit);
 }

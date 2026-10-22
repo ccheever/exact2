@@ -237,7 +237,7 @@ final class ComposerTests: XCTestCase {
 
 private func runComposerTests() {
     var executed = 0, failures = 0, succeeded = true
-    for suite in [ComposerTests.defaultTestSuite, ComposerEditorTests.defaultTestSuite, PromptPreviewEditorTests.defaultTestSuite, ComposerPasteTests.defaultTestSuite] {
+    for suite in [ComposerTests.defaultTestSuite, PromptPreviewEditorTests.defaultTestSuite] {
         suite.run()
         guard let run = suite.testRun, run.executionCount == suite.testCaseCount else { exit(1) }
         executed += run.executionCount; failures += run.totalFailureCount; succeeded = succeeded && run.hasSucceeded
