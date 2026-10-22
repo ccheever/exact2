@@ -47,6 +47,14 @@ describe('shared pull request observations', () => {
     }
   });
 
+  test('a linked row keeps its saved snapshot\'s line counts under a newer summary that leaves them out', () => {
+    const client = new T3Client(); client.environmentId = 'env'; client.threadId = 't';
+    client.config = { environment: { capabilities: { threadPullRequests: true } } };
+    client.shell.threads = [{ id: 't', projectId: 'p', pullRequests: [{ ...ref, source: 'manual', linkedAt: '2026-10-18T10:00:00Z', snapshot: summary({ additions: 203, deletions: 1 }) }] }];
+    observePullRequestSummary(client, 'env', ref, summary({ title: 'Fresh title', updatedAt: '2026-10-18T11:30:00Z' }));
+    expect(prsView(client, Date.parse('2026-10-18T12:00:00Z')).rows[0]).toMatchObject({ title: 'Fresh title', additions: '+203', deletions: '-1' });
+  });
+
   test('the same project, repository and number stay separate on different hosts', () => {
     const client = new T3Client(); client.environmentId = 'env';
     const enterprise = { ...ref, host: 'github.enterprise.test' };
