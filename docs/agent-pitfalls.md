@@ -1433,6 +1433,59 @@ The journal names a top level slower than 50 ms.
   `-exact-control-size` and `-exact-corner-style` are admitted only on an
   explicit native button, including through classes. (LLP 1069.011.001 D12–D14.)
 
+- **Natively, a Snapback resource or mutation fails with `native call outside an
+  answer` while the same app works on the web.** Seen with five resources
+  opening one `Snapback.switcher` partition at launch, and with a `setTyping`
+  write overlapping a `sendMessage` write. Cause: the native device is the
+  data module's native module, and the executor attributes a continuation to
+  the answer whose fetch resumed it; a source that awaited another answer's
+  promise (the switcher's opening, the partition's round in flight) continues
+  after that answer ends, and its next device call is refused. On the web the
+  device is wasm in the page, with no such guard. Fix: one read resource
+  answering everything the view shows (a `snapshot`), and writes that
+  `db.write` (admit; the device predicts) rather than `db.send`, so no write
+  waits on a round: the write's `refreshes world` runs it. Gate the live
+  timer on `not pending(...)` of every mutation. (Harmony, `~/projects/harmony`,
+  2026-10-21.)
+
+- **The Mac or iOS app says `Snapback4: the native module is not available: …
+  link exact_snapback4::Module`.** `exact new --snapback` wires the web's wasm
+  device only. Fix: in `apple/src/lib.rs` and `linux/src/main.rs`, wrap
+  `exact_snapback4::Module::new(APP, GRANTS)` in a struct implementing
+  `exact_js::NativeModule` (`configure_storage`, `call`), attach it with
+  `.with_native(factory)` on the `exact_js::Module`, add `exact-snapback4` and
+  `serde_json` to those crates' `Cargo.toml`, then `bun exact.mjs lock`.
+  (Harmony, 2026-10-21.)
+
+- **The web build refuses every brand token (`color="ink.light"` is not a valid
+  `color`) that `contract build` accepted a moment ago.** Cause: a later line
+  in `app.tamber` was refused (here `color-mix(in oklab, AccentColor 16%,
+  transparent)`, `tamber-residual`), and the web build reports the tokens the
+  design would have defined, not the design's refusal. Run `bun exact.mjs
+  contract build app.contract --json`, which names the design's line. Also:
+  a token's name is identifiers joined by dots (`hue.rose`, never `hue.1`).
+  (Harmony, 2026-10-21.)
+
+- **A brand token named by data (a custom emoji's `fill` from the server) is
+  black on iOS and the Mac, right on the web.** Natively a token is resolved
+  where the compiler sees its literal; a string from a source is not one.
+  Fix: a `fn fillToken(name: string): string` whose arms return the literal
+  token names, and for an SVG path `fill="currentcolor"` with the token on an
+  ancestor box's `color` (a token on `fill` itself draws black on the web).
+  (Harmony, 2026-10-21.)
+
+- **`bun exact.mjs tamber check .` in an app outside the checkout says each icon's
+  SVG under `assets/` is missing though it is there.** The check resolves
+  `assets/<path>` from the process's working directory, which `exact.mjs`
+  moves to the checkout; the app's build finds the files. Trust
+  `contract build`, or run the check from the checkout naming the app's
+  absolute path. (Harmony, 2026-10-21.)
+
+- **Under `agent macos` the tab bar sits at the bottom and no list splits beside
+  its detail.** The agent shows authored chrome by default; pass `--chrome
+  platform` to see the sidebar and the split as a person does (the screenshot
+  then captures the content column only). (Harmony, 2026-10-21.)
+
 ## Working on exact2 itself
 
 - **Bundling `host/web-js/rt.js` alone reports missing imports.** Its
