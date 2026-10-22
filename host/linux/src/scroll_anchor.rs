@@ -130,6 +130,7 @@ fn out_of_flow(node: NodeRef<'_>) -> bool {
 
 fn contains_absolute(node: NodeRef<'_>) -> bool {
     node.style.position_type != PositionType::Static
+        || node.props.str(exact_kernel::PropId::Popover).is_some()
         || [
             StyleId::Transform,
             StyleId::Translate,
