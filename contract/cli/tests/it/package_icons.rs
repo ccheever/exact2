@@ -272,6 +272,16 @@ fn describe_and_explain_name_a_package_icons_package_and_file() {
         "{explained}"
     );
     assert!(ok["package_value"].is_null(), "{explained}");
+    // resolve names them as for a package token (*1.16*).
+    let (resolved, _) = s.ask(json!({"method": "resolve", "token": "reading.star"}));
+    let ok = &resolved["ok"];
+    assert_eq!(ok["package"], "@acme/reading", "{resolved}");
+    assert_eq!(ok["file"], "@acme/reading/reading.tamber", "{resolved}");
+    assert_eq!(
+        ok["identity"], "@acme/reading/reading.tamber#reading.star",
+        "{resolved}"
+    );
+    assert_eq!(ok["tuples"][0]["sf"], "star", "{resolved}");
     drop(s);
     // The app's override: its row is the app's file, and explain gives the
     // package's own line.
@@ -285,6 +295,10 @@ fn describe_and_explain_name_a_package_icons_package_and_file() {
     let rows = described["ok"]["ir"]["icons"].as_array().unwrap();
     let star = rows.iter().find(|r| r["name"] == "reading.star").unwrap();
     assert_eq!(star["file"], "app.tamber", "{star}");
+    let (resolved, _) = s.ask(json!({"method": "resolve", "token": "reading.star"}));
+    assert_eq!(resolved["ok"]["package"], "@acme/reading", "{resolved}");
+    assert_eq!(resolved["ok"]["file"], "app.tamber", "{resolved}");
+    assert_eq!(resolved["ok"]["tuples"][0]["sf"], "heart", "{resolved}");
     let (explained, _) = s.ask(json!({"method": "explain", "token": "reading.star"}));
     let ok = &explained["ok"];
     assert_eq!(ok["file"], "app.tamber", "{explained}");
@@ -346,5 +360,83 @@ fn a_writes_check_reads_a_package_defaults_svg_in_the_package() {
         "{done}"
     );
     drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// theme2's Q1 for a package's Contract component (the lead's ruling on
+/// round 1's open question): a literal `icon(svg …)` default written in a
+/// package's `.contract` reads the package's `assets/`, whether or not the
+/// package ships a design, never the app's same-named file; an app's
+/// `params` line setting it reads the app's. The source graph lists the
+/// package's file, and a write's check reads it there.
+#[test]
+fn a_package_contracts_icon_param_reads_its_packages_assets() {
+    let dir = reading("pkgicon-contract", APP, "reading.star", STAR);
+    let package = dir.join("node_modules/@acme/reading");
+    std::fs::write(
+        package.join("index.contract"),
+        "component Card\n  params\n    glyph: icon = \"icon(svg \\\"pin.svg\\\")\"\n  view\n    column\n      image \"symbol:param.glyph\"\n",
+    )
+    .unwrap();
+    std::fs::write(package.join("assets/pin.svg"), shape(PACKAGE_STAR)).unwrap();
+    std::fs::write(dir.join("assets/pin.svg"), shape(APP_STAR)).unwrap();
+    let drawn = |dir: &Path| {
+        let plan = build(dir);
+        let glyph = plan
+            .icons
+            .iter()
+            .find(|i| plan.str(i.name).ends_with(".Card.glyph"))
+            .unwrap_or_else(|| panic!("{:?}", plan.icons));
+        plan.str(glyph.path).to_string()
+    };
+    for design in [true, false] {
+        if !design {
+            std::fs::remove_file(package.join("reading.tamber")).unwrap();
+        }
+        assert_eq!(drawn(&dir), PACKAGE_STAR, "with a design: {design}");
+        let graph = contract::source_graph(&dir.join("app.contract"));
+        let pins: Vec<_> = graph
+            .sources
+            .iter()
+            .filter(|s| s.path.ends_with("assets/pin.svg"))
+            .collect();
+        assert!(
+            pins.len() == 1
+                && pins[0]
+                    .path
+                    .ends_with("node_modules/@acme/reading/assets/pin.svg")
+                && matches!(&pins[0].origin, contract::Origin::Package { name, .. } if name == "@acme/reading"),
+            "{:?}",
+            graph.sources
+        );
+    }
+    // Missing in the package: a write's check says so, the app's file no stand-in.
+    std::fs::remove_file(package.join("assets/pin.svg")).unwrap();
+    let file = dir.join("app.tamber");
+    let mut s = Serve::start(&dir, &[]);
+    let op = json!({"op": "set-token", "name": "ink", "value": "#222222"});
+    let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": super::tamber_serve::digest(&file)}, "ops": [op]}));
+    let said = &done["error"]["diagnostics"][0];
+    assert!(
+        said["message"].as_str().is_some_and(
+            |m| m.contains("`assets/pin.svg` is no file of the package `@acme/reading`")
+        ),
+        "{done}"
+    );
+    drop(s);
+    let e = refused(&dir);
+    assert_eq!(e.id, "tamber-icon-svg", "{e}");
+    assert!(
+        e.message
+            .contains("the package `@acme/reading`'s `assets/pin.svg`"),
+        "{e}"
+    );
+    // The app's `params` line is the app's: its file.
+    std::fs::write(
+        &file,
+        format!("{APP}\nparams\n  Card.glyph = icon(svg \"pin.svg\")\n"),
+    )
+    .unwrap();
+    assert_eq!(drawn(&dir), APP_STAR);
     let _ = std::fs::remove_dir_all(&dir);
 }

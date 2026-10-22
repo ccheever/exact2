@@ -907,8 +907,8 @@ only its own package's icons (an app's or another package's is `tamber-unknown-t
 tokens). The app's design overrides one by its full name under its own `icons`, whole, and D7
 keeps one as it keeps a package token. A package's `svg "star.svg"` reads
 `<package root>/assets/star.svg`, the app's `<app>/assets/`; so does a package component's icon
-param default written as a literal `icon(svg …)` (Q1: a package is self-contained wherever it is
-used), while an app's `params` line setting that param is the app's and reads the app's. An icon
+param default written as a literal `icon(svg …)`, in the package's design or its Contract (Q1: a
+package is self-contained wherever it is used), while an app's `params` line setting that param is the app's and reads the app's. An icon
 naming another reads the file beside the line that writes the `icon(…)`. In v1 a package's SVG
 must be a one-colour template (Q2 (a); `tamber-icon-svg` otherwise): the web, which alone draws a
 file as written, stages the app's `assets/` only (QUEUE).
@@ -5755,6 +5755,15 @@ design can't do yet" (1). D11 is amended (above).
 - **Wire** (one clause on `tamber/1.16`). `describe`'s icon rows gain `package` and `file`, and `explain` of a
   package icon `package`, `file`, `identity`, `package_value` under an app override, and its value as its package
   writes it (`tamber_packages::owner` learns icons for rows; a write's ops still take tokens alone, no new op).
+- **Round 1's open questions** (the lead's ruling, a second commit). A package's Contract component's icon param
+  with a literal `icon(svg …)` default reads its package's `assets/` too, whether or not the package ships a
+  design: the loader gives a package's components their package and root (`Params::package`, `Params::root`,
+  from the source's `Origin::Package`), a `ParamToken` carries them (a design's from its `DesignSource`), and
+  `written_in` reads a param's line through them; the source graph finds the package's origin by its root.
+  `resolve` of a package icon carries `package`, `file` and `identity`, as of a package token (the 1.16 clause
+  says so). Tests: `a_package_contracts_icon_param_reads_its_packages_assets` (with and without a design, the
+  app's same-named file unused, the graph, a write's check, the refusal, the app's `params` line), and resolve's
+  fields in `describe_and_explain_name_a_package_icons_package_and_file`.
 - **Unchanged:** every app's plan and `tamber check` output (no app has a package icon), and `@exact/cards` and
   `@exact/actions`, whose icons are still path functions (their move to icon tokens is the follow-up).
 - **Tests:** `contract/cli/tests/it/package_icons.rs` (the namespace and its refusal; an alias within the package
