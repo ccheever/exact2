@@ -1,7 +1,7 @@
 #if os(macOS)
 import AppKit
 
-/// Retains OS focus/paste routing and toolbar geometry around the shared field.
+/// Retains type-to-focus and toolbar geometry around the shared field.
 /// Contract owns Return and formatting; an open command menu's keys press its
 /// hidden key buttons (T3ComposerEditor.menuCommand).
 final class T3Composer {
@@ -20,7 +20,7 @@ final class T3Composer {
     /// open above the trigger, start-aligned, so the view needs both edges).
     private(set) var anchorFrames: [String: [Double]] = [:]
     private var keyMonitor: Any?
-    /// OS paste and drop facts around the shared field.
+    /// Large pastes and the command menus' keys around the shared field.
     let editor: T3ComposerEditor
 
     init(changed: @escaping (String) -> Void = { _ in }) {
@@ -29,12 +29,6 @@ final class T3Composer {
     }
 
     var status: [String: Any] { ["anchors": anchorFrames] }
-
-    /// The prompt's text view while it has the keyboard (Edit › Paste as Text, T3Menus).
-    var focusedTextView: NSTextView? {
-        guard let view = editor.textView, view.isEditable, view.window?.firstResponder === view else { return nil }
-        return view
-    }
 
     func install(_ element: ExactElement) {
         editor.install(element)
@@ -118,24 +112,14 @@ final class T3Composer {
 
     struct Routed { let event: NSEvent? }
 
-    /// ⇧⌘V is Paste as Text (T3ComposerEditor.pasteAsText). ⌘V in the composer with only image data on the
-    /// pasteboard is the text view's paste, which AppKit's Paste (disabled for it) would not send. A printable key or
-    /// ⌘V with nothing editable focused goes to the composer, which takes focus. Nil leaves the event to the others;
-    /// `Routed` holds what goes on (nil: the key is taken).
+    /// A printable key or ⌘V with nothing editable focused goes to the composer, which takes focus. Nil leaves the
+    /// event to the others; `Routed` holds what goes on (nil: the key is taken).
     func editorKey(_ event: NSEvent) -> Routed? {
         guard event.type == .keyDown, let composer, composer.isLive, let view = composer.textView, view.isEditable,
               let window = view.window, event.window === window, window.attachedSheet == nil,
               view.isHiddenOrHasHiddenAncestor == false else { return nil }
         let flags = event.modifierFlags.intersection([.command, .control, .option, .shift])
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
-        if flags == [.command, .shift], key == "v", window.firstResponder === view {
-            editor.pasteAsText(view)
-            return Routed(event: nil)
-        }
-        if flags == .command, key == "v", window.firstResponder === view, T3ComposerEditor.pastesOnlyFiles(.general) {
-            view.paste(nil)
-            return Routed(event: nil)
-        }
         // A launcher letter goes on to Exact's key route (never type-to-focus), where its
         // row's shortcut takes it (AppKit runs local monitors in no fixed order).
         if let launcher, let shown = launcher.view, Self.launcherLetter(event, letters: launcher.data[.surfaceLauncherKeys] ?? "",
