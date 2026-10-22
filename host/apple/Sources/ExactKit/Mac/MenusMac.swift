@@ -91,10 +91,11 @@ final class MenuHost: NSObject {
     /// in `source`'s window, which one bubbled from a popover's own window is
     /// not in.
     private func track(_ menu: NSMenu, positioning item: NSMenuItem? = nil, at point: NSPoint, in source: NodeView,
-                       click: NSEvent? = nil, closed: () -> Void) {
-        // Native tracking owns the contact and may consume its up.
+                       click: NSEvent? = nil, entry: Entry, valid: () -> Bool, closed: () -> Void) {
+        // The release can close this presentation or change what its source invokes.
         presenter?.pointerSource?.pointerReleased(click)
-        guard source.window != nil, source.presenter === presenter else { closed(); return }
+        guard entries.contains(where: { $0 === entry }), live(entry.popover), live(source),
+              source.window != nil, source.presenter === presenter, valid() else { closed(); return }
         nativeTracking += 1
         if let click, [.rightMouseDown, .leftMouseDown].contains(click.type), let window = source.window,
            let press = NSEvent.mouseEvent(with: click.type, location: source.convert(point, to: nil), modifierFlags: click.modifierFlags,
@@ -350,9 +351,13 @@ final class MenuHost: NSObject {
                 // Escape or a click outside chose nothing. A chosen item has
                 // only been recorded: it presses once AppKit's tracking of
                 // `source` has unwound and the menu has closed.
-                self.track(menu, positioning: entry.focusedItem, at: self.popUpPoint(menu, entry.popover, in: source), in: source) {
+                let requiresTarget = self.opens(source, entry.popover)
+                self.track(menu, positioning: entry.focusedItem, at: self.popUpPoint(menu, entry.popover, in: source), in: source, entry: entry, valid: {
+                    self.invokes(source, entry.popover, requiringTarget: requiresTarget, bubbled: entry.bubbled)
+                        && (entry.confirmation.map(self.valid) ?? true)
+                }) {
                     entry.tracking = false
-                    self.close(entry.popover, cancelling: false)
+                    if self.entries.contains(where: { $0 === entry }) { self.close(entry.popover, cancelling: false) }
                 }
                 if let owner = entry.confirmation { DispatchQueue.main.async { owner.finished = true } }
             }
@@ -405,7 +410,10 @@ final class MenuHost: NSObject {
             entry.menu = menu; entry.tracking = true
             self.entries.append(entry)
             presenter.popoverEvents.changed(pop, open: true)
-            self.track(menu, at: point, in: source, click: click) {
+            self.track(menu, at: point, in: source, click: click, entry: entry, valid: {
+                self.contextPopover(source, run: run) == name && !source.formDisabled && !source.inert && !self.hidden(source)
+                    && (run.map { !presenter.inlineInert($0) } ?? true)
+            }) {
                 entry.tracking = false
                 if self.entries.contains(where: { $0 === entry }) { self.close(pop, cancelling: false) }
             }
