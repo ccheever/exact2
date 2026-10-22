@@ -237,6 +237,14 @@ fn module(
         json["admission"] = admission.into();
         substitute = json.to_string();
     }
+    // Options converted as Web IDL's `[EnforceRange] unsigned long long`
+    // (the Badging API's `contents`): admission's to check, the bake's for a
+    // literal.
+    if let Some(ranged) = entry["enforceRange"].as_array() {
+        let mut json: Value = serde_json::from_str(&substitute).unwrap_or_default();
+        json["enforceRange"] = Value::Array(ranged.clone());
+        substitute = json.to_string();
+    }
     Ok(ModuleDecl {
         name: name.to_owned(),
         declared: name.to_owned(),

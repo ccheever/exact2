@@ -127,10 +127,19 @@ impl<D: DataSource> Runner<D> {
     fn module_effect(
         &mut self,
         row: &ModulesRow,
-        args: Json,
+        mut args: Json,
         reply: Option<Arc<Mutex<Pending>>>,
     ) -> Effect {
         let declared = self.plan.str(row.declared).to_owned();
+        if let Some(refused) = self.ungranted(row, true) {
+            return Effect::Now(refused);
+        }
+        if let Err(refused) = self.enforce_range(row, &mut args) {
+            return Effect::Now(refused);
+        }
+        if let Some(refused) = self.unimplemented(row) {
+            return Effect::Now(refused);
+        }
         if self.bound(row) {
             let request = self.bound_request(row, args);
             let lines = self.extensions.declared.lines.clone();
@@ -208,6 +217,40 @@ impl<D: DataSource> Runner<D> {
                 None => s.reply = Some(reply),
             }
         })))
+    }
+
+    /// Each option `row` ranges (`enforceRange`) as Web IDL's
+    /// `[EnforceRange] unsigned long long` converts it: NaN, an infinity or
+    /// a value outside 0 to 2^53 − 1 once truncated toward zero refuses
+    /// `TypeError`, journaled; otherwise the truncated number replaces it.
+    /// `Ok(true)` when one was converted.
+    pub(super) fn enforce_range(
+        &mut self,
+        row: &ModulesRow,
+        args: &mut Json,
+    ) -> Result<bool, Json> {
+        let sub = self.substitute(row);
+        let mut converted = false;
+        for option in
+            (sub["enforceRange"].as_array().into_iter().flatten()).filter_map(Json::as_str)
+        {
+            let Some(n) = args.get(option).and_then(Json::as_f64) else {
+                continue;
+            };
+            let t = n.trunc();
+            if !(0.0..=9_007_199_254_740_991.0).contains(&t) {
+                self.log(format!(
+                    "{}: refused: TypeError, {option}= is {n}, not a whole number from 0 to 2^53 - 1",
+                    self.plan.str(row.declared)
+                ));
+                return Err(json!({ "error": "TypeError" }));
+            }
+            if t != n {
+                args[option] = json!(t as u64);
+                converted = true;
+            }
+        }
+        Ok(converted)
     }
 
     /// What `row`'s declaration says its call does to the agent's state.
@@ -548,15 +591,23 @@ impl<D: DataSource> Runner<D> {
         let Some(event) = tap["event"].as_str() else {
             return Ok(json!({ "ref": reference, "delivery": "substituted" }).to_string());
         };
+        // An entry posted with no key carries "" for it, as the web's
+        // untagged notification's `tag` is.
+        let key = self.substitute(row)["list"]["key"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        let field = |f: &str| match entry.get(f) {
+            Some(Json::Null) | None if f == key => Json::String(String::new()),
+            Some(v) => v.clone(),
+            None => Json::Null,
+        };
         let args: Vec<Json> = (tap["args"].as_array().into_iter().flatten())
             .map(|a| match a {
-                Json::String(field) => entry.get(field).cloned().unwrap_or(Json::Null),
+                Json::String(f) => field(f),
                 Json::Object(map) => Json::Object(
                     map.iter()
-                        .map(|(k, f)| {
-                            let v = f.as_str().and_then(|f| entry.get(f)).cloned();
-                            (k.clone(), v.unwrap_or(Json::Null))
-                        })
+                        .map(|(k, f)| (k.clone(), f.as_str().map_or(Json::Null, field)))
                         .collect(),
                 ),
                 other => other.clone(),

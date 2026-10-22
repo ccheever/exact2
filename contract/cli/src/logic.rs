@@ -204,7 +204,6 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
             | Capability::Segments
             | Capability::Dataset
             | Capability::Tabs
-            | Capability::Notifications
             | Capability::GroupedLists
             | Capability::Io
             | Capability::Transitions

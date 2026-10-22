@@ -56,8 +56,6 @@ pub struct Linked {
     pub auth: bool,
     /// `share(…)` (LLP 1069.003).
     pub share: bool,
-    /// `showNotification` and `closeNotification`.
-    pub notifications: bool,
     /// `saveFile` and the file pickers (LLP 1069.010).
     pub documents: bool,
     /// `input type="file"` and `showPicker` (LLP 1069.002): a file input's
@@ -135,11 +133,6 @@ impl Linked {
             } else {
                 None
             },
-            notifications: if self.notifications {
-                all.notifications
-            } else {
-                None
-            },
         }
     }
 
@@ -159,7 +152,6 @@ impl Linked {
         backdrop: None,
         auth: false,
         share: false,
-        notifications: false,
         documents: false,
         picker: None,
         timelines: None,
@@ -216,9 +208,6 @@ impl Linked {
         }
         if self.share {
             uses = uses.with(Capability::Share);
-        }
-        if self.notifications {
-            uses = uses.with(Capability::Notifications);
         }
         if self.documents {
             uses = uses.with(Capability::Documents);

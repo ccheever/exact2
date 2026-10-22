@@ -269,6 +269,9 @@ impl<D: DataSource> Host<D> {
         for note in notes {
             runner.log(note);
         }
+        // No module has an implementation in a terminal: its names are
+        // refused, never substituted (LLP 1133 D8, LLP 1133.004 §8).
+        runner.refuse_unbound_modules(true);
         let mut host = Host {
             runner,
             cols,
@@ -426,14 +429,6 @@ impl<D: DataSource> Host<D> {
                 }
                 ("preventDefault", _) => self.prevented = true,
                 ("openURL", Some(url)) => self.open_url(&url),
-                ("showNotification", _) => {
-                    exact_runner::notify::arm(
-                        &mut self.runner,
-                        exact_runner::notify::Notice::from_args(&command.args),
-                        false,
-                        false,
-                    );
-                }
                 _ => {}
             }
         }
@@ -1178,15 +1173,31 @@ mod notify_tests {
         }
     }
 
+    /// `@exact/notifications` has no terminal implementation: a post is
+    /// refused, journaled, never substituted (LLP 1133 D8, LLP 1133.004 §8).
     #[test]
     fn a_notification_refused_by_the_terminal_is_journaled() {
-        let source = "component App\n  action remind\n    showNotification(title=\"Hello\", navigate=\"/inbox\")\n  view\n    button press=remind\n      text \"Remind\"";
-        let plan = contract::compile_terminal(source).unwrap();
+        let dir =
+            std::env::temp_dir().join(format!("exact-terminal-notify-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("node_modules/@exact")).unwrap();
+        let package =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/notifications");
+        std::os::unix::fs::symlink(
+            package.canonicalize().unwrap(),
+            dir.join("node_modules/@exact/notifications"),
+        )
+        .unwrap();
+        let source = "use showNotification from \"@exact/notifications\"\n\ncomponent App\n  action remind\n    showNotification(title=\"Hello\", navigate=\"/inbox\")\n  view\n    button press=remind\n      text \"Remind\"\n";
+        std::fs::write(dir.join("app.contract"), source).unwrap();
+        let plan = contract::compile_path_terminal(&dir.join("app.contract"))
+            .unwrap_or_else(|e| panic!("{e:?}"));
         let mut host = Host::boot(plan, Granted, Mode::Inline, 40, 10).unwrap();
         host.act("remind");
         let logs = exact_runner::agent::logs(&host.runner, 0);
+        let _ = std::fs::remove_dir_all(&dir);
         assert!(
-            logs.contains("showNotification: refused: unavailable"),
+            logs.contains("notifications.showNotification: refused: NotSupportedError, no implementation here"),
             "{logs}"
         );
     }

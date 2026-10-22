@@ -281,6 +281,7 @@ fn call(m: &ModuleDecl, args: Vec<Expr>, span: Span) -> Result<Vec<Expr>, Vec<Co
                     .iter()
                     .find(|f| f.name == *option)
                     .and_then(|f| member(&name, &f.ty, &value))
+                    .or_else(|| ranged(m, option, &value))
                 {
                     errors.push(e);
                 } else {
@@ -398,6 +399,32 @@ fn call(m: &ModuleDecl, args: Vec<Expr>, span: Span) -> Result<Vec<Expr>, Vec<Co
         fields.push(Expr::NamedArg(w.platform.clone(), Box::new(value), span));
     }
     Ok(vec![Expr::Call(options_record(m), fields, span)])
+}
+
+/// A literal number outside Web IDL's `[EnforceRange] unsigned long long`
+/// for an option its declaration ranges (`enforceRange`): truncated toward
+/// zero, it must lie in 0 to 2^53 − 1.
+fn ranged(m: &ModuleDecl, option: &str, value: &Expr) -> Option<CompileError> {
+    let sub: serde_json::Value = serde_json::from_str(&m.substitute).ok()?;
+    if !(sub["enforceRange"].as_array()?.iter()).any(|o| o == option) {
+        return None;
+    }
+    let (n, at) = match value {
+        Expr::Number(n, at) => (*n, *at),
+        Expr::Unary(contract_syntax::UnOp::Neg, inner, at) => match inner.as_ref() {
+            Expr::Number(n, _) => (-n, *at),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let t = n.trunc();
+    (!(0.0..=9_007_199_254_740_991.0).contains(&t)).then(|| {
+        error(
+            "contract-module-argument",
+            format!("`{option}=` is a whole number from 0 to 2^53 − 1 (Web IDL's `[EnforceRange]`), given {n}"),
+            at,
+        )
+    })
 }
 
 /// A string literal outside its argument's vocabulary, refused by the name
