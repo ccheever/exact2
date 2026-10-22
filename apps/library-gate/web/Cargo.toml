@@ -1,0 +1,25 @@
+[package]
+name = "library-gate-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The library gate on the web (LLP 1139 §5): one wasm linking what the gate's cells use, the gate's web-wasm host"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "library_gate_web"
+crate-type = ["cdylib", "rlib"]
+test = false
+bench = false
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-web = { path = "../../../host/web" }
+exact-web-capabilities = { path = "../../../host/web-capabilities" }
+library-gate-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
+library-gate-data = { path = "../data" }

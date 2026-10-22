@@ -6,8 +6,8 @@ import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { ADOPTED, BEFORE_USES, RENDERED, STAGES, useStage, allowOf, beforeDrift, cloneConform, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE, readExact, mutationFails, MUTATION } from './stage12-gate.mjs';
-import { apart, caseReads, cases as exactCases, locate, matches, newTokens, packageParams, same } from './s13c-restyle.mjs';
+import { ADOPTED, BEFORE_USES, RENDERED, STAGES, useStage, allowOf, beforeDrift, cloneConform, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE, readExact, mutationFails, MUTATION, drivePlan, s13cPlan } from './stage12-gate.mjs';
+import { apart, caseReads, cases as exactCases, inspectDrive, locate, matches, newTokens, packageParams, same } from './s13c-restyle.mjs';
 
 test('the command line', () => {
   expect(parse(['baseline', '--copy', '/c'])).toBe('baseline needs --copy and --out');
@@ -367,3 +367,14 @@ test('the inventory reads any legal token or param name: dotted more than once, 
   const params = packageParams(root).filter(p => p.key.startsWith('ListRow.'));
   expect(params.map(p => [p.key, p.token])).toEqual([['ListRow.extra-tint', 'lists.switch-on'], ['ListRow.literal', null], ['ListRow.tint', 'lists.symbol-tint']]);
 });
+
+// theme2 13:47: library-gate's own wasm artifact links what its cells use,
+// so an s13c plan (the ProfileHeader batch's, its banner shade a gradient)
+// boots on it; another app's artifact refused it (Unlinked). A drive: it
+// needs the artifact built (EXACT_APP_DIR=apps/library-gate EXACT_WEB_DIST=…
+// bun host/web/build.mjs library-gate --wasm), so EXACT_GATE_DRIVES=1.
+test.skipIf(process.env.EXACT_GATE_DRIVES !== '1')('an s13c plan boots on library-gate\'s own wasm artifact', () => {
+  const plan = s13cPlan('ProfileHeader tokens');
+  const d = drivePlan('web-wasm', plan, null, [], null, (h, p, _png, ids, a) => inspectDrive(h, p, ids, a));
+  expect(d.tree.nodes.some(n => n.props?.testId === 'profile-header-ph-base')).toBe(true);
+}, 900_000);
