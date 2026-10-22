@@ -393,3 +393,53 @@ fn a_popover_after_the_scroller_leaves_it_the_bottom_edge() {
         "a popover again: the edge is the scroller's"
     );
 }
+
+/// A popover lays out absolute, so its insets start past its parent's cover
+/// as an authored absolute child's do, and a change to that cover derives it
+/// again (Astra's round 2 after the fact).
+#[test]
+fn a_popovers_insets_follow_its_parents_cover() {
+    let mut k = Kernel::with_monospace();
+    let mut ops = vec![];
+    for id in 1..=2 {
+        ops.push(Op::CreateView {
+            id,
+            node_type: NodeType::View,
+        });
+    }
+    ops.push(style(1, &[(StyleId::Height, StyleValue::Number(800.0))]));
+    ops.push(style(
+        2,
+        &[
+            (StyleId::Top, StyleValue::Number(0.0)),
+            (StyleId::Height, StyleValue::Number(40.0)),
+        ],
+    ));
+    ops.push(Op::SetProp {
+        id: 2,
+        prop: crate::PropId::Popover,
+        value: crate::props::PropValue::Str("auto".into()),
+    });
+    ops.push(Op::SetChildren {
+        id: 1,
+        children: vec![2],
+    });
+    ops.push(Op::AttachRoot { id: 1 });
+    k.apply(0, 1, &ops).unwrap();
+    k.set_host_cover(1, Some(HostCover::Edges([50.0, 0.0, 0.0, 0.0])))
+        .unwrap();
+    k.compute_layout(1, Offer::definite(390.0, 800.0)).unwrap();
+    assert_eq!(
+        k.node(2).unwrap().frame.y,
+        50.0,
+        "top: 0 starts past the bar"
+    );
+    k.set_host_cover(1, Some(HostCover::Edges([80.0, 0.0, 0.0, 0.0])))
+        .unwrap();
+    k.compute_layout(1, Offer::definite(390.0, 800.0)).unwrap();
+    assert_eq!(
+        k.node(2).unwrap().frame.y,
+        80.0,
+        "and follows the cover as it changes"
+    );
+}

@@ -39,20 +39,86 @@ pub(crate) fn packaged(app: &AppParams, out: &mut Value, paths: bool) {
     }
 }
 
+/// The local wire's watcher's `hello {paths: true}`: each package entry in
+/// `out` given `assets`, a digest of the package SVGs the app's build reads
+/// (stage 13 round 1, Astra 6: an edit of one changes what `draws` says
+/// without touching the design's text), so the watcher announces it as a
+/// change of the package's design; and `watch.assets`, the same for each
+/// package with no design whose SVGs the build reads (a Contract
+/// component's icon param, round 2, R2-4), named `<package>/assets/`.
+pub(crate) fn assets(app: &AppParams, out: &mut Value, graph: &contract::SourceGraph) {
+    // Never `out["packages"]` written: none listed is no key.
+    let listed = out.get_mut("packages").and_then(Value::as_array_mut);
+    for (entry, p) in listed.into_iter().flatten().zip(&app.packages) {
+        if let Some(root) = p.root.as_deref() {
+            entry["assets"] = json!(assets_under(graph, std::path::Path::new(root)));
+        }
+    }
+    let designed: Vec<&str> = app
+        .packages
+        .iter()
+        .filter_map(|p| p.root.as_deref())
+        .collect();
+    // Each owner of an SVG, there or not (narrow re-check, RE-1).
+    let mut others: Vec<(String, std::path::PathBuf)> = graph
+        .owners
+        .iter()
+        .filter(|p| !designed.iter().any(|d| std::path::Path::new(d) == p.root))
+        .map(|p| (p.name.clone(), p.root.clone()))
+        .collect();
+    others.sort();
+    let listed: Vec<Value> = others
+        .iter()
+        .map(|(name, root)| json!({"package": name, "file": format!("{name}/assets/"), "assets": assets_under(graph, root)}))
+        .collect();
+    out["watch"]["assets"] = json!(listed);
+}
+
+/// A digest of the SVGs under `root`'s `assets/` the build reads, each by
+/// its path and its bytes as the build reads them, from the file checked
+/// to be the package's own (rounds 2 and 3, R2-3, R3-4), one looked for and
+/// not there (or leaving) by its path.
+fn assets_under(graph: &contract::SourceGraph, root: &std::path::Path) -> String {
+    let under = root.join("assets");
+    let mut read: Vec<(String, Option<Vec<u8>>)> = graph
+        .sources
+        .iter()
+        .map(|s| (&s.path, true))
+        .chain(graph.consulted.iter().map(|c| (c, false)))
+        .filter(|(path, _)| path.starts_with(&under))
+        .map(|(path, there)| {
+            let body = there.then(|| contract_lower::icons::read_confined(path, root).ok());
+            (path.display().to_string(), body.flatten())
+        })
+        .collect();
+    read.sort();
+    let mut bytes = Vec::new();
+    for (path, body) in &read {
+        bytes.extend(path.as_bytes());
+        bytes.push(0);
+        bytes.extend(body.as_deref().unwrap_or(b"(none)"));
+        bytes.push(0);
+    }
+    digest(&bytes)
+}
+
 /// What the local wire's watcher watches for the packages' designs
 /// (`hello {paths: true}`'s `watch`): each linked package's directory,
 /// whole (a design made, renamed by its `package.json`, or in a directory
 /// of its own), and the directory each is installed in (a link retargeted,
 /// an install replacing it). Package directories only: never a path a
 /// `package.json` names outside its package.
-pub(crate) fn watched(app_contract: &std::path::Path) -> Value {
-    let graph = contract::source_graph(app_contract);
+pub(crate) fn watched(app_contract: &std::path::Path, graph: &contract::SourceGraph) -> Value {
     // Each package resolved, and each directory a resolution looked for a package.json in and failed
     // past (an export or a manifest missing for now): mending it inside the directory is a change too.
+    // And each package an icon's SVG is owned by, there or not, one vendored in the app included
+    // (round 3, R3-3; narrow re-check, RE-1).
+    let owners = graph.owners.iter().map(|p| p.root.clone());
     let mut roots: Vec<String> = graph
         .packages
         .iter()
         .map(|p| p.root.clone())
+        .chain(owners)
         .chain(
             graph
                 .consulted
@@ -262,25 +328,42 @@ fn in_package(dir: &std::path::Path, file: &std::path::Path) -> Result<Option<St
         .then(|| "node_modules".to_string()))
 }
 
-/// The package design that defines `name`, and its line for it.
-fn owner<'a>(app: &'a AppParams, name: &str) -> Option<(&'a DesignSource, exact_tamber::Token)> {
+/// The package design that defines the token `name`, and its line for it;
+/// with `icons`, an icon of that name too (stage 13): what a row says of
+/// it, where a write's ops take tokens alone (no op writes an icon).
+fn owner<'a>(
+    app: &'a AppParams,
+    name: &str,
+    icons: bool,
+) -> Option<(&'a DesignSource, exact_tamber::Token)> {
     app.packages.iter().find_map(|p| {
         let design = exact_tamber::parse(&p.text).ok()?;
-        let token = design.tokens.into_iter().find(|t| t.name.value == name)?;
+        let icons = design.icons.into_iter().filter(|_| icons);
+        let token = design
+            .tokens
+            .into_iter()
+            .chain(icons)
+            .find(|t| t.name.value == name)?;
         Some((p, token))
     })
 }
 
-/// Whether the app's design text `design` defines `name`.
+/// Whether the app's design text `design` defines `name`, a token or an
+/// icon.
 fn defines(design: &str, name: &str) -> bool {
-    exact_tamber::parse(design).is_ok_and(|d| d.tokens.iter().any(|t| t.name.value == name))
+    exact_tamber::parse(design).is_ok_and(|d| {
+        d.tokens
+            .iter()
+            .chain(&d.icons)
+            .any(|t| t.name.value == name)
+    })
 }
 
 /// What a package token's row says: its package, the file its value comes
 /// from (the app's design `file` when the app sets it, else the package's),
 /// and its identity, `<package>/<file>#<token>`. None for the app's own.
 pub(crate) fn about(app: &AppParams, design: &str, file: &str, name: &str) -> Option<Value> {
-    let (source, _) = owner(app, name)?;
+    let (source, _) = owner(app, name, true)?;
     let from = match defines(design, name) {
         true => file.to_string(),
         false => source.home.clone(),
@@ -339,7 +422,7 @@ pub(crate) fn package_value(app: &AppParams, design: &str, name: &str) -> Option
     if !defines(design, name) {
         return None;
     }
-    let (source, token) = owner(app, name)?;
+    let (source, token) = owner(app, name, true)?;
     let whens: Vec<Value> = token
         .whens
         .iter()
@@ -369,7 +452,7 @@ pub(crate) fn ops(
 ) -> Result<(), Value> {
     let refuse = |m: String| Err(json!({"message": m}));
     let base = |name: &str| contract_lower::BASE_SCALE.contains(&name);
-    let theirs = |name: &str| owner(app, name).is_some() || base(name);
+    let theirs = |name: &str| owner(app, name, false).is_some() || base(name);
     let namespace = |name: &str| {
         app.packages.iter().find(|p| {
             let ns = p
@@ -407,7 +490,7 @@ pub(crate) fn ops(
                 }
                 defined.insert(name.clone());
                 // The package's written kind (a shadow's must be written), its `when`s not.
-                let kind = owner(app, name).and_then(|(_, t)| t.kind);
+                let kind = owner(app, name, false).and_then(|(_, t)| t.kind);
                 *op = Op::AddToken {
                     name: name.clone(),
                     kind,

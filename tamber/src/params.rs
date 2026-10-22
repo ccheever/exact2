@@ -47,12 +47,16 @@ pub struct Params {
     /// numbered as the compiler numbers them. One the design defines is the
     /// design's, whole.
     pub joined: Vec<Token>,
+    /// Icons folded beside the design's own: its packages' (stage 13),
+    /// numbered as the compiler numbers them. One the design defines is the
+    /// design's, whole.
+    pub joined_icons: Vec<Token>,
 }
 
 impl Params {
     /// No params and nothing joined: the design folds alone.
     pub fn is_empty(&self) -> bool {
-        self.list.is_empty() && self.joined.is_empty()
+        self.list.is_empty() && self.joined.is_empty() && self.joined_icons.is_empty()
     }
 }
 
@@ -61,6 +65,7 @@ pub static NONE: Params = Params {
     list: Vec::new(),
     components: Vec::new(),
     joined: Vec::new(),
+    joined_icons: Vec::new(),
 };
 
 /// Why a name names no single param.
@@ -126,6 +131,13 @@ pub fn laid(design: &Design, params: &Params) -> Design {
             .filter(|j| !design.tokens.iter().any(|t| t.name.value == j.name.value))
             .cloned(),
     );
+    out.icons.extend(
+        params
+            .joined_icons
+            .iter()
+            .filter(|j| !design.icons.iter().any(|t| t.name.value == j.name.value))
+            .cloned(),
+    );
     for (i, p) in params.list.iter().enumerate() {
         let at = |value: &str| At {
             value: value.to_string(),
@@ -186,6 +198,7 @@ mod tests {
             ],
             components: vec!["a.contract#Row".into(), "c.contract#Bar".into()],
             joined: Vec::new(),
+            joined_icons: Vec::new(),
         };
         assert_eq!(named(&params, "Card.inset"), Err(Unnamed::Ambiguous));
         assert_eq!(

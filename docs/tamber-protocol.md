@@ -143,7 +143,22 @@ on macOS and Linux.
   `explain`'s `bases_by_tuple` beside `bases` (stage 13 D4): each tuple's base names, as it folds
   there (`bases` keeps its meaning, as wide as `names`); and the base rows emit the reserved source
   kind `{kind: "stretch", ref, why}` (stage 13 D5): the Mac's `space.xl` now reads `stretch` (`ref`
-  `grouped-label-inset`, with its why), which read `metric` before.
+  `grouped-label-inset`, with its why), which read `metric` before; and a package design's icons
+  (stage 13): a package icon's `describe` row carries `package` and `file`, its `resolve` answer
+  `package`, `file` and `identity`, and its `explain` answer those and, when the app's design
+  overrides it, `package_value`, as a package token's do (its `draws` reads the package's `assets/`).
+  Also in 1.16 (stage 13 E, the design tool's second hands-on pass, theme2's 09:29 ruling): a
+  selection's inherited row carries `fromAt: {file, line, component}` beside `from`, the source of the
+  node it inherits from, joined from the plan site the page reports (`fromSite`, the server's alone; a
+  host that gives none leaves `fromAt` out and a client falls back to `from`); and `inspect` takes
+  `{select: {up: n}, build}` (n from 1 to 64, the scope `inspect` has, the build's inspecting
+  client's alone): that build's page moves its selection `n` call sites up, to the outermost node above
+  it of the nearest enclosing copy that owns one, past the outermost call to the app's root, and
+  reports it as a click's selection. A selection that moved since the client's chain was read
+  (another node, or a rebuild) is stale, 409 with `stale: true`, as staleness is everywhere, and a
+  page whose selection moved while the frame was on its way reports its selection as it is now;
+  `unsupported` with `what: "inspect"` is only a page that can't step at all (Apple's, for now),
+  which a client takes as no `select` there, not as no inspect.
 
 ## Where it runs
 
@@ -1414,7 +1429,12 @@ The tool drives no input into an app; a command changes only what `prefer` would
     "more"|"less"|"no-preference", mode?: {axis: value}, rootFontSize?: px}`, the facts `prefer`
     pins, or null to hand them back. Each pin replaces the whole set: a fact it doesn't name is
     what the first pin replaced.
-  - `inspect` (*1.3*) `{on, seq}` or `{refresh: true}`: inspect mode on or off (`seq` numbers
+  - `inspect` (*1.3*) `{on, seq}` or `{refresh: true}`, or `{select: {up, levels, plan, from, instance}}` (*1.16*:
+    `levels` are the plan sites of each enclosing copy from `up` call sites out to the app's own,
+    each that owns a node, nearest first, as the server's map gives them for the selection at site
+    `from` (its instance path `instance`) under `plan`; a page whose selection or plan is another reports its selection as it is now, else it
+    selects, in the first level with a node above its selection, the outermost by its own tree,
+    and reports it as a click's selection): inspect mode on or off (`seq` numbers
     the command), or the selection
     reported again under the digests now (found again by its site and instance path after a
     new generation, or said gone). In inspect mode the page shows a banner with a close control
@@ -1635,7 +1655,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
   says no plan). Answered `{sites, builds}`: the running plan's sites, and the builds sent one. A
   build whose map is missing, or compiled a file that has changed since (a fresh span would land
   on another node), is sent none; refused (409, or 503 with no map) only when no build could be.
-- **`inspect`** `{client, build?, on | refresh: true}` (*1.3*, a present client; `on`, and `refresh` sent to the builds, need write scope; below it `refresh` reads the last selections, *1.13*)
+- **`inspect`** `{client, build?, on | refresh: true}` (*1.3*, a present client; `on`, and `refresh` sent to the builds, need write scope; below it `refresh` reads the last selections, *1.13*), or `{client, build, select: {up: n}}` (*1.16*, n from 1 to 64; write scope and the build's inspecting client alone, 409 otherwise, or with no selection to move from, or with `stale: true` when the selection moved since its chain was read: its selection moves `n` call sites up, past the outermost to the root, answered `{builds}`)
   sends
   `inspect` to a build, or to every build that can. Answered `{builds, unsupported}`: the builds
   it went to, and those that can't inspect. Inspect mode is its client's: when the client stops

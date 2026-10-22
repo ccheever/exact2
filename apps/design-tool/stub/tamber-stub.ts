@@ -147,7 +147,7 @@ const seq = () => log.at(-1)?.seq ?? 0;
 // the next of a fixed series, so a test can type it. The remote doors a test opens
 // (`/__stub/remote`) come with each code, as `{origin, fingerprint}`.
 type Paired = { client: string; name: string; scope: string; peer: string; created: string; expires: string; lastSeen: string; token: string };
-let paired: Paired[] = [], gone = new Set<string>(), refusePairing = new Set<string>(), canvasAt = '', forgeLocal = false, canvasCheck: unknown = null, codes = new Map<string, { scope: string; name: string; expires: number }>(), remote: unknown[] = [], minted = 0;
+let paired: Paired[] = [], gone = new Set<string>(), refusePairing = new Set<string>(), canvasAt = '', forgeLocal = false, canvasCheck: unknown = null, shallowSelect = false, refuseSelect = false, pageRefusesSelect = false, codes = new Map<string, { scope: string; name: string; expires: number }>(), remote: unknown[] = [], minted = 0;
 const GONE = 'this paired client was revoked or its token expired';
 const tokenIn = (req: Request) => req.headers.get('x-exact-tamber-token') ?? '';
 // A code as the server reads it: case, spaces, hyphens, I, L and O forgiven.
@@ -265,6 +265,20 @@ Bun.serve({ hostname, port: Number(port), routes: {
         // and moving no inspect mode (ruling 5), as the server answers it.
         if (request.refresh === true && asker.scope !== 'write') return send({ ok: { selections: BUILDS.map(b => log.findLast(e => e.event === 'selection' && e.build === b.id)).filter(Boolean) } });
         if (!present.has(request.client)) return send({ error: { message: `inspect: \`${request.client}\` is not present` } }, 409);
+        // `select: {up}` (tamber/1.16): the build's page selects that ancestor, reported as a click would be: the last
+        // selection again, its source the call site `up` above and its chain what is left above that.
+        if (request.select) {
+          if (refuseSelect) return send({ error: { message: 'inspect is not on for this client on `web-1`: turn it on first' } }, 409);
+          // (`/__stub/page-refuses-select`: sent, and the page answers it can't, as Apple's do.)
+          if (pageRefusesSelect) { log.push({ event: 'unsupported', epoch: EPOCH, build: request.build, what: 'inspect', detail: 'this build cannot move its selection up (select): click the node instead', seq: seq() + 1 }); save(); return send({ ok: { builds: [request.build] } }); }
+          const last = log.findLast(e => e.event === 'selection' && e.build === request.build) as { node?: number; source?: { chain?: unknown[] } } | undefined;
+          // (`/__stub/shallow-select`: a page whose tree changed has fewer above, and lands at the root.)
+          const chain = last?.source?.chain ?? [], up = shallowSelect ? chain.length : Math.min(Number(request.select.up), chain.length);
+          if (!last || !up) return send({ error: { message: `\`${request.build}\` has no selection with a source map to move up from: select a node first` } }, 409);
+          // (Another node, as the page's ancestor is: its own view id.)
+          log.push({ ...last, node: Number(last.node ?? 0) + 100 * up, source: { ...(chain[up - 1] as object), chain: chain.slice(up) }, seq: seq() + 1 }); save();
+          return send({ ok: { builds: [request.build] } });
+        }
         // A refresh asks a build's page to report again, inspect mode as it is:
         // its last selection again, with the held look a test set (`/__stub/held-answer`).
         if (request.refresh && !('on' in request)) {
@@ -435,6 +449,9 @@ Bun.serve({ hostname, port: Number(port), routes: {
   // The tool's canvas check as `tamber tool --via` answers it (scripts/tamber-frame.mjs), as a test sets it
   // (`/__stub/canvas-check`); not found by default, as a tool served without --via.
   '/__tamber/tool/canvas-check': { GET: () => (canvasCheck ? send(canvasCheck) : send({ message: 'Not found.' }, 404)) },
+  '/__stub/page-refuses-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); pageRefusesSelect = true; refuseSelect = false; return send({ ok: true }); } },
+  '/__stub/refuse-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); refuseSelect = true; return send({ ok: true }); } },
+  '/__stub/shallow-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); shallowSelect = true; return send({ ok: true }); } },
   '/__stub/canvas-check': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); canvasCheck = await req.json().catch(() => null); return send({ ok: true }); } },
   '/__stub/restart': {
     POST: (req) => {
@@ -451,7 +468,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       pins = 0;
       present.clear();
       // (A restart revokes every paired client: the tokens were in memory.)
-      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = ''; forgeLocal = false; canvasCheck = null;
+      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = ''; forgeLocal = false; canvasCheck = null; shallowSelect = false; refuseSelect = false; pageRefusesSelect = false;
       copyDelays = {}; noNavigate = []; galleryCopies = []; refuseLater = []; navs.length = 0; LIBRARY = {};
       // (The files as they were before the first package post: what any number of posts merged in, gone.)
       if (filesBefore) FILES = filesBefore;
