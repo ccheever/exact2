@@ -35,6 +35,14 @@ extension Presenter {
             window.makeFirstResponder(nil)
         }
         for member in members { member.holdGone() } // a held node that starts to leave is gone (HeldState.swift)
+        // AppKit discards cells on reload. A ghost belongs to the document
+        // until its exit ends, even when the live row count changes.
+        if let cell = sequence(first: view as NSView, next: \.superview).compactMap({ $0 as? TableRowCell }).first,
+           let home = cell.feed?.home, let parent = view.superview {
+            let frame = home.convert(view.frame, from: parent)
+            home.addSubview(view, positioned: .above, relativeTo: cell.feed?.table)
+            view.frame = frame
+        }
         for member in members { release(member.id, forget: false) }
         for root in [view] + held {
             root.routeInert = true
