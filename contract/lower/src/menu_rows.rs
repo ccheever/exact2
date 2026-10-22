@@ -57,7 +57,11 @@ fn popovers<'a>(nodes: &'a [Node], out: &mut BTreeMap<&'a str, Kind>) {
                         (_, false, _) | (_, true, Some(_)) => Kind::Other,
                         (_, true, None) => Kind::Unknown,
                     };
-                    out.insert(id, kind);
+                    // Two arms that say different things leave it unsettled.
+                    let settled = *out.entry(id).or_insert(kind);
+                    if settled != kind {
+                        out.insert(id, Kind::Unknown);
+                    }
                 }
                 children.iter().collect()
             }

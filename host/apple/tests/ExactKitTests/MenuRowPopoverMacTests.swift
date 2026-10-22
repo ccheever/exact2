@@ -33,7 +33,7 @@ final class MenuRowPopoverMacTests: XCTestCase {
             ["op": "create", "id": 4, "kind": "view", "props": ["popover": "auto", "id": "picker"]],
             ["op": "create", "id": 5, "kind": "view", "props": ["popover": "auto", "id": "more", "accessibilityRole": "menu"]],
             ["op": "create", "id": 6, "kind": "button", "props": [String: String]()], ["op": "create", "id": 16, "kind": "text", "props": ["text": "Thumbs up"]],
-            ["op": "create", "id": 8, "kind": "button", "props": [String: String]()], ["op": "create", "id": 18, "kind": "text", "props": ["text": "Deep"]],
+            ["op": "create", "id": 8, "kind": "button", "props": ["popovertarget": "picker"]], ["op": "create", "id": 18, "kind": "text", "props": ["text": "Deep"]],
             ["op": "create", "id": 20, "kind": "text", "props": ["text": "Add Reaction"]], ["op": "create", "id": 21, "kind": "text", "props": ["text": "More"]],
             ["op": "children", "id": 10, "ids": [20]], ["op": "children", "id": 11, "ids": [21]],
             ["op": "children", "id": 6, "ids": [16]], ["op": "children", "id": 8, "ids": [18]],
@@ -88,6 +88,22 @@ final class MenuRowPopoverMacTests: XCTestCase {
         while !p.menus.isOpen(picker) && Date() < end { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
         XCTAssertTrue(p.menus.isOpen(picker), "the chosen row's popover opens")
         XCTAssertEqual(p.menus.observation?["source"] as? Int, 2, "from the menu's invoker")
+    }
+
+    /// A row of a submenu written beside its menu opens its popover from the
+    /// menu's invoker too.
+    func testARowOfASubmenuOpensItsPopoverFromTheMenusInvoker() throws {
+        let p = fixture()
+        defer { p.menus.reset() }
+        let picker = try XCTUnwrap(p.views[4])
+        let menu = p.menus.menu(of: try XCTUnwrap(p.views[3]), from: p.views[2])
+        let more = try XCTUnwrap(menu.items.first { $0.title == "More" }?.submenu, "\(menu.items.map(\.title))")
+        let deep = try XCTUnwrap(more.items.first { $0.title == "Deep" })
+        NSApp.sendAction(try XCTUnwrap(deep.action), to: deep.target, from: deep)
+        let end = Date(timeIntervalSinceNow: 5)
+        while !p.menus.isOpen(picker) && Date() < end { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
+        XCTAssertTrue(p.menus.isOpen(picker))
+        XCTAssertEqual(p.menus.observation?["source"] as? Int, 2)
     }
 }
 #endif
