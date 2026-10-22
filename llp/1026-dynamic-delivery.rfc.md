@@ -189,7 +189,9 @@ origin needs what a LAN did not:
   plan and module (the envelope's pointers are same-origin, 1023 D1);
   the envelope itself may land on the final URL a redirect names —
   that is what "final response URL" was for.
-- **A capability URL, not a header, for dev.** The artifact endpoints
+- **A capability URL, not a header, for dev.** (Replaced for a phone
+  beyond the LAN by §10 Q5's ruling, 2026-10-22: pairing, not a bearer
+  URL.) The artifact endpoints
   are reached at a path with an unguessable segment the cloud mints per
   project (`https://<host>/p/<token>/`). It is the credential: it can
   be typed into the dev menu's URL field, scanned as a QR, pasted into
