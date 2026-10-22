@@ -344,6 +344,13 @@ own running worktree. For a crashed state mutex, inspect `mutex/owner.json` and
 use `recover-mutex` only when that exact recorded process is dead. Missing or
 unknown identity requires investigation, never a timestamp-based override.
 
+A read-only native collaboration investigation can instead supply fresh
+`collaboration.list_agents` output as `nativeCollaboration`, with its registered
+`worktreePath`. Only a matching `/root/` agent with completed status and no
+outputs, processes, pending launches, leases or devices qualifies. Preserve its
+source and evidence before retirement. Other native work requires a T3-bound
+owner and the normal terminal proof.
+
 At most one released task-created phone and one iPad per host remain `idle`.
 Surplus released devices become `retiring` and cannot be claimed. The coordinator
 captures their needed evidence, deletes only those exact devices through T3,

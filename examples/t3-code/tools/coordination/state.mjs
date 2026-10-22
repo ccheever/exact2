@@ -51,6 +51,13 @@ function noLinks(path) {
 }
 const terminalStatuses = new Set(['completed', 'failed', 'cancelled', 'interrupted', 'rolled_back']);
 export function terminalProof(proof, task) {
+  const native = proof.nativeCollaboration?.agents?.find(a => a.agent_name === task.thread);
+  if (task.thread.startsWith('/root/') && proof.worktreePath === task.worktree &&
+      native && Object.keys(native.agent_status ?? {}).length === 1 &&
+      typeof native.agent_status.completed === 'string' &&
+      !task.outputs.length && !task.processes.length && !task.pending.length) {
+    return { threadId: task.thread, status: 'completed', kind: 'native-investigation' };
+  }
   const t = proof.structuredContent?.thread ?? proof.thread;
   if (!t || t.threadId !== task.thread || t.worktreePath !== task.worktree ||
       !terminalStatuses.has(t.status) || t.activeRunId || t.pendingRequestCount !== 0) {
@@ -385,6 +392,10 @@ export class Coordination {
       this.coordinator(s, thread);
       const task = this.task(s, id);
       const terminal = terminalProof(proof, task);
+      if (terminal.kind === 'native-investigation' &&
+          (Object.values(s.leases).some(l => l.task === id) || Object.values(s.devices).some(d => d.task === id))) {
+        fail('native investigation owns resources; T3-bound recovery required');
+      }
       if (task.pending.length) fail('incomplete process launch; audit required');
       if (task.processes.some(p => processState(p) !== 'dead')) fail('task has live or unknown processes');
       for (const [key, lease] of Object.entries(s.leases)) if (lease.task === id) {
