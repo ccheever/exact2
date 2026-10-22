@@ -124,6 +124,8 @@ export function paramRow(p: Param, tokens: ReadonlySet<string>): Row | null {
     whens: p.set?.whens ?? 0,
     // Whether the app's line is a literal with no `when` branch: the one case its own value wins on both scheme sides.
     levelSelf: false,
+    swatches: [],
+    words: '',
   };
 }
 
@@ -139,7 +141,7 @@ const iconText = (v: unknown) => {
  * component (its identity's file none of the app's own, `own`, describe's
  * `files`) says so: "Set for this app" writes the app's line, the package's
  * own files read only (LLP 1139 D5). */
-export function componentsOf(list: { identity: string; name: string; params: Param[]; variants?: { prop: string; options: string[] }[] }[] | undefined, design: string, tokens: ReadonlySet<string>, own: ReadonlySet<string> = new Set(), tokenOf: (value: string) => string | null = v => (tokens.has(v) ? v : null), packageOf: ReadonlyMap<string, string> = new Map(), bases: ReadonlySet<string> = new Set()): Design['components'] {
+export function componentsOf(list: { identity: string; name: string; params: Param[]; variants?: { prop: string; options: string[] }[] }[] | undefined, design: string, tokens: ReadonlySet<string>, own: ReadonlySet<string> = new Set(), tokenOf: (value: string) => string | null = v => (tokens.has(v) ? v : null), packageOf: ReadonlyMap<string, string> = new Map(), bases: ReadonlySet<string> = new Set(), look: (token: string, p: Param) => { swatches: { label: string; css: string }[]; words: string } = () => ({ swatches: [], words: '' })): Design['components'] {
   return (list ?? []).filter(c => c.params?.length || c.variants?.length).map(c => {
     const groups = new Map<string, Row[]>();
     // (A listing with none of the app's Contract sources, an older server's, says nothing of packages.)
@@ -149,7 +151,9 @@ export function componentsOf(list: { identity: string; name: string; params: Par
       if (!found) continue;
       const token = typeof p.default === 'string' ? tokenOf(p.default) ?? '' : '';
       const reached = p.reaches?.token ?? '';
-      const row = { ...found, package: fromPackage, token, tokenPackage: token ? packageOf.get(token) ?? '' : '', tokenBase: !!token && bases.has(token),
+      // A colour param's colour in each grid column, and the chain to it in words (review2 09:29: the grid's columns,
+      // labelled; the platform's role said as one).
+      const row = { ...found, ...(p.kind === 'color' ? look(token, p) : { swatches: [], words: '' }), package: fromPackage, token, tokenPackage: token ? packageOf.get(token) ?? '' : '', tokenBase: !!token && bases.has(token),
         packageToken: fromPackage && reached && packageOf.has(reached) ? reached : '', appSet: !!p.reaches?.app_set,
         levelSelf: !!p.set && !p.set.whens && /^(#[0-9a-f]{3,8}|-?[\d.]+[a-z%]*)$/i.test(p.set.value.trim()) };
       const g = p.group ?? '';
@@ -168,4 +172,21 @@ export function componentsOf(list: { identity: string; name: string; params: Par
       }),
     };
   });
+}
+
+/** A colour param's look (the second hands-on pass, #4; review2 09:29): its colour in each of the token grid's
+ * columns, in their order and with their labels, and the chain to it in words. A param the app sets reads its own
+ * values (one per tuple); one following a token reads that token's cells as the grid draws them. The words follow
+ * the token: what it follows (its dials) or its value, the platform's role for a role, Exact's base for a base name
+ * the app leaves unset. */
+export function lookOf(columns: { label: string; tuple: number; dark: boolean }[], stored: ReadonlyMap<string, { css: string }[][]>, rows: { name: string; start?: string; follows?: string }[]) {
+  return (token: string, p: Param) => {
+    const sides = !p.set && token ? stored.get(token) : undefined;
+    const swatches = columns.map(c => ({ label: c.label, css: sides ? sides[c.tuple]?.[c.dark ? 1 : 0]?.css ?? '' : String(p.values?.[c.tuple] ?? '') })).filter(s => s.css);
+    // (What the token follows, its dials, as the grid's row says; else its value.)
+    const row = rows.find(r => r.name === token), written = row?.follows || row?.start || '';
+    const role = token.startsWith('-') || /^-exact-/i.test(written);
+    const words = p.set ? `set for this app: ${p.set.value}` : !token ? '' : role ? `${token} → the platform's role` : written ? `${token} → ${written}` : `${token} → Exact's base`;
+    return { swatches, words };
+  };
 }
