@@ -2,7 +2,7 @@
 // `storage.fs.compressImage` writes: the data module has no image decode. The zlib stream is inflated here (RFC 1950,
 // RFC 1951); the PNG is read as the W3C PNG specification (third edition) lays it out: every colour type and bit
 // depth, `tRNS`, and the five filters. An interlaced image, a bad stream or one over `maxPixels` reads as null.
-// Chunk CRCs and the Adler-32 checksum are not verified.
+// Chunk CRCs and the Adler-32 checksum are not verified, nor a stored block's NLEN, nor that a Huffman code is complete.
 
 export interface Pixels { width: number; height: number; rgba: Uint8Array }
 

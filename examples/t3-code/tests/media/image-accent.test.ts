@@ -4,6 +4,7 @@ import { describe, expect, test } from 'bun:test';
 import { deflateSync } from 'node:zlib';
 import { averageAccent, imageAccent, pngAccent, ACCENT_SCRATCH } from '../../src/media/image-accent';
 import { decodePng, inflate } from '../../src/media/png-decode';
+import { adoptAppFiles } from '../../src/media/save-file';
 import { letGo } from '../../src/client/let-go';
 import { ACCENT_FIXTURES, PHOTO_PNG, memoryFiles } from '../support/image-accent-fixture';
 import { serveAssets } from '../support/asset-server';
@@ -97,6 +98,9 @@ describe('the PNG decoder', () => {
     expect(decodePng(png(2, 1, 8, 2, [[5, 255, 0, 0, 0, 0, 255]]))).toBeNull();
     expect(decodePng(png(2, 1, 3, 2, [[0, 255, 0, 0, 0, 0, 255]]))).toBeNull();
     expect(decodePng(png(2, 1, 8, 2, [[0, 255, 0, 0, 0, 0, 255]]), 1)).toBeNull();
+    // The accent reads at most compressImage's 128 × 128.
+    expect(pngAccent(png(129, 128, 8, 0, Array.from({ length: 128 }, () => [0, ...new Array(129).fill(9)])))).toBe('');
+    expect(pngAccent(png(128, 128, 8, 0, Array.from({ length: 128 }, () => [0, ...new Array(128).fill(9)])))).toBe('9 9 9');
     expect(() => inflate(new Uint8Array([0x78, 0x9c, 0xff, 0xff]), 4)).toThrow();
   });
 });
@@ -113,9 +117,9 @@ describe('imageAccent', () => {
     } finally { server.restore(); }
   });
 
-  test('an image that cannot be fetched or read, or is fully transparent, keeps the kind\'s own tone', async () => {
+  test('an image that cannot be fetched or read, or is fully transparent, keeps the kind\'s own tone for good', async () => {
     const transparent = bytes(ACCENT_FIXTURES.find(fixture => fixture.name === 'transparent')!.scaled);
-    for (const [scaled, answer] of [[transparent, { body: bytes(PHOTO_PNG) }], [null, { body: 'not an image' }], [transparent, { status: 404 }], [transparent, new Error('offline')]] as const) {
+    for (const [scaled, answer] of [[transparent, { body: bytes(PHOTO_PNG) }], [null, { body: 'not an image' }], [transparent, { status: 404 }]] as const) {
       const { files } = memoryFiles(scaled);
       const server = serveAssets(() => answer);
       try {
@@ -128,6 +132,21 @@ describe('imageAccent', () => {
     try {
       expect(await imageAccent('file:///tmp/a.png', letGo)).toBe('');
       expect(server.calls).toEqual([]);
+    } finally { server.restore(); }
+  });
+
+  test('a passing failure (the network, a timeout, a full storage queue) answers null, so the read is asked again', async () => {
+    const photo = bytes(ACCENT_FIXTURES[0]!.scaled);
+    const offline = serveAssets(() => new Error('offline'));
+    try { memoryFiles(photo); expect(await imageAccent('https://example.com/a.png', letGo)).toBeNull(); } finally { offline.restore(); }
+    const server = serveAssets(() => ({ body: bytes(PHOTO_PNG) }));
+    try {
+      const { files } = memoryFiles(null, 'timeout');
+      expect(await imageAccent('https://example.com/a.png', letGo)).toBeNull();
+      expect([...files.keys()]).toEqual([]);
+      adoptAppFiles({ fs: { async mkdir() {}, async rm() {}, async readFile() { throw new Error('ENOENT'); },
+        async writeFile() { throw Object.assign(new Error('the storage queue is full'), { kind: 'Unavailable', code: 'full' }); } } });
+      expect(await imageAccent('https://example.com/a.png', letGo)).toBeNull();
     } finally { server.restore(); }
   });
 

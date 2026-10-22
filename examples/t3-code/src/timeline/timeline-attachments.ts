@@ -235,7 +235,10 @@ async function withAccents(client: T3Client, items: { id: string; url: string }[
     if (videoIds.has(item.id)) { out.push({ ...item, ...NO_INKS }); continue; } // a video has no image chip to tint
     const key = JSON.stringify([client.environmentId, item.id]);
     if (!accents.has(key)) {
-      accents.set(key, imageChipInks(await imageAccent(item.url, letGo)) ?? NO_INKS);
+      // A passing failure (null) is not kept: the next answer reads the image again.
+      const accent = await imageAccent(item.url, letGo);
+      if (accent === null) { out.push({ ...item, ...NO_INKS }); continue; }
+      accents.set(key, imageChipInks(accent) ?? NO_INKS);
       if (accents.size > 256) accents.delete(accents.keys().next().value!);
     }
     out.push({ ...item, ...accents.get(key)! });

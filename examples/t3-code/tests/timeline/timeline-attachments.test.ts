@@ -39,6 +39,19 @@ describe('sent attachments', () => {
       expect(server.calls).toHaveLength(2);
     } finally { server.restore(); }
   });
+  test('an accent read that failed for a passing reason is asked again by the next answer', async () => {
+    const c = { ...client(), environmentId: 'e-retry' } as T3Client, native = { available: true } as Native;
+    memoryFiles(scaledPhoto());
+    let online = false;
+    const server = serveAssets(url => !online ? new Error('timed out') : url.endsWith('/a1') ? { body: 'image bytes' } : { status: 404 });
+    try {
+      expect((await attachmentUrls(c, native, 1000)).items.map(entry => entry.fill)).toEqual(['', '']);
+      online = true;
+      expect((await attachmentUrls(c, native, 2000)).items.map(entry => entry.fill)).toEqual(['#818ca81c', '']);
+      await attachmentUrls(c, native, 3000);
+      expect(server.calls.map(call => call.url.split('/').pop())).toEqual(['a1', 'a2', 'a1', 'a2']);
+    } finally { server.restore(); }
+  });
   test('the expanded preview opens on an image and steps through the message', () => {
     const c = client(), id = JSON.stringify(['t1', 'm1']);
     imagePreviewAction(c, 'image-open', 'a1', id);
