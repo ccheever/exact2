@@ -66,6 +66,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         search.node === node && headers.contains { $0.search === node } && usable(node) && search.focus()
     }
     private var order: [NSToolbarItem.Identifier] = []
+    private let authoredInk = ToolbarInkMac()
     /// Back (BackMac.swift): the way back from the pushed route, pressing
     /// what iOS's Back button presses. A standard item, so its size, glass
     /// and place at the leading edge are AppKit's.
@@ -228,6 +229,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         prepare()
         let hadToolbar = toolbar != nil
         let old = toolbar
+        authoredInk.reset(window)
         toolbar = nil
         let content = contentSize
         if let window, let old, window.toolbar === old {
@@ -621,6 +623,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             // Text-bearing authored buttons remain labeled in icon-only mode.
             let title = BadgeFace(node) != nil ? "" : face.map { $0.title ?? "" } ?? text(node)
             if item.title != title { item.title = title }
+            authoredInk.button(item, node: node, face: face, target: self, action: #selector(performInkButton(_:)))
             let enabled = !node.disabled && !node.inert && window.attachedSheet == nil
             if item.isEnabled != enabled { item.isEnabled = enabled }
         }
@@ -633,7 +636,8 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         // the window's own header's, else those of the one beside it.
         let grouped = headers.first { $0.segments != nil }, searched = headers.first { $0.search != nil }
         let group = segments.update(grouped, enabled: window.attachedSheet == nil)
-        let centered: Set<NSToolbarItem.Identifier> = group.map { [$0.itemIdentifier] } ?? []
+        let titleItem = authoredInk.title(heading ?? (headTitle == nil ? header?.heading : nil), window: window, text: title(over: savedTitle))
+        let centered = Set([group, titleItem].compactMap { $0?.itemIdentifier })
         if toolbar.centeredItemIdentifiers != centered { toolbar.centeredItemIdentifiers = centered }
         let field = search.update(searched, enabled: window.attachedSheet == nil)
         let identifiers = { (nodes: [NodeView]) in nodes.compactMap { self.items[$0.id]?.itemIdentifier } }
@@ -645,7 +649,8 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
                 if node === heading { return .flexibleSpace }
                 return items[node.id]?.itemIdentifier
             }
-        order = (sidebarItems ? [.toggleSidebar, .sidebarTrackingSeparator] : []) + (back ? [Self.backIdentifier] : [])
+        if let titleItem { items[0] = titleItem } else { items.removeValue(forKey: 0) }
+        order = (titleItem.map { [$0.itemIdentifier] } ?? []) + (sidebarItems ? [.toggleSidebar, .sidebarTrackingSeparator] : []) + (back ? [Self.backIdentifier] : [])
             + nextOrder + appItems.map(\.itemIdentifier)
         // Keep both toolbar and command objects stable through route changes.
         for index in stride(from: toolbar.items.count - 1, through: 0, by: -1) {
@@ -742,6 +747,13 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         guard validateToolbarItem(item) else { return }
         presenter.navigation.goBack()
     }
+    @objc private func performInkButton(_ button: NSButton) {
+        guard let item = items[UInt32(button.tag)] else { return }
+        if let item = item as? NSMenuToolbarItem {
+            item.menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.maxY), in: button)
+        } else { performItem(item) }
+    }
+
     @objc private func performItem(_ item: NSToolbarItem) {
         guard validateToolbarItem(item) else { return }
         presenter.press(UInt32(item.tag))
