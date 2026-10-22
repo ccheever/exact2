@@ -5,6 +5,17 @@
 import names, { types } from './names.js';
 import { pieces, pageHistory, Head, navigateRoot, Tasks, journal, unopened } from './rt.js';
 import * as perf from './perf.js';
+// `perf streams` (LLP 1133.003 §9): ts-stream.js stamps each stream message
+// while `exact.streamTiming.on`; `start` begins again. Latencies are in ms.
+function streamTiming(start) {
+  if (start) exact.streamTiming = { on: true, started: performance.now(), streams: {} };
+  const t = exact.streamTiming;
+  if (!t) return { measuring: false };
+  const seconds = (performance.now() - t.started) / 1000;
+  const pct = (xs) => { const s = [...xs].sort((a, b) => a - b), at = p => s.length ? +s[Math.max(0, Math.ceil(s.length * p) - 1)].toFixed(3) : 0; return { n: s.length, p50: at(0.5), p95: at(0.95), p99: at(0.99), max: at(1) }; };
+  return { measuring: true, seconds: +seconds.toFixed(3), streams: Object.entries(t.streams).map(([name, r]) => ({ name, messages: r.messages, commits: r.commits, decodes: r.decodes, decodedBytes: r.decodedBytes, frames: r.frames, decodeErrors: r.decodeErrors,
+    messageRate: +(r.messages / seconds).toFixed(2), commitRate: +(r.commits / seconds).toFixed(2), decodeRate: +(r.decodes / seconds).toFixed(2), busy: +(r.busy / 1000 / seconds).toFixed(4), toEntry: pct(r.toEntry), toDecode: pct(r.toDecode), toCommit: pct(r.toCommit) })) };
+}
 import { observe } from './check.js';
 import { faultOp, faultsJson, setFaultLog } from '../web/faults.js';
 import { inertAncestor, displayMode, environment, navigation, unselected, foldEnv, preferFold, typedControl, settleValue, animationClocks, pageReporter } from './navigation.js';
@@ -333,6 +344,7 @@ export function install(exact) {
       // `perf <target>` (LLP 1079 D2): the plan sites under a view, with their work (perf.js).
       case 'perf': {
         if (req.frames) return { virtual: true }; // the agent's clock presents no frame (LLP 1079 D4)
+        if (req.streams) return { ...tags(), streamTiming: streamTiming(req.start) }; // LLP 1133.003 §9 (ts-stream.js)
         // `perf hatches` (LLP 1075.003.000.001 §3.3): the hatches' calls, timed, and what their code counted (hatches.js).
         if (req.hatches) return exact.hatchPerf ? exact.hatchPerf.reply(tags()) : { ...tags(), seq: exact.clock.epoch, plan: exact.plan ?? null, measuring: exact.plan != null, hatches: {}, calls: [], tickets: 0, counters: {}, timings: {}, rejected: 0, abandoned: 0, limited: 0 };
         let el = document.getElementById('exact-root');

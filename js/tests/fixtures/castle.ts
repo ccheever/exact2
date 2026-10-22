@@ -172,6 +172,11 @@ function answer(source: string, args: unknown[], store: Store): unknown {
       exactStream: (e: { type: string; data: string; lastEventId: string; coalesced: number; message?: string }) =>
         e.type === "error" ? `ended: ${e.message}` : `${e.type} ${e.lastEventId}:${e.data}:${e.coalesced}:${store.get("castle.session") ?? "-"}`,
     } as RequestInit);
+    // A body that is not events is bytes (LLP 1016.000, the byte stream).
+    case "bytes": return fetch("https://api.castle.xyz/screen.avcc", {
+      exactStream: (e: { type: string; data: ArrayBuffer | string; message?: string }) =>
+        e.type === "error" ? `ended: ${e.message}` : `${e.type}:${e.data instanceof ArrayBuffer ? new Uint8Array(e.data).join(",") : "text"}`,
+    } as RequestInit);
     // A socket is the same answer with a `wss:` URL (LLP 1069.004 slice 3):
     // Jetstream's shape, the cursor a query parameter.
     case "socket": return fetch("wss://jetstream.castle.xyz/subscribe?cursor=" + args[0], {

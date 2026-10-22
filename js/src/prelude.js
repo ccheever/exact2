@@ -154,12 +154,12 @@
   var fillRandom = platformCrypto.getRandomValues.bind(platformCrypto);
   var platformSubtle = platformCrypto.subtle; // the web's, in a secure context
   // Natively: `(op, name, arrayBuffer) -> string`, the byte work in Rust.
-  var bytesDoor = global.__exact_bytes;
-  delete global.__exact_bytes;
+  var bytesDoor = global.__exact_bytes; delete global.__exact_bytes;
+  // LLP 1133.003 §9's gate, until `VideoDecoder`: a chunk's bytes copied into the host and dropped.
+  if (bytesDoor) global.__exact_gate_decode = function (track, type, timestamp, data) { bytesDoor(8, data.byteOffset + " " + data.byteLength, data.buffer); };
   // A LAN dev page (no secure context): the dev protocol's SHA-256, which
   // module integrity already uses there. `(Uint8Array) -> Promise<hex>`.
-  var pageDigest = global.__exact_digest;
-  delete global.__exact_digest;
+  var pageDigest = global.__exact_digest; delete global.__exact_digest;
   function formatUuid(b) {
     var text = "";
     b[6] = (b[6] & 0x0f) | 0x40;
@@ -762,9 +762,9 @@
     }
     if (signal && signal.aborted) return Promise.reject(signal.reason);
     var ticket = nextTicket++;
-    // A WebSocket stream owns a two-way socket (LLP 1016.000 D7).
+    // A WebSocket stream owns a two-way socket (LLP 1016.000 D7); an HTTP one's body that is not events is bytes.
     var socket = stream && /^wss?:/i.test(String(url));
-    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, timeout_ms: timeout, body_from: bodyFrom, redirect: redirect }));
+    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, bytes: stream && !socket ? true : undefined, timeout_ms: timeout, body_from: bodyFrom, redirect: redirect }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;
@@ -1386,12 +1386,12 @@
   // One message of the stream answer `id` began, or its end: the mapper's
   // value, now — a stream's answer never awaits (LLP 1016.000 D1). The end
   // is `{ type: "error" }` with the failure's kind and message, or the
-  // status and body of a reply that was not an event stream.
+  // status and body of a reply that was not 2xx.
   global.__exact_message = function (id, outcomeJson) {
     var call = calls.get(Number(id));
     if (!call || !call.stream) return fail(new Error("no stream answer " + id));
-    var o = JSON.parse(outcomeJson), event, socket = call.socket;
-    if (o.message) event = { type: o.message.event || "message", data: o.message.binary !== undefined ? fromBase64(o.message.binary).buffer : o.message.data, lastEventId: o.message.id, coalesced: o.message.coalesced };
+    var o = JSON.parse(outcomeJson), event, socket = call.socket, bytes;
+    if (o.message) event = { type: o.message.event || "message", data: o.message.size !== undefined ? (bytes = new ArrayBuffer(o.message.size), bytesDoor(9, "", bytes), bytes) : o.message.binary !== undefined ? fromBase64(o.message.binary).buffer : o.message.data, lastEventId: o.message.id, coalesced: o.message.coalesced };
     else if (o.closed) event = { type: "close", data: "", lastEventId: "", coalesced: 0, code: o.closed.code, reason: o.closed.reason, wasClean: o.closed.wasClean };
     else if (o.failed) event = { type: "error", data: "", lastEventId: "", coalesced: 0, kind: o.failed.kind, message: o.failed.message, status: 0 };
     else event = { type: "error", data: o.response.body, lastEventId: "", coalesced: 0, kind: "Response", message: "HTTP " + o.response.status, status: o.response.status };

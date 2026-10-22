@@ -407,6 +407,7 @@ fn read_result(r: &mut Reader<'_>) -> Result<Result<Answer, DataError>, String> 
         1 | 6 | 9 => Ok(Answer::Later(Request {
             stream: tag == 9,
             socket: false,
+            bytes: false,
             timeout_ms: None,
             body_from: None,
             redirect: Redirect::Follow,

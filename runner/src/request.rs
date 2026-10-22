@@ -142,6 +142,12 @@ pub struct Request {
     /// coalesced, and a [`Outcome::Closed`] end; mutations send on it
     /// ([`SocketSend`]). Unset, a socket only listens, as in D4.
     pub socket: bool,
+    /// An HTTP stream whose body, when it is not `text/event-stream`,
+    /// arrives as bytes (LLP 1016.000, the byte stream of 2026-10-23): each
+    /// [`Message`] is `binary`, the bytes read since the runner took the
+    /// last one, never dropped. Unset, such a body is the stream's one
+    /// answer. Set by TypeScript's `fetch(url, {exactStream})`.
+    pub bytes: bool,
     /// A deadline for the whole exchange, in milliseconds: headers and body.
     /// The host cancels the request when it passes and replies
     /// [`FailureKind::Timeout`]. `None` keeps the host's own limits (on Apple,
@@ -191,6 +197,7 @@ impl Request {
             body,
             stream: false,
             socket: false,
+            bytes: false,
             timeout_ms: None,
             body_from: None,
             redirect: Redirect::Follow,
@@ -247,6 +254,7 @@ impl Request {
             body: Vec::new(),
             stream: false,
             socket: false,
+            bytes: false,
             timeout_ms: None,
             body_from: None,
             redirect: Redirect::Follow,
@@ -267,6 +275,7 @@ impl Request {
             body: json.as_bytes().to_vec(),
             stream: false,
             socket: false,
+            bytes: false,
             timeout_ms: None,
             body_from: None,
             redirect: Redirect::Follow,
