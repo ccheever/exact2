@@ -101,6 +101,10 @@ export function failureSummary(output, { host, code, log }) {
   return [...failureLines(output), `the ${label(host)} build failed (exit ${code}), so nothing was driven; its whole log: ${log}`].join('\n');
 }
 
+/** A failed child's diagnostic for a metrics row. */
+export const childFailure = r => (r.error?.message ?? (r.stderr?.trim() || r.stdout || '')).split('\n')
+  .map(l => l.trim()).filter(l => l && !/^at |^Bun v\d/.test(l)).slice(-3).join(' / ').slice(0, 400);
+
 /** `command` with `args`, its output into `log` (`append`ed to it); its exit code and output. */
 function logged(command, args, log, { cwd, env, append = false } = {}) {
   mkdirSync(resolve(log, '..'), { recursive: true });
