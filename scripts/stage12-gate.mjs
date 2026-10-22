@@ -437,7 +437,9 @@ export function consumerPixels(opts) {
   if (!uses.before || !uses.after) return fail(`a copy's app did not build with its source map: ${['before', 'after'].filter(s => !uses[s]).join(', ')}`);
   const missing = ADOPTED.filter(id => !uses.after.includes(id));
   if (missing.length) return fail(`--copy does not use ${missing.join(', ')}: not the adoption`);
-  const early = uses.before.filter(id => !BEFORE_USES.includes(id));
+  // A package's own helpers (its common.contract's, which an adopted
+  // component places) count with the component, not on their own.
+  const early = uses.before.filter(id => !BEFORE_USES.includes(id) && !/\/common\.contract#/.test(id));
   if (early.length) return fail(`--before already uses library components (${early.join(', ')}): not the baseline`);
   // Conform on the clone (the JS target's harness: the app's wasm build
   // against its JS build, step by step), on each side: the adoption adds no
@@ -1032,7 +1034,7 @@ export const FAIL_ALIKE = ['apps/expose/app.contract'];
  * every run compares every app now in apps/ and the corpus, each built at
  * both ends and byte-identical, but apps/library-gate's own (the gate app
  * those commits make and change) and FAIL_ALIKE's. */
-export function releaseIdentity(file, sources = releaseSources(), expectedRuns = releaseRuns()) {
+export function releaseIdentity(file, sources = releaseSources(), expectedRuns = releaseRuns(), inTree = (rev, src) => run('git', ['cat-file', '-e', `${rev}:${src}`]).ok) {
   if (!file || !existsSync(file)) return { status: 'WAITS', on: 'the release identity run (--release <its JSON>)', evidence: [] };
   const rows = JSON.parse(readFileSync(file, 'utf8'));
   if (!Array.isArray(rows) || !rows.length) return { status: 'FAIL', evidence: ['release identity: no comparisons'] };
@@ -1048,7 +1050,9 @@ export function releaseIdentity(file, sources = releaseSources(), expectedRuns =
   const absent = expectedRuns.filter(run => !runs.includes(run)).map(run => `  RUN NOT COMPARED ${run}`);
   const label = RELEASE?.label ?? 'stage 12 E';
   const extra = runs.filter(run => !expectedRuns.includes(run)).map(run => `  NOT A RUN OF ${label.toUpperCase()} ${run}`);
-  const short = runs.flatMap(run => sources.filter(src => !rows.some(r => r.run === run && r.source === src)).map(src => `  NOT COMPARED ${src} over ${run}`));
+  // A source that isn't in the tree at either end of a run (an app added
+  // since) has nothing to compare there.
+  const short = runs.flatMap(r => sources.filter(src => !rows.some(x => x.run === r && x.source === src) && r.split('..').some(rev => inTree(rev, src))).map(src => `  NOT COMPARED ${src} over ${r}`));
   const evidence = [`release identity: ${rows.length} comparisons over ${runs.length} runs of ${label} commits; ${count('identical')} identical, ${rows.filter(own).length} apps/library-gate's own, ${rows.filter(alike).length} failing alike (${FAIL_ALIKE.join(', ')})`,
     ...unnamed.map(r => `  ${r.status === 'DIFFERS' ? 'MOVED' : r.status === 'both failed' ? 'FAILED AT BOTH ENDS' : 'BUILD FAILED'} ${r.source} over ${r.run} (${r.commits[0]})`), ...short, ...absent, ...extra];
   return { status: unnamed.length || short.length || absent.length || extra.length ? 'FAIL' : 'PASS', evidence };
