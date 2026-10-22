@@ -6,6 +6,28 @@ import XCTest
 @testable import ExactKit
 
 final class NativeFieldsMacTests: XCTestCase {
+    func testSearchAndPlainComboboxesServeTheirAuthoredExpandedState() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        for (id, type) in [(UInt32(11), "text"), (UInt32(12), "search")] {
+            p.apply(wireBatch([["op": "create", "id": id, "kind": "input",
+                "props": ["type": type, "value": "Pira", "accessibilityRole": "combobox", "accessibilityExpanded": "false"]]]))
+            let field = try XCTUnwrap(p.views[id]?.field), cell = try XCTUnwrap(field.cell)
+            XCTAssertEqual(field is NSSearchField, type == "search")
+            XCTAssertEqual(field.accessibilityRole(), .comboBox)
+            XCTAssertEqual(cell.accessibilityAttributeValue(.role) as? String, "AXComboBox")
+            XCTAssertEqual(cell.accessibilityAttributeValue(.roleDescription) as? String, NSAccessibility.Role.comboBox.description(with: nil))
+            XCTAssertTrue(cell.accessibilityAttributeNames().contains(.expanded))
+            XCTAssertFalse(field.isAccessibilityExpanded())
+            XCTAssertEqual(cell.accessibilityAttributeValue(.expanded) as? Bool, false)
+            p.apply(wireBatch([["op": "props", "id": id, "set": ["accessibilityExpanded": "true"]]]))
+            XCTAssertTrue(field.isAccessibilityExpanded())
+            XCTAssertEqual(cell.accessibilityAttributeValue(.expanded) as? Bool, true)
+            p.apply(wireBatch([["op": "props", "id": id, "clear": ["accessibilityRole", "accessibilityExpanded"]]]))
+            XCTAssertEqual(cell.accessibilityAttributeValue(.role) as? String, "AXTextField")
+        }
+    }
+
     private var platformTextareaInset: NSSize {
         let editor = NSTextView(usingTextLayoutManager: true)
         return NSSize(width: editor.textContainerInset.width + (editor.textContainer?.lineFragmentPadding ?? 0), height: editor.textContainerInset.height)

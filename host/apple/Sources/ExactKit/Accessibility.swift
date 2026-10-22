@@ -280,17 +280,10 @@ final class FieldCell: NSTextFieldCell {
     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
         super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { (controlView?.superview as? NodeView)?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
             + (numberField != nil ? [.minValue, .maxValue] : [])
-            + ((controlView as? Field)?.comboOwner != nil ? [.expanded] : [])
+            + ((controlView as? NSTextField)?.comboOwner != nil ? [.expanded] : [])
     }
     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
-        if let field = controlView as? Field, field.comboOwner != nil {
-            switch attribute {
-            case .role: return NSAccessibility.Role.comboBox.rawValue
-            case .roleDescription: return NSAccessibility.Role.comboBox.description(with: nil)
-            case .expanded: return field.isAccessibilityExpanded()
-            default: break
-            }
-        }
+        if let value = (controlView as? NSTextField)?.comboboxAttribute(attribute) { return value }
         if let field = numberField {
             switch attribute {
             case .role: return NSAccessibility.Role.incrementor.rawValue

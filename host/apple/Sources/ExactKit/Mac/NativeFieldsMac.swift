@@ -158,9 +158,11 @@ final class SearchFieldCell: NSSearchFieldCell {
     private var node: NodeView? { (controlView as? NSTextField)?.delegate as? NodeView }
     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
         super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { node?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
+            + ((controlView as? NSTextField)?.comboOwner != nil ? [.expanded] : [])
     }
     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
-        node?.ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
+        if let value = (controlView as? NSTextField)?.comboboxAttribute(attribute) { return value }
+        return node?.ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
     }
 }
 
