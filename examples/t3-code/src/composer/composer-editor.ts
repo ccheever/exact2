@@ -45,6 +45,8 @@ type Search = { entries: Obj[]; failed: boolean; providers?: Obj[] };
 type EditorCache = {
   discovery: WorkspaceDiscovery;
   trigger: EditorTrigger | null; dismissed: EditorTrigger | null; rows: MenuRow[]; owner: string;
+  /** The trigger `rows` answer: a slower search for an older query can finish after a newer trigger was read. */
+  rowsTrigger: EditorTrigger | null;
   searches: Map<string, Search>; pending: Map<string, number>; usageLimits: number;
   /** A send was refused for length: the line shows until the prompt fits. */
   limitArmed: boolean;
@@ -53,7 +55,7 @@ type EditorCache = {
 const caches = new WeakMap<T3Client, EditorCache>();
 function cache(client: T3Client): EditorCache {
   let entry = caches.get(client);
-  if (!entry) { entry = { discovery: new WorkspaceDiscovery(), trigger: null, dismissed: null, rows: [], owner: '', searches: new Map(), pending: new Map(), usageLimits: 0, limitArmed: false, stashOpen: false }; caches.set(client, entry); }
+  if (!entry) { entry = { discovery: new WorkspaceDiscovery(), trigger: null, dismissed: null, rows: [], rowsTrigger: null, owner: '', searches: new Map(), pending: new Map(), usageLimits: 0, limitArmed: false, stashOpen: false }; caches.set(client, entry); }
   return entry;
 }
 
@@ -315,6 +317,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
   }
   rows = rows.map((row, index) => ({ ...row, index }));
   entry.rows = rows;
+  entry.rowsTrigger = trigger;
   const searchKey = `${client.snapshotOwner}:${trigger.kind}:${trigger.query.trim().toLowerCase()}`;
   return {
     owner: client.snapshotOwner, promptLimit, overLimit, usageLimits: entry.usageLimits, stash,
@@ -345,7 +348,10 @@ export async function editorLocal(client: T3Client, native: Native, op: string, 
     const trigger = entry.trigger;
     const row = entry.rows.find(candidate => candidate.id === id);
     if (!trigger || !row) throw new ClientError('That suggestion is no longer available.');
-    const range = { start: trigger.start, end: trigger.end, kind: trigger.kind };
+    // A file row answers the query it was searched for; once the field holds another, the pick is refused
+    // (isPathSuggestionCurrent) rather than putting an older query's file in.
+    if (trigger.kind === 'path' && entry.rowsTrigger?.query.trim() !== trigger.query.trim()) throw new ClientError('That suggestion is no longer available.');
+    const range = { start: trigger.start, end: trigger.end, kind: trigger.kind, ...(trigger.kind === 'path' ? { expect: `@${trigger.query}` } : {}) };
     let text = row.insert;
     let focus = true;
     // /model opens the picker, /plan and /default set the mode: key buttons the editor presses after the edit.

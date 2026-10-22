@@ -6,7 +6,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { Backend, storage } from '../support/client-fixture';
 import { composerEditorView } from '../../src/composer/composer-editor';
-import { acceptAttachedFile } from '../../src/composer/composer-editor-attach';
+import { acceptAttachedFile, imageChipLink } from '../../src/composer/composer-editor-attach';
 import { draftFiles, fileChipContexts } from '../../src/composer/composer-editor-files';
 import { obj, str, type Obj } from '../../src/client/domain';
 import { acceptComposerEdit, observeComposer } from '../support/composer-field-fixture';
@@ -133,15 +133,20 @@ describe('a drop, a paste and Attach files (addComposerAttachments)', () => {
     expect(ops(native, 'editorInsert')).toEqual([]);
   });
 
-  test('a dropped folder has no path to mention: the reference\'s refusal for it, or for a remote environment', async () => {
+  test('a dropped or pasted folder has no path to mention: the reference\'s refusal for it, or for a remote environment', async () => {
     const { client, native } = await opened();
     memoryFiles({ 'doc:/1/src': 'folder', 'doc:/2/notes.txt': text('notes') });
     await attachIncoming(client, native, 'drop', incoming(['doc:/1/src']));
-    expect(toasts(client).map(toast => toast.title)).toEqual(["Folders can't be dropped into remote environments"]);
+    expect(toasts(client).map(toast => toast.title)).toEqual(['Folders can only be referenced in the local desktop environment']);
     primary.target = { environmentId: client.environmentId } as PrimaryTarget;
     await attachIncoming(client, native, 'drop', incoming(['doc:/1/src', 'doc:/2/notes.txt']));
     expect(toasts(client).map(toast => [toast.title, toast.description]).at(-1)).toEqual(['Couldn\'t get the path of "src"', 'Type the folder path with @ instead.']);
     expect(draftFiles(client.local).map(file => file.name)).toEqual(['notes.txt']);
+    // A pasted folder is a workspace reference too (addComposerFolders), not an empty file.
+    client.error = '';
+    await attachIncoming(client, native, 'paste', incoming(['doc:/1/src']));
+    expect(toasts(client).map(toast => toast.title).at(-1)).toBe('Couldn\'t get the path of "src"');
+    expect(client.error).toBe('');
   });
 
   test('Paste as Text attaches the files too, and its image gets no chip even beside prose (skipImageInlineChip)', async () => {
@@ -186,15 +191,24 @@ describe('a drop, a paste and Attach files (addComposerAttachments)', () => {
     expect(under(store, STAGED)).toEqual([]);
   });
 
-  test('files staged after the draft changed are let go', async () => {
+  test('files staged after the person moved to another draft stay with the draft they were given to', async () => {
     const { client, native } = await opened();
+    client.local.drafts[client.draftKey] = 'look at this';
+    observeComposer(client, client.draft, true);
     const { fs, released } = memoryFiles({ 'doc:/1/a.txt': text('abc'), 'doc:/2/image.png': png(4, 3) });
-    const stat = fs.stat;
+    const stat = fs.stat, first = client.draftKey;
     fs.stat = async (path: string) => { if (path === 'doc:/2/image.png') client.threadId = 't2'; return stat(path); };
     await attachIncoming(client, native, 'drop', incoming(['doc:/1/a.txt', 'doc:/2/image.png']));
-    expect(released()).toHaveLength(1);
-    expect(client.local.snapshotReleases).toHaveLength(1);
-    expect(draftFiles(client.local)).toEqual([]);
+    expect(client.draftKey).not.toBe(first);
+    expect(released()).toEqual([]);
+    expect(client.local.snapshotReleases).toEqual([]);
+    const [file] = draftFiles(client.local), [image] = client.local.snapshotDrafts[first] ?? [];
+    expect(file).toMatchObject({ name: 'a.txt', draftKey: first });
+    expect(image).toMatchObject({ name: 'image.png' });
+    // Their chips join the end of that draft's stored prompt (insertAttachmentReferencesForDraft); the open draft gets none.
+    expect(client.local.drafts[first]).toBe(`look at this ${fileChipLink(file!)} ${imageChipLink(image!)} `);
+    expect(client.local.drafts[client.draftKey] ?? '').toBe('');
+    expect(ops(native, 'editorInsert')).toEqual([]);
   });
 });
 

@@ -1,4 +1,6 @@
-// Source edits from composer-code-block.ts and list continuation at T3 Code 9c161462c9.
+// Source edits from composer-code-block.ts at T3 Code 9c161462c9, and list continuation and the
+// quote exit (composer-rich-text-doc.ts needsBlankLineAfterQuote) at T3 Code 74541bab17.
+import { nextOrderedMarkerText, renumberFollowingItems } from './composer-list-continuation';
 import { codeAt, composerLines, composerMarkdown, emptyFenceAt, isClosingFence, parseOpeningFence, type ComposerBlockOrigin, type ComposerCodeBlock } from './composer-markdown';
 import type { ComposerRange } from './composer-markdown';
 
@@ -15,10 +17,7 @@ export function applyComposerEdit(source: string, edit: ComposerEdit): string {
 function edit(start: number, end: number, text: string, selection: ComposerRange = { start: start + text.length, end: start + text.length }): ComposerKeyResult {
   return { kind: 'edit', edit: { start, end, text, selection } };
 }
-export function nextOrderedMarkerText(marker: string): string {
-  const number = marker.slice(0, -1), value = Number.parseInt(number, 10);
-  return `${Number.isSafeInteger(value) ? String(value + 1).padStart(number.length, '0') : number}${marker.slice(-1)}`;
-}
+export { nextOrderedMarkerText };
 export function outdentLine(line: string): string {
   return line.startsWith(CODE_BLOCK_INDENT) ? line.slice(2) : /^[\t ]/.test(line) ? line.slice(1) : line;
 }
@@ -76,7 +75,7 @@ function indentCode(source: string, selection: ComposerRange, block: ComposerCod
 }
 
 /** Contract cancels an admitted key synchronously, then applies this guarded edit. */
-export function composerMarkdownKey(source: string, selection: ComposerRange, key: ComposerKey, logicalFence?: string, blockOrigins?: readonly ComposerBlockOrigin[]): ComposerKeyResult {
+export function composerMarkdownKey(source: string, selection: ComposerRange, key: ComposerKey, logicalFence?: string, blockOrigins?: readonly ComposerBlockOrigin[], chips: readonly ComposerRange[] = []): ComposerKeyResult {
   if (!Number.isInteger(selection.start) || !Number.isInteger(selection.end) || selection.start < 0 || selection.end < selection.start || selection.end > source.length) return DEFAULT;
   const parsed = composerMarkdown(source, { blockOrigins }), block = codeAt(parsed.blocks, selection), collapsed = selection.start === selection.end;
   if (key.name === 'Enter' && key.command) return { kind: 'send' };
@@ -132,13 +131,26 @@ export function composerMarkdownKey(source: string, selection: ComposerRange, ke
     // listIndentForTab runs for Tab alone: ⇧Tab never outdents a list; it toggles plan mode (app.contract) or moves the focus back.
     if (key.name === 'Tab' && !key.shift && collapsed) return edit(line.start, line.start, CODE_BLOCK_INDENT, { start: selection.start + 2, end: selection.end + 2 });
     if (key.name === 'Enter' && key.shift && selection.start >= current.contentStart) {
+      // A marker typed without its space ("2." alone) is still text: Enter adds a line.
+      if (!/[ \t]$/.test(current.prefix)) return edit(selection.start, selection.end, '\n');
       if (!source.slice(current.contentStart, current.end).trim()) return edit(current.start, Math.max(selection.end, current.contentStart), '');
       const marker = current.list === 'task' ? '- [ ]' : current.list === 'ordered' ? nextOrderedMarkerText(current.marker) : current.marker;
-      return edit(selection.start, selection.end, `\n${current.indent}${marker} `);
+      const insertion = `\n${current.indent}${marker} `, ordered = /^(\d+)([.)])$/.exec(current.marker);
+      // The rich reference numbers an ordered list's items by position, so the items below a new one follow it.
+      const renumbered = ordered && selection.end <= current.end
+        ? renumberFollowingItems(source, current.end, { kind: 'ordered', indent: current.indent, numberText: ordered[1] ?? '', delimiter: ordered[2] === ')' ? ')' : '.', space: ' ' }, chips) : null;
+      if (renumbered) {
+        const caret = selection.start + insertion.length;
+        return edit(selection.start, renumbered.end, insertion + source.slice(selection.end, current.end) + renumbered.text, { start: caret, end: caret });
+      }
+      return edit(selection.start, selection.end, insertion);
     }
   }
   if (current?.kind === 'quote' && key.name === 'Enter' && key.shift && selection.start >= current.contentStart) {
-    return source.slice(current.contentStart, current.end).trim() ? edit(selection.start, selection.end, '\n' + current.prefix) : edit(current.start, Math.max(selection.end, current.contentStart), '');
+    if (source.slice(current.contentStart, current.end).trim()) return edit(selection.start, selection.end, '\n' + current.prefix);
+    // Leaving a quote keeps a blank line after it: a line right below a quote is a lazy continuation that joins it.
+    const afterQuote = parsed.blocks.some(block => block.kind === 'quote' && block.end === current.start - 1);
+    return edit(current.start, Math.max(selection.end, current.contentStart), afterQuote ? '\n' : '');
   }
   return key.name === 'Enter' && key.shift ? edit(selection.start, selection.end, '\n') : DEFAULT;
 }

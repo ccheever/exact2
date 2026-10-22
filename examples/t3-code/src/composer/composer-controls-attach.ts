@@ -1,7 +1,7 @@
 // The composer's attachments from a drop, a paste and Attach files, adapted from
-// T3 Code 9c161462c9 (MIT); see LICENSE-T3. Sources: chat/ChatComposer.tsx
+// T3 Code 74541bab17 (MIT); see LICENSE-T3. Sources: chat/ChatComposer.tsx
 // (showComposerAttachAction, addComposerAttachments, onComposerPaste, addDroppedFiles,
-// addDroppedFolders), chat/workspaceFileDrop.ts (splitDroppedItems),
+// addComposerFolders), chat/workspaceFileDrop.ts (splitTransferredFiles),
 // chat/composerAttachmentFiles.ts (fileAttachmentStagingLimit) and
 // packages/contracts/src/chatAttachment.ts. All three stage their files the same way
 // (composer-attach-stage.ts): images join the draft's image shelf (the SnapShot drafts,
@@ -13,8 +13,8 @@ import { ClientError, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
 import { folderDropTarget, primary } from '../connections/local-primary';
 import { pushToast } from '../shell/toast';
-import { acceptAttachedFile, attachStagingLimit, imagesGetChips, insertFileChips, releaseStagedFile, reservedAttachments } from './composer-editor-attach';
-import { holdDraftFiles, type DraftFile } from './composer-editor-files';
+import { acceptAttachedFile, appendChipLinks, attachStagingLimit, imageChipLink, imagesGetChips, insertFileChips, releaseStagedFile, reservedAttachments } from './composer-editor-attach';
+import { fileChipLink, holdDraftFiles, type DraftFile } from './composer-editor-files';
 import { rememberVideoFrame } from './composer-attachments';
 import { handleSource, stageAttachment, statSource, type AttachSource } from './composer-attach-stage';
 import { requestPresentation } from './requests';
@@ -46,12 +46,19 @@ export function questionRefuses(client: T3Client): boolean {
 /** What the window hands over (app.contract attachFiles): its `doc:` handles, or Attach files' picked copies. */
 export type IncomingFiles = { files: string[]; picked: Obj[]; asText: boolean; target: string };
 
+/** The draft files are staged for: the composer's thread draft, or a question's, which takes images beside its answer. */
+export type DraftTarget = { generation: number; snapshotOwner: string; fieldOwner: string; key: string; threadKey: string; environmentId: string };
+export function draftTarget(client: T3Client): DraftTarget {
+  return { generation: client.generation, snapshotOwner: client.snapshotOwner, fieldOwner: composerFieldOwner(client),
+    key: client.attachmentKey, threadKey: client.draftKey, environmentId: client.environmentId };
+}
+
 /** A picked file (Contract's `Picked`): its copy under app:/tmp/picked/, its name and the type the picker read. */
 const pickedSource = (file: Obj): AttachSource => ({ path: str(file.path), name: str(file.name, 'file'), type: str(file.type) });
 
 /**
- * The files a drop, a paste or Attach files brings (`origin` "drop", "paste" or "pick"). A drop's folders are
- * addDroppedFolders': a dropped folder is a handle with no path (LLP 1069.010 D1), so each is the reference's own
+ * The files a drop, a paste or Attach files brings (`origin` "drop", "paste" or "pick"). A drop's or a paste's folders
+ * are addComposerFolders': such a folder is a handle with no path (LLP 1069.010 D1), so each is the reference's own
  * refusal for a folder whose path it cannot get. Paste as Text (`asText`) gives images no inline chip
  * (skipImageInlineChip). The answer's "focus:composer" focuses the prompt, as the reference's drop and Attach do.
  */
@@ -60,19 +67,22 @@ export async function attachIncoming(client: T3Client, native: Native, origin: s
   if (!sources.length) return '';
   if (questionRefuses(client)) return '';
   const imageChips = imagesGetChips(client) && !(origin === 'paste' && incoming.asText);
+  // Files finish staging (an image's compression) after the person may have moved to another draft; they stay
+  // with the draft they were given to (insertAttachmentReferencesForDraft).
+  const target = draftTarget(client);
   // Held from staging until the files join the draft, so an answer cannot leave between the two.
-  const release = holdStaging(client, client.attachmentKey);
+  const release = holdStaging(client, target.key);
   let folders: Obj[] = [];
   try {
-    const staged = await stageFiles(client, native, sources);
-    // A pasted or picked folder is the reference's empty File.
-    folders = origin === 'drop' ? staged.filter(file => file.kind === 'folder') : [];
+    const staged = await stageFiles(client, native, sources, target);
+    // A dropped or pasted folder is a workspace reference (addComposerFolders); a picked one is the reference's empty File.
+    folders = origin === 'drop' || origin === 'paste' ? staged.filter(file => file.kind === 'folder') : [];
     const others = staged.filter(file => !folders.includes(file)).map(file => file.kind === 'folder' ? { kind: 'unreadable', name: file.name, sizeBytes: 0 } : file);
-    if (others.length) await addAttachedFiles(client, native, others, imageChips);
+    if (others.length) await addAttachedFiles(client, native, others, imageChips, '', target);
   } finally { release(); }
   if (folders.length) {
     const remote = folderDropTarget({ localEnvironmentDisabled: primary.disabled, environmentId: client.environmentId, primaryEnvironmentId: primary.target?.environmentId || null }) === 'remote';
-    if (remote) pushToast(client, { kind: 'error', title: "Folders can't be dropped into remote environments" });
+    if (remote) pushToast(client, { kind: 'error', title: 'Folders can only be referenced in the local desktop environment' });
     else for (const folder of folders) pushToast(client, { kind: 'error', title: `Couldn't get the path of "${str(folder.name)}"`, description: 'Type the folder path with @ instead.' });
   }
   return origin === 'paste' ? '' : 'focus:composer';
@@ -83,9 +93,9 @@ export async function attachIncoming(client: T3Client, native: Native, origin: s
  * (countReservedAttachments) are counted before each file is prepared: one past them is `over-limit`, never staged.
  * A folder is `folder`.
  */
-export async function stageFiles(client: T3Client, native: Native, sources: AttachSource[]): Promise<Obj[]> {
+export async function stageFiles(client: T3Client, native: Native, sources: AttachSource[], target?: DraftTarget): Promise<Obj[]> {
   if (!client.projectId) throw new ClientError('Choose a project first.');
-  const key = client.attachmentKey, limit = attachStagingLimit(client), staged: Obj[] = [];
+  const key = client.attachmentKey, generation = client.generation, limit = attachStagingLimit(client), staged: Obj[] = [];
   let room = MAX_ATTACHMENTS - reservedAttachments(client);
   const release = holdStaging(client, key);
   try {
@@ -101,7 +111,8 @@ export async function stageFiles(client: T3Client, native: Native, sources: Atta
       }
     }
   } finally { release(); }
-  return key === client.attachmentKey ? staged : (await releaseStaged(client, native, staged), []);
+  // With a target, the files go to its draft wherever the composer is now; without one, only to the draft still open.
+  return (target ? generation === client.generation : key === client.attachmentKey) ? staged : (await releaseStaged(client, native, staged), []);
 }
 
 /** Staged files nothing will reference: a shelf image's draft and a file's copy go. */
@@ -119,10 +130,11 @@ export async function releaseStaged(client: T3Client, native: Native, files: Obj
  * the chips go into at its caret (`editorInsert` refuses another thread's editor; then they join the end of the stored
  * draft).
  */
-export async function addAttachedFiles(client: T3Client, native: Native, files: Obj[], imageChips = imagesGetChips(client), owner = ''): Promise<void> {
-  const key = client.attachmentKey, threadKey = client.draftKey, question = key !== threadKey;
-  const identity = { generation: client.generation, snapshotOwner: client.snapshotOwner, fieldOwner: composerFieldOwner(client) };
+export async function addAttachedFiles(client: T3Client, native: Native, files: Obj[], imageChips = imagesGetChips(client), owner = '', target?: DraftTarget): Promise<void> {
+  const identity = target ?? draftTarget(client), { key, threadKey } = identity, question = key !== threadKey;
   const current = () => identity.generation === client.generation && identity.snapshotOwner === client.snapshotOwner && identity.fieldOwner === composerFieldOwner(client) && key === client.attachmentKey;
+  // A target's draft takes its files after the composer moved to another one; only a new client generation drops them.
+  const kept = () => target ? identity.generation === client.generation : current();
   let error = '';
   const accepted: Obj[] = [], chips: DraftFile[] = [];
   let reserved = reservedAttachments(client);
@@ -130,7 +142,7 @@ export async function addAttachedFiles(client: T3Client, native: Native, files: 
   const staging = holdStaging(client, key);
   try {
     for (const file of files) {
-      if (!current()) { await releaseStaged(client, native, [file]); continue; }
+      if (!kept()) { await releaseStaged(client, native, [file]); continue; }
       const name = str(file.name, 'file');
       if (reserved >= MAX_ATTACHMENTS || file.kind === 'over-limit') {
         await releaseStaged(client, native, [file]); // staged bytes nothing will reference
@@ -141,7 +153,7 @@ export async function addAttachedFiles(client: T3Client, native: Native, files: 
       if (file.kind === 'image-unreadable') { error = `'${name}' could not be read as an image.`; continue; }
       if (file.kind === 'image-too-large') { error = `'${name}' is too large to attach, even after compression.`; continue; }
       if (file.kind === 'file') {
-        const staged = acceptAttachedFile(client, file);
+        const staged = acceptAttachedFile(client, file, undefined, threadKey, identity.environmentId);
         if (staged.file) { chips.push(staged.file); reserved += 1; rememberVideoFrame(client, file); }
         else { error = staged.error; await releaseStaged(client, native, [file]); }
         continue;
@@ -152,7 +164,13 @@ export async function addAttachedFiles(client: T3Client, native: Native, files: 
       reserved += 1;
     }
     if (accepted.length) client.local.snapshotDrafts[key] = [...(client.local.snapshotDrafts[key] ?? []), ...accepted];
-    const inserted = await insertFileChips(client, native, chips, imageChips && !question ? accepted : [], owner || identity.snapshotOwner);
-    if (current()) client.error = error || (!inserted ? 'The prompt changed before attachment references could be inserted. Attach the files again.' : '');
+    const images = imageChips && !question ? accepted : [];
+    if (current()) {
+      const inserted = await insertFileChips(client, native, chips, images, owner || identity.snapshotOwner);
+      if (current()) client.error = error || (!inserted ? 'The prompt changed before attachment references could be inserted. Attach the files again.' : '');
+    } else if (kept() && !question) {
+      // The editor now shows another draft: the chips join the end of the stored prompt of the draft that took the files.
+      appendChipLinks(client, threadKey, [...chips.map(fileChipLink), ...images.map(imageChipLink)]);
+    }
   } finally { staging(); release(); }
 }
