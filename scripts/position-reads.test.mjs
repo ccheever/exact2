@@ -7,6 +7,14 @@
 // else in the kernel and the Apple and Linux hosts, so a new layout reader
 // can't skip the rule. The web hosts are out of scope: they write the
 // authored row as CSS, and the browser's UA sheet applies the top layer.
+// It is a tripwire for ordinary code, not a proof (theme2 12:59): what the
+// repo's own idiom writes is caught, each form with a case in the scratch
+// tree below. Its stated limits, not chased: a name a macro builds (Rust's
+// `concat!`, a generated identifier), a string built at run time (Swift's
+// "position" + "_type"), reflection, a re-export of the row id under
+// another module's name; and a comment inside a Swift interpolation is
+// scanned as code, so a read written there is a false hit, never a miss.
+// The compile-time guard is QUEUE'd with the computed-style default (B).
 // `bun test ./scripts/position-reads.test.mjs`.
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
