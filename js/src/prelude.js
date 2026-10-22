@@ -17,6 +17,10 @@
   // 12 the carrier's auth callback ("callback") or a web worker realm's placement.
   var host = global.__exact_host;
   delete global.__exact_host;
+  // The seam's bytes (binary.js): base64, UTF-8 lengths, a stream message's data.
+  var binary = global.__exact_binary;
+  delete global.__exact_binary;
+  var fromBase64 = binary.fromBase64, toBase64 = binary.toBase64, utf8Length = binary.utf8Length;
   // LLP 1027.000: time and seeds are source arguments, so bake and cache
   // see them. This VM belongs to one module; no page/guest globals change.
   // Install before the app can capture an alias, including Date's prototype
@@ -156,6 +160,9 @@
   // Natively: `(op, name, arrayBuffer) -> string`, the byte work in Rust.
   var bytesDoor = global.__exact_bytes;
   delete global.__exact_bytes;
+  // LLP 1133.003 §9's stub decode, natively and under the agent only (op
+  // 11 answers there): the gate's fixture calls it until `VideoDecoder`.
+  if (binary.gateDecode && host(11, "", "0") !== undefined) global.__exact_gate_decode = binary.gateDecode;
   // A LAN dev page (no secure context): the dev protocol's SHA-256, which
   // module integrity already uses there. `(Uint8Array) -> Promise<hex>`.
   var pageDigest = global.__exact_digest;
@@ -447,35 +454,6 @@
   Object.defineProperty(global, "SubtleCrypto", { value: SubtleCrypto, writable: true, configurable: true });
   Object.defineProperty(global, "Crypto", { value: Crypto, writable: true, configurable: true });
   fixed(global, "crypto", cryptoObject);
-  function fromBase64(text) {
-    return Uint8Array.from(global.atob(text), function (c) { return c.charCodeAt(0); });
-  }
-  var BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  function toBase64(bytes) {
-    var out = [], n = bytes.length, i = 0, v;
-    for (; i + 2 < n; i += 3) {
-      v = bytes[i] << 16 | bytes[i + 1] << 8 | bytes[i + 2];
-      out.push(BASE64[v >> 18 & 63] + BASE64[v >> 12 & 63] + BASE64[v >> 6 & 63] + BASE64[v & 63]);
-    }
-    if (i < n) {
-      v = bytes[i] << 16 | (i + 1 < n ? bytes[i + 1] << 8 : 0);
-      out.push(BASE64[v >> 18 & 63] + BASE64[v >> 12 & 63] + (i + 1 < n ? BASE64[v >> 6 & 63] : "=") + "=");
-    }
-    return out.join("");
-  }
-  // A string's UTF-8 bytes as TextEncoder makes them: a pair is 4, a lone
-  // surrogate its replacement character's 3.
-  function utf8Length(s) {
-    var n = 0;
-    for (var i = 0; i < s.length; i++) {
-      var c = s.charCodeAt(i);
-      if (c < 0x80) n += 1;
-      else if (c < 0x800) n += 2;
-      else if (c >= 0xd800 && c < 0xdc00 && i + 1 < s.length && (s.charCodeAt(i + 1) & 0xfc00) === 0xdc00) { n += 4; i++; }
-      else n += 3;
-    }
-    return n;
-  }
   // --- fetch: a request the host runs; a Promise for its reply -------------
   var nextTicket = 1;
   // ticket -> { resolve, reject, call, claimed, stream, signal, release }:
@@ -762,9 +740,9 @@
     }
     if (signal && signal.aborted) return Promise.reject(signal.reason);
     var ticket = nextTicket++;
-    // A WebSocket stream owns a two-way socket (LLP 1016.000 D7).
+    // A WebSocket stream owns a two-way socket (LLP 1016.000 D7); an HTTP one's body that is not events is bytes.
     var socket = stream && /^wss?:/i.test(String(url));
-    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, timeout_ms: timeout, body_from: bodyFrom, redirect: redirect }));
+    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, bytes: stream && !socket ? true : undefined, timeout_ms: timeout, body_from: bodyFrom, redirect: redirect }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;
@@ -1386,12 +1364,12 @@
   // One message of the stream answer `id` began, or its end: the mapper's
   // value, now — a stream's answer never awaits (LLP 1016.000 D1). The end
   // is `{ type: "error" }` with the failure's kind and message, or the
-  // status and body of a reply that was not an event stream.
+  // status and body of a reply that was not 2xx.
   global.__exact_message = function (id, outcomeJson) {
     var call = calls.get(Number(id));
     if (!call || !call.stream) return fail(new Error("no stream answer " + id));
     var o = JSON.parse(outcomeJson), event, socket = call.socket;
-    if (o.message) event = { type: o.message.event || "message", data: o.message.binary !== undefined ? fromBase64(o.message.binary).buffer : o.message.data, lastEventId: o.message.id, coalesced: o.message.coalesced };
+    if (o.message) event = { type: o.message.event || "message", data: binary.messageData(o.message), lastEventId: o.message.id, coalesced: o.message.coalesced };
     else if (o.closed) event = { type: "close", data: "", lastEventId: "", coalesced: 0, code: o.closed.code, reason: o.closed.reason, wasClean: o.closed.wasClean };
     else if (o.failed) event = { type: "error", data: "", lastEventId: "", coalesced: 0, kind: o.failed.kind, message: o.failed.message, status: 0 };
     else event = { type: "error", data: o.response.body, lastEventId: "", coalesced: 0, kind: "Response", message: "HTTP " + o.response.status, status: o.response.status };

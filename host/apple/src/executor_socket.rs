@@ -218,6 +218,7 @@ fn frame(shared: &Shared, ticket: u64, message: Message) -> Frame {
     if frames >= RECEIVE_FRAMES || bytes + size(&message) > RECEIVE_BYTES {
         return Frame::Overflow;
     }
+    exact_runner::stream_timing::received(ticket);
     state.completed[lane].push_back(Completed {
         elapsed_ms,
         ticket,

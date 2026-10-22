@@ -5,6 +5,57 @@
 import names, { types } from './names.js';
 import { pieces, pageHistory, Head, navigateRoot, Tasks, journal, unopened } from './rt.js';
 import * as perf from './perf.js';
+// LLP 1133.003 §9's gate, under the agent only (ts-stream.js calls in):
+// `perf streams` reads, per stream, each message from its receipt to the
+// mapper's entry, to each decode and to the commit standing, in ms, from
+// `start` on. `__exact_gate_decode` is the gate's stub decode until
+// `VideoDecoder` is the module's: the browser's decoder per track, made by
+// the chunk that carries a config in a stream's mapper (a call from
+// anywhere else throws), each frame closed as it comes out, and closed
+// when the stream that made it ends.
+const gate = { on: false, started: 0, streams: {}, current: null, decoders: new Map(),
+  row(name) { return this.streams[name] ??= { messages: 0, commits: 0, decodes: 0, decodedBytes: 0, frames: 0, decodeErrors: 0, busy: 0, toEntry: [], toDecode: [], toCommit: [] }; },
+  enter(name, receipt) {
+    this.current = { name, receipt, entry: performance.now() };
+    if (!this.on) return;
+    const r = this.row(name); r.messages++;
+    if (receipt != null) r.toEntry.push(this.current.entry - receipt);
+  },
+  leave() {
+    const c = this.current; this.current = null;
+    if (!this.on || !c) return;
+    const r = this.row(c.name), now = performance.now();
+    r.commits++; r.busy += now - c.entry;
+    if (c.receipt != null) r.toCommit.push(now - c.receipt);
+  },
+  ended(name) { for (const [track, d] of this.decoders) if (d.owner === name) { try { d.decoder.close(); } catch {} this.decoders.delete(track); } },
+  decode(track, type, timestamp, data, config) {
+    const c = this.current;
+    // A decoder belongs to the stream whose mapper made it, and closes with it.
+    if (!c) throw new Error("__exact_gate_decode is called from a stream's mapper");
+    if (this.on) { const r = this.row(c.name); r.decodes++; r.decodedBytes += data.byteLength; if (c.receipt != null) r.toDecode.push(performance.now() - c.receipt); }
+    if (typeof VideoDecoder !== 'function') return;
+    let d = this.decoders.get(track);
+    if (config && d?.codec !== config.codec) {
+      try { d?.decoder.close(); } catch {}
+      const owner = c.name, count = k => { if (this.on) this.row(owner)[k]++; };
+      const decoder = new VideoDecoder({ output: f => { f.close(); count('frames'); }, error: () => count('decodeErrors') });
+      decoder.configure(config);
+      this.decoders.set(track, d = { decoder, codec: config.codec, owner });
+    }
+    if (d?.decoder.state === 'configured') d.decoder.decode(new EncodedVideoChunk({ type, timestamp, data }));
+  },
+};
+(globalThis.exact ??= {}).streamGate = gate;
+globalThis.__exact_gate_decode = (...args) => gate.decode(...args);
+function streamTiming(start) {
+  if (start) Object.assign(gate, { on: true, started: performance.now(), streams: {} });
+  if (!gate.on) return { measuring: false };
+  const seconds = (performance.now() - gate.started) / 1000;
+  const pct = (xs) => { const s = [...xs].sort((a, b) => a - b), at = p => s.length ? +s[Math.max(0, Math.ceil(s.length * p) - 1)].toFixed(3) : 0; return { n: s.length, p50: at(0.5), p95: at(0.95), p99: at(0.99), max: at(1) }; };
+  return { measuring: true, seconds: +seconds.toFixed(3), streams: Object.entries(gate.streams).map(([name, r]) => ({ name, messages: r.messages, commits: r.commits, decodes: r.decodes, decodedBytes: r.decodedBytes, frames: r.frames, decodeErrors: r.decodeErrors,
+    messageRate: +(r.messages / seconds).toFixed(2), commitRate: +(r.commits / seconds).toFixed(2), decodeRate: +(r.decodes / seconds).toFixed(2), busy: +(r.busy / 1000 / seconds).toFixed(4), toEntry: pct(r.toEntry), toDecode: pct(r.toDecode), toCommit: pct(r.toCommit) })) };
+}
 import { observe } from './check.js';
 import { faultOp, faultsJson, setFaultLog } from '../web/faults.js';
 import { inertAncestor, displayMode, environment, navigation, unselected, foldEnv, preferFold, typedControl, settleValue, animationClocks, pageReporter } from './navigation.js';
@@ -333,6 +384,7 @@ export function install(exact) {
       // `perf <target>` (LLP 1079 D2): the plan sites under a view, with their work (perf.js).
       case 'perf': {
         if (req.frames) return { virtual: true }; // the agent's clock presents no frame (LLP 1079 D4)
+        if (req.streams) return { ...tags(), streamTiming: streamTiming(req.start) }; // LLP 1133.003 §9 (ts-stream.js)
         // `perf hatches` (LLP 1075.003.000.001 §3.3): the hatches' calls, timed, and what their code counted (hatches.js).
         if (req.hatches) return exact.hatchPerf ? exact.hatchPerf.reply(tags()) : { ...tags(), seq: exact.clock.epoch, plan: exact.plan ?? null, measuring: exact.plan != null, hatches: {}, calls: [], tickets: 0, counters: {}, timings: {}, rejected: 0, abandoned: 0, limited: 0 };
         let el = document.getElementById('exact-root');
