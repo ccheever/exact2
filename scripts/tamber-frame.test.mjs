@@ -48,6 +48,7 @@ test('frame-ancestors: the tool by its origin, another port, none, self, wildcar
   expect(framesAllowed('frame-ancestors http://127.0.0.1:7740/private', TOOL, PAGE).portFixes).toBe(false);
   expect(framesAllowed('frame-ancestors 127.0.0.1:7740', TOOL, PAGE).portFixes).toBe(true);
   expect(framesAllowed('frame-ancestors https://127.0.0.1:7740', TOOL, PAGE).portFixes).toBe(false);
+  expect(framesAllowed("frame-ancestors 127.0.0.1:7740, frame-ancestors 'none'", TOOL, PAGE).portFixes).toBe(false);
   // Several policies (headers joined by commas): every one with the directive must allow; the most restrictive wins.
   expect(allows(`frame-ancestors ${TOOL}, frame-ancestors 'none'`)).toBe(false);
   expect(allows(`frame-ancestors ${TOOL}, default-src 'self'`)).toBe(true);
