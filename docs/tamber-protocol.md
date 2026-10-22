@@ -144,9 +144,9 @@ on macOS and Linux.
   there (`bases` keeps its meaning, as wide as `names`); and the base rows emit the reserved source
   kind `{kind: "stretch", ref, why}` (stage 13 D5): the Mac's `space.xl` now reads `stretch` (`ref`
   `grouped-label-inset`, with its why), which read `metric` before; and a package design's icons
-  (stage 13): a package icon's `describe` row carries `package` and `file`, and its `explain` answer
-  `package`, `file`, `identity` and, when the app's design overrides it, `package_value`, as a
-  package token's do (its `draws` reads the package's `assets/`).
+  (stage 13): a package icon's `describe` row carries `package` and `file`, its `resolve` answer
+  `package`, `file` and `identity`, and its `explain` answer those and, when the app's design
+  overrides it, `package_value`, as a package token's do (its `draws` reads the package's `assets/`).
 
 ## Where it runs
 
