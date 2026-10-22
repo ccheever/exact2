@@ -61,7 +61,7 @@ enum Inspect {
         }
         func bytes() -> Int { (try? JSONSerialization.data(withJSONObject: envelope()))?.count ?? Int.max }
         if bytes() > reportBytes {
-            rows = rows.map { $0.filter { ["name", "value", "source", "from", "token"].contains($0.key) } }
+            rows = rows.map { $0.filter { ["name", "value", "source", "from", "fromSite", "token"].contains($0.key) } }
             selected["rows"] = rows; selected["trimmed"] = true
         }
         while bytes() > reportBytes, !rows.isEmpty { rows = Array(rows.prefix(rows.count / 2)); selected["rows"] = rows }
@@ -122,6 +122,11 @@ extension ExactApp {
     /// channel (BuildChannel.swift).
     func inspectCommand(_ frame: [String: Any]) {
         if frame["kind"] as? String == "outline" { InspectHost.outline(self, frame); return }
+        // `select: {up, sites}` (tamber/1.16) is the web pages' alone so far: said so, inspect mode left as it is.
+        if frame["select"] != nil {
+            connection?.report(["kind": "unsupported", "what": "inspect", "detail": "this build cannot move its selection up (select): click the node instead"])
+            return
+        }
         if frame["refresh"] as? Bool == true {
             // (`status: true`: a status lost on the way; sent again first.)
             if frame["status"] as? Bool == true { BuildChannel.lastStatus = nil; scheduleStatus() }

@@ -905,9 +905,13 @@ if (es) {
   const selectUp = async ({ sites }) => {
     const id = inspecting.selected?.id;
     if (!inspecting.on || id == null || !Array.isArray(sites)) { report({ kind: "unsupported", what: "inspect", detail: "no node is selected on this page to move up from" }); return; }
+    // (A selection from another generation: its view may be another now, and the sites are the plan's now.)
+    if (inspecting.selected.generation !== globalThis.exact.generation) { report({ kind: "unsupported", what: "inspect", detail: "the selection is from before a rebuild: select a node again" }); return; }
     const want = new Set(sites);
+    // Its ancestors and their sites, in one read with no node's rows (the runner's `ancestors`).
+    const line = ask({ op: "ancestors", id });
     let found = null;
-    for (let at = id, seen = 0; at != null && seen < 4096; seen++) { const n = ask({ op: "node", id: at }); if (n.error) break; if (want.has(n.site)) found = at; at = n.parent ?? null; }
+    for (const [view, site] of line.ancestors ?? []) if (want.has(site)) found = view;
     if (found == null) { report({ kind: "unsupported", what: "inspect", detail: "no node of that copy is above the selected one on this page" }); return; }
     await select(found);
   };

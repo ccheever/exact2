@@ -300,6 +300,8 @@ async function select(el, clicked = false, click = null) {
 async function selectUp({ sites }) {
   const el = inspecting.selected?.el;
   if (!inspecting.on || !el?.isConnected || !Array.isArray(sites)) { env.report({ kind: "unsupported", what: "inspect", detail: "no node is selected on this page to move up from" }); return; }
+  // (A selection made under another plan: the server's sites are the plan's now, so it is selected again first.)
+  if (inspecting.selected.plan !== (globalThis.exact?.plan ?? null)) { env.report({ kind: "unsupported", what: "inspect", detail: "the selection is from before a rebuild: select a node again" }); return; }
   const want = new Set(sites);
   let found = null;
   for (let at = el; at; at = above(at)) if (want.has(siteOf(at))) found = at;
