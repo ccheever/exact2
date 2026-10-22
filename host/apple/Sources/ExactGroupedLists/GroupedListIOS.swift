@@ -432,6 +432,7 @@ final class GroupedListHost: GroupedLists {
 
     // LLP 1080.001 D3: what the inspection walk accounts for.
     func inspectionOwns(_ view: UIView) -> Bool { lists.values.contains { $0.collection === view || $0.owns(skirt: view) } }
+    func hidSection(_ node: NodeView) -> Bool { lists.values.contains { $0.hiddenSection(node) } }
     func hides(_ node: NodeView) -> Bool { lists.values.contains { $0.hidesAuthored(node) } }
     func projects(_ view: UIView) -> Bool { lists.values.contains { $0.carried.keys.contains((view as? NodeView)?.id ?? 0) } }
 
@@ -803,6 +804,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         collection.layoutIfNeeded()
         // The CSS origin can change without moving UIKit's physical offset.
         if roomChanged { owner.scrollViewDidScroll(collection) }
+    }
+
+    func hiddenSection(_ node: NodeView) -> Bool {
+        hiddenRoots[node.id].map { $0.node === node && !$0.hidden } == true && node.style["display"]?.string != "none"
     }
 
     func hidesAuthored(_ node: NodeView) -> Bool {
@@ -1372,6 +1377,12 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         assign(cell, \.isUserInteractionEnabled, !inert)
         assign(cell, \.accessibilityElementsHidden, inert)
         let node = host.presenter.views[id]
+        #if os(iOS)
+        if let cell = cell as? GroupedCell {
+            cell.menuSource = rows[id]?.custom == false ? node : nil
+            host.presenter.syncGroupedMenu(on: cell)
+        }
+        #endif
         if node?.disabled == true || node?.ariaUnavailable == true { cell.accessibilityTraits.insert(.notEnabled) }
         else { cell.accessibilityTraits.remove(.notEnabled) }
     }

@@ -425,7 +425,8 @@ final class MenuHost {
             // also survives the invoker subsequently becoming inert.
             if view === inertBoundary { checksInert = false }
             if let n = view as? NodeView, (contextMenu ? n.formDisabled : n.disabled) || (checksInert && n.props["inert"] == "true") { return false }
-            if view.isHidden, !(inBar && presenter?.navigation.hiddenForBar(view) == true) {
+            let projectedSection = contextMenu && (view as? NodeView).map { presenter?.groupedLists?.hidSection($0) == true } == true
+            if view.isHidden, !projectedSection, !(inBar && presenter?.navigation.hiddenForBar(view) == true) {
                 guard let pop = view as? NodeView, isConfirmation(pop),
                       pop.props["popover"] != nil || isDialog(pop) else { return false }
             }
