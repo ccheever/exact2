@@ -672,6 +672,22 @@ reading. Nothing that isn't HTML is added by it.
   `source` and `track` children, a media controller (play, load, seek,
   fullscreen and PiP requests with results), DRM, and downloads and caches
   (LLP 1098 §7). No tag is added.
+- **Expanded (Daehyeon Mun, 2026-10-23; LLP 1133.003):** video decode by
+  WebCodecs' names in data code (`VideoDecoder`, `EncodedVideoChunk`,
+  imported from `@exact/webcodecs`), its frames written to a track that a
+  `video` shows (`srcObject=`) and a GPU surface samples, on the web,
+  macOS and iOS; Android, Windows, tvOS and Linux `later`, the terminal
+  absent. With it, LLP 1016.000 gains a byte stream (`fetch(…,
+  {exactStream})`), built first as the module's throughput gate.
+  Consumer: the T3 Code clone's device streams. Unblocks live H.264 from
+  a server without an app-owned decoder. Take: `QUEUE.md`'s "Re-measure
+  VideoArm's position read with many autoplaying videos" moves to Later.
+  Still out, each until a consumer asks (LLP 1133.003 §13): controls,
+  full screen and picture in picture for a track on Apple; presentation
+  by timestamp; `VideoEncoder`, `AudioDecoder` and `ImageDecoder`; frames
+  in data code; HDR output; `ExternalTexture` as a tier 2 word; a third
+  party's decoder; tracks from other producers; WebRTC; Rust data code's
+  binding.
 - ~~No camera anything.~~ Moved 2026-10-02 (Charlie: "I don't know why camera is so
   aggressively deferred. Can we change that and record the change? It's time to work
   on it"; take waived, none offered): a camera is an app native module in LLP
