@@ -107,6 +107,7 @@ public final class ExactView: NSView {
         viewport.autoresizingMask = [.width, .height]
         addSubview(viewport)
         session.view = self
+        viewport.visibleSizeChanged = { [weak self] in self?.fit() }
         session.presenter.onViewportFit = { [weak self] in
             self?.syncInsets()
             self?.onViewportFit?()
