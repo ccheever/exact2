@@ -6,10 +6,30 @@ export function cmpId(a: string, b: string): number {
   return a.length === b.length ? (a < b ? -1 : a > b ? 1 : 0) : a.length - b.length;
 }
 
-/** Return the first snowflake in an integer millisecond since the Unix epoch. */
-export function snowflakeFromMs(ms: number): string {
+/** Encode an integer Unix millisecond and the snowflake's low 22 bits (zero by default). */
+export function snowflakeFromMs(ms: number, lowBits = 0): string {
   if (!Number.isSafeInteger(ms) || ms < DISCORD_EPOCH) throw new RangeError('Invalid snowflake time');
-  return (BigInt(ms - DISCORD_EPOCH) << 22n).toString();
+  if (!Number.isInteger(lowBits) || lowBits < 0 || lowBits >= TIME_SHIFT) throw new RangeError('Invalid snowflake low bits');
+  return ((BigInt(ms - DISCORD_EPOCH) << 22n) | BigInt(lowBits)).toString();
+}
+
+/** Initialize once per session as { lastMs: null, sequence: 0 }; share across its sends. */
+export interface NonceState { lastMs: number | null; sequence: number }
+
+/** Allocate for a new send; the caller keeps this nonce with the pending send for every retry. */
+export function makeNonce(nowMs: number, state: NonceState): string {
+  if (!Number.isSafeInteger(nowMs) || nowMs < DISCORD_EPOCH) throw new RangeError('Invalid snowflake time');
+  let ms = Math.max(nowMs, state.lastMs ?? nowMs);
+  let sequence = ms === state.lastMs ? state.sequence + 1 : 0;
+  // Keep logical time when the clock steps back; carry a full 22-bit sequence into the next ms.
+  if (sequence >= TIME_SHIFT) {
+    ms++;
+    sequence = 0;
+  }
+  const nonce = snowflakeFromMs(ms, sequence);
+  state.lastMs = ms;
+  state.sequence = sequence;
+  return nonce;
 }
 
 /** Read a snowflake's Unix millisecond timestamp without rounding its decimal id. */

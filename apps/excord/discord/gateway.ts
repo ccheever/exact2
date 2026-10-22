@@ -20,6 +20,8 @@ export type GatewayEvent =
 
 export type GatewayChange =
   | { kind: 'dispatch'; t: string; s: number; d: any }
+  // The caller persists this credential and rebuilds its REST headers before more requests.
+  | { kind: 'token'; token: string }
   | { kind: 'status'; phase: GatewayPhase; detail?: string };
 
 export interface StepResult {
@@ -198,12 +200,12 @@ function stop(result: StepResult, reason: string, closeSocket: boolean): void {
   if (closeSocket) result.close = { code: RECONNECT_CLOSE, reason };
 }
 
-function heartbeat(result: StepResult, nowMs: number, scheduled: boolean): void {
+function heartbeat(result: StepResult, nowMs: number): void {
   const state = result.state;
   result.send.push(JSON.stringify({ op: 1, d: state.seq }));
   state.awaitingAck = true;
   state.lastHeartbeatAtMs = nowMs;
-  if (scheduled && state.heartbeatIntervalMs !== null) {
+  if (state.heartbeatIntervalMs !== null) {
     state.heartbeatAtMs = nowMs + state.heartbeatIntervalMs;
   }
 }
@@ -248,6 +250,10 @@ function frame(result: StepResult, value: unknown, nowMs: number): void {
         if (typeof payload.d?.session_id !== 'string') throw new Error('missing READY session');
         state.sessionId = payload.d.session_id;
         state.resumeGatewayUrl = typeof payload.d.resume_gateway_url === 'string' ? payload.d.resume_gateway_url : null;
+        if (typeof payload.d.auth_token === 'string' && payload.d.auth_token && payload.d.auth_token !== state.token) {
+          state.token = payload.d.auth_token;
+          result.changes.push({ kind: 'token', token: state.token });
+        }
       }
       if (payload.t === 'READY' || payload.t === 'RESUMED') {
         state.reconnectAttempts = 0;
@@ -258,7 +264,7 @@ function frame(result: StepResult, value: unknown, nowMs: number): void {
       break;
     }
     case 1:
-      if (state.heartbeatIntervalMs !== null) heartbeat(result, nowMs, false);
+      if (state.heartbeatIntervalMs !== null) heartbeat(result, nowMs);
       break;
     case 7:
       reconnect(result, nowMs, 'server requested reconnect', true);
@@ -329,17 +335,17 @@ export function step(state: GatewayState, event: GatewayEvent): StepResult {
       if (FATAL_CLOSE[event.code]) {
         forgetSession(state);
         stop(result, `gateway close ${event.code}: ${FATAL_CLOSE[event.code]}`, false);
-      } else if (state.phase !== 'backoff' && state.phase !== 'idle') {
-        // 4007 and 4009 end the session. Any other close is resumed: a resume that fails
-        // costs one INVALID_SESSION, an identify spends the budget (llp/0001 §2).
-        if (event.code === 4007 || event.code === 4009) forgetSession(state);
-        reconnect(result, event.nowMs, `gateway close ${event.code}`, false);
+      } else {
+        if ([1000, 1001, 4007, 4009].includes(event.code)) forgetSession(state);
+        if (state.phase !== 'backoff' && state.phase !== 'idle') {
+          reconnect(result, event.nowMs, `gateway close ${event.code}`, false);
+        }
       }
       break;
     case 'heartbeat':
       if (!heartbeatDue(state, event.nowMs)) break;
       if (state.awaitingAck) reconnect(result, event.nowMs, 'heartbeat ACK missing', true);
-      else heartbeat(result, event.nowMs, true);
+      else heartbeat(result, event.nowMs);
       break;
     case 'retry':
       if (state.phase !== 'backoff' || state.retryAtMs === null) break;
