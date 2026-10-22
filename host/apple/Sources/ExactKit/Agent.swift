@@ -431,6 +431,16 @@ public final class Agent {
 
     package static func r2(_ x: CGFloat) -> Double { (Double(x) * 100).rounded() / 100 }
 
+    /// `layout <node>` for a live node the host mounted no view for (a native
+    /// button's face draws its svg): the runner's rows, no box, and why.
+    static func unmounted(_ node: [String: Any], into reply: [String: Any], now: Double) -> [String: Any] {
+        var node = node, reply = reply
+        node["native"] = ["mounted": false, "reason": "no view of its own: the host draws it inside another's (a native control's face)"]
+        node["observed"] = ["clock": now, "wall": Date().timeIntervalSince1970 * 1000]
+        reply["node"] = node
+        return reply
+    }
+
     // Whole logical points, with an area ceiling to keep this diagnostic
     // from asking the software painter for arbitrarily large allocations.
     static let resizeError = "tap resize needs exactly two integer dimensions in 64...4096, area <= 8388608, and no other input fields"
