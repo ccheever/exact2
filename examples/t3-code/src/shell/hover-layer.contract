@@ -27,7 +27,8 @@ shape HoverTip
   // card), "freshness" (PullRequestBaseFreshnessWarning's card, drawn by T3Window from the open PR), "pr-badge" (the
   // composer badge's ThreadPullRequestsMiniList, a tooltip whose rows take the pointer: 600 ms open, 100 ms close),
   // "breakdown" (a +/- split, PullRequestChangeBreakdownStat: a 600 ms tooltip; `text` is the split's key, drawn by T3Window
-  // from the view that holds it).
+  // from the view that holds it), "pr-card" (the details card's pull request row tooltip, ThreadDetailsPrRow's glass
+  // TooltipPopup: 600 ms; `text` is the row's key).
   kind: string
   text: string
   lines: string[]
@@ -52,7 +53,7 @@ fn hoverDelay(kind: string): number = kind == "scopes" or kind == "pr-badge" ? 1
 // the freshness card's delay={0}; PolicyTooltip's delay={200} (kind "policy", settings-kit.contract PolicyTip, drawn as a
 // tip); a Tooltip with no provider Base UI's 600 (kind "tooltip": ThreadAutomationsPanel's, thread-automations.contract); a
 // tooltip here at once (CnTooltip's, the picker's TooltipProvider delay={0}).
-fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : (kind == "policy" or kind == "workflow-member" ? 200 : (kind == "tooltip" or kind == "model-name" or kind == "code" or kind == "pr-badge" or kind == "breakdown" ? 600 : 0)))
+fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : (kind == "policy" or kind == "workflow-member" ? 200 : (kind == "tooltip" or kind == "model-name" or kind == "code" or kind == "pr-badge" or kind == "breakdown" or kind == "pr-card" ? 600 : 0)))
 
 fn noHoverTip(): HoverTip = HoverTip(key="", kind="", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, wide=0, testId="")
 
@@ -84,12 +85,14 @@ component HoverLayer
   derive place = tip.side == "left" ? hoverFlip("left", "right", leftRoom, rightRoom, tip.estimate) : (tip.side == "right" ? hoverFlip("right", "left", rightRoom, leftRoom, tip.estimate) : (tip.side == "bottom" ? hoverFlip("bottom", "top", bottomRoom, topRoom, tip.estimate) : hoverFlip("top", "bottom", topRoom, bottomRoom, tip.estimate)))
   // A "code" tip (TooltipPopup variant code, a media's path) is up to 30rem wide.
   derive span = tip.kind == "code" ? 32.5 : 22.5
-  // A centred popup of known width starts where it stays 5pt inside the window, and the row holds it at its start.
-  derive shifted = tip.wide > 0 and tip.align == "center" and (tip.side == "top" or tip.side == "bottom")
-  derive left = shifted ? max(5, min(viewportWidth - 5 - tip.wide, tip.x + tip.width / 2 - tip.wide / 2)) : (tip.align == "start" ? tip.x : (tip.align == "end" ? tip.x + tip.width - span * rem : tip.x + tip.width / 2 - span / 2 * rem))
+  // A popup of known width above or below its trigger starts where it stays 5pt inside the window (Base UI's collision
+  // shift), and the row holds it at its start.
+  derive shifted = tip.wide > 0 and (tip.side == "top" or tip.side == "bottom")
+  derive aligned = tip.align == "start" ? tip.x : (tip.align == "end" ? tip.x + tip.width - tip.wide : tip.x + tip.width / 2 - tip.wide / 2)
+  derive left = shifted ? max(5, min(viewportWidth - 5 - tip.wide, aligned)) : (tip.align == "start" ? tip.x : (tip.align == "end" ? tip.x + tip.width - span * rem : tip.x + tip.width / 2 - span / 2 * rem))
   derive top = max(titlebar + 5, tip.align == "start" ? tip.y : (tip.align == "end" ? tip.y + tip.height - 22.5 * rem : tip.y + tip.height / 2 - 11.25 * rem))
   derive justify = shifted or tip.align == "start" ? "flex-start" : (tip.align == "end" ? "flex-end" : "center")
-  derive card = tip.kind != "tip" and tip.kind != "policy" and tip.kind != "tooltip" and tip.kind != "model-name" and tip.kind != "code" and tip.kind != "breakdown"
+  derive card = tip.kind != "tip" and tip.kind != "policy" and tip.kind != "tooltip" and tip.kind != "model-name" and tip.kind != "code" and tip.kind != "breakdown" and tip.kind != "pr-card"
   view
     if place == "bottom"
       row position="absolute" left=left top=(tip.y + tip.height) width=(span * rem) justify-content=justify align-items="flex-start" pointer-events="none" z-index=140 testId="hover-layer"

@@ -10,6 +10,7 @@ import { breakdownLines, presentChangeBreakdown, readChangeBreakdowns, releaseCh
 import { prRefreshEvent } from '../../src/pull-requests/pages-pr-refresh';
 import { decodeChangeBreakdown } from '../../src/client/domain';
 import { prCard } from '../../src/details/pr-row-logic';
+import { contractComponent } from '../support/contract-action-fixture';
 
 const NOW = Date.parse('2026-10-08T01:00:00.000Z');
 const lines = (additions: number, deletions: number) => ({ additions, deletions });
@@ -159,12 +160,39 @@ describe('the details card (ThreadDetailsPrRow, PullRequestChangeBreakdownRows)'
     await readChangeBreakdowns(client, native, [target()], { eager: 'detail' });
     await readChangeBreakdowns(client, native, [target()], { eager: 'detail' });
     const split = presentChangeBreakdown(client, target(), { eager: true, total: false });
-    const bare = prCard(detail, 'open', 900), card = prCard(detail, 'open', 900, undefined, split);
+    const bare = prCard(detail, 'open', 900), card = prCard(detail, 'open', 900, split);
     expect(card.breakdown.rows.map(line => line.label)).toEqual(['Code', 'Generated', 'Docs']);
     expect(card.breakdown.total).toEqual([]);
-    expect(card.maxWidth).toBeGreaterThanOrEqual(bare.maxWidth);
+    // The hover layer's estimate: as wide as the widest line, and three more lines (16pt, 4pt apart, 2pt inside) on one of its own.
+    expect(card.width).toBeGreaterThanOrEqual(bare.width);
+    expect(card.height - bare.height).toBe(3 * 16 + 2 * 4 + 4 + 6);
   });
   test('a change without lines carries no split', () => {
-    expect(prCard({ ...detail, additions: 0, deletions: 0 }, 'open', 900, undefined, { ref: 'x', requested: true, loading: false, rows: [{ key: 'code', label: 'Code', additions: '+1', deletions: '-0', row: 1 }], total: [] }).breakdown.rows).toEqual([]);
+    expect(prCard({ ...detail, additions: 0, deletions: 0 }, 'open', 900, { ref: 'x', requested: true, loading: false, rows: [{ key: 'code', label: 'Code', additions: '+1', deletions: '-0', row: 1 }], total: [] }).breakdown.rows).toEqual([]);
+  });
+});
+
+describe('the details card in the window\'s hover layer (ThreadDetailsPrRow, its portalled TooltipPopup)', () => {
+  // The hover-layer fns as JavaScript, as hover-layer.contract defines them.
+  const hoverTipAtFrame = (key: string, kind: string, text: string, lines: string[], side: string, align: string, frame: Obj, estimate: number, testId: string) =>
+    ({ key, kind, text, lines, side, align, x: frame.x, y: frame.y, width: frame.width, height: frame.height, estimate, wide: 0, testId });
+  const hoverTipWide = (tip: Obj, wide: number) => ({ ...tip, wide });
+  const card = { show: true, flipped: false, width: 290, height: 192, breakdown: { ref: 'k', requested: true } };
+  const run = (extra: Obj, over: boolean) => {
+    const component = contractComponent('src/panel/pr-attachment.contract', 'DetailsPrRowView'), state = component.state({});
+    const tips: unknown[][] = [], locals: unknown[][] = [];
+    const scope = { row: { key: 'pr-7', split: true, extra: { card: { ...card, ...extra } } }, local: (...args: unknown[]) => locals.push(args),
+      hoverTipAt: (...args: unknown[]) => tips.push(args), hoverTipAtFrame, hoverTipWide, frame: () => ({ x: 1000, y: 300, width: 262, height: 32 }) };
+    component.call('hover', state, scope, ['row', over]);
+    return { tips, locals };
+  };
+  test('pointing at the row hands the card, its size and the link half\'s frame to the layer; leaving takes it back', () => {
+    expect(run({}, true).tips).toEqual([[{ key: 'details-pr-card-pr-7', kind: 'pr-card', text: 'pr-7', lines: [], side: 'top', align: 'start', x: 1000, y: 300, width: 262, height: 32, estimate: 192, wide: 290, testId: 'details-pr-card' }, 'trigger', true]]);
+    expect(run({}, false).tips[0]?.[2]).toBe(false);
+    // Where it would cross the window, it ends where the link half ends.
+    expect((run({ flipped: true }, true).tips[0]?.[0] as Obj).align).toBe('end');
+  });
+  test('the first point at the row asks for the split', () => {
+    expect(run({ breakdown: { ref: 'k', requested: false } }, true).locals).toEqual([['surface-pr-breakdown', 'card', 'k']]);
   });
 });

@@ -321,16 +321,16 @@ export type PrCard = {
   checksShown: boolean; checksStatus: string; checksText: string; conflictText: string; files: string; additions: string; deletions: string;
   /** PullRequestChangeBreakdownRows under the diff size, read once the card was first pointed at. */
   breakdown: PrBreakdown; flipped: boolean;
-  /** Where the details card would clip it: the card's 8pt insets bound it instead (see prCard). */
-  clamped: boolean; maxWidth: number;
+  /** The card's estimated size in points, for the window's hover layer (its clamp to the window and its flip below the row). */
+  width: number; height: number;
 };
-export const emptyCard = (): PrCard => ({ show: false, title: '', number: '', stateKey: '', stateLabel: '', branches: '', checksShown: false, checksStatus: '', checksText: '', conflictText: '', files: '', additions: '', deletions: '', breakdown: emptyBreakdown(), flipped: false, clamped: false, maxWidth: 320 });
+export const emptyCard = (): PrCard => ({ show: false, title: '', number: '', stateKey: '', stateLabel: '', branches: '', checksShown: false, checksStatus: '', checksText: '', conflictText: '', files: '', additions: '', deletions: '', breakdown: emptyBreakdown(), flipped: false, width: 0, height: 0 });
 /**
- * The card's content, and whether it lands end-aligned: Base UI keeps it start-aligned with the
+ * The card's content, its size, and whether it lands end-aligned: Base UI keeps it start-aligned with the
  * row (side top, 4pt off) unless it would cross the window's 5pt collision edge, where it aligns
  * its end with the row's link half instead. `room` is the window width from the row's left edge.
  */
-export function prCard(detail: Obj, lifecycleKey: string, room: number, row: { width: number; linkRight: number } = { width: 262, linkRight: 262 }, breakdown: PrBreakdown = emptyBreakdown()): PrCard {
+export function prCard(detail: Obj, lifecycleKey: string, room: number, breakdown: PrBreakdown = emptyBreakdown()): PrCard {
   const checks = arr(detail.checks), state = str(detail.state, 'open');
   const rollup = checksState(checks);
   const changed = num(detail.changedFiles), additions = num(detail.additions), deletions = num(detail.deletions);
@@ -342,7 +342,7 @@ export function prCard(detail: Obj, lifecycleKey: string, room: number, row: { w
     conflictText: detail.isDraft === true && conflicting ? `Merge conflicts with ${str(detail.baseBranch)}` : '',
     files: `${changed.toLocaleString('en-US')} ${changed === 1 ? 'file' : 'files'}`,
     additions: additions === 0 && deletions === 0 ? '' : `+${additions.toLocaleString('en-US')}`, deletions: additions === 0 && deletions === 0 ? '' : `-${deletions.toLocaleString('en-US')}`,
-    breakdown: additions === 0 && deletions === 0 ? emptyBreakdown() : breakdown, flipped: false, clamped: false, maxWidth: 320,
+    breakdown: additions === 0 && deletions === 0 ? emptyBreakdown() : breakdown, flipped: false, width: 0, height: 0,
   };
   const diff = card.additions ? 4 + width12(card.additions) + 4 + width12(card.deletions) : 0;
   const rows = [card.stateLabel, card.branches, card.checksShown ? card.checksText : '', card.conflictText, ''].map((text, index) => (text || index === 4 ? 2 + (index === 2 ? 14 : 12) + 8 + width12(text) : 0));
@@ -351,13 +351,12 @@ export function prCard(detail: Obj, lifecycleKey: string, room: number, row: { w
   const lines = card.breakdown.rows, widest = (pick: (line: BreakdownLine) => number) => Math.max(0, ...lines.map(pick));
   if (lines.length) rows.push(2 + 20 + widest(line => width12(line.label)) + 16 + widest(line => line.additions.length * MONO12) + 16 + widest(line => line.deletions.length * MONO12));
   const content = Math.max(width12(card.title, true) + 6 + width12(card.number), ...rows);
-  const width = Math.min(320, 26 + content);
-  card.flipped = width > room - 5;
-  // The reference portals the card; here it is drawn inside the details card, which clips. A card
-  // that fits keeps the reference's place (start-aligned, or ending where the link half ends); one
-  // that would cross the details card's left edge is held inside its 8pt insets.
-  card.clamped = card.flipped && row.linkRight - width < -8;
-  card.maxWidth = card.clamped ? Math.min(320, row.width + 16) : card.flipped ? 320 : Math.min(320, row.width + 8);
+  card.width = Math.ceil(Math.min(320, 26 + content));
+  card.flipped = card.width > room - 5;
+  // 13pt insets and the 1pt border around the title (12pt), 8pt, then 16pt lines 6pt apart, and the split's grid
+  // (16pt lines 4pt apart inside 2pt) on a line of its own. A conflict that wraps makes it taller than this.
+  const shown = [true, true, card.checksShown, card.conflictText !== '', true].filter(Boolean).length + (lines.length ? 1 : 0);
+  card.height = Math.ceil(28 + 12 + 8 + (shown - (lines.length ? 1 : 0)) * 16 + (shown - 1) * 6 + (lines.length ? lines.length * 16 + (lines.length - 1) * 4 + 4 : 0));
   return card;
 }
 

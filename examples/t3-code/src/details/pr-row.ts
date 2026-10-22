@@ -62,7 +62,7 @@ export function rowExtra(client: T3Client, detail: Obj, reference: Obj, input: {
     tail: checksTail(rowRight + rowWidth - checksTriggerLeft(num(detail.number)) - checksTrigger(count), count), popId: `pr-checks-${num(detail.number)}`, method,
     checksTitle: CHECKS_HEADLINE[rollup] ?? '', checksSummary: summary, checksList: list.rows, checksLabels: list.labels, checksDetails: list.details, collapsible: list.collapsible, expanded: state.showAll.has(input.key),
     // The title's line is the whole row wide.
-    card: prCard(detail, input.lifecycleKey, rowWidth + rowRight, { width: rowWidth, linkRight: rowWidth }, input.breakdown),
+    card: prCard(detail, input.lifecycleKey, rowWidth + rowRight, input.breakdown),
   };
   return {
     // The plain tooltip only stands in where the card cannot (no state); the card is the row's tooltip.
