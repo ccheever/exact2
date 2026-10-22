@@ -248,6 +248,7 @@ const readBody = (req, limit, signal) => new Promise(done => {
     if (settled) return;
     settled = true;
     req.off('data', data); req.off('end', end); req.off('error', gone); req.off('close', gone);
+    req.socket?.off?.('close', gone);
     signal?.removeEventListener('abort', gone);
     done(v);
   };
@@ -256,6 +257,8 @@ const readBody = (req, limit, signal) => new Promise(done => {
   const gone = () => finish({ gone: true });
   if (signal?.aborted || req.destroyed) return gone();
   req.on('data', data); req.on('end', end); req.on('error', gone); req.on('close', gone);
+  // (its connection's close too: under Bun a request on the canvas port's TLS hand-off never fires its own)
+  req.socket?.once?.('close', gone);
   signal?.addEventListener('abort', gone, { once: true });
 });
 
