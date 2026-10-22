@@ -1,0 +1,11 @@
+{
+  "name": "@exact/clipboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The system clipboard from data code, with the Async Clipboard API's names: write a ClipboardItem of image/png and text/plain (LLP 1133.006).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./web": "./web/exact.json"
+  }
+}

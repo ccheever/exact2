@@ -29,6 +29,10 @@
       "name": "@exact/cards",
       "version": "0.1.0",
     },
+    "packages/clipboard": {
+      "name": "@exact/clipboard",
+      "version": "1.0.0",
+    },
     "packages/geolocation": {
       "name": "@exact/geolocation",
       "version": "1.0.0",
@@ -54,6 +58,8 @@
     "@exact/actions": ["@exact/actions@workspace:packages/actions"],
 
     "@exact/cards": ["@exact/cards@workspace:packages/cards"],
+
+    "@exact/clipboard": ["@exact/clipboard@workspace:packages/clipboard"],
 
     "@exact/geolocation": ["@exact/geolocation@workspace:packages/geolocation"],
 
