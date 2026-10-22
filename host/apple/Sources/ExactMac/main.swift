@@ -159,6 +159,15 @@ let size = NSSize(width: windowDimension("width", fallback: scripted ? 420 : 900
 let minimumSize = NSSize(width: min(windowDimension("minWidth", fallback: 320), size.width),
                          height: min(windowDimension("minHeight", fallback: 240), size.height))
 
+/// The manifest's `display_override` (LLP 1039 D8): the first mode a Mac
+/// window takes decides, as a browser takes the first it supports.
+/// `window-controls-overlay` gives an app without routes the platform's
+/// tall title row over its page.
+let windowControlsOverlay: Bool = {
+    let taken: Set<String> = ["window-controls-overlay", "standalone", "minimal-ui", "browser"]
+    return (ExactEnv.appMetadata["ExactDisplayOverride"] as? [String])?.first(where: taken.contains) == "window-controls-overlay"
+}()
+
 /// The process's physical footprint, what Activity Monitor calls its
 /// memory: what a second session costs is read as the difference.
 func footprint() -> UInt64 {
@@ -265,7 +274,19 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     /// keeps a normal titled window and zero insets. The window is the adapter's;
     /// the insets are the view's (`ExactView.syncInsets`).
     func coverChrome() {
-        let cover = view.viewportFit == "cover"
+        // `window-controls-overlay` (LLP 1039 D8): while the session shows
+        // no toolbar of its own (a route's header), an empty unified one
+        // stands in the title bar, which the page underlaps, as a hand-built
+        // window that draws its own title row does. Not in full screen,
+        // where Chrome's overlay goes too; it comes back once the window is
+        // windowed again, as the toolbar's height would otherwise change
+        // under AppKit's exit animation.
+        let overlay = windowControlsOverlay && toolbarAttached && !view.hasWindowToolbar
+            && !enteringFullScreen && !window.styleMask.contains(.fullScreen)
+        if overlay, window.toolbar == nil { window.toolbar = overlayToolbar }
+        if !overlay, window.toolbar === overlayToolbar { window.toolbar = nil }
+        view.controlsOverlay = overlay
+        let cover = view.viewportFit == "cover" || overlay
         sidebar?.viewportFitChanged()
         if cover {
             if !window.styleMask.contains(.fullSizeContentView) { window.styleMask.insert(.fullSizeContentView) }
@@ -287,8 +308,31 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
         // 1115.002 D2): `.unified`, about 52 points on macOS 27, which is what
         // AppKit gives the style and not a number set here. A route's header
         // is this bar, so it has room for a title beside its items.
-        if view.hasWindowToolbar { window.toolbarStyle = .unified }
+        if view.hasWindowToolbar || overlay { window.toolbarStyle = .unified }
         view.syncInsets()
+    }
+    /// The toolbar `window-controls-overlay` puts in the title bar: no
+    /// items, so AppKit draws only its height (`coverChrome`).
+    private lazy var overlayToolbar: NSToolbar = {
+        let toolbar = NSToolbar(identifier: "exact.window-controls-overlay")
+        toolbar.displayMode = .iconOnly
+        toolbar.allowsUserCustomization = false
+        return toolbar
+    }()
+    /// The session's own toolbar has had its chance at the window
+    /// (`compose`), which takes none while the window has another.
+    private var toolbarAttached = false
+    private var enteringFullScreen = false
+    func windowWillEnterFullScreen(_ notification: Notification) { enteringFullScreen = true; coverChrome() }
+    func windowDidEnterFullScreen(_ notification: Notification) { enteringFullScreen = false }
+    func windowDidFailToEnterFullScreen(_ window: NSWindow) { enteringFullScreen = false; coverChrome() }
+    func windowDidExitFullScreen(_ notification: Notification) { coverChrome() }
+    /// Off while the session's toolbar is attached, which takes the window
+    /// only while it has no toolbar.
+    private func attachToolbar() {
+        if window.toolbar === overlayToolbar { window.toolbar = nil }
+        view.attachWindowToolbar(to: window)
+        toolbarAttached = true
     }
 
     /// The view goes into the window once its session has booted (the
@@ -319,7 +363,8 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
             // Neither, before or now: the view is the window's content.
             guard window.contentView !== view else { return }
             window.contentView = view
-            view.attachWindowToolbar(to: window)
+            attachToolbar()
+            coverChrome()
             return
         }
         // The same columns as before: nothing to compose.
@@ -348,7 +393,7 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
             window.contentView = view
         }
         coverChrome()
-        view.attachWindowToolbar(to: window)
+        attachToolbar()
         coverChrome()
         guard !window.styleMask.contains(.fullScreen) else { return }
         let height = window.frame.height + under - window.contentLayoutRect.height

@@ -1155,6 +1155,10 @@ bar the page may draw in, beside the window's controls. On the Mac, under
 window `78 0 822×32`. It is all zero in full screen and while the window has a toolbar (an
 app with routes has one), and undefined elsewhere: in a browser tab, on iOS, Linux and
 Windows, and on a Mac window that does not cover its title bar. Give each a fallback.
+`"display_override": ["window-controls-overlay"]` in `app.json` gives a Mac window the
+platform's tall title row (an empty unified toolbar, about 52 points) while it shows no
+toolbar of its own, whatever `viewport-fit` says, and the area is that row beside the
+traffic lights; `exactViewport().displayMode` is then `window-controls-overlay`.
 
 ```contract
 component App
