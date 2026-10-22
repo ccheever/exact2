@@ -674,6 +674,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_root_font_size(px), |n| n)
         }
 
+        /// The host's zoom over the root size (the Mac's View ▸ Zoom In).
+        #[no_mangle]
+        pub extern "C" fn exact_set_root_font_zoom(rt: u32, factor: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_root_font_zoom(factor), |n| n)
+        }
+
         /// Whether a confirmation's rows are an alert's (LLP 1115 D6): 1 for
         /// explanatory text, one cancel and at most three buttons. The rule
         /// is the kernel's; needs no runtime.

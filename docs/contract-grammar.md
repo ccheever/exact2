@@ -2015,7 +2015,8 @@ the virtual clock).
   macOS, iPadOS (a hardware keyboard's chord; the session's view holds
   the focus when nothing else does) and Linux. While a modal is shown — a modal
   `dialog`, or an `aria-modal` view, the last shown — only the buttons
-  inside it hear their chords, and Enter or Space with the focus on a
+  inside it hear their chords (on the Mac, an item of the app menu or Help
+  still does, as below), and Enter or Space with the focus on a
   control they activate (a button, a pressable, a checkbox) is that
   control's, whatever button declares it. A chord's key is one character,
   a named key, or F1–F35; the paste chord (⌘V, Control+V off the Mac) is a
@@ -2038,25 +2039,62 @@ the virtual clock).
   diary R16). Edit also holds Speech ▸ Start Speaking and Stop Speaking, which
   read the selected text aloud, in a field or out of one (#141).
 
-  Explicit placement: `button "Check for Updates…" -exact-menu="app"
+  Explicit placement: `button "Check for Updates…" -exact-menu="about"
   press=checkUpdates` also becomes a menu item without a shortcut. The literal
-  ids are `app`, `file`, `edit`, `view`, `go`, `window`, `help`; they are
-  independent of localized menu titles and override chord filing. The label
-  remains the button's `aria-label` or text. `disabled`/inert disable the item;
-  hidden or removed buttons leave the menu. The agent uses `tap` on that same
-  button. Help retains the system search field; standard menus and Develop in
-  development builds remain. Other hosts keep the ordinary button and ignore
-  this Mac presentation hint. On a top-level root,
+  ids are `about` (the app menu, directly under About, as apps that update
+  themselves place Check for Updates…), `app` (after About's separator, with
+  Settings…), `file`, `edit`, `view`, `go`, `window`, `help`, and `none`, which
+  shows no item and keeps the chord a shortcut (a host item with that chord
+  keeps its place without it); they are independent of localized menu titles
+  and override chord filing. The label remains the button's `aria-label` or
+  text. `disabled`/inert disable the item; hidden or removed buttons leave the
+  menu. An item in the app menu or Help (`about`, `app`, `help`, and Settings…)
+  is the app's, not its window's: it stays enabled, and its chord works, while
+  no window is key, under a sheet and under a Contract modal dialog, as in a
+  hand-built Mac app; an authored `inert`, or a route behind a modal route,
+  still disables it, and an app-modal panel (`NSApp.runModal`) disables it
+  as AppKit disables every item then. The agent uses `tap` on that
+  same button. Help retains the system search field; the standard menus, and
+  Develop in a development build, remain unless removed. Other hosts keep the ordinary button
+  and ignore this Mac presentation hint. On a top-level root,
   `-exact-menu-remove="show-tab-bar autofill close-all"` suppresses the named
   standard items and their menu equivalents. The literal whitespace-separated
-  ids are `close-all`, `autofill`, `show-tab-bar`, `show-all-tabs`, `enter-full-screen`,
-  `minimize`, `zoom`, `bring-all-to-front`, `show-previous-tab`, `show-next-tab`,
-  `move-tab-to-new-window`, `merge-all-windows`.
+  ids are `close-all`, `autofill`, `show-tab-bar`, `show-all-tabs`,
+  `enter-full-screen`, `minimize`, `zoom`, `bring-all-to-front`,
+  `show-previous-tab`, `show-next-tab`, `move-tab-to-new-window`,
+  `merge-all-windows`, `back` (Go ▸ Back), `develop` (the Develop menu),
+  `paste-and-match-style`, `find`, `spelling-and-grammar`, `substitutions`,
+  `transformations`, `app-help` (Help ▸ *App* Help), `actual-size`, `zoom-in`
+  and `zoom-out`. A removed submenu (`find`) takes its items' chords with it,
+  and an app command that would stand in there follows Select All instead.
   Empty removes nothing; duplicates are harmless. Unknown ids, expressions and
   non-root use fail with `lower-menu-remove`, which names the accepted set.
   Removing the root declaration restores the items; the policy follows the
-  active window. It never removes an app button or Develop;
+  active window. It never removes an app button; `develop` takes the Develop
+  menu off the bar and leaves its chords (Save Trace's ⌥⌘T among them);
   other hosts ignore it ([LLP 1021 §5.3](../llp/1021-menus.rfc.md#53-contract-extensions-to-the-mac-menu-bar-2026-10-12)).
+
+  View holds Actual Size ⌘0, Zoom In ⌘+ (⌘= too) and Zoom Out ⌘-, as Safari's
+  and Preview's View does, stepping through Safari's zoom levels (50% to 300%)
+  for the main window (the key one, or the one under a key panel). The zoom
+  multiplies the root font size last, over the
+  app's own `setRootFontSize` as a browser's page zoom is over
+  `html { font-size }`, so every `rem` and inherited text size grows; it is
+  per window and not kept across a launch. Declared deviation: a browser's
+  zoom scales `px` lengths too, and this one leaves them, as it leaves the
+  platform's own controls at their size; an app that sizes in `px` alone
+  removes the three items (`actual-size zoom-in zoom-out`). An app's own ⌘0,
+  ⌘= or ⌘- command takes the host item's place.
+
+  A held ⌘Q, as Chrome's Warn Before Quitting asks for: a root `key` handler
+  that calls `preventDefault()` on ⌘Q (match `code == "KeyQ"`: under a
+  non-Latin input source `key` is that source's letter) hears its press, each
+  auto-repeat (`repeat`) and its `keyup`, and the menu's Quit never runs; the
+  app calls `close()` to end a one-window app when the hold completes. Quit
+  chosen with the pointer still quits at once, after `beforeunload`. The
+  host's own items (Copy, Quit, Minimize, …) match a ⌘ chord under a
+  non-Latin input source as AppKit matches them in any Mac app: the event's
+  characters with ⌘ are the key's Latin letter (measured under Korean 2-Set).
 
 ### Focus order: `tabindex`
 
@@ -2136,7 +2174,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |
 | `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js) |
 | `setScheme(scheme)`: the app's scheme, `"light"`, `"dark"` or `"system"` (follow the system's appearance) | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |
-| `setRootFontSize(px)`, `setRootFontSize("125%")`, `setRootFontSize("medium")`: CSS's `:root { font-size }`, the root font size every `rem` follows, in px above 0, laid out in the action's own commit; `px` lengths stay. It stands over the host's own size (the browser's setting, iOS Dynamic Type, 16 on macOS and Linux), as an author's `html { font-size: 20px }` stands over a browser's font-size setting, and `"medium"` hands the size back to the host. A percentage (CSS's number syntax, above 0) is that share of the host's size and follows it as the host's changes (LLP 1121 D6). A literal of 0 or less is refused here, a computed one in the log when it runs. Not kept across a launch: set it again from a mount task (LLP 1069.000 D3) | [rem tests](../contract/cli/tests/it/rem.rs) |
+| `setRootFontSize(px)`, `setRootFontSize("125%")`, `setRootFontSize("medium")`: CSS's `:root { font-size }`, the root font size every `rem` follows, in px above 0, laid out in the action's own commit; `px` lengths stay. It stands over the host's own size (the browser's setting, iOS Dynamic Type, 16 on macOS and Linux), as an author's `html { font-size: 20px }` stands over a browser's font-size setting, and `"medium"` hands the size back to the host. The Mac's View ▸ Zoom In multiplies whichever size stands ([The Mac's menu bar](#keys)). A percentage (CSS's number syntax, above 0) is that share of the host's size and follows it as the host's changes (LLP 1121 D6). A literal of 0 or less is refused here, a computed one in the log when it runs. Not kept across a launch: set it again from a mount task (LLP 1069.000 D3) | [rem tests](../contract/cli/tests/it/rem.rs) |
 | `share(title=, text=, url=, files=)`: the system share sheet by the Web Share API's names, at least one of `text`, `url` and `files`, each its own item of the sheet (pass a picture alone to share only it, as a Share Card button does; `contract vocab share`); `url` absolute `http(s)`. `files=` lists `app:/` files, each behind the app's `fs.read` grant (on Apple a regular file of at most 64 MB, reached through no symbolic link), and `"#id"` entries: a PNG of that element as it is drawn now, at the display's scale, named by the share's `title` (else by the id) (iOS and macOS; the web refuses it, `share: refused: a picture of an element is not available on the web`; Android and Linux refuse files). A literal `#id` no element carries is refused here (`lower-share-picture`), a missing one at run time in the journal. Offer it where `exactPage()`'s `canShareFiles` and `canSharePictures` hold (LLP 1125 D12). The outcome is a journal line | [share corpus](../contract/corpus/share.contract), [Metronome](../apps/metronome/app.contract) |
 | `showNotification(title=, body=, tag=, showTrigger=, navigate=)`, `closeNotification(tag)`: a local notification by the Notification API's names, now or at `showTrigger` (epoch milliseconds); a click opens `navigate=` through the navigation root, cold or warm. A newer one with the same `tag` replaces it, and `closeNotification` takes it away, shown or waiting. Needs the grant `device.notifications <strings key>`; see [notifications](reference.md#notifications) | [notify corpus](../contract/corpus/notify.contract) |
 | `showPicker(id)`, export `saveFile(id, from, suggestedName)`: the host copies the `app:/` file `from` to where the person chooses; `change` at `id` carries the chosen name, `cancel` a dismissal. `saveFile(id, text=…, suggestedName=…)` saves the text itself (UTF-8), no file written first and no grant, so "export what's on screen" is one press | [picker tests](../contract/cli/tests/it/picker.rs), [Fieldnotes](../apps/fieldnotes/app.contract), [Linux's save tests](../host/linux/src/presenter/save_tests.rs) |
