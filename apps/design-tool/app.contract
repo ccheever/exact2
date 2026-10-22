@@ -350,9 +350,9 @@ shape Changes
   // (a build's status, a scrub's frame or a proposal moves `seq`, not them).
   files: string
   // Each answer, but while a scrub is open (any client's) only the files'
-  // changes, the commits told and scrubs opening or ending: what hello, the
-  // commit's dry run, a token's uses and a draft's proposal are read again
-  // on, so a scrub's frames and its builds' statuses cost no reads.
+  // changes, the commits told and scrubs opening or ending: what hello, a
+  // token's uses and a draft's proposal are read again on, so a scrub's
+  // frames and its builds' statuses cost no reads.
   paced: string
   // What a commit could take moves only with these: the files' changes, the commits told and another run. The
   // commit's dry run is read on it, not on each answer, so a session with nothing to commit isn't asked again and again.
@@ -2169,7 +2169,7 @@ component DesignTool
                     text r.label width=160
                     text r.ratio testId=`ratio-${r.column}`
             column gap=4 testId="files"
-              button press=toggleFiles aria-label=`${filesShown ? "Hide" : "Show"} the ${hello.files.length} files and their digests` testId="toggle-files"
+              button press=toggleFiles aria-expanded=filesShown aria-label=`${filesShown ? "Hide" : "Show"} the ${hello.files.length} files and their digests` testId="toggle-files"
                 text (filesShown ? "Hide files" : `Files (${hello.files.length})`)
               if filesShown
                 for f in hello.files key=f.path

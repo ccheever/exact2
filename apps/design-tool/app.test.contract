@@ -557,6 +557,19 @@ test "a commit's dry run is read again only when what a commit could take moves:
   request POST "/__stub/refuse-commit" {"why": ""} as ada
   request POST "/__stub/restart" {} as ada
 
+test "a name ending in a colon is a client like any other: its dry run is read and Commit turns on"
+  type "name" "Ada:"
+  tap "save-name"
+  clock data
+  expect text "person" == "design-tool:Ada:"
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": []} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect enabled "commit"
+  request POST "/__stub/restart" {} as ada
+
 test "the changeset lists each write since the tool opened, and commit reports what it took or why not"
   type "name" "Ada"
   tap "save-name"
