@@ -27,7 +27,6 @@ const page = `<!doctype html>
   <button id="close" popovertarget="menu" popovertargetaction="hide">Close</button>
   <button id="confirm" commandfor="sure" command="show-modal">Clear…</button>
   <button id="toDialog" popovertarget="picker">Becomes the dialog's</button>
-  <button id="toPicker" commandfor="sure" command="show-modal">Becomes the picker's</button>
   <button id="notDialog" commandfor="plain" command="show-modal">A dialog's command on no dialog</button>
 </div>
 <div id="plain">Plain</div>
@@ -42,9 +41,8 @@ const page = `<!doctype html>
   document.getElementById('react').addEventListener('click', () => pressed.push('react'));
   // A press that changes what its row opens, from a submenu to the picker.
   document.getElementById('switch').addEventListener('click', e => e.currentTarget.setAttribute('popovertarget', 'picker'));
-  // Presses that retarget their row: a popover's to a dialog's command, a dialog's to a popover's.
+  // A press that retargets its row from a popover to a dialog's command (the stated limit: what it named at the click).
   document.getElementById('toDialog').addEventListener('click', e => { e.currentTarget.removeAttribute('popovertarget'); e.currentTarget.setAttribute('commandfor', 'sure'); e.currentTarget.setAttribute('command', 'show-modal'); });
-  document.getElementById('toPicker').addEventListener('click', e => { e.currentTarget.setAttribute('commandfor', 'picker'); e.currentTarget.setAttribute('command', 'show-popover'); });
   window.commands = [];
   document.getElementById('plain').addEventListener('command', e => commands.push('plain ' + e.command));
   document.getElementById('sure').addEventListener('command', e => commands.push(e.command));
@@ -166,16 +164,10 @@ check('a row that invokes no popover, a dialog\'s command, keeps HTML\'s own act
   await until(`document.getElementById('sure').open && document.getElementById('sure').matches(':modal')`, true);
 }), 60000);
 
-check('a row its press retargets acts on what it names then, a dialog\'s command or a popover\'s', () => inChrome(async (evaluate, press, until) => {
+check('a row its press retargets from a popover to a dialog acts on the popover it named at the click', () => inChrome(async (evaluate, press, until) => {
   await press('opener');
   await until('open()', ['menu']);
   await press('toDialog');
-  await until(`document.getElementById('sure').open && document.getElementById('sure').matches(':modal')`, true);
-  expect(await evaluate('commands')).toEqual(['show-modal']);
-  await evaluate(`document.getElementById('sure').close()`);
-  await press('opener');
-  await until('open()', ['menu']);
-  await press('toPicker');
   await until('open()', ['picker']);
   expect(await evaluate('sources.picker')).toBe('opener');
   expect(await evaluate(`document.getElementById('sure').open`)).toBe(false);

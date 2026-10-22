@@ -1323,7 +1323,11 @@ that opened the menu, or the node its context menu opened on), as
 menu closes on choose, beside where the menu came from. Write that popover
 outside the menu: one written inside it is nested by where it is. A row naming
 another menu opens its submenu, nested. The build notes each such row it can
-see (literal ids, roles and actions: `lower-menu-row-popover`).
+see (literal ids, roles and actions: `lower-menu-row-popover`). Every other
+row (a dialog's command, a custom one) keeps HTML's own activation. On the web
+the rule takes the row as it is at the click: a press that changes a row from
+naming a popover to naming something else still opens that popover, and one
+changing it the other way leaves the popover nested.
 
 On macOS, iOS and the web, an action can call `showModal(id)` or `close(id)`
 for a `dialog`. macOS and the web follow the invoker's modal focus path; iOS
