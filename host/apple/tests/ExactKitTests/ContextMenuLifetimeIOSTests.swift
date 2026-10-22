@@ -124,6 +124,22 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
         XCTAssertFalse(button.accessibilityTraits.contains(.notEnabled))
     }
 
+    func testAnExitRetiresTheContextMenusLiftedPreview() throws {
+        let p = presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        let (_, _, controller) = try opened(p)
+        let preview = try XCTUnwrap(p.views[3])
+        XCTAssertTrue(preview.superview === controller.view)
+        p.apply(wireBatch([["op": "exit", "id": 9], ["op": "roots", "ids": []]]))
+        XCTAssertNil(p.views[3], "a lifted preview is an authored descendant of the leaving root")
+        XCTAssertNil(p.menus.context.open)
+        XCTAssertNil(preview.superview)
+        XCTAssertTrue(controller.view.subviews.isEmpty)
+        XCTAssertEqual(Set(try XCTUnwrap(p.leaving[9]).members.map(\.id)), [1, 2, 3, 4, 9])
+        p.apply(wireBatch([["op": "destroy", "id": 9]]))
+        XCTAssertNil(preview.presenter)
+    }
+
     func testABatchWhileLiftedMovesTheRowsHomeAndItsSize() throws {
         if ExactEnv.agentMode { throw XCTSkip("under the agent the popover is painted (D4)") }
         let p = presenter()
