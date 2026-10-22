@@ -603,7 +603,13 @@ pub(crate) fn control(c: &Component) -> Controls {
         .props
         .iter()
         .filter(|p| STATES.contains(&p.name.as_str()))
-        .filter(|p| matches!(&p.ty, Some(contract_syntax::TypeExpr::Named(n, _)) if n == "bool"))
+        .filter(|p| match &p.ty {
+            Some(contract_syntax::TypeExpr::Named(n, _)) => n == "bool",
+            Some(contract_syntax::TypeExpr::Option(inner, _)) => {
+                matches!(inner.as_ref(), contract_syntax::TypeExpr::Named(n, _) if n == "bool")
+            }
+            _ => false,
+        })
         .map(|p| p.name.as_str())
         .collect();
     walk_buttons(&c.view, &c.name, &states, &mut out.refused);
@@ -698,7 +704,7 @@ fn check_button(
                 .filter(|a| a.name == name)
                 .any(|a| mentions(&a.value, state))
         };
-        if !SAID.iter().any(|a| says(a)) && !says("aria-label") {
+        if !SAID.iter().any(|a| says(a)) && !says("aria-label") && !text_says(children, state) {
             out.push(error(format!(
                 "a `{tag}` whose look says a state it doesn't say aloud: its look reads `{state}`, so say it through `aria-selected`, `aria-pressed`, `aria-current`, `aria-checked` or `aria-expanded` from `{state}`, or a label that reads it"
             )));
@@ -706,7 +712,9 @@ fn check_button(
     }
 }
 
-/// Whether `nodes` hold a text of their own (not one a used component draws).
+/// Whether `nodes` hold what names a button: a text of their own, the
+/// slot (its caller's content, which can't be known here), or a used
+/// component given a text to draw (`text`, `label` or `title`).
 fn texted(nodes: &[Node]) -> bool {
     nodes.iter().any(|n| match n {
         Node::Element { tag, children, .. } => tag == "text" || texted(children),
@@ -715,14 +723,44 @@ fn texted(nodes: &[Node]) -> bool {
             then, otherwise, ..
         } => texted(then) || texted(otherwise),
         Node::Match { some, none, .. } => texted(&some.1) || texted(none),
+        Node::Use { args, children, .. } => {
+            args.iter().any(|a| matches!(a.name.as_str(), "text" | "label" | "title")) || texted(children)
+        }
+        Node::Children { .. } => true,
+    })
+}
+
+/// Whether a text under `nodes`, one that names the button, reads `state`
+/// (`text (following ? "Unfollow" : "Follow")` says it as a label does).
+fn text_says(nodes: &[Node], state: &str) -> bool {
+    nodes.iter().any(|n| match n {
+        Node::Element {
+            tag,
+            positional,
+            children,
+            ..
+        } => (tag == "text" && positional.iter().any(|e| mentions(e, state))) || text_says(children, state),
+        Node::Each { body, .. } => text_says(body, state),
+        Node::When {
+            then, otherwise, ..
+        } => text_says(then, state) || text_says(otherwise, state),
+        Node::Match { some, none, .. } => text_says(&some.1, state) || text_says(none, state),
         Node::Use { .. } | Node::Children { .. } => false,
     })
 }
 
-/// The names read inside a `?:` or `match` by `attrs` (but `aria-*`'s) and
+/// The names read inside a `?:` or `match` by `attrs` (but those saying
+/// things aloud, its handlers and its names) and
 /// everything under `children`, a used component's arguments included.
 fn looks(attrs: &[Attr], children: &[Node], out: &mut Vec<String>) {
-    for a in attrs.iter().filter(|a| !a.name.starts_with("aria-")) {
+    // What draws: not what it says aloud, its handlers (`press=(selected ?
+    // deselect : select)` draws nothing) nor its names.
+    let drawn = |a: &&Attr| {
+        !a.name.starts_with("aria-")
+            && !matches!(a.name.as_str(), "id" | "testId" | "key")
+            && !matches!(crate::tags::attr(&a.name), Some(crate::tags::AttrTarget::Handler(_)))
+    };
+    for a in attrs.iter().filter(drawn) {
         super::reads(&a.value, &mut Vec::new(), false, out);
     }
     for n in children {

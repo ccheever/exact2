@@ -702,4 +702,14 @@ fn a_library_button_is_named_and_says_the_state_its_look_shows() {
         PLAIN,
     );
     assert!(all.is_empty(), "{all:?}");
+    // Named by its caller's content (the slot) or a used component's text,
+    // a state said by its own text, and an id that reads a state (no look):
+    // the build passes (reload1's review).
+    let all = build(
+        "btn-ok-more",
+        "component Label\n  props\n    text: string\n  view\n    text text\n\ncomponent Card\n  props\n    selected: bool\n    go: action\n  slot\n  view\n    column\n      button press=go\n        children\n      button press=go\n        Label(text=\"Go\")\n      button press=go opacity=(selected ? 1 : 0.5)\n        text (selected ? \"Unfollow\" : \"Follow\")\n      button press=go aria-label=\"Home\" id=(selected ? \"on\" : \"off\")\n        box width=4 height=4\n",
+        "use Card from \"@acme/lib\"\n\ncomponent App\n  action go\n  view\n    Card(selected=true, go=go)\n      text \"x\"\n",
+        PLAIN,
+    );
+    assert!(all.is_empty(), "{all:?}");
 }
