@@ -65,8 +65,10 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
     tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
     other = await polledBuild(base, 'linux-1');
-    // A build's report reaches the tool on its long poll.
-    const wait = Array.from({ length: 2 }, () => ['clock +2000 real', 'clock data']).flat();
+    // A build's report reaches the tool on its long poll. (Real time in one step, not several: a jump
+    // that crosses one of the tool's timers first waits on what is in flight, its changes poll held up
+    // to 20 s, and a `+N real` step counts that wait as time passed.)
+    const wait = ['clock +4000 real', 'clock data'];
     // The frame's build says the plan it runs (LLP 1122 T2b, the JS target), read while the drive has it open.
     saidPlan = (async () => {
       while (driving) {
@@ -77,14 +79,14 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
       }
       return null;
     })();
-    const replies = await drive(url, `design-tool-canvas-${process.pid}`, ['type name Ada', 'tap save-name', 'clock data', 'tree canvas', 'layout', 'type canvas-size tablet', 'layout', 'type canvas-size desktop', 'layout', 'clock +2000 real',
+    const replies = await drive(url, `design-tool-canvas-${process.pid}`, ['type name Ada', 'tap save-name', 'clock data', 'tree canvas', 'layout', 'type canvas-size tablet', 'layout', 'type canvas-size desktop', 'layout',
       // The framed page's first registration, on a loaded machine (another run beside this one) later than a pin's.
-      ...Array.from({ length: 8 }, () => ['clock +2000 real', 'clock data']).flat(), 'state',
+      'clock +18000 real', 'clock data', 'state',
       // Dark and Black pinned on the other build only.
       'type pin-build linux-1', 'type pin-scheme dark', 'type pin-mode-dark-style black', 'tap pin-apply', 'clock data', ...wait, 'state',
-      // Open past one presence lease (35 s, each real-clock step at least
-      // 2 s): its polls keep the pin.
-      ...Array(18).fill('clock +2000 real'), 'clock data', 'state',
+      // Open past one presence lease (35 s; a real-clock step is at least
+      // its time): its polls keep the pin.
+      'clock +36000 real', 'clock data', 'state',
     ]);
     const closed = Date.now();
     const [tree] = replies.filter(r => r.nodes && !('x' in (r.nodes[0] ?? {})));

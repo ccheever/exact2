@@ -47,7 +47,9 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
         await Bun.sleep(100);
       }
     };
-    const wait = Array.from({ length: 2 }, () => ['clock +2000 real', 'clock data']).flat();
+    // Real time in one step, not several: a jump that crosses one of the tool's timers first waits on what
+    // is in flight, its changes poll held up to 20 s, and a `+N real` step counts that wait as time passed.
+    const wait = ['clock +4000 real', 'clock data'];
     const drive = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', ...DRIVEN.args, '--url', url, '--storage', `design-tool-scrub-${process.pid}`, '--json',
       'type name Ada', 'tap save-name', 'clock data', ...wait,
       // accent.fill, the default branch: a value, its proposal live (the
@@ -196,7 +198,7 @@ async function kindsOnTheJsLoop() {
         await Bun.sleep(100);
       }
     };
-    const wait = Array.from({ length: 2 }, () => ['clock +2000 real', 'clock data']).flat();
+    const wait = ['clock +4000 real', 'clock data'];
     const drive = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', ...DRIVEN.args, '--url', url, '--storage', `design-tool-kinds-${process.pid}`, '--json',
       'type name Ada', 'tap save-name', 'clock data', ...wait,
       // The length, by its amount field: proposed live, then scrubbed.
