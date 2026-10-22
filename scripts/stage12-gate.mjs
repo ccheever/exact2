@@ -562,9 +562,13 @@ const shown = (n, v) => n && n.w > 0 && n.h > 0 && n.x >= 0 && n.y >= 0 && n.x +
  * the shot's pixels: library-gate's top mark (`gate-top`, its own colour),
  * found as scale-check finds a page's top, from neither marker's pixels;
  * 0 for a shot of the viewport. Throws when a taller shot shows no mark. */
-export function viewportTop(img, layout) {
+export function viewportTop(img, layout, unscrolled = null) {
   const k = img.width / layout.viewport.w;
   if (img.height <= layout.viewport.h * k + 2) return 0;
+  // A page scrolled past its top mark (a marker below the fold, tapped into
+  // view) has the host's bars where an unscrolled shot of it had them.
+  const mark = layout.nodes?.find(n => n.testId === 'gate-top');
+  if (unscrolled != null && mark && mark.y + mark.h <= 0) return unscrolled;
   const top = pageTop(img, layout, { background: '#ffffff', boxes: [{ testId: 'gate-top', fill: '#ff00ff' }] }, k);
   if (!(top > 0)) throw new Error('the shot is taller than the viewport and its top mark (gate-top) was not found');
   return top;
@@ -609,6 +613,13 @@ export function slotOn(host, plan, dir, app = 'unsaid') {
       return { host, id, ok: differ, why: differ ? '' : 'its cells read the same with both glyphs', cells: c };
     });
   }
+  // Where the viewport starts in a shot of the page at its top, for a shot
+  // scrolled past its top mark.
+  let unscrolled = null;
+  try {
+    const png = join(dir, `${host}-unscrolled.png`), l = drivePlan(host, plan, png, [], app);
+    unscrolled = viewportTop(decodePng(readFileSync(png)), l);
+  } catch { /* each marker's own shot says why */ }
   return ids.map(id => {
     const a = join(dir, `${host}-${id}-a.png`), b = join(dir, `${host}-${id}-b.png`);
     let layout;
@@ -620,7 +631,7 @@ export function slotOn(host, plan, dir, app = 'unsaid') {
     if (!sameRect(A.n, B.n)) return { host, id, ok: false, why: 'its rect moved between the renders' };
     try {
       const [IA, IB] = [a, b].map(f => decodePng(readFileSync(f)));
-      const [topA, topB] = [viewportTop(IA, first), viewportTop(IB, layout)];
+      const [topA, topB] = [viewportTop(IA, first, unscrolled), viewportTop(IB, layout, unscrolled)];
       if (Math.abs(topA - topB) > 0.5) return { host, id, ok: false, why: `the viewport starts at ${topA} and ${topB} in the two shots` };
       const d = rectDiffers(IA, IB, B.n, layout.viewport.w, Math.round(topB));
       return { host, id, ok: d > 0, why: d > 0 ? '' : d < 0 ? 'the two shots differ in size' : 'its pixels are the same with both glyphs', px: d };
