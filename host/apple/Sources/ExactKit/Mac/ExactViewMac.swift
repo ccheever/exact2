@@ -39,6 +39,44 @@ public final class ExactView: NSView {
     private var fitPending = false
     private var lastDisplayScale: CGFloat = 0
     private var shortcutMonitor: Any?
+    private var windowToolbarObservation: NSKeyValueObservation?
+    private var toolbarVisibilityObservation: NSKeyValueObservation?
+    private var geometryObservers: [NSObjectProtocol] = []
+    private var insetsPending = false
+
+    private func scheduleInsets() {
+        guard !insetsPending else { return }
+        insetsPending = true
+        // AppKit finishes updating safe areas after its frame/toolbar notification.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.insetsPending = false
+            guard self.session.state != .destroyed else { return }
+            self.syncInsets()
+        }
+    }
+
+    private func observeEnvironment() {
+        geometryObservers.forEach(NotificationCenter.default.removeObserver)
+        geometryObservers = []
+        var ancestor: NSView? = self
+        while let view = ancestor {
+            view.postsFrameChangedNotifications = true
+            view.postsBoundsChangedNotifications = true
+            for name in [NSView.frameDidChangeNotification, NSView.boundsDidChangeNotification] {
+                geometryObservers.append(NotificationCenter.default.addObserver(forName: name, object: view, queue: .main) { [weak self] _ in
+                    self?.scheduleInsets()
+                })
+            }
+            ancestor = view.superview
+        }
+        scheduleInsets()
+    }
+
+    public override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        observeEnvironment()
+    }
     /// Screen changes and HDR suppression: HDR pictures re-plan (LLP 1100 D9).
     private var rangeObservers: [NSObjectProtocol] = []
     /// The adapter's hook for the first root's `viewport-fit` (window chrome
@@ -179,6 +217,7 @@ public final class ExactView: NSView {
     deinit {
         if let shortcutMonitor { NSEvent.removeMonitor(shortcutMonitor) }
         rangeObservers.forEach(NotificationCenter.default.removeObserver)
+        geometryObservers.forEach(NotificationCenter.default.removeObserver)
         session.presenter.menus.reset()
         session.presenter.dialogs.reset()
         session.presenter.toolbar.detach()
@@ -260,6 +299,13 @@ public final class ExactView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        observeEnvironment()
+        toolbarVisibilityObservation = nil
+        windowToolbarObservation = window?.observe(\.toolbar, options: [.initial, .new]) { [weak self] window, _ in
+            guard let self else { return }
+            self.toolbarVisibilityObservation = window.toolbar?.observe(\.isVisible, options: [.new]) { [weak self] _, _ in self?.scheduleInsets() }
+            self.scheduleInsets()
+        }
         session.natives.scopesChanged()
         if window == nil { session.presenter.menus.reset(); session.presenter.dialogs.reset() }
         session.tellPreferences()

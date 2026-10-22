@@ -41,6 +41,66 @@ final class TitleBarAreaMacTests: XCTestCase {
         return node.frame
     }
 
+    private func awaitEnvironment(_ view: ExactView, file: StaticString = #filePath, line: UInt = #line) {
+        let p = view.session.presenter
+        func current() -> Bool {
+            p.titlebarArea == TitleBarAreaMac.rect(of: view, cover: true)
+                && p.regions == LayoutRegionsMac.insets(of: view)
+                && p.insets.top == view.safeAreaInsets.top
+        }
+        let end = Date().addingTimeInterval(2)
+        while !current(), Date() < end { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+        XCTAssertTrue(current(), "environment follows AppKit without a manual sync", file: file, line: line)
+    }
+
+    func testToolbarVisibilityAndFixedSizeViewMovementRefreshTheEnvironment() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "moving-titlebar-area")
+        let window = Window(contentRect: NSRect(x: 100, y: 100, width: 900, height: 600),
+                            styleMask: [.titled, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 600))
+        let parent = NSView(frame: container.bounds)
+        container.addSubview(parent)
+        window.contentView = container
+        XCTAssertNil(session.boot(plan: try Self.plan.get(), size: CGSize(width: 900, height: 500)).error)
+        let view = ExactView(session: session)
+        view.frame = NSRect(x: 0, y: 100, width: 900, height: 500)
+        parent.addSubview(view)
+        defer { window.close(); session.destroy() }
+        view.layoutSubtreeIfNeeded()
+        awaitEnvironment(view)
+        XCTAssertNotNil(session.presenter.titlebarArea)
+        let size = view.bounds.size
+
+        let toolbar = NSToolbar(identifier: "visibility-environment")
+        window.toolbar = toolbar
+        awaitEnvironment(view)
+        XCTAssertEqual(session.presenter.titlebarArea, [0, 0, 0, 0])
+        toolbar.isVisible = false
+        awaitEnvironment(view)
+        XCTAssertNotEqual(session.presenter.titlebarArea, [0, 0, 0, 0])
+        toolbar.isVisible = true
+        awaitEnvironment(view)
+        XCTAssertEqual(session.presenter.titlebarArea, [0, 0, 0, 0])
+        window.toolbar = nil
+        awaitEnvironment(view)
+
+        view.setFrameOrigin(.zero)
+        awaitEnvironment(view)
+        XCTAssertNil(session.presenter.titlebarArea, "the view moved below the title bar")
+        view.setFrameOrigin(NSPoint(x: 0, y: 100))
+        awaitEnvironment(view)
+        XCTAssertNotNil(session.presenter.titlebarArea)
+        parent.setFrameOrigin(NSPoint(x: 0, y: -100))
+        awaitEnvironment(view)
+        XCTAssertNil(session.presenter.titlebarArea, "moving an ancestor changes window coordinates too")
+        parent.setFrameOrigin(.zero)
+        awaitEnvironment(view)
+        XCTAssertNotNil(session.presenter.titlebarArea)
+        XCTAssertEqual(view.bounds.size, size)
+    }
+
     func testTheAreaIsAppKitsBesideTheTrafficLightsAndZeroInFullScreenOrUnderAToolbar() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "titlebar-area")
