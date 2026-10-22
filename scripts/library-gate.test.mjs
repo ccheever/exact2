@@ -26,7 +26,7 @@ function ir() {
 test('every exported component, once per variant value, every cell rendered, every slot marked', () => {
   const library = ir();
   const names = library.map(c => c.name);
-  expect(names.sort()).toEqual(['ActionRow', 'AtCard', 'ListRow', 'PostButton', 'PostCard', 'SwitchRow']);
+  expect(names.sort()).toEqual(['ActionRow', 'AtCard', 'ListRow', 'PostButton', 'PostCard', 'ProfileHeader', 'SwitchRow']);
   const app = readFileSync(APP, 'utf8');
   // One component, the root, so every placement is in the rendered view.
   expect([...app.matchAll(/^component (\w+)/gm)].map(m => m[1])).toEqual(['App']);
@@ -48,7 +48,9 @@ test('every exported component, once per variant value, every cell rendered, eve
   const ids = placed.map(p => p.id);
   expect(new Set(ids).size).toBe(ids.length);
   const used = [...app.matchAll(/^use (.+) from "@exact\/(\w+)"/gm)].flatMap(([, n]) => n.split(',').map(x => x.trim()));
-  expect(used.sort()).toEqual(names.sort());
+  expect(used.filter(n => names.includes(n)).sort()).toEqual(names.sort());
+  // Besides the components, only the shapes their props take.
+  expect(used.filter(n => !names.includes(n))).toEqual(['ProfileAlert']);
 }, 600_000);
 
 // `contract gallery` (the design tool's variant gallery, LLP 1139 §9 Q2): the same cells as this app's, by the compiler's
@@ -59,7 +61,7 @@ test("contract gallery places the cells this app does, each placed, on the app's
   const out = mkdtempSync(join(ROOT, 'target', 'library-gate-gallery-'));
   const r = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'gallery', join(ROOT, 'apps/library-gate'), '-o', out], { cwd: ROOT, encoding: 'utf8' });
   expect([r.status, r.stderr]).toEqual([0, '']);
-  expect(r.stdout).toContain('gallery: 6 components, 13 cells (0 refused)');
+  expect(r.stdout).toContain('gallery: 7 components, 16 cells (0 refused)');
   const gallery = readFileSync(join(out, 'app.contract'), 'utf8');
   expect(gallery).not.toContain("can't place");
   const placed = placements(gallery, library.map(c => c.name));

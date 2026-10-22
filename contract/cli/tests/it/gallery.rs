@@ -779,8 +779,9 @@ component App
 /// own name, which names no role alone, and a prop that
 /// is a role's alias gets that role; a `for` that binds the prop's name
 /// hides it; two components of one signature share one inert action; an
-/// action the view calls with arguments of its own, or passes on to another
-/// component, stays `noop`, for the compiler to refuse. (One given to handlers that pass different payloads
+/// action the view calls with a literal argument gets an inert action of its
+/// type; one it passes on to another component stays `noop`, for the
+/// compiler to refuse. (One given to handlers that pass different payloads
 /// stays `noop` too, which `press` and `navigate` both take.)
 #[test]
 fn a_stem_a_shadow_a_shared_signature_and_an_action_the_view_calls_otherwise() {
@@ -802,15 +803,16 @@ fn a_stem_a_shadow_a_shared_signature_and_an_action_the_view_calls_otherwise() {
         .collect();
     assert_eq!(
         refused,
-        vec!["Odd", "Forward"],
-        "only the cells whose action the view calls with arguments or passes on"
+        vec!["Forward"],
+        "only the cell whose action the view passes on"
     );
     let text = std::fs::read_to_string(&g.source).unwrap();
     for line in [
         r#"Stem(chevron="chevron", gear="settings")"#,
         r#"Shadowed(symbol="symbol")"#,
         r#"Twice(on=false, set=noop_bool)"#,
-        "`Odd.pick` requires 1",
+        "action noop_string(a: string)",
+        r#"Odd(pick=noop_string)"#,
         "binding to `noop`",
     ] {
         assert!(text.contains(line), "{line:?} in {text}");
