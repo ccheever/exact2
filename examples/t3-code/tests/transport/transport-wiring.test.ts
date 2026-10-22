@@ -50,6 +50,13 @@ describe('app.ts', () => {
     expect(grants.split('\n')).toEqual(expect.arrayContaining(['net.fetch http:', 'net.fetch https:', 'net.websocket ws:', 'net.websocket wss:', 'secret.keep t3-catalog']));
   });
 
+  test('claims the camera and microphone for the commands terminals and agents run (build-desktop-artifact.ts)', async () => {
+    expect(grants.split('\n')).toEqual(expect.arrayContaining(['device.camera purpose.camera', 'device.microphone purpose.microphone']));
+    const strings = await Bun.file(new URL('../../strings/en.json', import.meta.url)).json() as Record<string, string>;
+    expect(strings['purpose.camera']).toBe('T3 Code lets commands run by terminals and coding agents use the camera.');
+    expect(strings['purpose.microphone']).toBe('T3 Code lets commands run by terminals and coding agents use the microphone.');
+  });
+
   test('the tick answers now, as a mutation that sends must', () => {
     const table = answer('transportPump', [1_000_000, ''], null, { fs: {} } as never, null);
     expect(typeof (table as { then?: unknown }).then).toBe('undefined');

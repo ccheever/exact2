@@ -1,7 +1,7 @@
 // Thread notifications on macOS (reference: ThreadNotificationCoordinator.tsx,
 // threadNotifications.ts, apps/desktop notificationBadge.ts): notification-center
-// posts tagged per thread (a click focuses the app and asks the window to open
-// that thread), the completion/input sounds and the Dock badge of pending
+// posts tagged per thread (a click raises the window, as revealWindow does, and asks it
+// to open that thread), the completion/input sounds and the Dock badge of pending
 // notifications, cleared when the window gains focus. Whether the window has the
 // focus is the page's `exactPage().hasFocus` (exact2 #219, shell-notify.ts).
 //
@@ -31,6 +31,9 @@ final class T3Notifications: NSObject, UNUserNotificationCenterDelegate {
     private var openedSeq = 0
     private var sounds: [String: NSSound] = [:]
     private lazy var center: UNUserNotificationCenter? = Bundle.main.bundleIdentifier == nil ? nil : UNUserNotificationCenter.current()
+    /// The reference's revealWindow (ElectronWindow.reveal): the main window restored when minimized,
+    /// shown when ordered out (Close Window under keepRunning) or hidden (⌘H), and focused. The tests replace it.
+    var reveal: () -> Void = { T3AppControl.activateMainWindow() }
 
     init(agent: Bool, changed: @escaping (String) -> Void) {
         self.agent = agent
@@ -102,10 +105,9 @@ final class T3Notifications: NSObject, UNUserNotificationCenterDelegate {
         NSApp.dockTile.badgeLabel = "\(pending.count)"
     }
 
-    /// A clicked notification: focus the window and ask it to open that thread.
+    /// A clicked notification: raise the window and ask it to open that thread.
     func open(threadId: String) {
-        NSApp.activate(ignoringOtherApps: true)
-        NSApp.windows.first { $0.isVisible }?.makeKeyAndOrderFront(nil)
+        reveal()
         if !threadId.isEmpty {
             openedSeq += 1
             opened = "\(openedSeq):\(threadId)"
