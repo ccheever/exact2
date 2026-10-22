@@ -9,6 +9,8 @@ mod rekey;
 mod reorder;
 mod reorder_api;
 mod reorder_group;
+#[cfg(test)]
+mod reorder_tests;
 mod reuse;
 pub(crate) mod shown;
 use shown::in_collection_row;
@@ -516,6 +518,7 @@ impl Collection {
         }
         self.instant = instant;
         let anchor = if changed { self.anchor()? } else { None };
+        let drop_anchor = if changed { self.drop_anchor()? } else { None };
         // Items that changed in place: the same keys in the same order, and
         // no input of the rows' bodies or keys changed (a live tick's prices).
         let mut in_place: Option<Vec<usize>> = None;
@@ -589,6 +592,7 @@ impl Collection {
             if kept.is_some_and(|p| p + 1 < self.index.len() || self.index.len() > count) {
                 self.edge_armed[1] = true;
             }
+            let anchor = self.committed_anchor(anchor, drop_anchor);
             self.restore(anchor)?;
         }
         self.start_at_end();

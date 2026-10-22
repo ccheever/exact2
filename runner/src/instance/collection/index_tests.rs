@@ -1009,3 +1009,68 @@ fn a_short_list_ends_in_the_padding_before_its_rows() {
     i.set_trailing(83.);
     near(i.max_offset(600.), -92.);
 }
+
+#[test]
+fn reorder_anchor_keeps_signed_offsets_and_clamps_when_no_other_row_is_visible() {
+    for (offset, port, expected) in [
+        (200., 100., 180.),
+        (207., 100., 187.),
+        (200., 20., 200.),
+        (207., 10., 207.),
+        (0., 100., 0.),
+    ] {
+        let mut i = index(&[20.; 30]);
+        let a = i
+            .capture_anchor_excluding(offset, port, false, Some("k10"))
+            .unwrap();
+        let mut order = keys(30);
+        let source = order.remove(10);
+        order.insert(14, source);
+        i.replace_keys(order).unwrap();
+        assert_eq!(i.restore_anchor(&a, port).unwrap(), expected);
+    }
+    let mut i = index(&[20.; 30]);
+    let a = i
+        .capture_anchor_excluding(200., 100., false, Some("k10"))
+        .unwrap();
+    i.replace_keys(vec![
+        "k11".into(),
+        "k12".into(),
+        "k13".into(),
+        "k14".into(),
+        "k15".into(),
+        "k16".into(),
+    ])
+    .unwrap();
+    assert_eq!(i.restore_anchor(&a, 100.).unwrap(), 0.);
+    assert!(!i.kept_row(&a, 100., 0.));
+    let mut i = index(&[20., 20., 0., 20., 20., 20.]);
+    let a = i
+        .capture_anchor_excluding(20., 40., false, Some("k1"))
+        .unwrap();
+    i.replace_keys(vec![
+        "k0".into(),
+        "k2".into(),
+        "k3".into(),
+        "k4".into(),
+        "k1".into(),
+        "k5".into(),
+    ])
+    .unwrap();
+    assert_eq!(i.restore_anchor(&a, 40.).unwrap(), 0.);
+}
+
+#[test]
+fn drop_anchor_requires_a_move_among_surviving_keys() {
+    let mut i = index(&[20.; 30]);
+    let a = i
+        .capture_anchor_excluding(200., 100., false, Some("k10"))
+        .unwrap();
+    let mut order = keys(30);
+    order.insert(10, "new".into());
+    i.replace_keys(order.clone()).unwrap();
+    assert!(!i.moved_since(&a, "k10"));
+    order.remove(9);
+    i.replace_keys(order).unwrap();
+    assert!(!i.moved_since(&a, "k10"));
+}
