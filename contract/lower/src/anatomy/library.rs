@@ -640,8 +640,13 @@ const SAID: [&str; 5] = [
     "aria-expanded",
 ];
 
-/// Each `text` of `nodes` with a literal `id`, by that id: its words.
-fn texts_by_id<'a>(nodes: &'a [Node], out: &mut std::collections::HashMap<&'a str, &'a Expr>) {
+/// Each `text` of `nodes` with a literal `id`, by that id: its words, or
+/// `None` for an id two texts take (in two arms, which of them names a
+/// button the view doesn't settle).
+fn texts_by_id<'a>(
+    nodes: &'a [Node],
+    out: &mut std::collections::HashMap<&'a str, Option<&'a Expr>>,
+) {
     for n in nodes {
         match n {
             Node::Element {
@@ -651,12 +656,17 @@ fn texts_by_id<'a>(nodes: &'a [Node], out: &mut std::collections::HashMap<&'a st
                 children,
                 ..
             } => {
-                if let (true, Some(id), Some(words)) = (tag == "text", text(attrs, "id"), positional.first()) {
-                    out.insert(id, words);
+                if let (true, Some(id), Some(words)) =
+                    (tag == "text", text(attrs, "id"), positional.first())
+                {
+                    let seen = out.contains_key(id);
+                    out.insert(id, (!seen).then_some(words));
                 }
                 texts_by_id(children, out);
             }
-            Node::Use { children, .. } | Node::Each { body: children, .. } => texts_by_id(children, out),
+            Node::Use { children, .. } | Node::Each { body: children, .. } => {
+                texts_by_id(children, out)
+            }
             Node::When {
                 then, otherwise, ..
             } => {
@@ -678,8 +688,9 @@ struct Buttons<'a> {
     comp: &'a str,
     states: &'a [&'a str],
     derives: &'a [contract_syntax::Binding],
-    /// Each text of the view with a literal `id`: what `aria-labelledby` names.
-    labels: std::collections::HashMap<&'a str, &'a Expr>,
+    /// Each text of the view with a literal `id`: what `aria-labelledby`
+    /// names (`None` where two texts take one id, in two arms).
+    labels: std::collections::HashMap<&'a str, Option<&'a Expr>>,
 }
 
 impl Buttons<'_> {
@@ -703,7 +714,13 @@ impl Buttons<'_> {
     /// a derive it names holds (`opacity=fade` where `derive fade = (selected
     /// ? 1 : 0.5)`), a derive read inside one adding all it reads. A derive
     /// reads in its declaration's scope, which `bound` doesn't reach.
-    fn look_names(&self, e: &Expr, bound: &mut Vec<String>, out: &mut Vec<String>, seen: &mut Vec<String>) {
+    fn look_names(
+        &self,
+        e: &Expr,
+        bound: &mut Vec<String>,
+        out: &mut Vec<String>,
+        seen: &mut Vec<String>,
+    ) {
         let mut inside = Vec::new();
         super::reads(e, bound, false, &mut inside);
         let mut all = Vec::new();
@@ -711,7 +728,9 @@ impl Buttons<'_> {
         // `seen`: the derives being followed now, a stack (a cycle stops; the
         // same derive met again elsewhere is followed again).
         for name in all {
-            let Some(d) = self.derives.iter().find(|d| d.name == name) else { continue };
+            let Some(d) = self.derives.iter().find(|d| d.name == name) else {
+                continue;
+            };
             if inside.contains(&name) {
                 let mut through = vec![name.clone()];
                 self.expand(&mut through);
@@ -802,8 +821,13 @@ fn check_button(
         message: format!("{message} in library component `{comp}` (LLP 1139 D9)"),
         span,
     };
-    let what = if tag == "button" { "a `button`".to_string() } else { format!("a `{tag}` of `role=\"button\"`") };
-    let labelled = (has(attrs, "aria-label") && text(attrs, "aria-label").is_none_or(|t| !t.trim().is_empty()))
+    let what = if tag == "button" {
+        "a `button`".to_string()
+    } else {
+        format!("a `{tag}` of `role=\"button\"`")
+    };
+    let labelled = (has(attrs, "aria-label")
+        && text(attrs, "aria-label").is_none_or(|t| !t.trim().is_empty()))
         || has(attrs, "aria-labelledby");
     if !labelled && !texted(children) {
         out.push(error(format!(
@@ -825,10 +849,24 @@ fn check_button(
         // What names it says it: `aria-labelledby` first (the texts its ids
         // name in this view; one the view doesn't settle is taken as saying
         // it), else a non-empty `aria-label`, else its own text.
-        let name_says = match text(attrs, "aria-labelledby") {
-            Some(ids) => ids.split_whitespace().any(|id| cx.labels.get(id).is_none_or(|e| cx.mentions(e, state, bound))),
-            None if has(attrs, "aria-labelledby") => true,
-            None if has(attrs, "aria-label") && text(attrs, "aria-label").is_none_or(|t| !t.trim().is_empty()) => says("aria-label"),
+        // (A text it names reads in its own scope, which `bound` doesn't
+        // reach; an empty `aria-labelledby` names nothing.)
+        let name_says = match text(attrs, "aria-labelledby").filter(|ids| !ids.trim().is_empty()) {
+            Some(ids) => ids.split_whitespace().any(|id| {
+                cx.labels
+                    .get(id)
+                    .copied()
+                    .flatten()
+                    .is_none_or(|e| cx.mentions(e, state, &[]))
+            }),
+            None if has(attrs, "aria-labelledby") && text(attrs, "aria-labelledby").is_none() => {
+                true
+            }
+            None if has(attrs, "aria-label")
+                && text(attrs, "aria-label").is_none_or(|t| !t.trim().is_empty()) =>
+            {
+                says("aria-label")
+            }
             None => text_says(children, cx, state, &mut bound.to_vec()),
         };
         if !SAID.iter().any(|a| says(a)) && !name_says {
@@ -852,7 +890,13 @@ fn texted(nodes: &[Node]) -> bool {
             children,
             ..
         } => {
-            let hidden = matches!(attrs.iter().find(|a| a.name == "aria-hidden").map(|a| &a.value), Some(Expr::Bool(true, _)));
+            let hidden = matches!(
+                attrs
+                    .iter()
+                    .find(|a| a.name == "aria-hidden")
+                    .map(|a| &a.value),
+                Some(Expr::Bool(true, _))
+            );
             let empty = matches!(positional.first(), Some(Expr::Str(s, _)) if s.trim().is_empty());
             (tag == "text" && !hidden && !empty) || (!hidden && texted(children))
         }
@@ -862,7 +906,9 @@ fn texted(nodes: &[Node]) -> bool {
         } => texted(then) && texted(otherwise),
         Node::Match { some, none, .. } => texted(&some.1) && texted(none),
         Node::Use { args, children, .. } => {
-            args.iter().any(|a| matches!(a.name.as_str(), "text" | "label" | "title")) || texted(children)
+            args.iter()
+                .any(|a| matches!(a.name.as_str(), "text" | "label" | "title"))
+                || texted(children)
         }
         Node::Children { .. } => true,
     })
@@ -881,9 +927,16 @@ fn text_says(nodes: &[Node], cx: &Buttons, state: &str, bound: &mut Vec<String>)
             children,
             ..
         } => {
-            let hidden = matches!(attrs.iter().find(|a| a.name == "aria-hidden").map(|a| &a.value), Some(Expr::Bool(true, _)));
+            let hidden = matches!(
+                attrs
+                    .iter()
+                    .find(|a| a.name == "aria-hidden")
+                    .map(|a| &a.value),
+                Some(Expr::Bool(true, _))
+            );
             !hidden
-                && ((tag == "text" && positional.iter().any(|e| cx.mentions(e, state, bound))) || text_says(children, cx, state, bound))
+                && ((tag == "text" && positional.iter().any(|e| cx.mentions(e, state, bound)))
+                    || text_says(children, cx, state, bound))
         }
         Node::Each {
             var, index, body, ..
@@ -913,13 +966,22 @@ fn text_says(nodes: &[Node], cx: &Buttons, state: &str, bound: &mut Vec<String>)
 /// things aloud, its handlers and its names) and everything under
 /// `children`, a used component's arguments included, but those `bound`
 /// (and a `for` or `match` within) hides.
-fn looks(attrs: &[Attr], children: &[Node], cx: &Buttons, bound: &mut Vec<String>, out: &mut Vec<String>) {
+fn looks(
+    attrs: &[Attr],
+    children: &[Node],
+    cx: &Buttons,
+    bound: &mut Vec<String>,
+    out: &mut Vec<String>,
+) {
     // What draws: not what it says aloud, its handlers (`press=(selected ?
     // deselect : select)` draws nothing) nor its names.
     let drawn = |a: &&Attr| {
         !a.name.starts_with("aria-")
             && !matches!(a.name.as_str(), "id" | "testId" | "key")
-            && !matches!(crate::tags::attr(&a.name), Some(crate::tags::AttrTarget::Handler(_)))
+            && !matches!(
+                crate::tags::attr(&a.name),
+                Some(crate::tags::AttrTarget::Handler(_))
+            )
     };
     for a in attrs.iter().filter(drawn) {
         cx.look_names(&a.value, bound, out, &mut Vec::new());
