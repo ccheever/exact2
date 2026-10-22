@@ -40,6 +40,25 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
         override var state: UIGestureRecognizer.State { get { .began } set {} }
     }
 
+    func testContextPopoverInteractionFollowsThePresentationOwner() throws {
+        let p = presenter(kind: "view")
+        defer { p.menus.reset(); window.isHidden = true }
+        let source = try XCTUnwrap(p.views[1]), popover = try XCTUnwrap(p.views[2])
+        let interactions = source.interactions.compactMap { $0 as? UIContextMenuInteraction }
+        XCTAssertEqual(interactions.count, ExactEnv.agentPaints ? 0 : 1,
+                       "UIKit owns the interaction unless the agent paints the popover")
+        if ExactEnv.agentPaints {
+            XCTAssertTrue(p.menus.agentContext(source))
+            XCTAssertTrue(p.menus.isOpen(popover), "the default agent path still opens its painted popover")
+        } else {
+            let interaction = try XCTUnwrap(interactions.first)
+            let configuration = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configurationForMenuAtLocation: .zero))
+            XCTAssertNotNil(p.menus.context.menu(try XCTUnwrap(p.menus.context.open)))
+            p.menus.context.contextMenuInteraction(interaction, willEndFor: configuration, animator: nil)
+            XCTAssertNil(p.menus.context.open)
+        }
+    }
+
     func testDisabledOnAContainerDoesNotSuppressItsContextMenu() throws {
         let p = presenter(kind: "view")
         defer { p.menus.reset(); window.isHidden = true }
