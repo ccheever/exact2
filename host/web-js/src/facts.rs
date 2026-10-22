@@ -99,7 +99,8 @@ pub fn extensions(plan: &Plan) -> Vec<String> {
 /// asks for permission, its options record's type or null, live]`, an enum's
 /// members spelled out, so a preferred value outside them is refused; then a
 /// loader of each extension's web implementation (`ext-<name>.js`, which
-/// the build writes beside the app, LLP 1133.002 D15).
+/// the build writes beside the app, LLP 1133.002 D15); then the events the
+/// root hears.
 fn modules(plan: &Plan, body: &mut String) -> String {
     if plan.modules.is_empty() {
         return String::new();
@@ -135,11 +136,37 @@ fn modules(plan: &Plan, body: &mut String) -> String {
             )
         })
         .collect();
+    // Each event the root hears (LLP 1133.004 D6): its action, taken when
+    // the event is heard (the actions are declared after this call), how it
+    // is raised, its hold, its parameters' types and its name.
+    let events: Vec<String> = (plan.module_events.iter())
+        .map(|e| {
+            let action = plan.action(e.action);
+            let params: Vec<String> = (action.params.iter())
+                .map(|p| surface_type_json(plan, plan.param(p).ty))
+                .collect();
+            format!(
+                "{}:[()=>a_{},{},{},[{}],{}]",
+                serde_json::to_string(&format!(
+                    "{}.{}",
+                    plan.str(e.extension),
+                    plan.str(e.declared)
+                ))
+                .unwrap(),
+                e.action.0,
+                serde_json::to_string(plan.str(e.raised)).unwrap(),
+                e.hold,
+                params.join(","),
+                serde_json::to_string(plan.str(action.name)).unwrap()
+            )
+        })
+        .collect();
     let _ = write!(
         body,
-        "$modules({{{}}},{{{}}});",
+        "$modules({{{}}},{{{}}},{{{}}});",
         rows.join(","),
-        loaders.join(",")
+        loaders.join(","),
+        events.join(",")
     );
     "import{modules as $modules}from\"./modules.js\";".into()
 }

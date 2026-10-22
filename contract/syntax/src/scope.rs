@@ -231,7 +231,9 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         for field in m.options.iter_mut().chain(words) {
             r.ty(&mut field.ty)?;
         }
-        r.ty(&mut m.answers)?;
+        for ty in m.answers.iter_mut().chain(&mut m.args) {
+            r.ty(ty)?;
+        }
     }
     for shape in shapes {
         r.scope.rename(Kind::Call, &mut shape.name, shape.span)?;
@@ -485,7 +487,11 @@ impl Rewriter<'_> {
                     self.bind([name.clone()]);
                 }
                 Stmt::Assign { expr, .. } => self.expr(expr)?,
-                Stmt::Command { args, .. } => self.exprs(args)?,
+                // A send that answers nothing is a statement (LLP 1133.004 D5).
+                Stmt::Command { name, args, .. } => {
+                    self.scope.rename_source(name);
+                    self.exprs(args)?
+                }
                 Stmt::Send { source, args, .. } => {
                     self.scope.rename_source(source);
                     self.exprs(args)?

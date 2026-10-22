@@ -171,7 +171,7 @@ test('collection normal fast path retains noise, revives zeros and discards old-
     expect([c.index.leading, c.index.trailing]).toEqual([30, 70]);
   }
 });
-const REAL = ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'notify.js'];
+const REAL = ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'notify.js', 'modules.js'];
 for (const f of REAL) copyFileSync(webJs(f), resolve(dir, f));
 copyFileSync(resolve(new URL('../notify-glue.js', import.meta.url).pathname), resolve(dir, 'notify-glue.js'));
 for (const [file, source] of standIns(REAL)) writeFileSync(resolve(dir, file), source);
@@ -1020,6 +1020,74 @@ test('notification clicks use the route location corpus, including canonical pat
     }
     expect(mismatches).toEqual([]);
   } finally { globalThis.Notification = previous; globalThis.focus = previousFocus; navigateTo(null); }
+});
+
+// LLP 1133.004 D6, LLP 1133.002 D12: a module event's origin on the JS target.
+test('a command keeps the origin of the commit that queued it, whenever its tail runs', async () => {
+  const { commit, C, Hosts, Origin } = await import(resolve(dir, 'rt.js'));
+  let got = null;
+  Hosts.probe = Object.assign((from, x) => { got = [from, x]; }, { origin: true });
+  const was = Origin.now;
+  try {
+    commit(() => { Origin.now = () => 'device'; C('probe', [1]); Origin.now = () => 'person'; });
+    // This file's view transition holds every tree update: the tail, and its commands, run later.
+    expect(got).toBe(null);
+    globalThis.heldTail();
+    expect(got).toEqual(['device', 1]);
+  } finally { Origin.now = was; delete Hosts.probe; }
+});
+
+test('the device\'s origin follows the requests its commit sent, their answers and `then`s; a person\'s send keeps its own', async () => {
+  const { clock, commit, C, M, mut, sig, data, journal, advance } = await import(resolve(dir, 'rt.js'));
+  const { modules } = await import(resolve(dir, 'modules.js'));
+  const sub = { permission: { name: 'p', status: 'status', field: 'state', denied: 'NotAllowedError' }, admission: 'request' };
+  const settle = async () => { for (let i = 0; i < 3; i++) { await new Promise(r => setTimeout(r, 0)); globalThis.heldTail?.(); globalThis.heldTail = null; } };
+  const refusals = () => journal.filter(l => l.includes('person-required')).length;
+  const pending = { slow: null, fast: null }, was = data.answer;
+  data.answer = source => ({ promise: new Promise(r => { pending[source] = r; }) });
+  clock.agent = true;
+  try {
+    const slow = mut('slow-device', sig(null), [], null), fast = mut('fast-person', sig(null), [], null);
+    slow.then = () => C('ask', [{}]);
+    modules({ ask: ['dev.ask', true, sub, 'u', 'always', null, false] }, {},
+      { 'dev.chime': [() => () => commit(() => M(slow, 'slow', [])), 'emit', 4, [], 'chimed'] });
+    const call = () => Promise.race([globalThis.exact.extensions.call({ extension: 'dev', send: 'ask', args: {} }), new Promise(r => setTimeout(() => r('held'), 30))]);
+    // A device event's commit sends `slow`: its request is the device's.
+    globalThis.exact.extensions.raiseForTests('dev.chime');
+    await settle();
+    // A person's own Contract send meanwhile, whose tail a view transition defers: a person's, held on the ticket.
+    const before = refusals();
+    commit(() => { C('ask', [{}]); M(fast, 'fast', []); });
+    await settle();
+    expect(refusals()).toBe(before);
+    // Data code meanwhile cannot say whose answer it computes: the device's.
+    expect(await call()).toEqual({ error: 'NotAllowedError' });
+    // A person's request landing first does not end the device's window.
+    pending.fast({}); await settle();
+    expect(await call()).toEqual({ error: 'NotAllowedError' });
+    // The device's answer lands; the `then` it arms runs as the device's, its send refused while prompt.
+    const atThen = refusals();
+    pending.slow({}); await settle();
+    advance(clock.now + 1); await settle();
+    expect(refusals()).toBe(atThen + 1);
+    // Its request answered, data code is a person's again: held on the ticket.
+    expect(await call()).toBe('held');
+  } finally { data.answer = was; }
+});
+
+test('activation binds only a person\'s input', async () => {
+  const { clock, journal } = await import(resolve(dir, 'rt.js'));
+  const { modules } = await import(resolve(dir, 'modules.js'));
+  let context = null;
+  clock.agent = false;
+  modules({ post: ['act.post', true, {}, 'u', 'never', null, false] }, { act: () => Promise.resolve({ implementation: c => { context = c; return { post: async () => null }; } }) });
+  await globalThis.exact.extensions.call({ extension: 'act', send: 'post', args: {} });
+  const target = { listeners: [], addEventListener(type, f) { this.listeners.push(type); } };
+  context.activation(target, 'pointermove', 'moved', []);
+  context.activation(target, 'click', 'opened', []);
+  expect(target.listeners).toEqual(['click']);
+  expect(journal.some(l => l.endsWith('act.moved: a pointermove is no person\'s activation; nothing is bound'))).toBe(true);
+  clock.agent = true;
 });
 
 // LLP 1090: a string past MAX_STRING comes only from a data source, which the

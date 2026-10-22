@@ -153,7 +153,7 @@ export const say = line => journal.push(`t=${clock.now} ${line}`);
 /** A write inside an action: collected, applied at commit. */
 export function W(s, v) { Writes.push([s.n, v]); }
 /** A host command inside an action: run after the commit. */
-export function C(name, args) { Commands.push([name, args]); Rev++; }
+export function C(name, args) { Commands.push([name, args, Origin.now()]); Rev++; } export const Origin = { now: () => "person", sent: () => {}, answer: (t, o, f) => f(), under: (device, f) => f() }; // who caused the commit (modules.js, LLP 1133.002 D12): taken as a command is queued, so a deferred tail runs it under its own commit's origin; a request a device-origin commit sends, its answer's commit and the `then` that arms are the device's
 /** `refresh r`: forced at this commit's settlement (merged, LLP 1054.000.000 D2). */
 export function R(r) { Refresh.push(r.r ?? r); }
 /** A topic its resource watched changed while ticket `t` was in flight (`t.again`, ts-data.js `changed`, LLP 1016.002 D4): its reply landed or failed, so the resource is asked again. */
@@ -167,7 +167,7 @@ export function commit(f, what = "commit") {
   if (Writes) return f();
   if (Poisoned) return say(`refused ${what}: the runner is poisoned; reload`);
   Writes = []; Commands = []; Out = []; Landed = []; Sends = []; Refresh = []; Refused = null; Why = ""; time();
-  const was = Now.v, undo = [], saved = Resources.map(r => r.save()), held = Mutations.map(m => m.ticket), store = Store.save(), queued = Sched?.save(), writes = Ov.save();
+  const was = Now.v, by = Origin.now(), undo = [], saved = Resources.map(r => r.save()), held = Mutations.map(m => m.ticket), store = Store.save(), queued = Sched?.save(), writes = Ov.save();
   let ok = true, step = Booting ? "building the view" : `running the ${what}`; // where a refusal stops it (`Why`)
   try {
     untracked(f);
@@ -210,7 +210,7 @@ export function commit(f, what = "commit") {
     clock.epoch++; Store.persist();
     for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c); Sounds.apply?.(cmds); Sounds.midiApply?.(cmds); Sounds.stood?.(); if (!Booting) { autofocus(); Input?.arrive(); } // after its focus commands, as the wasm host (focus.js); then the focus follows the route (input-glue.js; LLP 1115.000 D4.2)
     // An answer's `then` is armed, due now, once however many land: the next advance runs it as its own commit (LLP 1016.001 D3).
-    for (const m of landed) if (m.then) { m.due = armedAt(); if (!clock.agent) drive(); }
+    for (const m of landed) if (m.then) { m.due = armedAt(); m.thenDevice = by === "device"; if (!clock.agent) drive(); }
     Sched?.scan(true); // a free queue's waiting send is due (LLP 1092 D3)
     return true;
   };
@@ -269,11 +269,11 @@ export const Hosts = {
 };
 let KeyEvent = null, Propagating = null; Hosts.preventDefault = () => { KeyEvent?.preventDefault(); if (KeyEvent?.type === "beforeunload") KeyEvent.returnValue = ""; }; Hosts.stopPropagation = () => { const e = KeyEvent ?? Propagating; if (e) e.$stopped = true; }; // Propagating: the pointer's down or up a handler is running for, which only its `stopPropagation()` reaches (its default is the browser's); // the key, focus, wheel, beforeunload or clipboard event whose handler is running (`on`): commands run before its commit returns; a stopped key reaches no ancestor's `key` handler, its default still does (files diary F8); a prevented beforeunload is the browser's "Leave site?" (Safari reads `returnValue`)
 export const Sounds = { apply: null, own: new Set(["playSound", "playSounds", "stopSounds", "sendMIDI", "requestMIDIAccess"]), gate: null, stood: null, seq: null, midi: null, midiApply: null, beatAt: null }; // The voice table's and the MIDI queue's commands (LLP 1096 D5, LLP 1125 D7): the runtime's own, never a host's; sounds.js and midi.js apply a commit's once it stood, and transport.js reads the sequences in the gate step and plays them once it stood (LLP 1125 D2).
-function command(name, args) {
+function command(name, args, origin) {
   const f = Hosts[name];
   say(`command ${name}`);
   if (Sounds.own.has(name)) return;
-  if (f) f(...args); else say(`refused: ${name} is not a command this runtime carries`);
+  if (f) f.origin ? f(origin, ...args) : f(...args); else say(`refused: ${name} is not a command this runtime carries`);
 }
 // ---------------------------------------------------------------- the clock and timers
 export const clock = { now: 0, timers: [], agent: false, epoch: 0 };
@@ -329,7 +329,7 @@ export function advance(to, wall, stop, timers = true) {
     if (head) clock.now = Math.max(clock.now, head.next);
     else if (then) { clock.now = Math.max(clock.now, then.due); then.due = Infinity; }
     else { clock.now = wall ? Math.max(clock.now, next.due) : next.due; if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else if (!next.hatch) next.due = next.frame ? vf(next.base, ++next.k) : repeat ? beatAfter(at, next.ms, Math.max(clock.now, to)) : next.due + next.ms; }
-    const due = next?.due, sample = () => { if (wall) clock.now = Math.max(clock.now, performance.now() - start); }; sample(); Instant = wall ? at : null; const ok = fire(head ? () => Sched.next(head) : then ? () => commit(then.then, `${then.name} then`) : next.action); Instant = null; sample();
+    const due = next?.due, sample = () => { if (wall) clock.now = Math.max(clock.now, performance.now() - start); }; sample(); Instant = wall ? at : null; const ok = fire(head ? () => Sched.next(head) : then ? () => Origin.under(then.thenDevice, () => commit(then.then, `${then.name} then`)) : next.action); Instant = null; sample();
     if (repeat && clock.timers.includes(next)) next.due = next.gen === gen && next.due === due ? beatAfter(at, next.ms, Math.max(clock.now, to)) : clock.now + next.ms; if (ok !== true) return journal.at(-1);
     if (head || then || !next.hatch) fired++; // a hatch's instant is no commit: it has its own caps
     if (stop?.()) { stopped = true; break; }
@@ -399,7 +399,7 @@ const sameReq = (a, b) => a && b && a.storage === b.storage && a.method === b.me
 /** Requests in flight, for the agent's `clock settle`. */
 export const inflight = { n: 0 };
 function send(t, land) {
-  Out.push(() => {
+  Origin.sent(t); Out.push(() => {
     inflight.n++; t.waiting = true;
     const started = performance.now();
     // A stream's message (`more`) keeps its ticket; anything else ends it.
@@ -441,7 +441,7 @@ function ask(source, args, name, mutation = false) {
  * the ticket go in a commit of its own, as the runner's `release_failed` (admission.rs): `gone` takes it out of pending. */
 function reply(t, name, source, held, f, next, gone) {
   t.held = held;
-  return o => {
+  return o => Origin.answer(t, o, () => {
     if (commit(() => {
       if (!held()) return say(`dropped reply for ${name}: ticket ${t.id} is no longer held`);
       let p;
@@ -451,7 +451,7 @@ function reply(t, name, source, held, f, next, gone) {
     }, `${o.more ? "message" : "reply"} ${name}; wall ${t.elapsed} ms`) !== false || !(Refused instanceof Failed || !t.r) || !held()) return; // a mutation's reply is spent whatever refused it
     say(`request ${t.id} (${name}) failed and is no longer pending: ${next}: ${Refused?.message ?? Refused}`); // why, on the line a test failure quotes (sb4 farm wave 6, E3: a mutation's refused reply named nowhere)
     gone(Refused.message, Refused.code, Refused.reason); recommit(() => { if (t.r) again(t); }, "a failed request");
-  };
+  });
 }
 const revalidated = (name, same) => `${name} answered: ${same ? "equal to its build-time answer" : "replaces its build-time answer"}`; // runner lines.rs
 /** A resource: its value, the arguments it settled with, one ticket in flight. A bake's answer is a first frame: `baked` asks at launch, as a native runner at `data_ready` (LLP 1048.003 D6; feed F24); a document's `kept` was asked for its page. */
