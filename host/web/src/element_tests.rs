@@ -7,9 +7,18 @@ fn written(
     prop: PropId,
     value: PropValue,
 ) -> super::SortedMap<String, String> {
+    written_props(node_type, &[(prop, value)])
+}
+
+fn written_props(
+    node_type: NodeType,
+    values: &[(PropId, PropValue)],
+) -> super::SortedMap<String, String> {
     let style = StyleProps::default();
     let mut props = PropList::new();
-    props.set(prop, value);
+    for (prop, value) in values {
+        props.set(*prop, value.clone());
+    }
     super::props_of(&NodeFacts {
         id: 1,
         node_type,
@@ -332,6 +341,21 @@ fn every_data_name_the_host_writes_is_a_reserved_word() {
                         unreserved.insert(format!("`{name}` (from {})", prop.name()));
                     }
                 }
+            }
+        }
+    }
+    let time = written_props(
+        NodeType::View,
+        &[
+            (PropId::SemanticTag, PropValue::Str("time".into())),
+            (PropId::Text, PropValue::Str("now".into())),
+        ],
+    );
+    assert!(time.contains_key("data-time-shown"));
+    for name in time.keys() {
+        if let Some(word) = name.strip_prefix("data-") {
+            if !contract_lower::dataset::reserved(word) {
+                unreserved.insert(format!("`{name}` (from a formatted time)"));
             }
         }
     }
