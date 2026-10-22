@@ -52,16 +52,21 @@ export async function mobileGitBranchAction(owner: string, op: string, value: st
   if (op === 'checkout' && (!picked || picked.disabled)) return { message: picked?.subtitle || 'That branch is no longer available.', changed, data: mobileGitBranchesSnapshot(now, client) };
   admission.acting = true;
   try {
+    nativeInput = nativeInput && mobileNative(nativeInput, client);
     await mobileGitAuthorize(owner, nativeInput, client, true, true);
     const cwd = workspaceOf(client).cwd, root = str(client.shell.projects.find(project => project.id === client.projectId)?.workspaceRoot);
     const threadId = client.threadId, worktreePath = str(mobileGitThread(client)?.worktreePath);
     const identity = () => JSON.stringify([client.origin, client.environmentId, client.projectId, client.threadId, client.generation, client.threadEpoch]);
     const captured = identity(), revocation = admission.revocation;
-    let nextCwd = cwd;
-    const check = () => { if (identity() !== captured || admission.revocation !== revocation || ![cwd, nextCwd].includes(workspaceOf(client).cwd))
+    let nextCwd = cwd, gitLanded = false;
+    const check = () => { if (identity() !== captured || !gitLanded && admission.revocation !== revocation || ![cwd, nextCwd].includes(workspaceOf(client).cwd))
       throw new ClientError('The workspace changed. Open this screen again.', 'superseded'); };
-    const raw = letGoAware(mobileNative(nativeInput!));
-    const native: Native = { ...raw, later: async input => { check(); const result = await raw.later(input); check(); return result; } };
+    const raw = letGoAware(nativeInput!);
+    const native: Native = { ...raw, later: async input => {
+      check(); const result = await raw.later(input), request = obj(input);
+      if (request.op === 'request' && ['vcs.switchRef', 'vcs.createRef', 'vcs.createWorktree'].includes(str(request.method)) && obj(result).ok === true) gitLanded = true;
+      check(); return result;
+    } };
     const access = client.restAccess(native); let branch = '', path = worktreePath;
     if (op === 'checkout') {
       // Re-read branch occupation immediately before checkout; a cached row is not authority.
@@ -84,8 +89,15 @@ export async function mobileGitBranchAction(owner: string, op: string, value: st
     check();
     let metadataError: unknown;
     try {
+      const authorizeMetadata = () => {
+        check();
+        if (!client.scopes.includes('orchestration:operate')) throw new ClientError("This connection cannot update the thread's branch.");
+      };
+      authorizeMetadata();
       const [commandId] = await access.ids(1);
-      await access.dispatch(nativeFiles(native), { type: 'thread.metadata.update', commandId, threadId, branch: branch || null, worktreePath: path || null }, 'Change branch');
+      authorizeMetadata();
+      // Recheck after durable persistence, immediately before the metadata request.
+      await client.dispatch(native, nativeFiles(native), { type: 'thread.metadata.update', commandId, threadId, branch: branch || null, worktreePath: path || null }, 'Change branch', authorizeMetadata);
     } catch (error) { if (letGo(error)) throw error; metadataError = error; }
     finally { state.loaded = false; state.readRevision++; }
     // Creating the ref/worktree already landed. Refresh on IDs/metadata failure,
