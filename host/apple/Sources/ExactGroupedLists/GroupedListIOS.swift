@@ -1112,11 +1112,11 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         }
         cell.contentConfiguration = c
         cell.marginsIgnoreSafeArea()
-        cell.accessories = accessories(row)
+        cell.accessories = accessories(row, cell: cell)
         accessibility(cell, id, row)
     }
 
-    private func accessories(_ row: GroupedListModel.Row) -> [UICellAccessory] {
+    private func accessories(_ row: GroupedListModel.Row, cell: GroupedCell) -> [UICellAccessory] {
         switch row.accessory {
         case "disclosure": return [.disclosureIndicator()]
         case "checkmark": return [.checkmark()]
@@ -1124,8 +1124,14 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // Settings has it (LLP 1115.000 D13.2); UIKit has no radio.
         case "radio": return row.checked ? [.checkmark()] : []
         case "detail":
+            #if os(iOS)
+            return [cell.detailAccessory(enabled: !row.disabled) { [weak self, weak cell] in
+                if let id = cell?.row { _ = self?.detail(id) }
+            }]
+            #else
             let id = row.view
             return [.detail(displayed: .always) { [weak self] in _ = self?.detail(id) }]
+            #endif
         #if os(tvOS)
         // tvOS has no switch: a toggle row shows its state as a checkmark.
         case "toggle":
@@ -1465,5 +1471,4 @@ final class GroupedSource: UICollectionViewDiffableDataSource<UInt32, UInt32> {
     }
 }
 
-/// A list cell; a custom row's is as tall as its carried views.
 #endif

@@ -2,7 +2,28 @@ import ExactKit
 #if os(iOS) || os(tvOS)
 import UIKit
 
+// Keep the detail button while UIKit refreshes the cell for accessibility.
 final class GroupedCell: UICollectionViewListCell {
+    #if os(iOS)
+    private var detailButton: UIButton?
+    private var detailAction: (() -> Void)?
+
+    func detailAccessory(enabled: Bool, action: @escaping () -> Void) -> UICellAccessory {
+        detailAction = action
+        let button = detailButton ?? {
+            let button = UIButton(type: .detailDisclosure)
+            button.addAction(UIAction { [weak self] _ in self?.detailAction?() }, for: .touchUpInside)
+            button.sizeToFit()
+            detailButton = button
+            return button
+        }()
+        button.isEnabled = enabled
+        button.removeFromSuperview()
+        return .customView(configuration: .init(customView: button, placement: .trailing(displayed: .always)))
+    }
+
+    #endif
+
     var row: UInt32?
     /// The node of its row's switch or detail button.
     var target: UInt32?
