@@ -84,9 +84,12 @@ joining, request rates no person makes. Losing the account would end the project
 so these rules bind every lane:
 
 - **Nothing automated touches real Discord.** Tests, smokes and agent drives run
-  against the fixture (§4.4). The app's Discord origin is a build setting, and the
-  agent's builds point at the fixture; a build pointed at discord.com is run by
-  Charlie, by hand.
+  against the fixture (§4.4). The app's Discord origins (REST, the gateway's
+  socket and the CDN, each with its own grant) are one build setting, and the
+  agent's builds point all three at the fixture; a build pointed at Discord is
+  run by Charlie, by hand. The bake rewrites only a `net.fetch` grant from
+  `EXACT_BACKEND_ORIGIN` today, so the setting switches REST alone until the
+  wiring lane extends it.
 - **Passive writes are writes.** Acks (read state), typing, member-list
   subscriptions (op 14) and presence updates are sent only as the official client
   sends them, for what a person is looking at, and never more often.
