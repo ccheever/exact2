@@ -188,6 +188,39 @@ final class SplitMacTests: XCTestCase {
         try check()
     }
 
+    func testTheDriverCapturesAndReadsBothPanes() throws {
+        let session = try boot(tabs: false, size: CGSize(width: 900, height: 500))
+        let columns = compose(ExactView(session: session), width: 900, sidebar: false)
+        try press("row-a")
+        let agent = Agent(session: session)
+        let picture = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".png")
+        defer { try? FileManager.default.removeItem(at: picture) }
+        let capture = agent.screenshot(["path": picture.path])
+        XCTAssertNil(capture["error"], "\(capture)")
+        XCTAssertEqual(capture["w"] as? Double, Double(columns.view.bounds.width))
+        let ax = agent.accessibilityElementsTree([:])["ax"] as? [String: Any]
+        let exposed = (ax?["elements"] as? [[String: Any]] ?? []).compactMap { $0["testId"] as? String }
+        XCTAssertTrue(exposed.contains("row-a"), "the list is still exposed")
+        XCTAssertTrue(exposed.contains("field-a"), "the detail is exposed too: \(exposed)")
+        let box = try node("half-a")
+        let point = box.convert(NSPoint(x: 10, y: 10), to: columns.view)
+        let pixels = agent.sample(["points": [[point.x, point.y]]])["values"] as? [[Double]]
+        let pixel = try XCTUnwrap(pixels?.first)
+        XCTAssertGreaterThan(pixel[0], 0.8)
+        XCTAssertLessThan(pixel[2], 0.1)
+        for name in ["row-a", "half-a"] {
+            let reply = agent.tap(["id": Int(try node(name).id), "hover": true])
+            XCTAssertNil(reply["error"], "\(name): \(reply)")
+        }
+        let split = session.presenter.navigation.split
+        split.listOwnsWindow = false
+        XCTAssertEqual(window?.title, "About a")
+        XCTAssertTrue(try node("title-a").isHiddenOrHasHiddenAncestor)
+        split.listOwnsWindow = true
+        XCTAssertEqual(window?.title, "Library")
+        XCTAssertFalse(try node("title-a").isHiddenOrHasHiddenAncestor)
+    }
+
     func testAnUnsplitStackClosesADetailPaneRestoredByAppKit() throws {
         let session = try boot(tabs: true, size: CGSize(width: 1100, height: 500))
         try press("tab-stats")
