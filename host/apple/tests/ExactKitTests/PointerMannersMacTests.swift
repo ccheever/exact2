@@ -89,6 +89,49 @@ final class PointerMannersMacTests: XCTestCase {
         XCTAssertEqual(heard, ["\(source.id):down", "\(source.id):up", "\(next.id):down", "\(next.id):up"])
     }
 
+    func testTheMonitorLeavesAnInWindowHoldForItsViewsMouseUp() throws {
+        clicksArriveAsInTheKeyWindow()
+        for otherButtonUp in [false, true] {
+            let page = """
+            component App
+              state count = 0
+              action heard
+                count = count + 1
+              view
+                column testId="ancestor" pointerdown=heard pointerup=heard
+                  box testId="pressed" width=200 height=40 press=heard
+
+            """
+            let f = try SheetFixture(page: page)
+            defer { f.close() }
+            let p = f.presenter, source = try f.node("pressed"), ancestor = try f.node("ancestor")
+            f.window.orderFront(nil)
+            var heard: [String] = []
+            p.onPointer = { id, phase, _ in heard.append("\(id):\(phase)") }
+            let point = source.convert(NSPoint(x: 10, y: 10), to: nil)
+            func event(_ type: NSEvent.EventType) throws -> NSEvent {
+                try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point,
+                    modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: f.window.windowNumber,
+                    context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+            }
+            NSApp.sendEvent(try event(.leftMouseDown))
+            XCTAssertTrue(p.pointerSource === source)
+            if otherButtonUp {
+                NSApp.sendEvent(try event(.rightMouseUp))
+                XCTAssertTrue(p.pointerHolds, "another button's up must leave the in-window contact alone")
+            }
+            p.apply(wireBatch([["op": "children", "id": ancestor.id, "ids": []], ["op": "destroy", "id": source.id]]))
+            XCTAssertTrue(source.removedUnderHold)
+            XCTAssertNotNil(source.window, "AppKit still needs to deliver the left up to this view")
+            XCTAssertTrue(source.pressed)
+            NSApp.sendEvent(try event(.leftMouseUp))
+            XCTAssertFalse(source.pressed, "mouseUp must finish the pressed view's own contact")
+            XCTAssertFalse(p.pointerHolds)
+            XCTAssertNil(source.superview, "the view leaves only after receiving its up")
+            XCTAssertEqual(heard, ["\(ancestor.id):down", "\(ancestor.id):up"])
+        }
+    }
+
     func testTheClickThatActivatesAWindowPressesAControlAndNothingElse() throws {
         try XCTSkipIf(ExactEnv.agentMode, "the agent's window is never key: its every click counts")
         let p = fixture()
