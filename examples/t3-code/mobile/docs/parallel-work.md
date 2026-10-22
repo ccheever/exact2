@@ -335,6 +335,18 @@ bun "$coord" preserve --task "$task_id" --thread "$worker_thread" --evidence /ab
 bun "$coord" cleanup --task "$task_id" --thread "$worker_thread"
 ```
 
+Process receipts include the local boot identity, so a hostname change does not
+change a new receipt's machine identity. A legacy receipt without that field
+still refuses an unfamiliar hostname. Keep its leases held. The coordinator can
+bind its old hostname to this boot using `bind-process-host --thread
+<coordinator> --proof <file>`. The proof names `fromHost`, current `toHost` and
+`bootId`, plus `anchor: { taskId, operation, pid, started }` from a still-live
+legacy helper launcher. The command verifies the PID/start, owned worktree,
+helper script and task/thread arguments before recording the binding. It neither
+stops processes nor releases claims. The normal process audit remains required.
+Another boot, a dead witness or unknown ownership refuses recovery; never edit
+state or substitute a new hostname in old evidence.
+
 `preserve` keeps HEAD under `refs/t3-coordination/<task-id>` and copies each
 supplied evidence file into shared state. Repeat it for additional files.
 `cleanup` requires current committed source, preserved evidence, no live or
