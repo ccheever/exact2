@@ -24,6 +24,8 @@ const APP: &str = r#"component App
           text "Delete…"
         button popovertarget="unsure"
           text "Unsure"
+        button commandfor="" popovertarget="picker"
+          text "Pick (no command target)"
       column id="more" popover="auto" role="menu"
         button
           text "Deep"
@@ -53,9 +55,10 @@ fn a_menu_rows_popover_that_is_no_menu_is_noted_where_it_opens() {
         notes,
         vec![
             ("lower-menu-row-popover".to_string(), 7),
-            ("lower-menu-row-popover".to_string(), 13)
+            ("lower-menu-row-popover".to_string(), 13),
+            ("lower-menu-row-popover".to_string(), 21)
         ],
-        "the picker's two rows, by popovertarget and by commandfor: {warnings:?}"
+        "the picker's three rows, by popovertarget, by commandfor, and by popovertarget past an empty commandfor: {warnings:?}"
     );
     let message = &warnings[0].message;
     assert!(

@@ -25,7 +25,9 @@ const page = `<!doctype html>
   <button id="toggle" popovertarget="manual">Toggle the manual one</button>
   <button id="more" popovertarget="submenu">More</button>
   <button id="close" popovertarget="menu" popovertargetaction="hide">Close</button>
+  <button id="confirm" commandfor="sure" command="show-modal">Clear…</button>
 </div>
+<dialog id="sure">Sure?</dialog>
 <div id="submenu" popover role="menu"><button id="deep">Deep</button><button id="deeper" popovertarget="picker">Pick from the submenu</button></div>
 <div id="picker" popover><button id="emoji">👍</button></div>
 <div id="manual" popover="manual">Manual</div>
@@ -145,4 +147,11 @@ check('a submenu\'s row opens its popover from the outermost menu\'s invoker, an
   await press('deeper');
   await until('open()', ['picker']);
   expect(await evaluate('sources.picker')).toBe('opener');
+}), 60000);
+
+check('a row that invokes no popover, a dialog\'s command, keeps HTML\'s own activation', () => inChrome(async (evaluate, press, until) => {
+  await press('opener');
+  await until('open()', ['menu']);
+  await press('confirm');
+  await until(`document.getElementById('sure').open && document.getElementById('sure').matches(':modal')`, true);
 }), 60000);

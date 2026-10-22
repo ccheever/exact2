@@ -105,5 +105,21 @@ final class MenuRowPopoverMacTests: XCTestCase {
         XCTAssertTrue(p.menus.isOpen(picker))
         XCTAssertEqual(p.menus.observation?["source"] as? Int, 2)
     }
+
+    /// As the context menu of a node (2, right-clicked): a row of a submenu
+    /// written beside the menu opens its popover from that node.
+    func testASubmenusRowInAContextMenuOpensItsPopoverFromTheNode() throws {
+        let p = fixture()
+        defer { p.menus.reset() }
+        let picker = try XCTUnwrap(p.views[4])
+        let menu = p.menus.contextMenu(of: try XCTUnwrap(p.views[3]), on: try XCTUnwrap(p.views[2]))
+        let more = try XCTUnwrap(menu.items.first { $0.title == "More" }?.submenu, "\(menu.items.map(\.title))")
+        let deep = try XCTUnwrap(more.items.first { $0.title == "Deep" })
+        NSApp.sendAction(try XCTUnwrap(deep.action), to: deep.target, from: deep)
+        let end = Date(timeIntervalSinceNow: 5)
+        while !p.menus.isOpen(picker) && Date() < end { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
+        XCTAssertTrue(p.menus.isOpen(picker), "the submenu row's popover opens")
+        XCTAssertEqual(p.menus.observation?["source"] as? Int, 2, "from the right-clicked node")
+    }
 }
 #endif

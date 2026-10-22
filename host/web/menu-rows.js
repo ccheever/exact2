@@ -50,7 +50,8 @@ function menuRows() {
   addEventListener("click", e => {
     const row = e.target.closest?.("button[popovertarget], button[commandfor]");
     const menu = row?.closest('[popover][role="menu"]');
-    if (!menu) return;
+    // A row that invokes no popover (a dialog's command, a custom one) keeps HTML's own activation.
+    if (!menu || !invoked(row)) return;
     // HTML would act on what the row names before its own press; this acts after it, on what it names then.
     e.preventDefault();
     setTimeout(() => act(row, menu));
