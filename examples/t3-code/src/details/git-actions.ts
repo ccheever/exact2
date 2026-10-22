@@ -16,7 +16,7 @@ import { pushToast } from '../shell/toast';
 import { draftContext } from '../composer/composer-controls-branch';
 import { branchState } from './git-branch';
 import {
-  defaultBranchCopy, formatElapsed, menuItems, menuNotes, menuReason, progressPresentation, providerMark, publishPathValid,
+  defaultBranchCopy, featureBranchUnavailableReason, formatElapsed, menuItems, menuNotes, menuReason, progressPresentation, providerMark, publishPathValid,
   quickAction, quickActionIcon, requiresDefaultBranchConfirmation, sortedPublishProviders, terminology, workingFiles, workingTreeRoot,
 } from './git-logic';
 import { letGo } from '../client/let-go';
@@ -148,6 +148,11 @@ async function runWithConfirmation(client: T3Client, native: Native, action: str
   await startAction(client, native, { action, ...extra });
 }
 
+/** The feature-ref option follows the live status while the dialog is open; until the status loads it stays offered,
+ * the server being the authority over a stale request. */
+const featureReason = (status: Obj | null, branchName: string): string =>
+  featureBranchUnavailableReason(branchName, status?.hasWorkingTreeChanges !== false);
+
 /** `shell:git-*` from the card and its dialogs (server writes). */
 export async function gitCommand(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
   requirePermission(client.scopes, 'source-control:write');
@@ -182,6 +187,7 @@ export async function gitCommand(client: T3Client, native: Native, op: string, i
   }
   if (op === 'confirm') {
     const pending = state.pending;
+    if (pending && value === 'feature' && featureReason(state.status, pending.branchName)) return '';
     state.pending = null; state.dialog = '';
     if (!pending || (value !== 'continue' && value !== 'feature')) return '';
     await startAction(client, native, { action: pending.action, ...(pending.commitMessage ? { commitMessage: pending.commitMessage } : {}),
@@ -331,7 +337,7 @@ export function gitCardView(client: T3Client, status: Obj | null, error: string,
     filesOpenable: can(client, 'orchestration:operate') && workingTreeRoot(status) !== '',
     allSelected: state.excluded.size === 0, noneSelected: selected.length === 0, someSelected: state.excluded.size > 0 && selected.length > 0,
     selectedInsertions: selected.reduce((sum, file) => sum + file.insertions, 0), selectedDeletions: selected.reduce((sum, file) => sum + file.deletions, 0),
-    confirmTitle: copy.title, confirmDescription: copy.description, confirmContinue: copy.continueLabel,
+    confirmTitle: copy.title, confirmDescription: copy.description, confirmContinue: copy.continueLabel, confirmFeatureReason: pending ? featureReason(status, pending.branchName) : '',
     publishStep: form.step, publishProviders: providers.map(option => ({ value: option.value, label: option.label, ready: option.ready, hint: option.hint || 'Open Settings -> Source Control to configure this provider.',
       selected: option.value === chosen.value && option.ready })),
     publishRows: pairs(providers.map(option => ({ value: option.value, label: option.label, ready: option.ready, hint: option.hint || 'Open Settings -> Source Control to configure this provider.',
