@@ -38,7 +38,8 @@ package enum TextMetricKey {
         h.combine(spec.align); h.combine(spec.lineClamp); h.combine(spec.overflowWrap)
         h.combine(spec.direction); h.combine(spec.whiteSpace)
         h.combine(spec.textIndent); h.combine(spec.hyphens)
-        if spec.hyphens == 2 { h.combine(spec.language) }
+        if spec.automaticHyphens { h.combine(spec.language) }
+        if !spec.emergencyBreaks.isEmpty { h.combine(spec.emergencyBreaks) }
         h.combine(spec.textBoxTrim); h.combine(spec.textBoxOver); h.combine(spec.textBoxUnder)
         h.combine(spec.balance ? 1 : 0)
         return h.finalize()
@@ -55,7 +56,7 @@ package enum TextMetricKey {
         h.combine(Int(request.align)); h.combine(Int(request.line_clamp)); h.combine(Int(request.overflow_wrap))
         h.combine(Int(request.direction)); h.combine(Int(request.white_space))
         h.combine(CGFloat(request.text_indent)); h.combine(Int(request.hyphens))
-        if request.hyphens == 2 {
+        if Spec.insertsHyphens(Int(request.hyphens), wrap: Int(request.overflow_wrap)) {
             h.combine(String(decoding: UnsafeBufferPointer(start: request.lang, count: request.lang_len), as: UTF8.self))
         }
         // A Markdown request hashes apart from the plain request of its one
@@ -78,7 +79,7 @@ package enum TextMetricKey {
         // An expanded Markdown request has more runs than its one source run;
         // its geometry is keyed by the request hash and never borrowed by runs.
         // Auto hyphenation's soft hyphens are in the geometry, not the request.
-        guard request.markup == 0, request.hyphens != 2 else { return false }
+        guard request.markup == 0, !Spec.insertsHyphens(Int(request.hyphens), wrap: Int(request.overflow_wrap)) else { return false }
         guard request.count == geometry.runs.count, Int(request.align) == geometry.align,
               Int(request.line_clamp) == geometry.lineClamp, Int(request.overflow_wrap) == geometry.overflowWrap,
               Int(request.direction) == geometry.direction, Int(request.white_space) == geometry.whiteSpace,

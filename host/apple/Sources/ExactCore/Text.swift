@@ -185,6 +185,8 @@ package struct Spec: Hashable {
     /// CSS `hyphens`: 0 manual (the initial value), 1 none (soft hyphens
     /// already arrive as U+034F), 2 auto.
     package var hyphens = 0
+    /// Synthetic emergency opportunities affect line choice even when shaped text matches authored soft hyphens.
+    package var emergencyBreaks: [Int] = []
     /// The document language whose hyphenation points `auto` takes; empty
     /// for `none` and `manual`, which need none.
     package var language = ""
@@ -1070,7 +1072,7 @@ package final class TextEngine {
                 shape.lineBreakBoundaries = plan.boundaries
                 residency.refresh(shape)
             }
-            plan.prepare(text, length: length)
+            plan.prepare(text, length: length, emergency: spec.emergencyBreaks)
         }
         func next(_ plan: inout LineBreakPlan, _ start: Int, _ room: Double) -> Int {
             plan.next(typesetter, source: shape.attributed, text: text, start: start, room: room, offerWidth: width,
@@ -1302,11 +1304,13 @@ package final class TextEngine {
         let typesetter = resident?.typesetter ?? CTTypesetterCreateWithAttributedString(source)
         var indent = spec.textIndent
         var offset = 0
+        let emergencyEnds = Set(spec.emergencyBreaks.map { $0 + 1 })
         for r in spec.runs {
             let text = r.text as NSString
             defer { offset += text.length }
             guard !r.hang else { continue }
-            for piece in Self.pieceRanges(text, boundaries: lineBoundaries(text, length: text.length)) {
+            let boundaries = lineBoundaries(text, length: text.length).filter { !emergencyEnds.contains(offset + $0) }
+            for piece in Self.pieceRanges(text, boundaries: boundaries) {
                 let range = CFRange(location: offset + piece.range.location, length: piece.range.length)
                 var line = CTTypesetterCreateLine(typesetter, range)
                 if piece.hyphenated { line = Self.inkedSoftHyphen(line, source: source, range: range) }
@@ -1419,7 +1423,7 @@ package final class TextEngine {
         made.textIndent = CGFloat(request.text_indent); made.hyphens = Int(request.hyphens)
         made.textBoxTrim = Int(request.text_box_trim); made.textBoxOver = Int(request.text_box_over); made.textBoxUnder = Int(request.text_box_under)
         made.balance = request.text_wrap_style == 1
-        if made.hyphens == 2, let lang = request.lang {
+        if made.automaticHyphens, let lang = request.lang {
             made.language = String(decoding: UnsafeBufferPointer(start: lang, count: request.lang_len), as: UTF8.self)
         }
         made.hyphenateAuto()

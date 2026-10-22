@@ -1256,6 +1256,15 @@ at soft hyphens, logging it once; Apple hyphenates by the document's language,
 not an element's `lang`; text flowed around exclusions and a content region
 take no `text-indent` and no `auto` points.
 
+**iOS emergency word breaks** (QUEUE 62, 2026-10-22). Under
+`overflow-wrap: break-word` with `hyphens: manual`, a word too wide for its
+own line takes the last language hyphenation point that fits with its visible
+hyphen, as UILabel does. Ordinary word boundaries take precedence over these
+points, which add nothing to min-content and map back to the original source.
+Without a dictionary or a fitting syllable, the break is at a letter.
+`hyphens: none` and `overflow-wrap: anywhere` retain CSS's letter breaks.
+This is an iOS presentation deviation; other hosts retain their current rules.
+
 **Multi-column layout** (LLP 1093, stage 1 built 2026-10-04). Bits 180–190:
 `column_count` (`u16`, 0 is `auto`), `column_width`, `column_fill`,
 `column_rule_width`/`_style`/`_color`, `widows` and `orphans` (inherited, 2),
