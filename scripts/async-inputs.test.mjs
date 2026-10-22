@@ -105,6 +105,16 @@ test('the lane tests in-repo game pins outside the engine workspace', () => {
   expect(steps.find(([name]) => name === 'game-pins')).toEqual(['game-pins', 'bun', ['game/app/shells.mjs', '--test']]);
 });
 
+test('the wasm viewport integration runs against the prepared dist outside the fast glue step', () => {
+  const steps = checks('new', 'old', { lane: [], apple: false, glue: [] });
+  const [, command, args] = steps.find(([name]) => name === 'web-ax-test');
+  expect(command).toBe('env');
+  expect(args).toContain('./host/web/tests/zero-viewport.test.mjs');
+  expect(args).toContain('EXACT_REQUIRED=1');
+  expect(args.some(arg => arg.startsWith('EXACT_WEB_DIST='))).toBe(true);
+  expect(args).not.toContain('EXACT_GLUE_FAST=1');
+});
+
 test("the lane runs the game scaffold's standing tests, the cheap ones apart from the one that builds", () => {
   const steps = checks('new', 'old', { lane: [], apple: false, glue: [] });
   const scaffold = steps.find(([name]) => name === 'game-scaffold');
