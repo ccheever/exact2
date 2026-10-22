@@ -342,6 +342,10 @@ extension NavigationHost {
         var frame = root.bounds
         if owner === tabOwner, !ExactEnv.authoredChrome, !presenter.modals.active, presenter.keyboardPolicy == "resizes-content" {
             frame.size.height += presenter.keyboardInset
+        } else if owner === primaryOwner, presenter.keyboardPolicy == "resizes-content" {
+            #if os(iOS)
+            frame.size.height += presenter.keyboardAccessoryHeight
+            #endif
         }
         // The authored tablist the agent paints takes its own place in the
         // root, as on the web; the routes end at its edge, not under it.
