@@ -85,25 +85,25 @@ fn drawn(
     }
 }
 
-/// The package design an icon's sources are written in (LLP 1121 D11,
-/// stage 13): a package's icon (its line in the package's band), a package
-/// component's icon param's default (its line a param's, `params`, the list
-/// the design was laid with), or one naming either; none for the app's
-/// (its icons, an inline theme's, and its `params` lines). Its SVG is read
-/// under that package's `assets/`, the app's under the app's.
+/// The package an icon's sources are written in (LLP 1121 D11, stage 13),
+/// by name, and its directory: a package's icon (its line in the package's
+/// band), a package component's icon param's default, in its design or its
+/// Contract (its line a param's, `params` the list the design was laid
+/// with), or one naming either; none for the app's (its icons, an inline
+/// theme's, and its `params` lines). Its SVG is read under that package's
+/// `assets/`, the app's under the app's.
 pub fn written_in<'a>(
     icon: &tamber::Icon,
     packages: &'a [DesignSource],
-    params: &[crate::params::ParamToken],
-) -> Option<&'a DesignSource> {
+    params: &'a [crate::params::ParamToken],
+) -> Option<(&'a str, Option<&'a str>)> {
     if let Some((band, _)) = crate::theme::packages::band(icon.written) {
-        return packages.get(band);
+        let p = packages.get(band)?;
+        return Some((p.package.as_deref()?, p.root.as_deref()));
     }
     let at = icon.written.checked_sub(crate::params::LINE)? as usize;
-    let file = params.get(at)?.identity.rsplit_once('#')?.0;
-    packages
-        .iter()
-        .find(|p| p.package.is_some() && p.home == file)
+    let p = params.get(at)?;
+    Some((p.package.as_deref()?, p.root.as_deref()))
 }
 
 /// Where an icon's SVG is read: under `root`'s `assets/`, and, for a
@@ -113,7 +113,7 @@ pub struct Home<'a> {
     /// The directory whose `assets/` it is under; none when the source
     /// was compiled apart from any file.
     pub root: Option<&'a Path>,
-    /// The package whose design writes it; none for the app's.
+    /// The package whose file writes it; none for the app's.
     pub package: Option<&'a str>,
 }
 
@@ -123,12 +123,12 @@ impl<'a> Home<'a> {
         icon: &tamber::Icon,
         app: Option<&'a Path>,
         packages: &'a [DesignSource],
-        params: &[crate::params::ParamToken],
+        params: &'a [crate::params::ParamToken],
     ) -> Self {
         match written_in(icon, packages, params) {
-            Some(p) => Home {
-                root: p.root.as_deref().map(Path::new),
-                package: p.package.as_deref(),
+            Some((package, root)) => Home {
+                root: root.map(Path::new),
+                package: Some(package),
             },
             None => Home {
                 root: app,

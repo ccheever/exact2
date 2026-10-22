@@ -438,6 +438,8 @@ impl Server {
                 .collect();
             let mut out = json!({"token": name, "tuples": tuples, "files": files_json(&snap)});
             levelled(&mut out);
+            // A package's icon names its package and file, as a token does (stage 13, *1.16*).
+            crate::tamber_packages::fields(&app, &snap, &file, &name, &mut out, false);
             return Ok(out);
         }
         let token = folding
