@@ -298,11 +298,11 @@ async function select(el, clicked = false, click = null) {
 // the node it lands on would select it. `levels` are the plan sites of each enclosing copy that owns a node, nearest
 // first (past the outermost call, the app's own), by the server's map for the selection at site `from` under `plan`:
 // it lands in the first level with a node above the selection, on the outermost there, by this page's own tree.
-async function selectUp({ levels, plan, from }) {
+async function selectUp({ levels, plan, from, instance }) {
   const el = inspecting.selected?.el;
   if (!inspecting.on || !el?.isConnected || !Array.isArray(levels)) { env.report({ kind: "unsupported", what: "inspect", detail: "no node is selected on this page to move up from" }); return; }
   // (Only the selection and plan the server took its sites from: another since is selected again first.)
-  if (inspecting.selected.plan !== (globalThis.exact?.plan ?? null) || plan !== inspecting.selected.plan || from !== inspecting.selected.site) { env.report({ kind: "unsupported", what: "inspect", detail: "the selection moved or the page was rebuilt since: select a node again" }); return; }
+  if (inspecting.selected.plan !== (globalThis.exact?.plan ?? null) || plan !== inspecting.selected.plan || from !== inspecting.selected.site || JSON.stringify(instance ?? []) !== inspecting.selected.instance) { env.report({ kind: "unsupported", what: "inspect", detail: "the selection moved or the page was rebuilt since: select a node again" }); return; }
   // The first level with a node above the selection, by this page's tree; in it, the outermost.
   for (const level of levels) {
     const want = new Set(level);
