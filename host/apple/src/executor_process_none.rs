@@ -5,6 +5,7 @@ use super::supervise::Child;
 use super::{failed, ChildCtl, Ran, Shared, Spec};
 use exact_runner::{FailureKind, Outcome};
 use ibex2::stdlib::abort::AbortController;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 fn unsupported() -> Outcome {
@@ -41,9 +42,9 @@ pub(super) fn resolve(
     Err(unsupported())
 }
 
-/// The login shell is not captured here: the app's own variable answers.
-pub(super) fn login_variable(name: &str) -> Option<String> {
-    std::env::var(name).ok()
+/// The login shell is the transport's to run.
+pub(super) fn login_variables(_names: &[&str]) -> Result<HashMap<String, String>, Outcome> {
+    Err(unsupported())
 }
 
 pub(super) fn quit(_grace_ms: f64) {}

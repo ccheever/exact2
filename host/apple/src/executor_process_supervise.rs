@@ -132,6 +132,8 @@ struct Ended {
     code: Option<i64>,
     signal: Option<String>,
     drained: bool,
+    /// The signals the app sent it with `kill`.
+    sent: Vec<String>,
 }
 
 /// One spawn's supervision.
@@ -214,10 +216,10 @@ impl<'a> Supervisor<'a> {
             };
             self.ctl.begin(n, self.spec.pipes[0]);
             let spawned = json!({ "pid": child.pid(), "restarts": restarts, "incarnation": n, "ran": self.ran.words() });
-            if !deliver(self.shared, self.ticket, event("spawn", spawned), false) {
-                self.released = true;
-            }
-            let (ended, ready) = self.incarnation(n, child);
+            // Let go before its first event landed: the incarnation starts
+            // by releasing its group, which then runs to its close.
+            let gone = !deliver(self.shared, self.ticket, event("spawn", spawned), false);
+            let (ended, ready) = self.incarnation(n, child, gone);
             self.ctl.end();
             if ready {
                 consecutive = 0;
@@ -228,7 +230,9 @@ impl<'a> Supervisor<'a> {
             }
             let restart = self.spec.restart.as_ref().filter(|r| {
                 let prevented = ended.code.is_some_and(|c| r.prevent.contains(&c));
-                let failed = ended.code.is_some_and(|c| c != 0) || ended.signal.is_some();
+                // A signal the app sent with `kill` is no failure (D4).
+                let theirs = (ended.signal.as_ref()).is_some_and(|s| !ended.sent.contains(s));
+                let failed = ended.code.is_some_and(|c| c != 0) || theirs;
                 !prevented && (r.always || failed)
             });
             let Some(restart) = restart else {
@@ -270,7 +274,7 @@ impl<'a> Supervisor<'a> {
     }
 
     /// One incarnation, to its close: how it ended, and whether it became ready.
-    fn incarnation(&mut self, n: u32, mut child: Box<dyn Child>) -> (Ended, bool) {
+    fn incarnation(&mut self, n: u32, mut child: Box<dyn Child>, gone: bool) -> (Ended, bool) {
         let started = self.clock.now();
         let utf8 = self.spec.utf8;
         let (mut out, mut err) = (Utf8::default(), Utf8::default());
@@ -287,6 +291,14 @@ impl<'a> Supervisor<'a> {
         let mut escalate: Option<f64> = None;
         let mut fail_ready = false;
         let mut pending: Vec<Seen> = Vec::new();
+        let mut sent: Vec<String> = Vec::new();
+        // What the child's own stdin queue held at the last look. The
+        // handle's count (`ctl.queued`) also holds what was sent and not
+        // yet taken here, so it falls only by what the child consumed.
+        let mut held = 0u64;
+        if gone {
+            self.release(&mut child, &mut escalate);
+        }
         loop {
             let now = self.clock.now();
             if !self.released && child.due().is_some() {
@@ -343,9 +355,8 @@ impl<'a> Supervisor<'a> {
             }
             // Its stdin's queue went below the mark it had passed (D2).
             let queued = child.queued();
-            self.ctl
-                .queued
-                .store(queued, std::sync::atomic::Ordering::Release);
+            self.ctl.consumed(held.saturating_sub(queued));
+            held = queued;
             if over && queued <= HIGH_WATER {
                 over = false;
                 if !self.released {
@@ -443,12 +454,17 @@ impl<'a> Supervisor<'a> {
                 Input::Release => self.release(&mut child, &mut escalate),
                 Input::Op(m, _) if m != n => {}
                 Input::Op(_, ProcessOp::Write(bytes)) => {
+                    self.ctl.consumed(held.saturating_sub(child.queued()));
                     child.write(bytes);
+                    held = child.queued();
                     // Past the mark now, whatever reads it before the next look.
-                    over |= child.queued() > HIGH_WATER;
+                    over |= held > HIGH_WATER;
                 }
                 Input::Op(_, ProcessOp::End) => child.end(),
-                Input::Op(_, ProcessOp::Kill(signal)) => pending.extend(child.signal(&signal)),
+                Input::Op(_, ProcessOp::Kill(signal)) => {
+                    pending.extend(child.signal(&signal));
+                    sent.push(signal);
+                }
                 Input::Child(m, seen) if m == n => pending.push(seen),
                 Input::Child(..) => {}
                 Input::Probe(m, ok) if m == n => {
@@ -497,6 +513,7 @@ impl<'a> Supervisor<'a> {
                 code,
                 signal,
                 drained,
+                sent,
             },
             ready,
         )

@@ -374,3 +374,146 @@ fn one_shots_answer_from_the_script_and_the_drive() {
         serde_json::json!({ "PATH": "/drive/bin" })
     );
 }
+
+/// Wait until no stream runs, or fail after five seconds.
+fn ended(core: &Core) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !core.shared.state.lock().unwrap().running.is_empty()
+        || !core.shared.processes.children.lock().unwrap().is_empty()
+    {
+        assert!(Instant::now() < deadline, "the stream never ended");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
+#[test]
+fn a_child_let_go_before_its_first_event_is_released() {
+    let file = script(
+        r#"{"incarnations":[{"pid":51,"ignore":["SIGTERM"],"steps":[{"at":0,"stdout":"up"}]}]}"#,
+    );
+    let (core, _woke) = setup(&[("path:t3", &format!("script:{file}"))]);
+    let body = r#"{"kind":"spawn","program":"path:t3","forceKillAfter":2000}"#;
+    core.run(request(1, body, true), None).unwrap();
+    // Forgotten at once: its `spawn` finds nobody to take it.
+    core.forget(|_| false);
+    let clock = clock(&core);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while clock.due() != Some(2000.0) {
+        assert!(Instant::now() < deadline, "the group was never signalled");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    clock.advance(2000.0);
+    ended(&core);
+}
+
+#[test]
+fn on_failure_restarts_no_child_the_app_signalled() {
+    let body = r#"{"kind":"spawn","program":"path:t3","encoding":"utf8",
+        "restart":{"when":"on-failure","delay":100}}"#;
+    let run = |json: &str, kill: bool| {
+        let file = script(json);
+        let (core, _woke) = setup(&[("path:t3", &format!("script:{file}"))]);
+        core.run(request(1, body, true), None).unwrap();
+        waiting(&core);
+        let clock = clock(&core);
+        clock.advance(0.0);
+        let mut seen = events(&taken(&core));
+        if kill {
+            let sigint = ProcessOp::Kill("SIGINT".into());
+            core.socket(&ops(TurnOrigin::Person, vec![(1, sigint)]))
+                .unwrap();
+        }
+        let deadline = Instant::now() + Duration::from_secs(5);
+        for t in [1.0, 10.0, 110.0, 111.0] {
+            clock.advance(t);
+            std::thread::sleep(Duration::from_millis(20));
+            seen.extend(events(&taken(&core)));
+        }
+        assert!(Instant::now() < deadline);
+        seen
+    };
+    // The app's own `kill`: the stream ends at the close.
+    let seen = run(
+        r#"{"incarnations":[{"pid":61,"steps":[]},{"pid":62,"steps":[]}]}"#,
+        true,
+    );
+    assert_eq!(
+        seen,
+        [
+            "spawn 61 0",
+            "exit null \"SIGINT\"",
+            "end null \"SIGINT\" true"
+        ]
+    );
+    // A signal it did not send is a failure: it restarts.
+    let seen = run(
+        r#"{"incarnations":[{"pid":63,"steps":[{"at":10,"signal":"SIGSEGV"}]},{"pid":64,"steps":[]}]}"#,
+        false,
+    );
+    assert_eq!(
+        seen,
+        [
+            "spawn 63 0",
+            "exit null \"SIGSEGV\"",
+            "close null true",
+            "spawn 64 1"
+        ]
+    );
+}
+
+#[test]
+fn an_operation_for_an_ended_incarnation_reaches_no_later_one() {
+    let file = script(
+        r#"{"incarnations":[
+            {"pid":71,"steps":[{"at":0,"exit":1}]},
+            {"pid":72,"steps":[{"at":0,"stdout":"two"},{"at":10,"read":70000}]}]}"#,
+    );
+    let (core, _woke) = setup(&[("path:t3", &format!("script:{file}"))]);
+    let body = r#"{"kind":"spawn","program":"path:t3","encoding":"utf8",
+        "restart":{"when":"always","delay":0}}"#;
+    core.run(request(1, body, true), None).unwrap();
+    waiting(&core);
+    let clock = clock(&core);
+    clock.advance(0.0);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut seen = Vec::new();
+    while !seen.iter().any(|e: &String| e == "stdout two") {
+        assert!(Instant::now() < deadline, "{seen:?}");
+        clock.advance(0.0);
+        seen.extend(events(&taken(&core)));
+    }
+    // Checked while the first ran, sent after the second began: dropped.
+    let stale = [
+        SocketOp::Process {
+            incarnation: 1,
+            op: ProcessOp::End,
+        },
+        SocketOp::Process {
+            incarnation: 1,
+            op: ProcessOp::Write(vec![0; 500]),
+        },
+    ];
+    let sent = super::send(&core.shared, &[(1, &stale[0]), (1, &stale[1])]);
+    assert!(sent.is_empty(), "{sent:?}");
+    assert_eq!(core.socket_reader()(1), Some(0));
+    // The second's stdin is open, and counts what it was sent until read.
+    let write = |n: usize| {
+        ops(
+            TurnOrigin::Person,
+            vec![(2, ProcessOp::Write(vec![b'x'; n]))],
+        )
+    };
+    core.socket(&write(100_000)).unwrap();
+    for t in [1.0, 2.0, 3.0] {
+        clock.advance(t);
+        assert_eq!(core.socket_reader()(1), Some(100_000));
+    }
+    core.socket(&write(50_000)).unwrap();
+    assert_eq!(core.socket_reader()(1), Some(150_000));
+    clock.advance(10.0);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while core.socket_reader()(1) != Some(80_000) {
+        assert!(Instant::now() < deadline, "{:?}", core.socket_reader()(1));
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}

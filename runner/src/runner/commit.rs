@@ -806,7 +806,7 @@ impl<D: DataSource> Runner<D> {
                 })
                 .flatten()
                 .map(str::to_string),
-            turn: self.turn_origin(),
+            turn: self.current_turn(),
             ask_again: false,
             origin: self.writes.tick(),
             write: match target {
@@ -1138,7 +1138,21 @@ impl<D: DataSource> Runner<D> {
         result.map(Some)
     }
 
+    /// The turn that answers `p` keeps the origin of the turn that asked
+    /// (LLP 1133.007 D13): what it asks or sends is that origin's, whatever
+    /// the runner's own origin is now.
     pub(super) fn fulfill_inner(
+        &mut self,
+        p: PendingReq,
+        outcome: Outcome,
+    ) -> Result<CommitReceipt, RunnerError> {
+        let outer = self.processes.answering.replace(p.turn);
+        let result = self.fulfill_turn(p, outcome);
+        self.processes.answering = outer;
+        result
+    }
+
+    fn fulfill_turn(
         &mut self,
         p: PendingReq,
         outcome: Outcome,
@@ -1168,7 +1182,7 @@ impl<D: DataSource> Runner<D> {
         if !message {
             self.store.take_sockets();
         }
-        self.stage_answer(p.target);
+        self.stage_answer(p.target, p.turn);
         for line in self.data.take_logs() {
             self.log(line);
         }

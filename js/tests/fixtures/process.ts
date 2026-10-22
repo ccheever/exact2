@@ -55,11 +55,20 @@ async function version(): Promise<string> {
   } catch (x) { return `${(x as any).code}: ${(x as Error).message}`; }
 }
 
+// Two one-shots in one answer: the second is asked by the turn that
+// answers the first, which keeps the origin of the turn that asked.
+async function twice(): Promise<string> {
+  const a = await cp.execFile("path:t3", ["--version"], { encoding: "utf8" });
+  const b = await cp.execFile("path:t3", ["--help"], { encoding: "utf8" });
+  return `${a.stdout.trim()} ${b.stdout.trim()}`;
+}
+
 function answer(source: string, args: unknown[]): unknown {
   switch (source) {
     case "server": return server(String(args[0]));
     case "poke": return poke(String(args[0]));
     case "version": return version();
+    case "twice": return twice();
     case "status": return JSON.stringify(cp.processStatus());
     case "refused": return cp.spawn("path:t3", [], { shell: true, exactStream() { return ""; } }).catch((x: Error) => x.message);
     default: throw new Error("unknown source " + source);
