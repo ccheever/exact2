@@ -891,12 +891,14 @@ export async function restyle(opts) {
  * reads `./local`, which a checkout lacks (stage 11's gate, the same). */
 /** Whether the restyle line runs stage 13 C's exact cases (`useStage`). */
 let EXACT = false;
+/** The release comparison's runs when a stage names them (`useStage`). */
+let RELEASE = null;
 
 /** Stage 13 C's cases on `host` (theme2 10:28, 10:42): the runner's tree
  * of the base design names each read's node, by its instance's first
  * testId and a path; a drive of the base design, then of each case set and
- * removed, reads every node's rows (kind 1, exact). Each case's drive has
- * the same node at each path, or it is no read of that node. One row a
+ * removed, reads every node's rows (kind 1, exact). Each drive, the base's
+ * included, has the same node at each path, or it is no read of that node. One row a
  * read, instance and row: { host, case, key, kind, id, row, ok, why }. */
 export function readExact(host, exact, plans, app, drive = (plan, ids) => drivePlan(host, plan, null, ids, app, (h, p, _png, list, a) => inspectDrive(h, p, list, a))) {
   const out = [];
@@ -919,16 +921,17 @@ export function readExact(host, exact, plans, app, drive = (plan, ids) => driveP
         const value = side => {
           const d = side === 'base' ? base : at[side];
           if (d instanceof Error) throw d;
-          if (side !== 'base' && locate(d.tree, r.root, r.path)?.id !== r.id) throw new Error(`${side}: another node at ${r.root} ${r.path}`);
+          if (locate(d.tree, r.root, r.path)?.id !== r.id) throw new Error(`${side}: another node at ${r.root} ${r.path}`);
           const v = d.nodes.get(r.id)?.style?.[row];
           if (!v) throw new Error(`${side}: no ${row} on #${r.id}`);
-          return v.value;
+          // The JS target's typed computed value, before layout, where it gives one.
+          return v.computed ?? v.value;
         };
         try {
           const b = value('base'), sv = value('set'), rv = value('removed');
           Object.assign(o, { before: b, set: sv, removed: rv });
-          if (!standsApart(b, r.want, r.kind)) o.why.push(`the set value ${r.want} is within the read's tolerance of the base ${JSON.stringify(b)}`);
-          if (!matches(sv, r.want, r.kind)) o.why.push(`set ${JSON.stringify(sv)}, expected ${r.want}`);
+          if (!standsApart(b, r.want, r.kind, row)) o.why.push(`the set value ${r.want} is within the read's tolerance of the base ${JSON.stringify(b)}`);
+          if (!matches(sv, r.want, r.kind, row)) o.why.push(`set ${JSON.stringify(sv)}, expected ${r.want}`);
           if (!same(rv, b)) o.why.push(`removed ${JSON.stringify(rv)}, not back to ${JSON.stringify(b)}`);
         } catch (e) { o.why.push(String(e?.message ?? e)); }
         o.ok = !o.why.length;
@@ -1013,9 +1016,10 @@ export function releaseIdentity(file, sources = releaseSources(), expectedRuns =
   // Every run of stage 12 E commits on this checkout's history, found here
   // as the script finds them, and no other.
   const absent = expectedRuns.filter(run => !runs.includes(run)).map(run => `  RUN NOT COMPARED ${run}`);
-  const extra = runs.filter(run => !expectedRuns.includes(run)).map(run => `  NOT A RUN OF STAGE 12 E ${run}`);
+  const label = RELEASE?.label ?? 'stage 12 E';
+  const extra = runs.filter(run => !expectedRuns.includes(run)).map(run => `  NOT A RUN OF ${label.toUpperCase()} ${run}`);
   const short = runs.flatMap(run => sources.filter(src => !rows.some(r => r.run === run && r.source === src)).map(src => `  NOT COMPARED ${src} over ${run}`));
-  const evidence = [`release identity: ${rows.length} comparisons over ${runs.length} runs of stage 12 E commits; ${count('identical')} identical, ${rows.filter(own).length} apps/library-gate's own, ${rows.filter(alike).length} failing alike (${FAIL_ALIKE.join(', ')})`,
+  const evidence = [`release identity: ${rows.length} comparisons over ${runs.length} runs of ${label} commits; ${count('identical')} identical, ${rows.filter(own).length} apps/library-gate's own, ${rows.filter(alike).length} failing alike (${FAIL_ALIKE.join(', ')})`,
     ...unnamed.map(r => `  ${r.status === 'DIFFERS' ? 'MOVED' : r.status === 'both failed' ? 'FAILED AT BOTH ENDS' : 'BUILD FAILED'} ${r.source} over ${r.run} (${r.commits[0]})`), ...short, ...absent, ...extra];
   return { status: unnamed.length || short.length || absent.length || extra.length ? 'FAIL' : 'PASS', evidence };
 }
@@ -1025,6 +1029,8 @@ export function releaseIdentity(file, sources = releaseSources(), expectedRuns =
  * matching), each `<parent>..<last>` by ten-character hashes. */
 export const STAGE12E = /^Stage 12 E|^LLP 1139 stage 12 E|^stage12-gate/;
 export function releaseRuns(from = '92f1cae184') {
+  // A stage whose commits landed as named ranges (s13c's pieces): those.
+  if (RELEASE) return RELEASE.runs.map(([first, last]) => `${run('git', ['rev-parse', `${first}^`]).out.trim().slice(0, 10)}..${run('git', ['rev-parse', last]).out.trim().slice(0, 10)}`);
   const log = run('git', ['log', '--topo-order', '--reverse', '--format=%H %s', `${from}^..HEAD`]).out.trim().split('\n').filter(Boolean);
   const runs = [];
   let cur = null;
@@ -1204,6 +1210,8 @@ export const STAGES = {
     restyle: [...RESTYLE],
     // Stage 13 C's tokens and params, a batch a component (s13c-restyle.mjs).
     exact: true,
+    // Release identity over the four pieces as they landed on main.
+    release: { label: 'stage 13 C', runs: [['21a1a836b3', '21a1a836b3'], ['b821a5f4d0', '9aa14743f2'], ['f926a60524', '304de7b893'], ['ba2d017788', '4f29a65443']] },
   },
 };
 
@@ -1212,6 +1220,7 @@ export function useStage(stage) {
   const p = STAGES[stage];
   BASELINE_TAG = p.tag;
   EXACT = !!p.exact;
+  RELEASE = p.release ?? null;
   for (const [list, items] of [[ADOPTED, p.adopted], [BEFORE_USES, p.before], [SCREENS, p.screens], [RENDERED, p.rendered], [RESTYLE, p.restyle]]) list.splice(0, list.length, ...items);
   return p;
 }
