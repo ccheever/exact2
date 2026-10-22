@@ -104,3 +104,24 @@ test('round 1: a .pen that multiplies (a long name over many entries) is refused
   expect(got.status).not.toBe(200);
   expect(JSON.stringify(got.error)).toContain('expands past what one import may do');
 }, 120_000);
+
+test('round 2: accepted, then re-imported edited: the proposal is the edit alone, and a literal over a line a person made follow a dial is pinned', async () => {
+  const token = await paired('propose');
+  const first = await post({ method: 'import', client: 'pencil', kind: 'pen', name: 'design.pen', source: PEN }, token);
+  expect(first.status).toBe(200);
+  const accepted = await post({ method: 'accept', client: 'person', proposal: first.ok.proposal });
+  expect(accepted.status).toBe(200);
+  // A person makes the surface follow the dial; the file's next edit changes the surface's light side.
+  const files = (await post({ method: 'hello', client: 'person' })).ok.files;
+  const followed = await post({ method: 'transaction', client: 'person', files, ops: [{ op: 'set-token', name: 'pen.surface', value: 'accent' }] });
+  expect(followed.status).toBe(200);
+  const edited = JSON.parse(PEN);
+  edited.variables.surface.value[0].value = '#eeeeee';
+  const again = await post({ method: 'import', client: 'pencil', kind: 'pen', name: 'design.pen', source: JSON.stringify(edited) }, token);
+  expect(again.status).toBe(200);
+  const held = (await post({ after: 0, wait: false }, local, '/__tamber/events')).proposals.find(p => p.proposal === again.ok.proposal);
+  expect(held.ops.map(o => `${o.op.op} ${o.op.name}`)).toEqual(['set-token pen.surface']);
+  expect(again.ok.review.pins.map(p => [p.token, p.follows])).toEqual([['pen.surface', ['accent']]]);
+  // (no dial changes: a .pen proposes tokens only, so a re-import's marks are pins alone)
+  expect(again.ok.review.dials).toBeUndefined();
+}, 120_000);
