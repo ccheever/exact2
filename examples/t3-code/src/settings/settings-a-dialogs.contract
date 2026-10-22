@@ -9,6 +9,7 @@ use CoreSelect from "./settings-rows.contract"
 use AddThemeDialog from "../appearance/settings-appearance-import.contract"
 use SettingsConfirm from "./settings-rest-dialogs.contract"
 use DeviceHostDialog from "../device/settings-a-hosts.contract"
+use EasHostDialog from "../device/settings-eas-hosts.contract"
 use CollectionRemoveDialog from "../appearance/settings-a-collections.contract"
 use FocusGuard from "../shared/dialog-trap.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
@@ -42,6 +43,9 @@ component SettingsADialogs
     // Integrations → Device hosts: the Add/Edit device host dialog.
     if core.hostEditor.open
       DeviceHostDialog(editor=core.hostEditor, checks=core.hostChecks, busy=busy, error=error, rest=rest)
+    // Integrations → EAS Simulator: the Add/Edit EAS host dialog.
+    if core.easEditor.open
+      EasHostDialog(editor=core.easEditor, busy=busy, error=error, rest=rest, local=local)
     // ResourceTelemetryDiagnostics / DiagnosticsSettings signalProcess: SIGKILL asks first.
     if core.killConfirm.pid != ""
       SettingsConfirm(title=`Send SIGKILL to process ${core.killConfirm.pid}?`, description="This cannot be handled by the process.", confirmLabel="Confirm", destructive=true, busy=busy, error=error, dialogId="signal-kill", cancel=raw("rest:diag-kill-cancel", ":", ""), confirm=raw("rest:diag-kill", ":", ""))

@@ -83,6 +83,8 @@ enum T3Wire {
         let tag = error["_tag"] as? String ?? error["name"] as? String ?? "RPC"
         let text = { (key: String) -> String in (error[key] as? String).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) } ?? "" }
         var message = text("message")
+        // DeviceEasAccountError's message is its reason, through a getter (contracts device.ts).
+        if message.isEmpty, tag == "DeviceEasAccountError" { message = text("reason") }
         if message.isEmpty, !text("detail").isEmpty { message = text("detail") }
         if message.isEmpty, let cause = error["cause"] { message = failure(cause).message }
         if message.isEmpty || message == "The server request failed." { message = "The server refused the request (\(tag))." }
