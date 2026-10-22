@@ -20,17 +20,23 @@ const page = `<!doctype html>
 <div id="menu" popover role="menu">
   <button id="react" popovertarget="picker">Add Reaction…</button>
   <button id="commanded" commandfor="picker" command="show-popover">Pick (command)</button>
+  <button id="fallback" commandfor="" popovertarget="picker">Pick (no command target)</button>
+  <button id="switch" popovertarget="submenu">Switches to the picker</button>
+  <button id="toggle" popovertarget="manual">Toggle the manual one</button>
   <button id="more" popovertarget="submenu">More</button>
   <button id="close" popovertarget="menu" popovertargetaction="hide">Close</button>
 </div>
 <div id="submenu" popover role="menu"><button id="deep">Deep</button></div>
 <div id="picker" popover><button id="emoji">👍</button></div>
+<div id="manual" popover="manual">Manual</div>
 <script type="module">
   import '/menu-rows.js';
   globalThis.exact.menuRows();
   window.pressed = [];
   document.getElementById('react').addEventListener('click', () => pressed.push('react'));
-  window.open = () => ['menu', 'submenu', 'picker'].filter(id => document.getElementById(id).matches(':popover-open'));
+  // A press that changes what its row opens, from a submenu to the picker.
+  document.getElementById('switch').addEventListener('click', e => e.currentTarget.setAttribute('popovertarget', 'picker'));
+  window.open = () => ['menu', 'submenu', 'picker', 'manual'].filter(id => document.getElementById(id).matches(':popover-open'));
   // What opened each popover, as its beforetoggle says.
   window.sources = {};
   document.addEventListener('beforetoggle', e => { if (e.newState === 'open') sources[e.target.id] = e.source?.id ?? null; }, true);
@@ -111,4 +117,22 @@ check('a submenu stays nested in its menu, and a row that hides the menu hides i
   await until('open()', ['menu']);
   await press('close');
   await until('open()', []);
+}), 60000);
+
+check('what a row opens after its press, a commandfor naming nothing, and a toggle that closes', () => inChrome(async (evaluate, press, until) => {
+  await press('opener');
+  await until('open()', ['menu']);
+  await press('switch');
+  await until('open()', ['picker']);
+  expect(await evaluate('sources.picker')).toBe('opener');
+  await evaluate(`document.getElementById('picker').hidePopover(); document.getElementById('switch').setAttribute('popovertarget', 'submenu')`);
+  await press('opener');
+  await until('open()', ['menu']);
+  await press('fallback');
+  await until('open()', ['picker']);
+  await evaluate(`document.getElementById('picker').hidePopover(); document.getElementById('manual').showPopover()`);
+  await press('opener');
+  await until('open()', ['menu', 'manual']);
+  await press('toggle');
+  await until('open()', ['menu']); // the manual one toggled closed; the menu, as HTML has it, stays
 }), 60000);

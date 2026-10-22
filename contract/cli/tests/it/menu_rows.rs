@@ -63,3 +63,17 @@ fn a_menu_rows_popover_that_is_no_menu_is_noted_where_it_opens() {
         "{message}"
     );
 }
+
+/// A target two arms declare differently (a menu in one, no menu in the
+/// other) is unsettled: no note.
+#[test]
+fn a_target_two_arms_declare_differently_earns_no_note() {
+    let (result, warnings) = contract::compile_warned(
+        "component App\n  state a = true\n  view\n    column\n      column id=\"menu\" popover=\"auto\" role=\"menu\"\n        button popovertarget=\"next\"\n          text \"Next\"\n      if a\n        column id=\"next\" popover=\"auto\" role=\"menu\"\n          button\n            text \"x\"\n      else\n        column id=\"next\" popover=\"auto\"\n          text \"y\"\n",
+    );
+    result.unwrap_or_else(|e| panic!("{e}"));
+    assert!(
+        warnings.iter().all(|w| w.id != "lower-menu-row-popover"),
+        "{warnings:?}"
+    );
+}

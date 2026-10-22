@@ -9,13 +9,31 @@
 // source. Loaded after the first paint (glue.js), the JS target at boot.
 import { popoverSource } from "./navigation.js";
 
-/** What `row` invokes, as HTML resolves it: `commandfor` before `popovertarget`; null for a hide or no popover. */
+/** What `row` invokes, as HTML resolves it: the `commandfor` element when there is one, else `popovertarget`'s, with what to do. */
 function invoked(row) {
-  const commanded = row.getAttribute("commandfor");
-  const target = document.getElementById(commanded ?? row.getAttribute("popovertarget") ?? "");
-  const action = commanded != null ? (row.getAttribute("command") ?? "").toLowerCase() : (row.getAttribute("popovertargetaction") ?? "toggle").toLowerCase();
-  const opens = commanded != null ? ["show-popover", "toggle-popover"].includes(action) : action !== "hide";
-  return opens && target?.hasAttribute("popover") ? target : null;
+  const commanded = document.getElementById(row.getAttribute("commandfor") || "");
+  if (commanded) {
+    const command = (row.getAttribute("command") ?? "").toLowerCase();
+    const action = { "show-popover": "show", "hide-popover": "hide", "toggle-popover": "toggle" }[command];
+    return action && commanded.hasAttribute("popover") ? { target: commanded, action } : null;
+  }
+  const target = document.getElementById(row.getAttribute("popovertarget") || "");
+  const action = (row.getAttribute("popovertargetaction") ?? "").toLowerCase();
+  return target?.hasAttribute("popover") ? { target, action: ["show", "hide"].includes(action) ? action : "toggle" } : null;
+}
+
+/** Does what `row` invokes now, as HTML would, but opens a popover that is no menu from `menu`'s own invoker. */
+function act(row, menu) {
+  const now = row.isConnected && !row.disabled && row.closest('[popover][role="menu"]') === menu ? invoked(row) : null;
+  if (!now) return;
+  const { target, action } = now, open = target.matches(":popover-open");
+  try {
+    if (action === "hide" || action === "toggle" && open) { if (open) target.hidePopover(); return; }
+    if (open) return;
+    const nested = target === menu || target.getAttribute("role") === "menu"; // a submenu, nested as HTML nests it
+    const source = nested ? row : popoverSource(menu);
+    target.showPopover({ source: source?.isConnected ? source : undefined });
+  } catch {}
 }
 
 /** Installs the rule on the document, once. */
@@ -24,16 +42,11 @@ function menuRows() {
   globalThis.exactMenuRows = true;
   addEventListener("click", e => {
     const row = e.target.closest?.("button[popovertarget], button[commandfor]");
-    const menu = row?.closest('[popover][role="menu"]'), target = row && invoked(row);
-    if (!menu || !target || target === menu || target.getAttribute("role") === "menu") return;
-    e.preventDefault(); // HTML's invoker would nest it in the menu
-    const source = popoverSource(menu);
-    // After the row's own press, which this click still delivers: what the row opens then, if it still can.
-    setTimeout(() => {
-      const now = row.isConnected && !row.disabled && row.closest('[popover][role="menu"]') === menu ? invoked(row) : null;
-      if (!now || now.matches(":popover-open")) return;
-      try { now.showPopover({ source: now === menu || now.getAttribute("role") === "menu" ? row : source?.isConnected ? source : undefined }); } catch {}
-    });
+    const menu = row?.closest('[popover][role="menu"]');
+    if (!menu) return;
+    // HTML would act on what the row names before its own press; this acts after it, on what it names then.
+    e.preventDefault();
+    setTimeout(() => act(row, menu));
   }, true);
 }
 

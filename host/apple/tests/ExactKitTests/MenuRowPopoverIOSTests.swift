@@ -64,6 +64,11 @@ final class MenuRowPopoverIOSTests: XCTestCase {
         // From the message the menu opened on: beside it, not where the menu's row was.
         let at = picker.convert(picker.bounds, to: window), message = try XCTUnwrap(p.views[1]).convert(p.views[1]!.bounds, to: window)
         XCTAssertLessThan(min(abs(at.minY - message.maxY), abs(at.maxY - message.minY)), 40, "anchored to the message: \(at) by \(message)")
+        // Chosen again, the row toggles it closed, as its invoker would.
+        UIButton().sendAction(react)
+        let closing = Date(timeIntervalSinceNow: 5)
+        while p.menus.isOpen(picker) && Date() < closing { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+        XCTAssertFalse(p.menus.isOpen(picker), "toggled closed")
     }
 }
 #endif

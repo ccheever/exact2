@@ -849,7 +849,7 @@ final class MenuHost {
         // Nested in the latest open popover holding its opener or itself.
         let opener = source.flatMap { presenter.views[$0] }
         let ancestor = agentOpen.filter { _, open in
-            guard let outer = open.popover else { return false }
+            guard let outer = open.popover, outer !== pop else { return false }
             return opener.map { $0.isDescendant(of: outer) } == true || pop.isDescendant(of: outer)
         }.max { $0.value.order < $1.value.order }?.key
         if pop.props["popover"] != "manual" {
@@ -1452,7 +1452,10 @@ final class MenuHost {
                     guard current() != nil, let invocation = presenter.invocation(of: row), invocation.opens else { return }
                     let target = invocation.target, targetToken = target.incarnation, from = opener?.id
                     if !self.isConfirmation(target), target.props["accessibilityRole"] != "menu", let name = target.props["id"] {
-                        return DispatchQueue.main.async { if current() != nil, target.incarnation == targetToken { self.agentShow(target, named: name, from: from) } }
+                        return DispatchQueue.main.async {
+                            guard current() != nil, target.incarnation == targetToken else { return }
+                            if self.isOpen(target) { if invocation.action == .toggle { self.drop(name) } } else { self.agentShow(target, named: name, from: from) }
+                        }
                     }
                     #if os(tvOS)
                     let anchorItem: AnyObject? = nil
