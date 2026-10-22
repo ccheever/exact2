@@ -1,10 +1,13 @@
-// The design tool's token operations on a real design server, as a person drives them (split from
-// design-tool.test.mjs, its heaviest drive, so a lane runs it beside the others).
+// The design tool's token operations on a real design server, as a person drives them, and an agent's
+// held proposals reviewed there (split from design-tool.test.mjs, two of its heaviest drives, so a lane
+// runs them beside the others).
 import { expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { ROOT, STUB_APP, drive, edit, proxied, toolTurns } from './design-tool-harness.mjs';
+import { createHash } from 'node:crypto';
+import { spawnOwned } from './test-children.mjs';
+import { ROOT, STUB_APP, drive, edit, proxied, repo, toolTurns } from './design-tool-harness.mjs';
 
 toolTurns();
 
@@ -79,6 +82,88 @@ test('expressions are kept unless pinned, "only this mode" adds a when, redo wri
     expect(changedPrimary.added).toHaveLength(1);
     expect(changedPrimary.added[0]).toContain('#000000');
     expect(w[8].after).toBe(original);
+  } finally {
+    await tool.close();
+    rmSync(app, { recursive: true, force: true });
+  }
+}, 900_000);
+
+test('an agent\'s write arrives attributed within one poll, and held proposals are accepted whole, in part and recomputed when stale', async () => {
+  const { app } = repo('agents');
+  const read = () => readFileSync(join(app, 'app.tamber'), 'utf8');
+  let tool, accepts = 0;
+  const agentWrite = async () => {
+    const digest = createHash('sha256').update(readFileSync(join(app, 'app.tamber'))).digest('hex');
+    const op = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'op', tool.origin, JSON.stringify({ method: 'transaction', client: 'agent:codex', files: { 'app.tamber': digest }, ops: [{ op: 'set-token', name: 'surface.card', value: 'light-dark(#f1f3f5, #17191d)' }] })], { cwd: ROOT, stdio: 'ignore' });
+    expect(await new Promise(ok => op.once('close', ok))).toBe(0);
+  };
+  let explains = 0;
+  tool = await proxied(app, async request => {
+    // The agent writes just before the tool's first explain; a hand edit
+    // lands just before the third accept, so that proposal is stale.
+    if (request.method === 'explain' && ++explains === 1) await agentWrite();
+    if (request.method === 'accept' && ++accepts === 3) writeFileSync(join(app, 'app.tamber'), read().replace('accent.fill = accent', 'accent.fill = #3070f0'));
+  });
+  try {
+    const { token } = await (await fetch(`${tool.origin}/__tamber/token`)).json();
+    const ask = async request => (await fetch(`${tool.origin}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify(request) })).json();
+    const p1 = (await ask({ method: 'propose', hold: true, client: 'agent:codex', ops: [{ op: 'set-token', name: 'text.primary', value: 'light-dark(#101010, #e7e9ea)' }, { op: 'set-token', name: 'ink.on-brand', value: '#fefefe' }] })).ok.proposal;
+    const p2 = (await ask({ method: 'propose', hold: true, client: 'agent:claude', ops: [{ op: 'set-token', name: 'accent.fill', value: '#2070f0' }] })).ok.proposal;
+    const id = n => p1.replace(/-1$/, `-${n}`);
+    expect(p2).toBe(id(2));
+    const replies = await drive(tool.url, `design-tool-agents-${process.pid}`, [
+      'type name Ada', 'tap save-name', 'clock data',
+      'tap cell-surface.page-0-light', 'clock data', 'clock +1', 'clock data', 'clock +1', 'clock data', 'state',
+      // Part of p1: the server recomputes it as a new proposal, reviewed afresh.
+      `tap pick-${p1}-0`, `tap accept-picked-${p1}`, 'clock data', 'clock +1', 'clock data', 'state',
+      `tap accept-${id(3)}`, 'clock data', 'clock +1', 'clock data', 'state',
+      // p2, with the file moved since: recomputed, then accepted.
+      `tap accept-${p2}`, 'clock data', 'clock +1', 'clock data', 'state',
+      `tap accept-${id(4)}`, 'clock data', 'clock +1', 'clock data', 'state',
+      // An accepted proposal is one step: undone, and redone.
+      'tap undo', 'clock data', 'clock +1', 'clock data', 'tap redo', 'clock data', 'clock +1', 'clock data', 'state',
+      // And highlights fade, oldest first, one each 3 s.
+      ...Array.from({ length: 8 }, () => ['clock +3000', 'clock data']).flat(), 'state',
+    ]);
+    const states = replies.filter(r => r.resources);
+    const [first, part, whole, stale, fresh, redone, faded] = states;
+    expect(first.resources.changeset.entries[0]).toMatchObject({ who: 'agent:codex', mine: false });
+    expect(first.resources.changeset.entries[0].text).toBe('app.tamber: surface.card light-dark(#f1f3f5ff, #16181cff) → light-dark(#f1f3f5ff, #17191dff) · agent:codex');
+    expect(first.resources.lit).toMatchObject({ names: ['surface.card'], whos: ['agent:codex'] });
+    // Only the cells that moved: the dark side, where the default applies.
+    expect(first.resources.lit.cells).toEqual(['surface.card|0-dark', 'surface.card|1-dark']);
+    // Each with the tokens it changes (a role that follows one among them, the params that alias one, in full).
+    expect(first.resources.changes.held.map(h => [h.proposal, h.client, [...h.tokens].sort(), h.items.map(i => i.text)])).toEqual([
+      [p1, 'agent:codex', ['-exact-label', 'ink.on-brand', 'text.primary'], ['text.primary = light-dark(#101010, #e7e9ea) (app.tamber)', 'ink.on-brand = #fefefe (app.tamber)']],
+      [p2, 'agent:claude', ['accent.fill', 'app.contract#Card.fill', 'app.tamber#MapCard.pin'], ['accent.fill = #2070f0 (app.tamber)']],
+    ]);
+    expect(part.slots.written.note).toContain(`as ${id(3)}`);
+    const recomputed = part.resources.changes.held.find(h => h.proposal === id(3));
+    expect(recomputed).toMatchObject({ replaces: p1 });
+    expect([...recomputed.tokens].sort()).toEqual(['-exact-label', 'text.primary']);
+    expect(recomputed.diff).toContain('#101010');
+    expect(recomputed.diff).not.toContain('#fefefe');
+    expect(whole.slots.written.note).toBe(`Accepted ${id(3)}.`);
+    expect(stale.slots.written.note).toContain(`as ${id(4)}`);
+    const restaled = stale.resources.changes.held.find(h => h.proposal === id(4));
+    expect(restaled).toMatchObject({ replaces: p2, client: 'agent:claude' });
+    // Its diff is the new one, from the hand edit's value.
+    expect(restaled.diff).toContain('-  accent.fill = #3070f0');
+    expect(fresh.slots.written.note).toBe(`Accepted ${id(4)}.`);
+    expect(fresh.resources.changes.held).toEqual([]);
+    expect(tool.writes.map(w => [w.method, w.ok])).toEqual([['accept', true], ['accept', true], ['accept', true], ['accept', true], ['undo', true], ['transaction', true]]);
+    expect(tool.writes[4].after).toBe(tool.writes[2].after);
+    expect(tool.writes[5].after).toBe(tool.writes[3].after);
+    expect(redone.slots.written).toMatchObject({ ok: true, last: 'redo' });
+    // Redone as its proposer's.
+    expect(redone.resources.changeset.entries[0].who).toBe('agent:claude');
+    expect(redone.resources.changeset.entries[0].text).toContain('redone by design-tool:Ada');
+    expect(faded.resources.lit.names).toEqual([]);
+    const now = read();
+    expect(now).toContain('text.primary = light-dark(#101010, #e7e9ea)');
+    expect(now).not.toContain('#fefefe');
+    expect(now).toContain('accent.fill = #2070f0');
+    expect(now).not.toContain('accent.fill = #3070f0');
   } finally {
     await tool.close();
     rmSync(app, { recursive: true, force: true });
