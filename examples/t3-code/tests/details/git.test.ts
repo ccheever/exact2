@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { primaryAt, resetPrimary } from '../support/local-primary-fixture';
 import { appPath } from '../support/app-files';
 afterEach(resetPrimary);
-import { defaultBranchCopy, formatElapsed, menuItems, menuNotes, menuReason, progressPresentation, publishReadiness, quickAction, quickActionIcon,
+import { defaultBranchCopy, featureBranchUnavailableReason, formatElapsed, menuItems, menuNotes, menuReason, progressPresentation, publishReadiness, quickAction, quickActionIcon,
   requiresDefaultBranchConfirmation, sortedPublishProviders, terminology } from '../../src/details/git-logic';
 import { GIT_ACTION_KEY, gitActionEvent, gitCardView, gitCommand, gitLocal, gitState, transportActionId } from '../../src/details/git-actions';
 import { branchLocal, branchState, includeRef, originLabel, startFromOrigin } from '../../src/details/git-branch';
@@ -129,6 +129,23 @@ describe('the action stream (vcsAction.ts)', () => {
     gitActionEvent(client, { subscriptionId: '3-7', value: { actionId: (subscribe.payload as Obj).actionId as string, cwd: '/repo', action: 'commit_push', kind: 'action_failed', phase: 'push', message: 'rejected' } });
     expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Action failed', description: "Source control action 'commit_push' failed during push." });
     expect(gitState(client).run).toBeNull();
+  });
+  test('a clean default ref offers no feature branch it cannot name (GitActionsControl.logic resolveFeatureBranchUnavailableReason)', async () => {
+    const { client, calls } = make();
+    expect(featureBranchUnavailableReason('main', true)).toBe('');
+    gitCardView(client, status({ hasWorkingTreeChanges: false, isDefaultRef: true, refName: 'main', aheadCount: 1 }), '', '/repo', 100);
+    await gitCommand(client, native, 'menu', '/repo', 'push');
+    const reason = "There are no changes to commit, so a feature branch can't be named. Create a branch yourself or continue on main.";
+    expect(gitCardView(client, gitState(client).status, '', '/repo', 100)).toMatchObject({ dialog: 'confirm', confirmContinue: 'Push to main', confirmFeatureReason: reason });
+    const sent = calls.length;
+    await gitCommand(client, native, 'confirm', '/repo', 'feature');
+    expect(calls.length).toBe(sent);
+    expect(gitState(client).dialog).toBe('confirm');
+    // The option follows the live status while the dialog is open.
+    expect(gitCardView(client, status({ hasWorkingTreeChanges: true, isDefaultRef: true, refName: 'main', aheadCount: 1 }), '', '/repo', 100).confirmFeatureReason).toBe('');
+    await gitCommand(client, native, 'confirm', '/repo', 'continue');
+    expect(calls.at(-1)!.payload).toMatchObject({ action: 'push' });
+    expect(calls.at(-1)!.payload).not.toHaveProperty('featureBranch');
   });
   test('pull reports inline', async () => {
     const { client } = make();
