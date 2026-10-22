@@ -514,8 +514,8 @@ final class InlineAtomProbeMacTests: XCTestCase {
     }
 
     /// A pill stays positioned and drawn across restyles, with one view in
-    /// the hierarchy. Replaced picture attachments are freed. Provider
-    /// allocation counts are diagnostic: AppKit may reuse its providers.
+    /// the hierarchy. Replaced picture attachments are freed. Retained
+    /// attachment-view counts are diagnostic; AppKit may release old views.
     func testWhatARestyleLeavesBehind() throws {
         for drawing in drawings {
             let (view, probe, manager) = editor(drawing)
@@ -954,7 +954,7 @@ final class InlineAtomProbeIOSTests: XCTestCase {
         }
     }
 
-    /// UIKit, unlike AppKit, frees the view providers it no longer shows.
+    /// UIKit frees attachment views it no longer shows.
     func testWhatARestyleLeavesBehind() throws {
         for drawing in drawings {
             let (view, probe, manager) = editor(drawing)
