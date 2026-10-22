@@ -9,13 +9,13 @@ import { toolAnswers } from './tamber-server.mjs';
 
 const free = () => new Promise(ok => { const s = createServer(); s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => ok(port)); }); });
 
-// A stand-in design server: its token answered after `late(n)` ms on the n-th ask, its hello at once.
-const loop = late => {
+// A stand-in design server: its token answered after `late(n)` ms on the n-th ask, its hello after `slowHello` ms.
+const loop = (late, slowHello = 0) => {
   let asked = 0;
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) {
     const path = new URL(req.url).pathname;
     if (path === '/__tamber/token') { await Bun.sleep(late(++asked)); return Response.json({ token: 't' }); }
-    if (path === '/__tamber') return Response.json({ ok: { app: '/apps/x', epoch: 'e1' } });
+    if (path === '/__tamber') { await Bun.sleep(slowHello); return Response.json({ ok: { app: '/apps/x', epoch: 'e1' } }); }
     return new Response('', { status: 404 });
   } });
   return { server, origin: `http://127.0.0.1:${server.port}`, asked: () => asked };
@@ -43,4 +43,12 @@ test('nothing listening is said at once, tries or not; a loop that never answers
     expect(await toolAnswers(mute.origin, 3)).toBe(null);
     expect([mute.asked(), Date.now() - t1 >= 5900]).toEqual([3, true]);
   } finally { mute.server.stop(true); }
+}, 60_000);
+
+test("a dev loop that gives its token at once but its hello late (a loaded loop starting its design server) is still reached through --via; the tool's own check keeps its 10 s", async () => {
+  const slow = loop(() => 0, 12_000);
+  try {
+    expect(await toolAnswers(slow.origin, 5)).toEqual({ app: '/apps/x', epoch: 'e1' });
+    expect(await toolAnswers(slow.origin)).toBe(null);
+  } finally { slow.server.stop(true); }
 }, 60_000);

@@ -295,7 +295,15 @@ final class MenuHost: NSObject {
         if name == "hidePopover" || name == "togglePopover" && open { close(pop) }
         else if !open { show(pop, from: source) }
     }
-    func show(_ pop: NodeView, from source: NodeView?, run: UInt32? = nil, contextMenu: Bool = false, bubbled: Bool = false) {
+    func show(_ pop: NodeView, from row: NodeView?, run: UInt32? = nil, contextMenu: Bool = false, bubbled: Bool = false) {
+        // A row of a menu opens a popover that is no menu as the menu's own invoker would (LLP 1021's
+        // menu rule): an open menu's, or the native menu's it was chosen from, which has closed by now.
+        let menuRow = { (menu: NodeView?) in menu?.props["accessibilityRole"] == "menu" && row.map { self.contains(menu!, $0) } == true }
+        let picked = pop.props["accessibilityRole"] != "menu" && menuOpener.pops.contains(where: { menuRow($0.pop) }) ? menuOpener.opener : nil
+        var source = row, seen = Set<ObjectIdentifier>() // past any open submenu, to what opened the outermost menu
+        while pop.props["accessibilityRole"] != "menu", let e = entries.last(where: { e in e.popover.props["accessibilityRole"] == "menu" && source.map { s in contains(e.popover, s) } == true }),
+              seen.insert(ObjectIdentifier(e)).inserted { source = e.source }
+        if source === row, let picked { source = picked }
         let bubbled = bubbled && source.map { presenter?.dialogs.isBehindModal($0) == true } == true
         guard let presenter, !isOpen(pop), live(pop), source.map(live) ?? true, pop.props["popover"] != nil,
               connected(pop), source.map(connected) ?? true, !pop.inert,
@@ -325,7 +333,10 @@ final class MenuHost: NSObject {
             if isConfirmation(pop) {
                 // A shape the menu cannot present is said, and stays painted.
                 if let owner = confirmation(of: pop, from: source, bubbled: entry.bubbled) { entry.confirmation = owner; entry.menu = menu(of: owner) }
-            } else if isMenuShaped(pop) { entry.menu = menu(of: pop, from: opens(source, pop) ? source : nil, bubbled: entry.bubbled) }
+            } else if isMenuShaped(pop) {
+                menuOpener = MenuOpener(pop, opener: source) // what opened it, `showPopover(source=)` too
+                entry.menu = menu(of: pop, from: opens(source, pop) ? source : nil, bubbled: entry.bubbled)
+            }
         }
         entries.append(entry)
         // A menu's shape under the driver stays the painted menu it was.
@@ -386,7 +397,7 @@ final class MenuHost: NSObject {
             guard pop.container.subviews.contains(where: { ($0 as? NodeView).map { $0.isButton && $0.props["contextPreview"] != "true" } ?? false }) else { return }
             self.presentations[pop.id, default: 0] += 1
             self.revalidate()
-            let menu = self.menu(of: pop)
+            let menu = self.contextMenu(of: pop, on: source)
             let entry = Entry(pop, source: source, previous: source.window.flatMap(self.focusOwner), run: run)
             entry.menu = menu; entry.tracking = true
             self.entries.append(entry)
@@ -669,16 +680,26 @@ final class MenuHost: NSObject {
     /// menu-shaped one (D3) it shows or toggles (`Invocation`),
     /// not a confirmation, and not already on `path` (the popovers from the
     /// presented one down to `row`'s): a row that names one of those is an
-    /// item, as one opening any other popover is.
+    /// item, as one opening any other popover is. It is a menu
+    /// (`role="menu"`): any other popover a row opens opens beside the
+    /// menu's invoker (LLP 1021's menu rule, `show`).
     func submenu(of row: NodeView, path: [NodeView]) -> NodeView? {
         guard let invocation = popoverInvocation(row), invocation.opens else { return nil }
         let sub = invocation.target
-        guard !isConfirmation(sub), !path.contains(where: { $0 === sub }), isMenuShaped(sub) else { return nil }
+        guard !isConfirmation(sub), !path.contains(where: { $0 === sub }), isMenuShaped(sub), sub.props["accessibilityRole"] == "menu" else { return nil }
         return sub
+    }
+    /// `pop`'s menu as `source`'s context menu: a chosen row's popover opens
+    /// from the pressed node, the record set before the menu is built so its
+    /// beside-written submenus join it as they are.
+    func contextMenu(of pop: NodeView, on source: NodeView) -> NSMenu {
+        menuOpener = MenuOpener(pop, opener: source)
+        return menu(of: pop)
     }
     /// `pop`'s button menu, opened from `source` (nil for a context menu,
     /// and when a test builds one with no invoker).
     func menu(of pop: NodeView, from source: NodeView? = nil, bubbled: Bool = false) -> NSMenu {
+        if let source { menuOpener = MenuOpener(pop, opener: source) }
         let menu = items(of: pop, path: [], from: source, presentation: presentation(of: pop), once: Picked(), bubbled: bubbled)
         // The popover's `aria-label` titles the menu ("Open location in"). A
         // submenu has none: the item that opens it names it.
@@ -763,6 +784,7 @@ final class MenuHost: NSObject {
             guard row.isButton else { continue }
             if let sub = submenu(of: row, path: popovers) {
                 let item = menuItem(of: row, action: nil)
+                menuOpener.pops.append(Weak(pop: sub)) // a row chosen in it opens from the same opener
                 item.submenu = items(of: sub, path: path + [Step(row, in: pop)], from: source, presentation: presentation, once: once, bubbled: bubbled)
                 item.isEnabled = !row.disabled && !row.inert && shown(row, in: popovers + [sub])
                 item.image = image(of: row)
@@ -783,6 +805,17 @@ final class MenuHost: NSObject {
     }
     /// One menu's items share this, its submenus' too: the first item taken
     /// is its only one.
+    /// The native menu presented last and the invoker or node it came from:
+    /// a row chosen in it presses after it has closed, and the popover that
+    /// row opens opens from here (`show`, LLP 1021's menu rule).
+    private struct Weak { weak var pop: NodeView? }
+    private struct MenuOpener {
+        var pops: [Weak] = []
+        weak var opener: NodeView?
+        init() {}
+        init(_ pop: NodeView, opener: NodeView?) { pops = [Weak(pop: pop)]; self.opener = opener }
+    }
+    private var menuOpener = MenuOpener()
     private final class Picked { var taken = false }
     /// A row that opened a submenu, in the popover that holds it.
     private struct Step {

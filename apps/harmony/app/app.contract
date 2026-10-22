@@ -328,10 +328,9 @@ component Harmony
     send reacted = react(persona, id, emoji)
   action pickFor(id: string)
     pickerFor = id
-  // From the message menu, the picker opens beside the message, not from the
-  // menu's row: a popover a row of a menu opens is nested in that menu, and on
-  // the Mac and iPhone the menu is the platform's, which closes as its row is
-  // chosen and would take the picker with it.
+  // From the message menu, the picker opens beside the message itself:
+  // exact2's menu rule would open it from what opened the menu, and the
+  // hover row's More button that can open it goes as the pointer leaves.
   action pickFromMenu
     pickerFor = aimed
     showPopover("emoji-picker", source=`message-${aimed}`)
@@ -666,7 +665,7 @@ component Harmony
               image "symbol:delete"
               text "Delete Message"
         // The emoji picker: for the composer (`pickerFor` empty) or a message's reaction.
-        column id="emoji-picker" popover="auto" testId="emoji-picker" padding=12 gap=10 width="19rem" max-width="92vw" max-height="70vh" overflow-y="auto" background-color="popover.fill" border-width=0 border-radius=16 box-shadow="0 8px 32px rgba(0, 0, 0, 0.22)"
+        column id="emoji-picker" popover="auto" testId="emoji-picker" padding=12 gap=10 width="19rem" max-width="92vw" max-height="70vh" overflow-y="auto"
           text (pickerFor == "" ? "Emoji" : "Add Reaction") role="heading" aria-level=3 font="-exact-headline"
           if emoji.length > 0
             text "Harmony" font="-exact-caption1" font-weight=600 color="-exact-secondary-label"
@@ -771,7 +770,7 @@ component RoomScreen
           button press=post disabled=(draft.trim() == "" or sending or thread.id == "") buttonStyle="filled" retainFocus=true
             aria-label=(editing != "" ? "Save" : "Send") title=(editing != "" ? "Save" : "Send") testId="send"
             image (editing != "" ? "symbol:checkmark" : "symbol:send")
-      column id=`pins-${routeKey}` popover="auto" testId="pins-popover" padding=12 gap=8 width="22rem" max-width="92vw" max-height="70vh" overflow-y="auto" background-color="popover.fill" border-width=0 border-radius=16 box-shadow="0 8px 32px rgba(0, 0, 0, 0.22)"
+      column id=`pins-${routeKey}` popover="auto" testId="pins-popover" padding=12 gap=8 width="22rem" max-width="92vw" max-height="70vh" overflow-y="auto"
         text "Pinned Messages" role="heading" aria-level=3 font="-exact-headline"
         if thread.pins.length == 0
           text "No pinned messages yet. Long-press a message (or right-click it) to pin it." color="-exact-secondary-label" font="-exact-footnote"
@@ -781,7 +780,7 @@ component RoomScreen
               text p.author font-weight=600 font="-exact-footnote" flex=1 min-width=0 line-clamp=1
               text formatDay(p.at, now, offset, "list") font="-exact-caption1" color="-exact-secondary-label"
             text p.body line-clamp=3
-      column id=`members-${routeKey}` popover="auto" testId="members-popover" padding=12 gap=10 width="18rem" max-width="92vw" max-height="70vh" overflow-y="auto" background-color="popover.fill" border-width=0 border-radius=16 box-shadow="0 8px 32px rgba(0, 0, 0, 0.22)"
+      column id=`members-${routeKey}` popover="auto" testId="members-popover" padding=12 gap=10 width="18rem" max-width="92vw" max-height="70vh" overflow-y="auto"
         text (thread.members.length == 1 ? "1 Member" : `${thread.members.length} Members`) role="heading" aria-level=3 font="-exact-headline"
         for p in thread.members key=p.key
           row gap=10 align-items="center"
