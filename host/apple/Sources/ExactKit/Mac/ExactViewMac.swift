@@ -319,7 +319,7 @@ public final class ExactView: NSView {
         if window != nil {
             // Text editors can consume control chords before the responder chain.
             // Route declared commands first, scoped to this session's focused view.
-            shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseUp]) { [weak self] event in
+            shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged, .leftMouseDown, .leftMouseUp, .leftMouseDragged, .rightMouseDown, .rightMouseUp, .otherMouseUp]) { [weak self] event in
                 guard let self else { return event }
                 #if EXACT_INSPECT
                 // Inspect mode's monitor has every event (InspectMac.swift): none is the app's.
@@ -347,6 +347,7 @@ public final class ExactView: NSView {
                         // A press on a held node, or in it, lets its hold go (HeldState.swift), whatever view takes it.
                         self.session.presenter.heldPointerDown(event)
                     }
+                    self.session.presenter.tables.pointer(event)
                     self.session.presenter.menus.pointer(event)
                     // A click on the window behind a `closedby="any"` sheet is the sheet's.
                     return self.session.presenter.dialogs.pointer(event) ? nil : event
