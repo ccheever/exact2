@@ -91,7 +91,7 @@ structs! {
     TimelineDecl { name, span }
     ColorProfileDecl { name, attrs, span }
     ThemeDecl { entries, span }
-    DesignSource { path, home, text, source_id, bindable, package }
+    DesignSource { path, home, text, source_id, bindable, package, root }
     KeyframeDecl { selectors, attrs, span }
     RoutesDecl { slot, rows, span }
     RouteDecl { name, pattern, parent, tab, notfound, fields, span }
@@ -112,7 +112,7 @@ structs! {
     Anatomy { parts, marks }
     PartDecl { name, groups, span }
     Mark { part, span, node, own }
-    Params { identity, list }
+    Params { identity, package, root, list }
     ComponentParam { name, kind, default, default_span, attrs, span }
     ParamAttr { name, value, span }
     Sequence { name, gate, key, tracks, options, ended, span }

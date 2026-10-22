@@ -116,6 +116,14 @@ impl<'a> NodeRef<'a> {
         self.arena.looks(self.slot)
     }
 
+    /// How the node is positioned for layout: its `position`, but absolute in
+    /// the top layer (an open or closed popover, unless its author wrote
+    /// `sticky`). A host's layout-side read goes through this, not
+    /// `style.position_type`.
+    pub fn layout_position(&self) -> crate::PositionType {
+        crate::style::top_layer::layout_position(self.arena, self.slot)
+    }
+
     /// The editor content box in this native field's local frame (LLP 1104 D5).
     pub fn field_content_rect(&self) -> Option<Frame> {
         self.arena.field_content_rect(self.slot)
