@@ -517,9 +517,10 @@ final class InlineAtomProbeMacTests: XCTestCase {
     /// time it lays a paragraph out and keeps every provider it was handed,
     /// with its view, while the text view lives, though only the newest is in
     /// the hierarchy; an attachment in the storage, not the delegate's
-    /// paragraph, does the same. (A provider handed back again keeps its
-    /// first location, so it cannot follow the text.) A picture leaves
-    /// nothing behind: the attachments restyles replaced are freed.
+    /// paragraph, does the same (the third case). A picture leaves nothing
+    /// behind: the attachments restyles replaced are freed. Measured once and
+    /// not kept as a case: a provider the attachment hands back again keeps
+    /// its first location, so it cannot follow the text.
     func testWhatARestyleLeavesBehind() throws {
         for drawing in drawings {
             let (view, probe, manager) = editor(drawing)
@@ -538,12 +539,30 @@ final class InlineAtomProbeMacTests: XCTestCase {
             switch drawing {
             case .view:
                 XCTAssertEqual(probe.live(in: view).count, 1)
-                XCTAssertGreaterThan(probe.allocated, 100, "TextKit kept the providers: if this fails, it no longer does")
+                // A tripwire: if AppKit stops keeping the providers, this fails and §5.1's record is out of date.
+                XCTAssertGreaterThan(probe.allocated, 100, "AppKit kept the providers")
             case .image:
-                XCTAssertLessThanOrEqual(allocated.max()!, 10, "the replaced attachments were freed")
+                XCTAssertLessThanOrEqual(allocated.last!, allocated.first! + 2, "the replaced attachments were freed: \(allocated)")
             }
             print("probe(mac) \(drawing) after 120 restyles: \(probe.paragraphs) paragraphs, \(probe.providers) providers, \(probe.allocated) views allocated (\(probe.live(in: view).count) in the text view), attachments allocated every 30 restyles \(allocated) of \(probe.attachments.count)")
         }
+        // One attachment in the storage itself, no delegate paragraph: each re-layout
+        // of its paragraph (an attribute change, an edit before it) asks for a new provider.
+        let (view, probe, _) = editor(.view, "x", rich: true)
+        let storage = view.textStorage!
+        storage.append(NSAttributedString(attachment: PillAttachment(label: "Assistant quote", probe: probe)))
+        for i in 0..<120 {
+            autoreleasepool {
+                storage.beginEditing()
+                storage.addAttribute(.font, value: font, range: NSRange(location: 0, length: storage.length))
+                storage.endEditing()
+                if i % 2 == 0 { view.insertText("y", replacementRange: NSRange(location: 0, length: 0)) }
+                settle(view)
+            }
+        }
+        XCTAssertEqual(probe.live(in: view).count, 1)
+        XCTAssertGreaterThan(probe.allocated, 100, "AppKit kept the providers of an attachment in the storage too (a tripwire, as above)")
+        print("probe(mac) attachment in the storage after 120 re-layouts: \(probe.providers) providers, \(probe.allocated) views allocated (\(probe.live(in: view).count) in the text view)")
     }
 
     /// D8 through the AX API, from a thread of its own as VoiceOver reads it
@@ -964,7 +983,7 @@ final class InlineAtomProbeIOSTests: XCTestCase {
                 XCTAssertEqual(probe.live(in: view).count, 1)
                 XCTAssertLessThanOrEqual(probe.allocated, 10, "the replaced views were freed")
             }
-            XCTAssertLessThanOrEqual(allocated.max()!, 10, "the replaced attachments were freed")
+            XCTAssertLessThanOrEqual(allocated.last!, allocated.first! + 2, "the replaced attachments were freed: \(allocated)")
             print("probe(ios) \(drawing) after 120 restyles: \(probe.providers) providers, \(probe.allocated) views allocated (\(probe.live(in: view).count) in the text view), attachments allocated every 30 restyles \(allocated) of \(probe.attachments.count)")
         }
     }
@@ -1004,6 +1023,8 @@ final class InlineAtomProbeIOSTests: XCTestCase {
 
     /// UIKit loads the code that answers accessibility only for an assistive
     /// technology or automation; a title-only button tells which this is.
+    /// `Presenter.axRuntimeLoaded` says the same; the probe uses no ExactKit,
+    /// so that it records TextKit alone.
     private static var axRuntimeLoaded: Bool {
         let probe = UIButton(type: .system)
         probe.setTitle("probe", for: .normal)
