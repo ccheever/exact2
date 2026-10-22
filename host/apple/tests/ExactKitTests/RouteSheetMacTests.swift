@@ -200,6 +200,24 @@ final class RouteSheetMacTests: XCTestCase {
         return taken
     }
 
+    func testExitingTheNavigationRootRetiresItsFocusedSheetRoute() throws {
+        let f = try make()
+        try f.press("open-add")
+        let root = try f.node("root"), route = try f.node("add"), fieldNode = try f.node("add-title")
+        let field = try XCTUnwrap(fieldNode.field), window = try sheet(f).window
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor())
+        XCTAssertFalse(route.isDescendant(of: root))
+        f.presenter.apply(wireBatch([["op": "exit", "id": Int(root.id)]]))
+        XCTAssertNil(f.presenter.views[route.id])
+        XCTAssertNil(f.presenter.views[fieldNode.id])
+        XCTAssertFalse(window.firstResponder === editor)
+        XCTAssertNil(field.currentEditor())
+        XCTAssertTrue(try XCTUnwrap(f.presenter.leaving[root.id]).members.contains { $0 === route })
+        f.presenter.apply(wireBatch([["op": "destroy", "id": Int(root.id)]]))
+        XCTAssertNil(route.superview)
+    }
+
     func testPushesStayInTheirModalSegmentAndBackReturnsWithinTheSheet() throws {
         let f = try SheetFixture(page: """
         component Proof

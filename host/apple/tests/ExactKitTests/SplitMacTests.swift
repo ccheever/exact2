@@ -228,6 +228,26 @@ final class SplitMacTests: XCTestCase {
         return (session.presenter, window, path)
     }
 
+    func testExitingAnAncestorRetiresItsFocusedPaneRoute() throws {
+        let (p, window, path) = try listeningDetail()
+        let fieldNode = path[0], route = path[1], panel = path[2]
+        let field = try XCTUnwrap(fieldNode.field)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor())
+        XCTAssertFalse(route.isDescendant(of: panel))
+        p.apply(wireBatch([["op": "exit", "id": Int(panel.id)]]))
+        XCTAssertNil(p.views[route.id])
+        XCTAssertNil(p.views[fieldNode.id])
+        XCTAssertFalse(window.firstResponder === editor)
+        XCTAssertNil(field.currentEditor())
+        let members = try XCTUnwrap(p.leaving[panel.id]).members
+        XCTAssertTrue(members.contains { $0 === route })
+        XCTAssertTrue(members.contains { $0 === fieldNode })
+        XCTAssertEqual(Set(members.map(\.id)).count, members.count)
+        p.apply(wireBatch([["op": "destroy", "id": Int(panel.id)]]))
+        XCTAssertNil(route.superview)
+    }
+
     func testDetailFocusBubblesThroughItsAuthoredAncestorsAndStops() throws {
         let (p, window, path) = try listeningDetail()
         let field = try XCTUnwrap(path[0].field)
