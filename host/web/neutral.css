@@ -276,7 +276,8 @@
 
   /* A route's `header` is a plain bar: the page's ground, opaque, over a 1 px line, in the label's ink whatever the
      page's `color` (its own, written, wins). Its title is the route's heading at its level's size; nothing collapses.
-     A button nobody styled is the bar's: no outline, and the Back button the bar draws is one of them. */
+     A button nobody styled is the bar's: no outline, and the Back button the bar draws is one of them, though in its
+     navigation root's accent, as UIKit tints its Back (index.html). */
   :where(#exact-root [navigationkey] > header) { background-color: var(--exact-background); backdrop-filter: none; box-shadow: none; border-bottom: 1px solid var(--exact-separator); color: var(--exact-label); }
   /* A level-1 heading in a route's bar stands where iOS draws its large title, in a bar that collapses as the page
      scrolls. The web's bar never collapses, so the title keeps its level's size (`title1`, LLP 1115 D3) and takes at
@@ -293,10 +294,10 @@
      which it beats by coming later. */
   :where(#exact-root [navigationkey]:not(:is([navigationPresentation="modal"], [navigationPresentation="fullscreen"]), :is([navigationPresentation="modal"], [navigationPresentation="fullscreen"]):not([data-exiting]) ~ *, :is([navigationPresentation="modal"], [navigationPresentation="fullscreen"]) ~ [data-exiting]) > header:first-child) :is(h1, h2, h3, h4, h5, h6, span):where([role="heading"][aria-level="1"]:not([popover] *, dialog *)) { min-height: 1lh; margin-block: max(0px, (2.0625rem * 1.2 - 1lh) / 2); }
   #exact-root [navigationkey] > header button[data-button-style="bordered"]:not([role="tab"], [role="radio"]) { border-color: transparent; }
-  #exact-root [navigationkey] > header::part(back) { box-sizing: border-box; min-height: 2.25em; padding: 0 .625em 0 .375em; color: var(--exact-label); font-weight: 500; cursor: default; --exact-back-press: 1; }
+  #exact-root [navigationkey] > header::part(back) { box-sizing: border-box; min-height: 2.25em; padding: 0 .625em 0 .375em; font-weight: 500; cursor: default; --exact-back-press: 1; }
   #exact-root [navigationkey] > header::part(back):focus-visible { outline: revert; outline-offset: 2px; }
-  #exact-root [navigationkey] > header::part(back):active { background-color: var(--exact-tertiary-fill); }
   @media (hover: hover) { #exact-root [navigationkey] > header::part(back):hover { background-color: var(--exact-quaternary-fill); } }
+  #exact-root [navigationkey] > header::part(back):active { background-color: var(--exact-tertiary-fill); } /* after :hover, which a held pointer matches too */
   @media (any-pointer: coarse) { #exact-root [navigationkey] > header::part(back) { min-height: 44px; } }
   /* A pressable nobody styled in a bar dims where a pointer hovers, as a bar button dims under a finger on iOS, in
      place of the unsaid wash, which would fill a box the button does not show (around a chevron or a word). It dims
