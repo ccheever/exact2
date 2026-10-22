@@ -276,6 +276,12 @@ mobile `target` directories, mobile `dist` and mobile `assets/browser-mobile`.
 Existing output cannot be adopted. Put disposable fixture homes under an owned
 target directory. Unknown output and shared caches remain untouched.
 
+`scripts/filesystem.mjs` also builds a checkout-private helper in
+`target/exact-filesystem-tool`, independently of `CARGO_TARGET_DIR`. Allocate that
+initially absent sibling before the first build or driver setup and include it
+in cleanup inventories. A scanner that excludes all of `target/` cannot prove
+that another target output was absent or task-owned.
+
 Claim ports and Exact storage names before launching a fixture. Use a host and
 identifier together, and verify that the actual port is unused before binding.
 A claim excludes other cooperating tasks; it does not reserve an operating
