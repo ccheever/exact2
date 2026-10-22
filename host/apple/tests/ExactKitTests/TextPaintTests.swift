@@ -292,6 +292,46 @@ final class TextPaintTests: XCTestCase {
                        "the separate shadow caster includes decorations and excludes neighbouring runs")
     }
 
+    func testRunShadowClipsPreserveItalicInkAndThickStroke() throws {
+        let font = engine.font(size: 32, weight: 400, family: 1, italic: true)
+        let plain = NSAttributedString(string: "f   MM   f", attributes: [
+            .font: font, .foregroundColor: PlatformColor.black,
+            .strokeWidth: -25, .strokeColor: PlatformColor.blue,
+            .underlineStyle: 1, .strikethroughStyle: 1, .underlineColor: PlatformColor.red,
+        ])
+        let shadowed = NSMutableAttributedString(attributedString: plain)
+        shadowed.addAttribute(.exactShadow, value: TextRunShadow([0, 8, 0, 0, 0, 0, 0]),
+                              range: NSRange(location: 4, length: 2))
+        func capture(_ source: NSAttributedString, pass: TextLinePaint.Pass, reference: Bool = false) throws -> [UInt8] {
+            let ctx = try XCTUnwrap(CGContext(data: nil, width: 240, height: 80, bitsPerComponent: 8,
+                bytesPerRow: 240 * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            let line = CTLineCreateWithAttributedString(source)
+            if reference {
+                ctx.translateBy(x: 20, y: 50)
+                ctx.scaleBy(x: 1, y: -1)
+                ctx.textPosition = .zero
+                CTLineDraw(line, ctx)
+            } else {
+                TextLinePaint.draw(line, at: CGPoint(x: 20, y: 50), in: ctx, pass: pass)
+            }
+            return Array(UnsafeBufferPointer(start: try XCTUnwrap(ctx.data).assumingMemoryBound(to: UInt8.self), count: 240 * 80 * 4))
+        }
+        let reference = try capture(shadowed, pass: .all, reference: true)
+        let end = 20 + CTLineGetTypographicBounds(CTLineCreateWithAttributedString(shadowed), nil, nil, nil)
+        for pass: TextLinePaint.Pass in [.all, .ink] {
+            let actual = try capture(shadowed, pass: pass)
+            var error = 0, ink = 0
+            for y in 0..<80 { for x in 0..<240 where x < 20 || Double(x) > end {
+                let i = (y * 240 + x) * 4
+                ink += Int(reference[i + 3])
+                for channel in 0..<4 { error += abs(Int(reference[i + channel]) - Int(actual[i + channel])) }
+            } }
+            XCTAssertGreaterThan(ink, 10_000, "the reference has stroked italic ink beyond its advances")
+            XCTAssertLessThan(error, 500, "the run clips preserve the line's overhanging ink")
+        }
+    }
+
     /// A run's own shadow past the raster's 256-point ink allowance stays in
     /// its pixels, as the layer shadow a uniform paragraph casts would, up
     /// to `maxShadowReach`; a huge one is cut there (LLP 1077 D3).

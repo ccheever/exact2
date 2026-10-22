@@ -230,11 +230,34 @@ extension TextLinePaint {
     static func drawShadowed(_ line: CTLine, in ctx: CGContext, scale: CGFloat, pass: Pass = .all) -> Bool {
         let runs = CTLineGetGlyphRuns(line) as! [CTRun]
         var shadows = runs.map(TextRunShadow.of)
+        let advances = runs.map(extent).reduce(CGRect.null) { $0.union($1) }
         func hidden(_ run: CTRun) -> Bool { (CTRunGetAttributes(run) as NSDictionary)[NSAttributedString.Key.exactHidden] as? Bool == true }
         func draw(_ shown: [CTRun]) {
             guard !shown.isEmpty else { return }
+            var clips = shown.map(extent)
+            // Decorations occupy advances; italic ink and stroke can pass
+            // the line's edges. Admit that ink in the same clip operation,
+            // so a fractional edge is not composited twice.
+            for run in shown {
+                let attributes = CTRunGetAttributes(run) as NSDictionary
+                let font = attributes[kCTFontAttributeName] as! CTFont
+                let stroke = abs((attributes[NSAttributedString.Key.strokeWidth] as? NSNumber)?.doubleValue ?? 0) * CTFontGetSize(font) / 200
+                let ink = CTRunGetImageBounds(run, nil, CFRange()).insetBy(dx: -stroke - 1, dy: -stroke - 1)
+                if ink.minX < advances.minX {
+                    clips.append(CGRect(x: ink.minX, y: ink.minY, width: min(ink.maxX, advances.minX) - ink.minX, height: ink.height))
+                }
+                if ink.maxX > advances.maxX {
+                    clips.append(CGRect(x: max(ink.minX, advances.maxX), y: ink.minY, width: ink.maxX - max(ink.minX, advances.maxX), height: ink.height))
+                }
+                if ink.minY < advances.minY {
+                    clips.append(CGRect(x: ink.minX, y: ink.minY, width: ink.width, height: min(ink.maxY, advances.minY) - ink.minY))
+                }
+                if ink.maxY > advances.maxY {
+                    clips.append(CGRect(x: ink.minX, y: max(ink.minY, advances.maxY), width: ink.width, height: ink.maxY - max(ink.minY, advances.maxY)))
+                }
+            }
             ctx.saveGState()
-            ctx.clip(to: shown.map(extent))
+            ctx.clip(to: clips)
             ctx.textPosition = .zero
             CTLineDraw(line, ctx)
             ctx.restoreGState()
