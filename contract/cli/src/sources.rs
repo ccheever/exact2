@@ -577,10 +577,13 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
             // A package's file, by its root (a Contract component's
             // package may ship no design).
             let all = packages::packages(&loader.sources).0;
+            // One vendored in the app and reached by a relative `use` is no resolved
+            // package, but the named package its identity names (round 3, R3-3).
             let origin = |i| {
-                let (_, root) = contract_lower::icons::written_in(i, &package_designs, &params)?;
+                let (name, root) = contract_lower::icons::written_in(i, &package_designs, &params)?;
                 let root = root.map(Path::new)?;
-                all.iter().find(|p| p.root == root).map(packages::origin)
+                let found = all.iter().find(|p| p.root == root).map(packages::origin);
+                Some(found.unwrap_or_else(|| packages::named(name, root)))
             };
             folding
                 .icons
@@ -619,16 +622,33 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
             origin: origin?,
         })
     }));
+    // A named package's manifest an icon's SVG is owned by (one vendored in
+    // the app) is read for its name: an input (round 3, R3-3).
+    let manifests: Vec<PathBuf> = sources
+        .iter()
+        .filter_map(|s| match &s.origin {
+            Origin::Package { manifest, .. } if s.path.extension().is_some_and(|e| e == "svg") => {
+                Some(manifest.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    let mut consulted: Vec<PathBuf> = loader
+        .sources
+        .consulted
+        .into_iter()
+        .chain(missing)
+        .chain(library)
+        .collect();
+    for m in manifests {
+        if !consulted.contains(&m) {
+            consulted.push(m);
+        }
+    }
     SourceGraph {
         sources,
         packages: loader.sources.packages,
-        consulted: loader
-            .sources
-            .consulted
-            .into_iter()
-            .chain(missing)
-            .chain(library)
-            .collect(),
+        consulted,
         errors,
     }
 }

@@ -80,15 +80,11 @@ pub(crate) fn assets(app: &AppParams, out: &mut Value, graph: &contract::SourceG
 }
 
 /// A digest of the SVGs under `root`'s `assets/` the build reads, each by
-/// its path and its bytes where it really is inside them (round 2, R2-3),
-/// one looked for and not there (or leaving) by its path.
+/// its path and its bytes as the build reads them, from the file checked
+/// to be the package's own (rounds 2 and 3, R2-3, R3-4), one looked for and
+/// not there (or leaving) by its path.
 fn assets_under(graph: &contract::SourceGraph, root: &std::path::Path) -> String {
     let under = root.join("assets");
-    let inside = |path: &std::path::Path| {
-        let real = path.canonicalize().ok()?;
-        let assets = root.canonicalize().ok()?.join("assets");
-        real.starts_with(assets).then_some(real)
-    };
     let mut read: Vec<(String, Option<Vec<u8>>)> = graph
         .sources
         .iter()
@@ -96,11 +92,8 @@ fn assets_under(graph: &contract::SourceGraph, root: &std::path::Path) -> String
         .chain(graph.consulted.iter().map(|c| (c, false)))
         .filter(|(path, _)| path.starts_with(&under))
         .map(|(path, there)| {
-            let body = there.then(|| inside(path)).flatten();
-            (
-                path.display().to_string(),
-                body.and_then(|real| std::fs::read(real).ok()),
-            )
+            let body = there.then(|| contract_lower::icons::read_confined(path, root).ok());
+            (path.display().to_string(), body.flatten())
         })
         .collect();
     read.sort();
@@ -123,10 +116,20 @@ fn assets_under(graph: &contract::SourceGraph, root: &std::path::Path) -> String
 pub(crate) fn watched(app_contract: &std::path::Path, graph: &contract::SourceGraph) -> Value {
     // Each package resolved, and each directory a resolution looked for a package.json in and failed
     // past (an export or a manifest missing for now): mending it inside the directory is a change too.
+    // And each package an icon's SVG is owned by, one vendored in the app included (round 3, R3-3).
+    let owners = graph.sources.iter().filter_map(|s| match &s.origin {
+        contract::Origin::Package { root, .. }
+            if s.path.extension().is_some_and(|e| e == "svg") =>
+        {
+            Some(root.clone())
+        }
+        _ => None,
+    });
     let mut roots: Vec<String> = graph
         .packages
         .iter()
         .map(|p| p.root.clone())
+        .chain(owners)
         .chain(
             graph
                 .consulted

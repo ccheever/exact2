@@ -5809,6 +5809,24 @@ design can't do yet" (1). D11 is amended (above).
     beside the surrounding package's and the app's same-named SVG), `a_dangling_link_in_a_packages_assets_leaves_it`,
     `a_contract_only_packages_svgs_are_watched`, the module test of a design-less package's SVG edit, and
     `icon_svg`'s cases (main's `color` with a black fill a template; `COLOR`/`Color` names).
+- **After review round 3 (Astra, Grok: RIGHT WITH CHANGES; every earlier item confirmed).**
+  - `currentColor` resolves to the element's inherited `color` (attribute or style, any case) and joins the one
+    colour comparison (R3-1): under red it is red, beside an explicit red fill one colour; under red and blue two;
+    with no `color` set, the host's colour, as on main. Round 1's and 2's `color` heuristics are gone.
+  - `!important` is read in any case and with space after its `!` (R3-2), so it neither hides a paint's value nor
+    loses its precedence.
+  - A package vendored in the app and reached by a relative `use` owns its SVG in the graph (a package origin from
+    its own manifest, which is consulted) and on the local wire (`watch.assets`, its directory in `watch.roots`)
+    (R3-3).
+  - A package's file is read from the file checked (R3-4, `icons/confined.rs`): opened, its descriptor's device
+    and inode taken, the path resolved again and required under the canonical `<root>/assets/` and to be that
+    file, and read from the descriptor; nothing at the path is missing with no second open. The build, `draws`,
+    the source graph and the write check (`Home::leaves`), the assets digest and `tamber check`'s copy all read
+    through it. It closes a link planted or swapped in after the check and a parent directory swapped between
+    the open and the re-check; a file replaced by another inside the package's `assets/` is still the package's.
+  - Tests: `icon_svg`'s cases (main's, R3-1's, red and blue, `currentColor` beside red, `!IMPORTANT` and
+    `! Important`), `confined`'s unit test (a planted link, a link inside, dangling, absent),
+    `an_app_vendored_packages_svg_is_its_packages`, and the module test of an app-vendored package's SVG edit.
 - **Unchanged:** every app's plan and `tamber check` output (no app has a package icon), and `@exact/cards` and
   `@exact/actions`, whose icons are still path functions (their move to icon tokens is the follow-up).
 - **Tests:** `contract/cli/tests/it/package_icons.rs` (the namespace and its refusal; an alias within the package
