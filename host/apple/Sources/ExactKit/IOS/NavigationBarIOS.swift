@@ -1205,18 +1205,19 @@ extension NavigationHost {
     }
 
     /// Whether `v` takes a place in its parent's flow as the kernel lays it
-    /// out: not `display: none`, not positioned out of it, and not a closed
-    /// `dialog` or popover, which the host leaves out of layout
-    /// (`MenuHost.layOut`), as a browser's `dialog:not([open])` and
-    /// `[popover]:not(:popover-open)` are `display: none`. So a route's
-    /// menus and confirmations, written between its header and its scroller
-    /// or after the scroller, leave the scroller its route's top and bottom
-    /// edges. One given back to layout to show in Exact's views (a context
-    /// menu's preview, the agent's painted popover) counts as laid out.
+    /// out: not `display: none`, not positioned out of it, not a popover
+    /// (the kernel lays an open one out of flow, as HTML's top layer is, and
+    /// a closed one not at all), and not a closed `dialog`, which the host
+    /// leaves out of layout (`MenuHost.layOut`), as a browser's
+    /// `dialog:not([open])` is `display: none`. So a route's menus and
+    /// confirmations, written between its header and its scroller or after
+    /// the scroller, leave the scroller its route's top and bottom edges. A
+    /// dialog given back to layout to show in Exact's views counts as laid out.
     static func inFlow(_ v: NodeView) -> Bool {
-        let topLayer = v.props["popover"] != nil || v.props["semanticTag"] == "dialog"
+        if v.props["popover"] != nil, v.style["position_type"]?.string != "sticky" { return false }
+        let dialog = v.props["semanticTag"] == "dialog"
         return v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
-            && (!topLayer || v.presenter?.menus.isLaidOut(v) == true)
+            && (!dialog || v.presenter?.menus.isLaidOut(v) == true)
     }
 
     /// The physical backend owned by a content node.

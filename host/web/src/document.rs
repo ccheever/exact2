@@ -34,12 +34,14 @@ use super::{layers, Host};
 mod document_url;
 pub use document_url::{frame_navigable, navigable};
 
+#[path = "document_bars.rs"]
+mod bars;
 #[path = "page.rs"]
 mod page;
 use crate::css;
+use bars::bar_header;
 use exact_kernel::paint_order::{self, Child, Facts};
-use exact_kernel::SortedMap;
-use exact_kernel::{NodeFacts, PropId, ViewId};
+use exact_kernel::{NodeFacts, PropId, SortedMap, SortedSet, ViewId};
 use exact_plan::EventKind;
 use exact_runner::{DataSource, DocTree, Runner};
 pub use page::{
@@ -340,6 +342,7 @@ fn write<S: Source>(
         handlers,
         presses,
         routes: SortedMap::new(),
+        bars: SortedSet::new(),
         keyframes: SortedMap::new(),
         out: String::new(),
         links: 0,
@@ -551,6 +554,8 @@ struct Walk<'r, 'w, S: Source> {
     handlers: SortedMap<ViewId, Vec<EventKind>>,
     presses: SortedMap<ViewId, bool>,
     routes: SortedMap<ViewId, Route>,
+    /// The headers marked as their route's bar ([`bar_header`]).
+    bars: SortedSet<ViewId>,
     keyframes: SortedMap<String, String>,
     out: String,
     /// Open `a` and `button` elements: the parser closes an open one when a
@@ -781,6 +786,9 @@ impl<S: Source> Walk<'_, '_, S> {
                 attrs.push(("inert".into(), None));
             }
         }
+        if self.bars.contains(&id) {
+            attrs.push(("data-exact-bar".into(), None));
+        }
         // `attach`: the view id, and a tab stop for an element that hears
         // focus, blur or keys and is not one already.
         attrs.push(("data-view".into(), Some(id.to_string())));
@@ -935,6 +943,9 @@ impl<S: Source> Walk<'_, '_, S> {
         if let Some(tabs) = crate::link::linked().tabs {
             for (id, hidden, inert) in tabs(src, children, key) {
                 self.routes.insert(id, Route { hidden, inert });
+                if let Some(header) = bar_header(src, &self.handlers, id) {
+                    self.bars.insert(header);
+                }
             }
             return;
         }
@@ -952,6 +963,9 @@ impl<S: Source> Walk<'_, '_, S> {
         };
         let modal = routes[selected].props.str(PropId::NavigationPresentation) == Some("modal");
         for (index, route) in routes.iter().enumerate() {
+            if let Some(header) = bar_header(src, &self.handlers, route.id) {
+                self.bars.insert(header);
+            }
             let active = index == selected;
             let shown = active || (modal && index + 1 == selected);
             self.routes.insert(

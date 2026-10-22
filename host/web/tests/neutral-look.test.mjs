@@ -75,7 +75,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'button-image-gap': ['--exact-button-column-gap', '--exact-button-row-gap'],
     'tabbar-symbol': ['width', 'height'], 'tabbar-gap': ['--exact-button-space-height'],
     'sidebar-row-height': ['min-height'], 'sidebar-symbol': ['width', 'height'], 'sidebar-gap': ['--exact-button-space-width'],
-    'back-padding-start': ['padding'], 'back-padding-end': ['padding'],
+    'back-padding-start': ['padding'], 'back-padding-end': ['padding'], 'bar-symbol-size': ['font-size'],
     'alert-width': ['width'], 'alert-margin': ['width'], 'alert-padding': ['padding'], 'alert-gap': ['gap'], 'alert-action-gap': ['gap'],
     'alert-title': ['font-size'], 'alert-message-gap': ['margin-bottom', 'margin-top'], 'alert-scroll-gutter': ['padding-inline-end'],
     'menu-min-width': ['min-width'], 'menu-max-width': ['max-width'], 'menu-margin': ['max-width'], 'menu-padding': ['padding'], 'menu-offset': ['margin'],
@@ -98,8 +98,9 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'box-shadow': ['64px'], // a hovered row's wash reaches the card's edge, past any inset a row has
     'font-size': ['1em'], // an alert's message is the body size
     'margin-block': [`${largeTitle / 16}rem`], // a bar's level-1 title takes the large title's line
-    'margin': ['.5em'], '--exact-symbol-away': ['.5em'], '--exact-symbol-toward': ['.5em'], // a button's symbol overhangs its 1em place by half its growth
+    'margin': ['.5em', '1rem', '1em'], '--exact-symbol-away': ['.5em'], '--exact-symbol-toward': ['.5em'], // a button's symbol overhangs its 1em place by half its growth (a bar item's, its 1rem place)
     'padding-block': ['.125em'], // a written height keeps room for a titled button's symbol's ink past its place
+    'width': ['1em'], 'height': ['1em'], // a bar item's symbol is its em square times its scale, as a button face's is
   };
   const lengths = (text) => [...text.matchAll(/(?<![\w.#])(\d*\.?\d+)(px|rem|em)\b/g)].map((m) => m[0]).filter((token) => parseFloat(token) !== 0);
   const declarations = (css) => [...css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/url\("[^"]*"\)/g, '').matchAll(/\{([^{}]*)\}/g)]
@@ -153,6 +154,8 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
   // aside, and a menu's rows, which are regular.
   const all = (css, property) => [...new Set(declarations(css).filter(([p]) => p === property).map(([, v]) => v.trim()))];
   expect(all(neutral, 'line-height').sort()).toEqual([String(value.get('control-line-height')), String(value.get('select-line-height-coarse'))]);
+  // Every symbol's scale is one of the two rows: a bar item's restates the image's.
+  expect(all(neutral, '--exact-symbol-scale').sort()).toEqual([String(value.get('symbol-scale')), String(value.get('button-symbol-scale'))]);
   expect(all(neutral, 'font-weight').sort()).toEqual(['400', String(value.get('control-weight'))]);
   expect(shell.includes(`font-weight: ${value.get('control-weight')}; border-radius: var(--exact-control-radius, ${length('control-radius')});`)).toBe(true);
   expect(rows.filter(([name, kind]) => kind === 'number' && !RATIO[name] && !['control-line-height', 'control-weight', 'select-line-height'].includes(name)).map(([name]) => name)).toEqual([]);
