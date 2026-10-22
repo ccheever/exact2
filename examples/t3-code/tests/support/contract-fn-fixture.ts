@@ -26,10 +26,23 @@ function closing(s: string, open: number): number {
   throw new Error(`unclosed bracket in ${s}`);
 }
 
+/** The index of the first comma outside brackets and string literals, or -1. */
+function topLevelComma(s: string): number {
+  let depth = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]!;
+    if (c === '"') { i = s.indexOf('"', i + 1); continue; }
+    if ('([{'.includes(c)) depth++;
+    else if (')]}'.includes(c)) depth--;
+    else if (c === ',' && depth === 0) return i;
+  }
+  return -1;
+}
+
 /**
  * A one-line Contract expression as JavaScript, for the few forms these functions use beyond contract-fn-fixture's: `match x
  * { case some(r) => a, case none => b }` over an option (`at` gives `undefined` for none), a shape's constructor with named
- * arguments (`CitePart(block=key, …)` is the record), `and`, `or`, `not`.
+ * arguments (`CitePart(block=key, …)` is the record) or a base to copy (`CitePart(part, block=key)`), `and`, `or`, `not`.
  */
 export function toJs(expr: string, shapes: string[]): string {
   let s = expr;
@@ -44,7 +57,12 @@ export function toJs(expr: string, shapes: string[]): string {
   for (const shape of shapes) {
     for (let at = s.indexOf(`${shape}(`); at >= 0; at = s.indexOf(`${shape}(`)) {
       const open = at + shape.length, end = closing(s, open);
-      s = `${s.slice(0, at)}({ ${s.slice(open + 1, end).replace(/\b([a-z]\w*)=(?![=>])/g, '$1: ')} })${s.slice(end + 1)}`;
+      const inner = s.slice(open + 1, end), comma = topLevelComma(inner);
+      // `Shape(base, field=…)` copies `base` with those fields replaced.
+      const named = (arg: string) => /^\s*[a-z]\w*=(?![=>])/.test(arg);
+      const copy = comma >= 0 && !named(inner) && named(inner.slice(comma + 1));
+      const fields = (copy ? inner.slice(comma + 1) : inner).replace(/\b([a-z]\w*)=(?![=>])/g, '$1: ');
+      s = `${s.slice(0, at)}({ ${copy ? `...(${inner.slice(0, comma)}), ` : ''}${fields} })${s.slice(end + 1)}`;
     }
   }
   return s.replace(/\band\b/g, '&&').replace(/\bor\b/g, '||').replace(/\bnot\b/g, '!');

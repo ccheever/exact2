@@ -17,7 +17,7 @@ import WebKit
 /// web view lays out at the full viewport (times its zoom) and is drawn scaled into the box, and the page measures
 /// the viewport it asked for. `page-size` (`<width>x<height>`, CSS px; empty in fill) is that viewport: the bounds
 /// are its `T3BrowserViewport.points` at the page's zoom, never the laid-out frame over the scale, whose rounding
-/// cost a pixel. `window-zoom` is the main window's zoom (T3Menus), which scales the box's frame on screen: a
+/// cost a pixel. `window-zoom` is the main window's zoom, 1 here (T3BrowserSessions `status`), which scales the box's frame on screen: a
 /// filled page is laid out at the frame times it, so the window's zoom leaves the page's CSS pixels alone, as an Electron
 /// guest's own zoom does (a fixed viewport's box is already divided by it, browser-stage.contract). `keys` (`chord=command` words) are the preview's chords (`when: previewFocus`): while
 /// the page has the focus, or the URL field does (`chrome-focus`), a key monitor answers them before the menus do and

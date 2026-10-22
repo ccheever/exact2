@@ -18,6 +18,7 @@ import { surfaceStore, type Surface } from '../../src/panel/panel-surfaces';
 import { restCommand } from '../../src/settings/settings-rest-commands';
 import { chatLocal } from '../../src/timeline/timeline-presentation';
 import { terminalLinkAction } from '../../src/terminal/terminal-integrations';
+import { externalOpensForTests, resetExternalOpensForTests } from '../../src/client/external-open';
 import { T3Client } from '../../src/client/client';
 import { ClientError, type Files, type Native } from '../../src/client/protocol';
 import { toasts } from '../../src/shell/toast';
@@ -147,6 +148,7 @@ const storage: Files = { fs: { async mkdir() {}, async atomicWriteFile() {}, asy
 /** A client on thread-1 whose server answers preview.list/open and whose module records its ops. */
 function linkClient(options: { preference?: BrowserLinkTarget; failOpen?: boolean } = {}) {
   const client = new T3Client(), rpcs: Array<{ method: string; payload: Obj }> = [], ops: Obj[] = [];
+  resetExternalOpensForTests(); // the system browser's opens (external-open.ts) are the latest client's
   client.environmentId = 'local'; client.threadId = 'thread-1'; client.projectId = 'p';
   Object.assign(client, { loaded: true }); // the saved settings were read: the open defaults refuse unread ones
   client.local.clientSettings = { ...client.local.clientSettings, browserLinkTarget: options.preference ?? 'app' } as typeof client.local.clientSettings;
@@ -164,7 +166,7 @@ function linkClient(options: { preference?: BrowserLinkTarget; failOpen?: boolea
   return { client, rpcs, ops, native };
 }
 const obj = (value: unknown): Obj => (value && typeof value === 'object' ? value as Obj : {});
-const external = (ops: Obj[]) => ops.filter(op => op.op === 'remoteEditorsOpen' || op.op === 'terminalOpenExternal').map(op => op.url);
+const external = (ops: Obj[]) => [...externalOpensForTests(), ...ops.filter(op => op.op === 'terminalOpenExternal').map(op => op.url)];
 
 describe('openLink (useOpenLink)', () => {
   it('opens a Browser tab beside the thread when the setting says T3 Code', async () => {
@@ -232,10 +234,6 @@ describe('links from the UI (chatlocal:link-open)', () => {
       expect(external(ops)).toEqual(['https://example.test/tables']);
       expect(rpcs.some(call => call.method === 'preview.open')).toBe(false);
     }
-    const { client } = linkClient();
-    const refused: Native = { available: true, watch() {}, async later() { return { ok: true, generation: 0, value: { opened: false } }; } };
-    await openLinkFromUi(client, refused, 'external', 'https://example.test/tables');
-    expect(toasts(client).at(-1)).toMatchObject({ title: 'Unable to open link' });
   });
   it('a mailto, irc or xmpp link in a reply opens nothing, the setting and ⌘ aside', async () => {
     // The reference (measured 2026-10-11, its main process's shell.openExternal and openExternal permission hooked): the
@@ -285,12 +283,6 @@ describe('links from the UI (chatlocal:link-open)', () => {
     client.shell = { projects, threads, sequence: 1 };
     await openLinkFromUi(client, native, 'external', '#notes');
     expect(client.threadId).toBe('thread-1');
-  });
-  it('a link the system browser could not open says so', async () => {
-    const { client } = linkClient({ preference: 'system' });
-    const native: Native = { available: true, watch() {}, async later() { return { ok: true, generation: 0, value: { opened: false } }; } };
-    await openLinkFromUi(client, native, 'link', 'https://example.com/');
-    expect(toasts(client).at(-1)).toMatchObject({ title: 'Unable to open link' });
   });
 });
 

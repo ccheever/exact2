@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, test } from 'bun:test';
 import type { Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { acpOp, acpSectionView, urlAuthView, type AcpToast } from '../../src/providers/acp-sessions';
+import { externalOpensForTests, resetExternalOpensForTests } from '../../src/client/external-open';
 
 const instanceId = 'acpRegistry_antigravity';
 const projectId = 'project-antigravity';
@@ -97,9 +98,11 @@ describe('EnvironmentProviderSettings routing', () => {
     const live = { ...provider, auth: { status: 'unauthenticated', action } };
     fake.config = { providers: [live] };
     expect(urlAuthView(fake, live)).toEqual([{ key: 'google-login-1', elicitationId: 'google-login-1', url: action.url, message: 'Continue with Google' }]);
+    resetExternalOpensForTests();
     await acpOp(fake, fake, 'url-auth', instanceId, action.elicitationId, action.url, toast => fake.toasts.push(toast));
     expect(fake.called('server.acceptAcpRegistryUrlAuth')).toEqual([{ instanceId, elicitationId: action.elicitationId }]);
-    expect(fake.ops).toEqual([{ op: 'remoteEditorsOpen', url: action.url }]);
+    expect(fake.ops).toEqual([]);
+    expect(externalOpensForTests()).toEqual([action.url]);
     expect(fake.toasts).toEqual([]);
   });
 });

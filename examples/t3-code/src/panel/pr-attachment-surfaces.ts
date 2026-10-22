@@ -5,11 +5,12 @@
 // right panel's pull-request content). Ops arrive as `surface-linked-*`.
 import type { T3Client } from '../client/client';
 import { obj, num, str } from '../client/domain';
-import { bridgeReply, ClientError, type Files, type Native } from '../client/protocol';
+import { ClientError, type Files, type Native } from '../client/protocol';
 import type { PanelState, Surface } from './panel-surfaces';
 import { prLinksOpenInApp, prSurfaceId, prTabIcon, prTarget, prRowCommand, prRowLocal, prefetchPrTabs, selectionOf, threadPrTarget, togglePrRows, type PrTarget } from './pr-surface';
 import { openLink as openLinkByTarget } from '../browser/browser-links';
 import { attachmentLocal, attachmentToken, attachmentView, emptyAttachment, requireAttachment, type AttachmentMeta, type AttachmentView } from './attachment-surface';
+import { openExternal } from '../client/external-open';
 
 export type LinkedSurface = Surface;
 /** `surface`: the surface's id; `tab`: the detail tab it was left on, which the panel shows when the surface or its thread changes. */
@@ -51,7 +52,7 @@ export function openThreadPullRequest(client: T3Client, state: PanelState, value
 /** `surface-linked-*` without the command gate: open a pull request link or an attachment, and the attachment's controls. */
 export async function linkedLocal(client: T3Client, native: Native, state: PanelState, op: string, id: string, value: string): Promise<string> {
   if (op === 'pr-open') {
-    if (id === 'held') { await bridgeReply(native, { op: 'remoteEditorsOpen', url: value }); return ''; }
+    if (id === 'held') { openExternal(value); return ''; }
     if (!prLinksOpenInApp(client)) { await openLinkByTarget(client, native, value); return ''; }
     // useOpenPrLink: a project on the link's host opens the surface; the caller passed its target.
     const target = prTarget(client, value) ?? (id ? (() => { const parsed = obj(JSON.parse(id)); return num(parsed.number) > 0 ? { projectId: str(parsed.projectId), host: str(parsed.host), repository: str(parsed.repository), number: num(parsed.number), url: str(parsed.url, value) } : null; })() : null);

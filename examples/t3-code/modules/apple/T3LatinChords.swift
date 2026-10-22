@@ -12,13 +12,12 @@ import AppKit
 ///   key reports another script (Korean 2-Set's ㅠ for B), the physical key's Latin letter
 ///   (KeyboardEvent.code) is the chord's key. exact2 #168 matches the declared chords
 ///   (`aria-keyshortcuts`, the launcher's letters among them) and the host's command menu items
-///   that way (ShortcutsMac `Shortcut.matches`, `ShortcutMenu.performKeyEquivalent`); it does not
-///   reach the menu's standard and app-added items, which AppKit matches by the typed character
-///   (Copy, Cut, Paste, Undo, Redo, Select All, Quit, Hide, Minimize, Close Window, Reload, Paste
-///   as Text, Actual Size, Zoom In, Zoom Out), the terminal's web view, or this module's own key
-///   readers that read the event's characters (the composer's queued-edit chords, the SnapShot
-///   shortcut). So the event is still re-issued with that letter, and each of them matches it
-///   anywhere in the window (the keybinding recorder needs none: it binds the physical Latin
+///   that way (ShortcutsMac `Shortcut.matches`, `ShortcutMenu.performKeyEquivalent`), and AppKit
+///   matches the menu's own items by the key's Latin letter too (the event's characters with ⌘,
+///   measured under Korean 2-Set, LLP 1021 §5.3.1). Neither reaches the terminal's web view or this
+///   module's own key readers that read the event's characters (the composer's queued-edit chords,
+///   the SnapShot shortcut). So the event is still re-issued with that letter, and each of them
+///   matches it anywhere in the window (the keybinding recorder needs none: it binds the physical Latin
 ///   letter by `KeyboardEvent.code`, key-recorder.contract). The re-issue is one event-level transform,
 ///   not a per-route one: what was retired (#110) is the surface launcher's
 ///   own native re-post of its letters, now declared shortcuts matched by the physical

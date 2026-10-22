@@ -171,12 +171,11 @@ final class T3BrowserSessions {
         FileHandle.standardError.write(Data("t3.browser: \(line.prefix(300))\n".utf8))
     }
 
-    /// The module's status (`presentation.browserTabs`, `presentation.browserLog`).
-    /// The main window's zoom (T3Menus), which a desktop tab's layout divides its own by (useBrowserLayoutZoomFactor).
-    var windowZoom: () -> Double = { 1 }
+    /// The module's status (`presentation.browserTabs`, `presentation.browserLog`). It reports no window zoom
+    /// (`browserWindowZoom`, useBrowserLayoutZoomFactor's divisor, 1 unsaid): the host's View zoom scales the root
+    /// font size, not the frame a tab's box is laid out in, as Electron's page zoom does.
     var status: [String: Any] {
-        ["browserTabs": sessions.mapValues { $0.report.merging($0.navigationReport) { first, _ in first } }, "browserLog": log, // zoom, appearance
-         "browserWindowZoom": windowZoom()]
+        ["browserTabs": sessions.mapValues { $0.report.merging($0.navigationReport) { first, _ in first } }, "browserLog": log] // zoom, appearance
     }
 
     /// The data module's ops (T3Module+Browser.swift); nil for any other op.

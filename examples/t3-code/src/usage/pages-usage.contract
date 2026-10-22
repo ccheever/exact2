@@ -588,10 +588,10 @@ component UsageKeys
           text "Back" font-size=1
       for entry in keys key=entry.id
         if entry.kind == "metric"
-          button press=setMetric(entry.value) aria-keyshortcuts=entry.chord aria-label=entry.label tabindex=-1 testId=`usage-key-${entry.id}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+          button -exact-menu="none" press=setMetric(entry.value) aria-keyshortcuts=entry.chord aria-label=entry.label tabindex=-1 testId=`usage-key-${entry.id}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
             text entry.label font-size=1
         if entry.kind == "window" and not limits
-          button press=setWindow(entry.days) aria-keyshortcuts=entry.chord aria-label=entry.label tabindex=-1 testId=`usage-key-${entry.id}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+          button -exact-menu="none" press=setWindow(entry.days) aria-keyshortcuts=entry.chord aria-label=entry.label tabindex=-1 testId=`usage-key-${entry.id}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
             text entry.label font-size=1
 
 component UsageSummary

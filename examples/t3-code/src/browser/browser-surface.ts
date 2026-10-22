@@ -44,6 +44,7 @@ import { primaryEnvironmentId } from '../connections/local-primary';
 import { drainServerNotices, prepareServerStream, retainServerStreams, serverStreamUrl, serverStreamFrame, sendServerCommand } from './server-browser-runtime';
 import { adoptAutomationTabs, adoptedAutomationNotes, automationOverlay, automationPrepare } from './browser-automation';
 import { openRequestedLinks } from './browser-links';
+import { openExternal } from '../client/external-open';
 
 // ── Profiles (browser-profiles.ts) ─────────────────────────────────────────────────────────
 export { DEFAULT_BROWSER_PROFILE_ID };
@@ -543,9 +544,9 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
       await nativeOp(client, native, { op: 'browserCommand', tab: runtimeId, command: op });
       return '';
     case 'external': {
-      // PreviewView handleOpenInBrowser: localApi.shell.openExternal(url); an agent run records it (T3RemoteEditors).
+      // PreviewView handleOpenInBrowser: localApi.shell.openExternal(url) (external-open.ts).
       const url = nav._tag === 'Idle' ? '' : nav.url;
-      if (url) await nativeOp(client, native, { op: 'remoteEditorsOpen', url });
+      if (url) openExternal(url);
       return '';
     }
     case 'clear-cookies': case 'clear-cache': {

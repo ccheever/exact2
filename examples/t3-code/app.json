@@ -10,6 +10,8 @@
     { "protocol": "http", "url": "/open?u=%s", "distribution_only": true }
   ],
   "display": "standalone",
+  "display_override": ["window-controls-overlay"],
+  "open_url": { "schemes": ["vscode", "vscode-insiders", "cursor", "vscodium", "zed", "jetbrains"] },
   "theme_color": "#fafafa",
   "background_color": "#fafafa",
   "icons": [
@@ -39,10 +41,8 @@
     "t3-anchor",
     "t3-snapshot-tile",
     "t3-terminal-key",
-    "t3-file-editor",
     "t3-media",
-    "t3-launcher",
-    "t3-tool-icon"
+    "t3-launcher"
   ],
   "rust": {
     "placement": "worker"
@@ -86,9 +86,6 @@
     "device-view",
     "device-ax",
     "surface-launcher-keys",
-    "tool-icon-light",
-    "tool-icon-dark",
-    "tool-icon-muted",
     "paint",
     "pick",
     "dialog-focus",

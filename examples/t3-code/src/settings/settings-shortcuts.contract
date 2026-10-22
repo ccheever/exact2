@@ -121,6 +121,12 @@ fn renameHeldCommand(command: string): bool = ["commandPalette.toggle", "filePic
 // A held chord that is a text field's own editing chord drops out, so the field edits with it; any other stays a disabled
 // menu item, which takes the key and runs nothing.
 fn editingChord(chord: string): bool = ["meta+z", "meta+shift+z", "meta+x", "meta+c", "meta+v", "meta+a"].includes(chord.toLowerCase())
+// The menu bar shows a command whose chord stands in for one of the host's own items (Edit's Undo, Redo, Cut, Copy,
+// Paste and Select All, and the app menu's Settings…), so Edit › Undo is thread.undo where the reference's renderer
+// takes ⌘Z first; every other command is a shortcut with no item (`-exact-menu="none"`), as the reference's bar lists
+// none of them. A host item whose chord a hidden command takes (File › Close Window beside Close Right Panel's ⌘W)
+// keeps its place without the chord.
+fn chordStandsIn(chord: string): bool = editingChord(chord) or chord.toLowerCase() == "meta+,"
 
 component ShortcutButton
   inject
@@ -136,8 +142,12 @@ component ShortcutButton
       releaseUndoClaim()
     press()
   view
-    button hatch="t3-terminal-key" data-anchor=item.command press=pressed disabled=(held and not editingChord(item.chord)) aria-keyshortcuts=(held and editingChord(item.chord) ? "" : item.chord) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
-      text item.label font-size=1
+    if chordStandsIn(item.chord)
+      button hatch="t3-terminal-key" data-anchor=item.command press=pressed disabled=(held and not editingChord(item.chord)) aria-keyshortcuts=(held and editingChord(item.chord) ? "" : item.chord) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        text item.label font-size=1
+    else
+      button -exact-menu="none" hatch="t3-terminal-key" data-anchor=item.command press=pressed disabled=(held and not editingChord(item.chord)) aria-keyshortcuts=(held and editingChord(item.chord) ? "" : item.chord) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        text item.label font-size=1
 
 // ShortcutButton for an action that reads the press's event (chat.new: ⇧-click creates at once; a chord's press has none).
 component ShortcutEventButton
@@ -152,8 +162,12 @@ component ShortcutEventButton
     releaseUndoClaim()
     press(e)
   view
-    button hatch="t3-terminal-key" data-anchor=item.command press=pressed disabled=(held and not editingChord(item.chord)) aria-keyshortcuts=(held and editingChord(item.chord) ? "" : item.chord) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
-      text item.label font-size=1
+    if chordStandsIn(item.chord)
+      button hatch="t3-terminal-key" data-anchor=item.command press=pressed disabled=(held and not editingChord(item.chord)) aria-keyshortcuts=(held and editingChord(item.chord) ? "" : item.chord) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        text item.label font-size=1
+    else
+      button -exact-menu="none" hatch="t3-terminal-key" data-anchor=item.command press=pressed disabled=(held and not editingChord(item.chord)) aria-keyshortcuts=(held and editingChord(item.chord) ? "" : item.chord) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        text item.label font-size=1
 
 // View › Reload and Force Reload (DesktopApplicationMenu.ts:233-234, Electron's `reload` and `forceReload` roles): the
 // window's own reload, `reload()`, in every build. The host files the two buttons at the top of View, before its own
@@ -173,3 +187,17 @@ component ViewReload
         text "Reload" font-size=1
       button -exact-menu="view" press=reloadWindow aria-keyshortcuts=(taken.includes("meta+shift+r") ? "" : "Meta+Shift+R") tabindex=-1 aria-hidden=true aria-label="Force Reload" testId="view-force-reload" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
         text "Force Reload" font-size=1
+
+// Check for Updates… (DesktopApplicationMenu.ts: directly under About, and Help's one item). Both are app-wide items
+// (`-exact-menu="about"` and `"help"`, LLP 1021 §5.3.1): enabled with no key window, under a sheet and under a modal
+// dialog, as the reference's always are. The press asks the module for the parentless "Updates unavailable" box
+// (T3Menus.swift `checkForUpdates`).
+component UpdateMenuItems
+  props
+    check: action
+  view
+    box position="absolute" left=0 top=0 width=0 height=0 overflow="hidden" testId="update-menu-commands"
+      button -exact-menu="about" press=check tabindex=-1 aria-hidden=true aria-label="Check for Updates…" testId="app-check-updates" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        text "Check for Updates…" font-size=1
+      button -exact-menu="help" press=check tabindex=-1 aria-hidden=true aria-label="Check for Updates…" testId="help-check-updates" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        text "Check for Updates…" font-size=1

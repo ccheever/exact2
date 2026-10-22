@@ -325,31 +325,39 @@ while the rich-text composer has the focus, as Tiptap does: a click into an exis
 counts as focus (Exact fires the field's `focus` on the click), and ⌘B / ⌘I end
 a composing syllable first and match by key code under a non-Latin source such as Korean 2-Set. Outside
 the composer a ⌘ or ⌃ letter chord under a non-Latin source is re-issued with its key's Latin
-character, as the reference's `resolveEventKeys` does (`T3LatinChords.swift`), so ⌘B, ⌘K and menu
-equivalents still match. exact2 #168 matches declared chords by physical key itself, but not
-the menu's standard items, the terminal's web view or the module's own key monitors, so the
-re-issue stays. After the thread list re-renders or scrolls under a still pointer, the row that
+character, as the reference's `resolveEventKeys` does (`T3LatinChords.swift`), so ⌘B and ⌘K
+still match. exact2 #168 matches declared chords by physical key itself, and AppKit matches the
+menu's own items by the key's Latin letter, but neither reaches the terminal's web view or the
+module's own key monitors, so the re-issue stays. After the thread list re-renders or scrolls under a still pointer, the row that
 slid under it is hovered, as a browser's synthetic mouse move does (the host's own, exact2 #139). The menu bar is the reference
-desktop app's (`T3MenuBar.swift`): File shows only Close Window, View starts with Reload
-and Force Reload (two Contract buttons the host files there, `-exact-menu="view"`, which run
-`reload()`; settings-shortcuts.contract `ViewReload`), and the host's Develop and Go menus are removed, so ⌘D (diff), ⌘O (open in
-editor) and ⌘1–9 reach the window; every button chord stays a hidden File key equivalent,
-one dispatch button per chord (⌘N and ⇧⌘O both start a thread with no text field focused).
-Edit › Undo sends ⌘Z to thread.undo when no editable text has the focus, and ⌘W closes the
-active right-panel surface tab (its neighbour becomes active; the last tab closes the panel;
-on the Pull Requests page the open pull request) before it closes the window. The surface launcher takes the focus when it mounts (`autofocus`), and
+desktop app's (DesktopApplicationMenu.ts), built from main's menu hints (LLP 1021 §5.3.1): the app
+menu has Check for Updates… directly under About and Help holds it alone (two app-wide Contract
+buttons, `-exact-menu="about"` and `"help"`, enabled under a sheet or with no key window; settings-shortcuts.contract
+`UpdateMenuItems`), File shows only Close Window, View starts with Reload and Force Reload (two
+Contract buttons the host files there, `-exact-menu="view"`, which run `reload()`; `ViewReload`)
+and then the host's Actual Size, Zoom In and Zoom Out, and the window's root removes the Develop
+and Go menus, the help book and Edit's template items (`-exact-menu-remove`, app-window.contract), so
+⌘D (diff), ⌘O (open in editor) and ⌘1–9 reach the window. Every button chord is a shortcut with no
+item (`-exact-menu="none"`) but one that stands in for a host item (⌘Z, ⌘,), one dispatch button
+per chord (⌘N and ⇧⌘O both start a thread with no text field focused). Edit › Undo sends ⌘Z to
+thread.undo when no editable text has the focus (`T3MenuBar.swift`), and ⌘W closes the active
+right-panel surface tab (its neighbour becomes active; the last tab closes the panel; on the Pull
+Requests page the open pull request) before it closes the window; a held ⌘W's repeats are dropped.
+The Quit shortcut setting's hold (Hold ⌘Q or press twice) is the window root's `key` handler, ahead
+of the menu's Quit (`quit-hold.contract`). Edit's Paste as Text (⇧⌘V) stays the module's
+(`T3Menus.swift`): it is the responder chain's `pasteAsPlainText:`, which a button's press is not. The surface launcher takes the focus when it mounts (`autofocus`), and
 its letters are its rows' `aria-keyshortcuts` (`shell-panels.contract`), which Exact presses before type-to-focus; a Markdown table's Copy
 menu is a window-level popup, placed from the trigger's `frame()` (scroll offsets applied),
 that Escape and an outside press close (`table-menu.*`). The row context menus are Contract context
 popovers, which the host presents as an `NSMenu` at the pointer, or for the ContextMenu key at the
 focused row's centre (exact2 #314): the sidebar's thread, draft and selection menus, the legacy sidebar's
-row, selection and project menus, the Files tree's, a panel tab's, a pull request number's, and the chat's
+row, selection and project menus, the Files tree's, a panel tab's, a pull request number's, the branch
+picker's Copy branch name (on its trigger and on each ref in the open picker, which stays open under it), and the chat's
 web and file link menus (`link-menus.contract`; their rows are computed before the right-click,
 `external-link-menu.ts` and `file-link-menu.ts`). A draft
 row's ContextMenu and Shift+F10, and a tab's Shift+F10, show theirs from the row, below it. A mailto, irc,
-xmpp or fragment link has no menu of its own, so its right-click is the desktop shell's. The branch
-picker's Copy branch name, the media menu and the legacy sidebar's
-choice of project members stay the module's (`T3ContextMenu.swift` and `T3Sidebar.swift` say why). A global hotkey of another
+xmpp or fragment link has no menu of its own, so its right-click is the desktop shell's. The media menu and
+the legacy sidebar's choice of project members stay the module's (`T3ContextMenu.swift` and `T3Sidebar.swift` say why). A global hotkey of another
 app (a launcher holding ⌘1, say) never reaches the window.
 
 Saved environments and their credentials are one kept secret, `t3-catalog` (granted by `secret.keep
@@ -452,6 +460,16 @@ filed were moved there or closed). The gaps someone using this app runs into:
   while a right-click goes on to the shell's menu. Chrome sends the request on to the default menu.
 - On the pull request page a file link's press opens its menu below the link (a popover invoker), where the
   reference opens it at the click.
+- View's zoom is the host's (LLP 1021 §5.3.1): it steps through Safari's levels (115% after 100%) where
+  Electron steps a 0.5 zoom level (109.5%), scales the root font size, so every `rem` and inherited text
+  size, but not `px` lengths or the module's native views, and is not kept across a launch; Zoom In shows
+  Safari's ⌘+ where the reference's shows ⌘=.
+- A completed ⌘Q hold leaves the window as it is until the keys go quiet: the reference turns it
+  transparent first (concealPendingQuitWindow), and Contract has no window opacity.
+- File › Close Window shows no ⌘W while a command takes ⌘W (Close Right Panel with a panel open): the host
+  gives a hidden command's chord to it, and the item keeps its place without it.
+- An external open the system cannot perform is not reported: Contract's `openURL` returns nothing, so the
+  reference's "Unable to open link" and "Could not open the sign-in page" toasts do not appear.
 - A backdrop blur sees only its parent ([`issues/closed/20261010-macos-backdrop-beyond-parent.md`](../../issues/closed/20261010-macos-backdrop-beyond-parent.md);
   main keeps the limit), so the composer is opaque where the reference's glass shows the
   transcript through it.
@@ -474,14 +492,12 @@ These it does not use, because on macOS they do not do what the reference does:
   by a click gives the focus back to nothing. So each dialog keeps its own Tab trap
   (`dialog-trap.contract` says why), and closing a dialog whose opener the view cannot name
   still leaves the focus nowhere (Base UI gives it back).
-- The rest of the menu bar's app items ([`issues/closed/20261009-contract-menu-bar-extensions.md`](../../issues/closed/20261009-contract-menu-bar-extensions.md)).
-  On main (checked at `44ad32092`) an `-exact-menu` item is still enabled only while its window is key and has
-  no sheet (`ShortcutsMac.swift` `validateMenuItem`), app-menu items are still filed after About's separator
-  (`sync`), and `-exact-menu-remove` still takes only its twelve standard ids. So Check for Updates… (always
-  enabled and directly under About in the reference, with a box that has no parent window where a Contract
-  `alertdialog` is a sheet), Paste as Text, View's zoom, the hidden Help book item, the ⌘Q hold and the
-  trimmed File, Edit, Develop and Go stay the module's (`T3Menus.swift`, `T3MenuBar.swift`, `T3LatinChords.swift`).
-  Settings… is the host's: it files the ⌘, dispatch button there.
+- The menu bar's app items ([`issues/closed/20261009-contract-menu-bar-extensions.md`](../../issues/closed/20261009-contract-menu-bar-extensions.md)).
+  Main's #947 (LLP 1021 §5.3.1) gave app-wide items, `-exact-menu="about"` and `"none"`, the Edit, Help, Go
+  and Develop removals, View's zoom and a root `key` handler that holds ⌘Q, and the clone adopts them. Two
+  things stay the module's: the "Updates unavailable" box, which has no parent window where a Contract
+  `alertdialog` is a sheet, and Paste as Text (`T3Menus.swift`). Settings… is the host's: it files the ⌘,
+  dispatch button there.
 - The notification click ([`issues/closed/20261009-notification-default-click-design.md`](../../issues/closed/20261009-notification-default-click-design.md)).
   Main's click needs a Contract `showNotification(navigate=)`, which always plays the system
   sound (`Notify.swift` posts with `.default` and presents with `.sound`; the reference's notification is
@@ -506,14 +522,11 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
   folder; Copy image needs an image clipboard write (`ClipboardItem`), which main does not have;
   the menu's Menu-key form opens at the media's bottom-left corner, where a `contextPopover` opens
   at the focused node's centre.
-- `T3ToolActivityIcon.swift`: a muted tool icon is drawn at the reference's `brightness(0.6)` in the
-  light appearance; CSS `filter` applies only to SVG elements, and an SVG `image` is not built.
-- `T3RemoteEditors.swift` (probing installed editors needs a process and file checks; `openURL`
-  opens only http, https, mailto and tel), `T3InstalledFonts.swift` (no `queryLocalFonts`),
-  `T3Locale.swift` (`exactTime().locale` is the preferred language, where Electron's
-  `getSystemLocale` follows the Region setting), `T3WindowChrome.swift` (no
-  `env(titlebar-area-*)`), `T3RootFont.swift` (the native views' rem), `T3PanelsNative.swift` (the
-  Files editor's caret under the press that mounted it), and the data module's sleep
+- `T3RemoteEditors.swift` (probing installed editors needs a process and file checks; the client's
+  opens are Contract's `openURL`, with the editors' schemes in `app.json` `open_url`),
+  `T3InstalledFonts.swift` (no `queryLocalFonts`), `T3WindowChrome.swift` (the traffic lights at the
+  reference's x = 16: the host's tall title row, `display_override`, leaves them where AppKit puts
+  them, LLP 1039 D8), `T3RootFont.swift` (the native views' rem), and the data module's sleep
   (`timelineSleep`: data modules have no timers, and an answer that awaits a promise another
   answer settles is refused as pending on nothing when no fetch or storage step is in flight).
 - Composer OS adapters (`T3ComposerAttach` and `T3ComposerEditor`) retain large-paste folding,
@@ -1183,8 +1196,8 @@ names an ssh test double, and agent runs of the app read hosts only from `T3_SSH
 `macos/tests/ssh/fake-ssh.sh` is that double (its header lists the variables): the password
 prompt tests run against it always, the live test when `T3_SSH_COMMAND` names it and
 `FAKE_SSH_REMOTE_HOME` holds a running server's `.t3/userdata/server-runtime.json`.
-`T3_MENUS_EVIDENCE` set to a directory also renders the quit pill in both appearances, and
-`T3_PERMISSION_HELPER_EVIDENCE` the snapshot test's permission helper panel.
+`T3_PERMISSION_HELPER_EVIDENCE` set to a directory renders the snapshot test's permission helper panel.
 **Check for Updates…** (under About and in Help) reads the bundle's receipt: a build
 without an update store (`deploy.store` is `"0"`) shows the reference's "Automatic
-updates are not available right now." box; a build with one omits both items.
+updates are not available right now." box; a build with one does nothing (the module has no
+hook into the host's check).

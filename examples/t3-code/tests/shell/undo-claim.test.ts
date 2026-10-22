@@ -70,6 +70,7 @@ describe('the window releases the claim and swallows a held chord\'s repeats', (
       shortcutModifierStateAfterKeyboardEvent: (current: unknown) => current, areShortcutModifierStatesEqual: () => true, emptyShortcutModifierState: emptyModifiers,
       preventDefault: () => calls.push('preventDefault'), stopPropagation: () => calls.push('stopPropagation'),
       releaseUndoClaim: () => { calls.push('release'); root.call('releaseUndoClaim', state, { data }, []); },
+      quitHoldKey: () => {}, // the quit shortcut's hold (quit-hold.test.ts)
     };
     return { calls, state, scope, data };
   }

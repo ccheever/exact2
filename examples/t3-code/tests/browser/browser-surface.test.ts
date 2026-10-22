@@ -29,6 +29,7 @@ import type { Obj } from '../../src/client/domain';
 import { serverStreamSource, serverStreamInput, serverStreamFrame } from '../../src/browser/server-browser-runtime';
 import type { SocketEvent, SocketHandle } from '../../src/transport/transport-session';
 import { adoptAppFiles } from '../../src/media/save-file';
+import { externalOpensForTests, resetExternalOpensForTests } from '../../src/client/external-open';
 
 const threadRef = { environmentId: 'local', threadId: 'thread-1' };
 const FILL = { _tag: 'fill' };
@@ -247,14 +248,15 @@ describe('the chrome row and the native host', () => {
   it('Back, Forward, Refresh and Hard reload go to the tab web view; Open in system browser opens its URL', async () => {
     const { client, native } = fakeClient(() => ({}));
     const state = emptyPanel();
+    resetExternalOpensForTests();
     opened(client, state, { ...idle('tab-1'), navStatus: { _tag: 'Success', url: 'https://example.com/', title: 'Example Domain' } });
     for (const op of ['back', 'forward', 'refresh', 'hard-reload', 'external']) await browserLocal(client, module, state, op, 'tab-1', '');
     const runtimeId = previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1');
     expect(native.map(call => call.payload)).toEqual([
       { op: 'browserCommand', tab: runtimeId, command: 'back' }, { op: 'browserCommand', tab: runtimeId, command: 'forward' },
       { op: 'browserCommand', tab: runtimeId, command: 'refresh' }, { op: 'browserCommand', tab: runtimeId, command: 'hard-reload' },
-      { op: 'remoteEditorsOpen', url: 'https://example.com/' },
     ]);
+    expect(externalOpensForTests()).toEqual(['https://example.com/']);
   });
 
   it('ElectronBrowserHost: one web view per live session of every thread, at its last URL', () => {
