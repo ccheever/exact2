@@ -27,7 +27,7 @@ async function inspectTable() {
   const plan = globalThis.exact?.plan ?? null;
   if (table && tableFor === plan) return table;
   // Beside the page (its `<base>`): the app's at the root, the variant gallery's under its path.
-  const got = await fetch("dev-inspect.json", { cache: "no-store" });
+  const got = await (env?.fetch ?? fetch)("dev-inspect.json", { cache: "no-store" });
   if (!got.ok) throw new Error(`this build has no inspect table (${got.status})`);
   const fetched = await got.json();
   // The table of the plan this page runs: a rebuild may have replaced it
@@ -46,7 +46,7 @@ async function liveDesign(t) {
   if (!now || now === t.design) return null;
   if (live?.design === now) return live;
   let tokens = null;
-  try { const got = await fetch("/__dev/design", { cache: "no-store" }); if (got.status === 200) { const s = await got.json(); if (s.design === now) tokens = new Map(s.tokens.map((k) => [k.name, k])); } } catch { /* none known */ }
+  try { const got = await (env?.fetch ?? fetch)("/__dev/design", { cache: "no-store" }); if (got.status === 200) { const s = await got.json(); if (s.design === now) tokens = new Map(s.tokens.map((k) => [k.name, k])); } } catch { /* none known */ }
   return (live = { design: now, tokens });
 }
 /** A token's value text as `node` prints its row: a colour `#rrggbb` when
