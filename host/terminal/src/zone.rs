@@ -59,12 +59,14 @@ pub(crate) fn launch(
                 .or_else(|| iana_time_zone::get_timezone().ok())
                 .unwrap_or_else(|| "UTC".into()),
             seed: 0.,
+            format_locale: String::new(),
         }
     } else {
         Place {
             locale: env("EXACT_AGENT_LOCALE").unwrap_or_else(|| "en-US".into()),
             time_zone: env("EXACT_AGENT_TIME_ZONE").unwrap_or_else(|| "UTC".into()),
             seed: 1.,
+            format_locale: String::new(),
         }
     };
     // Each fact falls back alone: a zone the runner cannot use keeps the locale.
