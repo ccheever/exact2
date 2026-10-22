@@ -192,6 +192,9 @@ pub struct Place {
     /// written in a style is judged, and passes or fails, per element
     /// (theme2's 02:08 Q1). 0 for a row of the element's own.
     pub element: usize,
+    /// The element's number in that order, its own row's or its style's: a
+    /// write's refusals are said as the build reaches them (0 for none).
+    pub order: usize,
 }
 
 impl Place {
@@ -202,6 +205,7 @@ impl Place {
             at: span,
             literal: span,
             element: 0,
+            order: 0,
         }
     }
 }
@@ -224,6 +228,7 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
         computed,
         within,
         element,
+        order,
     } in attrs
     {
         let node = match (&fonts, &within) {
@@ -251,6 +256,7 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
                 at: a.span,
                 literal: a.value.span(),
                 element,
+                order,
             };
             // Found by where its value is written, then compared whole (an
             // expansion writes one row many times over, alike).
@@ -292,6 +298,7 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
                 at: if plain { a.span } else { literal },
                 literal,
                 element,
+                order,
             };
             let k = (a.name.clone(), plain, key, node);
             match at.get(&k) {
@@ -432,6 +439,8 @@ pub(crate) struct Said {
     pub within: Option<Arc<Vec<Fonts>>>,
     /// The element applying a style's row (`Place::element`), 0 for its own.
     pub element: usize,
+    /// The element's number in lowering's order (`Place::order`).
+    pub order: usize,
 }
 
 /// Leave `rows` for [`rows`] (the design server's build reads it).
@@ -561,7 +570,9 @@ pub fn check(
     // there: where the representative's refusal was, moved alike. A style's
     // row newly failing at several elements is one refusal, the build's
     // (theme2's 02:08 condition 2): at the row, said once.
-    let mut out: Vec<Broken> = Vec::new();
+    // Said as the build reaches them: by element, an element's style rows
+    // before its own (lowering expands the class first), then by place.
+    let mut out: Vec<(usize, u8, Broken)> = Vec::new();
     let mut style: BTreeMap<(u32, u32, u32, u32), (usize, Broken)> = BTreeMap::new();
     for (row, error) in failing {
         let first = row.places[0];
@@ -596,11 +607,20 @@ pub fn check(
                 }
                 continue;
             }
-            out.push(broken);
+            out.push((p.order, 1, broken));
         }
     }
-    out.extend(style.into_values().map(|(_, b)| b));
-    out
+    out.extend(style.into_values().map(|(e, b)| (e, 0, b)));
+    out.sort_by_key(|(order, own, b)| {
+        (
+            *order,
+            *own,
+            b.error.span.source_id,
+            b.error.span.line,
+            b.error.span.col,
+        )
+    });
+    out.into_iter().map(|(_, _, b)| b).collect()
 }
 
 /// Whether `r` is a computed row in a row every number token suits, which
