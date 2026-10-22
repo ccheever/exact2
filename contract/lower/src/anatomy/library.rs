@@ -612,7 +612,12 @@ pub(crate) fn control(c: &Component) -> Controls {
         })
         .map(|p| p.name.as_str())
         .collect();
-    walk_buttons(&c.view, &c.name, &states, &mut out.refused);
+    let cx = Buttons {
+        comp: &c.name,
+        states: &states,
+        derives: &c.derives,
+    };
+    walk_buttons(&c.view, &cx, &mut Vec::new(), &mut out.refused);
     out
 }
 
@@ -632,13 +637,50 @@ const SAID: [&str; 5] = [
     "aria-expanded",
 ];
 
+/// What the button rules read of a component: its name, its state props,
+/// and its derives, through which a look or a label may read a state.
+struct Buttons<'a> {
+    comp: &'a str,
+    states: &'a [&'a str],
+    derives: &'a [contract_syntax::Binding],
+}
+
+impl Buttons<'_> {
+    /// `names` and every name a derive among them reads, transitively.
+    fn expand(&self, names: &mut Vec<String>) {
+        let mut i = 0;
+        while i < names.len() {
+            if let Some(d) = self.derives.iter().find(|d| d.name == names[i]) {
+                let mut read = Vec::new();
+                super::reads(&d.expr, &mut Vec::new(), true, &mut read);
+                for r in read {
+                    if !names.contains(&r) {
+                        names.push(r);
+                    }
+                }
+            }
+            i += 1;
+        }
+    }
+    /// Whether `e` reads `state`, itself or through a derive, where a
+    /// binding in `bound` doesn't hide it.
+    fn mentions(&self, e: &Expr, state: &str, bound: &[String]) -> bool {
+        let mut read = Vec::new();
+        super::reads(e, &mut bound.to_vec(), true, &mut read);
+        self.expand(&mut read);
+        read.iter().any(|r| r == state)
+    }
+}
+
 /// Each button of a library view (a `button`, or a node of
-/// `role="button"`), named (`aria-label`, `aria-labelledby` or a text of
-/// its own), and saying each state of `states` its look reads (a `?:` or
-/// `match` in a row, a class, or a used component's argument) through
-/// one of [`SAID`] or a label that reads it (theme2 2026-10-22 04:40,
-/// LLP 1139 D9's condition (b)).
-fn walk_buttons(nodes: &[Node], comp: &str, states: &[&str], out: &mut Vec<LowerError>) {
+/// `role="button"`), named (a non-empty `aria-label`, `aria-labelledby`, or
+/// a text of its own in every arm), and saying each state of `states` its
+/// look reads (a `?:` or `match` in a row, a class, or a used component's
+/// argument, itself or through a derive) through one of [`SAID`], a label
+/// or a text of its own that reads it (theme2 2026-10-22 04:40, LLP 1139
+/// D9's condition (b)). `bound`: the names a `for` or `match` around binds,
+/// which hide a prop of the same name.
+fn walk_buttons(nodes: &[Node], cx: &Buttons, bound: &mut Vec<String>, out: &mut Vec<LowerError>) {
     for n in nodes {
         match n {
             Node::Element {
@@ -651,22 +693,32 @@ fn walk_buttons(nodes: &[Node], comp: &str, states: &[&str], out: &mut Vec<Lower
                 let button = tag == "button"
                     || leaf_texts(attrs, "role").is_some_and(|r| r.iter().any(|r| r == "button"));
                 if button {
-                    check_button(tag, attrs, children, comp, states, *span, out);
+                    check_button(tag, attrs, children, cx, bound, *span, out);
                 }
-                walk_buttons(children, comp, states, out);
+                walk_buttons(children, cx, bound, out);
             }
-            Node::Use { children, .. } | Node::Each { body: children, .. } => {
-                walk_buttons(children, comp, states, out)
+            Node::Use { children, .. } => walk_buttons(children, cx, bound, out),
+            Node::Each {
+                var, index, body, ..
+            } => {
+                let mark = bound.len();
+                bound.push(var.clone());
+                bound.extend(index.clone());
+                walk_buttons(body, cx, bound, out);
+                bound.truncate(mark);
             }
             Node::When {
                 then, otherwise, ..
             } => {
-                walk_buttons(then, comp, states, out);
-                walk_buttons(otherwise, comp, states, out);
+                walk_buttons(then, cx, bound, out);
+                walk_buttons(otherwise, cx, bound, out);
             }
             Node::Match { some, none, .. } => {
-                walk_buttons(&some.1, comp, states, out);
-                walk_buttons(none, comp, states, out);
+                let mark = bound.len();
+                bound.push(some.0.clone());
+                walk_buttons(&some.1, cx, bound, out);
+                bound.truncate(mark);
+                walk_buttons(none, cx, bound, out);
             }
             Node::Children { .. } => {}
         }
@@ -677,52 +729,67 @@ fn check_button(
     tag: &str,
     attrs: &[Attr],
     children: &[Node],
-    comp: &str,
-    states: &[&str],
+    cx: &Buttons,
+    bound: &[String],
     span: Span,
     out: &mut Vec<LowerError>,
 ) {
+    let comp = cx.comp;
     let error = |message: String| LowerError {
         id: "lower-library-control",
         message: format!("{message} in library component `{comp}` (LLP 1139 D9)"),
         span,
     };
-    let labelled = has(attrs, "aria-label") || has(attrs, "aria-labelledby");
+    let what = if tag == "button" { "a `button`".to_string() } else { format!("a `{tag}` of `role=\"button\"`") };
+    let labelled = (has(attrs, "aria-label") && text(attrs, "aria-label").is_none_or(|t| !t.trim().is_empty()))
+        || has(attrs, "aria-labelledby");
     if !labelled && !texted(children) {
         out.push(error(format!(
-            "a `{tag}` without a name: write `aria-label` (or `aria-labelledby`), or give it a text, which assistive technology reads as the control it stands in for"
+            "{what} without a name: write `aria-label` (or `aria-labelledby`), or give it a text, which assistive technology reads as the control it stands in for"
         )));
     }
     // The states its look reads: inside a `?:` or `match` anywhere in it but
-    // the attributes that say things aloud.
+    // the attributes that say things aloud, itself or through a derive.
     let mut look = Vec::new();
-    looks(attrs, children, &mut look);
-    for state in states.iter().filter(|s| look.iter().any(|l| l == *s)) {
+    looks(attrs, children, &mut bound.to_vec(), &mut look);
+    cx.expand(&mut look);
+    for state in cx.states.iter().filter(|s| look.iter().any(|l| l == *s) && !bound.iter().any(|b| b == *s)) {
         let says = |name: &str| {
             attrs
                 .iter()
                 .filter(|a| a.name == name)
-                .any(|a| mentions(&a.value, state))
+                .any(|a| cx.mentions(&a.value, state, bound))
         };
-        if !SAID.iter().any(|a| says(a)) && !says("aria-label") && !text_says(children, state) {
+        if !SAID.iter().any(|a| says(a)) && !says("aria-label") && !text_says(children, cx, state, bound) {
             out.push(error(format!(
-                "a `{tag}` whose look says a state it doesn't say aloud: its look reads `{state}`, so say it through `aria-selected`, `aria-pressed`, `aria-current`, `aria-checked` or `aria-expanded` from `{state}`, or a label that reads it"
+                "{what} whose look says a state it doesn't say aloud: its look reads `{state}`, so say it through `aria-selected`, `aria-pressed`, `aria-current`, `aria-checked` or `aria-expanded` from `{state}`, or a label that reads it"
             )));
         }
     }
 }
 
-/// Whether `nodes` hold what names a button: a text of their own, the
-/// slot (its caller's content, which can't be known here), or a used
-/// component given a text to draw (`text`, `label` or `title`).
+/// Whether `nodes` name a button whatever their arms: a text of its own
+/// (not empty, not `aria-hidden`), the slot (its caller's content, which
+/// can't be known here), or a used component given a text to draw (`text`,
+/// `label` or `title`).
 fn texted(nodes: &[Node]) -> bool {
     nodes.iter().any(|n| match n {
-        Node::Element { tag, children, .. } => tag == "text" || texted(children),
+        Node::Element {
+            tag,
+            attrs,
+            positional,
+            children,
+            ..
+        } => {
+            let hidden = matches!(attrs.iter().find(|a| a.name == "aria-hidden").map(|a| &a.value), Some(Expr::Bool(true, _)));
+            let empty = matches!(positional.first(), Some(Expr::Str(s, _)) if s.trim().is_empty());
+            (tag == "text" && !hidden && !empty) || (!hidden && texted(children))
+        }
         Node::Each { body, .. } => texted(body),
         Node::When {
             then, otherwise, ..
-        } => texted(then) || texted(otherwise),
-        Node::Match { some, none, .. } => texted(&some.1) || texted(none),
+        } => texted(then) && texted(otherwise),
+        Node::Match { some, none, .. } => texted(&some.1) && texted(none),
         Node::Use { args, children, .. } => {
             args.iter().any(|a| matches!(a.name.as_str(), "text" | "label" | "title")) || texted(children)
         }
@@ -732,27 +799,28 @@ fn texted(nodes: &[Node]) -> bool {
 
 /// Whether a text under `nodes`, one that names the button, reads `state`
 /// (`text (following ? "Unfollow" : "Follow")` says it as a label does).
-fn text_says(nodes: &[Node], state: &str) -> bool {
+fn text_says(nodes: &[Node], cx: &Buttons, state: &str, bound: &[String]) -> bool {
     nodes.iter().any(|n| match n {
         Node::Element {
             tag,
             positional,
             children,
             ..
-        } => (tag == "text" && positional.iter().any(|e| mentions(e, state))) || text_says(children, state),
-        Node::Each { body, .. } => text_says(body, state),
+        } => (tag == "text" && positional.iter().any(|e| cx.mentions(e, state, bound))) || text_says(children, cx, state, bound),
+        Node::Each { body, .. } => text_says(body, cx, state, bound),
         Node::When {
             then, otherwise, ..
-        } => text_says(then, state) || text_says(otherwise, state),
-        Node::Match { some, none, .. } => text_says(&some.1, state) || text_says(none, state),
+        } => text_says(then, cx, state, bound) || text_says(otherwise, cx, state, bound),
+        Node::Match { some, none, .. } => text_says(&some.1, cx, state, bound) || text_says(none, cx, state, bound),
         Node::Use { .. } | Node::Children { .. } => false,
     })
 }
 
 /// The names read inside a `?:` or `match` by `attrs` (but those saying
-/// things aloud, its handlers and its names) and
-/// everything under `children`, a used component's arguments included.
-fn looks(attrs: &[Attr], children: &[Node], out: &mut Vec<String>) {
+/// things aloud, its handlers and its names) and everything under
+/// `children`, a used component's arguments included, but those `bound`
+/// (and a `for` or `match` within) hides.
+fn looks(attrs: &[Attr], children: &[Node], bound: &mut Vec<String>, out: &mut Vec<String>) {
     // What draws: not what it says aloud, its handlers (`press=(selected ?
     // deselect : select)` draws nothing) nor its names.
     let drawn = |a: &&Attr| {
@@ -761,35 +829,39 @@ fn looks(attrs: &[Attr], children: &[Node], out: &mut Vec<String>) {
             && !matches!(crate::tags::attr(&a.name), Some(crate::tags::AttrTarget::Handler(_)))
     };
     for a in attrs.iter().filter(drawn) {
-        super::reads(&a.value, &mut Vec::new(), false, out);
+        super::reads(&a.value, bound, false, out);
     }
     for n in children {
         match n {
             Node::Element {
                 attrs, children, ..
-            } => looks(attrs, children, out),
-            Node::Use { args, children, .. } => looks(args, children, out),
-            Node::Each { body, .. } => looks(&[], body, out),
+            } => looks(attrs, children, bound, out),
+            Node::Use { args, children, .. } => looks(args, children, bound, out),
+            Node::Each {
+                var, index, body, ..
+            } => {
+                let mark = bound.len();
+                bound.push(var.clone());
+                bound.extend(index.clone());
+                looks(&[], body, bound, out);
+                bound.truncate(mark);
+            }
             Node::When {
                 then, otherwise, ..
             } => {
-                looks(&[], then, out);
-                looks(&[], otherwise, out);
+                looks(&[], then, bound, out);
+                looks(&[], otherwise, bound, out);
             }
             Node::Match { some, none, .. } => {
-                looks(&[], &some.1, out);
-                looks(&[], none, out);
+                let mark = bound.len();
+                bound.push(some.0.clone());
+                looks(&[], &some.1, bound, out);
+                bound.truncate(mark);
+                looks(&[], none, bound, out);
             }
             Node::Children { .. } => {}
         }
     }
-}
-
-/// Whether `e` reads the name `name` anywhere.
-fn mentions(e: &Expr, name: &str) -> bool {
-    let mut read = Vec::new();
-    super::reads(e, &mut Vec::new(), true, &mut read);
-    read.iter().any(|r| r == name)
 }
 
 fn walk_controls(nodes: &[Node], comp: &str, out: &mut Controls) {
