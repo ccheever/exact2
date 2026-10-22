@@ -960,9 +960,9 @@ popover stack nests a popover shown with a source inside an open one (HTML,
 "topmost popover ancestor"). Chrome, Firefox and WebKit keep the outer
 popover open under the context menu and after it closes
 (`host/web/tests/context-popover.test.mjs`). macOS had closed every open
-popover before popping up the menu; it now closes only those above the
-nearest one holding the node, and the agent's painted menu on iOS does the
-same. UIKit's own context menu closes nothing. Implementer: Claude,
+popover before popping up the menu; it now closes only the auto popovers
+above the nearest one holding the node, leaving a manual one open as HTML
+does, and the agent's painted menu on iOS does the same. UIKit's own context menu closes nothing. Implementer: Claude,
 2026-10-22.
 
 **Web (both targets).** The node's `contextpopover` attribute is wired

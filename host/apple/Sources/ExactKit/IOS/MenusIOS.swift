@@ -889,16 +889,15 @@ final class MenuHost {
     /// Under the agent, a context menu (LLP 1021 §5.1) is its popover painted
     /// in the top layer, anchored to `node`, as an invoker's (D4): its
     /// preview row and menu rows are nodes the agent reads and taps. Called
-    /// after `node`'s own `contextmenu` has been delivered; any other open
-    /// popover but those holding `node` closes, as a tap outside it would.
+    /// after `node`'s own `contextmenu` has been delivered.
     /// Whether it opened one.
     @discardableResult
     func agentContext(_ node: NodeView) -> Bool {
         // Its own action may have unmounted or disabled it, or renamed its popover.
         guard ExactEnv.agentMode, let presenter, let name = node.props["contextPopover"], eligible(node, contextMenu: true) else { return false }
-        // The popovers holding `node` stay open (HTML's nested popovers); the
-        // rest close, as a tap outside them would.
-        for (other, open) in agentOpen where open.popover.map({ !node.isDescendant(of: $0) }) ?? true { drop(other) }
+        // `agentShow` nests it in the open popovers holding `node`, as HTML's
+        // stack does, and closes every other auto popover, as a tap outside
+        // them would; a manual one stays.
         guard let pop = presenter.carrying("popover").first(where: { $0.props["id"] == name && !isConfirmation($0) }) else {
             presenter.session?.log("context menu \(name) refused: no popover has that id")
             return false
