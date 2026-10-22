@@ -368,6 +368,33 @@ fn an_overflowing_queue_delivers_what_it_held_then_ends_refused() {
 }
 
 #[test]
+fn a_receive_queue_allows_one_mib_beyond_the_response_ceiling() {
+    for sizes in [vec![3 << 20, 3 << 20], vec![3 << 20, 2 << 20, 1]] {
+        let (core, peer, woke) = setup();
+        let mut request = socket(1);
+        request.request = request.request.independent_http(4 << 20);
+        core.run_owned(request, None).unwrap();
+        next(&core, &woke);
+        let wire = feed(&peer, 0);
+        for size in &sizes {
+            assert!(wire.send(frame(&"x".repeat(*size))).is_ok());
+        }
+        ended(&core);
+        for size in &sizes[..sizes.len() - 1] {
+            assert_eq!(text(&next(&core, &woke)).len(), *size);
+        }
+        assert_eq!(
+            next(&core, &woke),
+            Outcome::Failed {
+                kind: FailureKind::Refused,
+                message: "socket receive queue exceeds 256 frames or 1 MiB".into()
+            }
+        );
+        assert!(settled(&core));
+    }
+}
+
+#[test]
 fn a_frame_over_the_ceiling_ends_it_refused_after_the_frames_before() {
     let (core, peer, woke) = setup();
     core.run_owned(socket(1), None).unwrap();

@@ -70,8 +70,12 @@ test('owned socket bounds bytes and queued frames, rechecks grants, and aborts b
   });
 });
 
+// The queue holds 1 MiB beyond the per-message ceiling, counted in UTF-8:
+// 2 MiB + 1 under a 1 MiB ceiling (1.5 MiB + 1 in UTF-16 units); a frame
+// between 1 MiB and a 4 MiB ceiling, then exactly 5 MiB, then one byte more.
 test.each([
-  [1048576, ['é'.repeat(262144), 'x'.repeat(524289)], 'queue'],
+  [1048576, ['é'.repeat(524288), 'x'.repeat(1048576), 'z'], 'queue'],
+  [4194304, ['x'.repeat(3145728), 'y'.repeat(2097152), 'z'], 'queue'],
   [3, ['one', new Uint8Array([2]).buffer, new Uint8Array(4).buffer], 'ceiling'],
 ])('owned receive queue with limit %i flushes accepted frames before refusing overflow', async (limit, frames, reason) => {
   let done;
