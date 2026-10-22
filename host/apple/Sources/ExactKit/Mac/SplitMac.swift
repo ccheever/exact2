@@ -259,9 +259,12 @@ final class SplitHost {
         controller.split(true, width: shown.width, empty: shown.detail == nil)
         let pane = controller.detailPane
         pane.sizeChanged = { [weak self] size in self?.resized(size) }
+        pane.positionChanged = { [weak self, weak pane] in
+            if let pane { self?.resized(pane.bounds.size) }
+        }
         for route in shown.routes where held[route.id]?.route !== route {
             held[route.id] = (route, shown.list.id)
-            presenter.blocks.show(route, in: pane, block: .size(pane.bounds.size))
+            presenter.blocks.show(route, in: pane, block: .size(pane.bounds.size), placement: placement(of: route, in: pane))
             presenter.keyViewLoopStale = true
         }
         select(shown)
@@ -276,8 +279,19 @@ final class SplitHost {
         }
     }
 
+    private func placement(of route: NodeView, in pane: NSView) -> BlockPlacement? {
+        var parent = presenter.blocks.parent(of: route)
+        while let view = parent {
+            if let node = view as? NodeView, node.window === pane.window {
+                return BlockPlacement(rect: node.convert(pane.bounds, from: pane), within: node.id)
+            }
+            parent = view.superview
+        }
+        return nil
+    }
+
     private func resized(_ size: CGSize) {
-        for entry in held.values { presenter.blocks.resize(entry.route, .size(size)) }
+        for entry in held.values { presenter.blocks.resize(entry.route, .size(size), placement: controller.map { placement(of: entry.route, in: $0.detailPane) } ?? nil) }
     }
 
     /// The list's selected row is the row whose detail the pane shows; when
