@@ -581,8 +581,8 @@ pub fn check(
     // (theme2's 02:08 condition 2): at the row, said once.
     // Said as the build reaches them: by element, an element's style rows
     // before its own (lowering expands the class first), each in its order.
-    let mut out: Vec<((usize, u8, usize), Broken)> = Vec::new();
-    let mut style: BTreeMap<(u32, u32, u32, u32), ((usize, u8, usize), Broken)> = BTreeMap::new();
+    let mut out: Vec<(Reached, Broken)> = Vec::new();
+    let mut style: BTreeMap<(u32, u32, u32, u32), (Reached, Broken)> = BTreeMap::new();
     for (row, error) in failing {
         let first = row.places[0];
         for p in row
@@ -633,6 +633,10 @@ pub fn check(
     });
     out.into_iter().map(|(_, b)| b).collect()
 }
+
+/// Where the build reaches a refusal: its element in lowering's order, a
+/// style row (0) before an own row (1), the row's place among them.
+type Reached = (usize, u8, usize);
 
 /// Whether `r` is a computed row in a row every number token suits, which
 /// lowering judges against the design's number tokens, whichever a write
