@@ -236,6 +236,8 @@ final class PressContact {
     var responderUsesCanvas = false
     var cancelled = false
     var cancelledByReparenting = false
+    /// A handlerless custom invoker's look, independent of the forwarded press: nil when it owns none.
+    var invokerLook: Bool?
     /// Bubbled in from a presentation's mount to a logical ancestor behind
     /// it, which is inert behind the presentation but still hears a click
     /// bubbling from it (HTML: inertness keeps a node from being the target,
@@ -269,6 +271,12 @@ final class PressContact {
 }
 
 extension NodeView {
+    private func setInvokerLook(_ contact: PressContact, _ inside: Bool?) {
+        guard contact.invokerLook != inside else { return }
+        contact.invokerLook = inside
+        if !holds("active") { showPress(pressed || overlayHoldsPress || inside == true) }
+    }
+
     var hasPressContact: Bool { pressContact.map { !$0.cancelled } ?? false }
     /// UIView forwards to `next`. Only Exact's inserted overflow wrapper is
     /// skipped: UIScrollView otherwise swallows the authored ancestor's down.
@@ -311,6 +319,7 @@ extension NodeView {
         guard let contact = pressContact, !contact.cancelled, contact.incarnation == incarnation else { return }
         contact.cancelled = true
         contact.cancelledByReparenting = reparenting
+        setInvokerLook(contact, nil)
         pressed = overlayHoldsPress; inlinePressed = nil; linkPressed = nil; svgPressed = nil
         if let touch = contact.touch { _ = canvasTouches([touch], phase: "cancel", event: nil) }
         if contact.responderUsesCanvas, let touch = contact.touch {
@@ -369,6 +378,10 @@ extension NodeView {
         if !contact.bubbled, let href = inlineLink(at: local(touch.location(in: nil))) { linkPressed = href; return }
         if handlers.contains("press") || defaultLink != nil || presenter?.menus.closesPresentedContent(self) == true
             || contact.bubbled && isNativeButton && presenter?.invocation(of: self) != nil { pressed = true } else {
+            if !isNativeButton, let presenter, let invocation = presenter.invocation(of: self),
+               invocation.opensPopover, !presenter.menus.pullsDown(invocation.target) {
+                setInvokerLook(contact, true)
+            }
             contact.responder = pressResponder
             contact.responderIncarnation = (contact.responder as? NodeView)?.incarnation
             if let node = contact.responder as? NodeView {
@@ -384,6 +397,7 @@ extension NodeView {
         if canvasTouches(touches, phase: "move", event: event) { return }
         guard let contact = currentPressContact(touches) else { return }
         inlinePressed = nil; linkPressed = nil
+        if contact.invokerLook != nil { setInvokerLook(contact, touches.first.map(pressLands) ?? false) }
         if pressed { pressFollows(inside: touches.first.map(pressLands) ?? false) } else { contact.destination?.touchesMoved(touches, with: event) }
     }
     package override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -391,7 +405,13 @@ extension NodeView {
         guard let contact = currentPressContact(touches) else { return }
         // Its press may have removed the overlay that held the look with it,
         // which left the look to this contact: the look is the overlay's alone now.
-        defer { if pressContact === contact { pressContact = nil; if pressed != overlayHoldsPress { pressed = overlayHoldsPress } } }
+        defer {
+            if pressContact === contact {
+                setInvokerLook(contact, nil)
+                pressContact = nil
+                if pressed != overlayHoldsPress { pressed = overlayHoldsPress }
+            }
+        }
         guard contact.routeActive else { return }
         guard !disabled else { pressed = false; inlinePressed = nil; linkPressed = nil; svgPressed = nil; return }
         if let target = svgPressed {
@@ -459,6 +479,7 @@ extension NodeView {
         if touches.isEmpty { cancelPressContact(); pressed = overlayHoldsPress; return }
         guard let contact = currentPressContact(touches) else { return }
         contact.cancelled = true
+        setInvokerLook(contact, nil)
         inlinePressed = nil; linkPressed = nil; svgPressed = nil
         if pressed { pressed = overlayHoldsPress } else { contact.destination?.touchesCancelled(touches, with: event) }
     }
