@@ -5,6 +5,7 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { contractComponent, value, type Env } from '../support/contract-action-fixture';
 import { appPath } from '../support/app-files';
+import { pasteDisposition, utf8Length } from '../../src/composer/composer-editor-files';
 
 /** composer.contract's `fn` lines, as functions of their parameters (each sees the ones before it). */
 function contractFns(file: string): Env {
@@ -18,7 +19,9 @@ function contractFns(file: string): Env {
   return fns;
 }
 const fns = contractFns('composer.contract');
+Object.assign(fns, { min: Math.min, max: Math.max });
 const takes = fns.composerPasteTakesFiles as (files: string[], text: string) => boolean;
+const disposition = fns.composerPasteDisposition as (text: string, valueLength: number, start: number, end: number, limit: number) => string;
 
 describe('a paste into the composer (onComposerPaste)', () => {
   test('an image of any type, or files with no text, attach; text beside a plain file stays text, a Finder copy\'s names too', () => {
@@ -30,15 +33,76 @@ describe('a paste into the composer (onComposerPaste)', () => {
     expect(takes([], '')).toBe(false);
   });
 
-  test('a paste of files is prevented and attached, Paste as Text armed by its key; a text paste is the field\'s', () => {
+  test('a large text paste folds into a file, at 32 KB in UTF-16 units or UTF-8 bytes or past the prompt limit (foldPastedText)', () => {
+    const limit = 50 * 1024 * 1024;
+    // Both: Contract decides from lengths, holding the rest ("measure") for pasteDisposition's bytes.
+    const both = (text: string, valueLength: number, start: number, end: number, cap: number, expected: string, contract = expected) => {
+      expect(pasteDisposition(text, valueLength, start, end, cap)).toBe(expected as never);
+      expect(disposition(text, valueLength, start, end, cap)).toBe(contract);
+    };
+    both('', 0, 0, 0, limit, 'inline');
+    both('x'.repeat(10_922), 0, 0, 0, limit, 'inline');
+    both('x'.repeat(32_767), 0, 0, 0, limit, 'inline', 'measure');
+    both('x'.repeat(32_768), 0, 0, 0, limit, 'fold');
+    // 10,923 three-byte characters are 32,769 bytes; 10,922 are 32,766.
+    both('가'.repeat(10_923), 0, 0, 0, limit, 'fold', 'measure');
+    both('가'.repeat(10_922), 0, 0, 0, limit, 'inline');
+    // An emoji is two units and four bytes.
+    both('😀'.repeat(8_192), 0, 0, 0, limit, 'fold', 'measure');
+    both('😀'.repeat(8_191), 0, 0, 0, limit, 'inline', 'measure');
+    // Small, but past 120,000 units with the prompt (the selection it replaces counted out).
+    both('abc', 119_998, 5, 5, limit, 'fold');
+    both('abc', 119_998, 5, 7, limit, 'inline');
+    // No staging (no project, a question that takes no files, a full message, no uploads): inline, or refused past the prompt limit.
+    both('x'.repeat(40_000), 0, 0, 0, 0, 'inline');
+    both('x'.repeat(130_000), 0, 0, 0, 0, 'too-large-message');
+    // Over the server's file limit: the same, with its own refusal.
+    both('x'.repeat(40_000), 0, 0, 0, 39_999, 'inline');
+    both('x'.repeat(40_000), 0, 0, 0, 40_000, 'fold', 'measure');
+    both('x'.repeat(40_000), 0, 0, 0, 120_000, 'fold');
+    both('x'.repeat(130_000), 0, 0, 0, 100_000, 'too-large-attach');
+    // A literal answer (-1) keeps every paste inline (isLiteralPendingAnswer).
+    both('x'.repeat(130_000), 0, 0, 0, -1, 'inline');
+  });
+
+  test('lengths decide where they can and agree with the byte count; an unpaired surrogate is three bytes, as TextEncoder writes U+FFFD', () => {
+    const pieces = ['a', 'é', '가', '😀', '\n', '\uD800', '\uDFFF'];
+    let seed = 7;
+    const random = () => (seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648) / 2_147_483_648;
+    for (let n = 0; n < 400; n++) {
+      const parts: string[] = [], size = Math.floor(random() * 50_000);
+      while (parts.length < size / 4) parts.push(pieces[Math.floor(random() * pieces.length)]!.repeat(1 + Math.floor(random() * 8)));
+      const text = parts.join(''), valueLength = Math.floor(random() * 100_000), start = Math.floor(random() * valueLength), end = start + Math.floor(random() * (valueLength - start));
+      const cap = [0, -1, 40_000, 90_000, 50 * 1024 * 1024][Math.floor(random() * 5)]!;
+      const held = disposition(text, valueLength, start, end, cap);
+      if (held !== 'measure') expect(held).toBe(pasteDisposition(text, valueLength, start, end, cap));
+    }
+    expect(utf8Length('\uD800')).toBe(3);
+    expect(utf8Length('a\uDFFFb😀')).toBe(9);
+    expect(() => disposition('\uD800'.repeat(12_000), 0, 0, 0, 50 * 1024 * 1024)).not.toThrow();
+    expect(pasteDisposition('\uD800'.repeat(11_000), 0, 0, 0, 50 * 1024 * 1024)).toBe('fold');
+  });
+
+  test('a paste of files is prevented and attached, Paste as Text armed by its key; a text paste may fold unless armed', () => {
     const card = contractComponent('composer.contract', 'ComposerCard'), state = card.state();
     const calls: unknown[][] = [];
     let now = 5000;
-    const scope = { ...fns, data: { projectId: 'p1' }, performanceNow: () => now, composerKeyEvent: () => {}, onBlur: () => calls.push(['blur']),
+    const scope = { ...fns, data: { projectId: 'p1', snapshotOwner: 'snap' }, richComposerOwner: 'field', text: 'ab', editor: { foldLimit: 50 * 1024 * 1024 },
+      round: Math.round, performanceNow: () => now, composerKeyEvent: () => {}, onBlur: () => calls.push(['blur']),
       preventDefault: () => calls.push(['preventDefault']), attachFiles: (...args: unknown[]) => calls.push(['attachFiles', ...args]) };
     const image = [{ files: ['doc:/1/image.png'], text: '' }];
     card.call('pasted', state, scope, [{ files: [], text: 'hello' }]);
     expect(calls).toEqual([]);
+    // A large paste is held and goes to foldPaste through attachFiles' queue: its record, the field's value and the text.
+    // The field has reported no selection yet, so the paste goes at its end.
+    const large = 'x'.repeat(40_000);
+    card.call('pasted', state, scope, [{ files: [], text: large }]);
+    expect(calls).toEqual([['preventDefault'], ['attachFiles', 'fold', [`fold\tsnap\tfield\t2\t2\t${5000 * 1000}`, 'ab', large], [], false, '']]);
+    calls.length = 0;
+    card.call('richMoved', state, { ...scope, composerMoved: () => {} }, [{ value: 'ab', selectionStart: 0, selectionEnd: 1 }]);
+    card.call('pasted', state, scope, [{ files: [], text: large }]);
+    expect((calls[1]![2] as string[])[0]).toBe(`fold\tsnap\tfield\t0\t1\t${5000 * 1000}`);
+    calls.length = 0;
     card.call('pasted', state, scope, image);
     expect(calls).toEqual([['preventDefault'], ['attachFiles', 'paste', ['doc:/1/image.png'], [], false, '']]);
     // isPasteAsTextShortcut: ⇧⌘V with no ⌥ or ⌃, by the key's character (event.key).
@@ -63,6 +127,13 @@ describe('a paste into the composer (onComposerPaste)', () => {
     card.call('richKey', state, scope, ['V', pasteAsText]);
     now += 1001;
     expect(armed()).toBe(false);
+    // Paste as Text keeps its text inline however large (bypassAutoAttachment): no fold is asked for.
+    card.call('richKey', state, scope, ['V', pasteAsText]);
+    const text = calls.length;
+    card.call('pasted', state, scope, [{ files: [], text: 'x'.repeat(40_000) }]);
+    expect(calls.length).toBe(text);
+    card.call('pasted', state, scope, [{ files: [], text: 'x'.repeat(40_000) }]);
+    expect(calls.at(-1)?.[1]).toBe('fold');
     // Leaving the composer disarms it, as the reference's window blur does, and tells the window.
     card.call('richKey', state, scope, ['V', pasteAsText]);
     card.call('richBlurred', state, scope, []);

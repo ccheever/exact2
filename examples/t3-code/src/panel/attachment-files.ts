@@ -2,15 +2,15 @@
 // components/files/AttachmentFilePreview.tsx readFilePreviewResponse and decodeFilePreviewText,
 // FILE_TEXT_PREVIEW_MAX_BYTES; MediaActions.tsx and mediaContent.ts readMediaBlob). A sent attachment is read from its
 // signed asset URL (`fetch`, app.ts grants); a draft's from its staged copy under the app's data
-// (composer-files/<id>, T3ComposerAttach.swift stages it).
+// (composer-files/, composer-attach-stage.ts stages it under composer-staged-copies.ts stagedName).
 import { appFiles, requestSave, saveBytes, saveName } from '../media/save-file';
 
 export const PREVIEW_BYTES = 1024 * 1024;
 export const SAVE_BYTES = 64 * 1024 * 1024;
 export type TextPreview = { ok: true; text: string; truncated: boolean } | { ok: false; message: string };
 
-/** A draft file's staged copy as an app file. */
-export const stagedPath = (id: string) => `app:/data/composer-files/${id.toLowerCase()}`;
+/** A draft file's staged copy as an app file, by its staged name (composer-staged-copies.ts stagedName). */
+export const stagedPath = (name: string) => `app:/data/composer-files/${name}`;
 
 /** Only a signed asset route of an http(s) server: never a file URL or another path. */
 export function assetUrl(raw: string): string | null {
@@ -51,9 +51,9 @@ export async function attachmentText(url: string): Promise<TextPreview> {
 }
 
 /** A draft file's first megabyte as text, from its staged copy. */
-export async function stagedText(id: string): Promise<TextPreview> {
+export async function stagedText(name: string): Promise<TextPreview> {
   let bytes: Uint8Array;
-  try { bytes = new Uint8Array(await appFiles().fs.readFile(stagedPath(id))); } catch { return { ok: false, message: 'Could not load this file.' }; }
+  try { bytes = new Uint8Array(await appFiles().fs.readFile(stagedPath(name))); } catch { return { ok: false, message: 'Could not load this file.' }; }
   return decodePreview(bytes, bytes.length > PREVIEW_BYTES);
 }
 
@@ -70,8 +70,8 @@ export async function saveAttachment(client: object, url: string, name: string):
 }
 
 /** Save file of a draft's staged copy, as it is. */
-export function saveStaged(client: object, id: string, name: string): void {
-  requestSave(client, stagedPath(id), saveName(name, 'attachment'));
+export function saveStaged(client: object, staged: string, name: string): void {
+  requestSave(client, stagedPath(staged), saveName(name, 'attachment'));
 }
 
 /** Save file of a folded paste: its text as the file. */

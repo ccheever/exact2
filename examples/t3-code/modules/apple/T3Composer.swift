@@ -20,18 +20,16 @@ final class T3Composer {
     /// natural widths and the rows the layouts fit (the toolbar's controls, the strip, the tab strip).
     private(set) var anchorFrames: [String: [Double]] = [:]
     private var keyMonitor: Any?
-    /// Large pastes around the shared field.
-    let editor: T3ComposerEditor
 
     init(changed: @escaping (String) -> Void = { _ in }) {
         self.changed = changed
-        editor = T3ComposerEditor(changed: changed)
     }
 
     var status: [String: Any] { ["anchors": anchorFrames] }
+    /// The mounted composer's text view (the shell's text menu keeps Select All enabled in it when it is empty).
+    var textView: NSTextView? { composer?.isLive == true ? composer?.textView : nil }
 
     func install(_ element: ExactElement) {
-        editor.install(element)
         if element.hatch == .t3Anchor {
             let name = element.data[.anchor] ?? ""
             guard !name.isEmpty else { return }
@@ -60,7 +58,6 @@ final class T3Composer {
     }
 
     func remove(_ element: ExactElement) {
-        editor.remove(element)
         let ended = anchors.filter { $0.value.element == nil || $0.value.element === element }
         for (name, anchor) in ended {
             if let observer = anchor.observer { NotificationCenter.default.removeObserver(observer) }
@@ -75,7 +72,6 @@ final class T3Composer {
     }
 
     func destroy() {
-        editor.destroy()
         stopMonitoring()
         for anchor in anchors.values { if let observer = anchor.observer { NotificationCenter.default.removeObserver(observer) } }
         anchors.removeAll()
@@ -170,19 +166,16 @@ final class T3Composer {
         return node.hitTest(NSPoint(x: node.frame.midX, y: node.frame.midY)) != nil
     }
 
-    /// TypeScript's requests for the prompt editor (main thread).
+    /// TypeScript's requests for the prompt editor (main thread): `editorPoke` re-asks the editor resource after a delay.
     func perform(_ request: [String: Any]) -> [String: Any] {
         let generation = request["generation"] as? Int ?? 0
-        var value: [String: Any] = [:]
         switch request["op"] as? String {
-        case "editorSync": value = editor.sync(request)
-        case "editorForgetFold": editor.forgetFold(request["id"] as? Int ?? -1)
         case "editorPoke":
             let delay = max(0, min(2000, request["afterMs"] as? Int ?? 0))
             DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay)) { [weak self] in self?.changed("t3.editor") }
         default: return ["ok": false, "generation": generation, "error": ["kind": "Editor", "message": "Unknown editor request.", "uncertain": false]]
         }
-        return ["ok": true, "generation": generation, "value": value]
+        return ["ok": true, "generation": generation, "value": [String: Any]()]
     }
 
     deinit { destroy() }

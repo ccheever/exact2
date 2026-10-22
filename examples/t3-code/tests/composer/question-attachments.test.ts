@@ -8,7 +8,7 @@ import { reservedAttachments } from '../../src/composer/composer-editor-attach';
 import { advanceQuestion, openQuestionDraft, requestPresentation, resolveAnswer } from '../../src/composer/requests';
 import { questionDraftKey, releaseQuestionDrafts, snapshotAttachmentKey } from '../../src/composer/question-attachments';
 import { draftRows } from '../../src/sidebar/sidebar-view';
-import { fileChipLink, stageTextAttachment } from '../../src/composer/composer-editor-files';
+import { fileChipLink, foldLimit, stageTextAttachment } from '../../src/composer/composer-editor-files';
 import { toasts } from '../../src/shell/toast';
 import { memoryFiles, png } from '../support/app-files-fixture';
 
@@ -201,6 +201,21 @@ function captureFixture(capabilities: Obj = { questionAttachments: true }) {
   const captured = () => { state.capturing = []; state.captures = [{ id, owner: client.snapshotOwner }]; };
   return { client, native, files, calls, state, id, key, question, captured };
 }
+
+describe('a large paste during a question (foldPastedText)', () => {
+  test('folds where the question takes attachments, stays inline in a literal answer, and cannot fold where it takes none', async () => {
+    const { client } = await questionClient();
+    expect(foldLimit(client)).toBe(26_214_400);
+    const none = await questionClient({ questionAttachments: false });
+    expect(foldLimit(none.client)).toBe(0);
+    const literal = await questionClient();
+    Object.assign(literal.client.thread!.projection, asked([{ id: 'first', header: 'First', question: 'Edit this', allowCustomAnswer: true, initialAnswer: 'prefilled', options: [] }]));
+    expect(foldLimit(literal.client)).toBe(-1);
+    // No project: no thread to stage for.
+    client.projectId = '';
+    expect(foldLimit(client)).toBe(0);
+  });
+});
 
 describe('SnapShots during a question', () => {
   test('a capture taken while a question is open joins that question', async () => {
