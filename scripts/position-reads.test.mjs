@@ -22,7 +22,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // spaced or split access all count) or its row id `StyleId::PositionType`
 // (spaced or split across lines), in code outside comments, strings and
 // tests; in Swift the row's name, in code outside comments.
-const RUST = /\bposition_type\b|\b(?:StyleId|Self)\s*::\s*PositionType\b/g;
+const RUST = /\bposition_type\b|(?:\b(?:StyleId|Self)|<\s*(?:StyleId|Self)\s*>)\s*::\s*PositionType\b/g;
 // The row id reached any other way is refused outright, as no read may
 // hide behind it: a `use` group naming it, a rename in a `use` of StyleId
 // (`PositionType as P`, `self as Ids`, `StyleId as S`), a type alias of
@@ -32,12 +32,28 @@ const RUST = /\bposition_type\b|\b(?:StyleId|Self)\s*::\s*PositionType\b/g;
 const REFUSED = [
   [/\buse\b[^;]*\bStyleId\s*::\s*\{[^;]*\bPositionType\b[^;]*;/g, 'a `use` group naming StyleId::PositionType: write it out'],
   [/\buse\b[^;]*\bStyleId\b[^;]*\bas\b[^;]*;/g, 'a rename in a `use` of StyleId'],
-  [/\btype\s+\w+\s*(?:<[^>]*>\s*)?=\s*[\w:\s]*?\bStyleId\b/g, 'a type alias of StyleId'],
+  [/\btype\s+\w+[^=;{}]*=\s*[\w:\s<>]*?\bStyleId\b/g, 'a type alias of StyleId'],
   [/\buse\b[^;]*\bPositionType\s+as\b[^;]*;/g, 'a rename of PositionType'],
-  [/^use\b[^;]*\bStyleId\s*::\s*(?:\*|\{)[^;]*;/gm, "a module-wide glob or group of StyleId's rows (a child's `use super::*` would take them bare): import them in the function"],
   [/\bpub(?:\s*\([^)]*\))?\s+use\b[^;]*\bStyleId\s*::\s*(?:\*|\{|PositionType\b)[^;]*;/g, "a re-export of StyleId's rows"],
 ];
 const GLOB = /\bStyleId\s*::\s*(?:\*|\{[^}]*\*[^}]*\})/;
+// A glob or group of StyleId's rows in a module's own scope (a file's top,
+// or a `mod … { }`) puts them where a path (`super::PositionType`,
+// `rows::PositionType`) or a child's `use super::*` reaches them bare:
+// refused. In any other block (a function's body, a const's initializer)
+// they reach nothing past it, and a bare `PositionType` there counts (BARE).
+const ROWS_USE = /\buse\b[^;]*\bStyleId\s*::\s*(?:\*|\{)[^;]*;/g;
+
+/** Whether offset `i` of Rust `code` is in a module's own scope: every
+ * enclosing `{` opens a `mod`. */
+export function inModuleScope(code, i) {
+  const stack = [];
+  for (let j = 0; j < i; j++) {
+    if (code[j] === '{') stack.push(/\bmod\s+\w+\s*$/.test(code.slice(Math.max(0, j - 200), j)));
+    else if (code[j] === '}') stack.pop();
+  }
+  return stack.every(Boolean);
+}
 const BARE = /(?<!::\s*)\bPositionType\b(?!\s*::)/g;
 
 const SCOPES = [
@@ -191,6 +207,7 @@ export function directReads(root = ROOT) {
       const at = new Set([...scanned.matchAll(read)].map(m => lineOf(m.index)));
       if (rust && GLOB.test(scanned)) for (const m of scanned.matchAll(BARE)) if (!inUse(m.index)) at.add(lineOf(m.index));
       if (rust) for (const [re, why] of REFUSED) for (const m of scanned.matchAll(re)) out.push({ file, line: lineOf(m.index), text: lines[lineOf(m.index) - 1].trim(), refused: why });
+      if (rust) for (const m of scanned.matchAll(ROWS_USE)) if (inModuleScope(scanned, m.index)) out.push({ file, line: lineOf(m.index), text: lines[lineOf(m.index) - 1].trim(), refused: "a glob or group of StyleId's rows in a module's scope: import them in the function" });
       for (const line of [...at].sort((a, b) => a - b)) out.push({ file, line, text: lines[line - 1].trim() });
     }
   }
@@ -271,6 +288,21 @@ test('the scan finds a new read in any form, and skips comments, strings and tes
       'fn d(s: &Row) { s.get(P); s.get(Ids::Top); }',
     ].join('\n'));
     writeFileSync(join(root, 'kernel/src/parent.rs'), ['use crate::StyleId::*;', 'mod child;'].join('\n'));
+    writeFileSync(join(root, 'kernel/src/nested.rs'), [
+      'mod layout {',
+      '    use crate::StyleId::*;',
+      '    mod child { fn read(s: &Row) { let _ = s.get(super::PositionType); } }',
+      '}',
+      'fn local() {',
+      '    let _ = <StyleId>::PositionType;',
+      '}',
+      '',
+      '',
+      '',
+      'type Id<T> where T: Clone = crate::StyleId;',
+    ].join('\n'));
+    // A grouped glob alone in its file, in a function's body.
+    writeFileSync(join(root, 'kernel/src/grouped.rs'), ['fn local(s: &Row) {', '    use crate::StyleId::{self, *};', '    let _ = s.get(PositionType);', '}'].join('\n'));
     writeFileSync(join(root, 'host/linux/src/scan_tests.rs'), 'fn t(s: &StyleProps) { s.position_type; }');
     writeFileSync(join(root, 'host/apple/Sources/New.swift'), [
       'let p = view.style["position_type"]?.string',
@@ -295,7 +327,9 @@ test('the scan finds a new read in any form, and skips comments, strings and tes
       ...[2, 3, 6, 9, 10, 22, 23, 24, 26, 27, 29, 33].map(line => `kernel/src/new.rs:${line}`),
       ...[1, 2, 4].map(line => `kernel/src/glob.rs:${line}`),
       'kernel/src/parent.rs:1',
-      ...[1, 2, 3, 4, 7, 8, 9, 10].map(line => `kernel/src/rename.rs:${line}`),
+      ...[2, 6, 11].map(line => `kernel/src/nested.rs:${line}`),
+      'kernel/src/grouped.rs:3',
+      ...[1, 2, 3, 4, 6, 7, 8, 9, 10].map(line => `kernel/src/rename.rs:${line}`),
       ...[1, 4, 5, 9, 10, 11, 12, 14, 15].map(line => `host/apple/Sources/New.swift:${line}`),
     ].sort());
   } finally {
