@@ -155,7 +155,7 @@ final class PresenceIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "props", "id": 11, "set": ["accessibilitySelected": "true"]]]))
         let bar = try XCTUnwrap(p.views[10]?.subviews.first { $0 is UITabBar } as? UITabBar)
         window.layoutIfNeeded()
-        XCTAssertEqual(bar.safeAreaInsets.bottom, 34, "laid out inside the inset")
+        XCTAssertEqual(bar.safeAreaInsets.bottom, host.view.safeAreaInsets.bottom, "laid out inside the inset, including the device's own safe area")
         let height = bar.sizeThatFits(CGSize(width: 400, height: 0)).height
         p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 400 - Double(height), "w": 400.0, "h": Double(height)]]))
         window.layoutIfNeeded()
