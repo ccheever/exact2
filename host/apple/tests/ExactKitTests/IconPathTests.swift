@@ -27,6 +27,7 @@ final class IconPathTests: XCTestCase {
 
     private func icon(_ id: Int, _ style: [String: Any], sf: String = "") -> [[String: Any]] {
         var props: [String: Any] = ["imageSource": "symbol:icon|\(sf)|0 0 24 24|M2 2 L22 2 L22 22 L2 22 Z|icons/x.svg", "symbolName": sf]
+        if style["text_color"] != nil { props["symbolColorWritten"] = "1" }
         if sf.isEmpty { props["symbolPath"] = square; props["symbolViewBox"] = "0 0 24 24" }
         return [["op": "create", "id": id, "kind": "image", "props": props, "handlers": [], "style": ["font_size": 24.0].merging(style) { $1 }],
                 ["op": "frame", "id": id, "x": 0.0, "y": Double(id) * 30, "w": 24.0, "h": 24.0]]
