@@ -559,10 +559,6 @@ final class Field: NSTextField {
         guard let node = delegate as? NodeView, node.props["type"]?.lowercased() == "number" else { return nil }
         return node
     }
-    var comboOwner: NodeView? {
-        guard let node = delegate as? NodeView, node.props["accessibilityRole"] == "combobox" else { return nil }
-        return node
-    }
     /// AppKit serves the field's protocol role and its cell's legacy attributes.
     override func accessibilityRole() -> NSAccessibility.Role? {
         if comboOwner != nil { return .comboBox }
@@ -673,8 +669,30 @@ final class SecureField: NSSecureTextField {
     override var focusRingMaskBounds: NSRect { bareFieldMask(self) ?? super.focusRingMaskBounds }
     override func drawFocusRingMask() { if !drawBareFieldMask(self) { super.drawFocusRingMask() } }
 }
+extension NSTextField {
+    var comboOwner: NodeView? {
+        guard let node = delegate as? NodeView, node.props["accessibilityRole"] == "combobox" else { return nil }
+        return node
+    }
+    func comboboxAttribute(_ attribute: NSAccessibility.Attribute) -> Any? {
+        guard comboOwner != nil else { return nil }
+        switch attribute {
+        case .role: return NSAccessibility.Role.comboBox.rawValue
+        case .roleDescription: return NSAccessibility.Role.comboBox.description(with: nil)
+        case .expanded: return isAccessibilityExpanded()
+        default: return nil
+        }
+    }
+}
 /// A native search input's field (`SearchFieldCell`, NativeFieldsMac.swift).
 final class SearchField: NSSearchField {
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        comboOwner != nil ? .comboBox : cell?.accessibilityRole() ?? super.accessibilityRole()
+    }
+    override func isAccessibilityExpanded() -> Bool {
+        guard let node = comboOwner else { return super.isAccessibilityExpanded() }
+        return node.props["accessibilityExpanded"] == "true"
+    }
     override class var cellClass: AnyClass? { get { SearchFieldCell.self } set {} }
     override func becomeFirstResponder() -> Bool { focused(delegate) { super.becomeFirstResponder() } }
 }
