@@ -177,35 +177,40 @@ package struct TextPaint: Hashable {
         let backgroundRadii: [InlineRadius]
         let shadow: [Double]?
         let stroke: [Double]?
+        init(_ r: Run) {
+            hidden = r.hidden; fixedInk = r.fixedInk; color = r.color; decoration = r.decoration
+            underlineColor = r.underlineColor; strikeColor = r.strikeColor; href = r.href
+            background = r.background; backgroundBox = r.backgroundBox; backgroundRadii = r.backgroundRadii
+            shadow = r.shadow; stroke = r.stroke
+        }
+        func apply(to run: inout Run) {
+            run.hidden = hidden; run.fixedInk = fixedInk; run.color = color; run.decoration = decoration
+            run.underlineColor = underlineColor; run.strikeColor = strikeColor; run.href = href
+            run.background = background; run.backgroundBox = backgroundBox; run.backgroundRadii = backgroundRadii
+            run.shadow = shadow; run.stroke = stroke
+        }
     }
     package let color: [Double]
     package let runs: [Inline]
+    private let clamp: Inline?
     package let ellipsis: Bool
     package init(_ spec: Spec) {
         color = spec.color
         ellipsis = spec.ellipsis
-        runs = spec.runs.map { Inline(hidden: $0.hidden, fixedInk: $0.fixedInk, color: $0.color, decoration: $0.decoration,
-                                      underlineColor: $0.underlineColor, strikeColor: $0.strikeColor, href: $0.href, background: $0.background,
-                                      backgroundBox: $0.backgroundBox, backgroundRadii: $0.backgroundRadii,
-                                      shadow: $0.shadow, stroke: $0.stroke) }
+        runs = spec.runs.map(Inline.init)
+        if spec.lineClamp > 0, var block = spec.strut ?? spec.runs.first {
+            if block.shadow == spec.shadow { block.shadow = nil }
+            clamp = Inline(block)
+        } else { clamp = nil }
     }
     package func applying(to identity: TextIdentity) -> Spec {
         var spec = identity.geometry
         spec.color = color
         spec.ellipsis = ellipsis
-        for i in spec.runs.indices {
-            spec.runs[i].hidden = runs[i].hidden
-            spec.runs[i].fixedInk = runs[i].fixedInk
-            spec.runs[i].color = runs[i].color
-            spec.runs[i].decoration = runs[i].decoration
-            spec.runs[i].underlineColor = runs[i].underlineColor
-            spec.runs[i].strikeColor = runs[i].strikeColor
-            spec.runs[i].href = runs[i].href
-            spec.runs[i].background = runs[i].background
-            spec.runs[i].backgroundBox = runs[i].backgroundBox
-            spec.runs[i].backgroundRadii = runs[i].backgroundRadii
-            spec.runs[i].shadow = runs[i].shadow
-            spec.runs[i].stroke = runs[i].stroke
+        for i in spec.runs.indices { runs[i].apply(to: &spec.runs[i]) }
+        if var block = spec.strut, let clamp {
+            clamp.apply(to: &block)
+            spec.strut = block
         }
         return spec
     }
