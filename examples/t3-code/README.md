@@ -6,8 +6,9 @@ connections (HTTP, WebSocket RPC, the saved environments and their credentials).
 Markdown editor owns composer text, selection, styling and undo; TypeScript supplies the
 source's block and reference projection and guarded edit intents. A drop, a paste and Attach files
 are Contract's `drop`, `paste` and file input, their files staged in TypeScript
-(`composer-attach-stage.ts`). An app-local Swift module (`modules/apple/`) adapts type-to-focus,
-modifier events, large pastes, terminal and browser web views, menus,
+(`composer-attach-stage.ts`), and a large text paste folds into a file in the composer's `paste`.
+An app-local Swift module (`modules/apple/`) adapts type-to-focus,
+modifier events, terminal and browser web views, menus,
 notifications and window chrome. Provider execution, workspaces, Git and conversation
 history stay on the T3 server.
 The app carries the official T3 server release (the CLI archive of the release built from the
@@ -532,8 +533,7 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
   them, LLP 1039 D8), `T3RootFont.swift` (the native views' rem), and the data module's sleep
   (`timelineSleep`: data modules have no timers, and an answer that awaits a promise another
   answer settles is refused as pending on nothing when no fetch or storage step is in flight).
-- Composer OS adapters (`T3ComposerAttach` and `T3ComposerEditor`) retain large-paste folding,
-  type-to-focus and a video's first frame and typed link. The send chords, the queued edit's ⌥↑ and
+- The composer's OS adapter (`T3Composer`) keeps type-to-focus. The send chords, the queued edit's ⌥↑ and
   the open menus' keys are the composer's own `key` action (`app.contract` `composerKeyEvent`); the
   layouts' window-space boxes are `frame` reads on `resize` (`layoutFrames`, `src/shell/layout-frames.ts`),
   and a composer menu's trigger is measured with `frame` as the menu opens. A drop on the chat column or a sidebar row, a paste's files
@@ -544,9 +544,16 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
   `compressImage`. Paste as Text is the Contract's: Exact fires `paste` for `pasteAsPlainText:` as
   for Paste, and the composer's `key` handler arms the paste its ⇧⌘V brings, as the reference's
   keydown does (`isPasteAsTextShortcut`). Paste is enabled for files or image data alone where a
-  `paste` is heard. What stays native, and why: large-paste folding, which reads the
-  text view's edit before it lands (moving it to the Contract `paste` is open); and the first
-  frame (AVFoundation) and the typed link a video or audio file plays from. The composer is
+  `paste` is heard. A text paste of 32 KB or more (UTF-16 units or UTF-8 bytes), or one that
+  would take the prompt past 120,000 units, is the composer's `paste` too: it prevents the paste
+  and sends the field's value and selection with the text (`app.contract` `composerPasteFold`,
+  `composer.contract` `composerPasteDisposition`), and TypeScript stages a `pasted-text.txt` file
+  whose chip one guarded `setRangeText` puts in the paste's place, or shows the reference's
+  refusal (`composer-editor-files.ts` `foldPaste`); a paste Paste as Text armed stays inline.
+  A staged video or audio file keeps its extension (`composer-staged-copies.ts` `stagedName`),
+  which AVFoundation needs to play it; a video's shelf tile is a muted, paused `video` of that
+  copy sought to its first frame, and its display size for the preview is read from its header
+  (`composer-video.ts` `videoFrameSize`). The composer is
   Exact's Markdown editor (`textarea
   markup="markdown"`, LLP 1045): it styles lists, tasks, quotes, headings, rules and fenced code
   as they are typed, owns ⌘B/⌘I (`format`), and keeps native undo. The app reads the source

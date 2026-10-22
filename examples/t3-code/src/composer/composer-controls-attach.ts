@@ -105,7 +105,7 @@ export async function stageFiles(client: T3Client, native: Native, sources: Atta
       else if (stat.folder) staged.push({ kind: 'folder', name: source.name, path: source.path });
       else if (room <= 0) staged.push({ kind: 'over-limit', name: source.name });
       else {
-        const file = await stageAttachment(native, source, stat.size, limit);
+        const file = await stageAttachment(source, stat.size, limit);
         if (file.kind === 'image' || str(file.id)) room -= 1;
         staged.push(file);
       }

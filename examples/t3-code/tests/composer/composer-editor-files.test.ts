@@ -1,11 +1,12 @@
 import { describe, expect, test } from 'bun:test';
+import { toasts } from '../../src/shell/toast';
 import { observeComposer, acceptComposerEdit } from '../support/composer-field-fixture';
 import { obj, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { T3Client } from '../../src/client/client';
 import {
   adoptComposerFiles, base64Utf8, composerFileAttachments, composerFileRecords, draftFiles, fileAttachments, fileChipContexts, fileChipLink,
-  fileContextRecords, fileSendBlock, fileStagingLimit, formatAttachmentSize, nextPastedTextFileName, pruneFiles, referencedFiles, stageFold, takeFold,
+  fileContextRecords, fileSendBlock, fileStagingLimit, formatAttachmentSize, nextPastedTextFileName, pruneFiles, referencedFiles, stageFold, foldPaste,
 } from '../../src/composer/composer-editor-files';
 
 describe('large paste folding (textPaste.ts, foldPastedText)', () => {
@@ -81,12 +82,12 @@ describe('fold, chip and send', () => {
   test('a held paste stages once, chips where it went, and uploads with the send', async () => {
     const { native, client, calls, rpcs } = harness();
     const current = observeComposer(client, 'before ');
-    const fold = { id: 3, snapshotOwner: current.snapshotOwner, fieldOwner: current.owner, value: current.value, text: 'x'.repeat(40_000), start: 7, end: 7, expect: '' };
-    await takeFold(client, native, fold, 'f1');
-    await takeFold(client, native, fold, 'f2'); // the view re-asked: same fold, same file
+    const fold = { id: 3, snapshotOwner: current.snapshotOwner, fieldOwner: current.owner, value: current.value, text: 'x'.repeat(40_000), start: 7, end: 7 };
+    await foldPaste(client, native, 'fold', fold, 'f1');
+    await foldPaste(client, native, 'fold', fold, 'f2'); // the same record again: no second file
     const edits = calls.filter(call => call.op === 'editorEdit');
     expect(edits).toHaveLength(1);
-    expect(edits[0]).toMatchObject({ start: 7, end: 7, expect: '', pad: true, text: '[pasted-text.txt](t3-context://v1/file/file_f1) ' });
+    expect(edits[0]).toMatchObject({ start: 7, end: 7, pad: true, text: '[pasted-text.txt](t3-context://v1/file/file_f1) ' });
     expect(draftFiles(client.local)).toHaveLength(1);
     const prompt = `before ${String(edits[0]!.text)}`;
     expect(fileChipContexts(client, prompt)).toEqual({ 'file/file_f1': 'file\t40 KB' });
@@ -99,6 +100,18 @@ describe('fold, chip and send', () => {
     // A retried send reuses the upload.
     await composerFileAttachments(client, native, prompt);
     expect(rpcs).toHaveLength(1);
+  });
+  test('a refused paste is the reference\'s toast and stages nothing', async () => {
+    const { native, client, calls } = harness();
+    const current = observeComposer(client, 'before ');
+    const held = { id: 4, snapshotOwner: current.snapshotOwner, fieldOwner: current.owner, value: current.value, text: 'x'.repeat(130_000), start: 7, end: 7 };
+    await foldPaste(client, native, 'too-large-message', held, 'f1');
+    await foldPaste(client, native, 'too-large-attach', { ...held, id: 5 }, 'f2');
+    expect(toasts(client).map(toast => [toast.kind, toast.title, toast.description])).toEqual([
+      ['error', 'Pasted text is too large for this message', 'Remove some text or an attachment, then paste again.'],
+      ['error', 'Pasted text is too large to attach', 'Reduce the clipboard contents or save a smaller excerpt as a file.']]);
+    expect(draftFiles(client.local)).toEqual([]);
+    expect(calls).toEqual([]);
   });
   test('a staged file whose bytes were lost cannot send and draws unresolved', async () => {
     const { native, client } = harness();

@@ -13,6 +13,8 @@ import { wokeAt as sidebarWokeAt } from '../sidebar/sidebar-model';
 import { beginQueuedEdit, cancelQueuedEdit, queuedDrop, queueState, removeQueuedEditAttachment } from './composer-controls-queue';
 import { copyBranchName, dismissBranchMismatch, restoreThreadBranch, selectBranch, setEnvMode } from './composer-controls-branch';
 import { attachIncoming, type IncomingFiles } from './composer-controls-attach';
+import { foldPaste, type HeldPaste } from './composer-editor-files';
+import { uuid } from '../transport/transport-wire';
 import { queueRowDrop } from '../sidebar/legacy-sidebar-drop';
 import { openUsageLimits, closeUsageLimits, changeLimitRecovery, usageLocal } from './composer-controls-usage';
 import { feedbackLocal } from './composer-feedback';
@@ -261,6 +263,8 @@ export async function composerLocal(client: T3Client, _native: Native, _storage:
     const incoming = JSON.parse(value) as IncomingFiles;
     return id === 'row' ? queueRowDrop(client, incoming.target, incoming) : attachIncoming(client, _native, id, incoming);
   }
+  // A large paste the composer's `paste` held back (app.contract composerPasteFold): `id` is its disposition.
+  if (op === 'fold-paste') { await foldPaste(client, _native, id, JSON.parse(value) as HeldPaste, uuid()).catch(() => undefined); return ''; }
   if (op === 'branch-mismatch-dismiss') { dismissBranchMismatch(client, id); return ''; }
   if (op === 'branch-copy') return copyBranchName(client, _native, value);
   // The compact strip's workspace trigger has no context menu (BranchToolbar's MobileRunContextSelector).

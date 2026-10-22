@@ -35,6 +35,7 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "createProvider",
             "command",
             "composerAttach",
+            "composerFold",
             "composerEditor",
             "composerRich",
             "composerField",

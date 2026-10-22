@@ -18,7 +18,9 @@ function contractFns(file: string): Env {
   return fns;
 }
 const fns = contractFns('composer.contract');
+Object.assign(fns, { min: Math.min, max: Math.max });
 const takes = fns.composerPasteTakesFiles as (files: string[], text: string) => boolean;
+const disposition = fns.composerPasteDisposition as (text: string, valueLength: number, start: number, end: number, limit: number) => string;
 
 describe('a paste into the composer (onComposerPaste)', () => {
   test('an image of any type, or files with no text, attach; text beside a plain file stays text, a Finder copy\'s names too', () => {
@@ -30,15 +32,40 @@ describe('a paste into the composer (onComposerPaste)', () => {
     expect(takes([], '')).toBe(false);
   });
 
-  test('a paste of files is prevented and attached, Paste as Text armed by its key; a text paste is the field\'s', () => {
+  test('a large text paste folds into a file, at 32 KB in UTF-16 units or UTF-8 bytes or past the prompt limit (foldPastedText)', () => {
+    const limit = 50 * 1024 * 1024;
+    expect(disposition('', 0, 0, 0, limit)).toBe('inline');
+    expect(disposition('x'.repeat(32_767), 0, 0, 0, limit)).toBe('inline');
+    expect(disposition('x'.repeat(32_768), 0, 0, 0, limit)).toBe('fold');
+    // 10,923 three-byte characters are 32,769 bytes; 10,922 are 32,766.
+    expect(disposition('가'.repeat(10_923), 0, 0, 0, limit)).toBe('fold');
+    expect(disposition('가'.repeat(10_922), 0, 0, 0, limit)).toBe('inline');
+    // An emoji is two units and four bytes.
+    expect(disposition('😀'.repeat(8_192), 0, 0, 0, limit)).toBe('fold');
+    expect(disposition('😀'.repeat(8_191), 0, 0, 0, limit)).toBe('inline');
+    // Small, but past 120,000 units with the prompt (the selection it replaces counted out).
+    expect(disposition('abc', 119_998, 5, 5, limit)).toBe('fold');
+    expect(disposition('abc', 119_998, 5, 7, limit)).toBe('inline');
+    // No staging (a question pending, a full message, no uploads): inline, or refused past the prompt limit.
+    expect(disposition('x'.repeat(40_000), 0, 0, 0, 0)).toBe('inline');
+    expect(disposition('x'.repeat(130_000), 0, 0, 0, 0)).toBe('too-large-message');
+    // Over the server's file limit: the same, with its own refusal.
+    expect(disposition('x'.repeat(40_000), 0, 0, 0, 39_999)).toBe('inline');
+    expect(disposition('x'.repeat(40_000), 0, 0, 0, 40_000)).toBe('fold');
+    expect(disposition('x'.repeat(130_000), 0, 0, 0, 100_000)).toBe('too-large-attach');
+  });
+
+  test('a paste of files is prevented and attached, Paste as Text armed by its key; a text paste may fold unless armed', () => {
     const card = contractComponent('composer.contract', 'ComposerCard'), state = card.state();
     const calls: unknown[][] = [];
     let now = 5000;
     const scope = { ...fns, data: { projectId: 'p1' }, performanceNow: () => now, composerKeyEvent: () => {}, onBlur: () => calls.push(['blur']),
-      preventDefault: () => calls.push(['preventDefault']), attachFiles: (...args: unknown[]) => calls.push(['attachFiles', ...args]) };
+      preventDefault: () => calls.push(['preventDefault']), attachFiles: (...args: unknown[]) => calls.push(['attachFiles', ...args]),
+      composerPasteFold: (...args: unknown[]) => calls.push(['composerPasteFold', ...args]) };
     const image = [{ files: ['doc:/1/image.png'], text: '' }];
     card.call('pasted', state, scope, [{ files: [], text: 'hello' }]);
-    expect(calls).toEqual([]);
+    expect(calls).toEqual([['composerPasteFold', 'hello']]);
+    calls.length = 0;
     card.call('pasted', state, scope, image);
     expect(calls).toEqual([['preventDefault'], ['attachFiles', 'paste', ['doc:/1/image.png'], [], false, '']]);
     // isPasteAsTextShortcut: ⇧⌘V with no ⌥ or ⌃, by the key's character (event.key).
@@ -63,6 +90,13 @@ describe('a paste into the composer (onComposerPaste)', () => {
     card.call('richKey', state, scope, ['V', pasteAsText]);
     now += 1001;
     expect(armed()).toBe(false);
+    // Paste as Text keeps its text inline however large (bypassAutoAttachment): no fold is asked for.
+    card.call('richKey', state, scope, ['V', pasteAsText]);
+    const text = calls.length;
+    card.call('pasted', state, scope, [{ files: [], text: 'x'.repeat(40_000) }]);
+    expect(calls.length).toBe(text);
+    card.call('pasted', state, scope, [{ files: [], text: 'x'.repeat(40_000) }]);
+    expect(calls.at(-1)).toEqual(['composerPasteFold', 'x'.repeat(40_000)]);
     // Leaving the composer disarms it, as the reference's window blur does, and tells the window.
     card.call('richKey', state, scope, ['V', pasteAsText]);
     card.call('richBlurred', state, scope, []);

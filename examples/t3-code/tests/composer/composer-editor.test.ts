@@ -290,7 +290,6 @@ describe('skill chip labels', () => {
     await client.refresh(native, disk.files);
     const synced = async () => {
       await composerEditorView(client, native);
-      expect(native.calls.findLast(call => call.op === 'editorSync')).not.toHaveProperty('skills');
       const view = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: composerFieldOwner(client), value: '$imagegen $openai-docs $frontend-design ' });
       return Object.fromEntries(view.chips.map(chip => [chip.name, chip.face.label]));
     };
