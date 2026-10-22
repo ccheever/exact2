@@ -5735,7 +5735,7 @@ is unchanged.
   choose; a text shadow; a platform colour named `space.md`; px-only and app-set shadows with no key; a length
   keeping `terminal` while a shadow has none; no -0.
 
-### Stage 13: package icon tokens (draft for theme2)
+### Stage 13: package icon tokens
 
 theme2's 03:22 ruling on `~/x2theme/x2p4-s13-package-icons-plan.md` (Q1 yes, Q2 (a)); QUEUE "What a package's
 design can't do yet" (1). D11 is amended (above).
