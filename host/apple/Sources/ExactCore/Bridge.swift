@@ -422,6 +422,16 @@ package final class Runtime {
     }
     /// A frame's tick on the owner, not waited for (LLP 1072 §7.1); `frame`
     /// is the display frame it is for (LLP 1003.001 D5).
+    /// `calls`, in order, on the owner and not waited for: each batch goes to
+    /// `done` there (LLP 1027.007 P1).
+    package func later(_ calls: [(Runtime) -> Batch], done: @escaping (Batch) -> Void) {
+        Owner.shared.post { [self] in
+            for call in calls {
+                guard !destroyed else { return }
+                done(call(self))
+            }
+        }
+    }
     package func tickAsync(now: Double, frame: Double? = nil, done: @escaping (Batch) -> Void) {
         Owner.shared.post { [self] in
             guard !destroyed else { return }
@@ -588,8 +598,8 @@ package final class Runtime {
     package func setTime(epochAtZero: Double, utcOffset: Double) -> Batch { on { read(exact_set_time(rt, epochAtZero, utcOffset)) } }
     package func setLaunchTime(epochAtZero: Double, utcOffset: Double) { on { () -> Void in _ = exact_set_launch_time(rt, epochAtZero, utcOffset) } }
     @discardableResult
-    package func setLaunchPlace(locale: String, timeZone: String, seed: UInt64) -> Batch { on {
-        let count = exact_set_launch_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed)))
+    package func setLaunchPlace(locale: String, timeZone: String, seed: UInt64, formatLocale: String = "") -> Batch { on {
+        let count = exact_set_launch_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed) + "\0" + formatLocale))
         return count == 0 ? Batch(ops: [], timers: false, motion: false, clock: nil, error: nil) : read(count)
     } }
     package func setPreferences(_ bits: UInt32) -> Batch { on { read(exact_set_preferences(rt, bits)) } }
@@ -597,6 +607,7 @@ package final class Runtime {
     /// Whether the running plan reads `onLine`; true when the owner is busy.
     package func readsOnLine() -> Bool { on(busy: true) { exact_reads_on_line(rt) != 0 } }
     package func setRootFontSize(_ px: Double) -> Batch { on { read(exact_set_root_font_size(rt, px)) } }
+    package func setRootFontZoom(_ factor: Double) -> Batch { on { read(exact_set_root_font_zoom(rt, factor)) } }
     /// A live design batch or snapshot frame (LLP 1121 stage 4), applied in place.
     package func designRows(_ frame: String) -> Batch { on { read(exact_design_rows(rt, write(frame))) } }
     /// The design digest the running app runs; nil before boot.
@@ -621,7 +632,7 @@ package final class Runtime {
     package func bindExtensions(_ names: [String]) { on { exact_bind_extensions(rt, write(names.joined(separator: "\n"))) } }
     package func setModes(_ pins: [String: String], check: Bool = false) -> Batch { on { read(exact_set_mode(rt, write((check ? "?" : "") + pins.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")))) } }
     package func setDisplayScale(_ scale: Double) -> Batch { on { read(exact_set_display_scale(rt, scale)) } }
-    package func setPlace(locale: String, timeZone: String, seed: UInt64) -> Batch { on { read(exact_set_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed))) ) } }
+    package func setPlace(locale: String, timeZone: String, seed: UInt64, formatLocale: String = "") -> Batch { on { read(exact_set_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed) + "\0" + formatLocale)) ) } }
     package func listIndex(_ view: UInt32, key: String) -> Int? {
         return on(busy: nil) {
             let n = write(key)
@@ -652,13 +663,15 @@ package final class Runtime {
     /// What changed of the view at once (`exact_view`): each part given is
     /// told, the window's size (`.some(nil)` clears it), the safe-area
     /// insets, the layout regions (`.some(nil)` when every region is the
-    /// safe area) and the viewport, in one batch under one layout.
+    /// safe area), the viewport and the segments' rects on the grid the
+    /// kernel has (a keyboard's), in one batch under one layout.
     package struct ViewChange {
         package var screen: CGSize?? = nil
         package var insets: (top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat)? = nil
         package var regions: [CGFloat]?? = nil
         package var size: CGSize? = nil
-        package var isEmpty: Bool { screen == nil && insets == nil && regions == nil && size == nil }
+        package var segments: [CGRect]? = nil
+        package var isEmpty: Bool { screen == nil && insets == nil && regions == nil && size == nil && segments == nil }
         package init(screen: CGSize?? = nil, insets: (top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat)? = nil,
                      regions: [CGFloat]?? = nil, size: CGSize? = nil) {
             self.screen = screen; self.insets = insets; self.regions = regions; self.size = size
@@ -671,10 +684,12 @@ package final class Runtime {
         if change.insets != nil { mask |= 2 }
         if change.regions != nil { mask |= 4 }
         if change.size != nil { mask |= 8 }
+        if change.segments != nil { mask |= 16 }
         let screen = (change.screen ?? nil) ?? .zero, insets = change.insets ?? (0, 0, 0, 0), size = change.size ?? .zero
         let floats = [screen.width, screen.height, insets.top, insets.right, insets.bottom, insets.left, size.width, size.height]
-        var bytes = Data(capacity: (10 + regions.count) * 4)
-        for word in [mask] + floats.map({ Float($0).bitPattern }) + [UInt32(regions.count)] + regions.map({ Float($0).bitPattern }) {
+        let rects = change.segments.map { rects in [UInt32(rects.count)] + rects.flatMap { [$0.minX, $0.minY, $0.width, $0.height].map { Float($0).bitPattern } } } ?? []
+        var bytes = Data(capacity: (10 + regions.count + rects.count) * 4)
+        for word in [mask] + floats.map({ Float($0).bitPattern }) + [UInt32(regions.count)] + regions.map({ Float($0).bitPattern }) + rects {
             withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) }
         }
         return on { read(exact_view(rt, write(bytes))) }

@@ -10,6 +10,7 @@ fn collection_edges_keep_the_compilers_refusal_for_a_plan_without_virtualization
         let disabled = plan.slots[0].init;
         let binding = plan
             .bindings
+            .to_mut()
             .iter_mut()
             .find(|b| {
                 b.kind == exact_plan::BindingKind::Prop

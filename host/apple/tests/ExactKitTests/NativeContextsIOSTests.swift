@@ -257,8 +257,7 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual((0..<3).map { segments.titleForSegment(at: $0) }, ["Day", "Week", "Month"])
         // A face that becomes a symbol drops its title.
         p.buttonFace = { [unowned self] id in id == 2 ? self.face(nil, symbol: "sun.max", label: "Day") : self.face(id == 3 ? "Week" : "Month") }
-        p.views[2]?.props["accessibilityLabel"] = "Day"
-        p.segments.sync()
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityLabel": "Day"], "clear": []]]))
         XCTAssertNotNil(segments.imageForSegment(at: 0))
         XCTAssertEqual(segments.titleForSegment(at: 0) ?? "", "", "an image segment shows no title")
         // Symbols alone, named by their labels: image segments.
@@ -600,7 +599,7 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true)
         XCTAssertNotNil(controller.presentedViewController as? UIAlertController)
         names[3] = "Citymapper"
-        p.menus.sync()
+        p.apply(facesBatch())
         XCTAssertNil(p.menus.observation(), "the sheet is gone")
         XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[3])), false)
         XCTAssertEqual(pressed, [])

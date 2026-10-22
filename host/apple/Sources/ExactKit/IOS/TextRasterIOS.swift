@@ -112,10 +112,15 @@ final class TextRasterizer {
     /// running, else rendered here. `now`: what shows is stale, and is
     /// painted now too (a presented colour). Otherwise a worker job at
     /// `priority`, if there is room for one (false when there is not).
+    /// `urgent` and what shows are asked only of a paragraph whose pixels
+    /// are not already its words': they walk its clipping ancestors, and a
+    /// batch's display pass asks again of every paragraph it gave new words.
     @discardableResult
-    func ensure(_ node: NodeView, urgent: Bool, now: Bool = false, priority: Operation.QueuePriority = .normal) -> Bool {
+    func ensure(_ node: NodeView, urgent isUrgent: @autoclosure () -> Bool, now: Bool = false, priority: Operation.QueuePriority = .normal) -> Bool {
         guard node.canRasterText else { return true }
         let key = key(node)
+        if node.textRasterKey == key && node.textRasterReady { return true }
+        let urgent = isUrgent()
         let visible = node.presenter?.textUrgentRect(node) ?? .zero
         // A whole paragraph's pixels of other words are none of this text's:
         // an urgent paint replaces them now, rather than a worker a frame
@@ -385,7 +390,10 @@ final class TextClips {
         rect(node.bounds, of: node, shift: shift(node, above: entry(node.superview).shift))
     }
     /// What `Presenter.textBand` finds by walking, for this reach or none;
-    /// nil for any other reach.
+    /// nil for any other reach, and outside the viewport or under a
+    /// transform, where clips meet as their bounding boxes in the
+    /// viewport's space (a rotated parent's covers a corner its own bounds
+    /// do not) and only the walk is exact.
     func band(_ node: NodeView, reach: CGFloat) -> CGRect? {
         guard let index = reaches.firstIndex(of: reach) else { return nil }
         if node.isHidden || node.alpha == 0 { return .zero }
@@ -393,11 +401,10 @@ final class TextClips {
         let clip = above.clips[index]
         guard !clip.isNull else { return .zero }
         if clip.isInfinite { return node.bounds }
-        let own = shift(node, above: above.shift)
+        guard let own = shift(node, above: above.shift) else { return nil }
         let band = rect(node.bounds, of: node, shift: own).intersection(clip)
         guard !band.isNull else { return .zero }
-        let local = own.map { band.offsetBy(dx: -$0.x, dy: -$0.y) } ?? node.convert(band, from: viewport)
-        return local.intersection(node.bounds)
+        return band.offsetBy(dx: -own.x, dy: -own.y).intersection(node.bounds)
     }
 }
 
@@ -469,6 +476,10 @@ extension Presenter {
         guard !changedText.isEmpty else { return }
         let ids = changedText
         changedText = []
+        // Each clipping ancestor's geometry once, not once per paragraph
+        // (a log's hundred rows, each given its neighbour's words).
+        textClips = TextClips(viewport, soon: 0, reach: 0)
+        defer { textClips = nil }
         for id in ids {
             guard let node = views[id], node.canRasterText, !node.bounds.isEmpty, textIsVisible(node) else { continue }
             textRasters.ensure(node, urgent: true)

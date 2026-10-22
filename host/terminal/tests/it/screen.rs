@@ -1033,3 +1033,28 @@ fn autofocus_takes_the_focus_once_and_never_refills_it() {
         vt.text(false)
     );
 }
+
+/// With nothing focused the root's `key` handler hears every key, a
+/// printable one and one that would scroll, as the web's `window` listener
+/// hears one at `<body>`.
+#[test]
+fn with_nothing_focused_the_root_hears_keys() {
+    const ROOT_KEYS: &str = r#"component App
+  state heard = ""
+  action keyed(k: string)
+    heard = `${heard}${k};`
+  view
+    column key=keyed
+      text `heard [${heard}]`
+"#;
+    let plan = contract::compile(ROOT_KEYS).expect("compiles");
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 40, 10).expect("boots");
+    let mut vt = Vt::new(&mut host);
+    vt.render(&mut host);
+    read(&mut host, &mut vt, &[Key::Char('a'), Key::Named("End")]);
+    assert!(
+        vt.text(false).contains("heard [a;End;]"),
+        "{}",
+        vt.text(false)
+    );
+}

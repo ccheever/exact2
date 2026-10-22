@@ -295,7 +295,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
     func menu(_ owner: Open) -> UIMenu? {
         fire(owner)
         guard let menus, let pop = current(owner) else { return nil }
-        let items = menus.items(of: pop)
+        let items = menus.items(of: pop, opener: owner.source) // a row's popover opens from the pressed node (LLP 1021)
         return items.isEmpty ? nil : UIMenu(title: pop.props["accessibilityLabel"] ?? "", children: items)
     }
 

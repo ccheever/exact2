@@ -594,8 +594,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     func layoutSymbol() {
         guard let leaf = symbolView else { return }
         let content = contentBox()
-        leaf.frame = content; leaf.clipsToBounds = true
-        switch style["object_fit"]?.string ?? "fill" {
+        leaf.frame = content; leaf.clipsToBounds = !listSymbol // a list cell's image is its own size, centred, as UIKit's
+        switch listSymbol ? "none" : style["object_fit"]?.string ?? "fill" {
         case "cover": leaf.contentMode = .scaleAspectFill
         case "none": leaf.contentMode = .center
         case "scale-down":
@@ -1066,7 +1066,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         }
     }
     func updateMaterial() {
-        defer { syncGlassSlot(); syncGlassGroup(); settleVibrancy() }
+        defer { syncGlassSlot(); syncGlassGroup(); settleVibrancy(); syncDefaultSurfaceScroll() }
         let kind = materialRequest
         let supported = kind != nil
         let interactive = Materials.glass(kind) && handlers.contains("press") && !disabled
@@ -1104,7 +1104,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
     func applyMaterialRadius() {
         guard let materialView else { return }
-        let radius = BorderPaint.clip(materialView.layer, in: bounds, radii: cornerSizes(in: bounds))
+        let authored = BorderPaint.clip(materialView.layer, in: bounds, radii: cornerSizes(in: bounds))
+        let radius = (writesCorner ? nil : defaultSurfaceRadius) ?? authored
         if #available(iOS 26.0, tvOS 26.0, *) {
             materialView.cornerConfiguration = .corners(radius: .fixed(Double(radius)))
         } else {
@@ -1167,7 +1168,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // A `link`, pressable or a box with the role, is a link to VoiceOver, never also a button (LLP 1115.000 D11.6).
             let link = props["accessibilityRole"] == "link"
             accessibilityTraits.insert(link ? .link : .button); accessibilityTraits.remove(link ? .button : .link)
-            if props["accessibilitySelected"] == "true" { accessibilityTraits.insert(.selected) } else { accessibilityTraits.remove(.selected) }
+            // `aria-current` (not `false`) is the selected trait too: UIKit has no
+            // current, and a bar's current item is its selected one (theme2 2026-10-22 06:40).
+            let current = props["accessibilityCurrent"].map { !["", "false"].contains($0) } ?? false
+            if props["accessibilitySelected"] == "true" || current { accessibilityTraits.insert(.selected) } else { accessibilityTraits.remove(.selected) }
             setAccessibilityToggle(pressedState)
             if let checked = checkedRole { setAccessibilityChecked(checked.role, checked.checked) }
             if #available(iOS 18, tvOS 18, *) {
@@ -1378,7 +1382,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if focusRing != nil { showFocusRing(true) }
         if let s = presenter?.session, s.firstLayoutMs == nil { s.firstLayoutMs = ExactEnv.wall() }
         super.layoutSubviews()
-        if materialView != nil { applyMaterialRadius() }
+        if materialView != nil { applyMaterialRadius(); syncDefaultSurfaceScroll() } // its corners, at its size
         syncEllipticalClip()
         if style["perspective"] != nil { applyPerspective() }
         if kind == "image" { if flightLook == nil { presenter?.session?.rasters.resized(self) }; if raster != nil { applyImageLayer() } }

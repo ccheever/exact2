@@ -28,10 +28,12 @@ async function page(boot, run) {
   `;
   const html = `<div id="host"><canvas data-surface></canvas></div><iframe id="frame"></iframe><script type="module">
     globalThis.inputs = [];
+    // The tier is chosen from an adapter before the stub module loads (gpu-tier.js); a headless shell has none.
+    Object.defineProperty(navigator, 'gpu', {configurable:true, value:{requestAdapter: async () => ({info:{}})}});
     const host = document.getElementById('host');
     globalThis.exact = {views:new Map([[1, host], [2, document.getElementById('frame')]]), root:document.body, now:()=>0, devAssets:[], generation:0, postBound:64, compat:{inputs:{gpuModules:{}}}};
     ${boot}
-    const views = exact.views, retiredViews = new WeakSet(), POST_BOUND = 64, incarnation = 0, now = () => 0, wasm = {}, tagged = x => x, ask = () => ({}), log = line => console.log(line);
+    const views = exact.views, retiredViews = new WeakSet(), POST_BOUND = 64, incarnation = 0, now = () => 0, wasm = {}, tagged = x => x, ask = () => ({}), log = line => console.log(line), agentMode = false;
     ${adapter}
     globalThis.askAgent = agentReply; globalThis.ready = true;
   </script>`;

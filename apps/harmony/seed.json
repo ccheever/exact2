@@ -1,0 +1,2761 @@
+[
+ {
+  "table": "profiles",
+  "row": {
+   "id": "01HARMNY000000000000000001",
+   "principal": "dev:ada",
+   "name": "Ada Quill",
+   "handle": "ada",
+   "status": "Shipping Harmony 🚀",
+   "hue": 1
+  }
+ },
+ {
+  "table": "profiles",
+  "row": {
+   "id": "01HARMNY000000000000000002",
+   "principal": "dev:grace",
+   "name": "Grace Marlowe",
+   "handle": "grace",
+   "status": "In the zone",
+   "hue": 2
+  }
+ },
+ {
+  "table": "profiles",
+  "row": {
+   "id": "01HARMNY000000000000000003",
+   "principal": "dev:lin",
+   "name": "Lin Byrne",
+   "handle": "lin",
+   "status": "Debugging the universe",
+   "hue": 3
+  }
+ },
+ {
+  "table": "profiles",
+  "row": {
+   "id": "01HARMNY000000000000000004",
+   "principal": "dev:maggie",
+   "name": "Maggie Osei",
+   "handle": "maggie",
+   "status": "Coffee first ☕️",
+   "hue": 4
+  }
+ },
+ {
+  "table": "profiles",
+  "row": {
+   "id": "01HARMNY000000000000000005",
+   "principal": "dev:alan",
+   "name": "Alan Reyes",
+   "handle": "alan",
+   "status": "On a walk",
+   "hue": 5
+  }
+ },
+ {
+  "table": "profiles",
+  "row": {
+   "id": "01HARMNY000000000000000006",
+   "principal": "dev:ken",
+   "name": "Ken Takahashi",
+   "handle": "ken",
+   "status": "🎧 lo-fi",
+   "hue": 6
+  }
+ },
+ {
+  "table": "rooms",
+  "row": {
+   "id": "01HARMNY000000000000000007",
+   "kind": "text",
+   "name": "announcements",
+   "topic": "Team-wide news. Big things only.",
+   "category": "Information",
+   "position": 0,
+   "createdBy": "dev:ada",
+   "createdAt": 1790006409000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY000000000000000008",
+   "roomId": "01HARMNY000000000000000007",
+   "principal": "dev:ada",
+   "joinedAt": 1790006448000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY000000000000000009",
+   "roomId": "01HARMNY000000000000000007",
+   "principal": "dev:grace",
+   "joinedAt": 1790006447000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000000A",
+   "roomId": "01HARMNY000000000000000007",
+   "principal": "dev:lin",
+   "joinedAt": 1790006437000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000000B",
+   "roomId": "01HARMNY000000000000000007",
+   "principal": "dev:maggie",
+   "joinedAt": 1790006406000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000000C",
+   "roomId": "01HARMNY000000000000000007",
+   "principal": "dev:alan",
+   "joinedAt": 1790006415000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000000D",
+   "roomId": "01HARMNY000000000000000007",
+   "principal": "dev:ken",
+   "joinedAt": 1790006422000
+  }
+ },
+ {
+  "table": "rooms",
+  "row": {
+   "id": "01HARMNY00000000000000000E",
+   "kind": "text",
+   "name": "general",
+   "topic": "The whole team, all day",
+   "category": "Text Channels",
+   "position": 10,
+   "createdBy": "dev:ada",
+   "createdAt": 1790006424000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000000F",
+   "roomId": "01HARMNY00000000000000000E",
+   "principal": "dev:ada",
+   "joinedAt": 1790006417000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000000G",
+   "roomId": "01HARMNY00000000000000000E",
+   "principal": "dev:grace",
+   "joinedAt": 1790006401000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000000H",
+   "roomId": "01HARMNY00000000000000000E",
+   "principal": "dev:lin",
+   "joinedAt": 1790006447000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000000J",
+   "roomId": "01HARMNY00000000000000000E",
+   "principal": "dev:maggie",
+   "joinedAt": 1790006402000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000000K",
+   "roomId": "01HARMNY00000000000000000E",
+   "principal": "dev:alan",
+   "joinedAt": 1790006407000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000000M",
+   "roomId": "01HARMNY00000000000000000E",
+   "principal": "dev:ken",
+   "joinedAt": 1790006425000
+  }
+ },
+ {
+  "table": "rooms",
+  "row": {
+   "id": "01HARMNY00000000000000000N",
+   "kind": "text",
+   "name": "random",
+   "topic": "Off-topic, memes and dogs",
+   "category": "Text Channels",
+   "position": 11,
+   "createdBy": "dev:ada",
+   "createdAt": 1790006423000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000000P",
+   "roomId": "01HARMNY00000000000000000N",
+   "principal": "dev:ada",
+   "joinedAt": 1790006426000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000000Q",
+   "roomId": "01HARMNY00000000000000000N",
+   "principal": "dev:grace",
+   "joinedAt": 1790006421000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000000R",
+   "roomId": "01HARMNY00000000000000000N",
+   "principal": "dev:lin",
+   "joinedAt": 1790006414000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000000S",
+   "roomId": "01HARMNY00000000000000000N",
+   "principal": "dev:maggie",
+   "joinedAt": 1790006414000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000000T",
+   "roomId": "01HARMNY00000000000000000N",
+   "principal": "dev:alan",
+   "joinedAt": 1790006433000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000000V",
+   "roomId": "01HARMNY00000000000000000N",
+   "principal": "dev:ken",
+   "joinedAt": 1790006435000
+  }
+ },
+ {
+  "table": "rooms",
+  "row": {
+   "id": "01HARMNY00000000000000000W",
+   "kind": "text",
+   "name": "design",
+   "topic": "Mockups, type and colour",
+   "category": "Text Channels",
+   "position": 12,
+   "createdBy": "dev:ada",
+   "createdAt": 1790006402000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000000X",
+   "roomId": "01HARMNY00000000000000000W",
+   "principal": "dev:ada",
+   "joinedAt": 1790006426000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000000Y",
+   "roomId": "01HARMNY00000000000000000W",
+   "principal": "dev:grace",
+   "joinedAt": 1790006429000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000000Z",
+   "roomId": "01HARMNY00000000000000000W",
+   "principal": "dev:lin",
+   "joinedAt": 1790006400000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY000000000000000010",
+   "roomId": "01HARMNY00000000000000000W",
+   "principal": "dev:maggie",
+   "joinedAt": 1790006444000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY000000000000000011",
+   "roomId": "01HARMNY00000000000000000W",
+   "principal": "dev:alan",
+   "joinedAt": 1790006437000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY000000000000000012",
+   "roomId": "01HARMNY00000000000000000W",
+   "principal": "dev:ken",
+   "joinedAt": 1790006405000
+  }
+ },
+ {
+  "table": "rooms",
+  "row": {
+   "id": "01HARMNY000000000000000013",
+   "kind": "text",
+   "name": "engineering",
+   "topic": "Builds, bugs and pull requests",
+   "category": "Text Channels",
+   "position": 13,
+   "createdBy": "dev:ada",
+   "createdAt": 1790006449000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY000000000000000014",
+   "roomId": "01HARMNY000000000000000013",
+   "principal": "dev:ada",
+   "joinedAt": 1790006426000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY000000000000000015",
+   "roomId": "01HARMNY000000000000000013",
+   "principal": "dev:grace",
+   "joinedAt": 1790006445000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY000000000000000016",
+   "roomId": "01HARMNY000000000000000013",
+   "principal": "dev:lin",
+   "joinedAt": 1790006434000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY000000000000000017",
+   "roomId": "01HARMNY000000000000000013",
+   "principal": "dev:maggie",
+   "joinedAt": 1790006443000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY000000000000000018",
+   "roomId": "01HARMNY000000000000000013",
+   "principal": "dev:alan",
+   "joinedAt": 1790006424000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY000000000000000019",
+   "roomId": "01HARMNY000000000000000013",
+   "principal": "dev:ken",
+   "joinedAt": 1790006419000
+  }
+ },
+ {
+  "table": "rooms",
+  "row": {
+   "id": "01HARMNY00000000000000001A",
+   "kind": "text",
+   "name": "music",
+   "topic": "What are you listening to?",
+   "category": "Text Channels",
+   "position": 14,
+   "createdBy": "dev:ada",
+   "createdAt": 1790006443000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000001B",
+   "roomId": "01HARMNY00000000000000001A",
+   "principal": "dev:ada",
+   "joinedAt": 1790006426000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000001C",
+   "roomId": "01HARMNY00000000000000001A",
+   "principal": "dev:grace",
+   "joinedAt": 1790006433000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000001D",
+   "roomId": "01HARMNY00000000000000001A",
+   "principal": "dev:lin",
+   "joinedAt": 1790006449000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000001E",
+   "roomId": "01HARMNY00000000000000001A",
+   "principal": "dev:maggie",
+   "joinedAt": 1790006420000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000001F",
+   "roomId": "01HARMNY00000000000000001A",
+   "principal": "dev:alan",
+   "joinedAt": 1790006403000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000001G",
+   "roomId": "01HARMNY00000000000000001A",
+   "principal": "dev:ken",
+   "joinedAt": 1790006429000
+  }
+ },
+ {
+  "table": "rooms",
+  "row": {
+   "id": "01HARMNY00000000000000001H",
+   "kind": "text",
+   "name": "harmony-launch",
+   "topic": "Getting Harmony out the door",
+   "category": "Projects",
+   "position": 20,
+   "createdBy": "dev:ada",
+   "createdAt": 1790006437000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000001J",
+   "roomId": "01HARMNY00000000000000001H",
+   "principal": "dev:ada",
+   "joinedAt": 1790006400000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000001K",
+   "roomId": "01HARMNY00000000000000001H",
+   "principal": "dev:grace",
+   "joinedAt": 1790006445000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000001M",
+   "roomId": "01HARMNY00000000000000001H",
+   "principal": "dev:lin",
+   "joinedAt": 1790006433000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000001N",
+   "roomId": "01HARMNY00000000000000001H",
+   "principal": "dev:maggie",
+   "joinedAt": 1790006432000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000001P",
+   "roomId": "01HARMNY00000000000000001H",
+   "principal": "dev:alan",
+   "joinedAt": 1790006406000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000001Q",
+   "roomId": "01HARMNY00000000000000001H",
+   "principal": "dev:ken",
+   "joinedAt": 1790006405000
+  }
+ },
+ {
+  "table": "rooms",
+  "row": {
+   "id": "01HARMNY00000000000000001R",
+   "kind": "text",
+   "name": "bake-off",
+   "topic": "Exact against the rest, round by round",
+   "category": "Projects",
+   "position": 21,
+   "createdBy": "dev:ada",
+   "createdAt": 1790006442000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000001S",
+   "roomId": "01HARMNY00000000000000001R",
+   "principal": "dev:ada",
+   "joinedAt": 1790006410000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000001T",
+   "roomId": "01HARMNY00000000000000001R",
+   "principal": "dev:grace",
+   "joinedAt": 1790006431000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000001V",
+   "roomId": "01HARMNY00000000000000001R",
+   "principal": "dev:lin",
+   "joinedAt": 1790006443000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000001W",
+   "roomId": "01HARMNY00000000000000001R",
+   "principal": "dev:maggie",
+   "joinedAt": 1790006410000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000001X",
+   "roomId": "01HARMNY00000000000000001R",
+   "principal": "dev:alan",
+   "joinedAt": 1790006431000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000001Y",
+   "roomId": "01HARMNY00000000000000001R",
+   "principal": "dev:ken",
+   "joinedAt": 1790006440000
+  }
+ },
+ {
+  "table": "rooms",
+  "row": {
+   "id": "01HARMNY00000000000000001Z",
+   "kind": "dm",
+   "name": "",
+   "topic": "",
+   "category": "",
+   "position": 0,
+   "createdBy": "dev:ada",
+   "createdAt": 1792166400000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY000000000000000020",
+   "roomId": "01HARMNY00000000000000001Z",
+   "principal": "dev:ada",
+   "joinedAt": 1792166426000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY000000000000000021",
+   "roomId": "01HARMNY00000000000000001Z",
+   "principal": "dev:grace",
+   "joinedAt": 1792166405000
+  }
+ },
+ {
+  "table": "rooms",
+  "row": {
+   "id": "01HARMNY000000000000000022",
+   "kind": "dm",
+   "name": "",
+   "topic": "",
+   "category": "",
+   "position": 0,
+   "createdBy": "dev:ada",
+   "createdAt": 1792166431000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY000000000000000023",
+   "roomId": "01HARMNY000000000000000022",
+   "principal": "dev:ada",
+   "joinedAt": 1792166443000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY000000000000000024",
+   "roomId": "01HARMNY000000000000000022",
+   "principal": "dev:lin",
+   "joinedAt": 1792166420000
+  }
+ },
+ {
+  "table": "rooms",
+  "row": {
+   "id": "01HARMNY000000000000000025",
+   "kind": "dm",
+   "name": "",
+   "topic": "",
+   "category": "",
+   "position": 0,
+   "createdBy": "dev:ada",
+   "createdAt": 1792166408000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY000000000000000026",
+   "roomId": "01HARMNY000000000000000025",
+   "principal": "dev:ada",
+   "joinedAt": 1792166448000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY000000000000000027",
+   "roomId": "01HARMNY000000000000000025",
+   "principal": "dev:ken",
+   "joinedAt": 1792166405000
+  }
+ },
+ {
+  "table": "rooms",
+  "row": {
+   "id": "01HARMNY000000000000000028",
+   "kind": "dm",
+   "name": "",
+   "topic": "",
+   "category": "",
+   "position": 0,
+   "createdBy": "dev:grace",
+   "createdAt": 1792166426000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY000000000000000029",
+   "roomId": "01HARMNY000000000000000028",
+   "principal": "dev:grace",
+   "joinedAt": 1792166432000
+  }
+ },
+ {
+  "table": "members",
+  "row": {
+   "id": "01HARMNY00000000000000002A",
+   "roomId": "01HARMNY000000000000000028",
+   "principal": "dev:maggie",
+   "joinedAt": 1792166406000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000002B",
+   "roomId": "01HARMNY000000000000000007",
+   "authorId": "dev:ada",
+   "body": "Welcome to Harmony! This is the team server for everything we are building. Channels on the left, people on the right, your stuff under You.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792080004000
+  }
+ },
+ {
+  "table": "pins",
+  "row": {
+   "id": "01HARMNY00000000000000002C",
+   "roomId": "01HARMNY000000000000000007",
+   "messageId": "01HARMNY00000000000000002B",
+   "pinnedBy": "dev:ada",
+   "at": 1792080604000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000002D",
+   "roomId": "01HARMNY000000000000000007",
+   "messageId": "01HARMNY00000000000000002B",
+   "principal": "dev:grace",
+   "emoji": "🎉",
+   "at": 1792080304000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000002E",
+   "roomId": "01HARMNY000000000000000007",
+   "messageId": "01HARMNY00000000000000002B",
+   "principal": "dev:lin",
+   "emoji": "🎉",
+   "at": 1792080304000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000002F",
+   "roomId": "01HARMNY000000000000000007",
+   "messageId": "01HARMNY00000000000000002B",
+   "principal": "dev:ken",
+   "emoji": "👋",
+   "at": 1792080304000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000002G",
+   "roomId": "01HARMNY000000000000000007",
+   "messageId": "01HARMNY00000000000000002B",
+   "principal": "dev:maggie",
+   "emoji": "🎉",
+   "at": 1792080304000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000002H",
+   "roomId": "01HARMNY000000000000000007",
+   "authorId": "dev:maggie",
+   "body": "Demo day is Friday at 2pm. We are showing Harmony on an iPhone, a Mac and in Safari, all from the same source file. Bring snacks.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792431024000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000002J",
+   "roomId": "01HARMNY000000000000000007",
+   "messageId": "01HARMNY00000000000000002H",
+   "principal": "dev:alan",
+   "emoji": "🔥",
+   "at": 1792431324000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000002K",
+   "roomId": "01HARMNY000000000000000007",
+   "messageId": "01HARMNY00000000000000002H",
+   "principal": "dev:ada",
+   "emoji": "🔥",
+   "at": 1792431324000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000002M",
+   "roomId": "01HARMNY000000000000000007",
+   "messageId": "01HARMNY00000000000000002H",
+   "principal": "dev:lin",
+   "emoji": ":ship:",
+   "at": 1792431324000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000002N",
+   "roomId": "01HARMNY000000000000000007",
+   "authorId": "dev:ada",
+   "body": "The web build is live at the usual place. Hard refresh if you still see yesterday’s header.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792571383659
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000002P",
+   "roomId": "01HARMNY00000000000000000E",
+   "authorId": "dev:grace",
+   "body": "Morning all. Coffee machine on the 4th floor is fixed.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792339924000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000002Q",
+   "roomId": "01HARMNY00000000000000000E",
+   "authorId": "dev:ken",
+   "body": "Hero.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792340067000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000002R",
+   "roomId": "01HARMNY00000000000000000E",
+   "authorId": "dev:maggie",
+   "body": "☕️☕️☕️",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792340434000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000002S",
+   "roomId": "01HARMNY00000000000000000E",
+   "authorId": "dev:lin",
+   "body": "Does anyone else find it odd that the thing we are building to replace our chat app is… a chat app",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792346552000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000002T",
+   "roomId": "01HARMNY00000000000000000E",
+   "messageId": "01HARMNY00000000000000002S",
+   "principal": "dev:ada",
+   "emoji": "😂",
+   "at": 1792346852000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000002V",
+   "roomId": "01HARMNY00000000000000000E",
+   "messageId": "01HARMNY00000000000000002S",
+   "principal": "dev:grace",
+   "emoji": "😂",
+   "at": 1792346852000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000002W",
+   "roomId": "01HARMNY00000000000000000E",
+   "messageId": "01HARMNY00000000000000002S",
+   "principal": "dev:ken",
+   "emoji": "😂",
+   "at": 1792346852000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000002X",
+   "roomId": "01HARMNY00000000000000000E",
+   "messageId": "01HARMNY00000000000000002S",
+   "principal": "dev:alan",
+   "emoji": "🤔",
+   "at": 1792346852000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000002Y",
+   "roomId": "01HARMNY00000000000000000E",
+   "authorId": "dev:ada",
+   "body": "It is the only honest benchmark. If we would not use it ourselves, nobody else should.",
+   "replyToId": "01HARMNY00000000000000002S",
+   "editedAt": null,
+   "at": 1792346641000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000002Z",
+   "roomId": "01HARMNY00000000000000000E",
+   "authorId": "dev:alan",
+   "body": "Lunch at the ramen place? Leaving in 10.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792445430000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000030",
+   "roomId": "01HARMNY00000000000000000E",
+   "authorId": "dev:grace",
+   "body": "In.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792445484000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000031",
+   "roomId": "01HARMNY00000000000000000E",
+   "authorId": "dev:lin",
+   "body": "In, if someone orders for me. On a call until 2:45.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792445467000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000032",
+   "roomId": "01HARMNY00000000000000000E",
+   "authorId": "dev:ken",
+   "body": "Got you. Spicy miso as usual?",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792445744000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000033",
+   "roomId": "01HARMNY00000000000000000E",
+   "authorId": "dev:lin",
+   "body": "You know me too well.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792445801000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000034",
+   "roomId": "01HARMNY00000000000000000E",
+   "authorId": "dev:maggie",
+   "body": "@ada the Mac build from this morning looks great. The sidebar is doing the thing.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792515622000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY000000000000000035",
+   "roomId": "01HARMNY00000000000000000E",
+   "messageId": "01HARMNY000000000000000034",
+   "principal": "dev:ada",
+   "emoji": "❤️",
+   "at": 1792515922000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000036",
+   "roomId": "01HARMNY00000000000000000E",
+   "authorId": "dev:ada",
+   "body": "Zero lines of sidebar code. It is just the tab bar, and the Mac draws it as a sidebar because that is what a Mac does.",
+   "replyToId": "01HARMNY000000000000000034",
+   "editedAt": null,
+   "at": 1792515808000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY000000000000000037",
+   "roomId": "01HARMNY00000000000000000E",
+   "messageId": "01HARMNY000000000000000036",
+   "principal": "dev:grace",
+   "emoji": "🤯",
+   "at": 1792516108000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY000000000000000038",
+   "roomId": "01HARMNY00000000000000000E",
+   "messageId": "01HARMNY000000000000000036",
+   "principal": "dev:alan",
+   "emoji": "🤯",
+   "at": 1792516108000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY000000000000000039",
+   "roomId": "01HARMNY00000000000000000E",
+   "messageId": "01HARMNY000000000000000036",
+   "principal": "dev:ken",
+   "emoji": ":exact:",
+   "at": 1792516108000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000003A",
+   "roomId": "01HARMNY00000000000000000E",
+   "authorId": "dev:grace",
+   "body": "Good morning. Three days to demo.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792572271659
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000003B",
+   "roomId": "01HARMNY00000000000000000E",
+   "authorId": "dev:ken",
+   "body": "Reactions landed last night, including custom emoji. Try :ship: on something.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792572303659
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000003C",
+   "roomId": "01HARMNY00000000000000000E",
+   "messageId": "01HARMNY00000000000000003B",
+   "principal": "dev:grace",
+   "emoji": ":ship:",
+   "at": 1792572603659
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000003D",
+   "roomId": "01HARMNY00000000000000000E",
+   "messageId": "01HARMNY00000000000000003B",
+   "principal": "dev:maggie",
+   "emoji": ":ship:",
+   "at": 1792572603659
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000003E",
+   "roomId": "01HARMNY00000000000000000E",
+   "messageId": "01HARMNY00000000000000003B",
+   "principal": "dev:lin",
+   "emoji": "🚀",
+   "at": 1792572603659
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000003F",
+   "roomId": "01HARMNY00000000000000000E",
+   "authorId": "dev:maggie",
+   "body": "Already did 😄",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792572311659
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000003G",
+   "roomId": "01HARMNY00000000000000000E",
+   "authorId": "dev:alan",
+   "body": "Typing indicators are in too. Start typing in a channel and watch the other person’s screen.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792572423659
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000003H",
+   "roomId": "01HARMNY00000000000000000N",
+   "authorId": "dev:ken",
+   "body": "Dog tax: Biscuit discovered the leaf pile today. Biscuit was not prepared for the leaf pile.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792451430000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000003J",
+   "roomId": "01HARMNY00000000000000000N",
+   "messageId": "01HARMNY00000000000000003H",
+   "principal": "dev:ada",
+   "emoji": "😂",
+   "at": 1792451730000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000003K",
+   "roomId": "01HARMNY00000000000000000N",
+   "messageId": "01HARMNY00000000000000003H",
+   "principal": "dev:grace",
+   "emoji": "❤️",
+   "at": 1792451730000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000003M",
+   "roomId": "01HARMNY00000000000000000N",
+   "messageId": "01HARMNY00000000000000003H",
+   "principal": "dev:maggie",
+   "emoji": "❤️",
+   "at": 1792451730000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000003N",
+   "roomId": "01HARMNY00000000000000000N",
+   "messageId": "01HARMNY00000000000000003H",
+   "principal": "dev:lin",
+   "emoji": "🐶",
+   "at": 1792451730000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000003P",
+   "roomId": "01HARMNY00000000000000000N",
+   "messageId": "01HARMNY00000000000000003H",
+   "principal": "dev:alan",
+   "emoji": "🐶",
+   "at": 1792451730000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000003Q",
+   "roomId": "01HARMNY00000000000000000N",
+   "authorId": "dev:maggie",
+   "body": "We need Biscuit at demo day.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792451522000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000003R",
+   "roomId": "01HARMNY00000000000000000N",
+   "authorId": "dev:ken",
+   "body": "Biscuit does not do mornings.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792451599000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000003S",
+   "roomId": "01HARMNY00000000000000000N",
+   "authorId": "dev:alan",
+   "body": "Hot take: tabs are better than spaces in a chat app because nobody can see them.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792525511000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000003T",
+   "roomId": "01HARMNY00000000000000000N",
+   "authorId": "dev:lin",
+   "body": "Reported.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792525563000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000003V",
+   "roomId": "01HARMNY00000000000000000N",
+   "authorId": "dev:grace",
+   "body": "Who keeps leaving the office plant in the dark. It has feelings.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792574143659
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000003W",
+   "roomId": "01HARMNY00000000000000000N",
+   "authorId": "dev:ada",
+   "body": "The plant has been moved. The plant is thriving. The plant has a Harmony account now.",
+   "replyToId": null,
+   "editedAt": 1792574171659,
+   "at": 1792574163659
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000003X",
+   "roomId": "01HARMNY00000000000000000W",
+   "authorId": "dev:maggie",
+   "body": "New direction for message rows: no bubbles. Avatar, name, time, then the text. Grouped when the same person keeps talking.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792343710000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000003Y",
+   "roomId": "01HARMNY00000000000000000W",
+   "messageId": "01HARMNY00000000000000003X",
+   "principal": "dev:ada",
+   "emoji": "👍",
+   "at": 1792344010000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000003Z",
+   "roomId": "01HARMNY00000000000000000W",
+   "messageId": "01HARMNY00000000000000003X",
+   "principal": "dev:grace",
+   "emoji": "👍",
+   "at": 1792344010000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY000000000000000040",
+   "roomId": "01HARMNY00000000000000000W",
+   "messageId": "01HARMNY00000000000000003X",
+   "principal": "dev:ken",
+   "emoji": "👍",
+   "at": 1792344010000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY000000000000000041",
+   "roomId": "01HARMNY00000000000000000W",
+   "messageId": "01HARMNY00000000000000003X",
+   "principal": "dev:lin",
+   "emoji": "👍",
+   "at": 1792344010000
+  }
+ },
+ {
+  "table": "pins",
+  "row": {
+   "id": "01HARMNY000000000000000042",
+   "roomId": "01HARMNY00000000000000000W",
+   "messageId": "01HARMNY00000000000000003X",
+   "pinnedBy": "dev:maggie",
+   "at": 1792344310000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000043",
+   "roomId": "01HARMNY00000000000000000W",
+   "authorId": "dev:grace",
+   "body": "Agree. Bubbles are for two people. Rooms are for many.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792344622000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000044",
+   "roomId": "01HARMNY00000000000000000W",
+   "authorId": "dev:maggie",
+   "body": "Exactly. And the composer should look like the platform’s field, not a painted pill.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792344766000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000045",
+   "roomId": "01HARMNY00000000000000000W",
+   "authorId": "dev:alan",
+   "body": "Reaction chips: small, rounded, the accent as a tint when it is yours. Tap to toggle.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792447216000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY000000000000000046",
+   "roomId": "01HARMNY00000000000000000W",
+   "messageId": "01HARMNY000000000000000045",
+   "principal": "dev:maggie",
+   "emoji": "❤️",
+   "at": 1792447516000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY000000000000000047",
+   "roomId": "01HARMNY00000000000000000W",
+   "messageId": "01HARMNY000000000000000045",
+   "principal": "dev:ken",
+   "emoji": "👍",
+   "at": 1792447516000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000048",
+   "roomId": "01HARMNY00000000000000000W",
+   "authorId": "dev:ada",
+   "body": "That is what shipped. The tint is the system accent, so it follows the user’s choice on the Mac.",
+   "replyToId": "01HARMNY000000000000000045",
+   "editedAt": null,
+   "at": 1792447703000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000049",
+   "roomId": "01HARMNY00000000000000000W",
+   "authorId": "dev:maggie",
+   "body": "Dark mode check on iPhone tonight. Separators, secondary labels, the whole lot. Leave colours unsaid and it just works.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792513801000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000004A",
+   "roomId": "01HARMNY00000000000000000W",
+   "authorId": "dev:grace",
+   "body": "Custom emoji are one-colour shapes for now. Honestly they look great small.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792573223659
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000004B",
+   "roomId": "01HARMNY00000000000000000W",
+   "messageId": "01HARMNY00000000000000004A",
+   "principal": "dev:ada",
+   "emoji": ":sparkle:",
+   "at": 1792573523659
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000004C",
+   "roomId": "01HARMNY00000000000000000W",
+   "messageId": "01HARMNY00000000000000004A",
+   "principal": "dev:ken",
+   "emoji": ":bolt:",
+   "at": 1792573523659
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000004D",
+   "roomId": "01HARMNY000000000000000013",
+   "authorId": "dev:lin",
+   "body": "Backend is Snapback4. Every table syncs to a partition on the device, so the thread list reads locally and works offline.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792353926000
+  }
+ },
+ {
+  "table": "pins",
+  "row": {
+   "id": "01HARMNY00000000000000004E",
+   "roomId": "01HARMNY000000000000000013",
+   "messageId": "01HARMNY00000000000000004D",
+   "pinnedBy": "dev:lin",
+   "at": 1792354526000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000004F",
+   "roomId": "01HARMNY000000000000000013",
+   "messageId": "01HARMNY00000000000000004D",
+   "principal": "dev:ada",
+   "emoji": "🔥",
+   "at": 1792354226000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000004G",
+   "roomId": "01HARMNY000000000000000013",
+   "messageId": "01HARMNY00000000000000004D",
+   "principal": "dev:alan",
+   "emoji": "🔥",
+   "at": 1792354226000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000004H",
+   "roomId": "01HARMNY000000000000000013",
+   "authorId": "dev:ken",
+   "body": "How are DMs modelled?",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792354822000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000004J",
+   "roomId": "01HARMNY000000000000000013",
+   "authorId": "dev:lin",
+   "body": "Same as channels: a room with members. The read rule is membership, so the server never hands you a DM you are not in, and sync infers the audience from that rule.",
+   "replyToId": "01HARMNY00000000000000004D",
+   "editedAt": null,
+   "at": 1792354941000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000004K",
+   "roomId": "01HARMNY000000000000000013",
+   "authorId": "dev:ken",
+   "body": "Nice. One message table then.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792354989000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000004M",
+   "roomId": "01HARMNY000000000000000013",
+   "authorId": "dev:grace",
+   "body": "PR up: unread counts. The inbox query walks your memberships and counts messages after your last-read mark.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792435241000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000004N",
+   "roomId": "01HARMNY000000000000000013",
+   "messageId": "01HARMNY00000000000000004M",
+   "principal": "dev:lin",
+   "emoji": "👍",
+   "at": 1792435541000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000004P",
+   "roomId": "01HARMNY000000000000000013",
+   "messageId": "01HARMNY00000000000000004M",
+   "principal": "dev:ada",
+   "emoji": "🚀",
+   "at": 1792435541000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000004Q",
+   "roomId": "01HARMNY000000000000000013",
+   "authorId": "dev:alan",
+   "body": "Reviewed. One nit about the cap on members per person, otherwise ship it.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792436106000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000004R",
+   "roomId": "01HARMNY000000000000000013",
+   "authorId": "dev:grace",
+   "body": "Merged.",
+   "replyToId": null,
+   "editedAt": 1792437127000,
+   "at": 1792437024000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000004S",
+   "roomId": "01HARMNY000000000000000013",
+   "authorId": "dev:ada",
+   "body": "Cold start to first frame on the iPhone 15: 91 ms. No JavaScript runs before the first pixel.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792537231000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000004T",
+   "roomId": "01HARMNY000000000000000013",
+   "messageId": "01HARMNY00000000000000004S",
+   "principal": "dev:lin",
+   "emoji": "🤯",
+   "at": 1792537531000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000004V",
+   "roomId": "01HARMNY000000000000000013",
+   "messageId": "01HARMNY00000000000000004S",
+   "principal": "dev:grace",
+   "emoji": "🤯",
+   "at": 1792537531000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000004W",
+   "roomId": "01HARMNY000000000000000013",
+   "messageId": "01HARMNY00000000000000004S",
+   "principal": "dev:ken",
+   "emoji": "🔥",
+   "at": 1792537531000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000004X",
+   "roomId": "01HARMNY000000000000000013",
+   "messageId": "01HARMNY00000000000000004S",
+   "principal": "dev:maggie",
+   "emoji": "🔥",
+   "at": 1792537531000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000004Y",
+   "roomId": "01HARMNY000000000000000013",
+   "messageId": "01HARMNY00000000000000004S",
+   "principal": "dev:alan",
+   "emoji": ":bolt:",
+   "at": 1792537531000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000004Z",
+   "roomId": "01HARMNY000000000000000013",
+   "authorId": "dev:lin",
+   "body": "That is faster than our old app shows its splash screen.",
+   "replyToId": "01HARMNY00000000000000004S",
+   "editedAt": null,
+   "at": 1792537451000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000050",
+   "roomId": "01HARMNY000000000000000013",
+   "authorId": "dev:ken",
+   "body": "Search is word-prefix over every room you are in. Try searching “ramen”.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792571563659
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY000000000000000051",
+   "roomId": "01HARMNY000000000000000013",
+   "messageId": "01HARMNY000000000000000050",
+   "principal": "dev:alan",
+   "emoji": "👍",
+   "at": 1792571863659
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000052",
+   "roomId": "01HARMNY000000000000000013",
+   "authorId": "dev:alan",
+   "body": "Flaky test in the offline suite, looking.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792571595659
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000053",
+   "roomId": "01HARMNY000000000000000013",
+   "authorId": "dev:alan",
+   "body": "Found it. The test advanced the UI clock and expected the server to notice. Fixed by waiting on data instead.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792572383659
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000054",
+   "roomId": "01HARMNY00000000000000001A",
+   "authorId": "dev:ken",
+   "body": "Lo-fi beats to ship a chat app to. Five hours, no vocals, no regrets.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792454447000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000055",
+   "roomId": "01HARMNY00000000000000001A",
+   "authorId": "dev:grace",
+   "body": "The Caltrain delay playlist. Mostly ambient.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792454738000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000056",
+   "roomId": "01HARMNY00000000000000001A",
+   "authorId": "dev:alan",
+   "body": "Anyone else do the thing where you pick an album for a bug and then the album is cursed forever",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792546211000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY000000000000000057",
+   "roomId": "01HARMNY00000000000000001A",
+   "messageId": "01HARMNY000000000000000056",
+   "principal": "dev:lin",
+   "emoji": "😂",
+   "at": 1792546511000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY000000000000000058",
+   "roomId": "01HARMNY00000000000000001A",
+   "messageId": "01HARMNY000000000000000056",
+   "principal": "dev:ken",
+   "emoji": "😂",
+   "at": 1792546511000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000059",
+   "roomId": "01HARMNY00000000000000001A",
+   "authorId": "dev:maggie",
+   "body": "I cannot listen to Kind of Blue because of a layout bug in 2023.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792546285000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000005A",
+   "roomId": "01HARMNY00000000000000001A",
+   "authorId": "dev:lin",
+   "body": "New tune for the demo intro. Thirty seconds, builds, drops right as the sidebar appears.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792574963659
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000005B",
+   "roomId": "01HARMNY00000000000000001H",
+   "authorId": "dev:maggie",
+   "body": "Launch checklist lives here. Shout when something is done.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792339229000
+  }
+ },
+ {
+  "table": "pins",
+  "row": {
+   "id": "01HARMNY00000000000000005C",
+   "roomId": "01HARMNY00000000000000001H",
+   "messageId": "01HARMNY00000000000000005B",
+   "pinnedBy": "dev:maggie",
+   "at": 1792339829000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000005D",
+   "roomId": "01HARMNY00000000000000001H",
+   "authorId": "dev:ada",
+   "body": "☑ Channels\n☑ Direct messages\n☑ Reactions and custom emoji\n☑ Pins\n☐ Voice (later)\n☐ Video (later)",
+   "replyToId": null,
+   "editedAt": 1792339654000,
+   "at": 1792339522000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000005E",
+   "roomId": "01HARMNY00000000000000001H",
+   "messageId": "01HARMNY00000000000000005D",
+   "principal": "dev:grace",
+   "emoji": "👍",
+   "at": 1792339822000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000005F",
+   "roomId": "01HARMNY00000000000000001H",
+   "messageId": "01HARMNY00000000000000005D",
+   "principal": "dev:lin",
+   "emoji": "👍",
+   "at": 1792339822000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000005G",
+   "roomId": "01HARMNY00000000000000001H",
+   "authorId": "dev:grace",
+   "body": "Pins are done. Long-press a message, or right-click on the Mac.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792429216000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000005H",
+   "roomId": "01HARMNY00000000000000001H",
+   "authorId": "dev:alan",
+   "body": "Switching accounts in the demo: You tab, tap a person. No login screen, no server round trip for the switch itself.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792534804000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000005J",
+   "roomId": "01HARMNY00000000000000001H",
+   "authorId": "dev:ken",
+   "body": "Three devices, one source file, one backend. Let’s go.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792573323659
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000005K",
+   "roomId": "01HARMNY00000000000000001H",
+   "messageId": "01HARMNY00000000000000005J",
+   "principal": "dev:ada",
+   "emoji": ":ship:",
+   "at": 1792573623659
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000005M",
+   "roomId": "01HARMNY00000000000000001H",
+   "messageId": "01HARMNY00000000000000005J",
+   "principal": "dev:grace",
+   "emoji": ":ship:",
+   "at": 1792573623659
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000005N",
+   "roomId": "01HARMNY00000000000000001H",
+   "messageId": "01HARMNY00000000000000005J",
+   "principal": "dev:maggie",
+   "emoji": ":ship:",
+   "at": 1792573623659
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000005P",
+   "roomId": "01HARMNY00000000000000001H",
+   "messageId": "01HARMNY00000000000000005J",
+   "principal": "dev:lin",
+   "emoji": ":ship:",
+   "at": 1792573623659
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000005Q",
+   "roomId": "01HARMNY00000000000000001H",
+   "messageId": "01HARMNY00000000000000005J",
+   "principal": "dev:alan",
+   "emoji": ":ship:",
+   "at": 1792573623659
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000005R",
+   "roomId": "01HARMNY00000000000000001R",
+   "authorId": "dev:ada",
+   "body": "Round 22 numbers are in. Same app, three stacks. Exact is the smallest download by a wide margin and first to interactive on every device.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792440048000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000005S",
+   "roomId": "01HARMNY00000000000000001R",
+   "messageId": "01HARMNY00000000000000005R",
+   "principal": "dev:lin",
+   "emoji": "🔥",
+   "at": 1792440348000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000005T",
+   "roomId": "01HARMNY00000000000000001R",
+   "messageId": "01HARMNY00000000000000005R",
+   "principal": "dev:ken",
+   "emoji": ":exact:",
+   "at": 1792440348000
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY00000000000000005V",
+   "roomId": "01HARMNY00000000000000001R",
+   "messageId": "01HARMNY00000000000000005R",
+   "principal": "dev:alan",
+   "emoji": ":exact:",
+   "at": 1792440348000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000005W",
+   "roomId": "01HARMNY00000000000000001R",
+   "authorId": "dev:lin",
+   "body": "And the one that is actually native on each platform, which the other two are not.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792440769000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000005X",
+   "roomId": "01HARMNY00000000000000001R",
+   "authorId": "dev:grace",
+   "body": "Round 23 is a chat app. Guess which one.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792519212000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000005Y",
+   "roomId": "01HARMNY00000000000000001R",
+   "authorId": "dev:maggie",
+   "body": "👀",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792519280000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000005Z",
+   "roomId": "01HARMNY00000000000000001Z",
+   "authorId": "dev:grace",
+   "body": "Hey, do you have five minutes before standup tomorrow? Want to walk you through the unread counts.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792542637000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000060",
+   "roomId": "01HARMNY00000000000000001Z",
+   "authorId": "dev:ada",
+   "body": "Yes! 9:15?",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792543361000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000061",
+   "roomId": "01HARMNY00000000000000001Z",
+   "authorId": "dev:grace",
+   "body": "Perfect.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792543403000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000062",
+   "roomId": "01HARMNY00000000000000001Z",
+   "authorId": "dev:grace",
+   "body": "That went well. Thanks for the review.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792572343659
+  }
+ },
+ {
+  "table": "reactions",
+  "row": {
+   "id": "01HARMNY000000000000000063",
+   "roomId": "01HARMNY00000000000000001Z",
+   "messageId": "01HARMNY000000000000000062",
+   "principal": "dev:ada",
+   "emoji": "❤️",
+   "at": 1792572643659
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000064",
+   "roomId": "01HARMNY000000000000000022",
+   "authorId": "dev:lin",
+   "body": "Can you look at the offline test when you get a sec? I think the clock handling is wrong.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792573183659
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000065",
+   "roomId": "01HARMNY000000000000000022",
+   "authorId": "dev:ada",
+   "body": "Alan found it, it was waiting on the UI clock instead of data. Should be green now.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792573243659
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000066",
+   "roomId": "01HARMNY000000000000000022",
+   "authorId": "dev:lin",
+   "body": "Legend.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792573247659
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000067",
+   "roomId": "01HARMNY000000000000000025",
+   "authorId": "dev:ken",
+   "body": "Biscuit says hi",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792461639000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000068",
+   "roomId": "01HARMNY000000000000000025",
+   "authorId": "dev:ada",
+   "body": "Tell Biscuit the leaf pile was a setup",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792462104000
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY000000000000000069",
+   "roomId": "01HARMNY000000000000000028",
+   "authorId": "dev:maggie",
+   "body": "Lunch?",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792574063659
+  }
+ },
+ {
+  "table": "messages",
+  "row": {
+   "id": "01HARMNY00000000000000006A",
+   "roomId": "01HARMNY000000000000000028",
+   "authorId": "dev:grace",
+   "body": "Give me 20.",
+   "replyToId": null,
+   "editedAt": null,
+   "at": 1792574071659
+  }
+ },
+ {
+  "table": "emoji",
+  "row": {
+   "id": "01HARMNY00000000000000006B",
+   "name": "ship",
+   "path": "M2 21l21-9L2 3v7l15 2-15 2z",
+   "fill": "hue.sky",
+   "createdBy": "dev:ken",
+   "at": 1792263645000
+  }
+ },
+ {
+  "table": "emoji",
+  "row": {
+   "id": "01HARMNY00000000000000006C",
+   "name": "exact",
+   "path": "M12 2l8.66 5v10L12 22l-8.66-5V7z",
+   "fill": "hue.violet",
+   "createdBy": "dev:ken",
+   "at": 1792263615000
+  }
+ },
+ {
+  "table": "emoji",
+  "row": {
+   "id": "01HARMNY00000000000000006D",
+   "name": "bolt",
+   "path": "M13 2L3 14h8l-1 8 10-12h-8z",
+   "fill": "hue.amber",
+   "createdBy": "dev:ken",
+   "at": 1792263621000
+  }
+ },
+ {
+  "table": "emoji",
+  "row": {
+   "id": "01HARMNY00000000000000006E",
+   "name": "sparkle",
+   "path": "M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4z",
+   "fill": "hue.teal",
+   "createdBy": "dev:ken",
+   "at": 1792263612000
+  }
+ },
+ {
+  "table": "emoji",
+  "row": {
+   "id": "01HARMNY00000000000000006F",
+   "name": "heartbeat",
+   "path": "M12 21s-7-4.5-9.5-9A5.5 5.5 0 0 1 12 6a5.5 5.5 0 0 1 9.5 6c-2.5 4.5-9.5 9-9.5 9z",
+   "fill": "hue.rose",
+   "createdBy": "dev:ken",
+   "at": 1792263641000
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000006G",
+   "roomId": "01HARMNY000000000000000007",
+   "principal": "dev:ada",
+   "at": 1792514033659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000006H",
+   "roomId": "01HARMNY00000000000000000E",
+   "principal": "dev:ada",
+   "at": 1792514033659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000006J",
+   "roomId": "01HARMNY00000000000000000N",
+   "principal": "dev:ada",
+   "at": 1792574223659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000006K",
+   "roomId": "01HARMNY00000000000000000W",
+   "principal": "dev:ada",
+   "at": 1792573283659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000006M",
+   "roomId": "01HARMNY000000000000000013",
+   "principal": "dev:ada",
+   "at": 1792514033659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000006N",
+   "roomId": "01HARMNY00000000000000001A",
+   "principal": "dev:ada",
+   "at": 1792575023659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000006P",
+   "roomId": "01HARMNY00000000000000001H",
+   "principal": "dev:ada",
+   "at": 1792573383659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000006Q",
+   "roomId": "01HARMNY00000000000000001R",
+   "principal": "dev:ada",
+   "at": 1792519340000
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000006R",
+   "roomId": "01HARMNY00000000000000001Z",
+   "principal": "dev:ada",
+   "at": 1792514033659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000006S",
+   "roomId": "01HARMNY000000000000000022",
+   "principal": "dev:ada",
+   "at": 1792514033659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000006T",
+   "roomId": "01HARMNY000000000000000025",
+   "principal": "dev:ada",
+   "at": 1792462164000
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000006V",
+   "roomId": "01HARMNY000000000000000007",
+   "principal": "dev:grace",
+   "at": 1792514033659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000006W",
+   "roomId": "01HARMNY00000000000000000E",
+   "principal": "dev:grace",
+   "at": 1792514033659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000006X",
+   "roomId": "01HARMNY00000000000000000N",
+   "principal": "dev:grace",
+   "at": 1792574223659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000006Y",
+   "roomId": "01HARMNY00000000000000000W",
+   "principal": "dev:grace",
+   "at": 1792573283659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000006Z",
+   "roomId": "01HARMNY000000000000000013",
+   "principal": "dev:grace",
+   "at": 1792514033659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY000000000000000070",
+   "roomId": "01HARMNY00000000000000001A",
+   "principal": "dev:grace",
+   "at": 1792575023659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY000000000000000071",
+   "roomId": "01HARMNY00000000000000001H",
+   "principal": "dev:grace",
+   "at": 1792573383659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY000000000000000072",
+   "roomId": "01HARMNY00000000000000001R",
+   "principal": "dev:grace",
+   "at": 1792519340000
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY000000000000000073",
+   "roomId": "01HARMNY00000000000000001Z",
+   "principal": "dev:grace",
+   "at": 1792514033659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY000000000000000074",
+   "roomId": "01HARMNY000000000000000028",
+   "principal": "dev:grace",
+   "at": 1792574131659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY000000000000000075",
+   "roomId": "01HARMNY000000000000000007",
+   "principal": "dev:lin",
+   "at": 1792514033659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY000000000000000076",
+   "roomId": "01HARMNY00000000000000000E",
+   "principal": "dev:lin",
+   "at": 1792514033659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY000000000000000077",
+   "roomId": "01HARMNY00000000000000000N",
+   "principal": "dev:lin",
+   "at": 1792574223659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY000000000000000078",
+   "roomId": "01HARMNY00000000000000000W",
+   "principal": "dev:lin",
+   "at": 1792573283659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY000000000000000079",
+   "roomId": "01HARMNY000000000000000013",
+   "principal": "dev:lin",
+   "at": 1792514033659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000007A",
+   "roomId": "01HARMNY00000000000000001A",
+   "principal": "dev:lin",
+   "at": 1792575023659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000007B",
+   "roomId": "01HARMNY00000000000000001H",
+   "principal": "dev:lin",
+   "at": 1792573383659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000007C",
+   "roomId": "01HARMNY00000000000000001R",
+   "principal": "dev:lin",
+   "at": 1792519340000
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000007D",
+   "roomId": "01HARMNY000000000000000022",
+   "principal": "dev:lin",
+   "at": 1792514033659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000007E",
+   "roomId": "01HARMNY000000000000000007",
+   "principal": "dev:maggie",
+   "at": 1792514033659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000007F",
+   "roomId": "01HARMNY00000000000000000E",
+   "principal": "dev:maggie",
+   "at": 1792514033659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000007G",
+   "roomId": "01HARMNY00000000000000000N",
+   "principal": "dev:maggie",
+   "at": 1792574223659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000007H",
+   "roomId": "01HARMNY00000000000000000W",
+   "principal": "dev:maggie",
+   "at": 1792573283659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000007J",
+   "roomId": "01HARMNY000000000000000013",
+   "principal": "dev:maggie",
+   "at": 1792514033659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000007K",
+   "roomId": "01HARMNY00000000000000001A",
+   "principal": "dev:maggie",
+   "at": 1792575023659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000007M",
+   "roomId": "01HARMNY00000000000000001H",
+   "principal": "dev:maggie",
+   "at": 1792573383659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000007N",
+   "roomId": "01HARMNY00000000000000001R",
+   "principal": "dev:maggie",
+   "at": 1792519340000
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000007P",
+   "roomId": "01HARMNY000000000000000028",
+   "principal": "dev:maggie",
+   "at": 1792574131659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000007Q",
+   "roomId": "01HARMNY000000000000000007",
+   "principal": "dev:alan",
+   "at": 1792514033659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000007R",
+   "roomId": "01HARMNY00000000000000000E",
+   "principal": "dev:alan",
+   "at": 1792514033659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000007S",
+   "roomId": "01HARMNY00000000000000000N",
+   "principal": "dev:alan",
+   "at": 1792574223659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000007T",
+   "roomId": "01HARMNY00000000000000000W",
+   "principal": "dev:alan",
+   "at": 1792573283659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000007V",
+   "roomId": "01HARMNY000000000000000013",
+   "principal": "dev:alan",
+   "at": 1792514033659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000007W",
+   "roomId": "01HARMNY00000000000000001A",
+   "principal": "dev:alan",
+   "at": 1792575023659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000007X",
+   "roomId": "01HARMNY00000000000000001H",
+   "principal": "dev:alan",
+   "at": 1792573383659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000007Y",
+   "roomId": "01HARMNY00000000000000001R",
+   "principal": "dev:alan",
+   "at": 1792519340000
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY00000000000000007Z",
+   "roomId": "01HARMNY000000000000000007",
+   "principal": "dev:ken",
+   "at": 1792514033659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY000000000000000080",
+   "roomId": "01HARMNY00000000000000000E",
+   "principal": "dev:ken",
+   "at": 1792514033659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY000000000000000081",
+   "roomId": "01HARMNY00000000000000000N",
+   "principal": "dev:ken",
+   "at": 1792574223659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY000000000000000082",
+   "roomId": "01HARMNY00000000000000000W",
+   "principal": "dev:ken",
+   "at": 1792573283659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY000000000000000083",
+   "roomId": "01HARMNY000000000000000013",
+   "principal": "dev:ken",
+   "at": 1792514033659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY000000000000000084",
+   "roomId": "01HARMNY00000000000000001A",
+   "principal": "dev:ken",
+   "at": 1792575023659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY000000000000000085",
+   "roomId": "01HARMNY00000000000000001H",
+   "principal": "dev:ken",
+   "at": 1792573383659
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY000000000000000086",
+   "roomId": "01HARMNY00000000000000001R",
+   "principal": "dev:ken",
+   "at": 1792519340000
+  }
+ },
+ {
+  "table": "lastReads",
+  "row": {
+   "id": "01HARMNY000000000000000087",
+   "roomId": "01HARMNY000000000000000025",
+   "principal": "dev:ken",
+   "at": 1792462164000
+  }
+ }
+]

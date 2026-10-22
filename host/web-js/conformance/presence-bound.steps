@@ -1,0 +1,12 @@
+# Calm: the rows jump up.
+tap drop
+# Motion gained in the commit that brings First back.
+tap both
+clock +100
+clock settle
+# Motion held.
+tap drop
+clock settle
+# Calm again.
+tap motion
+tap drop

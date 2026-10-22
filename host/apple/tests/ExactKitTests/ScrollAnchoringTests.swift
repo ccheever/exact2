@@ -49,12 +49,18 @@ final class ScrollAnchoringTests: XCTestCase {
 
     func testOnlyLayoutPropertiesSuppress() {
         var changes = ScrollAnchoring.Changes()
-        changes.note(1, from: ["background_color": "#fff"], to: ["background_color": "#000"])
+        changes.note(1, from: ["background_color": "#fff"], to: ["background_color": "#000"], popover: false)
         XCTAssertTrue(changes.layout.isEmpty)
-        changes.note(2, from: ["height": 48], to: ["height": 0])
-        changes.note(3, from: [:], to: ["position_type": "absolute"])
-        XCTAssertEqual(changes.layout, [2, 3])
-        XCTAssertEqual(changes.positioned, [3])
+        changes.note(2, from: ["height": 48], to: ["height": 0], popover: false)
+        changes.note(3, from: [:], to: ["position_type": "absolute"], popover: false)
+        // A popover lays out absolute unless its author made it sticky (the
+        // kernel's top layer): unsticking one takes it out of flow; making
+        // one relative doesn't, nor dropping a sticky no author wrote.
+        changes.note(4, from: ["position_type": "sticky", "written": ["position_type"]], to: [:], popover: true)
+        changes.note(5, from: [:], to: ["position_type": "relative"], popover: true)
+        changes.note(6, from: ["position_type": "sticky"], to: [:], popover: true)
+        XCTAssertEqual(changes.layout, [2, 3, 4, 5, 6])
+        XCTAssertEqual(changes.positioned, [3, 4])
         changes.reset()
         XCTAssertTrue(changes.layout.isEmpty && changes.positioned.isEmpty)
     }

@@ -37,6 +37,10 @@ pub struct Checked {
     /// size), the default's and every `when` line's, a value no tuple
     /// selects included, first time each (stage 11 D's `bases`).
     pub bases: Vec<String>,
+    /// What its value names in each full app tuple, as it folds there
+    /// (stage 13 D4, `explain`'s `bases_by_tuple`), in a [`crate::traced`] check;
+    /// empty when no value names anything, and in any other check.
+    pub by_tuple: crate::ByTuple,
     /// Marked `scheme=fixed`: one colour in every scheme by design, which the
     /// one-scheme warning leaves alone.
     pub fixed: bool,
@@ -89,6 +93,15 @@ struct Checker<'a> {
     /// Each token's dials its own values name, by index.
     reads: Vec<BTreeSet<usize>>,
     stack: Vec<usize>,
+    /// Whether it records [`Checked::by_tuple`] ([`crate::traced`]).
+    traced: bool,
+    /// The tuple each frame of `stack` folds a token's value at, `None`
+    /// where it checks a value no tuple selects (`unselected`), or where
+    /// it records none.
+    at: Vec<Option<usize>>,
+    /// Per token and tuple, the tokens and unset base names its value
+    /// there named as it folded ([`Checked::by_tuple`]).
+    tuple_refs: HashMap<(usize, usize), (Vec<u32>, Vec<String>)>,
     /// Tokens refused as declared, which are not folded.
     refused: Vec<bool>,
     /// Names of refused tokens and dials: a use says nothing more.
@@ -118,6 +131,7 @@ pub(crate) fn check(design: &Design, vocab: &Vocab) -> CheckResult {
             || unset(w)
     };
     let mut c = Checker {
+        traced: crate::trace::on(),
         design,
         errors: Vec::new(),
         names: HashMap::new(),
@@ -134,6 +148,8 @@ pub(crate) fn check(design: &Design, vocab: &Vocab) -> CheckResult {
         based: vec![Vec::new(); design.tokens.len()],
         reads: vec![BTreeSet::new(); design.tokens.len()],
         stack: Vec::new(),
+        at: Vec::new(),
+        tuple_refs: HashMap::new(),
         refused: vec![false; design.tokens.len()],
         refused_names: HashSet::new(),
         selected: vec![BTreeSet::new(); design.tokens.len()],
@@ -184,6 +200,7 @@ pub(crate) fn check(design: &Design, vocab: &Vocab) -> CheckResult {
                 reads: Vec::new(),
                 names: Vec::new(),
                 bases: Vec::new(),
+                by_tuple: crate::ByTuple::default(),
                 fixed,
                 pairs,
             },
@@ -207,6 +224,22 @@ pub(crate) fn check(design: &Design, vocab: &Vocab) -> CheckResult {
                 .map(|&d| design.dials[d].name.value.clone())
                 .collect();
             token.bases = c.based[i].clone();
+            // (none for a token whose values name nothing, most of a large
+            // import; each distinct reading once, a tuple its index)
+            if c.traced && (!c.refs[i].is_empty() || !c.based[i].is_empty()) {
+                let none = (Vec::new(), Vec::new());
+                for t in 0..tuples {
+                    let read = c.tuple_refs.get(&(i, t)).unwrap_or(&none);
+                    let at = match token.by_tuple.reads.iter().position(|r| r == read) {
+                        Some(at) => at,
+                        None => {
+                            token.by_tuple.reads.push(read.clone());
+                            token.by_tuple.reads.len() - 1
+                        }
+                    };
+                    token.by_tuple.at.push(at as u8);
+                }
+            }
             token.names = c.refs[i]
                 .iter()
                 .map(|&j| {
@@ -237,6 +270,17 @@ pub(crate) fn check(design: &Design, vocab: &Vocab) -> CheckResult {
 }
 
 impl<'a> Checker<'a> {
+    /// Note unset base name `name` on the token folding at its tuple
+    /// ([`Checked::by_tuple`]), where it folds at one.
+    fn note_base(&mut self, name: &str) {
+        if let (Some(&i), Some(&Some(t))) = (self.stack.last(), self.at.last()) {
+            let bases = &mut self.tuple_refs.entry((i, t)).or_default().1;
+            if !bases.iter().any(|b| b == name) {
+                bases.push(name.to_string());
+            }
+        }
+    }
+
     /// Whether `t` is marked `scheme=fixed`, refusing the mark on a token
     /// whose value differs between the schemes in some tuple (a pair with two
     /// sides, a role or a platform colour, which follow the scheme) and any
@@ -964,6 +1008,7 @@ impl<'a> Checker<'a> {
             return None;
         }
         self.stack.push(i);
+        self.at.push(self.traced.then_some(tuple));
         let digits = self.digits(tuple);
         let chosen = self.select(t, &digits, false);
         self.selected[i].insert(chosen);
@@ -977,6 +1022,7 @@ impl<'a> Checker<'a> {
             None => self.fold_kind(tuple, &t.value, self.kinds[i]),
         };
         self.stack.pop();
+        self.at.pop();
         self.memo.insert((i, tuple), folded.clone());
         folded
     }
@@ -1000,6 +1046,7 @@ impl<'a> Checker<'a> {
                 .unwrap_or(0);
             let digits = self.digits(tuple);
             self.stack.push(i);
+            self.at.push(None);
             match which {
                 // A hidden `when` on an axis `under scheme=dark` is checked
                 // as one: its light side against the value it would keep.
@@ -1015,6 +1062,7 @@ impl<'a> Checker<'a> {
                 }
             }
             self.stack.pop();
+            self.at.pop();
         }
     }
 
@@ -1142,10 +1190,11 @@ impl<'a> Checker<'a> {
                 };
                 if let Some(&i) = self.stack.last() {
                     for n in named {
-                        if self.bases.iter().any(|b| b == n)
-                            && !self.based[i].iter().any(|b| b == n)
-                        {
-                            self.based[i].push(n.to_string());
+                        if self.bases.iter().any(|b| b == n) {
+                            self.note_base(n);
+                            if !self.based[i].iter().any(|b| b == n) {
+                                self.based[i].push(n.to_string());
+                            }
                         }
                     }
                 }
@@ -1336,6 +1385,7 @@ impl Names for Scope<'_, '_> {
         let c = &mut *self.checker;
         let base = c.bases.iter().any(|b| b == name) && !c.names.contains_key(name);
         if let (true, Some(&i)) = (base, c.stack.last()) {
+            c.note_base(name);
             if !c.based[i].iter().any(|b| b == name) {
                 c.based[i].push(name.to_string());
             }
@@ -1369,6 +1419,12 @@ impl Names for Scope<'_, '_> {
         if let Some(j) = token {
             if let Some(&i) = c.stack.last() {
                 c.refs[i].insert(j);
+                if let Some(&Some(t)) = c.at.last() {
+                    let refs = &mut c.tuple_refs.entry((i, t)).or_default().0;
+                    if !refs.contains(&(j as u32)) {
+                        refs.push(j as u32);
+                    }
+                }
             }
             return c
                 .value(j, self.tuple)

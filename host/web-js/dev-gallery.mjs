@@ -163,7 +163,7 @@ export function galleryLoop({ app, root, appDist, channel = () => null, client, 
   /** Its plan's inspect table (the loop's own command, a process of the gallery's), the last two. */
   function inspectTable(digest) {
     if (!tables.has(digest)) {
-      const tool = tableTool(), out = resolve(cache, `inspect-${digest}.json`);
+      const tool = tableTool(), out = resolve(cache, `inspect-${digest}-${process.pid}.json`); // (this loop's own, as dev.mjs's)
       tables.set(digest, (async () => {
         if (!tool) return null;
         const made = await step(tool.cmd, [...tool.pre, 'inspect-table', resolve(dist, 'app.plan'), out], {});
@@ -187,7 +187,11 @@ export function galleryLoop({ app, root, appDist, channel = () => null, client, 
     res.write(json({ ...(failed ? { error: failed } : {}), reload: seq, revision: null, ...(opened?.nonce ? { nonce: opened.nonce } : {}) }));
     clients.add(res);
     quiet();
-    req.on('close', () => { clients.delete(res); opened?.close(); quiet(); });
+    // Ended once, by whichever close comes first (under Bun a request on a handed-off socket never fires req 'close').
+    let done = false;
+    const end = () => { if (done) return; done = true; clients.delete(res); opened?.close(); quiet(); };
+    req.on('close', end);
+    res.on('close', end);
   }
 
   const send = (req, res, found, body) => sendStaticBody(req, res, body ?? readFileSync(found.path), { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });

@@ -330,7 +330,7 @@ fn resolved_language_is_published_at_boot_and_after_switching() {
     let plan = contract::bake(plan, Says("")).unwrap();
     let (mut host, batch) = Host::boot(&plan.encode(), Says(""), Default::default(), "/").unwrap();
     assert!(batch.contains(r#"{"op":"language","lang":"en","dir":"ltr"}"#));
-    let batch = host.set_place("ar-EG", "UTC", None);
+    let batch = host.set_place("ar-EG", "UTC", None, None);
     assert!(
         batch.contains(r#"{"op":"language","lang":"ar","dir":"rtl"}"#),
         "{batch}"
@@ -338,9 +338,9 @@ fn resolved_language_is_published_at_boot_and_after_switching() {
     let doc = host.document().unwrap();
     assert_eq!((doc.lang.as_str(), doc.dir.as_str()), ("ar", "rtl"));
     assert!(!host
-        .set_place("ar-SA", "UTC", None)
+        .set_place("ar-SA", "UTC", None, None)
         .contains(r#""op":"language""#));
-    let batch = host.set_place("de", "UTC", None);
+    let batch = host.set_place("de", "UTC", None, None);
     assert!(batch.contains(r#"{"op":"language","lang":"en","dir":"ltr"}"#));
 }
 

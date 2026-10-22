@@ -258,6 +258,7 @@ package final class TextArea: NSTextView {
     package override func validateMenuItem(_ item: NSMenuItem) -> Bool {
         if item.action == #selector(undo(_:)) { return isEditable && !hasMarkedText() && undoManager?.canUndo == true }
         if item.action == #selector(redo(_:)) { return isEditable && !hasMarkedText() && undoManager?.canRedo == true }
+        if owner?.pastesFiles(item) == true { return isEditable }
         return super.validateMenuItem(item)
     }
 
@@ -279,7 +280,8 @@ package final class TextArea: NSTextView {
     }
 
     package override func cut(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.cut(_:))) { super.cut(sender) } }
-    package override func paste(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.paste(_:))) { super.paste(sender) } }
+    package override func paste(_ sender: Any?) { NodeView.fieldPaste(owner, self) { super.paste(sender) } }
+    package override func pasteAsPlainText(_ sender: Any?) { NodeView.fieldPaste(owner, self) { super.pasteAsPlainText(sender) } }
 
     var placeholder = "" { didSet { needsDisplay = true } }
     /// The authored `::placeholder` colour (LLP 1104 D3); nil, the platform's.
@@ -653,7 +655,9 @@ final class FieldEditor: NSTextView {
     }
     override func copy(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.copy(_:))) { super.copy(sender) } }
     override func cut(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.cut(_:))) { super.cut(sender) } }
-    override func paste(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.paste(_:))) { super.paste(sender) } }
+    override func paste(_ sender: Any?) { NodeView.fieldPaste(owner, self) { super.paste(sender) } }
+    override func pasteAsPlainText(_ sender: Any?) { NodeView.fieldPaste(owner, self) { super.pasteAsPlainText(sender) } }
+    override func validateMenuItem(_ item: NSMenuItem) -> Bool { owner?.pastesFiles(item) == true ? isEditable : super.validateMenuItem(item) }
 }
 final class SecureField: NSSecureTextField {
     override class var cellClass: AnyClass? { get { SecureFieldCell.self } set {} }

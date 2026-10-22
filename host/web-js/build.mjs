@@ -400,8 +400,8 @@ writeFileSync(resolve(gen, 'main.js'), [
     "import { sourceTypes } from './names.js';",
     "import { reportTime, reportPlace } from './navigation.js';",
     "data.reserved = { exactTime: () => {",
-    "  const [epochAtZero, utcOffset] = reportTime(clock.now), [locale, timeZone, seed] = reportPlace().split('\\0');",
-    "  const f = { epochAtZero, utcOffset, locale, timeZone, seed: Number(seed), resolvedLocale: resolvedLocale() };",
+    "  const [epochAtZero, utcOffset] = reportTime(clock.now), [locale, timeZone, seed, formatLocale] = reportPlace().split('\\0');",
+    "  const f = { epochAtZero, utcOffset, locale, timeZone, seed: Number(seed), formatLocale: formatLocale || locale, resolvedLocale: resolvedLocale() };",
     "  return Object.keys(sourceTypes.exactTime[1]).map(k => f[k]);",
     "} };",
     // The zone's offset follows the clock (habits F6): a timer, a `then` or the agent's `clock` that finds the offset
@@ -410,6 +410,8 @@ writeFileSync(resolve(gen, 'main.js'), [
     "Clocked.push(() => { const o = reportTime(clock.now)[1]; if (o === told) return; told = o; commit(() => { for (const r of Resources) if (r.source === 'exactTime') R(r); }, 'time'); });",
   ] : []),
   ...(ts ? ["import { install as ts } from './ts-data.js';", `ts(data, ${mixed}${pageModules ? ", () => import('./native.js')" : ''});`] : []),
+  // The schemes `openURL` may hand to the browser beyond its own (app.json `open_url`, navigation.js `declaredScheme`).
+  ...(manifest.open_url?.schemes?.length ? [`globalThis.exact = Object.assign(globalThis.exact ?? {}, { openSchemes: ${JSON.stringify(manifest.open_url.schemes)} });`] : []),
   "const start = () => {",
   "  const state = app();",
   ...(devReload ? ["  finishDev();"] : []),
@@ -435,6 +437,11 @@ writeFileSync(resolve(gen, 'main.js'), [
   // callback that a font wait lets run before the first render, where `mount` sets it: set it now.
   "if (fonts) clock.agent = agentMode();",
   "const go = f => fonts ? fonts.then(f) : f();",
+  // Under the agent, an animation the first renders start (an indeterminate progress's turn) is held at the clock it
+  // began at after each commit, before a frame shows it, until agent.js, which loads after the first render, takes it
+  // (its `register`): never left on the browser's clock, nor turned on the compositor first (LLP 1069.001: a spinner
+  // follows the agent's clock), as the wasm host holds each commit's at once.
+  "if (agentMode()) { const early = (globalThis.exact ??= {}).early = new WeakMap(); After.push(globalThis.exact.holdEarly = () => { for (const a of document.getAnimations()) if (!early.has(a) && a.playState === 'running' && (!a.timeline || a.timeline instanceof DocumentTimeline)) { early.set(a, clock.now); a.pause(); a.currentTime = 0; } }); }",
   ...(rust ? [
     // Rust data: loaded after first pixel, asked synchronously once ready;
     // a plan with a resource that has no compiled value waits for it.
@@ -493,6 +500,7 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   "import { data, clock, inflight, Resources, routeAt, Head } from './rt.js';",
   "import { types, sourceTypes, pages } from './names.js';",
   "import { answers } from './checkpoint.js';",
+  "import { markBars } from './navigation.js';",
   ...(ts ? ["import { install as ts } from './ts-data.js';"] : []),
   ...(rust ? ["import { install } from './rust-data.js';"] : []),
   // Two steps, so a server can send the page's head between them
@@ -510,6 +518,7 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   'globalThis.__render = async deadline => {',
   '  const end = t0 + deadline;',
   '  do await new Promise(r => setTimeout(r, 1)); while (inflight.n && performance.now() < end);',
+  '  markBars(document.getElementById("exact-root")); // the bars the glue marks, so their symbols are the size they will be',
   '  return { root: document.rootHTML(), title: Head.headTitle, description: Head.headDescription, time: clock.now, answers: answers(Resources, types[2], sourceTypes),',
   '    pending: Resources.filter(r => r.ticket).map(r => r.name), render: performance.now() - t0 };',
   '};',

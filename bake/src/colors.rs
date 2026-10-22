@@ -145,7 +145,7 @@ pub fn check(app_dir: &Path, platform: &str) -> Result<(), String> {
         .bindings
         .iter()
         .filter(|b| b.kind == exact_plan::BindingKind::Style)
-        .filter_map(|b| literal(&plan, b))
+        .filter_map(|b| literal(&plan, &b))
         .map(|text| target_colors(text, platform))
         .collect();
     let mut channels = std::collections::BTreeMap::new();
@@ -202,7 +202,7 @@ pub fn check(app_dir: &Path, platform: &str) -> Result<(), String> {
                 id if id == exact_kernel::PropId::ColorType as u16 => ("color-type", "float16"),
                 _ => continue,
             };
-            if literal(&plan, b) == Some(refused) {
+            if literal(&plan, &b) == Some(refused) {
                 return Err(format!(
                     "app.contract: a canvas's `{attr}=\"{refused}\"`: Linux's canvases are 8-bit sRGB (LLP 1100 D12a)"
                 ));

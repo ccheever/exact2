@@ -57,7 +57,7 @@ extension MenuHost {
     /// or `bottom` (the kernel's `press_face`). A text positioned out of the
     /// flow (a count at the row's corner) is in neither.
     static func stacks(_ row: NodeView, _ texts: [NodeView]) -> Bool {
-        guard texts.allSatisfy({ !["absolute", "fixed"].contains($0.style["position_type"]?.string ?? "") }) else { return false }
+        guard texts.allSatisfy({ !["absolute", "fixed"].contains($0.layoutPosition) }) else { return false }
         switch row.style["display"]?.string ?? "block" {
         case "block": return texts.allSatisfy { ($0.style["display"]?.string ?? "block") == "block" }
         case "flex": return ["top", "bottom"].contains(row.face?.placement ?? "")

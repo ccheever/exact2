@@ -301,7 +301,7 @@ extension Presenter {
     /// Applies a `fieldContent` op. A content box touches its node here,
     /// where it takes effect: the paragraph laid out in it, and a native
     /// button's face, whose padding the kernel resolved with it, asked for
-    /// again at the next controls sync.
+    /// again at its next read.
     func applyContentGeometry(_ v: NodeView, _ op: BatchOp) {
         v.applyFieldContent(op.payload)
         touched(v.id, textChanged: true)
