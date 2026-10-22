@@ -36,12 +36,12 @@ component WebhookDeliveriesDialog
               text "No requests yet." font-size="0.875rem" color="light-dark(#71717b, #818181)"
             if data.selected == ""
               for item in data.items key=item.id
-                button data-focus-stop="enabled" id=`webhook-delivery-${item.id}` press=pick(item.id) testId=`webhook-delivery-${item.id}` width="100%" display="flex" flex-direction="row" align-items="center" gap="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" border-width=0 background-color="#00000000"
+                button data-focus-stop="enabled" id=`webhook-delivery-${item.id}` press=pick(item.id) testId=`webhook-delivery-${item.id}` width="100%" display="flex" flex-direction="row" flex-wrap="wrap" justify-content="flex-start" align-items="center" gap="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" border-width=0 background-color="#00000000"
                   DeliveryBadge(label=item.label, tone=item.tone)
                   text item.method font-size="0.875rem"
                   text item.age font-size="0.875rem" color="light-dark(#71717b, #818181)"
                   if item.note != ""
-                    text item.note font-size="0.875rem" color="light-dark(#71717b, #818181)" min-width=0 line-clamp=1
+                    text item.note font-size="0.875rem" color="light-dark(#71717b, #818181)" min-width=0 text-align="left"
                   text item.missing font-size="0.75rem" color="light-dark(#71717b, #818181)"
             else
               row gap="0.5rem" flex-wrap="wrap"

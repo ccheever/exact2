@@ -115,7 +115,8 @@ export function webhookSchedule(input: Record<string, string>, existing?: Obj): 
   const parsed = parseWebhookFilterDrafts(rows);
   if ('error' in parsed) throw new Error(`Invalid filter: ${parsed.error}`);
   const errors = webhookDraftErrors(input);
-  if (errors.length > 0) throw new Error(`${errors[0]!.title}: ${errors.map(error => error.description).join(' ')}`);
+  // One `Title: description` line per error; settingsFailure (shell-commands.ts) toasts each line.
+  if (errors.length > 0) throw new Error(errors.map(error => `${error.title}: ${error.description}`).join('\n'));
   const maxDeliveryAgeMinutes = parseMaxDeliveryAge(str(input.maxDeliveryAgeMinutes));
   const secret = str(input.signatureSecret).trim(), header = str(input.signatureHeader).trim();
   const enabled = input.signatureEnabled === 'true';

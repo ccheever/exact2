@@ -127,10 +127,10 @@ describe('webhook delivery labels and validation messages', () => {
       'Coalesce key must contain a valid request placeholder.',
       'Coalesce window must be whole seconds from 10 to 3600.',
     ]);
-    // The editor shows them as one line under the shared title.
+    // One `Title: description` line each, which settingsFailure toasts one by one.
     const task = webhookTask({});
     expect(() => webhookSchedule(formInput(task, { replayKey: 'bad', coalesceWindowSeconds: '0' }), task))
-      .toThrow('Invalid webhook settings: Replay key must contain a valid request placeholder. Coalesce window must be whole seconds from 10 to 3600.');
+      .toThrow('Invalid webhook settings: Replay key must contain a valid request placeholder.\nInvalid webhook settings: Coalesce window must be whole seconds from 10 to 3600.');
   });
 });
 

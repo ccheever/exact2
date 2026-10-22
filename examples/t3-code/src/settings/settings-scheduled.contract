@@ -635,7 +635,7 @@ component ScheduledEditor
                   text draft.note font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
                   text "Each request runs the prompt. Use {{body.path}}, {{headers.name}}, {{query.name}}, {{body}} or {{request}} in the prompt; only what it names reaches the agent." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
                   column gap="0.375rem"
-                    text "Skip requests older than" class=TkLabel
+                    TaskFieldLabel(label="Skip requests older than", hint="minutes, optional")
                     input value=maxDeliveryAgeMinutes input=setText("maxDeliveryAgeMinutes") placeholder="Run every request" aria-label="Skip requests older than, minutes" disabled=busy class=TkField testId="task-webhook-max-age" autocorrect="off" id="field-task-webhook-max-age" data-editable="yes"
                   // WebhookFiltersField: always stacked, as the dialog stays narrow on wide windows.
                   column gap="0.5rem"
@@ -664,7 +664,7 @@ component ScheduledEditor
                     input value=coalesceKey input=setText("coalesceKey") placeholder="{{body.id}}" aria-label="Coalesce key" disabled=busy class=TkField testId="task-webhook-coalesce-key" autocorrect="off" id="field-task-webhook-coalesce-key" data-editable="yes"
                   column gap="0.375rem"
                     TaskFieldLabel(label="Coalesce window", hint="seconds, 10–3600")
-                    input value=coalesceWindowSeconds input=setText("coalesceWindowSeconds") placeholder="120" aria-label="Coalesce window" disabled=busy class=TkField testId="task-webhook-coalesce-window" autocorrect="off" id="field-task-webhook-coalesce-window" data-editable="yes"
+                    input type="number" min=10 max=3600 step=1 inputmode="numeric" value=coalesceWindowSeconds input=setText("coalesceWindowSeconds") placeholder="120" aria-label="Coalesce window" disabled=busy class=TkField testId="task-webhook-coalesce-window" autocorrect="off" id="field-task-webhook-coalesce-window" data-editable="yes"
                   text "Replay keys suppress repeat deliveries for 7 days. Coalescing runs the latest payload once when the window from the first delivery closes. Empty keys run normally." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
                   row align-items="center" justify-content="space-between" gap="1rem"
                     column gap="0.25rem" flex=1
