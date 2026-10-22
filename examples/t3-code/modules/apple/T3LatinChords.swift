@@ -22,7 +22,7 @@ import AppKit
 ///   letter by `KeyboardEvent.code`, key-recorder.contract). The re-issue is one event-level transform,
 ///   not a per-route one: what was retired (#110) is the surface launcher's
 ///   own native re-post of its letters, now declared shortcuts matched by the physical
-///   key. Composition keeps its own keys (the composer ends it first, T3ComposerInput.swift).
+///   key. Composition keeps its own keys (the composer commits it first).
 /// A row that slides under a still pointer (Settle, ⌘Z) is hovered by the host itself, which
 /// hit-tests a resting pointer after layout and scrolling as a browser does (exact2 #139).
 final class T3LatinChords {
