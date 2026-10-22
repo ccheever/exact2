@@ -644,7 +644,7 @@ package final class Presenter {
         if input { onInput?(id, value) }
     }
     func commitEdit(_ id: UInt32, _ value: String, change: Bool) {
-        guard edited == id else { return }
+        guard edited == id, !menus.preservesFocus(id) else { return }
         edited = nil
         var value = value
         // A number input's typed value past `min` or `max` commits as the
