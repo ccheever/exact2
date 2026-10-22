@@ -227,7 +227,8 @@ async function nodeOf(el) {
       if (row) found = { at, ...ownRow(t, at, row, lv) };
       else if (e?.b && t.implied.includes(name)) { const row = impliedRow(t, at, name, lv); if (row) found = { at, ...row }; }
     }
-    if (found) { const { at, ...row } = found; style[name] = { ...row, source: "inherited", from: viewOf(at) }; continue; }
+    // (And the ancestor's plan site, which the design server names by its source: tamber/1.16 `fromAt`.)
+    if (found) { const { at, ...row } = found; style[name] = { ...row, source: "inherited", from: viewOf(at), ...(siteOf(at) != null ? { fromSite: siteOf(at) } : {}) }; continue; }
     style[name] = { value: t.initial[name], source: "initial" };
   }
   const modes = modesOf(el);
@@ -269,7 +270,7 @@ async function selectedReport(el, click = null) {
   let selected = { node: viewOf(el), type: node.type, testId: node.testId, site: node.site, instance: node.instance, planDigest: x?.plan ?? null, tuple: node.modes ?? null, rows: Object.entries(node.style).map(([name, row]) => ({ name, ...row })), held: globalThis.exact?.heldOf?.(el)?.held ?? null, trimmed: false };
   // (The held node, named by this runtime's ids, where the glue could not number it.)
   if (selected.held && selected.held.node == null && selected.held.el) selected.held.node = viewOf(selected.held.el);
-  if (bytes(envelope(selected)) > REPORT_BYTES) selected = { ...selected, rows: selected.rows.map(({ name, value, computed: c, source, from, token }) => ({ name, value, ...(c ? { computed: c } : {}), source, from, token })), trimmed: true };
+  if (bytes(envelope(selected)) > REPORT_BYTES) selected = { ...selected, rows: selected.rows.map(({ name, value, computed: c, source, from, fromSite, token }) => ({ name, value, ...(c ? { computed: c } : {}), source, from, fromSite, token })), trimmed: true };
   while (bytes(envelope(selected)) > REPORT_BYTES && selected.rows.length) selected = { ...selected, rows: selected.rows.slice(0, Math.floor(selected.rows.length / 2)) };
   if (bytes(envelope(selected)) > REPORT_BYTES) return { kind: "unsupported", what: "inspect", detail: "the selected node's identity alone is larger than a report" };
   return envelope(selected);
@@ -292,6 +293,18 @@ async function select(el, clicked = false, click = null) {
     try { const { el: _, ...kept } = inspecting.selected; sessionStorage.setItem(key + ".selected", JSON.stringify({ ...kept, seq: inspecting.seq, session: inspecting.session, clicks })); } catch { /* storage refused */ }
   }
   env.report(r);
+}
+// `inspect` `{select: {up, sites}}` (tamber/1.16): the selection moves to the ancestor `up` call sites above it, as a
+// click on it would select it; `sites` are that copy's plan sites, by the server's map: the outermost of them above
+// the selected node is it (past the root, the root: the server names the app's own).
+async function selectUp({ sites }) {
+  const el = inspecting.selected?.el;
+  if (!inspecting.on || !el?.isConnected || !Array.isArray(sites)) { env.report({ kind: "unsupported", what: "inspect", detail: "no node is selected on this page to move up from" }); return; }
+  const want = new Set(sites);
+  let found = null;
+  for (let at = el; at; at = above(at)) if (want.has(siteOf(at))) found = at;
+  if (!found) { env.report({ kind: "unsupported", what: "inspect", detail: "no node of that copy is above the selected one on this page" }); return; }
+  await select(found);
 }
 async function refresh() {
   const was = inspecting.selected;
@@ -535,6 +548,7 @@ async function holdNow(m) {
 
 export async function frame(m) {
   if (m.kind === "outline") { outlineSites(m); return; }
+  if (m.select) { await selectUp(m.select); return; }
   if (m.kind === "hold") { await hold(m); return; }
   if (m.refresh) { if (m.status) await env.status(); await refresh(); return; }
   if (m.on && m.seq != null && m.seq === inspecting.left) { const facts = env.facts(); env.report({ kind: "selected", selected: null, inspect: m.seq, plan: facts.plan, revision: facts.revision }); return; }

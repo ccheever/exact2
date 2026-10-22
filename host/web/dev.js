@@ -639,7 +639,7 @@ if (es) {
     // (And a click's token, which the outline answering it names.)
     const envelope = (selected) => ({ kind: "selected", selected, inspect: inspecting.seq ?? undefined, ...(click ? { click } : {}), plan: channel.plan, design, revision: channel.revision });
     let selected = { node: id, type: node.type, testId: node.props?.testId ?? null, site: node.site ?? null, instance: node.instance ?? [], planDigest: node.planDigest ?? null, tuple: node.modes ?? null, rows: Object.entries(node.style ?? {}).map(([name, row]) => ({ name, ...row })), held: x.heldOf?.(x.views?.get(id), ask)?.held ?? null, trimmed: false };
-    if (bytes(envelope(selected)) > REPORT_BYTES) selected = { ...selected, rows: selected.rows.map(({ name, value, source, from, token }) => ({ name, value, source, from, token })), trimmed: true };
+    if (bytes(envelope(selected)) > REPORT_BYTES) selected = { ...selected, rows: selected.rows.map(({ name, value, source, from, fromSite, token }) => ({ name, value, source, from, fromSite, token })), trimmed: true };
     while (bytes(envelope(selected)) > REPORT_BYTES && selected.rows.length) selected = { ...selected, rows: selected.rows.slice(0, Math.floor(selected.rows.length / 2)) };
     if (bytes(envelope(selected)) > REPORT_BYTES) return { kind: "unsupported", what: "inspect", detail: "the selected node's identity alone is larger than a report" };
     return envelope(selected);
@@ -899,7 +899,20 @@ if (es) {
     if (r.reason) end(revision, at.epoch);
     report(r.reason ? { kind: "held", state: null, reason: r.reason, revision } : { kind: "held", state: h.state, revision });
   };
+  // `{select: {up, sites}}` (tamber/1.16): the selection moves to the ancestor `up` call sites above it, as a click
+  // on it would; `sites` are that copy's plan sites by the server's map, and the outermost above the selected node
+  // is it (past the root, the root).
+  const selectUp = async ({ sites }) => {
+    const id = inspecting.selected?.id;
+    if (!inspecting.on || id == null || !Array.isArray(sites)) { report({ kind: "unsupported", what: "inspect", detail: "no node is selected on this page to move up from" }); return; }
+    const want = new Set(sites);
+    let found = null;
+    for (let at = id, seen = 0; at != null && seen < 4096; seen++) { const n = ask({ op: "node", id: at }); if (n.error) break; if (want.has(n.site)) found = at; at = n.parent ?? null; }
+    if (found == null) { report({ kind: "unsupported", what: "inspect", detail: "no node of that copy is above the selected one on this page" }); return; }
+    await select(found);
+  };
   const inspect = async (frame) => {
+    if (frame.select) { await selectUp(frame.select); return; }
     // `{refresh: true}`: the selection again, under the digests now.
     // (`status: true`: its status again first, one lost on the way.)
     if (frame.refresh) { if (frame.status) await status(); await refresh(); return; }
