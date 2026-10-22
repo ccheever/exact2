@@ -12,7 +12,7 @@ import { attachOffered } from './composer-controls-attach';
 import { fanoutSelections, fanoutView } from './composer-controls-fanout';
 import { composerSelection } from './composer-provider-selection';
 import { chordGlyphs, optionValue, reportedSelection, resolvedCurrent, triggerModelName, type Selection } from './composer-controls-model';
-import { sendChords } from './composer-editor-intent';
+import { composerRequiresModifier, sendChords } from './composer-editor-intent';
 import { draftHoldsCommandEnter } from '../diff/diff';
 import { fileDraftHoldsCommandEnter } from '../panel/files-surface'; // the Files preview's draft too
 import { activeRef, terminalOpen } from '../terminal/terminal-drawer-view'; // ChatComposer passes the real terminalOpen
@@ -284,7 +284,7 @@ export function composerSnapshot(client: T3Client, now = 0) {
     // composer-editor-intent.ts. A focused Diff (or Files preview) comment draft keeps ⌘↩ (DiffCommentAnnotation's isCommentSubmitShortcut): the
     // reference's send chords answer only with the composer focused, and an `aria-keyshortcuts` button hears its chord before
     // any `key` handler, so the button declares none then. Annotate's editor keeps ⌘↩ the same way (browser-annotation.ts).
-    sendChords: draftHoldsCommandEnter(client) || fileDraftHoldsCommandEnter(client) ? '' : sendChordsWhileAnnotating(sendChords(client.config, phase === 'running', !client.threadId, terminalOpen(client)), annotatingOpenThread(client)),
+    sendChords: draftHoldsCommandEnter(client) || fileDraftHoldsCommandEnter(client) ? '' : sendChordsWhileAnnotating(sendChords(client.config, phase === 'running', !client.threadId, terminalOpen(client), composerRequiresModifier(client.local.deviceSettings.sendShortcut, client.draft)), annotatingOpenThread(client)),
     // TooltipPopup: 12pt text inset 8pt plus its 1pt border, for the window-edge shift.
     sendTipWidth: Math.ceil(measured(client.presentation, action.sendTooltip, 12, 400) + 18),
     // Menu widths from measured texts (composer-menus.ts); Run on's labels join the probes.

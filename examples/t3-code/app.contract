@@ -33,7 +33,7 @@ use ProjectsPage from "./src/settings/settings-projects.contract"
 use SbPicker from "./src/settings/settings-b-icons.contract"
 use PickerCatalog, PickerTarget, ComposerBranches from "./src/composer/composer-shapes.contract"
 use ComposerEditorView from "./src/composer/composer-editor.contract"
-use ComposerRichView, ComposerIntentReply, ComposerIntentMetadata, ComposerFieldObservation, ComposerFieldCommand, ComposerFieldResult, ComposerFieldAcknowledgement, composerChipEdge, composerChipInside, composerChipDeletes, composerChipWordDeletes, composerChipStep, composerChipOverlaps from "./src/composer/composer-rich.contract"
+use ComposerRichView, ComposerIntentReply, ComposerIntentMetadata, ComposerFieldObservation, ComposerFieldCommand, ComposerFieldResult, ComposerFieldAcknowledgement, composerChipEdge, composerChipInside, composerChipDeletes, composerChipWordDeletes, composerChipStep, composerChipOverlaps, composerSurrounds from "./src/composer/composer-rich.contract"
 use ComposerChipRequest from "./src/composer/composer-chip-controls.contract"
 use promptPreviewSample from "./src/appearance/settings-prompt-preview.contract"
 use ChipPopover, ComposerChipFinish from "./src/composer/composer-chip-popover.contract"
@@ -281,6 +281,7 @@ component T3Code
     composerLanguage
     composerKeyEvent
     composerKeyReleased
+    composerCopied
     attachFiles
     chooseAttachments
     threadFind
@@ -1536,9 +1537,10 @@ component T3Code
           case some(text)
             // Typed at an empty fence's closing line, text opens the body line (composerCodeInput); typed or dropped
             // inside a reference, it goes after it; put over a selection that holds a reference, it replaces the
-            // whole selection, the reference's source included (composer-source-session.ts input).
+            // whole selection, the reference's source included (composer-source-session.ts input). A bracket or
+            // quote typed over a selection wraps it (composer-surround.ts).
             let typed = e.inputType == "insertText" or e.inputType == "insertReplacementText" or e.inputType == "insertFromDrop"
-            if e.inputType == "insertFromPaste" or (typed and (composerChipInside(richComposer.chips, e.selectionStart, e.selectionEnd) or composerChipOverlaps(richComposer.chips, e.selectionStart, e.selectionEnd))) or (e.inputType == "insertText" and richComposer.blocks.filter((b) => b.kind == "code" and not b.bodyLine and e.selectionStart == b.bodyStart and e.selectionEnd == b.bodyStart).length > 0)
+            if e.inputType == "insertFromPaste" or (typed and (composerChipInside(richComposer.chips, e.selectionStart, e.selectionEnd) or composerChipOverlaps(richComposer.chips, e.selectionStart, e.selectionEnd))) or (e.inputType == "insertText" and richComposer.blocks.filter((b) => b.kind == "code" and not b.bodyLine and e.selectionStart == b.bodyStart and e.selectionEnd == b.bodyStart).length > 0) or (e.inputType == "insertText" and e.selectionStart < e.selectionEnd and richComposer.mode != "literal" and composerSurrounds(text))
               preventDefault()
               composerIntentRequest(e.inputType == "insertFromPaste" ? "paste" : "input", text, "", false, false, e.selectionStart, e.selectionEnd, e.isComposing)
           case none
@@ -1604,6 +1606,10 @@ component T3Code
         stopPropagation()
         if k != "Enter" or not e.repeat
           composerIntentRequest("key", "", k, e.shiftKey or (k == "Enter" and composerRequiresModifier and not heldCommand), heldCommand, composerSelectionStart, composerSelectionEnd, composing)
+  // composer-copied-chips.ts: the copied range's image and file chips, held as the latest copy. The field copies the text.
+  action composerCopied
+    if composerSelectionCurrent and composerSelectionStart < composerSelectionEnd
+      editorOp("chips-copied", `${composerSelectionStart}:${composerSelectionEnd}`, composerText)
   action composerKeyReleased(k: string, e: KeyboardEvent)
     composerShift = e.shiftKey
     composerCommand = e.metaKey or e.ctrlKey
