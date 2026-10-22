@@ -142,6 +142,27 @@ impl<'a> Home<'a> {
         Some(self.root?.join("assets").join(file))
     }
 
+    /// Whether `path` (this home's SVG, [`Home::svg`]) leaves its package:
+    /// a package's file that is there must be, links followed, under the
+    /// package's own `assets/` (round 1, Astra 4 = Grok 2), so no link
+    /// passes off the app's or another package's bytes as the package's.
+    /// One not there yet leaves nothing. The app's are not confined: its
+    /// `assets/` are its own to arrange (a link to a shared directory is the
+    /// author's choice), and the web stages them as they are.
+    pub fn leaves(&self, path: &Path) -> bool {
+        let (Some(_), Some(root)) = (self.package, self.root) else {
+            return false;
+        };
+        let Ok(real) = path.canonicalize() else {
+            return false;
+        };
+        let assets = root
+            .canonicalize()
+            .unwrap_or_else(|_| root.to_path_buf())
+            .join("assets");
+        !real.starts_with(assets)
+    }
+
     /// `assets/<file>` as a refusal names it: a package's by its package.
     fn shown(&self, file: &str) -> String {
         match self.package {
@@ -167,7 +188,15 @@ fn svg_of(icon: &tamber::Icon, home: Home) -> Result<Option<crate::icon_svg::Svg
         }
         (Some(file), Some(root)) => (file, root),
     };
-    std::fs::read_to_string(root.join("assets").join(file))
+    let path = root.join("assets").join(file);
+    if home.leaves(&path) {
+        return Err(format!(
+            "`{}`: {} leaves the package (a link to a file outside its `assets/`): a package's SVG is its own file",
+            icon.name,
+            home.shown(file)
+        ));
+    }
+    std::fs::read_to_string(path)
         .map_err(|e| e.to_string())
         .and_then(|t| Ok((t.len(), crate::icon_svg::read(&t)?)))
         .and_then(|(len, svg)| match &svg.not_template {

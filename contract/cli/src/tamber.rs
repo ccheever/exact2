@@ -197,7 +197,8 @@ pub fn run(args: &[String]) -> ExitCode {
             let svg = i.svg.as_deref()?;
             let at =
                 contract_lower::icons::Home::of(i, home.as_deref(), &app.packages, &app.tokens);
-            Some((at.svg(svg)?, svg))
+            // A package's that leaves it is not copied, and is refused as the build refuses it.
+            Some((at.svg(svg).filter(|p| !at.leaves(p))?, svg))
         })
         .collect();
     svgs.sort_unstable();
