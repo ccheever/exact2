@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join as joinPath } from 'node:path';
 import { buildChannel, selectRequest } from './tamber-builds.mjs';
-import { correspondingSite, current, editable, join, plainAt, rowRung, stateRung, mapCard, mapFor, paramsOf, published, pullMap, sitesAt, sitesUp, staleMap } from './tamber-inspect.mjs';
+import { correspondingSite, current, editable, join, plainAt, rowRung, stateRung, mapCard, mapFor, paramsOf, published, pullMap, sitesAt, levelsUp, staleMap } from './tamber-inspect.mjs';
 
 const sha = text => createHash('sha256').update(text).digest('hex');
 
@@ -845,18 +845,21 @@ test('tamber/1.16: an inherited row\'s ancestor named by its source from the pag
   expect(s.rows.some(r => 'fromSite' in r)).toBe(false);
   // Nor with no map.
   expect(join({ id: 'web-1' }, selected, null).rows.some(r => 'fromSite' in r)).toBe(false);
-  // One call site up from the glyph: Row's copy (both its nodes); two up, or past it: the app's own.
-  expect(sitesUp(map, 2, 1)).toEqual([1, 3]);
-  expect(sitesUp(map, 2, 2)).toEqual([0]);
-  expect(sitesUp(map, 2, 9)).toEqual([0]);
-  expect(sitesUp(map, 7, 1)).toEqual([]);
+  // One call site up from the glyph: Row's copy (both its nodes), then the app's own; two up, or past it: the app's own.
+  expect(levelsUp(map, 2, 1)).toEqual([[1, 3], [0]]);
+  expect(levelsUp(map, 2, 2)).toEqual([[0]]);
+  expect(levelsUp(map, 2, 9)).toEqual([[0]]);
+  expect(levelsUp(map, 7, 1)).toEqual([]);
   // A component that only renders another (Wrap → Label: Wrap owns no node): one up from Label's node is the next copy
   // out that owns one, here the app's own.
   const wrapped = { nodes: [
     { file: 'app.contract', line: 3, chain: [] },
     { file: 'label.contract', line: 2, chain: [{ file: 'wrap.contract', line: 4, col: 3 }, { file: 'app.contract', line: 5, col: 7 }] },
   ] };
-  expect(sitesUp(wrapped, 1, 1)).toEqual([0]);
+  expect(levelsUp(wrapped, 1, 1)).toEqual([[0]]);
+  // App only rendering Wrap, only rendering Label: no level above owns a node, so nothing to move to.
+  const delegated = { nodes: [{ file: 'label.contract', line: 2, chain: [{ file: 'wrap.contract', line: 4, col: 3 }, { file: 'app.contract', line: 5, col: 7 }] }] };
+  expect(levelsUp(delegated, 0, 1)).toEqual([]);
   // The raw `selected` event the server republishes carries no fromSite either.
   expect(JSON.stringify(published(selected, new Map()))).not.toContain('fromSite');
 });
@@ -866,15 +869,17 @@ test('tamber/1.16: inspect select moves only the inspecting client\'s selection,
   const channel = buildChannel({ send: () => {}, log: () => {} });
   const opened = channel.open(f => frames.push(f));
   channel.report(JSON.stringify({ nonce: opened.nonce, kind: 'register', id: 'web-1', host: 'web-js', capabilities: ['inspect'], plan: 'g1', design: 'd1' }));
-  expect(selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 0 } }, () => [1]).status).toBe(400);
-  expect(selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 65 } }, () => [1]).status).toBe(400);
-  expect(selectRequest(channel, { client: 'tool', select: { up: 1 } }, () => [1]).status).toBe(400);
+  const at = { levels: [[1]], plan: 'g1', from: 2 };
+  expect(selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 0 } }, () => at).status).toBe(400);
+  expect(selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 65 } }, () => at).status).toBe(400);
+  expect(selectRequest(channel, { client: 'tool', select: { up: 1 } }, () => at).status).toBe(400);
   // Not its inspector: refused; no selection to move from: refused.
-  expect(selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 1 } }, () => [1]).status).toBe(409);
+  expect(selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 1 } }, () => at).status).toBe(409);
   channel.inspect('tool', 'web-1', { on: true });
   expect(selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 1 } }, () => null).status).toBe(409);
-  expect(selectRequest(channel, { client: 'other', build: 'web-1', select: { up: 1 } }, () => [1]).status).toBe(409);
+  expect(selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 1 } }, () => ({ levels: [], plan: 'g1', from: 2 })).status).toBe(409);
+  expect(selectRequest(channel, { client: 'other', build: 'web-1', select: { up: 1 } }, () => at).status).toBe(409);
   frames.length = 0;
-  expect(selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 2 } }, () => [0, 4])).toEqual({ ok: { builds: ['web-1'] } });
-  expect(frames.filter(f => f.kind === 'inspect')).toEqual([{ kind: 'inspect', select: { up: 2, sites: [0, 4] } }]);
+  expect(selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 2 } }, () => ({ levels: [[0, 4], [1]], plan: 'g1', from: 2 }))).toEqual({ ok: { builds: ['web-1'] } });
+  expect(frames.filter(f => f.kind === 'inspect')).toEqual([{ kind: 'inspect', select: { up: 2, levels: [[0, 4], [1]], plan: 'g1', from: 2 } }]);
 });
