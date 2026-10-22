@@ -2,7 +2,9 @@ import { notePagePullRequest } from '../panel/closed-views';
 import { buildAddSelectionToAgentHandoff, buildAskAboutGuideStopHandoff, contextMetadata } from './pages-pr-handoffs-logic';
 import { openPullRequestIn } from '../panel/pr-attachment-surfaces';
 import { openFileSurface, panelState, workspacePath } from '../panel/panel-surfaces';
-import { markdownFileMenu } from '../panel/files-surface';
+import { markdownFilePick } from '../panel/files-surface';
+import { withFileLinkMenus } from '../timeline/file-link-menu';
+import { pullRequestUrls } from '../timeline/pull-link-registry';
 import { environmentClient } from '../settings/projects-fleet';
 import { pullRequestServer } from './pages-pr-environments';
 import { emptyGuideView, generateGuide, guideEntry, guideNavigate, guideReader, presentGuide, readGuide } from './pages-pr-guide';
@@ -316,15 +318,13 @@ function present(view: PrDetailView, panel: Panel | null, selection: PrSelection
     links.push(...linked.links, ...pullRequestUrls(linked.text).map(href => ({ href, kind: '' })));
     return { ...body, body: linked.text };
   });
-  // Every body shares the PR workspace; each rendered run needs one file record for its href.
+  // Every body shares the PR workspace; each rendered run needs one file record for its href. A file link's menu rows are
+  // its server's, read in the PR workspace; the page leaves out "Preview media" (PrdBody fileMenu).
   const fileChips = view.bodies.flatMap(body => messageChips({ text: body.body }, str(display.workspaceRoot), [], body.id).filter(chip => chip.kind === 'link'));
+  try { withFileLinkMenus(environmentClient(client, pullRequestServer(client, selection.environmentId ?? '', selectionRef(selection))), fileChips, { cwd: str(display.workspaceRoot) }); }
+  catch { /* the pull request's server is gone: its file links have no menu */ }
   view.md = { ...view.md, chips: [...view.md.chips, ...new Map(fileChips.map(chip => [chip.href, chip])).values(), ...linkChips(client, context.environmentId, links)] };
   return view;
-}
-/** Web links in Markdown source (inline `](url)`, `<url>`, bare URLs) that name a change request: the ones a card can preview. */
-function pullRequestUrls(markdown: string): string[] {
-  const found = [...markdown.matchAll(/\]\((https?:\/\/[^\s)]+)\)|<(https?:\/\/[^\s>]+)>|(https?:\/\/[^\s<>()[\]]+)/g)].map(match => match[1] ?? match[2] ?? match[3] ?? '');
-  return found.map(url => url.replace(/[.,;:!?]+$/, '')).filter(url => /\/(?:pulls?|-\/merge_requests|pull-requests|pullrequest)\/\d+/.test(url));
 }
 const breakdownTarget = (panel: Panel, selection: PrSelection, detail: Obj): BreakdownTarget =>
   ({ reference: panel.reference, environmentId: selection.environmentId, additions: num(detail.additions), deletions: num(detail.deletions) });
@@ -464,16 +464,17 @@ export async function prCommand(client: T3Client, native: Native, op: string, se
   if (op === 'quick') return runQuickAction(client, native, value, ref => { const row = parseSelection(ref); return row ? listEntryFor(client, row) : null; }, () => stale(client));
   const selection = parseSelection(selected);
   if (!selection) throw new ClientError('Choose a pull request first.');
-  if (op === 'file-open' || op === 'file-menu') {
+  // A file link's click (value "<surface>\n<target>"), or a row of its menu (value "<surface>\n<target>\n<row id>", PrdBody fileMenu).
+  if (op === 'file-open' || op === 'file-pick') {
     const detail = contextOf(client, selected)?.detail;
     if (!detail) throw new ClientError('The pull request is still loading.');
-    const split = value.indexOf('\n'), surface = value.slice(0, split), target = value.slice(split + 1), cwd = str(detail.workspaceRoot);
+    const [surface = '', target = '', picked = ''] = value.split('\n'), cwd = str(detail.workspaceRoot);
     if (op === 'file-open' && surface === 'thread') {
       const { path, line } = workspacePath(target, cwd);
       await openFileSurface(client, native, path, line);
-    } else {
+    } else if (op === 'file-pick') {
       const owner = environmentClient(client, pullRequestServer(client, selection.environmentId ?? '', selectionRef(selection)), native);
-      await markdownFileMenu(owner, native, target, { cwd, previewMedia: surface === 'thread' });
+      await markdownFilePick(owner, native, target, picked, { cwd, previewMedia: surface === 'thread' });
     }
     return '';
   }

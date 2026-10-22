@@ -6,8 +6,8 @@ connections (HTTP, WebSocket RPC, the saved environments and their credentials).
 Markdown editor owns composer text, selection, styling and undo; TypeScript supplies the
 source's block and reference projection and guarded edit intents. A drop, a paste and Attach files
 are Contract's `drop`, `paste` and file input, their files staged in TypeScript
-(`composer-attach-stage.ts`). An app-local Swift module (`modules/apple/`) adapts focus and
-modifier events, Paste as Text, large pastes, terminal and browser web views, menus,
+(`composer-attach-stage.ts`). An app-local Swift module (`modules/apple/`) adapts type-to-focus,
+modifier events, large pastes, terminal and browser web views, menus,
 notifications and window chrome. Provider execution, workspaces, Git and conversation
 history stay on the T3 server.
 The app carries the official T3 server release (the CLI archive of the release built from the
@@ -322,7 +322,7 @@ opens a fresh draft in the same project. With Settings › Send shortcut set so 
 ⌘↩ follows the Follow-up behaviour setting while a turn runs and ⌘⇧↩ takes the other. Other chords follow the server's keybindings
 (⌘K palette, ⌘N new thread, ⇧⌘M model picker, ⇧⌘K copy PR number, ⌘B sidebar). ⌘B bolds instead
 while the rich-text composer has the focus, as Tiptap does: a click into an existing draft
-counts as focus (the window's first responder is followed, `T3ComposerInput.swift`), and ⌘B / ⌘I end
+counts as focus (Exact fires the field's `focus` on the click), and ⌘B / ⌘I end
 a composing syllable first and match by key code under a non-Latin source such as Korean 2-Set. Outside
 the composer a ⌘ or ⌃ letter chord under a non-Latin source is re-issued with its key's Latin
 character, as the reference's `resolveEventKeys` does (`T3LatinChords.swift`), so ⌘B, ⌘K and menu
@@ -343,9 +343,12 @@ menu is a window-level popup, placed from the trigger's `frame()` (scroll offset
 that Escape and an outside press close (`table-menu.*`). The row context menus are Contract context
 popovers, which the host presents as an `NSMenu` at the pointer, or for the ContextMenu key at the
 focused row's centre (exact2 #314): the sidebar's thread, draft and selection menus, the legacy sidebar's
-row, selection and project menus, the Files tree's, a panel tab's and a pull request number's. A draft
-row's ContextMenu and Shift+F10, and a tab's Shift+F10, show theirs from the row, below it. The branch
-picker's Copy branch name, the chat's file and web link menus, the media menu and the legacy sidebar's
+row, selection and project menus, the Files tree's, a panel tab's, a pull request number's, and the chat's
+web and file link menus (`link-menus.contract`; their rows are computed before the right-click,
+`external-link-menu.ts` and `file-link-menu.ts`). A draft
+row's ContextMenu and Shift+F10, and a tab's Shift+F10, show theirs from the row, below it. A mailto, irc,
+xmpp or fragment link has no menu of its own, so its right-click is the desktop shell's. The branch
+picker's Copy branch name, the media menu and the legacy sidebar's
 choice of project members stay the module's (`T3ContextMenu.swift` and `T3Sidebar.swift` say why). A global hotkey of another
 app (a launcher holding ⌘1, say) never reaches the window.
 
@@ -443,6 +446,12 @@ filed were moved there or closed). The gaps someone using this app runs into:
 - Data modules have no timers ([`issues/closed/20261009-typescript-failure-parity.md`](../../issues/closed/20261009-typescript-failure-parity.md),
   #124; closed with timers still deferred). Time is an argument, and debounces and cooldowns are
   Contract tasks.
+- The ContextMenu key and VoiceOver's show menu on a reply's mailto, irc, xmpp or fragment link open nothing,
+  where the reference opens the desktop shell's menu: those links write no `contextmenu`, and on macOS a
+  keyboard or VoiceOver menu request that no node answers ends (`MouseEventsMac.swift` `contextTarget`),
+  while a right-click goes on to the shell's menu. Chrome sends the request on to the default menu.
+- On the pull request page a file link's press opens its menu below the link (a popover invoker), where the
+  reference opens it at the click.
 - A backdrop blur sees only its parent ([`issues/closed/20261010-macos-backdrop-beyond-parent.md`](../../issues/closed/20261010-macos-backdrop-beyond-parent.md);
   main keeps the limit), so the composer is opaque where the reference's glass shows the
   transcript through it.
@@ -508,17 +517,16 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
   (`timelineSleep`: data modules have no timers, and an answer that awaits a promise another
   answer settles is refused as pending on nothing when no fetch or storage step is in flight).
 - Composer OS adapters (`T3ComposerAttach`, `T3ComposerIntent`, `T3ComposerQueueKey` and
-  `T3ComposerEditor`) retain large-paste folding, Paste as Text, modifier and focus routing, and a
+  `T3ComposerEditor`) retain large-paste folding, type-to-focus, the queued edit's key, and a
   video's first frame and typed link. A drop on the chat column or a sidebar row, a paste's files
   and Attach files are Contract's `dragenter`, `dragleave`, `drop`, `paste`
   (`ClipboardEvent.files`) and `input type="file"`; TypeScript stages each file
   (`composer-attach-stage.ts`), reads it at send and removes it (`composer-staged-copies.ts`).
   An image within its limits keeps its bytes and type; one over them is encoded by
-  `compressImage`. What stays native, and why: Paste as Text, because AppKit's
-  `pasteAsPlainText:` fires no `paste` and `ClipboardEvent` has no Paste as Text flag (the module
-  presses a hidden key the Contract hears, then pastes); ⌘V with only image data on the
-  pasteboard, because AppKit disables a plain text view's Paste for it (the module sends the
-  text view's paste, whose `paste` carries `image.png`); large-paste folding, which reads the
+  `compressImage`. Paste as Text is the Contract's: Exact fires `paste` for `pasteAsPlainText:` as
+  for Paste, and the composer's `key` handler arms the paste its ⇧⌘V brings, as the reference's
+  keydown does (`isPasteAsTextShortcut`). Paste is enabled for files or image data alone where a
+  `paste` is heard. What stays native, and why: large-paste folding, which reads the
   text view's edit before it lands (moving it to the Contract `paste` is open); and the first
   frame (AVFoundation) and the typed link a video or audio file plays from. The composer is
   Exact's Markdown editor (`textarea
@@ -638,12 +646,8 @@ above.
   pasted or dropped inside it goes after it; and text put over a selection that holds it
   replaces the whole selection, its hidden destination included. A citation is known by its
   `t3-citation:` destination, whatever its label reads.
-- Held Shift or ⌘ does nothing after the focused control unmounts (opening Linked pull requests from
-  the panel launcher, or at launch with no thread open) until the next click: with nothing focused,
-  the window root hears no keys, where Chromium's `window` listeners hear every key.
-- Edit › Paste is enabled after a click on blank ground, and choosing it only forgets the held
-  keys: the window root takes that focus and hears `paste`. Elsewhere AppKit disables Paste when
-  nothing can take it. The reference's Paste is always enabled.
+- Edit › Paste as Text chosen with the pointer is a Paste: no key comes before it to arm the
+  composer, where the reference's menu item arms it over IPC before pasting. Its ⇧⌘V is Paste as Text.
 - A folder dropped on the chat column or pasted into the composer is not mentioned in the prompt. The
   reference inserts its absolute path as an `@` mention (ChatComposer.tsx `addComposerFolders`); such a
   folder reaches the clone as a `doc:` handle with no path (LLP 1069.010 D1), so the clone shows the
@@ -667,9 +671,6 @@ above.
 - A dropped or pasted file's MIME type comes from its extension, by the names macOS gives
   (`composer-attach-stage.ts`), where Chromium's `File.type` reads its own table first; a
   picked file's is the picker's.
-- Edit › Paste stays disabled with only image data on the pasteboard (a screenshot copied to the
-  clipboard): AppKit enables a plain text view's Paste only for the types it reads. ⌘V pastes
-  it: the module sends the text view's paste, whose `paste` carries `image.png`.
 
 **Not failures:**
 

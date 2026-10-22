@@ -1644,6 +1644,7 @@ component T3Code
   action composerFocus
     composerFocused = true
     composerComposing = false
+    modifierEditableFocus()
   action composerBlur
     composerFocused = false
     composerTyping = false
@@ -1677,7 +1678,9 @@ component T3Code
     let held = shortcutModifierStateAfterKeyboardEvent(shortcutModifiers, down, e)
     if not areShortcutModifierStatesEqual(held, shortcutModifiers)
       shortcutModifiers = held
-    let speed = editable ? emptyShortcutModifierState() : shortcutModifierStateAfterKeyboardEvent(speedModifierState, down, e)
+    // isEditableFocused: the window's field focus (T3Window's focusin), or the composer's own `focus`, which a launch
+    // that seats the focus in the composer fires even when the window's focusin is not heard.
+    let speed = (editable or composerFocused) ? emptyShortcutModifierState() : shortcutModifierStateAfterKeyboardEvent(speedModifierState, down, e)
     if not areShortcutModifierStatesEqual(speed, speedModifierState)
       speedModifierState = speed
   // showThreadUndoNotice's claim: each new notice owns the undo chord even in the composer, until another key or an

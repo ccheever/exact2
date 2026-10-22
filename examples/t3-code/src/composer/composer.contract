@@ -104,8 +104,11 @@ component ComposerCard
     composerMoved(e)
   action richBeforeInput(e: InputEvent)
     composerBeforeInput(e)
+  // isPasteAsTextShortcut (⇧⌘V, no ⌥ or ⌃) arms the paste its menu item brings as Paste as Text for one second
+  // (armPasteAsTextShortcut's deadline).
   action richKey(k: string, e: KeyboardEvent)
-    pasteAsText = false
+    if k.toLowerCase() == "v" and e.shiftKey and e.metaKey and not e.altKey and not e.ctrlKey
+      pasteAsTextUntil = performanceNow() + 1000
     composerKeyEvent(k, e)
   action richKeyReleased(k: string, e: KeyboardEvent)
     composerKeyReleased(k, e)
@@ -113,16 +116,17 @@ component ComposerCard
     write(value, e)
   action richCopied
     composerCopied()
+  action richBlurred
+    pasteAsTextUntil = 0
+    onBlur()
   // onComposerPaste: with a thread open, the paste's files attach (preventDefault keeps their names out of the
-  // prompt). Paste as Text (⇧⌘V, Edit › Paste as Text) presses the hidden `paste-as-text` key just before its paste
-  // (T3ComposerEditor.swift pasteAsText), as the reference's keydown arms consumePasteAsTextShortcut: its images get
-  // no inline chip. The next paste or key press disarms it, as the reference's deadline does.
-  state pasteAsText = false
-  action pasteAsTextArm
-    pasteAsText = true
+  // prompt). Armed by its key (richKey), the paste is Paste as Text (consumePasteAsTextShortcut, one paste only): its
+  // images get no inline chip. Edit › Paste as Text chosen with the pointer has no key before it, so it is a Paste.
+  // Leaving the composer disarms it, as the reference's window blur does.
+  state pasteAsTextUntil = 0
   action pasted(e: ClipboardEvent)
-    let asText = pasteAsText
-    pasteAsText = false
+    let asText = performanceNow() <= pasteAsTextUntil
+    pasteAsTextUntil = 0
     if data.projectId != "" and composerPasteTakesFiles(e.files, e.text)
       preventDefault()
       attachFiles("paste", e.files, [], asText, "")
@@ -163,7 +167,7 @@ component ComposerCard
           box position="relative" width="100%" id="composer-field-wrap"
             if text == ""
               text data.composer.placeholder font-family=data.look.promptFont position="absolute" left=0 top=0 right=0 font-size="0.875rem" line-height=(resting ? "2rem" : "1.421875rem") line-clamp=(resting ? 1 : 3) color="light-dark(#71717abf, #818181bf)" pointer-events="none" aria-hidden=true testId="composer-placeholder"
-            textarea id="composer" testId="composer" hatch="t3-composer" data-snapshot-owner=data.snapshotOwner data-owner=richComposerOwner value=text input=richWrite paste=pasted copy=richCopied cut=richCopied markup=(richComposer.mode == "rich" ? "markdown" : "none") selectionchange=richMoved beforeinput=richBeforeInput key=richKey keyup=richKeyReleased focus=onFocus blur=onBlur aria-label="Message" aria-description=data.composer.placeholder width="100%" margin-top=(resting ? "0px" : "-0.25rem") margin-bottom=(resting ? "0px" : "0.25rem") field-sizing=(resting ? "fixed" : "content") height=(resting ? "2rem" : "auto") min-height=(resting ? "2rem" : "4.375rem") font-family=data.look.promptFont font-size=data.look.promptSize line-height=(resting ? "2rem" : `${data.look.promptSize * 1.625}px`) padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#27272a, #f5f5f5)" caret-color="light-dark(#27272a, #f5f5f5)" autocorrect="off" outline="none" data-editable="yes"
+            textarea id="composer" testId="composer" hatch="t3-composer" data-snapshot-owner=data.snapshotOwner data-owner=richComposerOwner value=text input=richWrite paste=pasted copy=richCopied cut=richCopied markup=(richComposer.mode == "rich" ? "markdown" : "none") selectionchange=richMoved beforeinput=richBeforeInput key=richKey keyup=richKeyReleased focus=onFocus blur=richBlurred aria-label="Message" aria-description=data.composer.placeholder width="100%" margin-top=(resting ? "0px" : "-0.25rem") margin-bottom=(resting ? "0px" : "0.25rem") field-sizing=(resting ? "fixed" : "content") height=(resting ? "2rem" : "auto") min-height=(resting ? "2rem" : "4.375rem") font-family=data.look.promptFont font-size=data.look.promptSize line-height=(resting ? "2rem" : `${data.look.promptSize * 1.625}px`) padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#27272a, #f5f5f5)" caret-color="light-dark(#27272a, #f5f5f5)" autocorrect="off" outline="none" data-editable="yes"
         ComposerCodeHeaders(source=richComposer, owner=richComposerOwner, value=text, resting=resting)
         ComposerChipControls(source=richComposer, owner=richComposerOwner, value=text, serial=composerFieldInputSerial, surface="composer", size=data.look.promptSize, family=data.look.promptFont)
       // The prompt editor (composer-editor.contract): the length line.
@@ -171,8 +175,6 @@ component ComposerCard
         text composerIntentNotice role="status" padding="0.5rem 1rem" testId="composer-intent-notice"
       if editor.promptLimit != "" and not resting
         PromptLengthValidation(message=editor.promptLimit)
-      button hatch="t3-composer-key" data-anchor="paste-as-text" press=pasteAsTextArm position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true tabindex=-1 testId="composer-paste-as-text-key"
-        text "composer-paste-as-text-key" font-size=1
       if data.composer.planVisible
         button hatch="t3-composer-key" data-anchor="mode-plan" press=interaction("plan") disabled=(busy or not data.connected or data.running) position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true tabindex=-1 testId="composer-mode-plan-key"
           text "composer-mode-plan-key" font-size=1

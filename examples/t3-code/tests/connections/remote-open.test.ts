@@ -2,13 +2,14 @@ import { afterEach, test, expect, describe, beforeEach } from 'bun:test';
 import { primaryAt, resetPrimary } from '../support/local-primary-fixture';
 afterEach(resetPrimary);
 import { resolveRemoteOpenState, shouldShowOpenInPicker, canUseMarkdownFileShellActions, parseSafeExternalUrl, remoteEditorsFrom, remoteCapableEditors,
-  resetRemoteEditorsForTests, openInView, openInEditorHere, rememberSshAlias, remoteOpenFor, openFavoriteEnabled } from '../../src/connections/remote-open';
+  resetRemoteEditorsForTests, openInView, openInEditorHere, rememberSshAlias, remoteOpenFor, openFavoriteEnabled, loadSshAliases } from '../../src/connections/remote-open';
 import { buildRemoteOpenUrl, REMOTE_CAPABLE_EDITOR_IDS } from '../../src/shared/editors';
 import { obj, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { T3Client } from '../../src/client/client';
 import { fleet } from '../../src/connections/settings-b-fleet';
-import { filesView, filesLocal, filesState, markdownFileMenu } from '../../src/panel/files-surface';
+import { filesView, filesLocal, filesState, markdownFilePick } from '../../src/panel/files-surface';
+import { markdownFileMenuRows } from '../../src/timeline/file-link-menu';
 
 const TAILSCALE_TARGETS = [{ kind: 'tailscale', host: 'sol.tail1234.ts.net' }, { kind: 'mdns', host: 'sol.local' }];
 const primary = (httpBaseUrl: string) => ({ kind: 'primary' as const, httpBaseUrl });
@@ -236,20 +237,18 @@ describe('Files and Markdown use the focused environment route', () => {
     owner.shell.projects = [{ id: 'p', title: 'project', workspaceRoot: '/srv/project' }];
     owner.config = { availableEditors: ['idea', 'cursor', 'file-manager'], shellRevealInFileManager: true, shellRevealInFileManagerKind: 'finder' };
     const calls: Obj[] = [];
-    let picked = '';
     const native: Native = { available: true, watch() {}, later: async (input: unknown) => {
       const request = obj(input); calls.push(request);
       let value: Obj = {};
       if (request.op === 'sshHosts') value = { targets: remote ? { [origin]: { alias: 'devbox' } } : {} };
       if (request.op === 'remoteEditorsProbe') value = { editors: ['zed', 'vscode'] };
       if (request.op === 'remoteEditorsOpen') value = { opened: true };
-      if (request.op === 'contextMenu') value = { clicked: picked };
       return { ok: true, generation: 0, value };
     } };
     const state = filesState(owner);
     state.dirs.set('', []);
     state.reads.set('README.md', { contents: '# test', byteLength: 6, truncated: false, error: '', notFile: false });
-    return { owner, native, calls, pick: (value: string) => { picked = value; } };
+    return { owner, native, calls };
   }
   const file = { id: 'file:README.md', kind: 'file' as const, path: 'README.md', line: 0, reveal: 1 };
   test('Files lists local remote-capable editors and opens the file on the SSH alias', async () => {
@@ -286,19 +285,17 @@ describe('Files and Markdown use the focused environment route', () => {
     for (const remote of [false, true]) {
       resetRemoteEditorsForTests();
       primaryAt('http://127.0.0.1:41857', 'env');
-      const { owner, native, calls } = fixture('http://127.0.0.1:41857', remote);
-      await markdownFileMenu(owner, native, '/srv/project/README.md');
-      const items = obj(calls.find(call => call.op === 'contextMenu')).items;
-      expect(items).toEqual([
+      const { owner, native } = fixture('http://127.0.0.1:41857', remote);
+      await loadSshAliases(native); // timeline-prepare.ts reads them before a snapshot's chips take their rows
+      expect(markdownFileMenuRows(owner, '/srv/project/README.md')).toEqual([
         ...(!remote ? [{ id: 'open', label: 'Open in Cursor' }, { id: 'reveal', label: 'Reveal in Finder' }] : []),
         { id: 'copy-relative', label: 'Copy relative path' }, { id: 'copy-full', label: 'Copy full path' },
       ]);
     }
   });
   test('Markdown remote links can still copy a workspace-relative path', async () => {
-    const { owner, native, calls, pick } = fixture('http://127.0.0.1:41857');
-    pick('copy-relative');
-    await markdownFileMenu(owner, native, '/srv/project/README.md');
+    const { owner, native, calls } = fixture('http://127.0.0.1:41857');
+    await markdownFilePick(owner, native, '/srv/project/README.md', 'copy-relative');
     expect(calls.find(call => call.op === 'copyText')?.text).toBe('README.md');
   });
 });
