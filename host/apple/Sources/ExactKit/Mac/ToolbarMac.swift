@@ -229,7 +229,6 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         prepare()
         let hadToolbar = toolbar != nil
         let old = toolbar
-        authoredInk.reset(window)
         toolbar = nil
         let content = contentSize
         if let window, let old, window.toolbar === old {
@@ -636,8 +635,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         // the window's own header's, else those of the one beside it.
         let grouped = headers.first { $0.segments != nil }, searched = headers.first { $0.search != nil }
         let group = segments.update(grouped, enabled: window.attachedSheet == nil)
-        let titleItem = authoredInk.title(heading ?? (headTitle == nil ? header?.heading : nil), window: window, text: title(over: savedTitle))
-        let centered = Set([group, titleItem].compactMap { $0?.itemIdentifier })
+        let centered: Set<NSToolbarItem.Identifier> = group.map { [$0.itemIdentifier] } ?? []
         if toolbar.centeredItemIdentifiers != centered { toolbar.centeredItemIdentifiers = centered }
         let field = search.update(searched, enabled: window.attachedSheet == nil)
         let identifiers = { (nodes: [NodeView]) in nodes.compactMap { self.items[$0.id]?.itemIdentifier } }
@@ -649,8 +647,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
                 if node === heading { return .flexibleSpace }
                 return items[node.id]?.itemIdentifier
             }
-        if let titleItem { items[0] = titleItem } else { items.removeValue(forKey: 0) }
-        order = (titleItem.map { [$0.itemIdentifier] } ?? []) + (sidebarItems ? [.toggleSidebar, .sidebarTrackingSeparator] : []) + (back ? [Self.backIdentifier] : [])
+        order = (sidebarItems ? [.toggleSidebar, .sidebarTrackingSeparator] : []) + (back ? [Self.backIdentifier] : [])
             + nextOrder + appItems.map(\.itemIdentifier)
         // Keep both toolbar and command objects stable through route changes.
         for index in stride(from: toolbar.items.count - 1, through: 0, by: -1) {
