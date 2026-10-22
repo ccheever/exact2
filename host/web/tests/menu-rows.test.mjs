@@ -28,6 +28,8 @@ const page = `<!doctype html>
   <button id="confirm" commandfor="sure" command="show-modal">Clear…</button>
   <button id="toDialog" popovertarget="picker">Becomes the dialog's</button>
   <button id="notDialog" commandfor="plain" command="show-modal">A dialog's command on no dialog</button>
+  <button id="cancelled" commandfor="picker" command="show-popover">Its command event cancelled</button>
+  <fieldset id="fs"><button id="fsRow" popovertarget="picker">Its press disables its fieldset</button></fieldset>
 </div>
 <div id="plain">Plain</div>
 <dialog id="sure">Sure?</dialog>
@@ -44,6 +46,8 @@ const page = `<!doctype html>
   // A press that retargets its row from a popover to a dialog's command (the stated limit: what it named at the click).
   document.getElementById('toDialog').addEventListener('click', e => { e.currentTarget.removeAttribute('popovertarget'); e.currentTarget.setAttribute('commandfor', 'sure'); e.currentTarget.setAttribute('command', 'show-modal'); });
   window.commands = [];
+  document.getElementById('picker').addEventListener('command', e => { commands.push('picker ' + e.command + ' ' + e.source.id); if (e.source.id === 'cancelled') e.preventDefault(); });
+  document.getElementById('fsRow').addEventListener('click', () => { document.getElementById('fs').disabled = true; });
   document.getElementById('plain').addEventListener('command', e => commands.push('plain ' + e.command));
   document.getElementById('sure').addEventListener('command', e => commands.push(e.command));
   window.open = () => ['menu', 'submenu', 'picker', 'manual'].filter(id => document.getElementById(id).matches(':popover-open'));
@@ -108,6 +112,7 @@ check('a commandfor row and a key\'s press take the rule too', () => inChrome(as
   await until('open()', ['menu']);
   await press('commanded');
   await until('open()', ['picker']);
+  expect(await evaluate('commands')).toEqual(['picker show-popover commanded']);
   expect(await evaluate('sources.picker')).toBe('opener');
   await evaluate(`document.getElementById('picker').hidePopover()`);
   await press('opener');
@@ -177,7 +182,22 @@ check('a dialog\'s command on what is no dialog does nothing and fires no event'
   await press('opener');
   await until('open()', ['menu']);
   await press('notDialog');
-  await evaluate('new Promise(r => setTimeout(r, 100))');
+  await evaluate('new Promise(r => setTimeout(() => setTimeout(r)))'); // past the rule's task
   expect(await evaluate('commands')).toEqual([]);
   expect(await evaluate('open()')).toEqual(['menu']);
+}), 60000);
+
+check('a cancelled command event, and a row its press disables by its fieldset, open nothing', () => inChrome(async (evaluate, press, until) => {
+  await press('opener');
+  await until('open()', ['menu']);
+  await press('cancelled');
+  await evaluate('new Promise(r => setTimeout(() => setTimeout(r)))'); // past the rule's task
+  expect(await evaluate('commands')).toEqual(['picker show-popover cancelled']);
+  expect(await evaluate(`document.getElementById('picker').matches(':popover-open')`)).toBe(false);
+  await evaluate(`document.getElementById('menu').hidePopover()`);
+  await press('opener');
+  await until('open()', ['menu']);
+  await press('fsRow');
+  await evaluate('new Promise(r => setTimeout(() => setTimeout(r)))');
+  expect(await evaluate(`document.getElementById('picker').matches(':popover-open')`)).toBe(false);
 }), 60000);
