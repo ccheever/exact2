@@ -413,6 +413,8 @@ function chrome() {
   (modal ?? document.body).append(cover, box, banner);
   for (const { mark } of marks) (modal ?? document.body).append(mark);
   topLayer(cover); topLayer(box); topLayer(banner);
+  // (Rebuilt with boxes still up: said again.)
+  legend(marks.length);
 }
 function setInspect(on, local = false) {
   if (on === inspecting.on) { if (on) chrome(); return; }
@@ -437,10 +439,13 @@ function setInspect(on, local = false) {
 // plan leaves them; an empty one, or `clear`, clears them.
 const marks = [];
 const resized = typeof ResizeObserver === "function" ? new ResizeObserver(() => place()) : null;
-function unmark() { resized?.disconnect(); for (const { mark } of marks.splice(0)) mark.remove(); legend(0); }
-// The banner says what the dashed boxes are while they show (the second hands-on pass, #7): every copy of the
-// selection's source.
-const legend = (n) => { const t = inspecting.banner?.firstChild; if (t?.nodeType === 3) t.nodeValue = n > 0 ? `Inspecting: dashed boxes mark every copy of this source (${n}); click a view to select it` : "Inspecting: click a view to select it"; };
+function unmark(quiet = false) { resized?.disconnect(); for (const { mark } of marks.splice(0)) mark.remove(); if (!quiet) legend(0); }
+// The banner says what the dashed boxes are while they show (the second hands-on pass, #7): what is outlined, a
+// selection's every copy or what the tool's Outline asked; its words written only when they change (a live region).
+const legend = (n) => {
+  const t = inspecting.banner?.firstChild, words = n > 0 ? `Inspecting: ${n} outlined in dashes (the selection's every copy, or what the tool outlined); click a view to select it` : "Inspecting: click a view to select it";
+  if (t?.nodeType === 3 && t.nodeValue !== words) t.nodeValue = words;
+};
 function place() {
   for (const { mark, el } of marks) {
     const r = el.getBoundingClientRect();
@@ -451,7 +456,7 @@ function outlineSites(frame) {
   if (frame.clear) { unmark(); return; }
   if (!inspecting.on) return;
   if (globalThis.exact?.plan !== frame.plan || !Array.isArray(frame.sites)) return;
-  unmark();
+  unmark(true);
   const wanted = new Set(frame.sites.map(String));
   const found = [...document.querySelectorAll("[data-site]")].filter((el) => wanted.has(el.dataset.site) && !el.closest("[data-exiting]"));
   if (!(inspecting.session && typeof frame.click === "string" && frame.click.startsWith(`${inspecting.session}.`))) found[0]?.scrollIntoView({ block: "nearest" });
