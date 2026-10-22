@@ -297,16 +297,19 @@ async function select(el, clicked = false, click = null) {
 // `inspect` `{select: {up, sites}}` (tamber/1.16): the selection moves to the ancestor `up` call sites above it, as a
 // click on it would select it; `sites` are that copy's plan sites, by the server's map: the outermost of them above
 // the selected node is it (past the root, the root: the server names the app's own).
-async function selectUp({ sites }) {
+async function selectUp({ levels, plan, from }) {
   const el = inspecting.selected?.el;
-  if (!inspecting.on || !el?.isConnected || !Array.isArray(sites)) { env.report({ kind: "unsupported", what: "inspect", detail: "no node is selected on this page to move up from" }); return; }
-  // (A selection made under another plan: the server's sites are the plan's now, so it is selected again first.)
-  if (inspecting.selected.plan !== (globalThis.exact?.plan ?? null)) { env.report({ kind: "unsupported", what: "inspect", detail: "the selection is from before a rebuild: select a node again" }); return; }
-  const want = new Set(sites);
-  let found = null;
-  for (let at = el; at; at = above(at)) if (want.has(siteOf(at))) found = at;
-  if (!found) { env.report({ kind: "unsupported", what: "inspect", detail: "no node of that copy is above the selected one on this page" }); return; }
-  await select(found);
+  if (!inspecting.on || !el?.isConnected || !Array.isArray(levels)) { env.report({ kind: "unsupported", what: "inspect", detail: "no node is selected on this page to move up from" }); return; }
+  // (Only the selection and plan the server took its sites from: another since is selected again first.)
+  if (inspecting.selected.plan !== (globalThis.exact?.plan ?? null) || plan !== inspecting.selected.plan || from !== inspecting.selected.site) { env.report({ kind: "unsupported", what: "inspect", detail: "the selection moved or the page was rebuilt since: select a node again" }); return; }
+  // The first level with a node above the selection, by this page's tree; in it, the outermost.
+  for (const level of levels) {
+    const want = new Set(level);
+    let found = null;
+    for (let at = above(el); at; at = above(at)) if (want.has(siteOf(at))) found = at;
+    if (found) { await select(found); return; }
+  }
+  env.report({ kind: "unsupported", what: "inspect", detail: "no node above the selected one on this page is one of that copy's" });
 }
 async function refresh() {
   const was = inspecting.selected;
