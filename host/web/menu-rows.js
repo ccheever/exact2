@@ -9,22 +9,17 @@
 // source. Loaded after the first paint (glue.js), the JS target at boot.
 import { popoverSource } from "./navigation.js";
 
-/** HTML's built-in invoker commands. */
-const DIALOG_COMMANDS = ["show-modal", "close", "request-close"];
-const COMMANDS = ["show-popover", "hide-popover", "toggle-popover", ...DIALOG_COMMANDS];
-
-/** What `row` invokes, as HTML resolves it: the `commandfor` element when there is one, with its `command` as
- * written (a popover's command named, whether the element is a popover yet or not), else `popovertarget`'s. */
+/** The popover `row` invokes, as HTML resolves it, with what to do: by `commandfor` when it names an
+ * element (a popover command on an HTML element; its `command` lowercased), else by `popovertarget`. None
+ * for anything else (a dialog's command, a custom one, a submit button of a form), which keeps HTML's own
+ * activation. Whether the target is a popover is read when it's acted on. */
 function invoked(row) {
+  if (row.type === "submit" && row.form) return null;
   const commanded = document.getElementById(row.getAttribute("commandfor") || "");
   if (commanded) {
-    const command = row.getAttribute("command") ?? "", lower = command.toLowerCase();
-    const action = { "show-popover": "show", "hide-popover": "hide", "toggle-popover": "toggle" }[lower] ?? null;
-    // A command HTML doesn't know (not a built-in, not a custom `--` one), or a dialog's on what is no
-    // dialog, does nothing, with no event.
-    const known = command.startsWith("--") ? command : COMMANDS.includes(lower) ? lower : null;
-    if (known === null || DIALOG_COMMANDS.includes(known) && !(commanded instanceof HTMLDialogElement)) return null;
-    return { target: commanded, command: known, action };
+    const command = (row.getAttribute("command") ?? "").toLowerCase();
+    const action = { "show-popover": "show", "hide-popover": "hide", "toggle-popover": "toggle" }[command];
+    return action && commanded instanceof HTMLElement ? { target: commanded, command, action } : null;
   }
   const target = document.getElementById(row.getAttribute("popovertarget") || "");
   const action = (row.getAttribute("popovertargetaction") ?? "").toLowerCase();
@@ -38,27 +33,16 @@ function opener(menu) {
   return source;
 }
 
-/** Does what `row` invokes now, as HTML would, but opens a popover that is no menu from its menu's own invoker. */
-function act(row, menu) {
-  const now = row.isConnected && !row.matches(":disabled") && row.closest('[popover][role="menu"]') === menu ? invoked(row) : null;
-  if (!now) return;
-  const { target, command, action } = now;
+/** Does what `row` invokes now (a popover's command, as at the click if it names none now), as HTML would,
+ * but opens a popover that is no menu from its menu's own invoker. */
+function act(row, menu, clicked) {
+  if (!row.isConnected || row.matches(":disabled") || row.closest('[popover][role="menu"]') !== menu) return;
+  const { target, command, action } = invoked(row) ?? clicked;
   try {
-    // A command's event first, which its listeners may cancel (HTML's `command` event); what it does
-    // is then read again, as its listeners may have changed the target.
+    // A command's event first, which its listeners may cancel (HTML's `command` event); whether the
+    // target is a popover, and there, is read after it.
     if (command !== null && typeof CommandEvent === "function" && !target.dispatchEvent(new CommandEvent("command", { command, source: row, cancelable: true }))) return;
-    if (!target.isConnected) return;
-    if (DIALOG_COMMANDS.includes(command)) {
-      // A dialog's commands, as HTML has them (its toggle events without the row as their source: the
-      // dialog's methods take none).
-      const value = row.hasAttribute("value") ? row.value : undefined;
-      if (command === "show-modal" && !target.open) target.showModal();
-      else if (command === "close" && target.open) target.close(value);
-      else if (command === "request-close" && target.open) target.requestClose?.(value);
-      return;
-    }
-    // A custom command is its event alone; a popover's needs a popover by now.
-    if (!action || !target.hasAttribute("popover")) return;
+    if (!target.isConnected || !target.hasAttribute("popover")) return;
     const open = target.matches(":popover-open");
     if (action === "hide" || action === "toggle" && open) { if (open) target.hidePopover(); return; }
     if (open) return;
@@ -75,11 +59,13 @@ function menuRows() {
   addEventListener("click", e => {
     const row = e.target.closest?.("button[popovertarget], button[commandfor]");
     const menu = row?.closest('[popover][role="menu"]');
-    if (!menu) return;
-    // HTML would act on what the row names before its own press; this acts after it, on what it names
-    // then (a press may retarget it), doing every command as HTML would: a dialog's too.
+    // Only a row that names a popover at the click: every other keeps HTML's own activation (a press
+    // retargeting a row between a popover and anything else acts on what it named at the click).
+    const clicked = menu ? invoked(row) : null;
+    if (!clicked) return;
+    // HTML would act on what the row names before its own press; this acts after it, on the popover it names then.
     e.preventDefault();
-    setTimeout(() => act(row, menu));
+    setTimeout(() => act(row, menu, clicked));
   }, true);
 }
 
