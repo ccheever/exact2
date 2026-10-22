@@ -1,0 +1,43 @@
+// A button of an app's OWN header (the clone's header slots, Bluesky's
+// Layout.Header): a round ghost button with its icon, an authored pressable
+// as PostButton is (LLP 1139 D9's exception; theme2's 04:40 ruling). The
+// library never wraps the platform's header routes. Its `id` is its id
+// attribute too, so `id="back"` stays the root's navigationBack. Small, its
+// icon smaller in the secondary ink (an options button); lead, pulled to
+// the edge (the back button).
+style HeaderButtonLook
+  border-radius="actions.header-corner"
+
+component HeaderButton
+  params
+    tint: color = "actions.header-tint" control = "token" group = "Color" priority = 1 label = "Icon"
+    tintSmall: color = "actions.header-tint-small" control = "token" group = "Color" priority = 2 label = "Small icon"
+  props
+    id: string
+    label: string
+    // Its icon, a 24-box path.
+    d: string
+    small: bool
+    lead: bool
+    press: action
+  parts
+    surface: paint shape space
+    icon: space
+  view
+    button part="surface" class=HeaderButtonLook
+      id=id
+      testId=id
+      aria-label=label
+      press=press
+      margin-left=(lead ? "actions.header-lead" : "0px")
+      width="actions.header-slot"
+      height="actions.header-slot"
+      display="flex"
+      align-items="center"
+      justify-content="center"
+      flex-shrink=0
+      svg part="icon" viewBox="0 0 24 24"
+        width=(small ? "actions.header-icon-small" : "actions.header-icon")
+        height=(small ? "actions.header-icon-small" : "actions.header-icon")
+        aria-hidden=true
+        path fill=(small ? "param.tintSmall" : "param.tint") fill-rule="evenodd" d=d
