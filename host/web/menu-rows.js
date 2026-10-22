@@ -10,17 +10,21 @@
 import { popoverSource } from "./navigation.js";
 
 /** HTML's built-in invoker commands. */
-const COMMANDS = ["show-popover", "hide-popover", "toggle-popover", "show-modal", "close", "request-close"];
+const DIALOG_COMMANDS = ["show-modal", "close", "request-close"];
+const COMMANDS = ["show-popover", "hide-popover", "toggle-popover", ...DIALOG_COMMANDS];
 
-/** What `row` invokes, as HTML resolves it: the `commandfor` element when there is one (its `command` as written), else `popovertarget`'s, with what to do. */
+/** What `row` invokes, as HTML resolves it: the `commandfor` element when there is one, with its `command` as
+ * written (a popover's command named, whether the element is a popover yet or not), else `popovertarget`'s. */
 function invoked(row) {
   const commanded = document.getElementById(row.getAttribute("commandfor") || "");
   if (commanded) {
     const command = row.getAttribute("command") ?? "", lower = command.toLowerCase();
-    const action = { "show-popover": "show", "hide-popover": "hide", "toggle-popover": "toggle" }[lower];
-    // A command HTML doesn't know (not a built-in, not a custom `--` one) does nothing, with no event.
+    const action = { "show-popover": "show", "hide-popover": "hide", "toggle-popover": "toggle" }[lower] ?? null;
+    // A command HTML doesn't know (not a built-in, not a custom `--` one), or a dialog's on what is no
+    // dialog, does nothing, with no event.
     const known = command.startsWith("--") ? command : COMMANDS.includes(lower) ? lower : null;
-    return known === null ? null : { target: commanded, command: known, action: action && commanded.hasAttribute("popover") ? action : null };
+    if (known === null || DIALOG_COMMANDS.includes(known) && !(commanded instanceof HTMLDialogElement)) return null;
+    return { target: commanded, command: known, action };
   }
   const target = document.getElementById(row.getAttribute("popovertarget") || "");
   const action = (row.getAttribute("popovertargetaction") ?? "").toLowerCase();
@@ -36,20 +40,25 @@ function opener(menu) {
 
 /** Does what `row` invokes now, as HTML would, but opens a popover that is no menu from its menu's own invoker. */
 function act(row, menu) {
-  const now = row.isConnected && !row.disabled && row.closest('[popover][role="menu"]') === menu ? invoked(row) : null;
+  const now = row.isConnected && !row.matches(":disabled") && row.closest('[popover][role="menu"]') === menu ? invoked(row) : null;
   if (!now) return;
   const { target, command, action } = now;
   try {
-    // A command's event first, which its listeners may cancel (HTML's `command` event).
+    // A command's event first, which its listeners may cancel (HTML's `command` event); what it does
+    // is then read again, as its listeners may have changed the target.
     if (command !== null && typeof CommandEvent === "function" && !target.dispatchEvent(new CommandEvent("command", { command, source: row, cancelable: true }))) return;
-    if (!action) {
-      // A dialog's commands, as HTML has them; a custom one is its event alone.
-      if (!(target instanceof HTMLDialogElement)) return;
-      if (command === "show-modal" && !target.open && target.isConnected) target.showModal();
-      else if (command === "close" && target.open) target.close(row.hasAttribute("value") ? row.value : undefined);
-      else if (command === "request-close" && target.open) target.requestClose?.(row.hasAttribute("value") ? row.value : undefined);
+    if (!target.isConnected) return;
+    if (DIALOG_COMMANDS.includes(command)) {
+      // A dialog's commands, as HTML has them (its toggle events without the row as their source: the
+      // dialog's methods take none).
+      const value = row.hasAttribute("value") ? row.value : undefined;
+      if (command === "show-modal" && !target.open) target.showModal();
+      else if (command === "close" && target.open) target.close(value);
+      else if (command === "request-close" && target.open) target.requestClose?.(value);
       return;
     }
+    // A custom command is its event alone; a popover's needs a popover by now.
+    if (!action || !target.hasAttribute("popover")) return;
     const open = target.matches(":popover-open");
     if (action === "hide" || action === "toggle" && open) { if (open) target.hidePopover(); return; }
     if (open) return;
