@@ -2151,6 +2151,14 @@ test "a package component's param: set for this app by default, the package's de
   // Unset: the package's default, and a change here is set for this app; its token offered instead.
   expect text "param-Badge.fill-source" == "the package's default accent.fill: a change here is set for this app"
   expect tree missing "param-Badge.fill-reset"
+  // A colour param: its colour in each of the grid's columns, labelled as they are, and the chain to it in words;
+  // a role said as the platform's, the app's own line as its value; a length has none.
+  expect tree has "param-Badge.fill-swatch-Light"
+  expect tree has "param-Badge.fill-swatch-Dark · dark-style=dim · density=compact"
+  expect text "param-Badge.fill-words" == "accent.fill → accent"
+  expect text "param-Badge.ink-words" == "-exact-label → the platform's role"
+  expect text "param-Badge.edge-words" == "set for this app: #222222"
+  expect tree missing "param-Badge.radius-swatches"
   // Its default names the app's token accent.fill: the token, not the package's.
   expect text "param-Badge.fill-token" == "Edit the token accent.fill instead"
   // A package token: said so. A role's spelling (-Exact-Label): its token, by the role.

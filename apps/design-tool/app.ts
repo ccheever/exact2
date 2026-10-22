@@ -10,7 +10,7 @@ import type { Answer, Result, Sources } from './app.contract.d.ts';
 import { buildKey, placeOf, schemeOf, selectionView, staleness, visitOf, type Selected } from './inspector';
 // The panel's controls and the grid's cells by kind.
 import { cellText, colourLiteral, panelOf, sides } from './dials';
-import { componentsOf, levelsOf } from './components';
+import { componentsOf, levelsOf, lookOf } from './components';
 import { baseColumns, groupOf, shippedOf, sourceOf, writable } from './base';
 import { pageOf } from './origins';
 import { pairingSources } from './pairing';
@@ -742,7 +742,7 @@ const sources: Sources = {
         names: [...names],
         icons: (ir.icons ?? []).map((i: { name: string; sf: string | null; material: string | null; svg: string | null }) => ({ name: i.name, sf: i.sf ?? '', material: i.material ?? '', svg: i.svg ?? '' })),
         // A param's line is the app design's: the panel only while that is open.
-        components: file && file !== designFile ? [] : componentsOf(ir.components, designFile, names, new Set(Object.keys(read.files ?? {})), (v => { const t = tokenOfIn(ir)(v); return t ?? (names.has(v.trim()) ? v.trim() : null); }), new Map(ir.tokens.filter((t: { package?: string | null }) => t.package).map((t: { name: string; package: string }) => [t.name, t.package])), new Set([...baseRows.values()].filter((r: { name: string; override?: unknown }) => !r.override && !ir.tokens.some((t: { name: string }) => t.name === r.name)).map((r: { name: string }) => String(r.name)))),
+        components: file && file !== designFile ? [] : componentsOf(ir.components, designFile, names, new Set(Object.keys(read.files ?? {})), (v => { const t = tokenOfIn(ir)(v); return t ?? (names.has(v.trim()) ? v.trim() : null); }), new Map(ir.tokens.filter((t: { package?: string | null }) => t.package).map((t: { name: string; package: string }) => [t.name, t.package])), new Set([...baseRows.values()].filter((r: { name: string; override?: unknown }) => !r.override && !ir.tokens.some((t: { name: string }) => t.name === r.name)).map((r: { name: string }) => String(r.name))), lookOf(columns, stored, tokens)),
       };
     } catch (e) {
       if ((e as { code?: string }).code === 'bake') throw e;
