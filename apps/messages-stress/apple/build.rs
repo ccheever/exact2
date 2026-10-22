@@ -25,7 +25,7 @@ fn main() {
     let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let target = std::env::var("TARGET").unwrap_or_default();
     let platform = match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
-        Ok("ios" | "watchos") => "ios",
+        Ok("ios" | "tvos" | "watchos") => "ios",
         _ => "macos",
     };
     let manifest = contract::Manifest::read(&app_dir).unwrap_or_else(|e| panic!("app.json: {e}"));
