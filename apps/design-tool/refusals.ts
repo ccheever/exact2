@@ -25,9 +25,9 @@ export const refusalRows = (builds: Iterable<Refusing>) => {
     refusals: refused.slice(0, 3).map(b => ({ id: b.id, host: b.host, name: `${b.host} · ${b.id}${b.page === 'gallery' ? ' · the gallery' : ''}`,
       tail: ` could not turn Inspect on${b.inspectRefused ? `: ${b.inspectRefused}` : ''}. Stop inspecting and Inspect again to retry.` })),
     refusedMore: Math.max(0, refused.length - 3),
-    // Every refusal event counted, on every build (each moves a build's count, the same words again included): what a
-    // move up the chain waits to see change (tamber/1.16 `select`).
-    refusalCount: all.reduce((n, b) => n + (b.refusalSeq ?? 0), 0),
+    // Each build's refusal events counted (each moves it, the same words again included): what a move up the chain on
+    // that build waits to see change (tamber/1.16 `select`).
+    refusalCounts: all.map(b => ({ id: b.id, count: b.refusalSeq ?? 0 })),
   };
 };
 
