@@ -207,11 +207,14 @@ extension NodeView {
         if props["text"] == nil || props["markup"] == "markdown", let lines = style["text_decoration_line"]?.string, !lines.isEmpty {
             for i in runs.indices { runs[i].propagate(lines, color: ink) }
         }
+        var strut = InlineText.run("", style: style, href: props["href"] ?? "", dark: night,
+                                   contrast: contrast, elevated: elevated, tint: tint)
         // So do the lines of the boxes it stands in, each in that box's colour.
         for (lines, color) in decoratingAncestors(dark: night) {
             for i in runs.indices { runs[i].propagate(lines, color: color ?? ink) }
+            strut.propagate(lines, color: color ?? ink)
         }
-        var spec = TextStyle.spec(runs: runs, style: style, props: props, strut: textRun(""),
+        var spec = TextStyle.spec(runs: runs, style: style, props: props, strut: strut,
                                   color: ink,
                                   language: presenter?.documentLanguage ?? "")
         // One shadow over the paragraph when its runs agree (LLP 1077 D3).

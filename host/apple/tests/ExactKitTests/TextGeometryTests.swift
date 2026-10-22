@@ -431,6 +431,18 @@ final class TextGeometryTests: XCTestCase {
     func testClampTokenKeepsTheBlocksShadowWithoutDoublingASharedShadow() throws {
         let blue: [Double] = [0, 2, 3, 0, 0, 255, 255]
         let red: [Double] = [0, 2, 3, 255, 0, 0, 255]
+        #if os(macOS)
+        _ = NSApplication.shared
+        #endif
+        let presenter = Presenter()
+        presenter.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "text", "props": ["text": "A clamped paragraph"],
+             "style": ["line_clamp": 1, "text_shadow": ["o": [0, 2], "b": 3, "c": [0, 0, 255, 255]]]],
+            ["op": "roots", "ids": [1]],
+        ]))
+        let captured = try XCTUnwrap(presenter.views[1]).paragraphSpec()
+        XCTAssertEqual(captured.strut?.shadow, blue, "the view supplies block paint, not just metrics")
+        XCTAssertEqual(captured.shadow, blue, "uniform shadow still belongs to the paragraph layer")
         for inline in [blue, red] {
             var value = spec("Words that need more than one line to fit")
             var block = value.runs[0]; block.shadow = blue
