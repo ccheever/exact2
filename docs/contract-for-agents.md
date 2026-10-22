@@ -3760,7 +3760,14 @@ role or a base name, or compute over one (`color-mix`, `light-dark`,
 `textarea`, `select`, `progress`, a native `button`) with what its platform
 needs (`checked` and `aria-label` or `aria-labelledby`, a range's
 `min`/`max`, …;
-`lower-library-control`); and nothing in the package reads the host it runs
+`lower-library-control`); each of its buttons (a `button`, or a node of
+`role="button"`) is named, by `aria-label`, `aria-labelledby` or a text of
+its own, and one whose look reads a state prop (a bool named `selected`,
+`current`, `pressed`, `checked`, `on`, `active` or `expanded`, in a `?:`,
+`match` or class) says it aloud through `aria-selected`, `aria-pressed`,
+`aria-current`, `aria-checked` or `aria-expanded`, or a label that reads it
+(also `lower-library-control`; any other bool, a size or an ink, is
+presentation); and nothing in the package reads the host it runs
 on (`exactDelivery`, `exactSurface`, `exactViewport().displayMode` read
 from the viewport wherever the package passes it: an alias, a `provide`, a
 `fn`; a prop's `displayMode` is the app's data; `lower-library-platform`). Not checked yet: an injected value whose
@@ -3769,7 +3776,14 @@ for them). Its names are its API: an app line or a Contract row naming a
 name under its namespace that it doesn't define, or a param line naming one
 it lacks, fails the build (`tamber-package-unknown`; the nine base names are
 no package's), and its params are named in full, a short name that names
-none too (`tamber-param-short-library`).
+none too (`tamber-param-short-library`). The in-repo `@exact/actions`'
+`BarItem` and `HeaderButton` are for an app's own authored bar and header (a
+design's, as Bluesky's are); the platform's `tabs` and `header` routes stay
+the platform's, and no library component wraps them. A `BarItem` says its
+selection as the bar's current item (`aria-current="page"`, iOS's selected
+trait) and takes no long press itself: an item held for more puts
+`contextmenu` on its slot fill (Bluesky's Profile avatar), so the press lands
+on the fill rather than the whole column.
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
 `contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust|swift|kotlin .` writes bindings into
