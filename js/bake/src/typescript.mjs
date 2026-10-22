@@ -961,13 +961,46 @@ function rustSources(app) {
   return walk(join(app,'data','src')).join('\n');
 }
 
+/** The packages the app imports, wherever it imports them (LLP 1133.004
+ * stage 0, LLP 1133 D6 rule 6): every Contract file `app.contract` reaches
+ * through relative `use … from "./…"`, and every TypeScript file `app.ts`
+ * reaches through relative imports, each bare specifier taken to its
+ * package's name. `text` is those files' text, where a literal option a
+ * build reads (an Info.plist key) is found. */
+export function usedPackages(app) {
+  const names=new Set(), seen=new Set(), texts=[];
+  const packageName=(spec)=>{ const parts=spec.split('/'); return spec.startsWith('@') ? parts.slice(0,2).join('/') : parts[0]; };
+  // A TypeScript import may name the emitted file (`./x.js` for `./x.ts`).
+  const tsFile=(base)=>[...['', '.ts', '.tsx', '.mts', '.js', '.mjs', '/index.ts', '/index.js'].map(e=>base+e), base.replace(/\.m?js$/,'.ts'), base.replace(/\.m?js$/,'.tsx')].find(f=>{ try { return statSync(f).isFile(); } catch { return false; } });
+  const visit=(file, contract)=>{
+    if (!file || seen.has(file) || file.split(sep).includes('node_modules')) return;
+    seen.add(file);
+    let text='';
+    try { text=readFileSync(file,'utf8'); } catch { return; }
+    texts.push(text);
+    // Comments name nothing, and a type-only import links nothing.
+    const code=text.replace(/\/\*[\s\S]*?\*\//g,'').replace(/(^|[^:'"\\])\/\/.*$/gm,'$1');
+    const specs=contract
+      ? [...code.matchAll(/^\s*use\b[^\n]*?\bfrom\s+"([^"]+)"/gm)].map(m=>m[1])
+      : [...code.matchAll(/\b(import|export)(\s+type\b)?[^'";]*?\bfrom\s*(['"])([^'"\n]+)\3|\bimport\s*\(?\s*(['"])([^'"\n]+)\5/g)]
+          .filter(m=>!m[2]).map(m=>m[4] ?? m[6]);
+    for (const spec of specs) {
+      if (spec.startsWith('.')) visit(contract ? resolve(dirname(file),spec) : tsFile(resolve(dirname(file),spec)), contract);
+      else if (!spec.startsWith('exact:') && !spec.startsWith('node:')) names.add(packageName(spec));
+    }
+  };
+  visit(join(app,'app.contract'), true);
+  visit(tsFile(join(app,'app')), false);
+  return { names, text: texts.join('\n') };
+}
+
 /** The Swift implementations the app's interfaces carry for `target` (`ios`,
  * `macos`, `tvos`), of the interfaces the app names in `app.contract` or
  * `app.ts` (LLP 1133.001 D4): each extension, its own Swift module's name,
  * its class, and its source files. */
 export function appleImplementations(app, target) {
-  const named = ['app.contract','app.ts'].map(f=>{ try { return readFileSync(join(app,f),'utf8'); } catch { return ''; } }).join('\n');
-  return moduleInterfaces(app).filter(i=>named.includes(`"${i.name}"`) || named.includes(`'${i.name}'`)).flatMap(i=>{
+  const { names: used, text: named } = usedPackages(app);
+  return moduleInterfaces(app).filter(i=>used.has(i.name)).flatMap(i=>{
     const impl=implementationFor(app,i,target);
     const files=impl?.json.platform==='apple' && impl.json.sources?.swift;
     if (!impl || !files?.length || !impl.json.class) return [];
@@ -982,15 +1015,16 @@ export function appleImplementations(app, target) {
       for (const [,value] of rustSources(app).matchAll(new RegExp(`\\b${snake}\\s*:\\s*(?:Some\\()?"([^"]+)"`,'g'))) keys.add(value);
       return {key,keys:[...keys].sort()};
     }).filter(p=>p.keys.length);
-    return [{extension,module:'ExactPkg_'+extension.replace(/\W/g,'_'),className:impl.json.class,sources:files.map(f=>resolve(impl.dir,f)),plist}];
+    const events=(i.declaration.names ?? []).some(n=>n.event);
+    return [{extension,module:'ExactPkg_'+extension.replace(/\W/g,'_'),className:impl.json.class,sources:files.map(f=>resolve(impl.dir,f)),plist,events}];
   });
 }
 
 /** The Kotlin implementations bound for Android (LLP 1133.001 D4) of the interfaces the app names: each extension,
  * its class, and its source directories, which join the APK's Kotlin. */
 export function androidImplementations(app) {
-  const named = ['app.contract','app.ts'].map(f=>{ try { return readFileSync(join(app,f),'utf8'); } catch { return ''; } }).join('\n');
-  return moduleInterfaces(app).filter(i=>named.includes(`"${i.name}"`) || named.includes(`'${i.name}'`)).flatMap(i=>{
+  const { names: used } = usedPackages(app);
+  return moduleInterfaces(app).filter(i=>used.has(i.name)).flatMap(i=>{
     const impl=implementationFor(app,i,'android'), dirs=impl?.json.platform==='android' && impl.json.sources?.kotlin;
     if (!impl || !dirs?.length || !impl.json.class) return [];
     return [{extension:i.name.split('/').at(-1),className:impl.json.class,dirs:dirs.map(d=>resolve(impl.dir,d))}];
@@ -1030,6 +1064,8 @@ export function moduleBinding(name, declaration, implementations) {
   }
   const optional=(t)=>{ const m=/^option<(.*)>$/.exec(String(t).trim()); return m ? ['?',moduleType(m[1])] : ['',moduleType(t)]; };
   for (const entry of declaration.names ?? []) {
+    // An event is the root's to hear, never data code's (LLP 1133.004 §11).
+    if (entry.event) continue;
     const fn=entry.source ?? entry.send, type=fn[0].toUpperCase()+fn.slice(1)+'Options';
     const fields=Object.entries(entry.options ?? {}).map(([f,t])=>{ const [q,ts]=optional(t); return `  ${f}${q}: ${ts};`; });
     for (const i of implementations) {
@@ -1039,8 +1075,10 @@ export function moduleBinding(name, declaration, implementations) {
     lines.push(`export interface ${type} {`, ...fields, '}');
     const required=Object.values(entry.options ?? {}).some(t=>!/^option</.test(String(t).trim()));
     const verb=entry.source ? 'source' : 'send';
-    lines.push(`export function ${fn}(options: ${type}${required ? '' : ' = {}'}): Promise<${moduleType(entry.answers)}> {`,
-      `  return call({ extension: ${JSON.stringify(extension)}, ${verb}: ${JSON.stringify(fn)}, args: options });`, '}');
+    // A send that answers nothing resolves `undefined` (LLP 1133.004 D5).
+    const answers=entry.answers===null ? 'void' : moduleType(entry.answers);
+    lines.push(`export function ${fn}(options: ${type}${required ? '' : ' = {}'}): Promise<${answers}> {`,
+      `  return call({ extension: ${JSON.stringify(extension)}, ${verb}: ${JSON.stringify(fn)}, args: options })${entry.answers===null ? '.then(() => undefined)' : ''};`, '}');
     // The synchronous form (LLP 1133.002 D14): inside an answer, where the host has a synchronous path to the module.
     if (entry.sync?.name) lines.push(`export function ${entry.sync.name}(options: ${type}${required ? '' : ' = {}'}): ${moduleType(entry.answers)} {`,
       `  return callNow({ extension: ${JSON.stringify(extension)}, sync: ${JSON.stringify(entry.sync.name)}, args: options });`, '}');
@@ -1049,21 +1087,26 @@ export function moduleBinding(name, declaration, implementations) {
     'function call(body: { extension: string; source?: string; send?: string; args: unknown }): Promise<any> {',
     '  const via = (globalThis as any).__exact_module;',
     '  const answer: Promise<any> = via ? via(body) : fetch("exact-native:", { method: "POST", body: JSON.stringify(body), exactIndependentHttp: { maxResponseBytes: 1048576 } } as any)',
-    '    .then((r: any) => r.text().then((t: string) => { if (r.status === 200) return JSON.parse(t); throw new Error(t || "the module did not answer"); }));',
+    '    .then((r: any) => r.text().then((t: string) => { if (r.status === 200) return JSON.parse(t); throw failed(t || "the module did not answer", "UnknownError"); }));',
     '  return answer.then((v: any) => answered(v, `${body.extension}.${body.source ?? body.send}`));',
     '}',
     'function callNow(body: { extension: string; sync: string; args: unknown }): any {',
     '  const now = (globalThis as any).__exact_module_sync;',
     '  let v: any;',
     '  try { v = now ? now(body) : { error: "NotSupportedError" }; }',
-    '  catch (e: any) { throw Object.assign(new Error(`${body.extension}.${body.sync}: NotSupportedError (${e?.message ?? e})`), { code: "NotSupportedError" }); }',
+    '  catch (e: any) { throw failed(`${body.extension}.${body.sync}: ${e?.message ?? e}`, "NotSupportedError"); }',
     '  return answered(v, `${body.extension}.${body.sync}`);',
     '}',
+    // An error answer rejects with a DOMException of its name, its `code` WebIDL's (LLP 1133.004 D1, LLP 1133.006
+    // D8 item 2).
     'function answered(v: any, name: string): any {',
-    '  if (v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 1 && typeof v.error === "string") {',
-    '    throw Object.assign(new Error(`${name}: ${v.error}`), { code: v.error });',
-    '  }',
+    '  const keys = v && typeof v === "object" && !Array.isArray(v) ? Object.keys(v).filter(k => k !== "message") : [];',
+    '  if (keys.length === 1 && typeof v.error === "string") throw failed(typeof v.message === "string" ? v.message : `${name}: ${v.error}`, v.error);',
     '  return v;',
+    '}',
+    'function failed(message: string, name: string): Error {',
+    '  const D = (globalThis as any).DOMException;',
+    '  return D ? new D(message, name) : Object.assign(new Error(message), { name });',
     '}', '');
   return lines.join('\n');
 }

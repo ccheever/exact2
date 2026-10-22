@@ -171,7 +171,7 @@ test('collection normal fast path retains noise, revives zeros and discards old-
     expect([c.index.leading, c.index.trailing]).toEqual([30, 70]);
   }
 });
-const REAL = ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'notify.js'];
+const REAL = ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'notify.js', 'modules.js'];
 for (const f of REAL) copyFileSync(webJs(f), resolve(dir, f));
 copyFileSync(resolve(new URL('../notify-glue.js', import.meta.url).pathname), resolve(dir, 'notify-glue.js'));
 for (const [file, source] of standIns(REAL)) writeFileSync(resolve(dir, file), source);
@@ -1020,6 +1020,46 @@ test('notification clicks use the route location corpus, including canonical pat
     }
     expect(mismatches).toEqual([]);
   } finally { globalThis.Notification = previous; globalThis.focus = previousFocus; navigateTo(null); }
+});
+
+// LLP 1133.004 D6, LLP 1133.002 D12: a module event's origin on the JS target.
+test('a command keeps the origin of the commit that queued it, whenever its tail runs', async () => {
+  const { commit, C, Hosts, Origin } = await import(resolve(dir, 'rt.js'));
+  let got = null;
+  Hosts.probe = Object.assign((from, x) => { got = [from, x]; }, { origin: true });
+  const was = Origin.now;
+  try {
+    commit(() => { Origin.now = () => 'device'; C('probe', [1]); Origin.now = () => 'person'; });
+    // This file's view transition holds every tree update: the tail, and its commands, run later.
+    expect(got).toBe(null);
+    globalThis.heldTail();
+    expect(got).toEqual(['device', 1]);
+  } finally { Origin.now = was; delete Hosts.probe; }
+});
+
+test('an emitted event\'s requests make data code the device\'s until they land; activation binds only a person\'s input', async () => {
+  const { clock, inflight, After, journal } = await import(resolve(dir, 'rt.js'));
+  const { modules } = await import(resolve(dir, 'modules.js'));
+  const sub = { permission: { name: 'p', status: 'status', field: 'state', denied: 'NotAllowedError' }, admission: 'request' };
+  let context = null;
+  clock.agent = true;
+  modules({ ask: ['dev.ask', true, sub, ['?', 'n'], 'always', null, false] }, {},
+    { 'dev.chime': [() => () => { inflight.n++; }, 'emit', 4, [], 'chimed'] });
+  const call = () => globalThis.exact.extensions.call({ extension: 'dev', send: 'ask', args: {} });
+  // A package's emit, through the bound context (the agent binds none: a stand-in context here).
+  globalThis.exact.extensions.raiseForTests?.('dev.chime');
+  await new Promise(r => setTimeout(r, 0));
+  expect(await Promise.race([call(), new Promise(r => setTimeout(() => r('held'), 30))])).toEqual({ error: 'NotAllowedError' });
+  inflight.n--; for (const f of After) f();
+  expect(await Promise.race([call(), new Promise(r => setTimeout(() => r('held'), 30))])).toBe('held');
+  clock.agent = false;
+  modules({ post: ['act.post', true, {}, 'u', 'never', null, false] }, { act: () => Promise.resolve({ implementation: c => { context = c; return { post: async () => null }; } }) });
+  await globalThis.exact.extensions.call({ extension: 'act', send: 'post', args: {} });
+  const target = { listeners: [], addEventListener(type, f) { this.listeners.push(type); } };
+  context.activation(target, 'pointermove', 'moved', []);
+  context.activation(target, 'click', 'opened', []);
+  expect(target.listeners).toEqual(['click']);
+  expect(journal.some(l => l.endsWith('act.moved: a pointermove is no person\'s activation; nothing is bound'))).toBe(true);
 });
 
 // LLP 1090: a string past MAX_STRING comes only from a data source, which the

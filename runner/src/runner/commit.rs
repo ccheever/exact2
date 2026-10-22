@@ -258,6 +258,7 @@ impl<D: DataSource> Runner<D> {
         for m in std::mem::take(&mut self.landed) {
             if stood && self.plan.mutations[m].then.is_some() {
                 self.then_due[m] = self.armed_at();
+                self.extensions.events.caused_then(m);
             }
         }
     }
@@ -600,6 +601,9 @@ impl<D: DataSource> Runner<D> {
             ));
         }
         self.take_set_modes(first_command);
+        // A module's sends that answer nothing (LLP 1133.004 D5): the
+        // runner's, run once the commit stands.
+        let effects = self.take_module_effects(first_command);
         // The scheme and root size a development host holds: kept as asked, not applied (LLP 1122 T7).
         self.take_held(first_command);
         // `setRootFontSize` is the runner's too: the size lands in this
@@ -653,6 +657,7 @@ impl<D: DataSource> Runner<D> {
                 self.log(line);
             }
             self.apply_sounds(first_command);
+            self.run_module_effects(effects);
         }
         result
     }
@@ -781,6 +786,7 @@ impl<D: DataSource> Runner<D> {
         }
         let ticket = self.next_ticket;
         self.next_ticket += 1;
+        self.extensions.events.caused(ticket);
         let name = self.target_name(target);
         self.log(super::lines::enqueued(ticket, &name, &request));
         self.pending.push(PendingReq {
@@ -877,7 +883,8 @@ impl<D: DataSource> Runner<D> {
     pub fn native_work(&mut self, request: &Request) -> Dispatch {
         // A module's name called from data code: the runner's admission, then
         // the module (LLP 1133.002 D14).
-        if let Some(dispatch) = self.module_call(&request.body) {
+        let device = self.device_in_flight();
+        if let Some(dispatch) = self.caused_by_device(device, |r| r.module_call(&request.body)) {
             return dispatch;
         }
         let handler = self.native_slot().handler();
@@ -1018,7 +1025,11 @@ impl<D: DataSource> Runner<D> {
         elapsed_ms: Option<u64>,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
         let answering = std::mem::replace(&mut self.churn.answering, true);
-        let out = self.arrived(|r| r.fulfill_now(ticket, outcome, elapsed_ms));
+        // The answer to a device-origin request is the device's commit too.
+        let device = self.extensions.events.device_ticket(ticket);
+        let out = self.caused_by_device(device, |r| {
+            r.arrived(|r| r.fulfill_now(ticket, outcome, elapsed_ms))
+        });
         self.churn.answering = answering;
         out
     }

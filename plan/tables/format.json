@@ -331,6 +331,32 @@
       ]
     },
     {
+      "name": "module_events",
+      "_comment": "LLP 1133.004 D6: a native module's event the app's root hears, and the action it runs with the event's arguments, as many as the action takes. `raised` is `activation` (a person's act on the platform's UI, which only the host raises) or `emit` (the device's); `hold` bounds the deliveries held before the session can hear them.",
+      "fields": [
+        {
+          "name": "extension",
+          "codec": "str"
+        },
+        {
+          "name": "declared",
+          "codec": "str"
+        },
+        {
+          "name": "action",
+          "codec": "idx:actions"
+        },
+        {
+          "name": "raised",
+          "codec": "str"
+        },
+        {
+          "name": "hold",
+          "codec": "u32"
+        }
+      ]
+    },
+    {
       "name": "source_params",
       "fields": [
         {
