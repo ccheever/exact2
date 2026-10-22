@@ -17,12 +17,17 @@ pub(crate) fn layout_position(arena: &NodeArena, slot: u32) -> PositionType {
 }
 
 /// [`layout_position`] from a node's rows and props, for a tree that isn't
-/// the arena (`paint_order::Facts`).
+/// the arena (`paint_order::Facts`). A popover keeps its `sticky` only where
+/// its author wrote it: a platform start's (the neutral route header's) is
+/// no author's, and the box goes to the top layer as any other popover.
 pub(crate) fn of(style: &crate::StyleProps, props: &crate::PropList) -> PositionType {
-    match style.position_type {
-        PositionType::Sticky => PositionType::Sticky,
-        _ if props.str(crate::PropId::Popover).is_some() => PositionType::Absolute,
-        authored => authored,
+    let authored = style.position_type;
+    let sticky =
+        authored == PositionType::Sticky && style.written.has(crate::StyleId::PositionType);
+    if props.str(crate::PropId::Popover).is_some() && !sticky {
+        PositionType::Absolute
+    } else {
+        authored
     }
 }
 
