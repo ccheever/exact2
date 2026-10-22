@@ -203,3 +203,25 @@ describe('the window keeps the menus\' highlights (composerMenuKey, composerStas
     expect(run('composerStashKey', 'Escape', editor, { composerStashHighlight: 0 }).calls).toEqual([['stash-menu', '', 'close']]);
   });
 });
+
+describe('a composer menu follows its trigger (openOptions, frameMoved)', () => {
+  const frames = contractFns('src/shell/layout-frames.contract', { floor: Math.floor });
+  const run = (action: string, args: unknown[], optionsOpen: string, boxes: Record<string, { x: number; width: number }>) => {
+    const state: Env = { optionsAnchorX: -1, optionsAnchorWidth: 0, layoutFrames: '' };
+    const scope = (): Env => ({ ...frames, optionsOpen, focus: () => {}, data: { composer: { runtimeSelected: 0 } },
+      frame: (id: string) => boxes[id] ? { ...boxes[id], y: 0, height: 28, unavailable: false } : { x: 0, y: 0, width: 0, height: 0, unavailable: true },
+      measureOptionsTrigger: (name: string) => root.call('measureOptionsTrigger', state, scope(), [name]) });
+    root.call(action, state, scope(), args);
+    return state;
+  };
+  test('opening measures the trigger; a layout change while it is open measures it again', () => {
+    expect(run('measureOptionsTrigger', ['runtime'], '', { 'composer-runtime-trigger': { x: 410, width: 96 } })).toMatchObject({ optionsAnchorX: 410, optionsAnchorWidth: 96 });
+    expect(run('frameMoved', [0, 0], 'runtime', { 'composer-runtime-trigger': { x: 330, width: 96 } })).toMatchObject({ optionsAnchorX: 330, optionsAnchorWidth: 96 });
+    expect(run('frameMoved', [0, 0], '', { 'composer-runtime-trigger': { x: 330, width: 96 } })).toMatchObject({ optionsAnchorX: -1 });
+  });
+  test('a trigger that is not laid out leaves the menu at the card\'s edge', () => {
+    expect(run('measureOptionsTrigger', ['effort'], '', {})).toMatchObject({ optionsAnchorX: -1, optionsAnchorWidth: 0 });
+    expect(frames.optionsTriggerId!('context')).toBe('context-window-meter');
+    expect(frames.optionsTriggerId!('implement')).toBe('implement-actions');
+  });
+});

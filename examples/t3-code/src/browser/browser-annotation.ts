@@ -214,10 +214,8 @@ export function annotatingInThread(client: T3Client, environmentId: string, thre
   }
   return false;
 }
-/** PickPreload's editor sends on ⌘/Ctrl+Return in the page: Electron's guest page has the keys. Here the window's
- *  shortcuts come before the page, and the send button declares Meta+Enter, so ⌘Return in the overlay sent the composer
- *  without the annotation and left the overlay open (drive 5). While Annotate is on, the send button leaves Meta+Enter
- *  out and the key reaches the page (composer-presentation.ts). */
+/** PickPreload's editor sends on ⌘/Ctrl+Return in the page: Electron's guest page has the keys. While Annotate is on,
+ *  the composer's send chords leave Meta+Enter out, so the key stays the page's (composer-presentation.ts). */
 export function sendChordsWhileAnnotating(chords: string, annotating: boolean): string {
   return annotating ? chords.split(' ').filter(chord => chord !== '' && chord !== 'Meta+Enter').join(' ') : chords;
 }

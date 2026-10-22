@@ -274,9 +274,9 @@ export function composerSnapshot(client: T3Client, now = 0) {
   if (fan.fanout) view.modelTip = shortcut ? `${fan.fanoutAria} · ${shortcut}` : fan.fanoutAria;
   if (bar.subagent) { notices.length = 0; queue.queued = []; }
   return atRootFontSize({ ...view, ...action, ...compact, ...fan, attach: !bar.subagent && attachOffered(client, question), ...providerControl(client), ...tasks, ...queue, ...bar, ...contextMeter(client, str(model?.name, modelId)), ...frameTops(layoutFrames(client)),
-    // composer-editor-intent.ts. A focused Diff (or Files preview) comment draft keeps ⌘↩ (DiffCommentAnnotation's isCommentSubmitShortcut): the
-    // reference's send chords answer only with the composer focused, and an `aria-keyshortcuts` button hears its chord before
-    // any `key` handler, so the button declares none then. Annotate's editor keeps ⌘↩ the same way (browser-annotation.ts).
+    // composer-editor-intent.ts; the focused composer's key action takes these (app.contract composerKeyEvent). A focused
+    // Diff (or Files preview) comment draft keeps ⌘↩ (DiffCommentAnnotation's isCommentSubmitShortcut), and Annotate's
+    // editor too (browser-annotation.ts): the set is empty, or without ⌘↩, then.
     sendChords: draftHoldsCommandEnter(client) || fileDraftHoldsCommandEnter(client) ? '' : sendChordsWhileAnnotating(sendChords(client.config, phase === 'running', !client.threadId, terminalOpen(client), composerRequiresModifier(client.local.deviceSettings.sendShortcut, client.draft)), annotatingOpenThread(client)),
     sendCommandChords: sendCommandChords(client.config, phase === 'running', !client.threadId, terminalOpen(client), composerRequiresModifier(client.local.deviceSettings.sendShortcut, client.draft)),
     // TooltipPopup: 12pt text inset 8pt plus its 1pt border, for the window-edge shift.

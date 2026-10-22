@@ -47,7 +47,7 @@ use legacyTipOwner from "./src/sidebar/legacy-sidebar.contract"
 use ShortcutModifierState, emptyShortcutModifierState, areShortcutModifierStatesEqual, shortcutModifierStateAfterKeyboardEvent, anyShortcutModifier, speedModifiers from "./src/shell/shortcut-modifiers.contract"
 use heldModifiers from "./src/shared/press-modifiers.contract"
 use composerChord, composerChordIn from "./src/composer/composer-keys.contract"
-use layoutFrame from "./src/shell/layout-frames.contract"
+use layoutFrame, optionsTriggerId from "./src/shell/layout-frames.contract"
 routes promptLinks
   home "/"
   incoming "/open"
@@ -315,7 +315,6 @@ component T3Code
     composerMenuHover
     composerStashActive
     composerStashHover
-    composerFocused
     composerSendHeld
     frameMoved
     optionsAnchorX
@@ -1871,8 +1870,9 @@ component T3Code
   action closeOptions
     optionsOpen = ""
     focus("composer")
-  // The trigger a composer menu opens from, measured as it opens: ComposerMenus aligns the menu to its start, or its
-  // end (the implement pill, the meter). -1 while the trigger is not laid out (a shortcut for a control in the overflow).
+  // The trigger a composer menu opens from, measured as it opens and again with the layout frames while it is open:
+  // ComposerMenus aligns the menu to its start, or its end (the implement pill, the meter). -1 while the trigger is not
+  // laid out (a shortcut for a control in the overflow).
   state optionsAnchorX = -1
   state optionsAnchorWidth = 0
   // The window-space boxes the TypeScript layouts read, by name (src/shell/layout-frames.ts): the composer's drawer
@@ -1881,10 +1881,14 @@ component T3Code
   state layoutFrames = ""
   action frameMoved(w: number, h: number)
     layoutFrames = [layoutFrame("chat", frame("frame-chat")), layoutFrame("overlay", frame("frame-overlay")), layoutFrame("shoulder", frame("frame-shoulder")), layoutFrame("dock", frame("frame-dock")), layoutFrame("stack", frame("frame-stack")), layoutFrame("card", frame("composer-surface")), layoutFrame("toolbar", frame("frame-toolbar")), layoutFrame("strip", frame("frame-strip")), layoutFrame("notices", frame("frame-notices")), layoutFrame("details-content", frame("frame-details-content")), layoutFrame("details-density-compact", frame("frame-details-density-compact")), layoutFrame("details-full-top", frame("frame-details-full-top")), layoutFrame("details-vcs", frame("frame-details-vcs")), layoutFrame("details-full-tail", frame("frame-details-full-tail")), layoutFrame("details-lineage", frame("frame-details-lineage")), layoutFrame("details-full-git", frame("frame-details-full-git")), layoutFrame("details-pr-list", frame("frame-details-pr-list")), layoutFrame("device-area", frame("frame-device-area"))].filter((row) => row != "").join(";")
-  action openOptions(name: string)
-    let trigger = frame(name == "effort" ? "composer-traits-trigger" : name == "runtime" ? "composer-runtime-trigger" : name == "more" ? "composer-more-trigger" : name == "context" ? "context-window-meter" : "implement-actions")
+    if optionsOpen != ""
+      measureOptionsTrigger(optionsOpen)
+  action measureOptionsTrigger(name: string)
+    let trigger = frame(optionsTriggerId(name))
     optionsAnchorX = trigger.unavailable or trigger.width <= 0 ? -1 : trigger.x
     optionsAnchorWidth = trigger.unavailable ? 0 : trigger.width
+  action openOptions(name: string)
+    measureOptionsTrigger(name)
     focus(optionsOpen == name ? "composer" : name == "effort" ? "composer-menu" : name == "runtime" ? `composer-menu-item-${data.composer.runtimeSelected}` : name == "branch" ? "branch-search" : name == "workspace" ? "composer-menu" : "composer-menu-item-0")
     optionsOpen = optionsOpen == name ? "" : name
     branchQuery = ""

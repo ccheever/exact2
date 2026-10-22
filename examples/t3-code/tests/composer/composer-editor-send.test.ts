@@ -141,7 +141,7 @@ describe('send gestures through the server keybindings', () => {
     expect(native.committed.at(-1)).toMatchObject({ method: 'orchestration.launchThread' });
     expect(client.threadId).not.toBe('');
   });
-  test('the send button takes ⌥⌘↩ on an existing thread', async () => {
+  test('the composer takes ⌥⌘↩ on an existing thread', async () => {
     const { client } = await opened();
     client.config.keybindings = DEFAULT_SEND_RULES;
     expect(snapshot(client).composer.sendChords).toBe('Meta+Enter Meta+Alt+Enter');
@@ -170,13 +170,11 @@ describe('a Send press carries its own pointer modifiers', () => {
     expect(sendIntent({ keybindings: DEFAULT_SEND_RULES }, pressGesture('pointer:meta+alt')!, false, true)).toBe('foreground');
     expect(sendIntent({}, pressGesture('pointer:shift')!, true, false)).toBe('foreground');
   });
-  test('the client takes a ⌘-click from the press, and asks the module for no gesture', async () => {
+  test('the client takes a ⌘-click from the press', async () => {
     const { client, native, command } = await opened();
     running(client);
-    native.gesture = { modifiers: 'meta+alt', source: 'key', ageMs: 4 }; // the module's gesture, which no longer exists
     await command('send', 'pointer:meta', 'Steer by click');
     expect(native.committed.at(-1)).toMatchObject({ deliveryIntent: 'steer', dispatchMode: { type: 'start_immediately' } });
-    expect(native.gesture).toEqual({ modifiers: 'meta+alt', source: 'key', ageMs: 4 }); // never asked for
     expect(client.threadId).toBe('t1');
   });
   test('each Send button presses `sendPress`, which hands `send` its MouseEvent\'s modifiers', async () => {
@@ -193,6 +191,9 @@ describe('a Send press carries its own pointer modifiers', () => {
     const controls = await Bun.file(appPath('composer-controls.contract')).text();
     expect(controls.split('button press=sendPress ').length - 1).toBe(3); // plan refine, Send, the resting Send
     expect(controls).not.toContain('button press=send ');
+    // The reference resolves its send chords only in the composer's editor (composerSubmissionIntentForKey): with the
+    // composer unfocused ⌘↩ sends nothing, so Send declares no chord (the composer's key action takes them).
+    expect(controls.split('\n').filter(line => line.includes('button press=sendPress ') && line.includes('aria-keyshortcuts='))).toEqual([]);
     const app = await Bun.file(appPath('app.contract')).text();
     expect(app).toContain('  action send(held: string)');
     expect(app).toContain('    submit(held == "" ? "" : `pointer:${held}`)');

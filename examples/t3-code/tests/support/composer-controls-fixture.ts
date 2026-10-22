@@ -16,7 +16,7 @@ export const projection = (id: string, extra: Obj = {}): Obj => ({ thread: threa
   visibleTurnItems: [], updatedAt: at, ...extra });
 
 export class Fake implements Native {
-  available = true; branch = 'main'; extraRefs: Obj[] = []; menuPick: string | null = null; copied: string[] = []; generation = 1; serial = 0; seq = 0; events: Obj[] = []; subs: Record<string, string> = {}; committed: Obj[] = []; gesture: Obj = {};
+  available = true; branch = 'main'; extraRefs: Obj[] = []; menuPick: string | null = null; copied: string[] = []; generation = 1; serial = 0; seq = 0; events: Obj[] = []; subs: Record<string, string> = {}; committed: Obj[] = [];
   shell: Obj = { snapshotSequence: 1, projects: [{ id: 'p1', title: 'Example', workspaceRoot: '/repo' }], threads: [thread('t1'), thread('t2')] };
   details: Record<string, Obj> = { t1: { snapshotSequence: 1, historyCursor: null, hasMoreHistory: false, latestLocalTurnOrdinal: 0, projection: projection('t1') },
     t2: { snapshotSequence: 1, historyCursor: null, hasMoreHistory: false, latestLocalTurnOrdinal: 0, projection: projection('t2') } };
@@ -34,7 +34,6 @@ export class Fake implements Native {
     if (op === 'ids') return this.ok(Array.from({ length: Number(request.count) }, () => `id-${++this.serial}`));
     if (op === 'contextMenu') return this.ok({ clicked: this.menuPick });
     if (op === 'copyText') { this.copied.push(str(request.text)); return this.ok({ copied: true }); }
-    if (op === 'composerSendIntent') { const gesture = this.gesture; this.gesture = {}; return this.ok(gesture); }
     if (op === 'http') {
       if (request.path === '/api/auth/session') return this.ok({ authenticated: true, scopes: ['orchestration:read', 'orchestration:operate'] });
       if (request.path === '/api/orchestration/shell') return this.ok(this.shell);
