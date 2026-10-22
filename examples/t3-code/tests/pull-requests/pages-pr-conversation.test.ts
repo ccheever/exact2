@@ -208,7 +208,9 @@ describe('the panel reads (PullRequestDetailPanel queries)', () => {
       client.shell.projects[0]!.repositoryIdentity = { provider: 'github', canonicalKey: 'github.com/acme/playground', owner: 'acme', name: 'playground' };
       client.shell.threads = page ? [] : [{ id: 't', projectId: 'p1', worktreePath: '/thread-worktree' }];
       const view = await settle({ page });
-      expect(view.md.chips.find(chip => chip.href === 't3-inline-code:src/lib/version.ts:3')).toMatchObject({ kind: 'link', label: 'version.ts · L3', tip: '/pr-workspace/src/lib/version.ts:3' });
+      // The rows are read in the PR workspace (copy relative); the page's popover leaves out a media preview (PrdBody fileMenu).
+      expect(view.md.chips.find(chip => chip.href === 't3-inline-code:src/lib/version.ts:3')).toMatchObject({ kind: 'link', label: 'version.ts · L3', tip: '/pr-workspace/src/lib/version.ts:3',
+        menu: [{ id: 'copy-relative', label: 'Copy relative path' }, { id: 'copy-full', label: 'Copy full path' }] });
       expect(view.md.chips.find(chip => chip.href === 't3-file:docs/guide.md')).toMatchObject({ kind: 'link', label: 'the guide', tip: '/pr-workspace/docs/guide.md' });
       expect(view.md.chips.some(chip => chip.href.includes('const value'))).toBe(false);
       expect(view.md.chips.some(chip => chip.kind === 'pr-link' && chip.href === 'https://github.com/acme/playground/pull/7')).toBe(true);
@@ -216,13 +218,14 @@ describe('the panel reads (PullRequestDetailPanel queries)', () => {
       const sent: Obj[] = [];
       client.scopes = ['filesystem:read'];
       client.restAccess = (() => ({
-        call: async (input: Obj) => { sent.push(input); return input.op === 'contextMenu' ? { clicked: 'copy-relative' } : {}; },
+        call: async (input: Obj) => { sent.push(input); return {}; },
         request: async (method: string, payload: Obj) => { sent.push({ method, ...payload }); return { contents: 'export const version = 2;\n', byteLength: 26, truncated: false }; },
       })) as T3Client['restAccess'];
       const native = { available: true, later: async () => ({ ok: true, value: { targets: {} } }) } as unknown as Native;
-      await prCommand(client, native, 'file-open', selected, `${page ? 'page' : 'thread'}\n/pr-workspace/src/lib/version.ts:3`);
+      // On the page a file link's press opens its menu (link-menus.contract FileLinkButton), whose row is a `file-pick`.
+      await prCommand(client, native, page ? 'file-pick' : 'file-open', selected, `${page ? 'page' : 'thread'}\n/pr-workspace/src/lib/version.ts:3${page ? '\ncopy-relative' : ''}`);
       if (page) {
-        expect(sent.find(request => request.op === 'contextMenu')?.items).toEqual([{ id: 'copy-relative', label: 'Copy relative path' }, { id: 'copy-full', label: 'Copy full path' }]);
+        expect(sent.some(request => request.op === 'contextMenu')).toBe(false);
         expect(sent.find(request => request.op === 'copyText')?.text).toBe('src/lib/version.ts:3');
         expect(sent.some(request => request.method === 'projects.readFile')).toBe(false);
       } else {
@@ -235,13 +238,16 @@ describe('the panel reads (PullRequestDetailPanel queries)', () => {
 
   test('PR file presses and context menus keep the surface context while other Markdown actions retain their route', () => {
     const component = contractComponent('src/pull-requests/pages-pr-detail.contract', 'PrdBody');
+    const rows = [{ id: 'preview-media', label: 'Preview media' }, { id: 'copy-relative', label: 'Copy relative path' }, { id: 'copy-full', label: 'Copy full path' }];
     for (const surface of ['thread', 'page']) {
       const actions: unknown[][] = [], locals: unknown[][] = [];
-      const scope = { surface, act: (...args: unknown[]) => actions.push(args), local: (...args: unknown[]) => locals.push(args) }, state = component.state(scope);
-      component.call('textLocal', state, scope, ['surface-file', '/pr/src/a.ts:3', '']);
-      component.call('textLocal', state, scope, ['surface-files-link-menu', '/pr/src/a.ts:3', '']);
+      const scope = { surface, act: (...args: unknown[]) => actions.push(args), local: (...args: unknown[]) => locals.push(args) }, state = { ...component.state(scope), fileRows: [] };
+      component.call('textLocal', state, scope, ['surface-file', '/pr/src/a.png', '']);
+      component.call('fileMenu', state, scope, ['/pr/src/a.png', 'src/a.png', rows]);
+      expect(state.fileRows).toEqual(surface === 'page' ? rows.slice(1) : rows);
+      component.call('filePick', state, scope, ['copy-full']);
       component.call('textLocal', state, scope, ['link-open', 'page', 'https://example.com']);
-      expect(actions).toEqual([['file-open', `${surface}\n/pr/src/a.ts:3`], ['file-menu', `${surface}\n/pr/src/a.ts:3`]]);
+      expect(actions).toEqual([['file-open', `${surface}\n/pr/src/a.png`], ['file-pick', `${surface}\n/pr/src/a.png\ncopy-full`]]);
       expect(locals).toEqual([['link-open', 'page', 'https://example.com']]);
     }
   });

@@ -51,7 +51,8 @@ import { pullRequestLinkPick } from '../panel/context-menu-actions';
 import { prGuideLocalFor, prCodeLocalFor, prLocalWrite, prUiLocal } from '../pull-requests/pages-pr-detail';
 import { stackLayerTarget } from '../pull-requests/pages-pr-stack';
 import { openLinkFromUi } from '../browser/browser-links';
-import { chatExternalLinkMenu } from './external-link-menu';
+import { chatExternalLinkPick } from './external-link-menu';
+import { withFileLinkMenus } from './file-link-menu';
 import { assistantCanFork, inspectorExtras, NO_INSPECTOR_EXTRAS } from './timeline-work-rows';
 import { completeSave } from '../media/save-file';
 import { inlineDocumentKey, inlineDocumentView, inlineDocumentEvent } from './inline-documents';
@@ -114,7 +115,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // the right panel's surfaces (window chatLocal)
   if (op === 'link-open') return openLinkFromUi(client, native, id, value); // "Open links in" (browser-links.ts)
   if (op === 'ref-scroll-end') { noteRefScrollEnd(client, id); return ''; } // a ref list scrolled toward its end (ref-paging.contract)
-  if (op === 'link-menu') return chatExternalLinkMenu(client, native, storage, value, id === 'page'); // a reply's web link menu (external-link-menu.ts)
+  if (op === 'link-pick') return chatExternalLinkPick(client, native, storage, value, id === 'page'); // a row of a reply's web link menu (external-link-menu.ts)
   if (op === 'pr-link-pick') { await pullRequestLinkPick(client, native, value); return ''; } // the detail header's number's menu choice
   if (op === 'pr-preview') { notePreviewHover(client, id, value === '1'); return ''; } // a pull request link's hover card
   if (op.startsWith('prw-')) return prLocalWrite(client, native, op.slice(4), id, value); // the composer's drafts (pages-pr-detail.ts)
@@ -461,7 +462,7 @@ function present(row: Row, context: PresentContext): Message {
     case 'plan': {
       const markdown = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(str(row.entry.item.markdown)), context.threads);
       return { ...base, kind: 'plan', title: proposedPlanTitle(markdown) ?? 'Proposed plan', body: planBody(markdown), runId: str(row.entry.item.runId),
-        completed: row.entry.item.streaming !== true, streaming: row.entry.item.streaming === true, sourceThreadId: str(row.entry.row.sourceThreadId), meta: false, collapsible: planCollapsible(markdown), code: messageCodeBlocks(markdown), chips: messageChips({ ...row.entry.item, text: markdown }, context.root, context.threads, row.id),
+        completed: row.entry.item.streaming !== true, streaming: row.entry.item.streaming === true, sourceThreadId: str(row.entry.row.sourceThreadId), meta: false, collapsible: planCollapsible(markdown), code: messageCodeBlocks(markdown), chips: withFileLinkMenus(context.client, messageChips({ ...row.entry.item, text: markdown }, context.root, context.threads, row.id)),
         diagrams: messageDiagrams(markdown),
         copied: view.copies.get(row.id)?.nonce ?? 0 };
     }
@@ -484,7 +485,7 @@ function present(row: Row, context: PresentContext): Message {
         copied: copy?.nonce ?? 0, copyFailed: copy?.ok === false };
       if (row.entry.role === 'assistant') {
         const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(str(item.text)), context.threads);
-        return { ...common, kind: 'assistant', title: 'Assistant', canFork: forkable(context.client, row.entry.row, item), body: text || (item.streaming === true ? '' : '(empty response)'), chips: messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client),
+        return { ...common, kind: 'assistant', title: 'Assistant', canFork: forkable(context.client, row.entry.row, item), body: text || (item.streaming === true ? '' : '(empty response)'), chips: withFileLinkMenus(context.client, messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client)),
           meta: row.meta, streaming: item.streaming === true || row.inProgress, code: messageCodeBlocks(text),
           diagrams: messageDiagrams(text) };
       }
@@ -493,7 +494,7 @@ function present(row: Row, context: PresentContext): Message {
         return { ...common, ...opening, code: messageCodeBlocks(opening.body) };
       }
       const intent = str(item.inputIntent), sender = userMessagePresentation(item);
-      const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(sender.text), context.threads), chips = messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client), attached = messageAttachments(item), chipped = chippedAttachmentIds(chips);
+      const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(sender.text), context.threads), chips = withFileLinkMenus(context.client, messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client)), attached = messageAttachments(item), chipped = chippedAttachmentIds(chips);
       // A file with a chip in the prose needs no standalone row (images always show).
       return { ...common, kind: 'user', title: 'You', body: text, revert: row.revert, images: attached.images, attachFiles: attached.attachFiles.filter(file => !chipped.has(file.id)), chips, code: messageCodeBlocks(text), diagrams: messageDiagrams(text),
         collapsible: shouldCollapseUserMessage(text),

@@ -11,6 +11,7 @@ import { queuedEdit } from './composer-controls-queue';
 import { promptRewriteKey } from './composer-ultrathink';
 import { heldRequestIds } from './composer-typing-guard';
 import { markdownEnv, messageChips } from '../timeline/message-chips';
+import { withFileLinkMenus } from '../timeline/file-link-menu';
 import { relabelThreadLinks } from '../timeline/thread-links';
 import { renderCodexInlineDirectivesAsMarkdown } from '../highlight/codex-directives.js';
 import { markdownThreadGlyphs } from '../timeline/markdown-thread-glyphs';
@@ -212,7 +213,7 @@ export function requestPresentation(client: T3Client) {
       responding: responding(input.requestId), dismissible: input.dismissible, answer: active.custom,
       position: input.questions.length > 1 ? `${index + 1}/${input.questions.length}` : '', index, last: active.last,
       canAdvance: active.canAdvance, complete: active.complete,
-      action: responding(input.requestId) ? 'Submitting...' : active.last ? 'Submit' : 'Next', md: { ...markdownEnv(client), chips: messageChips({ text }, root, client.shell.threads), threadGlyphs: markdownThreadGlyphs(client, text) },
+      action: responding(input.requestId) ? 'Submitting...' : active.last ? 'Submit' : 'Next', md: { ...markdownEnv(client), chips: withFileLinkMenus(client, messageChips({ text }, root, client.shell.threads)), threadGlyphs: markdownThreadGlyphs(client, text) },
       options: entry.options.map((option, position) => ({ id: option.value, label: option.label,
         description: option.description !== option.label ? option.description : '',
         selected: !customActive && (current?.selected ?? []).includes(option.value), shortcut: position < 9 ? String(position + 1) : '' })) };
