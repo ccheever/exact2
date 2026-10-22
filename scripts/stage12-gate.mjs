@@ -16,7 +16,7 @@
 // another by EXACT2. EXACT_SIM names the simulator.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, release } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { decodePng } from './png.mjs';
@@ -24,6 +24,7 @@ import { baseLength, cellsOf, drive as scaleDrive, overridesOf, pageTop } from '
 import { webDist } from './app.mjs';
 import { jsTargetBuild } from '../host/web/serve.mjs';
 import { placements } from './library-gate.mjs';
+import { caseOps, caseReads, cases as exactCases, inspectDrive, locate, matches, apart as standsApart, same, COMPONENTS, readsOf } from './s13c-restyle.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 /** The consumer's own targets among the required hosts (LLP 1139 §5): the
@@ -278,7 +279,7 @@ function edgeAt(img, x, y, edge) {
 }
 
 /** The tag the baseline was taken at, in the copy. */
-export const BASELINE_TAG = 's12e-baseline';
+export let BASELINE_TAG = 's12e-baseline';
 
 /** The files `before` differs from the baseline's tag by: only the lock a
  * newer SDK needs (`exact.mjs lock`) may differ. */
@@ -400,8 +401,11 @@ export function conformRead(out, name, error = null) {
 }
 export const conformFailures = out => out.split('\n').filter(l => l.startsWith('FAIL ')).map(l => l.replace(/\s*\([^()]*side-by-side\.png\)\s*$/, ''));
 
-/** What the adoption must use: the four components from the two packages. */
+/** What the adoption must use: the four components from the two packages
+ * (stage 12; a stage's profile adds its own, `useStage`). */
 export const ADOPTED = ['@exact/cards/post-card.contract#PostCard', '@exact/cards/at-card.contract#AtCard', '@exact/actions/action-row.contract#ActionRow', '@exact/actions/post-button.contract#PostButton'];
+/** What the baseline may use already: an earlier stage's adoption (none for stage 12). */
+export const BEFORE_USES = [];
 
 /** One side's builds, on every host, into a target of its own; iOS onto the
  * simulator, which both sides share (one app id), so a side is shot right
@@ -433,7 +437,8 @@ export function consumerPixels(opts) {
   if (!uses.before || !uses.after) return fail(`a copy's app did not build with its source map: ${['before', 'after'].filter(s => !uses[s]).join(', ')}`);
   const missing = ADOPTED.filter(id => !uses.after.includes(id));
   if (missing.length) return fail(`--copy does not use ${missing.join(', ')}: not the adoption`);
-  if (uses.before.length) return fail(`--before already uses library components (${uses.before.join(', ')}): not the baseline`);
+  const early = uses.before.filter(id => !BEFORE_USES.includes(id));
+  if (early.length) return fail(`--before already uses library components (${early.join(', ')}): not the baseline`);
   // Conform on the clone (the JS target's harness: the app's wasm build
   // against its JS build, step by step), on each side: the adoption adds no
   // failure the baseline doesn't have.
@@ -453,15 +458,16 @@ export function consumerPixels(opts) {
   const own = run('git', ['grep', '-l', '-F', ...RENDERED.flatMap(([, , text]) => ['-e', text]), '--', '*.contract'], { cwd: opts.copy }).out.trim().split('\n').filter(Boolean);
   const seen = side => new Set(shots[side].shots.flatMap(x => x.shown ?? []));
   const unseen = RENDERED.filter(([, is]) => ![...seen('after')].some(is)).map(([name]) => name);
-  const early = RENDERED.filter(([name]) => name !== 'PostButton').filter(([, is]) => [...seen('before')].some(is)).map(([name]) => name);
+  const shownEarly = RENDERED.filter(([name]) => name !== 'PostButton' && !BEFORE_USES.some(id => id.endsWith(`#${name}`)))
+    .filter(([, is]) => [...seen('before')].some(is)).map(([name]) => name);
   const p = shots.after.provenance;
   const evidence = [`before ${shots.before.provenance.copy.slice(0, 7)} (${BASELINE_TAG}, lock for the SDK), after ${p.copy.slice(0, 7)}, SDK ${p.exact2?.slice(0, 10)}: ${r.length} shots, ${r.length - bad.length} identical outside their allowlists`,
     ...bad.map(x => `  ${x.shot}: ${x.differ ?? x.said}${x.differ ? ' px' : ''}`),
     'the allowlist (LLP 1139 §5: at most 10% of a library component\'s box): the caret strip lies inside the composer\'s own field (compose-text, the app\'s) and the system keyboard\'s rect below the viewport (from the layout\'s keyboard inset), so neither covers a library component\'s box, by construction (allowOf)',
-    `the adoption places ${ADOPTED.length} of ${ADOPTED.length} library components in its views (${ADOPTED.map(i => i.split('#')[1]).join(', ')}; the build's source map), before none`,
-    `rendered on the screens shot: ${RENDERED.length - unseen.length} of ${RENDERED.length} (${RENDERED.map(([name]) => name).filter(n => !unseen.includes(n)).join(', ')})${unseen.length ? `; NOT shown: ${unseen.join(', ')}` : ''}${own.length ? `; the copy's own sources write a package's testId: ${own.join(', ')}` : ''}${early.length ? `; before already shows ${early.join(', ')}` : ''}`,
+    `the adoption places ${ADOPTED.length} of ${ADOPTED.length} library components in its views (${ADOPTED.map(i => i.split('#')[1]).join(', ')}; the build's source map), before ${BEFORE_USES.length ? `only the earlier stage's (${BEFORE_USES.map(i => i.split('#')[1]).join(', ')})` : 'none'}`,
+    `rendered on the screens shot: ${RENDERED.length - unseen.length} of ${RENDERED.length} (${RENDERED.map(([name]) => name).filter(n => !unseen.includes(n)).join(', ')})${unseen.length ? `; NOT shown: ${unseen.join(', ')}` : ''}${own.length ? `; the copy's own sources write a package's testId: ${own.join(', ')}` : ''}${shownEarly.length ? `; before already shows ${shownEarly.join(', ')}` : ''}`,
     ...conformEvidence(conform)];
-  return bad.length || !r.length || !conformSame(conform) || unseen.length || own.length || early.length ? fail(...evidence) : pass(...evidence);
+  return bad.length || !r.length || !conformSame(conform) || unseen.length || own.length || shownEarly.length ? fail(...evidence) : pass(...evidence);
 }
 
 /** The library lines' required hosts (LLP 1139 §5): the web's JS target
@@ -478,19 +484,19 @@ const wasmDist = () => resolve(process.env.EXACT_WASM_DIST ?? join(ROOT, 'target
 
 /** scale-check's drive on `host`, the web's two targets told apart: each
  * from a dist built for it, refused when the dist is the other's. */
-export function drivePlan(host, plan, png, steps = [], app = null) {
+export function drivePlan(host, plan, png, steps = [], app = null, driver = scaleDrive) {
   if (host === 'web-js') {
     if (!jsTargetBuild(webDist())) throw new Error(`the web dist ${webDist()} is not a JS-target build (bun host/web/build.mjs <app>)`);
-    return scaleDrive('web', plan, png, steps, app);
+    return driver('web', plan, png, steps, app);
   }
   if (host === 'web-wasm') {
     const dist = wasmDist();
     if (!existsSync(join(dist, '.exact-build.json')) || jsTargetBuild(dist)) throw new Error(`${dist} is not a wasm build (EXACT_WEB_DIST=${dist} bun host/web/build.mjs <app> --wasm)`);
     const was = process.env.EXACT_WEB_DIST;
     process.env.EXACT_WEB_DIST = dist;
-    try { return scaleDrive('web', plan, png, steps, app); } finally { if (was === undefined) delete process.env.EXACT_WEB_DIST; else process.env.EXACT_WEB_DIST = was; }
+    try { return driver('web', plan, png, steps, app); } finally { if (was === undefined) delete process.env.EXACT_WEB_DIST; else process.env.EXACT_WEB_DIST = was; }
   }
-  return scaleDrive(host, plan, png, steps, app);
+  return driver(host, plan, png, steps, app);
 }
 const LIBRARY_GATE = join(ROOT, 'apps/library-gate');
 
@@ -743,7 +749,7 @@ function restylePlan(dir, design = null) {
  * the line (its class), write it (`transaction`), `propose` its removal
  * (its class), and undo the write, which must leave the design's bytes as
  * they were. The designs: the line set, and after removal. */
-export async function restyleWrites(dir) {
+export async function restyleWrites(dir, list = RESTYLE) {
   const work = join(dir, 'server');
   restylePlan(work);
   const design = join(work, 'app', 'app.tamber'), original = readFileSync(design, 'utf8');
@@ -754,14 +760,15 @@ export async function restyleWrites(dir) {
     if (!hello.ok) throw new Error(`hello: ${hello.error?.message}`);
     let files = hello.ok.files;
     const out = [];
-    for (const c of RESTYLE) {
-      const set = [c.param ? { op: 'set-param', name: c.name, value: c.set } : { op: 'set-token', name: c.name, value: c.set }];
+    for (const c of list) {
+      const set = c.ops?.set ?? [c.param ? { op: 'set-param', name: c.name, value: c.set } : { op: 'set-token', name: c.name, value: c.set }];
+      const unset = c.ops?.unset ?? [c.unset];
       const said = (r, what) => { if (!r.ok) throw new Error(`${c.name}: ${what}: ${r.error?.message ?? JSON.stringify(r.error)}`); return r.ok; };
       const proposed = said(await server.ask({ method: 'propose', ops: set, files }), 'propose');
       const written = said(await server.ask({ method: 'transaction', client, ops: set, files }), 'transaction');
       files = written.files;
       const withLine = readFileSync(design, 'utf8');
-      const removal = said(await server.ask({ method: 'propose', ops: [c.unset], files }), 'propose its removal');
+      const removal = said(await server.ask({ method: 'propose', ops: unset, files }), 'propose its removal');
       const undone = said(await server.ask({ method: 'undo', client, inverse: written.inverse }), 'undo');
       files = undone.files;
       const after = readFileSync(design, 'utf8');
@@ -789,8 +796,10 @@ export function expected(read, v, v0, base, cell) {
  * the design's own px tokens). */
 export async function restyle(opts) {
   const dir = join(ROOT, 'target', 'stage12-gate', 'restyle');
+  // Stage 13 C's cases beside stage 12's (theme2 10:28): their writes as one.
+  const exact = EXACT ? exactCases().map(c => ({ ...c, ops: caseOps(c) })) : [];
   let writes;
-  try { writes = await restyleWrites(dir); } catch (e) { return fail(`the design server: ${String(e?.message ?? e).slice(0, 300)}`); }
+  try { writes = await restyleWrites(dir, [...RESTYLE, ...exact]); } catch (e) { return fail(`the design server: ${String(e?.message ?? e).slice(0, 300)}`); }
   const plans = { base: restylePlan(join(dir, 'base')) };
   for (const w of writes) {
     const at = w.name.replace(/[^\w.-]+/g, '-');
@@ -815,11 +824,13 @@ export async function restyle(opts) {
   };
   const paramOf = c => ir.components?.flatMap(x => x.params ?? []).find(p => p.name === c.name);
   const hosts = opts.hosts.length ? opts.hosts.filter(h => SLOT_HOSTS.includes(h)) : SLOT_HOSTS;
-  const rows = [];
+  const rows = [], exactRows = [];
   for (const host of hosts) {
     const L = {};
     try {
-      for (const [k, plan] of Object.entries(plans)) L[k] = drivePlan(host, plan, join(dir, `${host}-${k.replace(/\W+/g, '-')}.png`), [], opts.app);
+      for (const [k, plan] of Object.entries(plans)) {
+        if (k === 'base' || RESTYLE.some(c => k.startsWith(`${c.name} `))) L[k] = drivePlan(host, plan, join(dir, `${host}-${k.replace(/\W+/g, '-')}.png`), [], opts.app);
+      }
     } catch (e) { rows.push({ host, ok: false, why: whyOf(e) }); continue; }
     const cell = L.base.cell ?? null;
     for (const c of RESTYLE) {
@@ -844,12 +855,22 @@ export async function restyle(opts) {
         rows.push(row);
       }
     }
+    if (exact.length) exactRows.push(...readExact(host, exact, plans, opts.app));
   }
   const missing = SLOT_HOSTS.filter(h => !hosts.includes(h));
   const bad = rows.filter(r => !r.ok);
   const n = x => (Number.isFinite(x) ? Math.round(x * 100) / 100 : x);
+  // The mutation (theme2 10:28 (4)), on Linux: the case fails, naming the token.
+  let mutation = null;
+  if (exact.length && hosts.includes('linux')) {
+    try {
+      const caught = [...new Set(mutationFails(join(dir, 'mutation'), 'linux').map(r => `${r.key} ${r.row}`))];
+      const want = `${MUTATION.token} ${MUTATION.row}`;
+      mutation = { ok: caught.length === 1 && caught[0] === want, line: `the mutation (a scratch @exact/actions, ${MUTATION.file}'s ${MUTATION.from} made ${MUTATION.to}), on linux: ${MUTATION.case} fails naming ${caught.join(', ') || 'nothing'}${caught.length === 1 && caught[0] === want ? '' : `, not only ${want}`}` };
+    } catch (e) { mutation = { ok: false, line: `the mutation: ${whyOf(e)}` }; }
+  }
   const evidence = [
-    ...writes.map(w => `${w.name} (${RESTYLE.find(c => c.name === w.name).what}): propose ${w.classes.set}, written ${w.classes.written}, its removal proposed ${w.classes.removal}, undone ${w.classes.undo}; the design's bytes ${w.restored ? 'restored' : 'NOT restored'}`),
+    ...writes.map(w => `${w.name} (${RESTYLE.find(c => c.name === w.name)?.what ?? 'stage 13 C\'s batch'}): propose ${w.classes.set}, written ${w.classes.written}, its removal proposed ${w.classes.removal}, undone ${w.classes.undo}; the design's bytes ${w.restored ? 'restored' : 'NOT restored'}`),
     // One line per host, case and read: its instances, and each that failed.
     ...[...new Set(rows.filter(r => r.case).map(r => `${r.host}\u0000${r.case}\u0000${r.what}`))].flatMap(key => {
       const group = rows.filter(r => `${r.host}\u0000${r.case}\u0000${r.what}` === key), [first] = group, failed = group.filter(r => !r.ok);
@@ -857,14 +878,119 @@ export async function restyle(opts) {
         ...failed.map(r => `      ${r.id}: before ${n(r.before)}, set ${n(r.set)}, removed ${n(r.removed)} (expected ${n(r.want?.[0])}, ${n(r.want?.[1])}): ${r.why}`)];
     }),
     ...rows.filter(r => !r.case).map(r => `FAIL ${r.host}: ${r.why}`),
+    ...exactEvidence(exact, exactRows),
+    ...(mutation ? [`${mutation.ok ? 'ok  ' : 'FAIL'} ${mutation.line}`] : []),
     ...missing.map(h => `  ${h}: a required host not run`),
     ...skipped,
   ];
-  return bad.length || missing.length || !rows.length || writes.some(w => !w.restored) ? fail(...evidence) : pass(...evidence);
+  const exactBad = exactRows.some(r => !r.ok) || (exact.length && !exactRows.length) || (mutation && !mutation.ok);
+  return bad.length || exactBad || missing.length || !rows.length || writes.some(w => !w.restored) ? fail(...evidence) : pass(...evidence);
 }
 
 /** Sources that fail to build at both ends of every run, named: apps/expose
  * reads `./local`, which a checkout lacks (stage 11's gate, the same). */
+/** Whether the restyle line runs stage 13 C's exact cases (`useStage`). */
+let EXACT = false;
+
+/** Stage 13 C's cases on `host` (theme2 10:28, 10:42): the runner's tree
+ * of the base design names each read's node, by its instance's first
+ * testId and a path; a drive of the base design, then of each case set and
+ * removed, reads every node's rows (kind 1, exact). Each case's drive has
+ * the same node at each path, or it is no read of that node. One row a
+ * read, instance and row: { host, case, key, kind, id, row, ok, why }. */
+export function readExact(host, exact, plans, app, drive = (plan, ids) => drivePlan(host, plan, null, ids, app, (h, p, _png, list, a) => inspectDrive(h, p, list, a))) {
+  const out = [];
+  let tree;
+  try { tree = drive(plans.base, []).tree; } catch (e) { return [{ host, ok: false, why: whyOf(e) }]; }
+  const reads = exact.map(c => ({ c, reads: caseReads(c).flatMap(r => r.ids.map(inst => ({ ...r, inst, root: COMPONENTS[r.component].root(inst) }))) }));
+  for (const { reads: list } of reads) for (const r of list) r.id = locate(tree, r.root, r.path)?.id ?? null;
+  const ids = list => [...new Set(list.map(r => r.id).filter(id => id != null))];
+  let base;
+  try { base = drive(plans.base, ids(reads.flatMap(x => x.reads))); } catch (e) { return [{ host, ok: false, why: whyOf(e) }]; }
+  for (const { c, reads: list } of reads) {
+    const at = {};
+    for (const side of ['set', 'removed']) {
+      try { at[side] = drive(plans[`${c.name} ${side}`], ids(list)); } catch (e) { at[side] = e; }
+    }
+    for (const r of list) {
+      for (const row of r.rows) {
+        const o = { host, case: c.name, key: r.key, kind: r.kind, inst: r.inst, path: r.path, row, want: r.want, ok: true, why: [] };
+        if (r.id == null) o.why.push(`no node at ${r.root} ${r.path}`);
+        const value = side => {
+          const d = side === 'base' ? base : at[side];
+          if (d instanceof Error) throw d;
+          if (side !== 'base' && locate(d.tree, r.root, r.path)?.id !== r.id) throw new Error(`${side}: another node at ${r.root} ${r.path}`);
+          const v = d.nodes.get(r.id)?.style?.[row];
+          if (!v) throw new Error(`${side}: no ${row} on #${r.id}`);
+          return v.value;
+        };
+        try {
+          const b = value('base'), sv = value('set'), rv = value('removed');
+          Object.assign(o, { before: b, set: sv, removed: rv });
+          if (!standsApart(b, r.want, r.kind)) o.why.push(`the set value ${r.want} is within the read's tolerance of the base ${JSON.stringify(b)}`);
+          if (!matches(sv, r.want, r.kind)) o.why.push(`set ${JSON.stringify(sv)}, expected ${r.want}`);
+          if (!same(rv, b)) o.why.push(`removed ${JSON.stringify(rv)}, not back to ${JSON.stringify(b)}`);
+        } catch (e) { o.why.push(String(e?.message ?? e)); }
+        o.ok = !o.why.length;
+        o.why = o.why.join('; ');
+        out.push(o);
+      }
+    }
+  }
+  return out;
+}
+
+/** The mutation (theme2 10:28 (4)): library-gate built against a scratch
+ * copy of @exact/actions whose HeaderButton sizes its width by
+ * actions.header-icon where it reads actions.header-slot, a length for a
+ * length; its case, set and removed, read on `host`. The reads that fail:
+ * the case catches the swap only if they are the width's, naming
+ * actions.header-slot. */
+export const MUTATION = { file: 'header-button.contract', from: 'width="actions.header-slot"', to: 'width="actions.header-icon"', token: 'actions.header-slot', row: 'width', case: 'HeaderButton tokens' };
+export function mutationFails(dir, host = 'linux', drive = undefined) {
+  rmSync(dir, { recursive: true, force: true });
+  for (const pkg of ['actions', 'cards', 'lists']) cpSync(join(ROOT, 'packages', pkg), join(dir, 'node_modules', '@exact', pkg), { recursive: true });
+  const file = join(dir, 'node_modules/@exact/actions', MUTATION.file), text = readFileSync(file, 'utf8');
+  if (!text.includes(MUTATION.from)) throw new Error(`${MUTATION.file} no longer says ${MUTATION.from}: the mutation needs another use`);
+  writeFileSync(file, text.replace(MUTATION.from, MUTATION.to));
+  const c = exactCases().find(x => x.name === MUTATION.case);
+  const design = readFileSync(join(LIBRARY_GATE, 'app.tamber'), 'utf8').trimEnd();
+  const lines = c.set.map(t => `  ${t.name}${t.kind === 'color' ? '' : `: ${t.kind}`} = ${t.value}`);
+  const plan = (name, tamber) => {
+    const app = join(dir, name, 'app');
+    mkdirSync(app, { recursive: true });
+    writeFileSync(join(app, 'app.contract'), readFileSync(join(LIBRARY_GATE, 'app.contract')));
+    writeFileSync(join(app, 'app.tamber'), tamber);
+    const out = join(dir, name, 'library-gate.plan');
+    const r = run('cargo', ['run', '-q', '-p', 'contract', '--', 'build', join(app, 'app.contract'), '-o', out]);
+    if (!r.ok) throw new Error(`the mutated library-gate did not compile (${name}): ${r.out.slice(-400)}`);
+    return out;
+  };
+  const base = plan('base', `${design}\n`);
+  const plans = { base, [`${c.name} set`]: plan('set', `${design}\n${lines.join('\n')}\n`), [`${c.name} removed`]: base };
+  return readExact(host, [c], plans, null, ...(drive ? [drive] : [])).filter(r => !r.ok);
+}
+
+/** The exact cases' evidence: each read's kind once (every read is kind
+ * 1, the computed row on its node), then a line a host and case with its
+ * reads' count, and every failed read by name. */
+export function exactEvidence(exact, rows) {
+  if (!exact.length) return [];
+  const keys = [...new Set(exact.flatMap(c => caseReads(c).map(r => r.key)))];
+  const n = x => (typeof x === 'number' ? Math.round(x * 100) / 100 : JSON.stringify(x));
+  return [
+    `stage 13 C's cases, every read kind 1 (exact: the row's computed value on its node, layout <id>), checked against its own token's or param's value; ${keys.length} tokens and params read:`,
+    ...keys.map(k => `  ${k}: ${readsOf(k).map(r => `${r.path} ${r.rows.join(',')} (${r.ids.length})`).join('; ')}`),
+    ...[...new Set(rows.filter(r => r.case).map(r => `${r.host}\u0000${r.case}`))].flatMap(key => {
+      const group = rows.filter(r => `${r.host}\u0000${r.case}` === key), failed = group.filter(r => !r.ok), [first] = group;
+      return [`${failed.length ? 'FAIL' : 'ok  '} ${first.host} ${first.case}: ${group.length - failed.length} of ${group.length} reads exact, each back at its base once removed`,
+        ...failed.slice(0, 40).map(r => `      ${r.key} ${r.inst} ${r.path} ${r.row}: before ${n(r.before)}, set ${n(r.set)}, removed ${n(r.removed)}: ${r.why}`),
+        ...(failed.length > 40 ? [`      … and ${failed.length - 40} more`] : [])];
+    }),
+    ...rows.filter(r => !r.case).map(r => `FAIL ${r.host} stage 13 C's cases: ${r.why}`),
+  ];
+}
+
 export const FAIL_ALIKE = ['apps/expose/app.contract'];
 
 /** `--release`'s comparison (~/x2ios/rel12/release-groups.py, as stage
@@ -1046,6 +1172,50 @@ function slotCheckTime() {
   return slow.length ? fail(...evidence, `over ${SLOT_BAR_MS} ms or unread: ${slow.length}`) : pass(...evidence, `bar: ${SLOT_BAR_MS} ms a check`);
 }
 
+/** The fixture form's sign-in (the composer screen's steps, theme2 09:19 (c)
+ * and 09:49): made-up credentials, the copy's synthetic data, no network. */
+const SIGN_IN = ['tap bottomBarSignInBtn', 'type loginPasswordInput fixture-password', 'type loginUsernameInput me.fixture.invalid', 'tap loginNextButton'];
+const SETTINGS = ['tap open-drawer', 'tap drawer-settings'];
+
+/** Each stage's gate (LLP 1139 §5): its baseline's tag on the copy, the
+ * components its adoption adds (an earlier stage's the baseline may use
+ * already), the screens shot, the package testIds that say a component
+ * rendered, and the restyle cases. Stage 12's is the module's defaults;
+ * `useStage` swaps a stage's in, so both stages run one set of lines. */
+export const STAGES = {
+  s12: { name: 'Stage 12', tag: 's12e-baseline', out: 'stage12-gate-run.txt', adopted: [...ADOPTED], before: [], screens: SCREENS.map(([n, t]) => [n, [...t]]), rendered: [...RENDERED], restyle: [...RESTYLE] },
+  s13c: {
+    name: 'Stage 13 C', tag: 's13c-baseline', out: 's13c-gate-run.txt',
+    adopted: [...ADOPTED, '@exact/lists/list-row.contract#ListRow', '@exact/lists/switch-row.contract#SwitchRow', '@exact/cards/profile-header.contract#ProfileHeader',
+      '@exact/actions/compose-frame.contract#ComposeFrame', '@exact/actions/bar-item.contract#BarItem', '@exact/actions/header-button.contract#HeaderButton'],
+    before: [...ADOPTED],
+    screens: [
+      ...SCREENS.map(([n, t]) => [n, [...t]]),
+      ['settings', [...SETTINGS]],
+      ['settings-account', [...SETTINGS, 'tap settings-account']],
+      ['settings-content', [...SETTINGS, 'tap settings-content']],
+      ['settings-notifications', [...SETTINGS, 'tap settings-notifications']],
+      // Signed in through the fixture form, so the bottom bar's tabs (BarItem) show.
+      ['home-signed-in', [...SIGN_IN, 'clock +1500 real']],
+    ],
+    // ListRow, SwitchRow, BarItem and HeaderButton write only the app's own
+    // testIds; the build's source map says they're placed.
+    rendered: [...RENDERED, ['ProfileHeader', id => id.startsWith('profile-header-'), 'profile-header-'], ['ComposeFrame', id => id === 'compose-bar', '"compose-bar"']],
+    restyle: [...RESTYLE],
+    // Stage 13 C's tokens and params, a batch a component (s13c-restyle.mjs).
+    exact: true,
+  },
+};
+
+/** Run the gate as `stage`'s (`--stage`): its tag, adoption, screens, rendered testIds and restyle cases. */
+export function useStage(stage) {
+  const p = STAGES[stage];
+  BASELINE_TAG = p.tag;
+  EXACT = !!p.exact;
+  for (const [list, items] of [[ADOPTED, p.adopted], [BEFORE_USES, p.before], [SCREENS, p.screens], [RENDERED, p.rendered], [RESTYLE, p.restyle]]) list.splice(0, list.length, ...items);
+  return p;
+}
+
 /** The gate's lines, in LLP 1139 §5's order. */
 export function lines(opts) {
   return [
@@ -1081,16 +1251,18 @@ export function lines(opts) {
 }
 
 export function parse(argv) {
-  const opts = { mode: 'gate', only: [], hosts: [], app: 'unsaid', out: join(homedir(), 'x2theme/stage12-gate-run.txt'), copy: null, before: null, baseline: null, release: null, conformBase: null };
+  const opts = { mode: 'gate', stage: 's12', only: [], hosts: [], app: 'unsaid', out: null, copy: null, before: null, baseline: null, release: null, conformBase: null };
   const args = [...argv];
   if (args[0] === 'baseline') { opts.mode = 'baseline'; opts.out = null; args.shift(); }
   for (let i = 0; i < args.length; i += 2) {
     const [flag, v] = [args[i], args[i + 1]];
-    if (!['--only', '--out', '--copy', '--before', '--baseline', '--host', '--app', '--release', '--conform-base'].includes(flag)) return `unknown argument ${flag}`;
+    if (!['--only', '--out', '--copy', '--before', '--baseline', '--host', '--app', '--release', '--conform-base', '--stage'].includes(flag)) return `unknown argument ${flag}`;
     if (v === undefined || v.startsWith('--')) return `${flag} needs a value`;
     if (flag === '--only') opts.only.push(v); else if (flag === '--host') opts.hosts.push(v); else if (flag === '--conform-base') opts.conformBase = v; else opts[flag.slice(2)] = v;
   }
+  if (!STAGES[opts.stage]) return `--stage ${opts.stage}: one of ${Object.keys(STAGES).join(', ')}`;
   if (opts.mode === 'baseline' && (!opts.copy || !opts.out)) return 'baseline needs --copy and --out';
+  if (opts.mode === 'gate' && !opts.out) opts.out = join(homedir(), 'x2theme', STAGES[opts.stage].out);
   const allowed = opts.mode === 'baseline' ? CLONE_HOSTS : SLOT_HOSTS;
   const unknownHost = opts.hosts.find(h => !allowed.includes(h));
   if (unknownHost) return `--host ${unknownHost}: one of ${allowed.join(', ')}`;
@@ -1102,7 +1274,8 @@ export function parse(argv) {
 
 if (import.meta.main) {
   const opts = parse(process.argv.slice(2));
-  if (typeof opts === 'string') { console.error(`${opts}\nusage: bun scripts/stage12-gate.mjs [--only <line> …] [--out <file>] [--copy <dir>] [--baseline <dir>] [--release <json>] | baseline --copy <dir> --out <dir> [--host <h> …]`); process.exit(2); }
+  if (typeof opts === 'string') { console.error(`${opts}\nusage: bun scripts/stage12-gate.mjs [--stage s12|s13c] [--only <line> …] [--out <file>] [--copy <dir>] [--baseline <dir>] [--release <json>] | baseline [--stage s12|s13c] --copy <dir> --out <dir> [--host <h> …]`); process.exit(2); }
+  const stage = useStage(opts.stage);
   if (opts.mode === 'baseline') {
     const r = baseline(resolve(opts.copy), resolve(opts.out), opts.hosts.length ? opts.hosts : CLONE_HOSTS);
     const bad = r.shots.filter(s => !s.ok);
@@ -1111,7 +1284,7 @@ if (import.meta.main) {
     process.exit(bad.length || !r.plan.sha ? 1 : 0);
   }
   const head = run('git', ['rev-parse', '--short', 'HEAD']).out.trim();
-  const text = [`# Stage 12 gate run (LLP 1139 §5), ${new Date().toISOString()}, ${head}; ${opts.only.length ? `lines ${opts.only.join(', ')}` : 'every line'}`, ''];
+  const text = [`# ${stage.name} gate run (LLP 1139 §5), ${new Date().toISOString()}, ${head}; ${opts.only.length ? `lines ${opts.only.join(', ')}` : 'every line'}`, ''];
   for (const [id, title, check] of lines(opts)) {
     let r;
     try { r = !opts.only.length || opts.only.includes(id) ? await check() : notRun('not selected'); } catch (e) { r = fail(`the line stopped: ${String(e?.stack ?? e).split('\n').slice(0, 3).join(' / ').slice(0, 400)}`); }
