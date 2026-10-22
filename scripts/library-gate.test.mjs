@@ -8,7 +8,7 @@
 // `match` in the view), and every PostCard's slot holds its marker.
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { cellsFor, conditional, markedSlot, option, placements, uncommented } from './library-gate.mjs';
@@ -16,6 +16,21 @@ import { SLOTTED } from './stage12-gate.mjs';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const APP = join(ROOT, 'apps/library-gate/app.contract');
+
+/** The components of these packages that declare a slot, by their sources. */
+function slottedIn(packages) {
+  const out = [];
+  for (const pkg of packages) {
+    const dir = join(ROOT, 'packages', pkg);
+    for (const f of readdirSync(dir).filter(f => f.endsWith('.contract'))) {
+      for (const block of readFileSync(join(dir, f), 'utf8').split(/^(?=component )/m)) {
+        const name = /^component (\w+)/.exec(block)?.[1];
+        if (name && /^  slot\s*$/m.test(block.split(/^  view\s*$/m)[0])) out.push(name);
+      }
+    }
+  }
+  return out;
+}
 
 function ir() {
   const out = join(mkdtempSync(join(tmpdir(), 'library-gate-ir-')), 'ir.json');
@@ -28,8 +43,10 @@ test('every exported component, once per variant value, every cell rendered, eve
   const library = ir();
   const names = library.map(c => c.name);
   expect(names.sort()).toEqual(['ActionRow', 'AtCard', 'ListRow', 'PostButton', 'PostCard', 'ProfileHeader', 'SwitchRow']);
-  // The gate's slot-rendered line reads every component with a slot.
-  expect(library.filter(c => c.parts.some(p => p.slot)).map(c => c.name).sort()).toEqual([...SLOTTED].sort());
+  // The gate's slot-rendered line reads every component with a slot (one
+  // whose holder is no part included).
+  const slotted = slottedIn(['actions', 'cards', 'lists']).filter(n => names.includes(n));
+  expect(slotted.sort()).toEqual([...SLOTTED].sort());
   const app = readFileSync(APP, 'utf8');
   // One component, the root, so every placement is in the rendered view.
   expect([...app.matchAll(/^component (\w+)/gm)].map(m => m[1])).toEqual(['App']);
@@ -43,7 +60,7 @@ test('every exported component, once per variant value, every cell rendered, eve
     expect([c.name, got]).toEqual([c.name, want]);
     // A slot's marker in every placement of a component with one: the
     // slot's first child, the glyph directly under it.
-    if (c.parts.some(p => p.slot)) {
+    if (slotted.includes(c.name)) {
       for (const p of mine) expect([p.id, markedSlot(p)]).toEqual([p.id, true]);
     }
   }
