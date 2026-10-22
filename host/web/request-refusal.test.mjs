@@ -443,12 +443,12 @@ test('the production file command refuses a source outside the admitted fs.read 
   writeFileSync(resolve(dir, 'files.js'), readFileSync(resolve(ROOT, 'host/web-js/files.js'), 'utf8')
     .replace("from './rt.js'", "from './rt-stub.js'").replace("from './navigation.js'", "from './navigation-stub.js'"));
   writeFileSync(resolve(dir, 'rt-stub.js'), `export const journal=[],clock={now:0,agent:true},inflight={n:0},Hosts={},OnHooks={},Views=new Map(),data={appId:'test.files'};export const nextTicket=()=>1,viewId=()=>1,painted=()=>Promise.resolve();\n`);
-  writeFileSync(resolve(dir, 'navigation-stub.js'), `export { inertAncestor } from './navigation.js';\nexport const reportPlace=()=> ['en','UTC','1'].join(String.fromCharCode(0));\n`);
+  writeFileSync(resolve(dir, 'navigation-stub.js'), `export { inertAncestor, liveById } from './navigation.js';\nexport const reportPlace=()=> ['en','UTC','1'].join(String.fromCharCode(0));\n`);
   cpSync(resolve(ROOT, 'host/web-js/pointer.js'), resolve(dir, 'pointer.js'));
   writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'").replaceAll("'../web/faults.js'", "'./faults.js'"));
   for (const name of ['grant-admission.js', 'faults.js', 'navigation.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
   const documentDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'document');
-  Object.defineProperty(globalThis, 'document', { configurable: true, value: { getElementById: () => ({ localName: 'button', isConnected: true, getAttribute: () => null, dispatchEvent() {} }) } });
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: { getElementById: () => ({ localName: 'button', isConnected: true, getAttribute: () => null, dispatchEvent() {}, closest: () => null }), contains: () => true /* liveById: a live, attached element */ } });
   globalThis.exact = {};
   try {
     const admission = await import(pathToFileURL(resolve(dir, 'admission.js')).href);
@@ -653,7 +653,8 @@ test('the JS target checks and takes the redirect mode once, as fetch is called'
     const { fetch: appFetch, answering } = await import(pathToFileURL(resolve(dir, 'ts-fetch.js')).href);
     const upload = await appFetch('https://x.test/up', { method: 'POST', exactBodyFrom: 'app:/data/p.jpg', redirect: 'sideways' }).catch(e => e);
     expect([upload instanceof TypeError, globalThis.redirectReads ?? 0]).toEqual([true, 0]);
-    answering.call = {};
+    // An answer being asked, in its turn (ts-data.js; a stream starts only then, 4322c85a1d).
+    answering.call = { turn: true };
     const refused = await appFetch('https://x.test/events', { exactStream: e => e, redirect: 'sideways' }).catch(e => e);
     expect([refused instanceof TypeError, answering.call.stream]).toEqual([true, undefined]);
     const options = { exactStream: e => e, redirect: 'manual' };
@@ -661,7 +662,7 @@ test('the JS target checks and takes the redirect mode once, as fetch is called'
     options.redirect = 'follow';
     expect(answering.call.stream.redirect).toBe('manual');
     // The caller's options stay as given, inherited ones too, and an accessor is read once
-    answering.call = {};
+    answering.call = { turn: true };
     let reads = 0;
     const inherited = Object.create({ method: 'POST', headers: { authorization: 'Bearer t' } }, {
       exactStream: { value: e => e, enumerable: true },
@@ -876,7 +877,7 @@ test('ts-data installs the native Store facade and a later gpu-glue shader uses 
   writeFileSync(resolve(dir, 'names.js'), `export const sourceTypes={read:[[],'s'],kept:[[],'s']};\n`);
   writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'").replaceAll("'../web/faults.js'", "'./faults.js'"));
   writeFileSync(resolve(dir, 'admission-data.js'), `import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(${JSON.stringify(set)});\n`);
-  for (const name of ['grant-admission.js', 'faults.js', 'navigation.js', 'gpu-glue.js', 'gpu-assets.js', 'pace.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+  for (const name of ['grant-admission.js', 'faults.js', 'navigation.js', 'gpu-glue.js', 'gpu-assets.js', 'gpu-pads.js', 'gpu-tier.js', 'gpu-refusal.js', 'pace.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
   cpSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), resolve(dir, 'ts-fetch.js')); cpSync(resolve(ROOT, 'host/web-js/shape.js'), resolve(dir, 'shape.js'));
   writeFileSync(resolve(dir, 'gpu.js'), `export default async()=>{};export const gpu_load=async()=>{},gpu_shader_names=()=> '["shader"]',gpu_shaders_clear=()=>{},gpu_shader=()=>true,gpu_unload=()=>{},gpu_child_view=()=>{};\n`);
   const descriptors = Object.fromEntries(['fetch', 'document', 'window', 'requestAnimationFrame', 'cancelAnimationFrame', 'devicePixelRatio'].map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
@@ -889,6 +890,9 @@ test('ts-data installs the native Store facade and a later gpu-glue shader uses 
     cancelAnimationFrame: { configurable: true, value() {} }, devicePixelRatio: { configurable: true, value: 1 },
   });
   globalThis.exact = { devAssets: null, root: { dataset: {} }, views: new Map(), pendingSurfaces: [], generation: 0 };
+  // A browser with WebGPU: gpu-glue chooses its tier from the adapter before it loads (LLP 1139.003 D2, gpu-tier.js).
+  const gpuDescriptor = Object.getOwnPropertyDescriptor(globalThis.navigator, 'gpu');
+  Object.defineProperty(globalThis.navigator, 'gpu', { configurable: true, value: { requestAdapter: async () => ({ info: { vendor: 'apple', architecture: 'common-3' } }) } });
   try {
     const ts = await import(`${pathToFileURL(resolve(dir, 'ts-data.js')).href}?ts=${Date.now()}`), data = { q: [] };
     ts.install(data);
@@ -899,6 +903,7 @@ test('ts-data installs the native Store facade and a later gpu-glue shader uses 
     expect(shaderFetches.some(url => url.endsWith('/shaders/shader.wgsl'))).toBe(true);
     expect(globalThis.fetch).toBe(browserFetch);
   } finally {
+    if (gpuDescriptor) Object.defineProperty(globalThis.navigator, 'gpu', gpuDescriptor); else delete globalThis.navigator.gpu;
     for (const [name, descriptor] of Object.entries(descriptors)) {
       if (descriptor) Object.defineProperty(globalThis, name, descriptor); else delete globalThis[name];
     }

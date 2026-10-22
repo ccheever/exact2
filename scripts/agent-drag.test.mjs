@@ -98,7 +98,7 @@ test('an iOS drag that scrolls nothing says what to look at', async () => {
 });
 
 test('an iOS drag the host cannot recognize fails, naming --touch platform', async () => {
-  const d = iosDrive(() => ({ error: 'drag #9: without --touch platform a drag scrolls a scroller it starts on' }));
+  const d = iosDrive(() => ({ error: 'drag #9 starts on nothing the agent scrolls, so it is a gesture only a real touch makes (a row\'s swipe actions, a slider, a pan): drive with --touch platform' }));
   await expect(d.run()).rejects.toThrow('--touch platform');
 });
 

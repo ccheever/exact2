@@ -60,6 +60,8 @@ pub enum DecodeError {
     BadSymbolPalette,
     /// Invalid or unsupported CSS `text-shadow` (LLP 1077 D3).
     BadTextShadow,
+    /// Invalid CSS `font-variation-settings`, or more than eight axes (LLP 1019 D9).
+    BadFontVariations,
     /// Invalid or unsupported CSS `mask-image` (LLP 1077 D2).
     BadMaskImage,
     /// Invalid CSS `corner-shape` (LLP 1077 D1).
@@ -525,6 +527,10 @@ pub enum StyleValueError {
     },
     /// Not `none` or one text shadow (LLP 1077 D3).
     BadTextShadow {
+        style: StyleId,
+    },
+    /// Not `normal` or up to eight `"tag" <number>` axes (LLP 1019 D9).
+    BadFontVariations {
         style: StyleId,
     },
     /// Not `none` or one gradient mask (LLP 1077 D2).

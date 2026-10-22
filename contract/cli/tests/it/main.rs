@@ -3,6 +3,7 @@
 //! allocator.
 
 mod action_related;
+mod alert_parts;
 mod anatomy;
 mod anatomy_slot;
 mod ancestor_row_state;
@@ -57,7 +58,9 @@ mod fns;
 mod fonts;
 mod format;
 mod function_graph;
+mod gallery;
 mod geometry;
+mod grouped_action;
 mod grouped_list;
 mod grouped_margins;
 mod grouped_page;
@@ -150,9 +153,11 @@ mod symbols;
 mod tamber;
 mod tamber_base_expression;
 mod tamber_base_scale;
+mod tamber_base_shadow;
 mod tamber_binding;
 mod tamber_binding_kinds;
 mod tamber_cli;
+mod tamber_describe_library;
 mod tamber_gen;
 mod tamber_held;
 mod tamber_icons;
@@ -174,6 +179,7 @@ mod tamber_serve_contract;
 mod tamber_serve_explain;
 mod tamber_serve_packages;
 mod tamber_serve_rows;
+mod tamber_serve_shadow_columns;
 mod tamber_serve_slots;
 mod tamber_set_param;
 mod tamber_shadows;

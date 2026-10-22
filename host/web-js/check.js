@@ -84,9 +84,11 @@ export function observe(views, inactive = () => false) {
       if (e === top) break;
       if (!e.contains(el) && !el.contains(e) && paints(e)) return null;
     }
+    // `solid`: the nearest fill under it is a view's own and opaque (it hides what lies beneath that view).
+    const solid = by != null && layers[0][3] >= 0.999;
     let bg = layers.pop().slice(0, 3);
     while (layers.length) bg = mix(layers.pop(), bg);
-    return { bg: bg.map((v) => Math.round(v)), by, accent };
+    return { bg: bg.map((v) => Math.round(v)), by, accent, solid };
   };
   const mix = (fg, bg) => [0, 1, 2].map((i) => fg[i] * fg[3] + bg[i] * (1 - fg[3]));
   // The part of box `b` (el's) that is presented: each ancestor that clips or scrolls its overflow cuts it at its padding
@@ -242,7 +244,7 @@ export function observe(views, inactive = () => false) {
         }
       }
       const under = backing(el, ink);
-      if (under) { item.bg = under.bg; item.on = under.by === item.id ? 'own' : under.by ?? 'page'; if (under.accent) item.onAccentFill = true; }
+      if (under) { item.bg = under.bg; item.on = under.by === item.id ? 'own' : under.by ?? 'page'; if (under.accent) item.onAccentFill = true; if (under.solid) item.solid = true; }
       // An ancestor that clips (never one that scrolls: a person scrolls to it) cutting part of the text away.
       // One that hides it all is a collapsed disclosure, on purpose.
       for (let e = el.parentElement; e && e.id !== 'exact-root'; e = e.parentElement) {
@@ -269,6 +271,10 @@ export function observe(views, inactive = () => false) {
       else {
         const cx = Math.min(Math.max(b.left + b.width / 2, 1), W - 1), hit = document.elementFromPoint(cx, my);
         if (hit && hit !== el && !el.contains(hit) && !hit.contains(el)) {
+          // What is drawn over its middle at rest (the subtree beside it the hit is in), scrolled clear or not.
+          let c = hit; while (c.parentElement && !c.parentElement.contains(el)) c = c.parentElement;
+          const cb = c.getBoundingClientRect();
+          item.beneath = { by: viewOf(c), x: r2(cb.left), y: r2(cb.top), w: r2(cb.width), h: r2(cb.height) };
           if (!reach(el, hit, false, my)) item.cover = { by: viewOf(hit), name: hit.localName, kind: modal && !modal.contains(hit) ? 'sheet' : 'node' };
         }
       }
@@ -316,7 +322,15 @@ export function observe(views, inactive = () => false) {
   // The scheme the page draws in: a light-dark() probe in the root, whatever the system says.
   const root = document.getElementById('exact-root'), probe = document.createElement('span');
   probe.style.color = 'light-dark(rgb(0, 0, 1), rgb(0, 0, 2))'; root.append(probe);
-  const used = getComputedStyle(probe).color.includes('2)') ? 'dark' : 'light'; probe.remove();
-  const coarse = matchMedia('(pointer: coarse)').matches, overlap = Math.max(0, H - (globalThis.visualViewport?.height ?? H));
-  return { viewport: { w: W, h: H, scrollW: page.scrollWidth }, scheme: used, look: 'neutral', target: coarse ? 44 : 24, ...(overlap ? { keyboard: r2(H - overlap) } : {}), items, ...(advice.length ? { advice } : {}) };
+  const used = getComputedStyle(probe).color.includes('2)') ? 'dark' : 'light';
+  // What the page draws each of Exact's colour roles in, light and dark (host/web/look.mjs names them): the driver knows an ink
+  // or a ground by it.
+  const names = getComputedStyle(document.documentElement).getPropertyValue('--exact-apple-roles').trim(), palette = {};
+  if (names) for (const scheme of ['light', 'dark']) {
+    probe.style.colorScheme = scheme; palette[scheme] = {};
+    for (const name of JSON.parse(names).split(' ')) { probe.style.color = `var(--exact-${name})`; palette[scheme][name] = rgba(getComputedStyle(probe).color); }
+  }
+  probe.remove();
+  const coarse = matchMedia('(any-pointer: coarse)').matches, overlap = Math.max(0, H - (globalThis.visualViewport?.height ?? H));
+  return { viewport: { w: W, h: H, scrollW: page.scrollWidth }, scheme: used, ...(names ? { palette } : {}), target: coarse ? 44 : 24, ...(overlap ? { keyboard: r2(H - overlap) } : {}), items, ...(advice.length ? { advice } : {}) };
 }

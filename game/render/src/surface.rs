@@ -1,4 +1,5 @@
 mod args;
+mod input;
 mod look;
 mod render;
 mod textures;
@@ -636,7 +637,6 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
     }
     fn input(&mut self, event: &InputEvent) {
         self.reported = false;
-        use exact_game::{InputEvent as E, PointerPhase as P};
         use exact_gpu::PointerPhase as Q;
         let Some(sim) = &mut self.sim else {
             return;
@@ -646,78 +646,11 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
             InputEvent::Key { down: true, .. }
                 | InputEvent::Pointer { phase: Q::Down, .. }
                 | InputEvent::Control { phase: Q::Down, .. }
-        ) {
+        ) || matches!(event, InputEvent::Pad { buttons, .. } if buttons.iter().any(|b| *b >= 0.5))
+        {
             self.presentation.unlock();
         }
-        let e = match event {
-            InputEvent::Key {
-                code, down, at_ms, ..
-            } => E::Key {
-                code: code.clone(),
-                down: *down,
-                at_ms: *at_ms,
-            },
-            InputEvent::Pointer {
-                id,
-                phase,
-                x,
-                y,
-                dx,
-                dy,
-                kind,
-                buttons,
-                at_ms,
-            } => E::Pointer {
-                id: u64::from(*id),
-                phase: match phase {
-                    Q::Down => P::Down,
-                    Q::Move => P::Move,
-                    Q::Up => P::Up,
-                    Q::Cancel => P::Cancel,
-                },
-                x: *x,
-                y: *y,
-                dx: *dx,
-                dy: *dy,
-                // A finger's contact is its phase, not a mouse button.
-                buttons: if *kind == exact_gpu::PointerKind::Touch {
-                    0
-                } else {
-                    *buttons
-                },
-                at_ms: *at_ms,
-            },
-            InputEvent::Control {
-                name,
-                id,
-                phase,
-                x,
-                y,
-                at_ms,
-            } => E::Control {
-                name: name.clone(),
-                id: u64::from(*id),
-                phase: match phase {
-                    Q::Down => P::Down,
-                    Q::Move => P::Move,
-                    Q::Up => P::Up,
-                    Q::Cancel => P::Cancel,
-                },
-                x: *x,
-                y: *y,
-                at_ms: *at_ms,
-            },
-            InputEvent::Wheel { dx, dy, at_ms, .. } => E::Wheel {
-                dx: *dx,
-                dy: *dy,
-                at_ms: *at_ms,
-            },
-            InputEvent::Blur { at_ms } => E::Blur { at_ms: *at_ms },
-            InputEvent::Message { text, at_ms } => E::Message {
-                text: text.clone(),
-                at_ms: *at_ms,
-            },
-        };
+        let e = input::engine_event(event);
         if let Err(error) = sim.validate_input(&e) {
             self.refusal = Some(SurfaceError(error));
             return;

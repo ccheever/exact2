@@ -1,0 +1,29 @@
+# Code review: a refused inspect said in the Inspector, round 2 (grok)
+
+- **Family:** xAI. Grok via its CLI, reasoning effort xhigh, Edit and Write denied, a throwaway worktree.
+- **Method:** one brief (sha256 `99d252a5ff6f56b4a7b55744916f6c60ba51bab256295ff3f802db2c89e701ce`), shared by both reviewers, each blind to the other's review; HEAD `6ccd88dfd6`. The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited (from its findings; its narration before them left out).
+- **Verdict:** nothing blocks; 4 SHOULD-FIX
+- **Disposition:**
+  Neither reviewer found anything blocking. Their SHOULD-FIXes are taken post-round, in their own commit:
+  - Astra 1, Grok 1 (ownership lost through an `inspect` event, a page leaving inspect itself or a takeover, left the line; a refusal from a build another tool inspects was taken): the inspect event that takes a build from this tool clears its refusal, and an `unsupported` is taken only for a build this tool inspects. Both tested.
+  - Astra 4, Grok 2 (a failed re-send could restore a refusal a newer event had cleared): refusals are counted per build (`refusalSeq`), and a failed send restores only those nothing has moved since.
+  - Astra 3, Grok 3 (re-registration from a never-reported status was missed): a listing with its status reset and no recorded refusal of inspect clears it. Tested with a build that refused before its first status.
+  - Astra 5 (one-copy mode could use a hidden grid's label): the join is guarded by `canvasView != "one"`.
+  - Astra 2, Grok 4 (fresh-tool seeding can show a refusal the server still records after a later success, until the build's status moves): kept, and said here as a limit. Without it, a reloaded tool shows no refusal at all, the original invisibility. The server keeps the record only while the build's status stays at that revision.
+  The contract suite passes 67 of 67.
+
+1. **SHOULD-FIX** `apps/design-tool/app.ts:1133` — A page that leaves inspect mode (Escape or the banner close) drops ownership, and the refusal line stays while any other build is still being inspected. The server deletes the inspector and publishes `inspect` `{on: false, to: null}` plus `selected` null (`scripts/tamber-builds.mjs:491`, via `told` at line 228). It does not announce `builds` or `build-status`, and the page does not report status for the exit. The handler drops `inspectOn` and stales the selection; `inspectRefused` is untouched. "Another owner or none" is applied only in `owned()` (line 410), which runs on a listing. With another build still in `inspectOn`, `inspected.inspecting` stays true (`app.contract:1686`), so the orange line remains and still says to stop and retry a build this tool no longer owns. Another client's takeover is the same hole: `inspect()` calls `told` and does not announce. Clearing on that loss matches the comment at lines 408–409. The test removes web-4 by posting a `build-status` whose `inspector` is Grace, so the listing path stays green.
+
+2. **SHOULD-FIX** `apps/design-tool/app.ts:1436` — A failed re-send writes the pre-send snapshot back onto every build whose `inspectRefused` is still null. `await call` yields, and the poll can clear that null in the meantime: a selection (line 1126), `owned()` when another inspector arrives (line 410), or a status reset (line 400). The null check keeps a newer refusal, and it also treats those clears as the optimistic wipe, so a failed Stop or retry puts the old line back on a build that inspected, changed hands, or re-registered. The test's second toggle is the stub's success path, so this restore never runs.
+
+3. **SHOULD-FIX** `apps/design-tool/app.ts:400` — Re-registration clears the line only when a previous status was non-null and the listing's status is null. Register always stores `status: null` and drops `unsupported` (`scripts/tamber-builds.mjs:394`), then announces. A build that refused inspect before its first status still has `was.status == null`, so the new page keeps the old line. A repeat announce of that same registration still carries `unsupported.what === 'inspect'`; the new registration's listing does not, which distinguishes them. The test's web-3 step starts from a status object, so it covers the path that already works.
+
+4. **SHOULD-FIX** `apps/design-tool/app.ts:400` — A build the tool has not seen is seeded from `unsupported.what === 'inspect'`, then kept when `inspector` is this client (line 410). That is the right fresh-tool reading of a refusal the server still holds. The server keeps that record until a status revision moves (`scripts/tamber-builds.mjs:430`); a later successful inspect does not clear it (`inspect()` at line 552). Reloading the tool inside the 35-second presence window (`scripts/tamber-server.mjs:302`) still has this client as inspector, so hello shows the line again after a selection had already cleared it.
+
+The other rules hold. A selection clears that build (line 1126). A successful re-send clears first and leaves them clear. A status that names this client keeps the line.
+
+The contract join is right. One-copy mode asks `loadGrid` with view `"one"`, which returns no tiles (`grid.ts:139`), so the sentence is the Builds name, including "the gallery" when the row has it. States reads the current pass's tiles at draw time, so the label follows that pass (a pending `gridAt` still shows the previous tiles, same as the grid itself). A tile with no build has `build: ""` (`grid.ts:231`), which does not match a refusal id, so a waiting tile does not lend its label.
+
+The test is sound for what it asserts. It restarts the stub, keeps the line when a status names this tool, promotes the fourth line on a selection, clears on a null status and on another inspector, and clears on a successful re-send. It does not fail the inspect call, does not deliver an `inspect` event for a lost owner, and does not open a fresh tool against a stored `unsupported` record.
+grok exit 0

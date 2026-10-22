@@ -125,9 +125,10 @@ impl Keyframe {
     }
 }
 
-/// A resolved `@keyframes` rule: keyframes in offset order.
+/// A resolved `@keyframes` rule: keyframes in offset order. Shared: every
+/// copy of an animation (a style's row, the engine's play) holds one list.
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct Keyframes(pub Vec<Keyframe>);
+pub struct Keyframes(pub std::sync::Arc<[Keyframe]>);
 
 /// One entry of the `animation` row.
 #[derive(Debug, Clone, PartialEq)]
@@ -215,7 +216,7 @@ impl Keyframes {
     /// Every property some keyframe declares, in wire order.
     pub fn properties(&self) -> Vec<Property> {
         let mut out: Vec<Property> = Vec::new();
-        for frame in &self.0 {
+        for frame in self.0.iter() {
             for (p, _) in &frame.values {
                 if !out.contains(p) {
                     out.push(*p);
@@ -232,7 +233,7 @@ impl Keyframes {
             return Err(AnimationError::TooManyKeyframes);
         }
         let mut last = 0.0;
-        for frame in &self.0 {
+        for frame in self.0.iter() {
             if !frame.offset.is_finite() {
                 return Err(AnimationError::NonFinite);
             }

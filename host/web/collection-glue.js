@@ -55,6 +55,7 @@ export function applyCollectionFeedback(batch, applyBatch) {
 export function collectionController({ root, views, report, settled=()=>{}, agent = false,
   requestFrame = fn => requestAnimationFrame(fn), cancelFrame = id => cancelAnimationFrame(id), now = () => performance.now() }) {
   const states = new Map(), dirty = new Set(), waiting = new Set(), rowOwners = new WeakMap(), doc = root.ownerDocument;
+  let scrollsFired = 0; // scroll events the lists' ports have delivered (fireOwedScrolls)
   let settling = false, frame = null, delivering = false, interaction = null, reportsLeft = 4, notification=false, reported = 0;
   // LLP 1050.000 stage 1. The browser scrolls on its own thread and never
   // waits for rows (the declared deviation), so each frame's reports share a
@@ -161,8 +162,9 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
   // relative to the read-back offset would lose up to a pixel each time, and the reader's row
   // creep (two corrections: 2 px). It holds only while the port still reads exactly that.
   function place(s, at, smooth) {
-    const name = AXES[s.axis].offset;
+    const name = AXES[s.axis].offset, was = s.port[name];
     s.port.scrollTo({ [name === 'scrollTop' ? 'top' : 'left']: at, behavior: smooth ? 'smooth' : 'instant' });
+    if (smooth || s.port[name] !== was) s.owesScroll = true;
     // Only a rounding residual (under a pixel): a target the browser clamped (an offset below 0 or past
     // the end) is not where the port is, and a later correction builds on the port.
     const A = AXES[s.axis], read = s.port[name], max = s.port[A.scrollSize] - s.port[A.client];
@@ -320,8 +322,9 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     if (!delivering) for (const [s, at] of jumps.splice(0)) jumpTo(s, at);
   }
   function move(s, at) {
-    const name = AXES[s.axis].offset;
+    const name = AXES[s.axis].offset, was = s.port[name];
     s.port[name] = at; s.offset = s.port[name]; s.travel = null; s.exact = null;
+    if (s.offset !== was) s.owesScroll = true;
   }
   function jumpTo(s, at) {
     if (!states.has(s.snapshot.view)) return;
@@ -335,6 +338,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     dirty.delete(s); waiting.delete(s); s.observer.disconnect();
     for (const row of s.rows) if (row.el) rowOwners.delete(row.el);
     s.port.removeEventListener('scroll', s.scrolled);
+    s.ackTarget?.removeEventListener('scroll', s.acked, { capture: true });
     s.port.removeEventListener('scrollend', s.scrollEnded);
     s.el.style.overflowAnchor = s.anchor;
     for (const name of INPUT) s.port.removeEventListener(name, s.touched);
@@ -457,6 +461,13 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
             } else if (pending) enqueue(s); // Coalesce an own notification, never replenish.
           });
           port.addEventListener('scroll', s.scrolled, { passive: true });
+          // A scroll event acknowledged before any reader's handler (capture runs
+          // first at the target), so a jump that handler makes stays owed; only
+          // the port's own (a descendant's passes through capture too); the
+          // viewport's scroll events fire at the document.
+          s.acked = e => { if (e.target !== s.ackTarget) return; s.owesScroll = false; scrollsFired++; };
+          s.ackTarget = port === doc.scrollingElement ? doc : port;
+          s.ackTarget.addEventListener('scroll', s.acked, { passive: true, capture: true });
           // A smooth correction that ended short of its target (clamped, or
           // the reader took over) reports where it rests.
           s.scrollEnded = () => {
@@ -602,6 +613,24 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
         if (!delivering) flush(true);
         if (reported === before) break;
       } } finally { settling = false; }
+    },
+    // Lists whose offset this moved and whose `scroll` event the browser
+    // hasn't fired yet: it fires at a rendering step, and a reader's handler
+    // (an author's `scroll=`, its ScrollEvent) runs then, so the agent's
+    // settle waits for those frames before it says settled.
+    owedScrolls() {
+      let n = 0;
+      for (const s of states.values()) if (s.owesScroll) n++;
+      return n;
+    },
+    scrollsFired: () => scrollsFired,
+    // Waits, up to `frames` frames, while scrolls are owed: `fired`, any
+    // event delivered meanwhile (its handler's work wants a round), and what
+    // is still `owed` when the frames ran out (not settled).
+    async fireOwedScrolls(frames = 8) {
+      const before = scrollsFired;
+      for (let f = 0; f < frames && this.owedScrolls(); f++) await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+      return { fired: scrollsFired > before, owed: this.owedScrolls() };
     },
     dataReady() {
       // A refused pre-activation action stays armed. Retry unchanged geometry

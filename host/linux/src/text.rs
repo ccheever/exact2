@@ -76,6 +76,8 @@ pub struct Run {
     pub italic: bool,
     /// CSS `font-stretch`, percent of normal width (LLP 1019 D8).
     pub stretch: f32,
+    /// CSS `font-variation-settings` (LLP 1019 D9).
+    pub variations: exact_kernel::style::FontVariations,
     /// Resolved logical length, or normal font metrics.
     pub line_height: Option<f32>,
     /// Points per glyph.
@@ -108,6 +110,7 @@ impl Clone for Run {
             family: self.family,
             italic: self.italic,
             stretch: self.stretch,
+            variations: self.variations,
             line_height: self.line_height,
             letter_spacing: self.letter_spacing,
             font_variant_numeric: self.font_variant_numeric,
@@ -132,6 +135,7 @@ impl Run {
             family: style.font_family,
             italic: style.font_style != exact_kernel::FontStyle::Normal,
             stretch: style.font_stretch,
+            variations: style.font_variations,
             line_height: style.line_height,
             letter_spacing: style.letter_spacing,
             font_variant_numeric: style.font_variant_numeric,
@@ -532,6 +536,9 @@ pub struct GlyphRun {
     /// chose them (`coords` normalized): `ital` 1 for an italic drawn from
     /// a face's axis rather than synthesized.
     pub synthesis: fontique::Synthesis,
+    /// The run's `font-variation-settings`, set after `synthesis` and
+    /// optical size, in the axes' own units (LLP 1019 D9).
+    pub variations: exact_kernel::style::FontVariations,
     /// (glyph id, x, y) — y is the baseline.
     pub glyphs: Vec<(u32, f32, f32)>,
 }
@@ -1069,6 +1076,12 @@ impl TextEngine {
                     paint: palette[run_index],
                     synthetic_italic: face.skew,
                     synthesis: face.synthesis,
+                    variations: paragraph
+                        .source
+                        .spec
+                        .runs
+                        .get(run_index)
+                        .map_or_else(Default::default, |r| r.variations),
                     glyphs,
                 })
             })

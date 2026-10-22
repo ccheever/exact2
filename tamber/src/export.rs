@@ -44,7 +44,7 @@ const CONVERSIONS: &[&str] = &[
     "a length: `$type: dimension`, px or `rem`; an `em`, a text style, the hairline or a base name the design leaves unset (its neutral column, the web's look) as px at the default root size (16), its source in `$extensions.exact.lossy`",
     "a number: `$type: number`; a family: `$type: fontFamily`, its members unquoted",
     "a type: `$type: typography`, every property written; what the token leaves unsaid (the text style's weight and leading, the family) as the web's default, named in `$extensions.exact.unsaid`; a style in `fontStyle`, a line height that is no number in `leading`",
-    "a shadow: `$type: shadow`, a text shadow marked `kind: text-shadow`, `currentcolor` as black marked `currentcolor`",
+    "a shadow: `$type: shadow`, a text shadow marked `kind: text-shadow`, `currentcolor` as black marked `currentcolor`, a length over a base name the design leaves unset as a length's, the shadow's source in `lossy`",
     "a duration: `$type: duration` in ms; an easing: `$type: cubicBezier`, a keyword as its curve, `steps()`, `linear()` and a spring as `linear`'s, the source in `lossy`",
 ];
 

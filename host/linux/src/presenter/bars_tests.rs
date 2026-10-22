@@ -92,6 +92,7 @@ component App
                       text "Quiet"
                     column height=2000
                       text "Tall"
+                  box testId="home-footer" position="absolute" bottom=0 left=0 right=0 height=40
               if e.name == "detail"
                 column navigationKey=`${e.id}` testId="route-detail" position="absolute" inset=0 display="flex" flex-direction="column"
                   header display="flex" testId="detail-header"
@@ -316,6 +317,29 @@ fn shelfs_add_form_and_its_other_tabs() {
         .contains("\"bar\":\"bottom\""));
     assert_eq!(top(&mut p).title, "Discover");
     assert_eq!(titles(&top(&mut p).trailing), []);
+}
+
+/// An absolutely positioned footer over a route whose last child is its
+/// scroller rests on the navigation bar, not under it, as the scroller ends
+/// there (the kernel moves an absolute child's insets past its parent's
+/// cover; Linux insets no scroller, so the route keeps its padding).
+#[test]
+fn an_absolute_footer_over_the_routes_scroller_rests_on_the_navigation_bar() {
+    let (mut p, _) = barred(APP);
+    // The bar's top in the page's points, below the status bar's 52.
+    let bar = p.bars().1.expect("the navigation bar shows").frame;
+    let top = bar[1] - WINDOW.bars[0];
+    let (footer, list) = (id(&p, "home-footer"), id(&p, "list"));
+    let footer = p.rect_of(footer).unwrap();
+    let list = p.rect_of(list).unwrap();
+    assert!(
+        near(footer.1 + footer.3, top),
+        "the footer rests on the bar: {footer:?} over {bar:?}"
+    );
+    assert!(
+        near(list.1 + list.3, top),
+        "the scroller ends at the bar: {list:?} over {bar:?}"
+    );
 }
 
 #[test]

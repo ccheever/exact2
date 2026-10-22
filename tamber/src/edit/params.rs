@@ -15,14 +15,29 @@ impl Doc {
             .position(|l| crate::lex::split_comment(l).0.trim_end() == "params")
     }
 
+    /// Param line `line`, spelled `was`, spelled `name` from now on: its
+    /// value, comment and `when` lines kept.
+    fn respell(&mut self, line: u32, was: &str, name: &str) {
+        let (indent, code, trailing) = self.parts(line);
+        let rest = &code[was.len()..];
+        self.set(line, indent, &format!("{name}{rest}"), trailing.as_deref());
+    }
+
     pub(super) fn set_param(
         &mut self,
         design: &Design,
         name: &str,
         when: &[(String, String)],
         value: &str,
+        respell: Option<&str>,
     ) -> Result<Vec<Op>, Vec<Diagnostic>> {
-        let entry = design.params.iter().find(|p| p.name.value == name);
+        let entry = design
+            .params
+            .iter()
+            .find(|p| p.name.value == respell.unwrap_or(name));
+        if let (Some(p), Some(_)) = (entry, respell) {
+            self.respell(p.name.line, &p.name.value, name);
+        }
         let Some(p) = entry else {
             if !when.is_empty() {
                 return Err(refuse(format!(
@@ -84,11 +99,12 @@ impl Doc {
         design: &Design,
         name: &str,
         when: &[(String, String)],
+        respell: Option<&str>,
     ) -> Result<Vec<Op>, Vec<Diagnostic>> {
         let p = design
             .params
             .iter()
-            .find(|p| p.name.value == name)
+            .find(|p| p.name.value == respell.unwrap_or(name))
             .ok_or_else(|| {
                 refuse(format!(
                     "`{name}` has no line in the design's `params` block"
@@ -103,6 +119,9 @@ impl Doc {
                     refuse_at(p.name.line, format!("`{name}` has no such `when` line"))
                 })?;
             self.lines.remove(w.line as usize - 1);
+            if respell.is_some() {
+                self.respell(p.name.line, &p.name.value, name);
+            }
             return Ok(Vec::new());
         }
         // The line and its `when` lines, the last first.

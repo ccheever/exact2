@@ -74,7 +74,7 @@ mod walk;
 use answers::{diagnostic, located, modes_of, no_token, refused, temp_name};
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.15";
+pub const PROTOCOL: &str = "tamber/1.16";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;
@@ -1157,7 +1157,7 @@ impl Server {
         // override that varies by an app axis (LLP 1121 D5, the compiler's
         // `tamber-role-axis`). An undo restores what was, and is not judged.
         if !undo {
-            self.write_checks(&texts, &planned)?;
+            self.write_checks(&texts, &planned, &self.last_key)?;
         }
         let mut out = json!({
             "files": files_json(snap),

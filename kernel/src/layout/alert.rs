@@ -83,11 +83,21 @@ pub(super) fn measure(
     ))
 }
 
-impl LayoutTree {
-    pub(super) fn new_alert_prefix(&mut self, slot: u32) -> NodeId {
-        let mut style = taffy::Style::default();
+/// The title's box: a line of its own in a flat alert's wrapping row, and in
+/// a grouped alert's column one that keeps its size (host/web/index.html).
+pub(super) fn prefix_style(grouped: bool) -> taffy::Style {
+    let mut style = taffy::Style::default();
+    if grouped {
+        style.flex_shrink = 0.0;
+    } else {
         style.flex_basis = taffy::style_helpers::percent(1.0);
-        let style = self.share(style);
+    }
+    style
+}
+
+impl LayoutTree {
+    pub(super) fn new_alert_prefix(&mut self, slot: u32, grouped: bool) -> NodeId {
+        let style = self.share(prefix_style(grouped));
         match self.taffy.new_leaf_with_context(
             style,
             MeasureContext {
@@ -115,7 +125,7 @@ impl LayoutTree {
                 self.mark_dirty(node);
                 Some(node)
             }
-            (true, None) => Some(self.new_alert_prefix(slot)),
+            (true, None) => Some(self.new_alert_prefix(slot, arena.grouped_alert(slot))),
             (false, Some(node)) => {
                 self.alert_prefixes.remove(&slot);
                 self.remove(node);

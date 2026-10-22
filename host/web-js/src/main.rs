@@ -24,6 +24,8 @@ mod facts;
 mod inspect;
 #[cfg(test)]
 mod inspect_tests;
+#[cfg(test)]
+mod layout_transition_tests;
 mod measures;
 #[cfg(test)]
 mod measures_tests;

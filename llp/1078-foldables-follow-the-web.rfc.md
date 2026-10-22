@@ -56,7 +56,7 @@ Occlusion regions (the camera, the status strip) stay what they already are, the
 
 ### D6 — The web feeds it from the browser
 
-`host/web/navigation.js` reads `navigator.devicePosture.type` (and listens to its `change`) and `window.viewport.segments` (re-read on `resize`), and `glue.js` calls `exact_segments` beside `exact_resize`. The `env(viewport-segment-*)` text lowers to CSS unchanged (`host/web/src/css.rs` already passes `env()` through; the browser resolves it, as it resolves `safe-area-inset-*`). Where the browser lacks the APIs (every browser but Chromium today): `continuous`, 1 × 1, which is also what Chromium reports on a flat display. The parity oracle is the web, so the kernel's resolution in D3 must agree with Chromium on a two-segment viewport; the conformance run's `prefer segments` form (D7) is how that is checked without a foldable.
+`host/web/navigation.js` reads `navigator.devicePosture.type` (and listens to its `change`) and `window.viewport.segments` (re-read on `resize`), and `glue.js` calls `exact_segments` beside `exact_resize`. The `env(viewport-segment-*)` text lowers to CSS unchanged (`host/web/src/css.rs` already passes `env()` through; the browser resolves it, as it resolves `safe-area-inset-*`). Where the browser lacks the APIs (every browser but Chromium today): `continuous`, 1 × 1, which is also what Chromium reports on a flat display. Safari on the iPhone Duo is one of them (the iOS 27.1 simulator, 2026-10-20): a web build there lays out as one screen across the hinge, so only the native build keeps its controls off the band. The parity oracle is the web, so the kernel's resolution in D3 must agree with Chromium on a two-segment viewport; the conformance run's `prefer segments` form (D7) is how that is checked without a foldable.
 
 ### D7 — The agent sees and sets it
 
@@ -370,40 +370,54 @@ document's names exactly; the integrator checks them against the core lane.
   its own side; with `verticalViewportSegments == 2` (the Duo's inner panel upright
   reports a horizontal division) the list pane is `height="env(viewport-segment-height 0
   0)"` and the detail pane `position="absolute" top="env(viewport-segment-top 0 1)"
-  height="env(viewport-segment-height 0 1)"`, full width; otherwise one pane, the list
+  bottom=0`, full width, so it ends with the routes; otherwise one pane, the list
   above the detail; `selected` is shared. It
   prints the facts as `fact-posture`, `fact-h`, `fact-v`, `fact-size`; the panes are
   `pane-list` and `pane-detail`, the rows `item-<n>`, the detail `detail-title`; the tabs
   `tab-fold|images|reflow|combos`; `image-list`, `document`, `reflow-scroll`,
   `open-note`, `note-sheet`, `sheet-handle`, `note-title-input`, `note-textarea`,
   `note-dismiss`, `note-back`, `draft-echo`. The root is `viewport-fit="cover"` with
-  `interactive-widget="resizes-content"`, so the sheet rides the keyboard.
+  `interactive-widget="resizes-content"`, so the sheet rides the keyboard. Two down, the
+  sheet's `max-height` is the room below the note's header and, while the routes reach the
+  lower segment, no more than their part of it (`calc(100% - env(viewport-segment-top 0
+  1))`), so the sheet keeps to that segment and ends where the routes do. The keyboard
+  covers the segment and ends the routes above it, while the segment keeps its top (see
+  "As built (the keyboard)"). A step lifts the second limit then:
+  `calc((env(viewport-segment-top 0 1) - 100%) * 1000)` is at most zero while the routes
+  reach the segment and past any cap once they end a point or more above it, and the
+  sheet riding the keyboard takes the room below the header.
 - **`bun scripts/smoke.mjs duo`** (D9): the dispatch in `scripts/smoke.mjs`, the suite in
   `scripts/smoke-duo.mjs`, the helper at `scripts/duo/hinge_helper.c` (MIT,
   artemnovichkov/hinge, attributed), compiled per run with the selected Xcode's simulator
   SDK, ad-hoc signed, run by `simctl spawn`; the angle read back and both panels captured
   by `devicectl`. Without `EXACT_SIM` naming an `iPhone Duo` on iOS ≥ 27.1 it prints
   `duo: unsupported — …` and exits 0. The matrix is open 180°, book 130°, half 90°,
-  closed 0°, upright (the rotate and resize legs turn the device); at each pose the `insets` and `keyboard-bar` fixtures (cover
+  closed 0°, upright (the rotate, resize and web legs turn the device); at each pose the `insets` and `keyboard-bar` fixtures (cover
   root, insets, keyboard, a fold while editing), the four screens (facts, panes on the
   segments from `layout.env`'s `device-posture`, `horizontal-viewport-segments`,
   `vertical-viewport-segments`, `viewport-segments`; a selection, a scroll offset, a
   pushed screen with its sheet and keyboard across a fold) and the two-session host. The
-  smoke opens every session with UIKit's bars as a person sees them (`--chrome platform`,
+  smoke opens every session but the web leg's with UIKit's bars as a person sees them (`--chrome platform`,
   2026-10-19): under the agent's default chrome the authored tablist takes its own place
   below the routes, as on the web, whereas the Duo shows UIKit's tab bar, a rail at the
   inner panel's right edge upright and a bar at its bottom turned. Its taps are real
   touches (`--touch platform`, 2026-10-20), its scrolls still the agent's wheel and its
   typing the agent's `type`: the touch runner names the app's display, the inner panel
   as the cover (#782), and the driver waits out SpringBoard's fold cloak before a tap
-  (`host/apple/cloak.mjs`). A tap that is not a real touch fails the smoke. A resize leg
-  (2026-10-20) starts a resizable app session (`devicectl device appResize`) with the
+  (`host/apple/cloak.mjs`). In those sessions a tap that is not a real touch fails the
+  smoke. A resize leg (2026-10-20) starts a resizable app session (`devicectl device appResize`) with the
   device turned on its side and sets sizes in it; UIKit gives the window one of its own
   choosing for each (475 wide for 400, 600×800 for 669×800, iOS 27.1), which devicectl
   does not report, and the Fold screen is checked against that window, flat and folded:
   its facts the window's, the panes on the segments, in a window shorter than the panel
   (which sits at the panel's bottom, its lower segment the panel's) and in the whole panel,
-  nothing on the band.
+  nothing on the band. A web leg (2026-10-20) drives duo-lab under the agent's default
+  chrome, flat and partially folded both ways: the Fold screen's panes end where the
+  routes do, above the tablist, whose tabs keep to the trailing segment on a book fold
+  (the drawn bar read where UIKit's accessibility runtime is on), and the note screen,
+  which hides the tablist, keeps its sheet on the lower segment until it rides on the
+  keyboard. Its taps are the agent's: under that chrome a real touch on the tablist,
+  which stands in for UIKit's tab bar, is refused (LLP 1080.000 D7).
   When the open pose does not report the recorded 951×669 inner panel, the panel sizes
   and the segments are checked against what the device reports (see below); the panes
   are checked against the two rects `layout.env` reports, whichever axis the device
@@ -579,3 +593,53 @@ the style back in 23 of 30 runs, and in 11 of them SpringBoard sent no orientati
 for it; all 30 passed. A plain UIKit app
 turned in 102 of 102 turns made within a second of closing, which missed the window: it
 is SpringBoard's.
+
+## As built (the keyboard, 2026-10-21)
+
+Under `interactive-widget="resizes-content"` a keyboard ends the viewport above the
+window's bottom, and on a fold folded like a laptop it covers the lower segment. iOS now
+keeps the fold's posture, its count and each segment's top and left as the window has
+them, and ends every segment where the viewport ends if it ends first, never below zero
+(`ViewportFold.ending(at:)`). Folded like a laptop, the lower segment keeps its top at
+495.5 and is 0 tall, and with a number pad's Done bar the upper one ends with the
+viewport too; folded like a book, both columns end with the viewport.
+The viewport and those extents reach the kernel in one view change, one layout a
+keyboard frame (`exact_view`).
+
+Chrome, measured in Chromium 158 on Android foldable emulators (a Pixel 9 Pro Fold, and
+a 6.7-inch flip, its hinge also moved under the keyboard) and read in its source
+(`ComputeDisplayFeature` clips the hinge to the view the keyboard shortens;
+`DisplayFeature::ComputeViewportSegments` splits that view at it):
+- With the band above the viewport's end, the count and tops stay, and the last segment
+  ends at the visible viewport's end (the flip's lower segment 359 → 136 tall). Exact
+  does the same, and ends any segment past the viewport there.
+- With the viewport ending inside the band, the band is clipped there, so the lower
+  segment starts at the viewport's end, 0 tall. Exact keeps its top at the hinge.
+- With the band wholly under the keyboard, `resizes-content` drops the fold: one
+  segment, the shortened viewport, `env(viewport-segment-*)` without a value, until
+  about a second after the keyboard goes. Exact keeps it. `resizes-visual` keeps it too,
+  the lower segment 0 tall, which Exact's iOS `resizes-visual` does not yet do (its
+  segments stay the window's).
+
+Both differences are LLP 1001's declared deviation, for one reason each: a top that
+stays at the hinge lets a page tell that the keyboard covers a segment (its top past
+`100%`, as duo-lab's note sheet reads it) rather than find it 0 tall at the viewport's
+end, and a count that followed the focus would switch a branch that reads it, rebuild
+the focused field in it and take the keyboard away.
+
+On the Duo simulator (iOS 27.1) folded like a laptop, every keyboard measured (with and
+without the predictive bar, a password, email or search field, a textarea, the Japanese
+Kana and Romaji keyboards, and the emoji keyboard of an `emojiPicker` field) ends the
+viewport at 455.67, 0.17 points into the band (455.5–495.5), the case Chrome clips,
+except the number pad, which with Exact's Done bar ends it at 411.67, over the whole
+band, the case Chrome drops. Two cases were not measured folded like a laptop. One is
+the keyboard minimized behind the simulator's hardware keyboard: with the device's
+`AutomaticMinimizationEnabled` set it raised nothing in another pose ("The pushed
+route's keyboard, found", above), but setting the key on 2026-10-21 left the full
+keyboard up. The other is a Japanese keyboard's candidates while composing: the driver's
+typing composes nothing, and its taps cannot reach keys below the viewport. The agent's
+`prefer segments` grid, the window's, does not follow the keyboard.
+
+So a page places panes by a segment's edges and ends one under the keyboard at `100%` or
+`bottom: 0`, not by a segment's height (the foldables recipe). `smoke.mjs duo` checks
+that the keyboard leaves the lower segment's top and ends it with the viewport.

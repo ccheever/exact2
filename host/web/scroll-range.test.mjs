@@ -16,7 +16,7 @@ test('the wasm host\'s layout reports a scroller\'s range beside its offset, a h
   globalThis.getComputedStyle = () => ({ display: 'block' });
   globalThis.HTMLIFrameElement ??= class {};
   try {
-    const element = (dataset, size) => ({ isConnected: true, dataset, scrollLeft: 0, scrollTop: 40, ...size, getBoundingClientRect: () => ({ x: 0, y: 0, width: 400, height: 600 }) });
+    const element = (dataset, size) => ({ isConnected: true, dataset, scrollLeft: 0, scrollTop: 40, ...size, hasAttribute: () => false, getBoundingClientRect: () => ({ x: 0, y: 0, width: 400, height: 600 }) });
     const [plain, wide, fits] = layoutBoxes(new Map([
       [1, element({}, {})],
       // `overflow-x: hidden` over content 84 wider: a programmatic range all the same

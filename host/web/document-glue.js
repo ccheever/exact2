@@ -139,6 +139,10 @@ function documentBoot(options) {
   const kinds = ["click", "input", "change", "focusin", "focusout", "keydown", "keyup", "compositionstart", "compositionend"];
   for (const kind of kinds) root.addEventListener(kind, record, true);
   for (const kind of ["pointerdown", "keydown", "focusin"]) root.addEventListener(kind, intent, true);
+  // Opening a grouped alert is intent too, even by an invoker with no handler: its message's Tab stop waits for the
+  // runtime (alert-message.js)
+  root.addEventListener("beforetoggle", event => { if (holding && event.newState === "open" && event.target.querySelector?.(':scope > [data-alertpart="message"]')) start(); }, true);
+  if (root.querySelector('dialog[open] > [data-alertpart="message"]')) start(); // one opened before this loaded
   for (const event of options.early?.splice(0) ?? []) record(event);
   if (!interaction) {
     // Beside the wasm: now, when its download began at the first paint;

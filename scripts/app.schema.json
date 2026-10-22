@@ -532,6 +532,23 @@
                 { "type": "array", "items": { "type": "string" } }
               ]
             },
+            "appClip": {
+              "description": "An App Clip (LLP 1126 D12: an App Clip is an app). `{}` embeds the whole app a second time at `<App>.app/AppClips/<name>.app`, with `NSAppClip` in its Info.plist, the app as its parent application and each `applinks:` domain of `associatedDomains` as an `appclips:` invocation domain (the app's entitlements list those too). A device build needs a profile for the clip's App ID, registered with the App Clip capability, of the app's profile's team and method.",
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "description": "The clip's bundle identifier. Absent: `<app id>.Clip`.",
+                  "type": "string",
+                  "pattern": "^[a-zA-Z][a-zA-Z0-9-]*(\\.[a-zA-Z][a-zA-Z0-9-]*)+$"
+                },
+                "name": {
+                  "description": "The clip's display name and bundle name. Absent: the app's.",
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
             "urlSchemes": {
               "type": "array",
               "description": "Further URL schemes the bundle registers. Not http or https: those are protocol_handlers' pair.",

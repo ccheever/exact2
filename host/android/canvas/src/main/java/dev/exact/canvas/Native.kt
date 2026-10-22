@@ -66,8 +66,8 @@ object Native {
      * takes no touch and no focus) and the scroller whose rows it was painted among (0: none); as float bits its
      * content box and the clip it shows through (x, y, width, height each; a negative clip width: none); the count
      * of the reader's edits that reached exact2 and the value the app shows as of it (a string: its bytes' count,
-     * then UTF-8 padded to whole words); its look, eighteen words (`Presenter::reader_fields` lists them), and three
-     * strings: its placeholder, its `autocomplete` and its font's file. A field it leaves out is gone. */
+     * then UTF-8 padded to whole words); its look, eighteen words (`Presenter::reader_fields` lists them), and four
+     * strings: its placeholder, its `autocomplete`, its font's file and its axes. A field it leaves out is gone. */
     @JvmStatic external fun fields(): IntArray?
     /** Hosted field [id], known at [generation], took the focus (a finger tapped it) or lost it. On the host's
      * thread, as every `field` call is; what one says of a generation exact2 has moved on from is dropped. */
@@ -162,6 +162,9 @@ object Native {
     /** A key at the focused node when no hosted field holds the focus: a character (or '\n' for Enter), or
      * Backspace. A hosted field ([Fields]) takes its keys itself. */
     @JvmStatic external fun key(code: Int, backspace: Boolean)
+    /** A gamepad's state for the canvas a key would reach (LLP 1127.003 D2): [values] its 17 standard buttons, then
+     * its 4 axes; [connected] false when it went away. */
+    @JvmStatic external fun pad(index: Int, connected: Boolean, values: FloatArray)
     /** System Back (LLP 1115.001 D6): whether the app took it. From its navigation root's selected route it goes to
      * the Back control the root names, else to the root's `navigate` handler, else it is the runner's own `back`;
      * false when there is nowhere to go back to, and the activity finishes. The reader takes Back only while the

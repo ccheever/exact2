@@ -17,13 +17,17 @@ const REPORT_BYTES = 60 * 1024;
 export const INSPECT_EVENTS = ["change", "input", "focus", "blur", "focusout", "compositionend", "cancel", "gotpointercapture", "lostpointercapture", "scroll", "scrollend", "drag", "dragenter", "dragover", "dragleave", "dragend", "pointerdown", "pointerup", "pointercancel", "pointerover", "pointerout", "pointerenter", "pointerleave", "click", "dblclick", "auxclick", "contextmenu", "mousedown", "mouseup", "mouseover", "mouseout", "touchstart", "touchmove", "touchend", "touchcancel", "wheel", "keydown", "keyup", "keypress", "beforeinput", "gesturestart", "gesturechange", "gestureend", "dragstart", "drop"];
 
 let env = null, table = null, tableFor = null, live = null;
+// Where this page keeps inspect mode across its reloads (sessionStorage): the variant gallery's page beside the app's
+// on one origin keeps its own (`install`'s `key`).
+let key = "exact.dev.inspect";
 const inspecting = { on: false, banner: null, outline: null, shield: null, cover: null, close: null, selected: null, press: null, seq: null, left: null, session: null };
 
 /** The build's inspect table, fetched once per plan. */
 async function inspectTable() {
   const plan = globalThis.exact?.plan ?? null;
   if (table && tableFor === plan) return table;
-  const got = await fetch("/dev-inspect.json", { cache: "no-store" });
+  // Beside the page (its `<base>`): the app's at the root, the variant gallery's under its path.
+  const got = await fetch("dev-inspect.json", { cache: "no-store" });
   if (!got.ok) throw new Error(`this build has no inspect table (${got.status})`);
   const fetched = await got.json();
   // The table of the plan this page runs: a rebuild may have replaced it
@@ -285,7 +289,7 @@ async function select(el, clicked = false, click = null) {
     inspecting.selected = { el, click, plan: r.selected.planDigest, site: r.selected.site, instance: JSON.stringify(r.selected.instance) };
     // Kept across the dev loop's reload (a logic edit replaces the page), so
     // a refresh after it finds the node again, or says it is gone.
-    try { const { el: _, ...kept } = inspecting.selected; sessionStorage.setItem("exact.dev.inspect.selected", JSON.stringify({ ...kept, seq: inspecting.seq, session: inspecting.session, clicks })); } catch { /* storage refused */ }
+    try { const { el: _, ...kept } = inspecting.selected; sessionStorage.setItem(key + ".selected", JSON.stringify({ ...kept, seq: inspecting.seq, session: inspecting.session, clicks })); } catch { /* storage refused */ }
   }
   env.report(r);
 }
@@ -394,11 +398,11 @@ function chrome() {
 function setInspect(on, local = false) {
   if (on === inspecting.on) { if (on) chrome(); return; }
   inspecting.on = on;
-  try { if (on) sessionStorage.setItem("exact.dev.inspect", String(inspecting.seq ?? "")); else sessionStorage.removeItem("exact.dev.inspect"); } catch { /* storage refused */ }
-  if (!on) { inspecting.selected = null; try { sessionStorage.removeItem("exact.dev.inspect.selected"); } catch { /* storage refused */ } }
+  try { if (on) sessionStorage.setItem(key, String(inspecting.seq ?? "")); else sessionStorage.removeItem(key); } catch { /* storage refused */ }
+  if (!on) { inspecting.selected = null; try { sessionStorage.removeItem(key + ".selected"); } catch { /* storage refused */ } }
   if (!on && local) {
     inspecting.left = inspecting.seq;
-    try { sessionStorage.setItem("exact.dev.inspect.left", String(inspecting.seq ?? "")); } catch { /* storage refused */ }
+    try { sessionStorage.setItem(key + ".left", String(inspecting.seq ?? "")); } catch { /* storage refused */ }
     const facts = env.facts();
     env.report({ kind: "selected", selected: null, inspect: inspecting.seq, plan: facts.plan, revision: facts.revision });
   }
@@ -535,17 +539,18 @@ export async function frame(m) {
   if (m.refresh) { if (m.status) await env.status(); await refresh(); return; }
   if (m.on && m.seq != null && m.seq === inspecting.left) { const facts = env.facts(); env.report({ kind: "selected", selected: null, inspect: m.seq, plan: facts.plan, revision: facts.revision }); return; }
   inspecting.left = null;
-  try { sessionStorage.removeItem("exact.dev.inspect.left"); } catch { /* storage refused */ }
-  if ((m.seq ?? null) !== inspecting.seq) { inspecting.selected = null; try { sessionStorage.removeItem("exact.dev.inspect.selected"); } catch { /* storage refused */ } }
+  try { sessionStorage.removeItem(key + ".left"); } catch { /* storage refused */ }
+  if ((m.seq ?? null) !== inspecting.seq) { inspecting.selected = null; try { sessionStorage.removeItem(key + ".selected"); } catch { /* storage refused */ } }
   inspecting.seq = m.seq ?? null;
   setInspect(m.on === true);
-  if (inspecting.on) try { sessionStorage.setItem("exact.dev.inspect", String(inspecting.seq ?? "")); } catch { /* storage refused */ }
+  if (inspecting.on) try { sessionStorage.setItem(key, String(inspecting.seq ?? "")); } catch { /* storage refused */ }
 }
 
 /** Installed by the page's dev client: `report(body)` sends a report,
  * `status()` the page's status, `facts()` its `{plan, design, revision}`. */
 export function install(given) {
   env = given;
+  key = given.key ?? key;
   // A held node's instance path, for the held answer (input-glue.js `heldOf`): the inspect table's, once read.
   (globalThis.exact ??= {}).instanceOf = (el) => {
     const entry = table && el?.dataset?.site != null ? table.sites[String(el.dataset.site)] : null;
@@ -560,12 +565,12 @@ export function install(given) {
   // A reload of a tab that was inspecting starts inspecting, until the
   // server's replay on registering says otherwise.
   try {
-    const kept = sessionStorage.getItem("exact.dev.inspect"), left = sessionStorage.getItem("exact.dev.inspect.left");
+    const kept = sessionStorage.getItem(key), left = sessionStorage.getItem(key + ".left");
     if (kept != null) {
       inspecting.seq = kept === "" ? null : Number(kept);
       setInspect(true);
       // The selection made before the reload, and its click session.
-      const was = JSON.parse(sessionStorage.getItem("exact.dev.inspect.selected") ?? "null");
+      const was = JSON.parse(sessionStorage.getItem(key + ".selected") ?? "null");
       if (was && (was.seq ?? null) === inspecting.seq) { inspecting.selected = { el: null, click: was.click, plan: was.plan, site: was.site, instance: was.instance }; inspecting.session = was.session ?? null; clicks = was.clicks ?? 0; }
     }
     else if (left) inspecting.left = Number(left);

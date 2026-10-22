@@ -1073,7 +1073,11 @@ A face is an `@font-face` rule: one weight, or for a variable file a range
 (`100 1000`), which draws every `font-weight` in it on the file's `wght` axis.
 The one-line form takes the file's own ranges, so a variable file declared
 with it covers all its weights. A file's `wdth` axis is its `font-stretch`
-range: `font-stretch="75%"` (or `condensed`) draws narrower type on it.
+range: `font-stretch="75%"` (or `condensed`) draws narrower type on it, and
+on `system-ui` San Francisco's widths on Apple. Any other axis is set by tag,
+as CSS sets it: `font-variation-settings="'GRAD' 150, 'wdth' 60"`. A tag
+it names wins over `font-weight` and `font-stretch` for that axis; prefer those
+two where they say it. Text fields and Canvas 2D's `font` take the width too.
 
 ## Input, events, and commands
 

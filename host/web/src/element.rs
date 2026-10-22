@@ -70,7 +70,7 @@ fn content_tall(b: &NodeFacts<'_>, outer: Option<&NodeFacts<'_>>) -> bool {
     };
     let sized = s.height != Dimension::Auto
         || s.min_height != Dimension::Auto
-        || s.aspect_ratio != Default::default()
+        || s.rare.aspect_ratio != Default::default()
         || s.position_type == PositionType::Absolute;
     !sized
         && match (o.display, o.flex_direction) {
@@ -346,7 +346,7 @@ fn canvas_css(node: &NodeFacts<'_>, css: &mut String) {
     if !height {
         css.push_str("contain-intrinsic-size:300px 150px;");
     }
-    if style.aspect_ratio.defers_to_natural() {
+    if style.rare.aspect_ratio.defers_to_natural() {
         css.push_str("aspect-ratio:auto 2/1;");
     }
     if !given(StyleId::MinHeight, style.min_height) {
@@ -1205,14 +1205,28 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     }
     // @ref LLP 1116.009 D4 — a sheet's bar centres its title (index.html) unless the
     // author flows its items: a header whose author wrote `justify-content` is named,
-    // as D2's bit names a written row to the neutral look's sheet below.
-    if element(node) == "header"
-        && node
-            .style
-            .written
-            .has(exact_kernel::StyleId::JustifyContent)
-    {
-        out.insert("data-exact-said".into(), "justify-content".into());
+    // as D2's bit names a written row to the neutral look's sheet below. So is one
+    // whose author wrote `appearance: none`, which keeps its authored bar
+    // (LLP 1075.003 §9.10): iOS makes no bar of it, nor does navigation.js.
+    if element(node) == "header" {
+        let written = &node.style.written;
+        let said: Vec<&str> = [
+            (
+                written.has(exact_kernel::StyleId::JustifyContent),
+                "justify-content",
+            ),
+            (
+                written.has(exact_kernel::StyleId::Appearance)
+                    && node.style.appearance == exact_kernel::Appearance::None,
+                "appearance",
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(on, word)| on.then_some(word))
+        .collect();
+        if !said.is_empty() {
+            out.insert("data-exact-said".into(), said.join(" "));
+        }
     }
     // @ref LLP 1115.000 D4 part B — the neutral sheet draws these marks
     // itself (neutral.css), and reads here what CSS cannot say. A checkbox,
@@ -1293,8 +1307,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             }
         }
     }
-    // A platform button's floor (neutral.css: 36 px each way, 44 under a
-    // coarse pointer) and its padding are the look's, and a size its
+    // A platform button's floor (neutral.css: 36 px each way, 44 on a
+    // touch device) and its padding are the look's, and a size its
     // author wrote is the author's. In CSS a minimum outranks a size, so
     // the sheet is told which of the two were written and steps aside on
     // that axis.

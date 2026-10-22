@@ -264,9 +264,7 @@ final class FaceSymbolIOSTests: XCTestCase {
         // A standalone tab bar given an iPad's idiom and a regular width lays its items out inline, its symbols smaller, as
         // an iPad's inline items would. Where the system places a vertical bar (the iPhone Duo), UIKit keeps an iPhone's
         // symbols under those traits, so there is none to measure
-        var verticalBar = false
-        if #available(iOS 27.1, *) { verticalBar = host.traitCollection.verticalBarEdge != .unspecified }
-        if !verticalBar {
+        if !host.traitCollection.placesVerticalBar {
             let wide = UITabBar(frame: CGRect(x: 0, y: 600, width: 402, height: 50))
             wide.traitOverrides.userInterfaceIdiom = .pad
             wide.traitOverrides.horizontalSizeClass = .regular

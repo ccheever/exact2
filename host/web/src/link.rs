@@ -337,6 +337,8 @@ pub(crate) fn runner_links() -> exact_runner::RunnerLinks {
         // The browser's grants are I/O it does itself (LLP 1047.001).
         grants: exact_runner::RunnerLinks::ALL.grants,
         keyframes: linked().animations.map(|a| a.keyframes),
+        // The browser plays a font axis's CSS transition itself.
+        text_axes: None,
     }
 }
 

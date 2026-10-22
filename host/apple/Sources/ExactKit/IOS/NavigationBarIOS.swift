@@ -64,6 +64,11 @@ struct HeaderShape: Equatable {
         /// (UIKit's tint, the platform default) for a colour the button
         /// only inherits or the compiler implied.
         let tint: [[Double]]?
+        /// A native button's title font where its face's rows give a size or
+        /// a weight (LLP 1069.011.001 D4), as its in-page control draws it:
+        /// the item's title in it, so its glass fits those words. Nil is
+        /// UIKit's bar title font.
+        let font: UIFont?
         /// A readout's face (`role="status"`, LLP 1075.003 §9.15): an item
         /// no one presses, whose custom view shows the face as written and
         /// follows it in place (BarReadoutIOS.swift).
@@ -75,6 +80,16 @@ struct HeaderShape: Equatable {
         /// on each side, which UIKit does not publish: 12 pt on iOS 26 and 27
         /// (measured), so its glass is 16 pt wider than the words each side.
         static let titleInset: CGFloat = 12
+        /// The font UIKit draws a plain bar item's title in, which it does
+        /// not publish: the system font at 17 pt, medium in the 26 design and
+        /// bold under Bold Text (both measured on iOS 27,
+        /// `testTheUnsaidTitleFontIsUIKits`); regular before it, semibold
+        /// under Bold Text. A row its author left unsaid keeps this one's
+        /// size or weight; the kernel has stepped the weights it sends.
+        static func titleFont(bold: Bool) -> UIFont {
+            if #available(iOS 26.0, *), LinkedDesign.liquidGlass { return .systemFont(ofSize: 17, weight: bold ? .bold : .medium) }
+            return .systemFont(ofSize: 17, weight: bold ? .semibold : .regular)
+        }
         init(_ button: NodeView, readout isReadout: Bool = false) {
             var symbol: String?, text = "", ink: (NodeView, String)?
             func walk(_ node: NodeView) {
@@ -125,6 +140,14 @@ struct HeaderShape: Equatable {
             accessibilityDisabled = button.ariaUnavailable
             prominent = ["filled", "bordered-prominent", "prominent-glass", "prominent-clear-glass"].contains(face?.style ?? "")
             ownGlass = ["glass", "clear-glass"].contains(face?.style ?? "")
+            #if os(tvOS)
+            // tvOS's bar title font is not measured: its own stays.
+            font = nil
+            #else
+            let rows = face?.rows.title ?? [:]
+            font = rows["font_size"] != nil || rows["font_weight"] != nil
+                ? ButtonConfigurationIOS.font(Self.titleFont(bold: button.traitCollection.legibilityWeight == .bold), rows: rows) : nil
+            #endif
             // The platform's tint unless the author said otherwise (LLP
             // 1115.000 D2): a tint written on the symbol, else a `color`
             // written on the button, a platform colour as much as a literal.
@@ -149,7 +172,7 @@ struct HeaderShape: Equatable {
         /// view follows it in place (`showReadouts`).
         var source: String {
             if readout != nil { return "readout:\(toolbarGroup.map(String.init) ?? ""):\(id):\(testId ?? "")" }
-            return "\(toolbarGroup.map(String.init) ?? ""):\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(ownGlass):\(badge?.source ?? ""):\(chip?.source ?? ""):\(menu):\(menuTitle):\(tint ?? []):\(testId ?? "")"
+            return "\(toolbarGroup.map(String.init) ?? ""):\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(ownGlass):\(badge?.source ?? ""):\(chip?.source ?? ""):\(menu):\(menuTitle):\(tint ?? []):\(font.map { "\($0.fontName) \($0.pointSize) \(TextEngine.controlWeight($0))" } ?? ""):\(testId ?? "")"
         }
     }
     let header: NodeView
@@ -735,6 +758,12 @@ extension NavigationHost {
             // (no header, a hidden one, one that is not a bar's), or no bar
             // where the route says so or has nothing to go back to.
             c.pushed = index > 0
+            let transparent = Self.transparentBar(c.node)
+            // The item keeps a copy, equal and not the same object.
+            if (c.navigationItem.scrollEdgeAppearance == Self.clearScrollEdge) != transparent {
+                c.navigationItem.scrollEdgeAppearance = transparent ? Self.clearScrollEdge : nil
+                c.navigationItem.compactScrollEdgeAppearance = transparent ? Self.clearScrollEdge : nil
+            }
             let shape = stackShows ? HeaderShape.bar(of: c.node, back: back, backIsUIKits: index > 0) : nil
             let bar = stackShows ? self.bar(of: c.node, pushed: index > 0) : .hidden
             let shows = bar != .hidden
@@ -1010,6 +1039,11 @@ extension NavigationHost {
             ?? (shows || whole ? kids.first(where: flowing) : nil)
         let target = shape?.authored.isEmpty != false && node?.scrollView != nil && node === scroller ? node : nil
         let physical = target?.scrollView
+        // A route that turns transparent, or back, keeps its scroller: only
+        // whether UIKit insets it follows.
+        if let sv = physical, c.collapseScroll === target, c.collapseScrollView === sv {
+            sv.contentInsetAdjustmentBehavior = Self.transparentBar(c.node) ? .never : .automatic
+        }
         guard c.collapseScroll !== target || c.collapseScrollView !== physical else { return }
         let old = c.collapseScroll, oldView = c.collapseScrollView
         if let old, let sv = oldView { old.retainScrollPosition(from: sv) }
@@ -1020,7 +1054,10 @@ extension NavigationHost {
         // scroller's 0, which left its content's top under the bar.
         let shown = shownScroll(target)
         let atStart = shown.map { $0.contentOffset.y <= 0.5 - $0.adjustedContentInset.top } ?? false
-        shown?.contentInsetAdjustmentBehavior = .automatic
+        // Under a transparent bar the content starts at the top edge, under
+        // the bar, as on the web under a fixed transparent header: a hero
+        // photo bleeds to the top, and the bar's material comes as it scrolls.
+        shown?.contentInsetAdjustmentBehavior = Self.transparentBar(c.node) ? .never : .automatic
         // …and is there before UIKit is handed it: a bar handed a
         // scroller that far from its top closes an open large title.
         if atStart, let sv = shown, sv.contentOffset.y != -sv.adjustedContentInset.top { sv.contentOffset.y = -sv.adjustedContentInset.top }
@@ -1046,6 +1083,20 @@ extension NavigationHost {
         presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its title still" : under)")
     }
 
+    /// Whether a route asks `navigationBar="transparent"`: its bar shows
+    /// with a clear scroll-edge appearance and insets no content.
+    static func transparentBar(_ route: NodeView) -> Bool { route.props["navigationBar"] == "transparent" }
+
+    /// The bar's appearance at a scroller's top edge for a transparent bar:
+    /// nothing drawn until the content scrolls under it, UIKit's own
+    /// standard appearance then (`UINavigationBarAppearance`, "Customizing
+    /// Your App's Navigation Bar").
+    static let clearScrollEdge: UINavigationBarAppearance = {
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithTransparentBackground()
+        return appearance
+    }()
+
     /// Register a replacement before its first native layout. Resolve only
     /// the containing route, preserving that stack's Back relationships.
     func scrollBackendChanged(_ node: NodeView) {
@@ -1063,11 +1114,20 @@ extension NavigationHost {
     /// lets it run to the screen's bottom edge, under the home indicator and
     /// a tab bar, and UIKit insets its content there
     /// (`adjustedContentInset.bottom`), as a hand-built table view's is. The
-    /// route keeps no bottom cover for it (`reportCovers`). A footer under
+    /// route keeps its bottom cover, which the kernel pads nothing of while
+    /// UIKit insets the scroller (`reportCovers`, `scroller_insets_bottom`),
+    /// so an absolutely positioned footer still rests on the bars. A footer under
     /// the scroller keeps the cover; so does a page under `viewport-fit=cover`,
-    /// whose own `env()` insets would be added to UIKit's.
+    /// whose own `env()` insets would be added to UIKit's, and a transparent
+    /// bar's scroller, which UIKit insets nothing (`collapse`).
     private func reachBottom(_ c: RouteController) {
-        let target = presenter.viewportFit != "cover" ? Self.bottomScroller(in: c.node) : nil
+        // Until a scroller reaches the bottom edge the route's bottom cover
+        // pads its in-flow content above the bars, and its content box is
+        // the authored one: a scroller there ends that far above it. The
+        // cover it has without one, so a scroller that does not grow as the
+        // cover goes is at the edge either way.
+        let found = presenter.viewportFit != "cover" ? Self.bottomScroller(in: c.node, cover: c.bottomClearance) : nil
+        let target = found === c.collapseScroll && Self.transparentBar(c.node) ? nil : found
         guard c.edgeScroll !== target || c.contentScrollView(for: .bottom) !== (target?.scrollView ?? c.bandedBottom) else { return }
         if let old = c.edgeScroll, let sv = old.scrollView, old !== c.collapseScroll { sv.contentInsetAdjustmentBehavior = .never }
         if let previous = c.contentScrollView(for: .bottom), previous !== target?.scrollView,
@@ -1097,8 +1157,9 @@ extension NavigationHost {
     /// short of its parent's bottom (a padding, a border or a margin under
     /// it), or has a sibling beside it in a row or a grid, keeps the route's
     /// cover. One that scrolls vertically only: UIKit's bottom inset would
-    /// let a sideways carousel scroll up and down.
-    static func bottomScroller(in route: NodeView) -> NodeView? {
+    /// let a sideways carousel scroll up and down. `cover` is the route's
+    /// bottom cover, which the route's child may end above.
+    static func bottomScroller(in route: NodeView, cover: CGFloat = 0) -> NodeView? {
         let flowing = inFlow
         // The last in-flow child spans the bottom edge alone when every other
         // ends above its top, as children stacked down a block or a column
@@ -1113,9 +1174,10 @@ extension NavigationHost {
             let children = parent.container.subviews.compactMap { $0 as? NodeView }.filter(flowing)
             guard let last = children.last, alone(last, among: children) else { return nil }
             // Each reaches the foot of its parent's content box: the route's
-            // child the box its cover already shortens, a deeper one its
-            // parent's bottom, with nothing (a padding, a border) under it.
-            let foot = parent === route ? parent.contentBox().maxY : parent.bounds.maxY
+            // child that box less the cover the kernel may pad it by, a
+            // deeper one its parent's bottom, with nothing (a padding, a
+            // border) under it.
+            let foot = parent === route ? parent.contentBox().maxY - cover : parent.bounds.maxY
             if parent !== route, parent.contentBox().maxY < foot - 0.5 { return nil }
             if parent.convert(last.bounds, from: last).maxY < foot - 0.5 { return nil }
             if last.scrollView != nil { return ["scroll", "auto"].contains(last.style["overflow_y"]?.string ?? "") ? last : nil }
@@ -1202,6 +1264,11 @@ extension NavigationHost {
         // tint is its fill, which `color` is not.
         if let tint = i.tint, !i.prominent, i.badge == nil, i.chip == nil {
             item.tintColor = UIColor { TextEngine.color(tint[$0.userInterfaceStyle == .dark ? 1 : 0]) }
+        }
+        if let font = i.font, image == nil {
+            for state: UIControl.State in [.normal, .highlighted, .disabled, .selected, .focused] {
+                item.setTitleTextAttributes([.font: font], for: state)
+            }
         }
         if #available(iOS 26.0, tvOS 26.0, *) {
             if i.prominent { item.style = .prominent }

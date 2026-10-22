@@ -24,7 +24,7 @@ export type Ctx2D = Pick<OffscreenCanvasRenderingContext2D,
 export interface Frame {
   readonly time: number;
   readonly mounted: number;
-  readonly cause: 'mount' | 'args' | 'size' | 'frame' | 'image' | 'font';
+  readonly cause: 'mount' | 'args' | 'size' | 'frame' | 'image' | 'font' | 'style';
   readonly causes: readonly string[];
   readonly width: number;
   readonly height: number;

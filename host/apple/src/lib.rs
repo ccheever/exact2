@@ -69,6 +69,7 @@ pub mod raster;
 mod raster_exports;
 pub mod store;
 pub mod style;
+pub mod svg_image;
 pub mod textflow;
 
 pub use host::{Host, HostError};

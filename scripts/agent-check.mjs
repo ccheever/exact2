@@ -13,17 +13,16 @@ import { decodePng, encodePng, shrink } from './png.mjs';
 
 const SHOWN = 12;
 const OFFSCREEN = 'a column taller than the screen runs past it: let it scroll (`overflow-y: auto`), or give it `flex: 1` and `min-height: 0` under a header instead of `height: 100%`';
-/** The platform colours by every name a host may report (kernel/tables/schema.json `colors`): row name → its light and dark
- *  values in each of the table's columns, Apple's and the neutral one (LLP 1115.000 D3.2). */
-const ROLES = (() => {
-  const rows = JSON.parse(readFileSync(fileURLToPath(new URL('../kernel/tables/schema.json', import.meta.url)), 'utf8')).colors ?? [];
-  const byName = new Map();
-  for (const [name, webkit, ios, mac, light, dark, neutralLight, neutralDark] of rows) for (const n of [name, webkit, ios, mac, ios?.replace(/Color$/, '')]) if (n && !byName.has(n)) byName.set(n, { name, apple: { light, dark }, neutral: { light: neutralLight, dark: neutralDark } });
-  return byName;
-})();
-/** Web observations name the neutral column; native Apple observations leave the column unsaid. */
-const columnOf = (obs) => obs.look === 'neutral' ? 'neutral' : 'apple';
-const role = (raw) => (raw && ROLES.get(String(raw).replace(/^-exact-/, ''))?.name) ?? null;
+const COLORS = JSON.parse(readFileSync(fileURLToPath(new URL('../kernel/tables/schema.json', import.meta.url)), 'utf8')).colors ?? [];
+/** A platform colour's row name by every name a host may report (kernel/tables/schema.json `colors`, LLP 1115.000 D3.2). */
+const ROLES = new Map();
+for (const [name, webkit, ios, mac] of COLORS) for (const n of [name, webkit, ios, mac, ios?.replace(/Color$/, '')]) if (n && !ROLES.has(n)) ROLES.set(n, name);
+/** Each role's colour by scheme, `[r, g, b, a]`: what the page says it draws (`palette`, the web's check), else Apple's
+ *  pair (an Apple host says none). */
+const APPLE = Object.fromEntries(['light', 'dark'].map((scheme, i) => [scheme, Object.fromEntries(COLORS.filter((row) => String(row[4 + i]).startsWith('#'))
+  .map(([name, , , , ...pair]) => [name, [...parseHex(pair[i]), pair[i].length === 9 ? parseInt(pair[i].slice(7), 16) / 255 : 1]]))]));
+const paletteOf = (obs) => Object.fromEntries(['light', 'dark'].map((scheme) => [scheme, { ...APPLE[scheme], ...obs.palette?.[scheme] }]));
+const role = (raw) => (raw && ROLES.get(String(raw).replace(/^-exact-/, ''))) ?? null;
 const hex = (c) => '#' + c.slice(0, 3).map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
 const lum = (c) => { const [r, g, b] = c.slice(0, 3).map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
 export const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
@@ -55,23 +54,22 @@ function backdrop(png, scale, it) {
  *  bubble's white is a filled button's label; a pale accent still fails). The platform's tertiary and quaternary labels and its placeholders are its own and not judged,
  *  nor is a disabled control's label (WCAG's inactive component), nor a tinted button's label in a system hue: UIKit draws the hue on
  *  a pale fill of itself (the Clock's green Start, 1.9:1 in light; `RoundButton`'s, LLP 1116.019 D3), and Increase Contrast darkens it. */
-function floor(it, scheme, column) {
+function floor(it, scheme, palette) {
   if (it.inactive) return null;
-  const r = role(it.fgRole) ?? drawnRole(it.fg, scheme, column);
+  const r = role(it.fgRole) ?? drawnRole(it.fg, scheme, palette);
   if (r && /^(tertiary|quaternary)-label$|^placeholder$|^GrayText$/.test(r)) return null;
   if (it.tinted && r && /^system-/.test(r)) return null;
   if (it.size >= 24 || (it.size >= 18.66 && it.weight >= 700) || it.label || it.platformInk || it.onAccentFill || (r && /^secondary-label$|^system-|^link$|^LinkText$|^AccentColor$|^ButtonText$/.test(r))) return 3;
   return 4.5;
 }
-/** The platform role an ink is, by its value in this scheme and the host's column: UIKit's own labels carry no name, nor
- *  does a text whose colour is inherited or the grouped list's sheet's (a section footer's secondary label on the web).
- *  Never `AccentColorText`, which is an ink only on the accent (the host says where it chose one, `platformInk`): by its
- *  value alone it is the neutral column's black in dark, and an author's black text there is not the platform's. */
-function drawnRole(fg, scheme = 'light', column = 'apple') {
+/** The platform role an ink is, by its value in this scheme as its host draws it (`paletteOf`): UIKit's own labels carry
+ *  no name, nor does an inherited colour (a section footer's secondary label on the web). Never `AccentColorText`, an
+ *  ink only on the accent (the host says where, `platformInk`): by value it may be black, and an author's black is not
+ *  the platform's. */
+function drawnRole(fg, scheme = 'light', palette = APPLE) {
   if (!fg) return null;
-  for (const r of new Set(ROLES.values())) {
-    const h = String(r[column][scheme] ?? ''), n = parseHex(h), a = h.length === 9 ? parseInt(h.slice(7), 16) / 255 : 1;
-    if (r.name !== 'AccentColorText' && h.startsWith('#') && near(fg, n, 2) && Math.abs((fg[3] ?? 1) - a) < 0.03) return r.name;
+  for (const [name, c] of Object.entries(palette[scheme] ?? {})) {
+    if (name !== 'AccentColorText' && c && near(fg, c, 2) && Math.abs((fg[3] ?? 1) - (c[3] ?? 1)) < 0.03) return name;
   }
   return null;
 }
@@ -85,7 +83,7 @@ const holds = (a, b) => a.x <= b.x + 0.5 && a.y <= b.y + 0.5 && a.x + a.w >= b.x
 
 /** The findings for one observation (`obs`, the host's reply) and its capture (`png`, decoded; null skips what needs pixels). */
 export function judge(obs, png, { host = 'web' } = {}) {
-  const vp = obs.viewport, scale = png ? png.width / (obs.capture?.w ?? vp.w) : 1, items = obs.items ?? [], found = [], column = columnOf(obs);
+  const vp = obs.viewport, scale = png ? png.width / (obs.capture?.w ?? vp.w) : 1, items = obs.items ?? [], found = [], palette = paletteOf(obs);
   const add = (kind, it, detail, hint) => found.push({ kind, id: it.id ?? null, ...(it.of != null ? { of: it.of } : {}), name: it.name, text: it.text, box: [r0(it.x), r0(it.y), r0(it.w), r0(it.h)], detail, ...(hint ? { hint } : {}) });
   const unit = host === 'web' ? 'px' : 'pt';
   for (const it of items) {
@@ -108,7 +106,7 @@ export function judge(obs, png, { host = 'web' } = {}) {
     if (it.padded) add('overflow', it, { past: r0(it.padded.dx), of: it.padded.by, pad: r0(it.padded.pad), written: it.padded.width, unit }, 'drop the width (a block or a stretched flex item fills its parent) or say `box-sizing="border-box"`');
     else if (it.outX) add('overflow', it, { past: r0(it.outX), width: vp.w, unit }, 'let it wrap (`flex-wrap: wrap` with a `flex-basis` in rem, `min-width: 0`, `max-width: 100%`), or scroll it inside its own box');
     else if (it.spill) add('overflow', it, { past: r0(it.spill.dx), of: it.spill.by, unit }, 'a flex item\'s width stops at its content: let it shrink (`min-width: 0`, a smaller `padding`), or let the row wrap (`flex-wrap: wrap`) or scroll');
-    // A target the author sized under the platform's minimum (WCAG 2.5.8's 24 px, with its spacing exception, on the web; 44 pt on iOS).
+    // A target the author sized under the platform's minimum (on the web 44 px on a touch device, `any-pointer: coarse`, and otherwise WCAG 2.5.8's 24 px, with its spacing exception; 44 pt on iOS).
     if (it.control && it.sized === 'author' && !it.inline && !it.disabled && !covers(it, obs.keyboard) && (it.w < obs.target - 0.5 || it.h < obs.target - 0.5)) {
       const spaced = host === 'web' && items.every((o) => o === it || !o.control || o.inline || !o.w ||
         Math.hypot((o.x + o.w / 2) - (it.x + it.w / 2), (o.y + o.h / 2) - (it.y + it.h / 2)) >= obs.target);
@@ -117,7 +115,7 @@ export function judge(obs, png, { host = 'web' } = {}) {
     // Contrast against what it stands on: the fill the host found painted under it (LLP 1116.006 D5), else what the
     // pixels show behind it, read where it is presented (a bar's glass over it is not what it stands on, LLP 1116.007 D3.8).
     if (it.text && it.fg && (it.bg || png) && !covers(it, obs.keyboard)) {
-      const need = floor(it, obs.scheme, column), bg = need && (it.bg ?? backdrop(png, scale, shown(it, obs.keyboard)));
+      const need = floor(it, obs.scheme, palette), bg = need && (it.bg ?? backdrop(png, scale, shown(it, obs.keyboard)));
       if (bg) {
         const ink = over(it.fg, bg), got = ratio(ink, bg);
         if (got < need - 0.005) add('contrast', it, { got: Math.floor(got * 10) / 10, need, fg: hex(ink), bg: hex(bg), ...(it.bg ? { on: it.on ?? 'page' } : {}) },
@@ -143,7 +141,7 @@ export function judge(obs, png, { host = 'web' } = {}) {
       const filled = sides.filter(([a, b]) => near(a, over(it.fill, b), 4));
       if (filled.length >= 2 && sides.every(([a, b]) => near(a, b, 4))) {
         const fill = role(it.fillRole), behind = filled[0][1], scheme = obs.scheme ?? 'light';
-        const plain = [...ROLES.values()].some((r) => r.name === 'background' && near(behind, parseHex(r[column][scheme]), 3));
+        const plain = near(behind, palette[scheme].background, 3);
         add('card', it, { fill: fill ? `-exact-${fill}` : hex(it.fill), behind: hex(behind) },
           fill === 'secondary-grouped-background' && plain ? 'on a plain page a card is -exact-secondary-background (-exact-secondary-grouped-background is for a -exact-grouped-background page)'
             : 'give it a fill that differs from the page (-exact-secondary-background on a plain page), a border or a shadow');
@@ -167,11 +165,16 @@ export function judge(obs, png, { host = 'web' } = {}) {
   // any width at all. Glyphs a pixel or two into a neighbour's read as one word ("GoingMaybe", event-rsvp at the largest
   // text size, round 21), and two texts set flush on purpose ("$" then "12") only touch.
   const texts = items.filter((it) => it.text && !it.control && !it.squeezed);
+  // A text drawn on the opaque fill of the view laid over another's middle (a bar over its list's row) hides that
+  // one where they meet, if that view's box holds all of the meeting: they do not run together there (the host's
+  // `beneath`, `on` and `solid`; a label running past its bar's edge still meets the row outside it).
+  const hides = (top, below, i) => below.beneath != null && top.on === below.beneath.by && top.solid && holds(below.beneath, i);
   for (const [k, a] of texts.entries()) for (const b of texts.slice(k + 1)) {
     if (holds(a, b) || holds(b, a)) continue;
     const da = drawn(a), db = drawn(b);
     if (da.w <= 0 || da.h <= 0 || db.w <= 0 || db.h <= 0) continue;
-    const i = inter(da, db);
+    const i = inter(da, db), meet = { x: Math.max(da.x, db.x), y: Math.max(da.y, db.y), w: i.w, h: i.h };
+    if (hides(a, b, meet) || hides(b, a, meet)) continue;
     if (i.w > 0.5 && i.h >= 2) add('overlap', a, { with: b.id, by: [Math.round(i.w * 10) / 10, r0(i.h)] }, 'give them room (a gap, or let the row wrap)');
   }
   // A control's own text covered with it is one finding: the control's.

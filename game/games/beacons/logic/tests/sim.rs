@@ -73,3 +73,59 @@ fn rust_defaults_and_positional_binding_have_identical_bytes() {
     assert_eq!(omitted.save().unwrap(), positional.save().unwrap());
     omitted.assert_pin(include_str!("../../pins.json"));
 }
+
+/// Sprint released, or its pad gone, while paused: the player walks on
+/// resume, slowing from the first tick.
+#[test]
+fn a_sprint_ended_while_paused_walks_on_resume() {
+    use exact_game::Args;
+    let pause = |s: &mut Sim<Beacons>, paused: bool| {
+        let args = Options {
+            seed: 7,
+            paused,
+            restart: false,
+        };
+        s.bind(&args.values(), None).unwrap();
+    };
+    let character = |s: &Sim<Beacons>| {
+        let c = s.get::<Character>("player").unwrap();
+        (c.speed, c.velocity.x)
+    };
+    for pad in [false, true] {
+        let mut s = sim(7);
+        s.settle();
+        s.key_down("KeyD");
+        if pad {
+            s.pad_button(0, "GamepadL1", 1.);
+        } else {
+            s.key_down("ShiftLeft");
+        }
+        s.run(1500.);
+        assert_eq!(
+            character(&s),
+            (7., 7.),
+            "the hold matured and the player runs"
+        );
+        pause(&mut s, true);
+        if pad {
+            s.pad_disconnect(0);
+        } else {
+            s.key_up("ShiftLeft");
+        }
+        s.run(100.);
+        pause(&mut s, false);
+        let end = if pad {
+            "a pad disconnected"
+        } else {
+            "Shift released"
+        };
+        let mut ticks = 0;
+        while ticks == 0 {
+            ticks = s.run(1.);
+        }
+        assert_eq!(ticks, 1);
+        let (speed, velocity) = character(&s);
+        assert_eq!(speed, 4., "{end} while paused");
+        assert!(velocity < 7., "{end}: the first tick slows ({velocity})");
+    }
+}

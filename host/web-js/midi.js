@@ -80,6 +80,8 @@ function merged(reported) {
 }
 const connectedOutput = id => Ports.access === 'granted' && Ports.outputs.some(p => p.id === id && p.connected);
 const connectedInput = id => Ports.access === 'granted' && Ports.inputs.some(p => p.id === id && p.connected);
+// `""`, no output, goes to no host but `sent` lists it as any other (LLP 1125 D6; midi.rs `can_send`).
+const canSend = id => id === '' || connectedOutput(id);
 function setPorts(reported) {
   if (!Granted) return false;
   const ports = merged(reported);
@@ -96,8 +98,8 @@ const waiting = t => Queue.filter(s => waits(s, t) && !exempt(s)).length;
 
 function push(m, t, note = '') {
   const id = ++Next;
-  if (m.tick == null) say(`midi ${id} to ${m.output} ${hex(m.data)} at ${num(m.at)}${note}`); else Ticks++;
-  Ops.push({ op: 'send', id, output: m.output, data: m.data, at: m.at });
+  if (m.tick == null) say(`midi ${id} to ${m.output || 'no output'} ${hex(m.data)} at ${num(m.at)}${note}`); else Ticks++;
+  if (m.output) Ops.push({ op: 'send', id, output: m.output, data: m.data, at: m.at });
   // A reader of `sent` is answered again when the message goes.
   const s = { id, output: m.output, data: m.data, at: m.at, seq: m.seq, by: null, stepAt: m.stepAt, tick: m.tick ?? null, onAt: m.onAt ?? null };
   if (ReadsSent && listed(s) && s.at < Answer.due) { Answer.due = s.at; placeAnswer(); }
@@ -106,7 +108,7 @@ function push(m, t, note = '') {
   return id;
 }
 // Clock out's own Start taken back is sent again before its next tick.
-function retract(s, by) { s.by = by; Ops.push({ op: 'retract', id: s.id }); if (Clock && s.seq && s.data.length === 1 && s.data[0] === 0xFA && s.output === Clock.output) Clock.started = false; }
+function retract(s, by) { s.by = by; if (s.output) Ops.push({ op: 'retract', id: s.id }); if (Clock && s.seq && s.data.length === 1 && s.data[0] === 0xFA && s.output === Clock.output) Clock.started = false; }
 function trim(t) {
   for (let i = 0; i < Queue.length;) {
     const s = Queue[i];
@@ -131,7 +133,7 @@ function send(args, t) {
   if (data.why) return say(`midi dropped: ${data.why} (sendMIDI to ${output})`);
   const asked = at0 == null ? t : typeof at0 === 'number' ? at0 : NaN;
   if (!Number.isFinite(asked)) return say(`midi dropped: at is not a number (sendMIDI to ${output})`);
-  if (!connectedOutput(output)) return say(`midi dropped: ${Ports.access !== 'granted' ? `access is ${Ports.access}` : `${output} is not a connected output`} (sendMIDI)`);
+  if (!canSend(output)) return say(`midi dropped: ${Ports.access !== 'granted' ? `access is ${Ports.access}` : `${output} is not a connected output`} (sendMIDI)`);
   const at = Math.max(asked, t), note = asked < t ? ` (asked ${num(asked)})` : '';
   for (const d of data) {
     if (!(noteOff(d) || d.length === 1 && d[0] === 0xFC) && waiting(t) >= QUEUED) { say(`midi dropped: ${QUEUED} messages wait (sendMIDI to ${output} ${hex(d)})`); continue; }
@@ -175,7 +177,7 @@ function reload(t) {
 
 /** The sequence's side of the queue (transport.js), as midi.rs's `Midi` methods. */
 export const Midi = {
-  canSend: connectedOutput, access: () => Ports.access,
+  canSend, access: () => Ports.access,
   blocks: (onAt, t) => onAt - HOLD > t && waiting(t) >= QUEUED,
   nextHanded: t => Queue.filter(s => waits(s, t) && !exempt(s)).reduce((m, s) => Math.min(m, s.at - HOLD), Infinity),
   note(output, on, onAt, offAt, stepAt, t) {

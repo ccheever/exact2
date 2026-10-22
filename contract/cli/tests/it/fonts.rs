@@ -147,6 +147,34 @@ fn a_variable_face_declares_its_file_range_or_the_written_one() {
     assert_eq!(node.style.font_stretch, 75.0);
 }
 
+/// LLP 1019 D9: `font-variation-settings` reaches the kernel's row as CSS
+/// writes it, and a value CSS refuses is refused at compile.
+#[test]
+fn font_variation_settings_reach_the_row_and_bad_ones_are_refused() {
+    let app = AppDir::new(
+        "font \"Inter\" = \"assets/InterVariable.ttf\"\ncomponent App\n  view\n    text \"hello\" font-family=\"Inter\" font-variation-settings=`\"wght\" 650, \"opsz\" 32` testId=\"label\"\n",
+    );
+    let plan = app.compile().unwrap();
+    let runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let kernel = runner.kernel();
+    let node = kernel
+        .node_by_key(kernel.find_by_test_id("label")[0])
+        .unwrap();
+    let v = node.style.font_variation_settings;
+    assert_eq!((v.get(b"wght"), v.get(b"opsz")), (Some(650.0), Some(32.0)));
+    refusal(
+        "component App\n  view\n    text \"hello\" font-variation-settings=\"wght 650\"\n",
+        "lower-attr-value",
+    );
+}
+
 fn refusal(source: &str, id: &str) {
     let app = AppDir::new(source);
     let error = app.compile().unwrap_err();

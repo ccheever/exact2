@@ -35,7 +35,7 @@ globalThis.document = {
   head: { append() {} }, createElement: () => ({}), styleSheets: [],
   querySelectorAll: (sel) => (sel.includes('data-symbol-path') ? el.hasAttribute('data-symbol-path') : sel.includes('data-app-src') ? el.hasAttribute('data-app-src') : el.hasAttribute('data-symbol-source')) ? [el] : [],
 };
-globalThis.getComputedStyle = () => ({ fontSize: '17px', fontWeight: '400', objectFit: 'contain', paddingLeft: '0', paddingRight: '0', paddingTop: '0', paddingBottom: '0' });
+globalThis.getComputedStyle = () => ({ fontSize: '17px', fontWeight: '400', objectFit: 'contain', paddingLeft: '0', paddingRight: '0', paddingTop: '0', paddingBottom: '0', getPropertyValue: () => '' });
 globalThis.exact = { appURL: async (path) => `blob:test/${path}` };
 
 test('an image that leaves a symbol for an app:/ file keeps the file', async () => {
@@ -76,7 +76,7 @@ test('a symbol keeps its aspect under object-fit: fill', async () => {
   const was = globalThis.getComputedStyle, query = document.querySelectorAll;
   try {
     for (const [fit, size] of [['fill', 'contain'], ['cover', 'cover'], ['none', '17px 17px']]) {
-      globalThis.getComputedStyle = () => ({ fontSize: '17px', fontWeight: '400', objectFit: fit, paddingLeft: '0', paddingRight: '0', paddingTop: '0', paddingBottom: '0' });
+      globalThis.getComputedStyle = () => ({ fontSize: '17px', fontWeight: '400', objectFit: fit, paddingLeft: '0', paddingRight: '0', paddingTop: '0', paddingBottom: '0', getPropertyValue: () => '' });
       const wide = new Img();
       document.querySelectorAll = (sel) => sel.includes('data-symbol-path') && wide.hasAttribute('data-symbol-path') ? [wide] : [];
       expect(PropHooks.src(wide, 'symbol:chevron')).toBe(true);
@@ -234,6 +234,48 @@ test('a symbol under a bound colour follows whether it has a value', async () =>
     expect(await ink()).toEqual({ alone: accent, over: green, unwritten: accent });
     await page.locator('#on').click();
     expect(await ink()).toEqual({ alone: red, over: red, unwritten: accent });
+    expect(errors).toEqual([]);
+  } finally {
+    try { await browser?.close(); } finally { server.stop(true); }
+  }
+}, 30000);
+
+// A symbol on a button's face draws in its title's colour, which the colour
+// scheme changes without a commit: it follows, as on the web host (glue.js
+// `mediaChanged`).
+test('a symbol on a button follows its title across a colour scheme change', async () => {
+  const root = resolve(import.meta.dir, '../../..');
+  const content = `<button type="button" data-native data-button-style="bordered" style="display:grid;color:light-dark(rgb(1, 2, 3), rgb(4, 5, 6))">
+    <img id="symbol" data-symbol-source="symbol:book" data-symbol-path="M0 0L24 24"><span data-exact-text>Library</span></button>`;
+  const boot = `import { symbols } from '/symbols.js';
+    import { commit } from '/rt.js';
+    symbols({ book: ['M0 0L24 24', false] });
+    commit(() => {});
+    globalThis.ready = true;`;
+  const html = withLook(readFileSync(resolve(root, 'host/web/index.html'), 'utf8'))
+    .replace('<div id="exact-root"></div>', `<div id="exact-root">${content}</div>`)
+    .replace('<script type="module" src="./glue.js"></script>', `<script type="module">${boot}</script>`);
+  const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+    const path = new URL(request.url).pathname.slice(1);
+    if (!path) return new Response(html, { headers: { 'content-type': 'text/html' } });
+    if (path === 'names.js') return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } });
+    if (!/^[A-Za-z0-9_.-]+\.js$/.test(path)) return new Response('Not found', { status: 404 });
+    const file = [resolve(root, 'host/web-js', path), resolve(root, 'host/web', path)].find(existsSync);
+    return file ? new Response(Bun.file(file), { headers: { 'content-type': 'text/javascript' } }) : new Response('Not found', { status: 404 });
+  } });
+  let browser;
+  try {
+    browser = await suiteBrowser('chromium', { timeout: 10000 });
+    const page = await browser.newPage({ colorScheme: 'light' });
+    const errors = [];
+    page.on('pageerror', error => errors.push(String(error)));
+    await page.goto(server.url.href);
+    await page.waitForFunction(() => globalThis.ready);
+    const ink = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => done(getComputedStyle(document.getElementById('symbol')).backgroundColor))));
+    expect(await ink()).toBe('rgb(1, 2, 3)');
+    await page.emulateMedia({ colorScheme: 'dark' });
+    // The media query's `change` comes after the emulation's reply.
+    await page.waitForFunction(() => getComputedStyle(document.getElementById('symbol')).backgroundColor === 'rgb(4, 5, 6)', null, { timeout: 2000 });
     expect(errors).toEqual([]);
   } finally {
     try { await browser?.close(); } finally { server.stop(true); }

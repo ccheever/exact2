@@ -710,6 +710,7 @@ impl<D: DataSource> Host<D> {
                 .map(|t| t * 1000.)
                 .into_iter()
                 .chain(self.press_settle())
+                .chain(self.runner.text_axes_settle_ms())
                 .reduce(f64::max)
             {
                 Some(t) => format!("{{\"settle\":{}}}", exact_runner::agent::num(t)),

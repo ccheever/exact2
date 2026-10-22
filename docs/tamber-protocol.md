@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.15`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.16`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.15"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.16"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -116,9 +116,15 @@ on macOS and Linux.
   state: a binding's `states`, `[{state, origin, at?}]` (no `at` for a conditional class's part,
   either style's).
 - `tamber/1.15` (LLP 1121 stage 12, after stage 11 closed) adds `resolve`'s and `explain`'s per-column
-  values for a length over unset base names (stage 12 D1); a param's levels (stage 12 B2-levels):
-  `explain`'s and `resolve`'s `levels`, each of `resolve`'s tuples' winning `level` and `name`, and
-  `describe`'s param rows' `reaches`; a relay session's `spki` with its
+  values for a length over unset base names (stage 12 D1); a shadow token's lengths as expressions over
+  length tokens and base names, those over unset base names kept as written: in `resolve`'s shadows such a length is null among `lengths`, and
+  `length_texts` (only then) gives every length's text, with the base names they read in `bases`
+  (stage 12 B3); a param's levels (stage 12 B2-levels):
+  `explain`'s and `resolve`'s `levels`, each of `resolve`'s tuples' winning `level` and `name` per
+  side (`{light, dark}`: a correction within the window, which first gave one of each), and
+  `describe`'s param rows' `reaches`; `describe`'s library components' `parts`, `variants` and
+  `library` (stage 12 D3; a param's winning level per tuple is `resolve`'s, B2-levels); a build's `page`, `"gallery"` for the
+  variant gallery's page in its registration and on the build in `builds` (LLP 1139 D5, the design tool's G3); a relay session's `spki` with its
   certificate got by ACME (stage 10c R2); and names this machine's files in no answer:
   every `file` field and file name in an answer or event is app-relative, or `<package>/<path inside it>`
   for a package's file (a package linked from outside the app included), never absolute, `hello`'s `app`
@@ -130,6 +136,14 @@ on macOS and Linux.
   with `states: [{state, source, editable}]`, each folded part's place and its own edit; the
   development-only source map lists each Contract source's `home`, from which a param's full name
   is built.
+- `tamber/1.16` (after stage 12 closed) adds a shadow token's per-column values over unset base names:
+  `columns` on `explain`'s value, each `when` line and each of `resolve`'s tuples (D1's form, but for the
+  terminal's), and each of `resolve`'s shadows' `columns` with its `value` and `lengths`; and a shadow's
+  `lengths` (*1.15*, stage 12 B3) write a zero as 0, never -0 (`calc(space.md * -0)`), a correction;
+  `explain`'s `bases_by_tuple` beside `bases` (stage 13 D4): each tuple's base names, as it folds
+  there (`bases` keeps its meaning, as wide as `names`); and the base rows emit the reserved source
+  kind `{kind: "stretch", ref, why}` (stage 13 D5): the Mac's `space.xl` now reads `stretch` (`ref`
+  `grouped-label-inset`, with its why), which read `metric` before.
 
 ## Where it runs
 
@@ -317,7 +331,8 @@ statuses:
   dials are budgeted (20 a second, a burst of 40) whatever the relay does. The relay's names are
   served only when the certificate covers them, and no word of the relay's that carries the token
   becomes a name, an address or a log line.
-  The connector's own protocol (`EXACT-RELAY/1`) is outside `tamber/1`: scripts/tamber-relay.mjs.
+  The connector's own protocol (`EXACT-RELAY/1`, one random `run` id on every connection of a run)
+  is outside `tamber/1`: scripts/tamber-relay.mjs; the relay itself, docs/tamber-relay-service.md.
 
 ### Pairing (*1.13*)
 
@@ -456,7 +471,8 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     written, null where unwritten (D10), and `draws` (*1.12*): `{target: source}` for each target the
     app ships, the source that target draws (`sf`, `svg`) or null for none, by D10's rule (the one
     `tamber-icon-missing` checks).
-  - `components` (*1.10*, LLP 1121 D15), when the app's Contract or its design declares params: each
+  - `components` (*1.10*, LLP 1121 D15), when the app's Contract or its design declares params, or
+    it uses an exported library component (*1.15*): each
     component `{identity, name, params}`, its identity its declaring file and name
     (`post.contract#PostButton`); each param `{name, short, param, token, kind, default, values,
     range, step, control, options, label, help, group, priority}`. `name` is its full name
@@ -471,6 +487,10 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     A param whose default is a reference adds `reaches: {token, base, app_set}` (*1.15*): the first
     token its default reaches, the base name every tuple reaches (or null), and whether the app
     overrides that token (`explain`'s `levels`, compact; none where `levels` is null).
+    An exported library component (LLP 1139 D0) adds `library: true`, `parts: [{name, groups, slot}]`
+    (`slot: true` on the part whose node holds `children`) and `variants: [{prop, options}]` (each
+    enum or bool prop its own view reads in a class condition, a `?:` or a `match`), from the IR; one
+    with no params is listed too, with `params: []` (*1.15*, stage 12 D3).
     A component that isn't Contract, declared in the design (`component MapCard` over
     `params`, stage 7 D), is listed the same way, its identity the design file and its name
     (`app.tamber#MapCard`).
@@ -497,8 +517,9 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     `{value, source}`: `value` a CSS length (`16px`), `full` (radius.full, the pill) or the
     terminal's `<n>cell` (`0` for none); `source` where it comes from, `{kind: "metric", ref}` (a
     metrics row), `{kind: "measured", id}` or `{kind: "guideline", cite}` (an entry in
-    docs/scale-measured.md), `{kind: "full"}` or `{kind: "terminal"}` (`stretch`, a metric borrowed
-    for another role, is reserved: emitted once the table carries it). Every cell is the kernel's
+    docs/scale-measured.md), `{kind: "stretch", ref, why}` (a metrics row borrowed for a role it
+    doesn't name, where theme2 ruled it, with why in a line: the Mac's `space.xl`; the table carries
+    it since stage 13 D5), `{kind: "full"}` or `{kind: "terminal"}`. Every cell is the kernel's
     table's (`style::scale`), never a copy;
   - `override` is the line of the design file the request names (the app's, by default) that sets
     the name, `{file, line, col, text}`, or null. When it is set, the name is the app's token: its
@@ -565,12 +586,14 @@ tuple:
   either spelling, as the checker keys it: `secondary-label` or `-exact-secondary-label`, any case),
   then a package's token. It takes each line's value in the tuple and goes at most 8 hops. It stops
   at a line whose value is no reference (a literal such as `transparent` or `-1`, or an
-  expression), at a base name or at a role, and that place wins. A `when` naming an axis `under
-  scheme=dark` is a colour's light/dark pair: the walk follows neither side, and its line wins. An icon
-  param answers the same.
-  - Each of `resolve`'s tuples adds `level`, one of `app-param`, `app-token`, `package`, `base`,
-    `role` or `default` (the param's own default, a literal or an expression: a tool's word for it is
-    "the component's default"), and `name`, the name at
+  expression), at a base name or at a role, and that place wins. Each side of a tuple is walked on
+  its own, as the fold picks that side's value: the dark side takes the most specific holding `when`
+  of all, the light side the most specific holding `when` that names no axis `under scheme=dark`, and
+  either the line's own value when none holds. An icon param answers the same.
+  - Each of `resolve`'s tuples adds `level` and `name`, each `{light, dark}` as its value's sides
+    (the same on both where the scheme decides nothing). A level is one of `app-param`, `app-token`,
+    `package`, `base`, `role` or `default` (the param's own default, a literal or an expression: a tool's word for it is
+    "the component's default"); a name is the name at
     that level (a param's full name, a token's, a base name; a role, or an override of one, by the row
     spelling the fold publishes: `AccentColor`, `-exact-secondary-label`).
   - `levels: {token, app, base, param}` when the param's default is a reference; `levels: null` for a
@@ -579,7 +602,7 @@ tuple:
       `params` lines; at most 8 hops), `{name, package?, file, line, value}`: a package's own line
       with stage 11 A2's `package` and `file` (`<package>/<file>`), else the app's line;
     - `app` is the app's override of that package token, `{file, line, value}`, or null;
-    - `base` is the base name every tuple's walk reaches, or null when they differ or one reaches
+    - `base` is the base name every tuple's walk reaches on both sides, or null when they differ or one reaches
       none (each tuple's own is on `resolve`'s tuples);
     - `param` is the app's own value of the param, `{file, line, value}`, or null (`param.set`
       stays).
@@ -596,6 +619,14 @@ tuple:
   layout rounds a space to whole cells on the axis it spaces); a column it doesn't fold in is left
   out. An app-set base name folds into its own value, so one whose fold reaches no unset base name
   is one value and has none (`space.md = space.sm` still reaches `space.sm`, and has them).
+  A shadow token (*1.16*) with a length over unset base names gets the same `columns` in the
+  same places, minus the terminal's (the terminal draws no shadow: a stated exception to "left
+  out only where it doesn't fold"), each `value` the whole shadow's text as that column's host
+  reads it (the kernel's `fold_lengths`, `"0px 16px 16px #000000ff"`, a colour kept whole), and
+  each of `resolve`'s shadows that has `length_texts` adds `columns: {ios, mac, neutral,
+  material: {value, lengths}}`, that shadow's own text there and every one of its lengths as a
+  number in px, in `lengths`' order, never null; a shadow over no unset base name (px only, or over
+  a base the app sets) has no `columns` key, and no zero in them is negative.
 - **A token whose values name base names** (*1.14*), an overridden base name's own line included,
   adds `bases`: each base name any of its lines reaches, `when` lines no tuple selects included (an
   unset one named bare, a set one as the token it names), and those any line of each token it
@@ -603,6 +634,14 @@ tuple:
   strings, each once, in no promised order (parallel to `names`, which is as wide; a client looks
   each up in `describe`'s `base`). A base name read from a file that is not the design's, or
   a design that is refused, is refused as any token is.
+  Beside it, `bases_by_tuple` (*1.16*, stage 13 D4): one `{modes, light, dark}` a tuple, in
+  `resolve`'s tuple order with its `modes`, each side the base names the token's value in that
+  tuple reaches as the checker folds it there (an unset one read bare, a set one as the token it
+  names) and those of the tokens it names in the same tuple, a branch no tuple selects left out,
+  never a function's name, a keyword or a word in a string (`label.gap = 4px` / `when
+  density=roomy: card.pad`, with `card.pad`'s `when density=tight: space.sm`, reaches `space.sm`
+  in no tuple, though `bases` lists it). A base name is a length's, whose light and dark sides are
+  one (a `when` under `scheme=dark` is a colour's alone), so the two sides are alike.
 
 `resolve` gives a residual's stored form and its fallback, labelled; its concrete value on a
 given build (`resolve-on`) comes with LLP 1122 T2b, from that build's `selected` report, as its
@@ -712,7 +751,10 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
   components share (whichever has the param, or neither), is refused (`tamber-param-unknown`,
   `tamber-param-ambiguous`). The line is written by the name the design's line already has, or an
   earlier op of the transaction wrote, or the name given, so a transaction never gives one param
-  two lines; the `params` block is made at the end when there is none, indented as its lines are,
+  two lines. An exported library component's param is written by its full name whatever name it
+  was given, since the build refuses a short one (LLP 1139 D8): a new line, and a line spelled
+  short that a set or a `when` line's unset keeps, which is respelled in place, its value, comment
+  and other `when` lines kept; the `params` block is made at the end when there is none, indented as its lines are,
   and goes when its last line does. A `when` line needs the param's own line first. After any
   write to an app with params, every param folds with the design and is inside its range, each
   value written (a `when`'s too) at its own line (`tamber-param-range`, `tamber-range-unit`; a
@@ -1279,6 +1321,11 @@ The tool drives no input into an app; a command changes only what `prefer` would
   `web-js`, `ios` (tvOS too), `macos`, `linux`, or `android` for the Android reader, *1.9*). `planDigest`
   (*1.9*) is the SHA-256 of the plan the build runs, the digest its source map names; the server
   joins and outlines that build from that plan's map.
+  - `page` (*1.15*): `"gallery"` for the variant gallery's page (the JS dev loop's `/__dev/gallery/`,
+    development only; the wasm loop answers it 404 with why: its stream `/__dev/gallery/stream` carries
+    its own reloads and errors, never the app's, nor the app's its), absent for the app's own page. Listed on the build in `builds` and
+    `hello` as it was said. It is the page's own claim, used only to group and label builds: it
+    grants nothing and changes nothing a build may receive (a gallery page offers no `navigate`).
   - `id` is the build's own, stable across its reconnects (a tab's, kept across its reloads but
     not shared with a duplicated tab; a process's), so its pin is replayed when it registers
     again. Every registration is told the pin the server holds for it, or none.

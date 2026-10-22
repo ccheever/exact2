@@ -61,6 +61,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         if self.cull.direct {
             let mesh = &self.meshes[self.batches[self.cull.groups[group].batch].mesh.0];
             bound.scene(pass, &self.scene_binds[self.current], 0);
+            bound.flush(pass);
             pass.draw_indexed(
                 mesh.indices.clone(),
                 mesh.base_vertex,
@@ -69,7 +70,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         } else {
             let (offset, draw) = self.cull.draw(view, group);
             bound.scene(pass, &self.culled_binds[self.current], offset);
-            pass.draw_indexed_indirect(&self.cull.indirect.raw, draw);
+            bound.indirect(pass, &self.cull.indirect.raw, draw);
         }
         Probe::end(pass, began);
     }
@@ -133,7 +134,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     });
                     pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
                     pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
-                    let mut bound = Bound::default();
+                    let mut bound = Bound::merging(self.probe.is_none());
                     for (index, group) in self.cull.groups.iter().enumerate() {
                         if !cache.groups[index] || group.flags & (1 << view) == 0 {
                             continue;
@@ -148,6 +149,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                         self.draw_group(&mut pass, &mut bound, view, index);
                         draws += 1;
                     }
+                    bound.flush(&mut pass);
                 }
             }
             let copied = cache.is_some_and(|c| c.copy(encoder, shadows.view.texture(), i));
@@ -178,7 +180,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             }
             pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
             pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
-            let mut bound = Bound::default();
+            let mut bound = Bound::merging(self.probe.is_none());
             for (index, group) in self.cull.groups.iter().enumerate() {
                 if group.flags & (1 << view) == 0 || cache.is_some_and(|c| c.groups[index]) {
                     continue;
@@ -187,6 +189,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 self.draw_group(&mut pass, &mut bound, view, index);
                 draws += 1;
             }
+            bound.flush(&mut pass);
         }
         if let Some(cache) = cache {
             cache.encoded.set(true);
@@ -243,6 +246,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 self.probe_variant(usize::MAX);
                 bound.group(pass, 2, &custom.resources);
                 bound.group(pass, 3, &binds.instances.as_ref().unwrap().1);
+                bound.single();
             } else {
                 let material = &self.models.materials[material.0];
                 let opaque = material.alpha == exact_game::asset::AlphaMode::Opaque
@@ -368,7 +372,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         let variant = state.variant;
         pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
         pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
-        let mut bound = Bound::default();
+        let mut bound = Bound::merging(self.probe.is_none());
         bound.group(&mut pass, 1, &self.shadow_sample);
         for (index, group) in self.cull.groups.iter().enumerate() {
             if let Some(material) = self.model_material(group.batch) {
@@ -377,6 +381,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     bound.pipeline(&mut pass, &custom.forward);
                     bound.group(&mut pass, 2, &custom.resources);
                     bound.group(&mut pass, 3, &binds.instances.as_ref().unwrap().1);
+                    bound.single();
                 } else {
                     let material = &self.models.materials[material.0];
                     let prepassed = self.prepass_active && !self.batch_skinned(group.batch);
@@ -418,11 +423,14 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             }
             let viewmodel = self.batches[group.batch].viewmodel;
             if viewmodel != layer {
+                bound.flush(&mut pass);
                 self.scene_viewport(&mut pass, state.size, viewmodel);
                 layer = viewmodel;
             }
             self.draw_group(&mut pass, &mut bound, 0, index);
         }
+        bound.flush(&mut pass);
+        drop(bound);
         if layer {
             self.scene_viewport(&mut pass, state.size, false);
         }
@@ -756,7 +764,11 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             // Blended viewmodel parts keep the viewmodel layer's depth range.
             let viewmodel = matches!(draw.kind, crate::quads::Kind::Model(index, _)
                 if self.batches[index].viewmodel)
-                || matches!(draw.kind, crate::quads::Kind::Particle(_, _, _, true));
+                || matches!(
+                    draw.kind,
+                    crate::quads::Kind::Particle(_, _, _, true)
+                        | crate::quads::Kind::Primitive(true)
+                );
             if viewmodel != layer {
                 self.scene_viewport(pass, size, viewmodel);
                 layer = viewmodel;
@@ -810,19 +822,75 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
 
 /// What a run of draws has bound, so it sets only what changes. Group 0, the
 /// scene group with its dynamic `slots` offset, is `draw_group`'s.
+///
+/// A merging run (`Bound::merging`) also holds back consecutive indirect draws
+/// over the same state and issues them as one multi-draw when the state next
+/// changes or the run is flushed; its loop flushes before anything else it sets
+/// on the pass, and at its end. A binning GPU replays a pass's draw commands
+/// in each bin, so fewer commands cost it less.
 #[derive(Default)]
 pub(crate) struct Bound<'a> {
     pipeline: Option<&'a wgpu::RenderPipeline>,
     groups: [Option<&'a wgpu::BindGroup>; 4],
     offset: u32,
+    merge: bool,
+    /// The next draw goes out alone (`Bound::single`).
+    single: bool,
+    /// Held draws: the arguments' buffer, the first one's byte offset, the count.
+    run: Option<(&'a wgpu::Buffer, u64, u32)>,
 }
 impl<'a> Bound<'a> {
+    /// A run that merges, unless a look frame's probe brackets each draw.
+    pub fn merging(merge: bool) -> Self {
+        Self {
+            merge,
+            ..Self::default()
+        }
+    }
+    /// Issue the next draw alone: a custom material's shader may read
+    /// `draw_index`, which a multi-draw counts through its run.
+    pub fn single(&mut self) {
+        self.single = true;
+    }
+    /// Issue the held draws.
+    pub fn flush(&mut self, pass: &mut wgpu::RenderPass<'_>) {
+        match self.run.take() {
+            Some((buffer, offset, 1)) => pass.draw_indexed_indirect(buffer, offset),
+            Some((buffer, offset, count)) => {
+                pass.multi_draw_indexed_indirect(buffer, offset, count)
+            }
+            None => {}
+        }
+    }
+    /// An indexed indirect draw, held to join the next when this run merges.
+    pub fn indirect(
+        &mut self,
+        pass: &mut wgpu::RenderPass<'_>,
+        buffer: &'a wgpu::Buffer,
+        offset: u64,
+    ) {
+        const ARGS: u64 = size_of::<wgpu::util::DrawIndexedIndirectArgs>() as u64;
+        if !self.merge || std::mem::take(&mut self.single) {
+            self.flush(pass);
+            pass.draw_indexed_indirect(buffer, offset);
+            return;
+        }
+        if let Some((held, first, count)) = &mut self.run {
+            if *held == buffer && *first + u64::from(*count) * ARGS == offset {
+                *count += 1;
+                return;
+            }
+        }
+        self.flush(pass);
+        self.run = Some((buffer, offset, 1));
+    }
     pub fn pipeline(
         &mut self,
         pass: &mut wgpu::RenderPass<'_>,
         pipeline: &'a wgpu::RenderPipeline,
     ) {
         if self.pipeline != Some(pipeline) {
+            self.flush(pass);
             pass.set_pipeline(pipeline);
             self.pipeline = Some(pipeline);
         }
@@ -833,10 +901,10 @@ impl<'a> Bound<'a> {
         index: u32,
         group: &'a wgpu::BindGroup,
     ) {
-        let slot = &mut self.groups[index as usize];
-        if *slot != Some(group) {
+        if self.groups[index as usize] != Some(group) {
+            self.flush(pass);
             pass.set_bind_group(index, group, &[]);
-            *slot = Some(group);
+            self.groups[index as usize] = Some(group);
         }
     }
     pub(super) fn scene(
@@ -846,12 +914,27 @@ impl<'a> Bound<'a> {
         offset: u32,
     ) {
         if self.groups[0] != Some(group) || self.offset != offset {
+            self.flush(pass);
             pass.set_bind_group(0, group, &[offset]);
             self.groups[0] = Some(group);
             self.offset = offset;
         }
     }
 }
+
+/// A loop that ends without its flush loses the draws it held.
+impl Drop for Bound<'_> {
+    fn drop(&mut self) {
+        debug_assert!(
+            self.run.is_none() || std::thread::panicking(),
+            "a merging run was dropped holding draws"
+        );
+    }
+}
+
+#[cfg(test)]
+#[path = "bound_tests.rs"]
+mod bound_tests;
 
 pub(super) fn hook_error(stage: &str, error: RenderError) -> RenderError {
     RenderError::Scene(format!("render hook {stage}: {error}"))

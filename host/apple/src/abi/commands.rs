@@ -433,10 +433,24 @@ impl<D: DataSource> Bridge<D> {
             }
             json.push_str(",\"font\":");
             match l.font {
-                Some(f) => json.push_str(&format!(
-                    "{{\"size\":{},\"weight\":{},\"italic\":{},\"family\":{},\"numeric\":{}}}",
-                    f.size, f.weight, f.italic, f.family, f.numeric
-                )),
+                Some(f) => {
+                    let [size, weight, italic, family, numeric] = exact_kernel::TextFont::SAID;
+                    let part = |bit: u8, value: String| {
+                        if f.said & bit != 0 {
+                            value
+                        } else {
+                            "null".into()
+                        }
+                    };
+                    json.push_str(&format!(
+                        "{{\"size\":{},\"weight\":{},\"italic\":{},\"family\":{},\"numeric\":{}}}",
+                        part(size, f.size.to_string()),
+                        part(weight, f.weight.to_string()),
+                        part(italic, f.italic.to_string()),
+                        part(family, f.family.to_string()),
+                        part(numeric, f.numeric.to_string())
+                    ));
+                }
                 None => json.push_str("null"),
             }
             json.push('}');
