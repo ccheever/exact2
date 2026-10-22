@@ -73,7 +73,7 @@ extension Presenter {
         Invocation(of: source, element: invocationElement)
     }
 
-    #if os(iOS)
+    #if !os(macOS)
     /// Contact can precede the press handler that mounts a named popover.
     /// Resolved targets retain their menu or overlay's existing feedback.
     func showsPopoverPress(of source: NodeView) -> Bool {
