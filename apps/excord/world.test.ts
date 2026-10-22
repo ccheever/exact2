@@ -32,7 +32,7 @@ test('deterministic general generation covers 400 days and reports its cost', ()
 
 test('history pages are chronological and exclude before/after anchors', () => {
   const w = createWorld(), all = w.latest('general', 20000).messages;
-  expect(w.latest('general', 200)).toEqual({ messages: all.slice(-200), hasBefore: true, hasAfter: false });
+  expect(w.latest("general", 200)).toEqual({ messages: all.slice(-200), previous: all[all.length - 201], hasBefore: true, hasAfter: false });
   expect(w.around('general', all[5000].id, 200).messages).toEqual(all.slice(4900, 5100));
   expect(w.around('general', all[0].id, 200).messages).toEqual(all.slice(0, 100));
   expect(w.around('general', '9999999999999999999', 200).messages).toEqual(all.slice(-101));
@@ -46,29 +46,28 @@ test('history pages are chronological and exclude before/after anchors', () => {
 });
 
 test('source windows pin, overlap while paging, echo inputs and have only their declared fields', async () => {
-  const empty = await call('loadWindow', ['', '', 0]);
+  const empty = await call('loadWindow', ['', '', 0, '']);
   expect(empty).toEqual({ channel: '', anchor: '', rows: [], hasBefore: false, hasAfter: false, firstId: '', lastId: '', pin: '' });
-  const latest = await call('loadWindow', ['general', '', 0]);
+  const latest = await call('loadWindow', ['general', '', 0, '']);
   expect(latest.rows).toHaveLength(200);
   expect(latest.pin).toBe(latest.rows[100].id);
-  const pinned = await call('loadWindow', ['general', latest.pin, 999]);
+  const pinned = await call('loadWindow', ['general', latest.pin, 999, '']);
   expect(pinned.rows).toEqual(latest.rows);
   expect(pinned.rows[0]).toBe(latest.rows[0]);
   expect(pinned.anchor).toBe(latest.pin);
-  const older = await call('loadWindow', ['general', latest.firstId, 0]);
+  const older = await call('loadWindow', ['general', latest.firstId, 0, '']);
   expect(ids(older.rows.slice(100))).toEqual(ids(latest.rows.slice(0, 100)));
-  const newer = await call('loadWindow', ['general', older.lastId, 0]);
+  const newer = await call('loadWindow', ['general', older.lastId, 0, '']);
   expect(ids(newer.rows.slice(0, 101))).toEqual(ids(older.rows.slice(99)));
   expect(newer.rows.length).toBeLessThanOrEqual(200);
   expect(older.hasBefore && older.hasAfter).toBe(true);
   expect(latest.hasAfter).toBe(false);
-  const short = await call('loadWindow', ['announcements', '', 0]);
-  expect((await call('loadWindow', ['announcements', short.pin, 0])).rows).toEqual(short.rows);
+  const short = await call('loadWindow', ['announcements', '', 0, '']);
+  expect((await call('loadWindow', ['announcements', short.pin, 0, ''])).rows).toEqual(short.rows);
   expect(Object.keys(latest).sort()).toEqual(['anchor', 'channel', 'firstId', 'hasAfter', 'hasBefore', 'lastId', 'pin', 'rows']);
   expect(Object.keys(latest.rows[0]).sort()).toEqual(['at', 'author', 'authorId', 'blocks', 'bot', 'edited', 'embeds', 'grouped', 'id',
-    'initials', 'jumbo', 'key', 'media', 'mentionsMe', 'mine', 'plain', 'prevAt', 'reactions', 'reply', 'state', 'system', 'tint']);
+    'initials', 'isNew', 'jumbo', 'key', 'media', 'mentionsMe', 'mine', 'plain', 'prevAt', 'reactions', 'reply', 'source', 'state', 'system', 'tint']);
   expect(await call('sendMessage', ['general', '  ', '', WORLD_NOW])).toEqual({ ok: false, error: 'A message needs some text.' });
-  expect(await call('noteJump', ['general', latest.firstId])).toEqual({ ok: true, error: '' });
 });
 
 test('grouping stops at exactly seven minutes, replies, system rows and failures', () => {
@@ -92,13 +91,13 @@ test('send, failure, retry, confirmation, read state and deletion preserve local
   expect(render(m).state).toBe('pending');
   w.markRead('general');
   w.inject('general', 'fail-next', '', WORLD_NOW);
-  w.settle('general');
+  w.settle();
   expect(m.state).toBe('failed');
   expect(next.state).toBe('sent');
   expect(w.channelList()[0].unread).toBe(0);
   w.retry('general', key);
   expect(m.state).toBe('pending');
-  w.settle('general');
+  w.settle();
   expect(render(m).key).toBe(key);
   expect(m.id).not.toBe(key);
   expect(render(m).state).toBe('sent');
@@ -115,7 +114,7 @@ test('send, failure, retry, confirmation, read state and deletion preserve local
   expect(render(m).reactions[0]).toMatchObject({ id: '501', src: 'assets/emoji/ferris.png' });
   w.remove('general', key);
   expect(w.message('general', m.id)).toBeUndefined();
-  expect(w.channelList()[0].pending).toBe(0);
+  expect(w.pendingSends()).toBe(0);
   const someoneElse = w.latest('general', 200).messages.find(m => m.author.id !== 'me')!;
   expect(() => w.remove('general', someoneElse.id)).toThrow('Only your own');
 });
@@ -143,7 +142,7 @@ test('above-viewport events target exactly three rows before near and invalidate
   w.edit('help', first.id, 'new reference');
   expect(render(reply).reply[0].preview).toBe('new reference');
   w.remove('help', first.id);
-  expect(render(reply).reply[0].missing).toBe(true);
+  expect(render(reply).reply[0].state).toBe("deleted");
   const tail = w.latest('help', 20).messages;
   w.inject('help', 'edit-above', 'unknown', WORLD_NOW);
   expect(w.message('help', tail[tail.length - 11].id)?.edited_timestamp).toBe(WORLD_NOW);
@@ -226,7 +225,7 @@ test('jumbo emoji, media reservation, embeds, reactions, join rows and missing r
   expect(row.embeds[0].color).toBe('#0123ab');
   expect(row.embeds[0].image[0]).toMatchObject({ fitWidth: 160, fitHeight: 320 });
   expect(row.embeds[0].description[0].runs[0].bold).toBe(true);
-  expect(row.reply[0].missing).toBe(true);
+  expect(row.reply[0].state).toBe("unknown");
   expect(renderMessage(sample(w, { type: 7, author: w.user('101')! }), undefined, w).system).toBe('Ada joined the server.');
   expect(renderMessage(sample(w, { content: '`<@me>`' }), undefined, w).mentionsMe).toBe(false);
 });
@@ -246,4 +245,47 @@ test('bundled PNGs decode at their real sizes, stay small and include deliberate
   const mismatched = attachments.filter(a => a.width && a.width !== photos.find(p => a.filename === `${p.name}.png`)!.width);
   expect(mismatched.length / attachments.length).toBeCloseTo(0.2, 1);
   expect(attachments.filter(a => !a.width).length / attachments.length).toBeCloseTo(0.1, 1);
+});
+
+test('a page carries the message before it, and a first row says when it does not know it (review: Grok 7)', () => {
+  const w = createWorld(), render = createRenderer(w);
+  const page = w.around('general', w.latest('general', 300).messages[0].id, 200);
+  expect(page.previous?.id).toBe(w.previous('general', page.messages[0].id)?.id);
+  expect(render(page.messages[0], page.previous).prevAt).toBe(page.previous!.timestamp);
+  const unheld = render(page.messages[0], undefined, true);
+  expect(unheld.prevAt).toBe(-1);
+  expect(unheld.grouped).toBe(false);
+});
+
+test('a reply tells a deleted original from one the store has not loaded (review: Sol 9)', () => {
+  const w = createWorld(), render = createRenderer(w);
+  const first = w.send('random', 'kept', '', WORLD_NOW);
+  w.settle();
+  const reply = w.send('random', 'answer', first.id, WORLD_NOW + 1000);
+  const elsewhere = w.send('random', 'far', '0037000000000000001', WORLD_NOW + 2000);
+  expect(render(reply).reply[0].state).toBe('present');
+  expect(render(elsewhere).reply[0].state).toBe('unknown');
+  w.remove('random', first.id);
+  expect(render(reply).reply[0].state).toBe('deleted');
+});
+
+test('arrivals are counted apart from deletions, and settling covers every channel (review: Sol 5, 7)', () => {
+  const w = createWorld();
+  const before = w.channelList()[0].arrived;
+  w.inject('general', 'delete-above', '', WORLD_NOW);
+  w.inject('general', 'message', '', WORLD_NOW);
+  expect(w.channelList()[0].arrived).toBe(before + 1);
+  w.send('general', 'one', '', WORLD_NOW + 1000);
+  w.send('random', 'two', '', WORLD_NOW + 2000);
+  expect(w.pendingSends()).toBe(2);
+  w.settle();
+  expect(w.pendingSends()).toBe(0);
+});
+
+test('the first unread message can be deleted; the read position stays (review: Sol 6)', () => {
+  const w = createWorld(), c = w.channelList()[0];
+  w.inject('general', 'delete-unread', '', WORLD_NOW);
+  expect(w.message('general', c.firstUnread)).toBeUndefined();
+  expect(w.channelList()[0].lastRead).toBe(c.lastRead);
+  expect(w.channelList()[0].firstUnread > c.firstUnread).toBe(true);
 });
