@@ -14,6 +14,7 @@ import type { T3Client } from '../client/client';
 import { providerAvailable, type Native } from '../client/protocol';
 import { deviceTool } from '../device/settings-a-integrations';
 import { deviceHostsView, scopedDeviceHostsView } from '../device/settings-a-hosts';
+import { easHostsView } from '../device/settings-eas-hosts';
 import { deviceScope } from '../device/settings-integrations-scope';
 import { connectedEnvironmentCount, simulatorSupportRows, type SimulatorSupportRow } from '../device/device-support'; // 5318d054a5: Simulator support row
 import { letGo } from '../client/let-go';
@@ -42,7 +43,7 @@ export type ScopedRow = { key: string; kind: string; title: string; description:
 
 export const DEFAULTS: Obj = { defaultAutoPull: false, pullRequestMergeMethod: null, branchNamingMode: 'static', branchNamePrefix: 't3', branchNameInstructions: '',
   sourceControlWritingStyle: { mode: 'repo_conventions', customInstructions: '', followChangeRequestTemplates: true }, sourceControlWriterModelSelection: null, reviewGuideModelSelection: null, reviewGuideInstructions: '', reviewGuidesEnabled: false, removeAgentCreditsOnMerge: false,
-  enableAgentBrowserAccess: true, enableAgentDeviceAccess: false, enableDeviceSupport: false, defaultModelSelection: null, defaultThreadEnvMode: null, deviceHosts: [] };
+  enableAgentBrowserAccess: true, enableAgentDeviceAccess: false, enableDeviceSupport: false, defaultModelSelection: null, defaultThreadEnvMode: null, deviceHosts: [], easDeviceHosts: [] };
 const PROJECT_KEYS = ['defaultModelSelection', 'defaultThreadEnvMode', 'defaultAutoPull', 'enableAgentBrowserAccess', 'enableAgentDeviceAccess', 'sourceControlWriterModelSelection', 'reviewGuideModelSelection', 'reviewGuideInstructions', 'sourceControlWritingStyle', 'removeAgentCreditsOnMerge', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'pullRequestMergeMethod'];
 const MERGE_LABELS: Record<string, string> = { merge: 'Merge', squash: 'Squash and merge', rebase: 'Rebase and merge' };
 const BRANCH_MODES: Record<string, string> = { static: 'Static prefix', semantic: 'Semantic prefix', custom: 'Custom instructions' };
@@ -153,6 +154,7 @@ export function integrationRows(settings: Obj, projectId: string, environmentLab
       description: 'Allow new agent sessions in this environment to start and control local and remote devices, with required tools set up automatically.',
       reset: project ? (overridden('enableAgentDeviceAccess') ? 'key=enableAgentDeviceAccess&value=__inherit__' : '') : '' }),
     hostsRow: row(settings, projectId, environmentLabel, 'deviceHosts', { kind: 'hosts', title: 'Device hosts' }),
+    easHostsRow: row(settings, projectId, environmentLabel, 'easDeviceHosts', { kind: 'hosts', title: 'EAS Simulator' }),
   };
 }
 
@@ -311,6 +313,7 @@ export async function sourceControlPage(client: T3Client, native: Native | null 
 export async function integrationsPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, machine = '', projectKey = '', checkout = '') {
   const empty = { available: false, error: '', project: projectId !== '', scope: `${environmentId}:${projectId}`, deviceScope: '', browser: [] as ScopedRow[], deviceHub: blankRow(), agentDevice: blankRow(), hubStatus: '', agentStatus: '', hosts: 0,
     hubTool: deviceTool('hub', null), agentTool: deviceTool('agent', null), hostsRow: blankRow(), deviceHosts: deviceHostsView(client, {}, null, projectId !== '', false),
+    easHostsRow: blankRow(), easHosts: easHostsView(client, {}, null, projectId !== '', false, false),
     simulatorSupport: [] as SimulatorSupportRow[], linkTarget: linkTargetPreference(client) }; // "Open links in"
   if (!active) return { ...empty };
   const error = scopeError(client, native, environmentId, projectId);
@@ -329,7 +332,7 @@ export async function integrationsPage(client: T3Client, native: Native | null |
     const devices = deviceScope(client, machine, legacy ? legacy.key : projectKey, legacy ? '' : checkout);
     const scope = resolveScope(client, machine, legacy?.key ?? projectKey, checkout);
     const context = serverContext(client, scope, await memberFiles(client, native, scope.members, scope));
-    for (const row of [...rows.browser, rows.deviceHub, rows.agentDevice, rows.hostsRow]) row.layerGroups = inheritanceGroups(context, row.key, DEFAULTS);
+    for (const row of [...rows.browser, rows.deviceHub, rows.agentDevice, rows.hostsRow, rows.easHostsRow]) row.layerGroups = inheritanceGroups(context, row.key, DEFAULTS);
     rows.deviceHub = { ...rows.deviceHub, checked: devices.checked.enableDeviceSupport, mixed: devices.mixed.enableDeviceSupport,
       disabled: devices.project || devices.unavailable || devices.connectedCount === 0 || !can(client, 'settings:write') };
     rows.agentDevice = { ...rows.agentDevice, checked: devices.checked.enableAgentDeviceAccess, mixed: devices.mixed.enableAgentDeviceAccess,
@@ -341,6 +344,7 @@ export async function integrationsPage(client: T3Client, native: Native | null |
     const hubStatus = deviceState ? toolVersion(tools.hub) : 'Version unknown', agentStatus = deviceState ? toolVersion(tools.agent) : 'Version unknown';
     return { ...empty, available: true, ...rows, deviceScope: devices.scopeKey, hubStatus, agentStatus, hosts: Array.isArray(settings.deviceHosts) ? settings.deviceHosts.length : 0,
       hubTool: deviceTool('hub', deviceState), agentTool: deviceTool('agent', deviceState), deviceHosts: scopedDeviceHostsView(client, native, resolveScope(client, machine, legacy?.key ?? projectKey, checkout).selected, resolveScope(client, machine, legacy?.key ?? projectKey, checkout).environments, deviceState, projectId !== ''),
+      easHosts: easHostsView(client, settings, deviceState, projectId !== '', can(client, 'settings:write'), client.ready),
       simulatorSupport: simulatorSupportRows(client, environmentId, settings.enableDeviceSupport === true, deviceState, connectedEnvironmentCount(client)) };
   } catch (failure) { return { ...empty, error: failure instanceof Error ? failure.message : 'Could not load settings.' }; }
 }

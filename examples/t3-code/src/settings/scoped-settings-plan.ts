@@ -18,7 +18,7 @@ export const PROJECT_FILE_BACKED_SETTINGS: Record<string, { field: string; built
   defaultThreadEnvMode: { field: 'defaultThreadEnvMode', builtIn: 'local' }, worktreeSubmodules: { field: 'worktreeSubmodules', builtIn: 'recursive' } };
 const SERVER_KEYS = new Set(['worktreesDirectory', 'favorites', 'providerModelPreferences', 'worktreeCleanup', 'storageCleanup', 'responseStreamingMode', 'enableProviderUpdateChecks', 'continueThreadsAfterServerUpdate', 'enableAgentBrowserAccess',
   'projectAgentBrowserAccessOverrides', 'defaultAutoPull', 'defaultProjectScripts', 'projectScriptOverrides', 'projectAutoPullOverrides', 'defaultModelSelection', 'defaultRuntimeMode',
-  'projectSettingsOverrides', 'projectSettingsFolded', 'enableAgentDeviceAccess', 'enableDeviceSupport', 'deviceOnboardingCompleted', 'deviceHosts', 'sidebarAutoSettleAfterDays',
+  'projectSettingsOverrides', 'projectSettingsFolded', 'enableAgentDeviceAccess', 'enableDeviceSupport', 'deviceOnboardingCompleted', 'deviceHosts', 'easDeviceHosts', 'sidebarAutoSettleAfterDays',
   'snoozeLimitedThreads', 'compactIdleThreads', 'autoResumeLimitedThreads', 'sidebarAutoSettleOnMerge', 'sidebarAutoSettleKeepPullRequests', 'backgroundActivity', 'automaticGitFetchInterval', 'providerHealthRefreshInterval',
   'backgroundActivityProfile', 'defaultTheme', 'defaultThemeSetAt', 'environmentIcon', 'defaultThreadEnvMode', 'newWorktreesStartFromOrigin', 'worktreeSubmodules',
   'addProjectBaseDirectory', 'textGenerationModelSelection', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'sourceControlWritingStyle',
