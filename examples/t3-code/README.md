@@ -351,9 +351,9 @@ app (a launcher holding ⌘1, say) never reaches the window.
 
 Saved environments and their credentials are one kept secret, `t3-catalog` (granted by `secret.keep
 t3-catalog`, kept in the Keychain on macOS; `transport-catalog.ts`), each token scoped to the server
-origin and environment. The Swift module atomically saves the versioned `t3-code.json` preference file (selections,
-drafts, sidebar and page preferences, dismissed notices, pending operation identities)
-under Exact's app data directory. **Disconnect** keeps the credential; **Forget**
+origin and environment. The data module atomically saves the versioned preference file, `app:/data/t3-code.json`
+(selections, drafts, sidebar and page preferences, dismissed notices, pending operation identities), through
+Exact's `storage.fs` (`protocol.ts` `preferenceFiles`); a drive that names no scratch store keeps none of it. **Disconnect** keeps the credential; **Forget**
 removes it. The embedded server is the primary environment, "This machine"
 (`local-primary.ts`): the client connects to it with the
 bearer the server issued at start (memory only, never kept), never saves it and never
@@ -501,8 +501,6 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
   light appearance; CSS `filter` applies only to SVG elements, and an SVG `image` is not built.
 - `T3ImageAccent.swift` and `T3ComposerImageChip.swift`: an image's average colour needs its
   pixels, and readback is refused. The latter supplies raw image facts only.
-- `RightPanelTabsInput.swift`: the device tab's rename field keeps Escape and ⌘ chords to itself;
-  an `aria-keyshortcuts` button hears its chord before a field's `key` handler.
 - `T3RemoteEditors.swift` (probing installed editors needs a process and file checks; `openURL`
   opens only http, https, mailto and tel), `T3InstalledFonts.swift` (no `queryLocalFonts`),
   `T3Locale.swift` (`exactTime().locale` is the preferred language, where Electron's
@@ -553,9 +551,12 @@ Differences that belong to the app:
 - The terminal's attach stream, the Browser's automation replies and the device hub's tickets keep
   a second, module-owned socket per environment (`T3Link.swift`), which the transport's `links` op
   tells the routes and bearers of the environments it has connected: the terminal's bytes go
-  straight to its web view instead of through a commit each. The global pointer and key monitor
-  that dates the last interaction stays native too (`T3ActivityInput.swift`); the activity reporter
-  is TypeScript.
+  straight to its web view instead of through a commit each.
+- The last interaction (the activity reporter's and the pull request surfaces' idle rule) is the
+  window root's `pointermove`, `pointerdown`, `wheel` and `keycapture`, to the second
+  (app.contract `interacted`). Keys and scrolls the terminal's and the Browser's web views take
+  never reach the root: typing in the terminal alone does not keep the reader recent, where the
+  reference's terminal is in its page (until the terminal is a bundled page, task A5).
 - Under the agent driver, a clock step that has a timer due first waits for every answer in flight,
   up to 20 s. Answers send their own requests, so that wait ends when the server replies, not after
   20 s; the app itself runs its timers on the wall clock. Under the agent the transport's

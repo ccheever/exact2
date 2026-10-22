@@ -253,7 +253,7 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
     else if (dismiss === 'key') a.md.call('keys', a.state, answerScope, ['ArrowRight', {}]);
     else {
       w.outsideDown = false;
-      window.call('outsidePressDown', w, { prDetail: { actions: { armedAction: '' } }, chipShown: false, detailsOpen: false,
+      window.call('outsidePressDown', w, { interacted: () => {}, prDetail: { actions: { armedAction: '' } }, chipShown: false, detailsOpen: false,
         frame: () => ({ ...geometry(0, 0, 0, 0), unavailable: true }) }, [{ buttons: 1, clientX: 100, clientY: 100 }]);
     }
     props.citeWaitDone = 1;
@@ -341,7 +341,7 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
     // A press during the scroll, or a withdrawal, forgets it; a scrollend with nothing parked shows nothing.
     window.call('citeOfferSet', w, props, [offer]);
     window.call('citeScrolled', w, {}, [0, 120]);
-    window.call('outsidePressDown', w, { prDetail: { actions: { armedAction: '' } }, chipShown: false, detailsOpen: false, frame: () => geometry(0, 0, 0, 0) }, [{ buttons: 1, clientX: 300, clientY: 300 }]);
+    window.call('outsidePressDown', w, { interacted: () => {}, prDetail: { actions: { armedAction: '' } }, chipShown: false, detailsOpen: false, frame: () => geometry(0, 0, 0, 0) }, [{ buttons: 1, clientX: 300, clientY: 300 }]);
     settle(geometry(280, 151.42, 672, 45.5));
     expect(w.citeFor).toBe('');
     window.call('citeOfferSet', w, props, [offer]);
@@ -379,7 +379,7 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
   test('a press anywhere but on Cite hides it (observeSelectionActions\' pointerdown); one on Cite keeps it for its press', () => {
     const at = (x: number, y: number) => {
       const state: Env = { outsideDown: false, citeFor: '["t","a"]', citeParked: '', keybindingField: '' };
-      window.call('outsidePressDown', state, { prDetail: { actions: { armedAction: '' } }, chipShown: false, detailsOpen: false, frame: (id: string) => id === 'cite-action' ? geometry(501, 385, 65.3, 28) : geometry(0, 0, 0, 0) },
+      window.call('outsidePressDown', state, { interacted: () => {}, prDetail: { actions: { armedAction: '' } }, chipShown: false, detailsOpen: false, frame: (id: string) => id === 'cite-action' ? geometry(501, 385, 65.3, 28) : geometry(0, 0, 0, 0) },
         [{ buttons: 1, clientX: x, clientY: y }]);
       return state;
     };

@@ -25,7 +25,7 @@ function transcript() {
 describe('a transcript tooltip and the transcript\'s scroll', () => {
   test('a scroll closes the hovered tip; the pointer moving reopens it', () => {
     const t = transcript(), state = tip.state({ tipEpoch: t.root.tipEpoch });
-    const scope = () => ({ tipEpoch: t.root.tipEpoch, tipArm: t.tipArm });
+    const scope = () => ({ tipEpoch: t.root.tipEpoch, tipArm: t.tipArm, interacted: () => {} });
     tip.call('setOver', state, scope(), [true]);
     expect(state.seen).toBe(t.root.tipEpoch);
     t.scroll();
@@ -39,7 +39,7 @@ describe('a transcript tooltip and the transcript\'s scroll', () => {
 
   test('a focused trigger keeps its tip through a scroll, and leaving it does not close it', () => {
     const t = transcript(), state = tip.state({ tipEpoch: 0 });
-    const scope = () => ({ tipEpoch: t.root.tipEpoch, tipArm: t.tipArm });
+    const scope = () => ({ tipEpoch: t.root.tipEpoch, tipArm: t.tipArm, interacted: () => {} });
     tip.call('setOver', state, scope(), [true]);
     tip.call('focusEntered', state, scope(), [{ target: 'x' }]);
     t.scroll();

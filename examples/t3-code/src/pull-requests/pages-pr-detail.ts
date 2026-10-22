@@ -39,7 +39,7 @@ import {
   readPullRequestDetailSnapshot, resolveDisplayedPullRequestDetail, resolvePullRequestReferenceHost,
   shouldRefreshPullRequestActivity, writePullRequestDetailSnapshot, type PullRequestDetailSnapshotRef,
 } from './pages-pr-logic';
-import { holdPullRequestRefreshes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, snapshotStorage, viewRefreshedAt } from './pages-pr-refresh';
+import { holdPullRequestRefreshes, interactionResumes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, snapshotStorage, viewRefreshedAt } from './pages-pr-refresh';
 import { breakdownKey, emptyBreakdown, presentChangeBreakdown, readChangeBreakdowns, releaseChangeBreakdowns, type BreakdownTarget } from './pr-change-breakdown';
 import { commentFilter, conversationBodies, emptySummary, presentSummary, toggleCommentFilter, type CommentFilter, type RemarkWrites } from './pages-pr-summary';
 import { emptyTimeline, presentTimeline } from './pages-pr-timeline';
@@ -176,7 +176,7 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
   if (!live) return present(view, panel ?? null, selection, listEntry, input.now, client);
   native!.watch?.(PR_WAKE_TOPIC);
   await holdPullRequestRefreshes(client, native!, 'detail', true);
-  const viewKey = `pull-request:${key}`, facts = { visible: input.visible !== false, returns: input.returns ?? 0 };
+  const viewKey = `pull-request:${key}`, facts = { visible: input.visible !== false, returns: (input.returns ?? 0) + interactionResumes(client) };
   const arriving = !shown.get(client)?.startsWith(`${key}|`);
   if (!panel) {
     const kept = readPullRequestDetailSnapshot(snapshotStorage(client.local ? client : { local: {} }), client.environmentId, reference);
@@ -190,10 +190,10 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
     // pullRequests.subscribeRefreshes: the server announced a change; detail and activity read again.
     const epoch = pullRequestRefreshEpoch(client);
     if (epoch !== panel.epoch) { panel.epoch = epoch; panel.detailDue = panel.activityDue = true; }
-    // useLiveRefresh's window listeners: `focus`, and `visibilitychange` to visible, are arrivals.
+    // useLiveRefresh's window listeners: `focus`, `visibilitychange` to visible and an interaction after six idle minutes are arrivals.
     const shownAgain = (facts.visible && !panel.facts.visible) || facts.returns !== panel.facts.returns;
     panel.facts = facts;
-    await liveRefresh(client, native!, panel, viewKey, input, arriving || shownAgain);
+    liveRefresh(client, panel, viewKey, input, arriving || shownAgain);
   }
   if (viewRefreshedAt(client, viewKey) === undefined) noteViewRefreshed(client, viewKey, input.now); // the mount's own read fills it in
   // Something new to show first: show it, and ask again for the read that follows.
@@ -232,11 +232,11 @@ async function wake(client: T3Client, native: Native, view: PrDetailView, panel:
   try { await native.later({ op: 'wake', topic: PR_WAKE_TOPIC }); } catch (error) { if (letGo(error)) throw error; }
   return view;
 }
-/** useLiveRefresh: an arrival (a reopened view, the window shown or focused again) and the 5-minute interval read the detail. */
-async function liveRefresh(client: T3Client, native: Native, panel: Panel, viewKey: string, input: DetailInput, arrival: boolean): Promise<void> {
+/** useLiveRefresh: an arrival (a reopened view, the window shown or focused again, the reader back from idle) and the 5-minute interval read the detail. */
+function liveRefresh(client: T3Client, panel: Panel, viewKey: string, input: DetailInput, arrival: boolean): void {
   if (panel.detailDue) return;
   const ask = { visible: input.visible !== false, now: input.now, arrival };
-  if (liveRefreshAsked(client, viewKey, ask) && await liveRefreshDue(client, native, viewKey, ask)) panel.detailDue = true;
+  if (liveRefreshAsked(client, viewKey, ask) && liveRefreshDue(client, viewKey, ask)) panel.detailDue = true;
 }
 async function readDetail(client: T3Client, native: Native, panel: Panel, ref: Obj, storage: Files | undefined): Promise<void> {
   try {

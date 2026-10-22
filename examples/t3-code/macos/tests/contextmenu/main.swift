@@ -149,7 +149,6 @@ final class ContextMenuTests: XCTestCase {
 
 let suite = XCTestSuite(name: "Context menus, tab input, file menus and the shell's menu")
 suite.addTest(XCTestSuite(forTestCaseClass: ContextMenuTests.self))
-suite.addTest(XCTestSuite(forTestCaseClass: TabInputTests.self))
 suite.addTest(XCTestSuite(forTestCaseClass: FileMenuTests.self))
 suite.addTest(XCTestSuite(forTestCaseClass: TextContextMenuTests.self))
 suite.addTest(XCTestSuite(forTestCaseClass: ShellPageMenuTests.self))

@@ -625,9 +625,9 @@ describe('inline confirmation input', () => {
     const scope = { prDetail: { ref: 'pr7', actions: { armedAction: 'merge', armedSerial: 9 } }, prConfirmTarget: 'pull-request-primary',
       frame: () => ({ x: 20, y: 20, width: 80, height: 24 }), prConfirmDisarm: (...args: unknown[]) => sent.push(args), chipShown: false, detailsOpen: false };
     const state = { outsideDown: false, keybindingField: '', citeFor: '', citeParked: '' };
-    window.call('outsidePressDown', state, scope, [{ buttons: 1, clientX: 40, clientY: 30 }]);
+    window.call('outsidePressDown', state, { ...scope, interacted: () => {} }, [{ buttons: 1, clientX: 40, clientY: 30 }]);
     expect(sent).toEqual([]);
-    window.call('outsidePressDown', state, scope, [{ buttons: 1, clientX: 400, clientY: 300 }]);
+    window.call('outsidePressDown', state, { ...scope, interacted: () => {} }, [{ buttons: 1, clientX: 400, clientY: 300 }]);
     expect(sent).toEqual([['pr7', 'serial:9']]);
     const root = contractComponent('app.contract', 'T3Code');
     const requests: unknown[][] = [];

@@ -119,6 +119,7 @@ component ShortcutDispatch
 component ShortcutButton
   inject
     releaseUndoClaim: action
+    renameHoldsKeys: bool
   props
     item: KeyDispatch
     press: action
@@ -128,13 +129,14 @@ component ShortcutButton
       releaseUndoClaim()
     press()
   view
-    button hatch="t3-terminal-key" data-anchor=item.command press=pressed aria-keyshortcuts=item.chord tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+    button hatch="t3-terminal-key" data-anchor=item.command press=pressed aria-keyshortcuts=(renameHoldsKeys ? "" : item.chord) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
       text item.label font-size=1
 
 // ShortcutButton for an action that reads the press's event (chat.new: ⇧-click creates at once; a chord's press has none).
 component ShortcutEventButton
   inject
     releaseUndoClaim: action
+    renameHoldsKeys: bool
   props
     item: KeyDispatch
     press: action
@@ -142,7 +144,7 @@ component ShortcutEventButton
     releaseUndoClaim()
     press(e)
   view
-    button hatch="t3-terminal-key" data-anchor=item.command press=pressed aria-keyshortcuts=item.chord tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+    button hatch="t3-terminal-key" data-anchor=item.command press=pressed aria-keyshortcuts=(renameHoldsKeys ? "" : item.chord) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
       text item.label font-size=1
 
 // View › Reload and Force Reload (DesktopApplicationMenu.ts:233-234, Electron's `reload` and `forceReload` roles): the

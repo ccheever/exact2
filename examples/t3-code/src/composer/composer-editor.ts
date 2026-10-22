@@ -29,7 +29,7 @@ import { videoOp } from './composer-attachments';
 import { annotationChipContexts, annotationMessageRecords } from '../browser/browser-annotation'; // Annotate's chips
 import { composerFieldOwner } from './auto-balance-owner';
 import { requestComposerField, type ComposerFieldCompletion } from './composer-field-request';
-import { nativeFiles } from '../client/protocol';
+import { preferenceFiles } from '../client/protocol';
 import { composerFieldCurrent } from './composer-field-bridge';
 import { composerChips, composerTrigger } from './composer-source-chips';
 import { composerSourceSession } from './composer-rich-state';
@@ -396,10 +396,10 @@ export async function editorLocal(client: T3Client, native: Native, op: string, 
     const live = await editorCall(native, { op: 'editorState' }).then(state => typeof state.text === 'string' ? state.text : client.draft, () => client.draft);
     const id = `stash-${localId()}`, now = new Date(n || 0);
     if (live.trim()) {
-      await replaceAll(client, native, '', { applied: async current => {
+      await replaceAll(client, native, '', { applied: async () => {
         const result = stashPrompt({ local: client.local, draft: live, environmentId: client.environmentId }, id, now);
         if (result.evicted) pushToast(client, { kind: 'warning', title: 'Oldest stashed prompt discarded', description: `The stash holds ${MAX_STASH_ENTRIES} prompts; the oldest was removed to make room.`, hideCopy: true });
-        await client.persist(nativeFiles(current));
+        await client.persist(preferenceFiles());
       } }, live);
     } else if (stashEntries(client.local).length === 1) await restoreStash(client, native, stashEntries(client.local)[0]!.id);
     else entry.stashOpen = !entry.stashOpen;
@@ -424,10 +424,10 @@ async function restoreStash(client: T3Client, native: Native, id: string): Promi
   if (!field) throw new ClientError('The composer is not ready.');
   const current = field.value;
   const prompt = !entry.prompt ? current : current.trim() ? `${current.replace(/\s+$/, '')}\n\n${entry.prompt}` : entry.prompt;
-  await replaceAll(client, native, prompt, { applied: async current => {
+  await replaceAll(client, native, prompt, { applied: async () => {
     if (stashEntries(client.local).find(item => item.id === id) !== entry) return;
     deleteStashEntry(client.local, id);
-    await client.persist(nativeFiles(current));
+    await client.persist(preferenceFiles());
   } }, current);
 }
 /** The chord a keybinding command currently resolves to, as aria-keyshortcuts. */

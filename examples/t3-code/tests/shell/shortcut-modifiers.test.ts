@@ -104,14 +104,14 @@ describe('the window tracks held modifiers from its key events', () => {
   test('the window hears every key through capture and the keyup; a focus at a field empties the route\'s state', () => {
     const calls: unknown[][] = [], selectors: string[] = [];
     const state: Env = { focusEditable: false, dialogFocusId: '', dialogFocusOwner: '', dialogFocusPopup: '', dialogFocusInvoker: '' };
-    const props: Env = { modifierKey: (...args: unknown[]) => calls.push(args), modifierEditableFocus: () => calls.push(['field']), chipFocusChanged: () => {},
+    const props: Env = { modifierKey: (...args: unknown[]) => calls.push(args), modifierEditableFocus: () => calls.push(['field']), chipFocusChanged: () => {}, interacted: () => calls.push(['interacted']),
       querySelectorAll: (selector: string) => { selectors.push(selector); return ['composer', 'pull-requests-search', 'palette-input']; } };
     window.call('windowFocused', state, props, [{ target: 'composer' }]);
     expect(state.focusEditable).toBe(true);
     window.call('modifierDown', state, props, ['Shift', { key: 'Shift', shiftKey: true }]);
     window.call('windowFocused', state, props, [{ target: 'pr-row-7' }]);
     window.call('modifierUp', state, props, ['Shift', { key: 'Shift' }]);
-    expect(calls).toEqual([['field'], [true, { key: 'Shift', shiftKey: true }, true], [false, { key: 'Shift' }, false]]);
+    expect(calls).toEqual([['field'], [true, { key: 'Shift', shiftKey: true }, true], ['interacted'], [false, { key: 'Shift' }, false]]); // a keydown is an interaction (backgroundActivityReporter's)
     expect(new Set(selectors)).toEqual(new Set(['[data-editable~="yes"]']));
     // Focus leaving the window's subtree for nothing leaves no field focused.
     window.call('windowFocused', state, props, [{ target: 'composer' }]);
@@ -121,7 +121,7 @@ describe('the window tracks held modifiers from its key events', () => {
   test('a dialog\'s field (the palette\'s input) is a field too, though the dialog stops the focusin', () => {
     const calls: unknown[][] = [];
     const state: Env = { focusEditable: false, dialogFocusId: '', dialogFocusOwner: '', dialogFocusPopup: '', dialogFocusInvoker: '', dialogFrames: [], dialogSeated: [] };
-    const scope: Env = { modifierKey: (...args: unknown[]) => calls.push(args), modifierEditableFocus: () => calls.push(['field']), chipFocusChanged: () => {}, stopPropagation: () => {},
+    const scope: Env = { modifierKey: (...args: unknown[]) => calls.push(args), modifierEditableFocus: () => calls.push(['field']), chipFocusChanged: () => {}, stopPropagation: () => {}, interacted: () => {},
       querySelectorAll: (selector: string) => selector.includes('editable') ? ['palette-input'] : [], frame: () => ({ unavailable: true, width: 0, height: 0 }),
       dialogLineage: () => [], dialogReturn: (...args: unknown[]) => args, dialogFrame: (owner: string, returns: unknown) => ({ owner, returns }) };
     window.call('dialogEntered', state, scope, ['palette', { target: 'palette-input' }]);

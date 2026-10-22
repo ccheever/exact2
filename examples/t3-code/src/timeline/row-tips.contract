@@ -10,6 +10,7 @@ component RowTip
   inject
     tipEpoch: number
     tipArm: action
+    interacted: action
   props
     label: string
     side: string
@@ -27,6 +28,7 @@ component RowTip
       tipArm()
       seen = tipEpoch
   action moved
+    interacted()
     tipArm()
     seen = tipEpoch
   action focusEntered(e: FocusEvent)

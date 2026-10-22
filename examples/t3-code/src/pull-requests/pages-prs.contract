@@ -187,6 +187,7 @@ fn prGroupIcon(group: string): string = group == "authored" ? "pen-line" : group
 component PrList
   inject
     rem: number
+    interacted: action
   props
     // --workspace-controls-left (90 beside the traffic lights; 0.75rem in full screen).
     controlsLeft: number
@@ -230,6 +231,7 @@ component PrList
       sweepY = e.clientY
       sweepDragging = false
   action sweepMove(e: PointerEvent)
+    interacted()
     if sweepGroup != "" and e.buttons == 1
       let nextY = e.clientY
       let started = sweepDragging or max(nextY - sweepStartY, sweepStartY - nextY) >= 6
