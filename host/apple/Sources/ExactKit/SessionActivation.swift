@@ -62,6 +62,7 @@ extension ExactSession {
         }
         storeRefresh.record(batch)
         retryStoreActivation()
+        deliverModuleEvents() // a launching activation, once the module and the data are up (LLP 1133.004 D6)
         canvases.loadIfNeeded()
         openNativeViews(drawnGeneration)
         drainSurfaceWorkNow()
@@ -76,5 +77,29 @@ extension ExactSession {
         guard nativesOpened != drawnGeneration else { return }
         nativesOpened = drawnGeneration
         natives.activateAfterCommit { [weak self] in self.map { $0.state != .destroyed && $0.generation == drawnGeneration } ?? false }
+    }
+}
+
+extension ExactSession {
+    /// A module event the platform reported for this session (LLP 1133.004
+    /// D6): held from launch until first pixel and the data's activation,
+    /// then heard in order, once. `activation` is true only for a platform
+    /// callback that reports a person's act on its own UI.
+    func raiseModuleEvent(extension name: String, event: String, args: String, activation: Bool) {
+        guard state != .destroyed else { return }
+        let body: [String: Any] = ["extension": name, "event": event, "args": (try? JSONSerialization.jsonObject(with: Data(args.utf8))) ?? [], "activation": activation]
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else { return }
+        heldModuleEvents.append(String(decoding: data, as: UTF8.self))
+        if dataGeneration != nil { deliverModuleEvents() }
+    }
+
+    /// Each held module event, in order; then whatever the runner queued (an
+    /// agent's tap of a listed entry).
+    func deliverModuleEvents() {
+        guard state != .destroyed, booted, firstDrawMs != nil else { return }
+        let held = heldModuleEvents
+        heldModuleEvents = []
+        for json in held { apply(runtime.moduleEvent(json)) }
+        if held.isEmpty { apply(runtime.moduleEvent("{}")) }
     }
 }

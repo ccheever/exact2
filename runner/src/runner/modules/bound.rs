@@ -80,7 +80,23 @@ impl<D: DataSource> Runner<D> {
         // An option the call omits is left out, so it stays the platform's (D2).
         let mut args = args;
         written(&mut args);
-        let body = json!({ "extension": self.plan.str(row.extension), verb: self.plan.str(row.declared), "args": args });
+        let mut body = json!({ "extension": self.plan.str(row.extension), verb: self.plan.str(row.declared), "args": args });
+        // A device-origin call that would ask (LLP 1133.002 D12): the host
+        // reads the status first and refuses it while `prompt`, since only
+        // the implementation knows the platform's state.
+        let sub = self.substitute(row);
+        if self.extensions.events.origin() != super::Origin::Person
+            && self.asks(row, row.send)
+            && sub["admission"] != "none"
+            && sub["permission"]["status"].is_string()
+        {
+            body["origin"] = json!("device");
+            body["admit"] = json!({
+                "status": sub["permission"]["status"],
+                "field": sub["permission"]["field"],
+                "denied": sub["permission"]["denied"],
+            });
+        }
         if row.live && !row.send {
             self.extensions.live.insert(self.key(row));
         }
