@@ -306,7 +306,21 @@ leaves for the host to resolve, with `home:/` alone refused
 (`home-grant-whole`). `env.read login:<NAME>` needs nothing: a login
 variable is its own name. `boundary.rs` names the two capabilities.
 exact2's `grants` crate is the same grammar, and its parity test reads the
-shared corpus. Replay on a refresh.
+shared corpus.
+
+Stage 1 adds the transport and the file operations. `process/` starts a
+child in a process group of its own with default signals and only its three
+pipes (`posix_spawn` on macOS, `fork` and `execve` with
+`PR_SET_PDEATHSIG` on Linux) and answers what the host's supervision needs:
+waiting, readiness of a pipe, signalling a group and listing its members,
+a process's start time and the boot's identity, the password database's
+home directory and login shell. `stdlib/fs.rs` resolves `home:/` and
+`bundle:/` against roots the host sets (`set_roots`), the bundle read
+only, each path admitted as spelt and once its links are followed, and
+reads `stat`'s `mode` and `isSymbolicLink`; `fs_more.rs` adds `lstat`,
+`readlink`, `access`, `chmod`, `symlink`, `digest` and `flock`/`unlock`,
+host opcodes 122 to 129 in `host_opcodes.rs` and `boundary_abi.rs`, the
+methods in `bindings/install.cc` and `storage.d.ts`. Replay on a refresh.
 
 ## Qualification boundaries
 

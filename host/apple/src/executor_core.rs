@@ -423,6 +423,7 @@ impl Core {
     /// before the first request; without it such a request is refused.
     pub(super) fn set_app_roots(&self, roots: [std::path::PathBuf; 3]) {
         let _ = self.shared.root_paths.set(roots);
+        process::launched(&self.shared);
     }
 
     #[cfg(test)]
@@ -1446,7 +1447,16 @@ fn check_headers(
     Ok(r)
 }
 
-#[path = "executor_process.rs"]
+// The process transport exists where a host starts programs (LLP 1133.007
+// §8); elsewhere every request answers `Unsupported` and none of it links.
+#[cfg_attr(
+    any(target_os = "macos", target_os = "linux"),
+    path = "executor_process.rs"
+)]
+#[cfg_attr(
+    not(any(target_os = "macos", target_os = "linux")),
+    path = "executor_process_off.rs"
+)]
 mod process;
 #[path = "executor_stream.rs"]
 mod stream;

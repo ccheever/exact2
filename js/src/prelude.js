@@ -993,7 +993,7 @@
     });
   }
   var files = { directories: Object.freeze({ data:"app:/data", cache:"app:/cache", temporary:"app:/tmp" }) };
-  ["readFile", "writeFile", "atomicWriteFile", "appendFile", "readdir", "mkdir", "rm", "stat", "rename", "copyFile", "realpath"].forEach(function (method) {
+  ["readFile", "writeFile", "atomicWriteFile", "appendFile", "readdir", "mkdir", "rm", "stat", "rename", "copyFile", "realpath", "lstat", "readlink", "access", "chmod", "symlink", "digest"].forEach(function (method) {
     files[method] = function () { return storageCall(nativeStorage && nativeStorage.fs, method, arguments); };
   });
   // LLP 1069.010.000 D2a: `{expect: stat}` refuses a doc:/ write `ECHANGED` if the file changed since; the stat runs just before it.
@@ -1007,6 +1007,8 @@
     };
   });
   // LLP 1069.010.000 D1: the answer is asked again when the doc:/ path (a folder's own entries, or `recursive` its subtree) changes on disk.
+  // An advisory lock (LLP 1133.007 D6a), released by its `unlock()` or the session's end: natively only, as the operations above.
+  files.flock = function (path, options) { var t = options && options.timeout, fs = nativeStorage && nativeStorage.fs; return storageCall(fs, "flock", [path, t === undefined ? 0 : t], function (h) { return Object.freeze({ unlock: function () { return storageCall(fs, "unlock", [h]); } }); }); };
   files.watch = function (path, options) {
     if (overlaying) throw inOverlay("storage.fs.watch()");
     if (!currentCall || currentCall.status !== "pending") throw new Error("storage.fs.watch() outside an answer");

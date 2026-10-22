@@ -18,6 +18,13 @@ pub(super) fn text<'a>(v: &'a Value, k: &str) -> Result<&'a str, String> {
     v[k].as_str()
         .ok_or_else(|| format!("storage: {k} must be a string"))
 }
+/// A whole-number argument, as the text D6a's operations take.
+fn number(v: &Value, k: &str) -> Result<Vec<u8>, String> {
+    let n = v[k]
+        .as_u64()
+        .ok_or_else(|| format!("storage: {k} must be a whole number"))?;
+    Ok(n.to_string().into_bytes())
+}
 fn bytes(v: &Value) -> Result<Vec<u8>, String> {
     if let Some(t) = v.get("text").and_then(Value::as_str) {
         return Ok(t.as_bytes().to_vec());
@@ -177,6 +184,27 @@ fn operation<'a>(op: &str, args: &'a Value) -> Result<Operation<'a>, String> {
         "fs.realpath" => (FsOp::Realpath, None, None),
         "fs.rename" => (FsOp::Rename, Some(text(args, "destination")?), None),
         "fs.copyFile" => (FsOp::CopyFile, Some(text(args, "destination")?), None),
+        // LLP 1133.007 D6a: each takes its one argument as text.
+        "fs.lstat" => (FsOp::Lstat, None, None),
+        "fs.readlink" => (FsOp::Readlink, None, None),
+        "fs.access" => (FsOp::Access, None, Some(number(args, "mode")?)),
+        "fs.chmod" => (FsOp::Chmod, None, Some(number(args, "mode")?)),
+        "fs.symlink" => (
+            FsOp::Symlink,
+            None,
+            Some(text(args, "target")?.as_bytes().to_vec()),
+        ),
+        "fs.digest" => (
+            FsOp::Digest,
+            None,
+            Some(text(args, "algorithm")?.as_bytes().to_vec()),
+        ),
+        "fs.flock" => (
+            FsOp::Flock,
+            None,
+            Some(number(args, "timeout").unwrap_or_else(|_| b"0".to_vec())),
+        ),
+        "fs.unlock" => (FsOp::Unlock, None, None),
         _ => return Err(format!("unsupported storage operation {op}")),
     })
 }
@@ -298,7 +326,9 @@ fn fs_value(result: FsResult) -> Value {
             "size": stat.size,
             "isFile": stat.is_file,
             "isDirectory": stat.is_directory,
-            "modifiedMs": stat.modified_ms
+            "modifiedMs": stat.modified_ms,
+            "mode": stat.mode,
+            "isSymbolicLink": stat.is_symlink
         }),
     }
 }

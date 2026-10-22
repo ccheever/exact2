@@ -24,7 +24,7 @@ pub(crate) enum Seen {
     Out(bool, Vec<u8>),
     Exit(Option<i64>, Option<String>),
     Eof(Option<bool>),
-    #[allow(dead_code)] // the real transport's writer (stage 1)
+    #[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
     Drained,
 }
 
@@ -407,7 +407,8 @@ impl<'a> Supervisor<'a> {
                 }
             }
             let closed = eof[0] && eof[1] && exit.is_some();
-            if closed && !child.group_alive() && escalate.is_none() {
+            // Its group is gone: nothing is left to escalate on.
+            if closed && !child.group_alive() {
                 break;
             }
             if closed && child.group_alive() && escalate.is_none() {

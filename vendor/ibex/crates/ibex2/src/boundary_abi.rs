@@ -1035,6 +1035,14 @@ enum AsyncOp {
     FsRealpath = host_opcodes::async_ops::FS_REALPATH,
     FsAtomicWriteFile = host_opcodes::async_ops::FS_ATOMIC_WRITE_FILE,
     FsCompressImage = host_opcodes::async_ops::FS_COMPRESS_IMAGE,
+    FsLstat = host_opcodes::async_ops::FS_LSTAT,
+    FsReadlink = host_opcodes::async_ops::FS_READLINK,
+    FsAccess = host_opcodes::async_ops::FS_ACCESS,
+    FsChmod = host_opcodes::async_ops::FS_CHMOD,
+    FsSymlink = host_opcodes::async_ops::FS_SYMLINK,
+    FsDigest = host_opcodes::async_ops::FS_DIGEST,
+    FsFlock = host_opcodes::async_ops::FS_FLOCK,
+    FsUnlock = host_opcodes::async_ops::FS_UNLOCK,
     SqliteOpen = host_opcodes::sqlite_async::OPEN,
     SqlitePrepare = host_opcodes::sqlite_async::PREPARE,
     SqliteExecute = host_opcodes::sqlite_async::EXECUTE,
@@ -1064,6 +1072,14 @@ impl AsyncOp {
             host_opcodes::async_ops::FS_REALPATH => Some(AsyncOp::FsRealpath),
             host_opcodes::async_ops::FS_ATOMIC_WRITE_FILE => Some(AsyncOp::FsAtomicWriteFile),
             host_opcodes::async_ops::FS_COMPRESS_IMAGE => Some(AsyncOp::FsCompressImage),
+            host_opcodes::async_ops::FS_LSTAT => Some(AsyncOp::FsLstat),
+            host_opcodes::async_ops::FS_READLINK => Some(AsyncOp::FsReadlink),
+            host_opcodes::async_ops::FS_ACCESS => Some(AsyncOp::FsAccess),
+            host_opcodes::async_ops::FS_CHMOD => Some(AsyncOp::FsChmod),
+            host_opcodes::async_ops::FS_SYMLINK => Some(AsyncOp::FsSymlink),
+            host_opcodes::async_ops::FS_DIGEST => Some(AsyncOp::FsDigest),
+            host_opcodes::async_ops::FS_FLOCK => Some(AsyncOp::FsFlock),
+            host_opcodes::async_ops::FS_UNLOCK => Some(AsyncOp::FsUnlock),
             host_opcodes::sqlite_async::OPEN => Some(AsyncOp::SqliteOpen),
             host_opcodes::sqlite_async::PREPARE => Some(AsyncOp::SqlitePrepare),
             host_opcodes::sqlite_async::EXECUTE => Some(AsyncOp::SqliteExecute),
@@ -1229,6 +1245,14 @@ fn fs_op_for(op: AsyncOp) -> Option<crate::stdlib::fs::FsOp> {
         AsyncOp::FsCopyFile => FsOp::CopyFile,
         AsyncOp::FsRealpath => FsOp::Realpath,
         AsyncOp::FsAtomicWriteFile => FsOp::AtomicWriteFile,
+        AsyncOp::FsLstat => FsOp::Lstat,
+        AsyncOp::FsReadlink => FsOp::Readlink,
+        AsyncOp::FsAccess => FsOp::Access,
+        AsyncOp::FsChmod => FsOp::Chmod,
+        AsyncOp::FsSymlink => FsOp::Symlink,
+        AsyncOp::FsDigest => FsOp::Digest,
+        AsyncOp::FsFlock => FsOp::Flock,
+        AsyncOp::FsUnlock => FsOp::Unlock,
         _ => return None,
     })
 }
@@ -1261,10 +1285,24 @@ fn run_fs(
         None
     };
 
-    // Data is the second argument for single-path writes.
+    // Data is the second argument for single-path writes; D6a's take theirs
+    // as text: a mode, a link's target, an algorithm, a lock's timeout. A
+    // link names its target first, as Node's `symlink(target, path)`.
+    use crate::stdlib::fs::FsOp;
+    let takes = matches!(op, FsOp::Access | FsOp::Chmod | FsOp::Digest | FsOp::Flock);
+    let argument: Option<Vec<u8>> = match (op, args.get(1)) {
+        (FsOp::Symlink, _) => Some(path.as_bytes().to_vec()),
+        (_, Some(HostValue::Number(n))) if takes => Some(format!("{n}").into_bytes()),
+        (_, Some(HostValue::Str(text))) if takes => Some(text.clone().into_bytes()),
+        _ => None,
+    };
+    let path = match op {
+        FsOp::Symlink => path_arg(1)?,
+        _ => path,
+    };
     let data = match args.get(1) {
         Some(HostValue::Bytes(bytes)) => Some(bytes.as_slice()),
-        _ => None,
+        _ => argument.as_deref(),
     };
 
     if matches!(
@@ -1297,11 +1335,13 @@ fn run_fs(
             // turns this flat record into an array without a document codec.
             FsResult::Names(names) => HostValue::Str(names.join("\0")),
             FsResult::Stat(stat) => HostValue::Str(format!(
-                "{}\t{}\t{}\t{}",
+                "{}\t{}\t{}\t{}\t{}\t{}",
                 stat.size,
                 u8::from(stat.is_file),
                 u8::from(stat.is_directory),
-                stat.modified_ms
+                stat.modified_ms,
+                stat.mode,
+                u8::from(stat.is_symlink)
             )),
         },
     )
