@@ -116,3 +116,13 @@ export async function proxied(app, before = () => {}) {
   const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000).catch(e => { throw new Error(`${e.message}\n${said}`); });
   return { url, origin, writes, close: async () => { await stop(tool); proxy.stop(true); await stop(serve); } };
 }
+
+/** Where two texts differ, in order: the first line that differs, the
+ * lines taken out there and the lines put in. */
+export const edit = (a, b) => {
+  const [x, y] = [a.split('\n'), b.split('\n')];
+  let i = 0, j = 0;
+  while (i < x.length && i < y.length && x[i] === y[i]) i++;
+  while (j < x.length - i && j < y.length - i && x[x.length - 1 - j] === y[y.length - 1 - j]) j++;
+  return { at: i, removed: x.slice(i, x.length - j), added: y.slice(i, y.length - j) };
+};
