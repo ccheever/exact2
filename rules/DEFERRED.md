@@ -580,6 +580,17 @@ names no take; `:focus-within` remains out.
   "Use my location", which shows its button, its position or a way to Settings
   by that fact. Take: waived. Notifications' own permission fact, and
   everything else this entry refuses, stay refused until notifications' RFC.
+  **Expanded (Daehyeon Mun, 2026-10-23, waived; LLP 1133.004 stage 1):** the
+  notifications module completed: `silent` and `data`, a click delivered as
+  `notificationclick` to the app's root, posting from data code, the app badge
+  by the Badging API's names, and notifications' permission fact and request,
+  on the web, macOS and iOS. Consumer: the T3 Code clone's thread and
+  review-guide notifications. Unblocks a notification click without a router
+  and the clone's notifications without app Swift. Take: waived: no doing-list
+  item is a fair trade; the move is the roster's own wave-1 item (LLP 1133.000
+  §5), and geolocation's matching move was waived (2026-10-18, above). Still
+  refused: push delivery, repeating schedules, and actions and replies until
+  stage 2's ruling.
 
 **Components** — roughly 15 built-in tags, not 40; roughly 12 Facet components, not 47.
 
