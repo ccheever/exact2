@@ -892,14 +892,15 @@ package final class TextEngine {
         s.addAttribute(.paragraphStyle, value: paragraph, range: range)
     }
 
-    /// CSS `direction: rtl` as the paragraph's base writing direction (LLP
-    /// 1053). Under `ltr` CoreText's natural direction (the first strong
-    /// character) stays, as on Linux; LLP 1001 §1 declares it.
+    /// CSS direction sets the paragraph base; normal Unicode bidi still
+    /// orders each run. The first strong character never selects the base.
     package static func setBaseDirection(_ s: NSMutableAttributedString, direction: Int) {
-        guard direction == 1, s.length > 0 else { return }
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.baseWritingDirection = .rightToLeft
-        s.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: s.length))
+        let range = NSRange(location: 0, length: s.length)
+        s.enumerateAttribute(.paragraphStyle, in: range) { value, range, _ in
+            let paragraph = (value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+            paragraph.baseWritingDirection = direction == 1 ? .rightToLeft : .leftToRight
+            s.addAttribute(.paragraphStyle, value: paragraph, range: range)
+        }
     }
 
     /// Urgent raster work stays on the text engine's owning thread and uses
