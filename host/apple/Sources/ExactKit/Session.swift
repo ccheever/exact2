@@ -385,6 +385,7 @@ public final class ExactSession {
     package let presenter: Presenter
     var launchLocation: String? // a pre-boot `openURL`'s location, until the first frame (LaunchURL.swift)
     var pendingLaunchLocations: [String] = []
+    var heldModuleEvents: [String] = [] // module events before first pixel (SessionActivation.swift)
     var protocolHandlers: [[String: String]] = ExactEnv.appMetadata["ExactProtocolHandlers"] as? [[String: String]] ?? []
     private var textPressure: DispatchSourceMemoryPressure?
     let canvases: Canvases

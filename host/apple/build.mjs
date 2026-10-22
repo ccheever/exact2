@@ -1488,8 +1488,8 @@ function composedModule(packages, ownModule) {
   for (const p of packages) lines.push(
     `final class ExactAdapter_${p.module}: ExactExtensionAdapter {`,
     `    let impl: ${p.className}`,
-    `    init(_ context: ExactModuleContext) { impl = ${p.className}(changed: { [weak context] topic in context?.changed(topic) }, agent: context.agent, log: { [weak context] line in context?.diagnostics.log(line) }) }`,
-    '    override func later(_ name: String, _ args: [String: Any], reply: ExactReply) { impl.later(name, args) { reply.send($0) } }',
+    `    init(_ context: ExactModuleContext) { impl = ${p.className}(changed: { [weak context] topic in context?.changed(topic) }, agent: context.agent, log: { [weak context] line in context?.diagnostics.log(line) }${p.events ? `, emit: { [weak context] name, args in context?.emit(${JSON.stringify(p.extension)}, name, args) }, activation: { [weak context] name, args, navigate in context?.activation(${JSON.stringify(p.extension)}, name, args, navigate: navigate) ?? [:] }` : ''}) }`,
+    '    override func later(_ name: String, _ args: [String: Any], reply: ExactReply) { impl.later(name, args) { reply.send($0) } }\n    override func ask(_ name: String, _ args: [String: Any], answer: @escaping ([String: Any]) -> Void) { impl.later(name, args, reply: answer) }',
     '    override func call(_ name: String, _ args: [String: Any]) throws -> [String: Any] { try impl.call(name, args) }',
     '    override func release(_ name: String) { impl.release(name) }',
     '}');

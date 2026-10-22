@@ -176,6 +176,15 @@ impl Cx<'_, '_> {
                 }
             }
             Stmt::Command { name, args, span } => {
+                // A native module's send that answers nothing (LLP 1133.004
+                // D5): its one options record, as a `send`'s arguments are.
+                if shapes.effects.contains(name) {
+                    let mut params = Vec::with_capacity(args.len());
+                    for arg in args {
+                        params.push(crate::source_argument(arg, name, scope, shapes)?);
+                    }
+                    return crate::record_source(self.ct, name, params, Ty::Unit, *span);
+                }
                 // An action prop or injected action, called anywhere (LLP
                 // 1089 D1, D7): its arguments here, against its declared
                 // type; the action it names is run, and checked, after

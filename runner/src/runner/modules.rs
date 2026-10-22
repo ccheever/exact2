@@ -36,6 +36,11 @@ use serde_json::{json, Map, Value as Json};
 use std::collections::{BTreeMap, BTreeSet};
 
 mod bound;
+mod declared;
+mod events;
+pub use declared::AppState;
+pub use events::Origin;
+pub(super) use events::EMITTED;
 use std::sync::{Arc, Mutex};
 
 /// The continuation tokens the runner keeps for its held module requests:
@@ -60,6 +65,11 @@ pub(super) struct Extensions {
     bound: BTreeSet<String>,
     /// The bound live sources that have had a reader, until released.
     live: BTreeSet<String>,
+    /// What the declared substitute keeps (LLP 1133.004 §7): keyed lists,
+    /// values, and the effects held on a permission ticket.
+    declared: declared::Declared,
+    /// Module events not yet heard, and the origin of the commit now (D6).
+    events: events::Events,
 }
 
 /// A module request the runner holds for the agent.
@@ -181,6 +191,7 @@ impl<D: DataSource> Runner<D> {
             let args = self.args_json(&row, args);
             return Ok(Answer::Later(self.bound_request(&row, args)));
         }
+        let _ = self.say_person_required(&row, true);
         let timeout = self.timeout(&row, &self.args_json(&row, args));
         match self.decide_timed(&row, true, timeout) {
             Decision::Now(json) => {
@@ -314,19 +325,34 @@ impl<D: DataSource> Runner<D> {
                 }
                 return Decision::Now(status);
             }
-            if state == "denied" {
-                return Decision::Now(json!({ "error": permission["denied"] }));
+            // A name admitted with no permission is never held or refused,
+            // and a request answers the status in every state but `prompt`
+            // (LLP 1133.004 §7).
+            match sub["admission"].as_str() {
+                Some("none") => return self.decide_value(row, &sub, send),
+                Some("request") => {}
+                _ if state == "denied" => {
+                    return Decision::Now(json!({ "error": permission["denied"] }))
+                }
+                _ => {}
             }
-            let asks = match self.plan.str(row.request) {
-                "always" => send,
-                "when-prompt" => !send,
-                _ => false,
-            };
-            if state == "prompt" && asks {
+            if state == "prompt" && self.asks(row, send) {
+                if self.extensions.events.origin() != Origin::Person {
+                    return Decision::Now(json!({ "error": permission["denied"] }));
+                }
                 return Decision::Hold(Waits::Permission);
             }
         }
         self.decide_value(row, &sub, send)
+    }
+
+    /// Whether a call of `row` may show the platform's prompt.
+    fn asks(&self, row: &ModulesRow, send: bool) -> bool {
+        match self.plan.str(row.request) {
+            "always" => send,
+            "when-prompt" => !send,
+            _ => false,
+        }
     }
 
     /// What answers `row` once its permission allows it.
@@ -550,6 +576,9 @@ impl<D: DataSource> Runner<D> {
         if row.send != send {
             return Some(now(json!({ "error": "NotSupportedError" })));
         }
+        if self.is_effect(&row) {
+            return Some(self.effect_call(&row, v["args"].clone()));
+        }
         let timeout = self.timeout(&row, &v["args"]);
         match self.decide_timed(&row, send, timeout) {
             Decision::Now(answer) => {
@@ -679,6 +708,9 @@ impl<D: DataSource> Runner<D> {
 
     /// The agent answered hold `hold`, already spent: §6's transitions.
     pub(super) fn module_answered(&mut self, hold: u64, answer: &HoldAnswer) {
+        if self.effect_answered(hold, answer) {
+            return;
+        }
         let Some(h) = self.extensions.held.iter().find(|h| h.hold == hold) else {
             return;
         };
@@ -818,6 +850,7 @@ impl<D: DataSource> Runner<D> {
                 _ => {}
             }
         }
+        self.settle_effects(name, state);
         for row in &rows {
             let key = self.key(row);
             self.announce(&key);
@@ -978,6 +1011,15 @@ impl<D: DataSource> Runner<D> {
                 }
             }
         }
+        for (extension, event) in self.queued_events() {
+            let entry = out.entry(extension).or_insert_with(
+                || json!({ "bound": false, "preferred": {}, "readers": {}, "held": [] }),
+            );
+            match entry["queued"].as_array_mut() {
+                Some(queued) => queued.push(event),
+                None => entry["queued"] = json!([event]),
+            }
+        }
         Some(Json::Object(out).to_string())
     }
 
@@ -1099,10 +1141,12 @@ impl<D: DataSource> Runner<D> {
     }
 }
 
-/// The code of an error answer, `{"error": "POSITION_UNAVAILABLE"}`.
+/// The code of an error answer, `{"error": "POSITION_UNAVAILABLE"}`, with a
+/// `message` beside it or not.
 fn error_code(json: &Json) -> Option<&str> {
     let object = json.as_object()?;
-    (object.len() == 1).then(|| object.get("error")?.as_str())?
+    let extra = object.keys().any(|k| k != "error" && k != "message");
+    (!extra).then(|| object.get("error")?.as_str())?
 }
 
 /// Set `path` (`coords.accuracy`) in `value` to `filler` where it is absent.

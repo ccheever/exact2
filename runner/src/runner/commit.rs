@@ -600,6 +600,9 @@ impl<D: DataSource> Runner<D> {
             ));
         }
         self.take_set_modes(first_command);
+        // A module's sends that answer nothing (LLP 1133.004 D5): the
+        // runner's, run once the commit stands.
+        let effects = self.take_module_effects(first_command);
         // The scheme and root size a development host holds: kept as asked, not applied (LLP 1122 T7).
         self.take_held(first_command);
         // `setRootFontSize` is the runner's too: the size lands in this
@@ -653,6 +656,7 @@ impl<D: DataSource> Runner<D> {
                 self.log(line);
             }
             self.apply_sounds(first_command);
+            self.run_module_effects(effects);
         }
         result
     }

@@ -460,6 +460,8 @@ impl<D: DataSource> Host<D> {
         // Its own roles from here, not those of the session it replaces (a
         // caller's scope is that one's; LLP 1121 stage 5).
         let _roles = runner.bind_roles();
+        // One app-wide state for every session of the process (LLP 1133.004 §7).
+        runner.share_app_state(app_state());
         runner.set_device_links(links.device);
         if links.activities {
             runner.link_activities().map_err(HostError::Runner)?;
@@ -1484,4 +1486,11 @@ fn handler_name(e: EventKind) -> Option<&'static str> {
         EventKind::Reachstart | EventKind::Reachend | EventKind::Resize => None,
         _ => Some(e.name()),
     }
+}
+
+/// The process's app-wide module state, which every session shares: an
+/// embedder's sessions are one app (LLP 1133.004 §7, `"scope": "app"`).
+fn app_state() -> exact_runner::AppState {
+    static STATE: std::sync::OnceLock<exact_runner::AppState> = std::sync::OnceLock::new();
+    STATE.get_or_init(Default::default).clone()
 }
