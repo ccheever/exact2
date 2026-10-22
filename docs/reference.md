@@ -811,7 +811,8 @@ reports all five facts. Before the first host report, the runner
 also supplies usable `en-US`/`UTC` and seed 0. Ordinary launches draw their seed
 from secure platform entropy. A development reload retains that launch's seed.
 Linux takes its locale from the first nonempty `LC_ALL`, `LC_MESSAGES`, or `LANG`, and
-`formatLocale` from `LC_ALL`, `LC_TIME`, or `LANG`,
+`formatLocale` from `LC_TIME` by POSIX's precedence (`LC_ALL`, then `LC_TIME`, then `LANG`; with
+none set, `formatLocale` is the locale),
 normalizes POSIX names to BCP 47 (`C`/`POSIX` use `en-US`), and reads the zone from
 `TZ` when it names a zoneinfo entry, otherwise the system's IANA zone (UTC fallback).
 

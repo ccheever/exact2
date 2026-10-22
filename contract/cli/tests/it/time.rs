@@ -218,6 +218,9 @@ fn the_format_locale_answers_the_locale_until_a_host_tells_one() {
     assert_eq!(text(&boot(launched)), "en-US/ko-KR");
     let three = exact_runner::time::Place::launched("fr-FR\0UTC\x007");
     assert_eq!(text(&boot(three)), "fr-FR/fr-FR");
+    // A format locale no host would report refuses the whole place, as a
+    // bad zone does: the boot reads the defaults.
+    assert!(exact_runner::time::Place::launched("fr-FR\0UTC\x007\0fr FR").is_none());
 }
 
 /// Euxy's library: a store-reading source passed the date after `with`,
