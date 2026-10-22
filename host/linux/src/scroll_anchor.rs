@@ -122,7 +122,10 @@ fn requested(kernel: &Kernel, id: ViewId) -> Option<f64> {
 }
 
 fn out_of_flow(node: NodeRef<'_>) -> bool {
+    // A popover lays out absolute too (the kernel's top layer), unless sticky.
     matches!(node.style.position_type, PositionType::Absolute)
+        || (node.props.str(exact_kernel::PropId::Popover).is_some()
+            && node.style.position_type != PositionType::Sticky)
 }
 
 fn contains_absolute(node: NodeRef<'_>) -> bool {

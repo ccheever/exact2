@@ -757,6 +757,7 @@ fn holds_absolute(arena: &NodeArena, owner: u32) -> bool {
             seen += 1;
             let children = arena.children(s);
             if arena.style(s).position_type == crate::PositionType::Absolute
+                || crate::style::top_layer::top_layer(arena, s)
                 || seen + stack.len() + children.len() > REGION_NODES
             {
                 return true;
@@ -896,6 +897,7 @@ fn flex_height_independent(arena: &NodeArena, owner: u32) -> bool {
         && s.height == Dimension::Auto
         && definite(s.width)
         && s.position_type != crate::PositionType::Absolute
+        && !crate::style::top_layer::top_layer(arena, owner)
         && s.flex_grow == 1.
         && s.flex_shrink == 1.
         && zero(s.flex_basis)

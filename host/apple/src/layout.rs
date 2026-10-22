@@ -646,11 +646,15 @@ pub(super) fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         if let Some(c) = kernel.node(child).filter(|c| !own(c)) {
             // An absolutely positioned box counts by its border box alone:
             // the end padding follows in-flow content (CSS Overflow 3 §2.2).
-            let (right, bottom) = if c.style.position_type == exact_kernel::PositionType::Absolute {
-                (0.0, 0.0)
-            } else {
-                (pad_right, pad_bottom)
-            };
+            // A popover lays out absolute too (the kernel's top layer), unless sticky.
+            let popover = c.props.str(exact_kernel::PropId::Popover).is_some()
+                && c.style.position_type != exact_kernel::PositionType::Sticky;
+            let (right, bottom) =
+                if c.style.position_type == exact_kernel::PositionType::Absolute || popover {
+                    (0.0, 0.0)
+                } else {
+                    (pad_right, pad_bottom)
+                };
             w = w.max(c.frame.x - node.frame.x + c.frame.width + right);
             h = h.max(c.frame.y - node.frame.y + c.frame.height + bottom);
         }
