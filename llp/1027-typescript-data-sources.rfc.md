@@ -587,6 +587,12 @@ median of 100 rounds of `ibex2`'s kv `FileStore` and the runner's
   Linux keeps them in the same kv scope as Apple (LLP 1027.007 D13),
   written with the commit.
 
+**Ruled (Charlie, 2026-10-22):** the 2026-10-16 amendment stands: 256 KiB
+per answer and 512 KiB together. No per-resource `keep <size>` declaration;
+authors do not tune launch budgets. Measure the launch read on a physical
+phone. Raise the total toward 1 MiB only if a real app needs it and the
+phone's read stays about 3 ms or less.
+
 The kept answers are also bounded together, at twice one answer's bound
 (512 KiB): the runner, which knows every entry, forgets the longest others
 when keeping one would pass it, in the same commit, and says so (`kept
@@ -1459,9 +1465,10 @@ measures, and there is nothing to close at the next release.
 **Level A and Level B (LLP 1026 D12) restated for the paved path:** a
 TypeScript app's binary always links `exact-js` (it is the app's
 logic), so a code update costs it no extra binary — Level B is free
-where Level A was. A Rust-logic app is Level A with no interpreter, as
-before. The one interpreter a phone binary carries is chosen by the
-app's language (§8 records what this takes off LLP 1026's list).
+where Level A was. **Amended (Charlie, 2026-10-22; LLP 1029.000):** a phone carries
+at most one interpreter per language the app uses. A TypeScript app with
+a Rust module carries Hermes and wasmi; Rust replacement is on by default
+and `"rust": false` opts out (§8).
 
 Signing, anti-rollback, crash fallback, assets by digest, apply at next
 launch, static files, no service: unchanged. The App Store clause is
@@ -1853,13 +1860,13 @@ what it unblocks, and take something off the doing-list in the same PR.
   the app's, in TypeScript by default or in Rust, behind one seam."
   Unblocks: substantial app logic in the language people and agents
   write it in, on every host, without a compiler in the loop — the
-  ruling. **The take: LLP 1026 D2's wasm data module leaves 1026's
+  ruling. **The take (2026-09-03): LLP 1026 D2's wasm data module leaves 1026's
   staging.** With TypeScript as the paved path for logic, over-the-air
   *logic* travels as Hermes bytecode (D7); a Rust data crate is Level A
-  — native, no interpreter, updated by binary — and the phone carries
-  at most **one** interpreter, chosen by the app's language. wasmi
-  returns only if LLP 1026 D6 (surfaces as wasm) is ever built, and
-  then for surfaces. One executor slot, one engine per app, not two.
+  — native, no interpreter, updated by binary. **Amended (Charlie,
+  2026-10-22; LLP 1029.000 §2):** a phone carries at most one interpreter
+  per language the app uses. A TypeScript app with a Rust module carries
+  Hermes and wasmi; the earlier one-engine-per-app trade is overtaken.
 - **`rules/DEFERRED.md` §Runtime "HBC compilation"** → moved, for
   the *bake* only: `hermesc` runs at build, in the same step that
   compiles `app.contract`; nothing compiles at runtime, which is what
