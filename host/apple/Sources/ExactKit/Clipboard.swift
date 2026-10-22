@@ -142,10 +142,13 @@ extension NodeView {
         return super.canPerformAction(action, withSender: sender)
     }
     #if os(iOS)
-    /// A paste listener can receive images or URLs that a plain editor cannot insert.
+    /// A paste listener can receive images or file URLs that a plain editor cannot insert.
     func pastesFiles(_ action: Selector) -> Bool {
-        [#selector(UIResponderStandardEditActions.paste(_:)), #selector(UIResponderStandardEditActions.pasteAndMatchStyle(_:))].contains(action)
-            && clipboardHearer(#selector(paste(_:))) != nil && (UIPasteboard.general.hasImages || UIPasteboard.general.hasURLs)
+        guard [#selector(UIResponderStandardEditActions.paste(_:)), #selector(UIResponderStandardEditActions.pasteAndMatchStyle(_:))].contains(action),
+              clipboardHearer(#selector(paste(_:))) != nil else { return false }
+        let board = UIPasteboard.general
+        // UIKit writes both web and file URLs as public.url.
+        return board.hasImages || (board.hasURLs && board.urls?.contains(where: \.isFileURL) == true)
     }
     private var hasSelectedText: Bool { presenter?.textSelection.text(for: self)?.selected.length ?? 0 > 0 }
     private func copySelectedText() { presenter?.textSelection.copy(self) }
