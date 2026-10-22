@@ -195,6 +195,9 @@ pub struct Place {
     /// The element's number in that order, its own row's or its style's: a
     /// write's refusals are said as the build reaches them (0 for none).
     pub order: usize,
+    /// Its row's place among the element's own rows, or its style's: the
+    /// order the build judges an element's rows in (0 for none).
+    pub index: usize,
 }
 
 impl Place {
@@ -206,6 +209,7 @@ impl Place {
             literal: span,
             element: 0,
             order: 0,
+            index: 0,
         }
     }
 }
@@ -229,6 +233,7 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
         within,
         element,
         order,
+        index,
     } in attrs
     {
         let node = match (&fonts, &within) {
@@ -257,6 +262,7 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
                 literal: a.value.span(),
                 element,
                 order,
+                index,
             };
             // Found by where its value is written, then compared whole (an
             // expansion writes one row many times over, alike).
@@ -299,6 +305,7 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
                 literal,
                 element,
                 order,
+                index,
             };
             let k = (a.name.clone(), plain, key, node);
             match at.get(&k) {
@@ -441,6 +448,8 @@ pub(crate) struct Said {
     pub element: usize,
     /// The element's number in lowering's order (`Place::order`).
     pub order: usize,
+    /// Its row's place among the element's rows (`Place::index`).
+    pub index: usize,
 }
 
 /// Leave `rows` for [`rows`] (the design server's build reads it).
@@ -571,9 +580,9 @@ pub fn check(
     // row newly failing at several elements is one refusal, the build's
     // (theme2's 02:08 condition 2): at the row, said once.
     // Said as the build reaches them: by element, an element's style rows
-    // before its own (lowering expands the class first), then by place.
-    let mut out: Vec<(usize, u8, Broken)> = Vec::new();
-    let mut style: BTreeMap<(u32, u32, u32, u32), (usize, Broken)> = BTreeMap::new();
+    // before its own (lowering expands the class first), each in its order.
+    let mut out: Vec<((usize, u8, usize), Broken)> = Vec::new();
+    let mut style: BTreeMap<(u32, u32, u32, u32), ((usize, u8, usize), Broken)> = BTreeMap::new();
     for (row, error) in failing {
         let first = row.places[0];
         for p in row
@@ -602,25 +611,27 @@ pub fn check(
             // it that the build lowers, in that one's words.
             if p.element != 0 {
                 let k = (p.row.source_id, p.row.line, p.row.col, p.row.end_col);
-                if style.get(&k).is_none_or(|(e, _)| p.element < *e) {
-                    style.insert(k, (p.element, broken));
+                let at = (p.element, 0, p.index);
+                if style.get(&k).is_none_or(|(e, _)| at < *e) {
+                    style.insert(k, (at, broken));
                 }
                 continue;
             }
-            out.push((p.order, 1, broken));
+            out.push(((p.order, 1, p.index), broken));
         }
     }
-    out.extend(style.into_values().map(|(e, b)| (e, 0, b)));
-    out.sort_by_key(|(order, own, b)| {
+    out.extend(style.into_values());
+    // By element, its style rows then its own, each in the order written
+    // (an expansion's literal may sit anywhere: the row's place decides).
+    out.sort_by_key(|(at, b)| {
         (
-            *order,
-            *own,
+            *at,
             b.error.span.source_id,
             b.error.span.line,
             b.error.span.col,
         )
     });
-    out.into_iter().map(|(_, _, b)| b).collect()
+    out.into_iter().map(|(_, b)| b).collect()
 }
 
 /// Whether `r` is a computed row in a row every number token suits, which

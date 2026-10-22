@@ -456,7 +456,7 @@ impl Said {
                     let mut fonts = None;
                     // A module tag's row lowering refuses is never judged
                     // (`native::refused`, before any check of it).
-                    for r in own.iter().filter(|r| {
+                    for (index, r) in own.iter().enumerate().filter(|(_, r)| {
                         !left
                             && !(tag == "audio" && r.name == "display")
                             && !(yields && crate::row_look::look(r))
@@ -485,6 +485,7 @@ impl Said {
                             computed,
                             within: within.clone(),
                             element: 0,
+                            index,
                             order: lowered
                                 .get(&(node as *const Node as usize))
                                 .copied()
@@ -546,7 +547,12 @@ impl Said {
                             unjudged.extend(style(name).into_iter().flatten().map(|r| r.span));
                         }
                     }
-                    for r in class.iter().filter(|_| judged).flat_map(|(_, rows)| rows) {
+                    for (index, r) in class
+                        .iter()
+                        .filter(|_| judged)
+                        .flat_map(|(_, rows)| rows)
+                        .enumerate()
+                    {
                         if crate::native::refused(tag, r).is_some() {
                             unjudged.insert(r.span);
                             continue;
@@ -577,6 +583,7 @@ impl Said {
                                 .get(&(node as *const Node as usize))
                                 .copied()
                                 .unwrap_or(0),
+                            index,
                             order: lowered
                                 .get(&(node as *const Node as usize))
                                 .copied()
