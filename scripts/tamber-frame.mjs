@@ -11,7 +11,7 @@ export function framesAllowed(csp, ancestor, page) {
   const a = new URL(ancestor), self = new URL(page).origin;
   const lists = String(csp ?? '').split(',').map(policy => policy.split(';').map(d => d.trim().split(/\s+/)).find(([name]) => name?.toLowerCase() === 'frame-ancestors')?.slice(1)).filter(Boolean);
   for (const sources of lists) {
-    if (!sources.some(s => matches(s, a, self))) return { allowed: false, origins: sources.filter(s => s.toLowerCase() !== "'none'").map(s => (s.toLowerCase() === "'self'" ? self : s)) };
+    if (!sources.some(s => matches(s, a, self))) return { allowed: false, origins: sources.map(s => named(s, self)).filter(Boolean) };
   }
   return { allowed: true, origins: [] };
 }
@@ -21,23 +21,44 @@ const network = a => a.protocol === 'http:' || a.protocol === 'https:';
 /** A scheme as a source allows: the same, or https for http (CSP3 "scheme-part matches"). */
 const schemeAllows = (scheme, a) => a.protocol === scheme || (scheme === 'http:' && a.protocol === 'https:');
 
+// A host source (CSP3's grammar: no bracketed IPv6 literal, which a browser ignores as invalid): its scheme, host,
+// port and path as written.
+const HOST_SOURCE = /^(?:([a-z][a-z0-9+.-]*):\/\/)?(\*|(?:\*\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*)(?::(\*|\d+))?(\/[^?#]*)?$/i;
+
 function matches(source, a, self) {
   const s = source.toLowerCase();
   if (s === "'none'") return false;
-  if (s === "'self'") return a.origin === self;
+  // 'self': the page's origin, or its host upgraded from http to https (both on their default ports).
+  if (s === "'self'") {
+    const p = new URL(self);
+    return a.origin === self || (p.protocol === 'http:' && a.protocol === 'https:' && a.hostname === p.hostname && !p.port && !a.port);
+  }
   if (s === '*') return network(a);
   if (/^[a-z][a-z0-9+.-]*:$/.test(s)) return schemeAllows(s, a);
-  const m = /^(?:([a-z][a-z0-9+.-]*):\/\/)?(\*|\*\.[^:/[\]]+|\[[0-9a-f:.]+\]|[^:/[\]]+)(?::(\*|\d+))?(?:\/.*)?$/.exec(s);
+  const m = HOST_SOURCE.exec(source);
   if (!m) return false;
-  const [, scheme, host, port] = m;
+  const [, scheme, host, port, path] = m;
   // No scheme: the page's own (an http page allows https too).
-  if (!schemeAllows(scheme ? `${scheme}:` : new URL(self).protocol, a)) return false;
-  const hostname = a.hostname.toLowerCase();
-  if (host === '*') { if (!network(a)) return false; }
-  else if (host.startsWith('*.')) { if (!hostname.endsWith(host.slice(1))) return false; }
-  else if (hostname !== host) return false;
-  if (port === '*') return true;
-  return (a.port || DEFAULT_PORT[a.protocol]) === (port ?? DEFAULT_PORT[scheme ? `${scheme}:` : a.protocol]);
+  if (!schemeAllows(scheme ? `${scheme.toLowerCase()}:` : new URL(self).protocol, a)) return false;
+  const hostname = a.hostname.toLowerCase(), h = host.toLowerCase();
+  if (h === '*') { if (!network(a)) return false; }
+  else if (h.startsWith('*.')) { if (!hostname.endsWith(h.slice(1))) return false; }
+  else if (hostname !== h) return false;
+  // No port: only the URL's own default (CSP3: a null port matches a null port); `*` any.
+  if (port !== '*' && (port === undefined ? a.port !== '' : (a.port || DEFAULT_PORT[a.protocol]) !== port)) return false;
+  // An ancestor is its origin, whose path is `/`: a longer path never matches.
+  return path === undefined || path === '/';
+}
+
+/** A source as the refusal names it: an origin (a host source without its path; 'self' as the page's), a scheme,
+ * `*`; nothing for 'none' or what isn't a source. */
+function named(source, self) {
+  const s = source.toLowerCase();
+  if (s === "'none'") return '';
+  if (s === "'self'") return self;
+  if (s === '*' || /^[a-z][a-z0-9+.-]*:$/.test(s)) return s;
+  const m = HOST_SOURCE.exec(source);
+  return m ? `${m[1] ? `${m[1].toLowerCase()}://` : ''}${m[2].toLowerCase()}${m[3] ? `:${m[3]}` : ''}` : '';
 }
 
 /** The loop at `via` asked whether its page lets `tool` frame it: `{via, allowed, origins}`, allowed when the page
@@ -47,13 +68,21 @@ export async function canvasCheck(via, tool) {
   try {
     const got = await fetch(`${via}/`, { headers: { accept: 'text/html' }, redirect: 'manual', signal: AbortSignal.timeout(5000) });
     await got.body?.cancel();
-    return { via, ...framesAllowed(got.headers.get('content-security-policy'), tool, via.replace('127.0.0.1', 'localhost')) };
+    return { via, ...framesAllowed(got.headers.get('content-security-policy'), tool, `http://localhost:${new URL(via).port}`) };
   } catch { return { via, allowed: true, origins: [] }; }
+}
+
+/** A refusal in words: the loop's own port for the tool (EXACT_TOOL_PORT) when it names a loopback tool, else the
+ * page's own policy, which no port changes. The tool's page words it the same (apps/design-tool/canvas-check.ts). */
+export function refusalWords(check, tool) {
+  const named = check.origins.join(' ');
+  const head = `the dev loop at ${check.via} ${named ? `lets only ${named} frame its page` : 'lets no page frame it'}, not this tool (${tool}), so the canvas stays empty`;
+  return check.origins.some(o => /^http:\/\/127\.0\.0\.1:\d+$/.test(o)) ? `${head}: start the loop with EXACT_TOOL_PORT=${new URL(tool).port}` : `${head}: its page's own policy refuses framing, which no port changes`;
 }
 
 /** What the terminal is told: a refusal, once each time it starts (not on every check). */
 export function canvasLine(check, tool, said) {
-  const now = check.allowed ? '' : `tamber tool: the dev loop at ${check.via} lets only ${check.origins.join(' ') || 'no page'} frame its page, not this tool (${tool}), so the canvas stays empty: start the loop with EXACT_TOOL_PORT=${new URL(tool).port}`;
+  const now = check.allowed ? '' : `tamber tool: ${refusalWords(check, tool)}`;
   return { line: now && now !== said ? now : '', said: now };
 }
 
