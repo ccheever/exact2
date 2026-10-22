@@ -210,6 +210,19 @@ describe('a drop, a paste and Attach files (addComposerAttachments)', () => {
     expect(client.local.drafts[client.draftKey] ?? '').toBe('');
     expect(ops(native, 'editorInsert')).toEqual([]);
   });
+
+  test('the attachment limit counts the draft the files were given to, not the one now open', async () => {
+    const { client, native } = await opened();
+    const { fs, released } = memoryFiles({ 'doc:/1/a.txt': text('abc'), 'doc:/2/b.txt': text('def') });
+    const stat = fs.stat, first = client.draftKey;
+    // The draft the person moves to is full; the one that took the drop has room for both.
+    client.local.snapshotDrafts[`${client.environmentId}:t2`] = Array.from({ length: 100 }, (_, index) => ({ id: uuid(index + 10), name: `${index}.png` }));
+    fs.stat = async (path: string) => { if (path === 'doc:/2/b.txt') client.threadId = 't2'; return stat(path); };
+    await attachIncoming(client, native, 'drop', incoming(['doc:/1/a.txt', 'doc:/2/b.txt']));
+    expect(client.draftKey).not.toBe(first);
+    expect(released()).toEqual([]);
+    expect(draftFiles(client.local).map(file => [file.name, file.draftKey])).toEqual([['a.txt', first], ['b.txt', first]]);
+  });
 });
 
 describe('an emptied draft\'s files', () => {

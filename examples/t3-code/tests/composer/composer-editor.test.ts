@@ -67,6 +67,10 @@ describe('command menus from the shared field', () => {
     release();
     await older;
     await expect(editorLocal(client, native, 'pick', 'thread:t2', '')).rejects.toThrow('That suggestion is no longer available.');
+    // Rows read for another workspace are refused too, though the query is the same.
+    await composerEditorView(client, native);
+    client.shell.projects[0]!.workspaceRoot = '/elsewhere';
+    await expect(editorLocal(client, native, 'pick', 'thread:t2', '')).rejects.toThrow('That suggestion is no longer available.');
   });
   test('Escape keeps the same token dismissed until the caret leaves it', async () => {
     const { client, native, observe } = await opened();

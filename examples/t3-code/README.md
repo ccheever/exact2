@@ -641,10 +641,11 @@ above.
   underscores literal: Exact's Markdown field paints CommonMark emphasis and has no option to leave `_`
   out (clone `issues/composer-editing-underscore-emphasis.md`). `node_modules` and an underscore in a
   code span stay plain, and the sent message renders the same in both.
-- An image or a file chip copied from one draft and pasted into another shows as unavailable: copy and
-  paste carry plain text only, and the reference carries the chip's bytes in a clipboard type of its
-  own (clone `issues/composer-editing-clipboard-context.md`). A thread, terminal or review comment chip
-  pastes whole, its record being the app's, not the draft's.
+- An image or a file chip copied from the composer pastes whole only within this app: the reference
+  carries the chip's record in a clipboard type of its own, and Exact's clipboard holds text, so the
+  clone finds the record by the id in the pasted link, in the draft that holds it or in the latest copy
+  (`composer-copied-chips.ts`). The latest copy's image bytes stay until another copy replaces it, as
+  the reference keeps that copy's files in memory.
 - Leaving a quote with an empty `> ` line leaves a blank line under it, which the clone's composer
   shows: the reference's composer hides the blank line it writes there, so that the comment under the
   quote is its own paragraph and not a lazy continuation of the quote.

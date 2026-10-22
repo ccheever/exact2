@@ -13,7 +13,7 @@ import { ClientError, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
 import { folderDropTarget, primary } from '../connections/local-primary';
 import { pushToast } from '../shell/toast';
-import { acceptAttachedFile, appendChipLinks, attachStagingLimit, imageChipLink, imagesGetChips, insertFileChips, releaseStagedFile, reservedAttachments } from './composer-editor-attach';
+import { acceptAttachedFile, appendChipLinks, attachStagingLimit, imageChipLink, imagesGetChips, insertFileChips, releaseStagedFile, reservedAttachments, reservedAttachmentsIn } from './composer-editor-attach';
 import { fileChipLink, holdDraftFiles, type DraftFile } from './composer-editor-files';
 import { rememberVideoFrame } from './composer-attachments';
 import { handleSource, stageAttachment, statSource, type AttachSource } from './composer-attach-stage';
@@ -96,7 +96,7 @@ export async function attachIncoming(client: T3Client, native: Native, origin: s
 export async function stageFiles(client: T3Client, native: Native, sources: AttachSource[], target?: DraftTarget): Promise<Obj[]> {
   if (!client.projectId) throw new ClientError('Choose a project first.');
   const key = client.attachmentKey, generation = client.generation, limit = attachStagingLimit(client), staged: Obj[] = [];
-  let room = MAX_ATTACHMENTS - reservedAttachments(client);
+  let room = MAX_ATTACHMENTS - (target ? reservedAttachmentsIn(client, target.key, target.threadKey) : reservedAttachments(client));
   const release = holdStaging(client, key);
   try {
     for (const source of sources) {
@@ -137,7 +137,7 @@ export async function addAttachedFiles(client: T3Client, native: Native, files: 
   const kept = () => target ? identity.generation === client.generation : current();
   let error = '';
   const accepted: Obj[] = [], chips: DraftFile[] = [];
-  let reserved = reservedAttachments(client);
+  let reserved = reservedAttachmentsIn(client, key, threadKey);
   const release = holdDraftFiles(client.local, threadKey); // a file chip's file is the thread draft's, in an answer too
   const staging = holdStaging(client, key);
   try {

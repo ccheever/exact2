@@ -1,5 +1,6 @@
 import { composerInput } from './requests';
 import { removeStaged } from './composer-staged-copies';
+import { rememberCopiedChips, stagedInUse } from './composer-copied-chips';
 import { noteComposerFilePaths, refreshFileMetadata } from '../shared/file-metadata';
 // The shared field's source/selection feeds command menus and guarded edits.
 // Native sync supplies file-paste and notice channels; Contract draws the menus.
@@ -45,8 +46,9 @@ type Search = { entries: Obj[]; failed: boolean; providers?: Obj[] };
 type EditorCache = {
   discovery: WorkspaceDiscovery;
   trigger: EditorTrigger | null; dismissed: EditorTrigger | null; rows: MenuRow[]; owner: string;
-  /** The trigger `rows` answer: a slower search for an older query can finish after a newer trigger was read. */
-  rowsTrigger: EditorTrigger | null;
+  /** The search `rows` answer (ComposerPathSearchTarget): a slower search for an older query, or for another
+   *  environment or workspace, can finish after a newer trigger was read. */
+  rowsTarget: { query: string; environmentId: string; cwd: string } | null;
   searches: Map<string, Search>; pending: Map<string, number>; usageLimits: number;
   /** A send was refused for length: the line shows until the prompt fits. */
   limitArmed: boolean;
@@ -55,7 +57,7 @@ type EditorCache = {
 const caches = new WeakMap<T3Client, EditorCache>();
 function cache(client: T3Client): EditorCache {
   let entry = caches.get(client);
-  if (!entry) { entry = { discovery: new WorkspaceDiscovery(), trigger: null, dismissed: null, rows: [], rowsTrigger: null, owner: '', searches: new Map(), pending: new Map(), usageLimits: 0, limitArmed: false, stashOpen: false }; caches.set(client, entry); }
+  if (!entry) { entry = { discovery: new WorkspaceDiscovery(), trigger: null, dismissed: null, rows: [], rowsTarget: null, owner: '', searches: new Map(), pending: new Map(), usageLimits: 0, limitArmed: false, stashOpen: false }; caches.set(client, entry); }
   return entry;
 }
 
@@ -155,7 +157,7 @@ export function chipContexts(client: T3Client, text: string): Record<string, str
 }
 
 async function pathSearch(client: T3Client, native: Native, entry: EditorCache, cwd: string, query: string): Promise<Search | 'loading'> {
-  const key = `${cwd}\u0000${query}`;
+  const key = `${client.environmentId}\u0000${cwd}\u0000${query}`;
   const cached = entry.searches.get(key);
   if (cached) return cached;
   // PROJECT_PATH_SEARCH_DEBOUNCE_MS: the first answer shows the loading row
@@ -271,7 +273,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
     // A dropped attached file's staged copy goes with it (composer-editor-attach.ts).
     const current = composerFieldCurrent(client, composerFieldOwner(client));
     for (const dropped of pruneFiles(client.local, client.local.drafts, current?.value === '' ? '' : client.draftKey, files)) {
-      if (dropped.source === 'attached' && dropped.status === 'staged') await removeStaged(dropped.id);
+      if (dropped.source === 'attached' && dropped.status === 'staged' && !stagedInUse(client.local, dropped.id)) await removeStaged(dropped.id);
     }
   }
   const owner = composerFieldOwner(client), field = composerFieldCurrent(client, owner), session = composerSourceSession(client);
@@ -317,7 +319,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
   }
   rows = rows.map((row, index) => ({ ...row, index }));
   entry.rows = rows;
-  entry.rowsTrigger = trigger;
+  entry.rowsTarget = { query: trigger.query.trim(), environmentId: client.environmentId, cwd };
   const searchKey = `${client.snapshotOwner}:${trigger.kind}:${trigger.query.trim().toLowerCase()}`;
   return {
     owner: client.snapshotOwner, promptLimit, overLimit, usageLimits: entry.usageLimits, stash,
@@ -332,6 +334,12 @@ export async function editorLocal(client: T3Client, native: Native, op: string, 
   if (op.startsWith('shelf-video-')) return videoOp(client, native, op, id); // the shelf's videos (composer-attachments.ts)
   const entry = cache(client);
   if (op === 'dismiss') { entry.dismissed = entry.trigger; entry.trigger = null; entry.rows = []; return ''; }
+  // A copy or cut of the composer's selection (`id` "<start>:<end>" in `value`, the field's source).
+  if (op === 'chips-copied') {
+    const [start = 0, end = 0] = id.split(':').map(Number);
+    if (Number.isSafeInteger(start) && Number.isSafeInteger(end) && start < end) rememberCopiedChips(client, value.slice(start, end));
+    return '';
+  }
   if (op === 'history') {
     const owner = composerFieldOwner(client), field = composerFieldCurrent(client, owner);
     if (!field || field.composing || composerInput(client) || field.start !== field.end || id !== 'previous' && id !== 'next') return '';
@@ -350,7 +358,11 @@ export async function editorLocal(client: T3Client, native: Native, op: string, 
     if (!trigger || !row) throw new ClientError('That suggestion is no longer available.');
     // A file row answers the query it was searched for; once the field holds another, the pick is refused
     // (isPathSuggestionCurrent) rather than putting an older query's file in.
-    if (trigger.kind === 'path' && entry.rowsTrigger?.query.trim() !== trigger.query.trim()) throw new ClientError('That suggestion is no longer available.');
+    // isPathSuggestionCurrent: the rows answer this query, in this environment and workspace.
+    const target = entry.rowsTarget;
+    if (trigger.kind === 'path' && (target?.query !== trigger.query.trim() || target.environmentId !== client.environmentId || target.cwd !== workspaceCwd(client))) {
+      throw new ClientError('That suggestion is no longer available.');
+    }
     const range = { start: trigger.start, end: trigger.end, kind: trigger.kind, ...(trigger.kind === 'path' ? { expect: `@${trigger.query}` } : {}) };
     let text = row.insert;
     let focus = true;

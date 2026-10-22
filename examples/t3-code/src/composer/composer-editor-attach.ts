@@ -117,6 +117,13 @@ export function reservedAttachments(client: T3Client): number {
     + referencedFiles(client.local, client.draftKey, client.answers[`${requestId}::${entry.id}`]?.custom ?? '').length, 0);
 }
 
+/** countReservedAttachments for the draft files were given to (`key`, its thread draft `threadKey`), which the composer may
+ *  no longer show: its shelf, and the files its stored prompt references. */
+export function reservedAttachmentsIn(client: T3Client, key: string, threadKey: string): number {
+  if (key === client.attachmentKey && threadKey === client.draftKey) return reservedAttachments(client);
+  return (client.local.snapshotDrafts[key] ?? []).length + (key === threadKey ? referencedFiles(client.local, threadKey, client.local.drafts[threadKey] ?? '').length : 0);
+}
+
 /** A staged copy no draft will reference (a pick past the attachment limit). */
 export async function releaseStagedFile(_native: Native, file: Obj): Promise<void> {
   if (file.kind === 'file' && str(file.id)) await removeStaged(str(file.id));

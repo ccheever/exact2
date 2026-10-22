@@ -281,6 +281,7 @@ component T3Code
     composerLanguage
     composerKeyEvent
     composerKeyReleased
+    composerCopied
     attachFiles
     chooseAttachments
     threadFind
@@ -1605,6 +1606,10 @@ component T3Code
         stopPropagation()
         if k != "Enter" or not e.repeat
           composerIntentRequest("key", "", k, e.shiftKey or (k == "Enter" and composerRequiresModifier and not heldCommand), heldCommand, composerSelectionStart, composerSelectionEnd, composing)
+  // composer-copied-chips.ts: the copied range's image and file chips, held as the latest copy. The field copies the text.
+  action composerCopied
+    if composerSelectionCurrent and composerSelectionStart < composerSelectionEnd
+      editorOp("chips-copied", `${composerSelectionStart}:${composerSelectionEnd}`, composerText)
   action composerKeyReleased(k: string, e: KeyboardEvent)
     composerShift = e.shiftKey
     composerCommand = e.metaKey or e.ctrlKey

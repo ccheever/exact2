@@ -1,9 +1,10 @@
+// packages/client-runtime/src/userMessage.ts at T3 Code 74541bab17 (MIT; LICENSE-T3).
 import { str, type Obj } from '../client/domain';
 
 const LEGACY_AUTOMATION_PREFIX = /^\[Triggered by schedule task: [^\r\n]+\]\r?\n\r?\n/;
 const LEGACY_AUTOMATION_MESSAGE_ID = /^scheduled-task-message:(.+):\d+:(?:scheduled|manual)$/;
 /**
- * resolveUserMessagePresentation (client-runtime userMessage.ts): who sent a user message the user
+ * resolveUserMessagePresentation: who sent a user message the user
  * did not type. Older scheduled messages carry their attribution in the prompt itself; a restart
  * continuation the server sent as the agent is T3 Code's.
  */

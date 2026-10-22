@@ -169,10 +169,10 @@ final class ComposerEditorTests: XCTestCase {
         fixture.down(); fixture.returnKey()
         XCTAssertEqual(pressedNodes, [])
         XCTAssertEqual(fixture.inner.commands, [#selector(NSResponder.moveDown(_:)), #selector(NSResponder.insertNewline(_:))])
-        fixture.key("stash-Enter", node: 8); fixture.key("stash-Delete", node: 9)
+        fixture.key("stash-Enter", node: 8); fixture.key("stash-Delete", node: 9); fixture.key("stash-Escape", node: 10)
         fixture.inner.commands = []
-        fixture.returnKey(); fixture.send("\u{7f}", 51, .command)
-        XCTAssertEqual(pressedNodes, [8, 9], "the stash menu's Return and ⌘⌫")
+        fixture.returnKey(); fixture.send("\u{7f}", 51, .command); fixture.escape()
+        XCTAssertEqual(pressedNodes, [8, 9, 10], "the stash menu's Return, ⌘⌫ and Escape, from the composer only")
         fixture.editor.setMarkedText("あ", selectedRange: NSRange(location: 1, length: 0), replacementRange: fixture.editor.selectedRange())
         pressedNodes = []
         XCTAssertEqual(fixture.editor.delegate?.textView?(fixture.editor, doCommandBy: #selector(NSResponder.insertNewline(_:))), true)

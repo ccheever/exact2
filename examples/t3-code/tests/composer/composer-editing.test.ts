@@ -139,8 +139,17 @@ describe('selection surround', () => {
     const mention = 'see @a.ts now', chips = composerChips(mention);
     expect(composerSurround(mention, { start: 4, end: 9 }, '"', chips, [])).toBeNull();
     expect(composerSurround(mention, { start: 0, end: 4 }, '"', chips, [])).toBeNull();
-    const styled = 'a **bold** b', blocks = composerMarkdown(styled).blocks;
-    expect(composerSurround(styled, { start: 2, end: 10 }, '"', [], blocks)).toBeNull();
+    const styled = 'a **bold** b `code` [link](https://x.dev) ~~gone~~', blocks = composerMarkdown(styled).blocks;
+    // Any selection that holds styled text, inside its run too, is replaced, as the reference never wraps marked text.
+    for (const word of ['**bold**', 'bold', 'ol', 'code', 'link', 'gone', 'a **b']) {
+      const at = styled.indexOf(word);
+      expect(composerSurround(styled, { start: at, end: at + word.length }, '"', [], blocks)).toBeNull();
+    }
+    // Plain text beside a run, an underscore inside a word and a lone star are not styling.
+    for (const plain of ['clean node_modules now', 'a * b', 'snake_case_name']) {
+      expect(composerSurround(plain, { start: 0, end: plain.length }, '"', [], composerMarkdown(plain).blocks)?.text).toBe(`"${plain}"`);
+    }
+    expect(composerSurround(styled, { start: 0, end: 1 }, '(', [], blocks)?.text).toBe('(a)');
     // Code holds no styling, so its text is wrapped.
     const code = '```\na*b\n```';
     expect(composerSurround(code, { start: 4, end: 7 }, '"', [], composerMarkdown(code).blocks)?.text).toBe('"a*b"');
@@ -185,5 +194,63 @@ describe('recall, queue and send', () => {
     expect(sendIntent(config, key('meta+shift'), true, false, false, true)).toBe('alternate');
     expect(sendChords(config, true, false, false, true).split(' ')).toEqual(['Meta+Enter', 'Meta+Shift+Enter', 'Meta+Alt+Enter']);
     expect(sendChords(config, true, false, false, false).split(' ')).toEqual(['Meta+Enter', 'Meta+Alt+Enter']);
+  });
+});
+
+describe('chips copied between drafts (#17821)', () => {
+  const { adoptPastedChips, heldImageIds, rememberCopiedChips, stagedInUse } = require('../../src/composer/composer-copied-chips') as typeof import('../../src/composer/composer-copied-chips');
+  const { draftFiles, setDraftFiles, fileChipLink } = require('../../src/composer/composer-editor-files') as typeof import('../../src/composer/composer-editor-files');
+  const { imageChipLink } = require('../../src/composer/composer-editor-attach') as typeof import('../../src/composer/composer-editor-attach');
+  const imageId = '11111111-2222-4333-8444-555555555555', fileId = '66666666-7777-4888-8999-aaaaaaaaaaaa';
+  function setup() {
+    const client = new T3Client();
+    client.environmentId = 'env'; client.threadId = 'a';
+    const source = client.draftKey, image = { id: imageId, name: 'shot.png', mimeType: 'image/png', sizeBytes: 9, uploadId: 'up-1' };
+    client.local.snapshotDrafts[source] = [image];
+    const file = { id: fileId, contextId: `file_${fileId}`, draftKey: source, environmentId: 'env', name: 'notes.txt', mimeType: 'text/plain', sizeBytes: 3, source: 'attached', attachmentId: '', status: 'staged' as const };
+    setDraftFiles(client.local, [file]);
+    const text = `see ${imageChipLink(image)} and ${fileChipLink(file)} `;
+    return { client, source, image, file, text };
+  }
+  test('a paste into another draft adopts the image and file the source draft still holds', () => {
+    const { client, source, text } = setup();
+    client.threadId = 'b';
+    expect(adoptPastedChips(client, text, 100)).toBe(2);
+    // The image uploads again from its bytes; the file is the same staged copy.
+    expect(client.local.snapshotDrafts[client.draftKey]).toEqual([{ id: imageId, name: 'shot.png', mimeType: 'image/png', sizeBytes: 9 }]);
+    expect(draftFiles(client.local).map(file => file.draftKey)).toEqual([source, client.draftKey]);
+    // A second paste of the same chips adds nothing; the limit is kept.
+    expect(adoptPastedChips(client, text, 100)).toBe(0);
+    client.threadId = 'c';
+    expect(adoptPastedChips(client, text, 1)).toBe(1);
+  });
+  test('the latest copy keeps the chips after their draft was sent, until another copy replaces it', () => {
+    const { client, source, text } = setup();
+    rememberCopiedChips(client, text);
+    delete client.local.snapshotDrafts[source];
+    setDraftFiles(client.local, []);
+    expect(heldImageIds(client.local)).toEqual(new Set([imageId]));
+    expect(stagedInUse(client.local, fileId)).toBe(true);
+    client.threadId = 'b';
+    expect(adoptPastedChips(client, text, 100)).toBe(2);
+    rememberCopiedChips(client, 'plain text');
+    expect(heldImageIds(client.local)).toEqual(new Set());
+  });
+  test('the paste intent adopts them as its edit goes in', () => {
+    const { client, text } = setup();
+    client.threadId = 'b';
+    const { composerIntentSource } = require('../../src/composer/composer-intent-source') as typeof import('../../src/composer/composer-intent-source');
+    const { composerSourceSession } = require('../../src/composer/composer-rich-state') as typeof import('../../src/composer/composer-rich-state');
+    composerSourceSession(client).observe('draft', '', '', 'rich');
+    const reply = composerIntentSource(client, { snapshotOwner: client.snapshotOwner, owner: 'draft', value: '', serial: 1, start: 0, end: 0, composing: false, mode: 'rich', kind: 'paste', text });
+    expect(reply).toMatchObject({ kind: 'edit', text });
+    expect(client.snapshotDrafts.map(image => image.id)).toEqual([imageId]);
+  });
+  test("a file uploaded on another environment's server is not adopted", () => {
+    const { client, file, text } = setup();
+    setDraftFiles(client.local, [{ ...file, status: 'ready', attachmentId: 'server-1' }]);
+    client.environmentId = 'other';
+    expect(adoptPastedChips(client, text, 100)).toBe(1);
+    expect(draftFiles(client.local)).toHaveLength(1);
   });
 });
