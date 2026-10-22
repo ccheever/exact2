@@ -1,5 +1,8 @@
 // An ordered copy for Core Graphics, which ignores a layer's zPosition.
 // Live views and layers stay in logical order for input and accessibility.
+// The copy shares its layers' contents, AppKit's backing stores among them:
+// draw it (`render(in:)`), never commit it to a window's layer tree, where
+// sharing a view's backing store blanks the view (`PressLookMac.swift`).
 #if os(macOS)
 import AppKit
 #else
