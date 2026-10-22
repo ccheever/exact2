@@ -872,12 +872,28 @@ package final class TextSelection {
         let lines = paragraph.selectedLines(selection, align: spec.align, in: box, dirty: dirty)
         guard !lines.isEmpty else { return }
         let ink = Self.ink(focused: focused).cgColor, keepsFixed = Self.keepsFixedInk(dark: node.drawsDark)
+        var paint = spec, changed = false
+        for i in paint.runs.indices where !(keepsFixed && paint.runs[i].fixedInk) {
+            let run = paint.runs[i]
+            guard run.underlined || !run.decoration.isEmpty else { continue }
+            func opaque(_ color: [Double]?) -> [Double]? {
+                guard var color, color.count == 4, color[3] > 0, color[3] < 255 else { return color }
+                color[3] = 255; changed = true
+                return color
+            }
+            paint.runs[i].color = opaque(run.color ?? spec.color)
+            paint.runs[i].underlineColor = opaque(run.underlineColor)
+            paint.runs[i].strikeColor = opaque(run.strikeColor)
+        }
+        // CoreText includes the ink's alpha in decorations. Repaint those
+        // with solid role ink before applying the selected-text colour.
+        let painted = changed ? node.text?.paragraph(paint, width: paragraph.width) ?? paragraph : paragraph
         ctx.saveGState()
         ctx.clip(to: lines.map(\.rect))
         ctx.setFillColor(Self.fill(focused: focused).cgColor)
         ctx.fill(lines.map(\.rect))
         for index in Set(lines.map(\.line)) {
-            let line = spec.ellipsis ? paragraph.ellipsized(index, spec: spec, width: box.width) : paragraph.lines[index]
+            let line = spec.ellipsis ? painted.ellipsized(index, spec: paint, width: box.width) : painted.lines[index]
             let origin = CGPoint(x: box.minX + paragraph.origin(index, align: spec.align, width: box.width),
                                  y: box.minY + paragraph.baselines[index].rounded())
             TextLinePaint.draw(line, at: origin, in: ctx, ink: ink, keepsFixed: keepsFixed, transparentInk: node.backgroundClip == "text")
