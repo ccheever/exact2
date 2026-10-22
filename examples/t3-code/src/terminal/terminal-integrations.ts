@@ -13,6 +13,8 @@ import { resolvePathLinkTarget } from './terminal-links';
 import { letGo } from '../client/let-go';
 import { openTerminalLinkInPreview, openUrlInPreview, resolveLinkTargetPreference, type TerminalLinkPreviewOpenError } from '../browser/browser-links';
 import { resolveBrowserOpenDefaults } from '../browser/browser-defaults';
+import { openExternal } from '../client/external-open';
+import { terminalFrameId, terminalFrameSystemMessage } from './terminal-frames';
 
 
 export interface TerminalContextSelection { terminalId: string; terminalLabel: string; lineStart: number; lineEnd: number; text: string }
@@ -156,8 +158,7 @@ export async function terminalLinkAction(client: T3Client, native: Native, messa
   }
   try {
     if (target === 'system') {
-      const result = await client.call(native, { op: 'terminalOpenExternal', url: str(message.text) });
-      if (result.opened !== true) throw new ClientError('Unable to open link');
+      if (!openExternal(str(message.text))) throw new ClientError('Unable to open link');
     } else {
       const cwd = str(message.cwd) || str(thread?.worktreePath) || str(project?.workspaceRoot);
       const editor = favoriteEditor(options.environment?.config ?? client.config, lastEditor(client));
@@ -168,23 +169,18 @@ export async function terminalLinkAction(client: T3Client, native: Native, messa
     }
   } catch (error) {
     if (letGo(error)) throw error;
-    const text = error instanceof Error ? error.message : target === 'system' ? 'Unable to open link' : 'Unable to open path';
-    await client.call(native, { op: 'terminalSystemMessage', environmentId: str(message.environmentId) || client.environmentId,
-      threadId, terminalId: str(message.terminalId), message: text }).catch(() => {
-      pushToast(client, { kind: 'error', title: 'Unable to open link', description: text });
-    });
+    terminalLinkFailed(client, message, threadId, error instanceof Error ? error.message : target === 'system' ? 'Unable to open link' : 'Unable to open path');
   }
 }
 
-/** The terminal's system-browser open (`terminalOpenExternal`), its failure a terminal system message. */
+/** A link's failure, written into the terminal that showed it (writeSystemMessage), else a toast. */
+function terminalLinkFailed(client: T3Client, message: Obj, threadId: string, text: string): void {
+  const frameId = terminalFrameId(str(message.surface) || 'drawer', str(message.environmentId) || client.environmentId, threadId, str(message.terminalId));
+  if (!terminalFrameSystemMessage(client, id => id === frameId, text)) pushToast(client, { kind: 'error', title: 'Unable to open link', description: text });
+}
+
+/** The terminal's system-browser open (ElectronShell.openExternal, external-open.ts), its failure a terminal system message. */
 async function openTerminalLinkExternally(client: T3Client, native: Native, message: Obj, threadId: string): Promise<void> {
-  try {
-    const result = await client.call(native, { op: 'terminalOpenExternal', url: str(message.text) });
-    if (result.opened !== true) throw new ClientError('Unable to open link');
-  } catch (error) {
-    if (letGo(error)) throw error;
-    const text = error instanceof Error ? error.message : 'Unable to open link';
-    await client.call(native, { op: 'terminalSystemMessage', environmentId: str(message.environmentId) || client.environmentId, threadId, terminalId: str(message.terminalId), message: text })
-      .catch(() => pushToast(client, { kind: 'error', title: 'Unable to open link', description: text }));
-  }
+  void native;
+  if (!openExternal(str(message.text))) terminalLinkFailed(client, message, threadId, 'Unable to open link');
 }

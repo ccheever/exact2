@@ -26,7 +26,7 @@ import { Session, type SocketEvent, type SocketHandle, type Reply } from './tran
 import { Catalog, type SecretStore } from './transport-catalog';
 import { ActivityReporter } from './transport-activity';
 import { OutdatedHosts, UPDATE_SLOTS } from './transport-outdated';
-import { TransportFailure, letGoAbort, random as platformRandom, refillRandom, uuid as platformUuid } from './transport-wire';
+import { TransportFailure, notConnected, letGoAbort, random as platformRandom, refillRandom, uuid as platformUuid } from './transport-wire';
 import type { Http, HttpReply } from './transport-routes';
 
 type Obj = Record<string, unknown>;
@@ -251,6 +251,12 @@ export class Transport {
       return { ok: true, generation: 0, value: {} };
     }
     if (op === 'status') return this.status(module, value);
+    // The terminal page's socket goes to its own environment's server, focused or in the background.
+    if (op === 'terminalSocket') {
+      const session = this.sessions.find(entry => entry.state === 'connected' && str(entry.descriptor.environmentId) === str(value.environmentId));
+      if (!session) return { ok: false, generation: 0, error: notConnected().json() };
+      return session.terminalSocketAccess().catch(error => ({ ok: false, generation: 0, error: (error instanceof TransportFailure ? error : new TransportFailure('Network', String(error))).json() }));
+    }
     // The client recorded something the window shows (a draft's launch, draft-launch.ts): the snapshot is read again.
     if (op === 'snapshotNews') { this.news += 1; this.bump(); return { ok: true, generation: 0, value: {} }; }
     if (SESSION_OPS.has(op)) return this.focused.perform(value);

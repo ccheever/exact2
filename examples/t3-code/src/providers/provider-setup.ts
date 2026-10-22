@@ -14,8 +14,8 @@ import { providerWritable } from './provider-permissions';
 // instead, so every command carries the state token its button was drawn from and a
 // press is dropped when that state moved on or a command already succeeded from it. Opening the browser is
 // ElectronShell.openExternal (external-open.ts, Contract's `openURL`; an agent run
-// journals the URL instead of opening it). Terminal sign-in input goes through the
-// terminal view (provider-auth-terminal.ts, T3TerminalSessions.swift).
+// journals the URL instead of opening it). Terminal sign-in input goes over the terminal
+// page's own socket (provider-auth-terminal.ts).
 import { arr, obj, str, type Obj } from '../client/domain';
 import { bridgeReply, ClientError, type Native } from '../client/protocol';
 import type { ProviderHost } from './providers';
@@ -201,7 +201,7 @@ export async function providerSetupOp(host: Host, native: Native, op: string, id
       return;
     }
     case 'setup:auth-event': {
-      // The sign-in terminal's own failures (T3TerminalView auth mode), scoped to the flow it was drawn for.
+      // The sign-in terminal page's own failures, scoped to the flow it was drawn for.
       const event = obj(JSON.parse(value || '{}'));
       if (str(event.authFlow) && str(event.authFlow) !== authDraftId(auth)) return;
       if (!str(auth?.flowId) || interaction.type !== 'terminal') return;

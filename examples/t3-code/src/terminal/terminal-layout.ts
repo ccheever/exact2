@@ -5,8 +5,9 @@
 // surface) share them. Contract consumes plain rows.
 import { MAX_TERMINALS_PER_GROUP, type ThreadTerminalGroup } from './terminal-ui-state';
 import { terminalCloseConfirmMessage } from './terminal-close';
+import type { TerminalFrameView } from './terminal-frames';
 export type TerminalPaneView = { terminalId: string; label: string; sessionKey: string; active: boolean; focusRequest: number; target: string;
-  cwd: string; worktree: string; env: string };
+  cwd: string; worktree: string; env: string; frame: TerminalFrameView };
 export type TerminalTabView = { id: string; label: string; heading: string; groupIcon: string; groupActive: boolean; groupTarget: string; count: number;
   active: boolean; target: string; closeLabel: string; closeTitle: string; closeBody: string };
 export function terminalLayout(ids: readonly string[], groups: readonly ThreadTerminalGroup[], activeId: string, activeGroupId: string) {

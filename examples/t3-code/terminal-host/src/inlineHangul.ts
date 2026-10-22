@@ -15,7 +15,7 @@
 //
 // So while the input method edits in place, its text stays in the input, as it inserted it, and a
 // syllable goes to the shell once the input method starts the next one, as a composition commits;
-// the native view is told a syllable composes meanwhile. Anything else (a space, a key the surface
+// `composing` hears that a syllable composes meanwhile. Anything else (a space, a key the surface
 // encodes, a composition, leaving the input) sends the syllable and gives the input back to the
 // surface, which empties it.
 

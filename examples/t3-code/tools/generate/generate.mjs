@@ -10,7 +10,7 @@
 //                      the icon tables of icon-tables.mjs and
 //                      icon-marks.mjs (src/shared/icons.contract and nine more in their features' folders)
 //   gen-morph.mjs      src/shell/shell-morph.contract: morphicons' plan for each icon pair
-//   gen-vectors.mjs    macos/tests/terminal/vectors.json: the buffer cases and their committed expectations
+//   gen-vectors.mjs    tests/terminal/vectors.json: the buffer cases and their committed expectations
 //   gen-shell-parser.mjs src/highlight/shell-parser/: unbash parser runtime and declarations
 //   gen-mermaid.mjs    assets/mermaid/vendor/ and assets/math/vendor/: pele and DOMPurify for the Mermaid page,
 //                      KaTeX for the math page

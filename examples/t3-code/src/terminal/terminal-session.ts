@@ -3,8 +3,8 @@
 // - The `@t3tools/contracts` types are declared here (packages/contracts/src/terminal.ts shapes);
 //   `EnvironmentId` and `ThreadId` are plain strings.
 // - `./terminalOutput.ts` is `./terminal-output`.
-// The drawer's native session (modules/apple/T3TerminalSessions.swift) folds the attach stream the
-// same way; this module is the reducer the bun tests and the metadata stream use.
+// The terminal page's session (terminal-host/src/session.ts) folds its attach stream's status, error and version as
+// this reducer does, writing the output straight to its surface; the metadata stream uses the reducer here.
 export type TerminalSessionStatus = "starting" | "running" | "exited" | "error";
 export interface TerminalSessionSnapshot {
   readonly threadId: string;

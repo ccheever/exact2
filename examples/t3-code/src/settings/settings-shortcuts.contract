@@ -143,10 +143,10 @@ component ShortcutButton
     press()
   view
     if chordStandsIn(item.chord)
-      button hatch="t3-terminal-key" data-anchor=item.command press=pressed disabled=(held and not editingChord(item.chord)) aria-keyshortcuts=(item.command == "rightPanel.close" or (held and editingChord(item.chord)) ? "" : item.chord) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+      button press=pressed disabled=(held and not editingChord(item.chord)) aria-keyshortcuts=(item.command == "rightPanel.close" or (held and editingChord(item.chord)) ? "" : item.chord) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
         text item.label font-size=1
     else
-      button -exact-menu="none" hatch="t3-terminal-key" data-anchor=item.command press=pressed disabled=(held and not editingChord(item.chord)) aria-keyshortcuts=(item.command == "rightPanel.close" or (held and editingChord(item.chord)) ? "" : item.chord) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+      button -exact-menu="none" press=pressed disabled=(held and not editingChord(item.chord)) aria-keyshortcuts=(item.command == "rightPanel.close" or (held and editingChord(item.chord)) ? "" : item.chord) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
         text item.label font-size=1
 
 // ShortcutButton for an action that reads the press's event (chat.new: ⇧-click creates at once; a chord's press has none).
@@ -163,10 +163,10 @@ component ShortcutEventButton
     press(e)
   view
     if chordStandsIn(item.chord)
-      button hatch="t3-terminal-key" data-anchor=item.command press=pressed disabled=(held and not editingChord(item.chord)) aria-keyshortcuts=(item.command == "rightPanel.close" or (held and editingChord(item.chord)) ? "" : item.chord) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+      button press=pressed disabled=(held and not editingChord(item.chord)) aria-keyshortcuts=(item.command == "rightPanel.close" or (held and editingChord(item.chord)) ? "" : item.chord) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
         text item.label font-size=1
     else
-      button -exact-menu="none" hatch="t3-terminal-key" data-anchor=item.command press=pressed disabled=(held and not editingChord(item.chord)) aria-keyshortcuts=(item.command == "rightPanel.close" or (held and editingChord(item.chord)) ? "" : item.chord) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+      button -exact-menu="none" press=pressed disabled=(held and not editingChord(item.chord)) aria-keyshortcuts=(item.command == "rightPanel.close" or (held and editingChord(item.chord)) ? "" : item.chord) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
         text item.label font-size=1
 
 // View › Reload and Force Reload (DesktopApplicationMenu.ts:233-234, Electron's `reload` and `forceReload` roles): the

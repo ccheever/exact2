@@ -22,7 +22,7 @@ enum T3BrowserAutomationScripts {
 
     /// The vendored injected script (assets/vendor/playwright, Apache-2.0), read once.
     static let playwrightSource: String? = {
-        guard let url = T3TerminalAssets.fileURL("vendor/playwright/injected-script.js") ?? bundledPlaywright() else { return nil }
+        guard let url = T3Assets.fileURL("vendor/playwright/injected-script.js") ?? bundledPlaywright() else { return nil }
         return try? String(contentsOf: url, encoding: .utf8)
     }()
     /// A test binary runs beside the sources: the example's own assets.

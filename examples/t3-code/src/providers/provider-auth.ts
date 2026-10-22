@@ -10,6 +10,7 @@ import { arr, num, obj, str, type Obj } from '../client/domain';
 import { authDraftId, authUrl, type ProviderSetupEntry } from './provider-setup';
 import { redactedValue } from '../shared/redacted-text';
 import { confirmDialogCopy } from '../connections/server-update';
+import { authTerminalFrame } from './provider-auth-terminal';
 
 export type ProviderAccount = ReturnType<typeof providerAccount>;
 
@@ -49,6 +50,7 @@ export function providerAccount(instanceId: string, provider: Obj, entry: Provid
     details: interaction.type === 'terminal' || interaction.type === 'credentials' || interaction.type === 'deviceCode' || callback || error !== '',
     deviceCode: interaction.type === 'deviceCode' ? str(interaction.userCode) : '',
     terminal: interaction.type === 'terminal', flow: draftId, output: str(interaction.output), offset: num(interaction.outputOffset, str(interaction.output).length),
+    frame: authTerminalFrame(instanceId, interaction.type === 'terminal' ? flowId : '', str(interaction.id), str(interaction.output), num(interaction.outputOffset, str(interaction.output).length)),
     credentials: interaction.type === 'credentials' ? arr(interaction.fields).slice(0, 16).map((field, index) => ({ index, name: str(field.name), label: str(field.label), secret: field.secret === true })) : [],
     callback, formKey: `${draftId}:${entry.cleared}`, error,
   };

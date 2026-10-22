@@ -59,7 +59,7 @@ final class T3BrowserAnnotation: NSObject, WKScriptMessageHandler {
 
     /// The overlay's source (`EXACT_ASSETS` in a development run, else the bundle's `assets/`).
     static func script() -> String? {
-        guard let url = T3TerminalAssets.fileURL(scriptFile), let data = try? Data(contentsOf: url) else { return nil }
+        guard let url = T3Assets.fileURL(scriptFile), let data = try? Data(contentsOf: url) else { return nil }
         return String(data: data, encoding: .utf8)
     }
 

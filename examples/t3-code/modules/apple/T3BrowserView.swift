@@ -228,11 +228,11 @@ final class T3BrowserView: ExactNativeInstance {
         switch input {
         case .text(let text):
             for character in text {
-                let key = T3TerminalKeys.event(for: character)
+                let key = T3Keys.event(for: character)
                 try deliver(window, key.code, characters: String(character), plain: key.plain, flags: key.flags, phase: nil)
             }
         case .key(let chord, let phase):
-            guard let key = T3TerminalKeys.chord(chord) else { throw ExactNativeRefusal("unsupported key \(chord)") }
+            guard let key = T3Keys.chord(chord) else { throw ExactNativeRefusal("unsupported key \(chord)") }
             try deliver(window, key.code, characters: key.characters, plain: key.plain, flags: key.flags, phase: phase)
         }
     }

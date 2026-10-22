@@ -27,7 +27,6 @@
   },
   "modules": [
     "t3-ssh-password",
-    "t3-terminal",
     "t3-browser"
   ],
   "commands": {
@@ -40,7 +39,6 @@
     "t3-prompt-preview",
     "t3-anchor",
     "t3-snapshot-tile",
-    "t3-terminal-key",
     "t3-media",
     "t3-launcher"
   ],

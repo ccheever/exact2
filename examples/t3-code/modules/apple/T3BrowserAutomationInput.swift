@@ -26,12 +26,12 @@ enum T3BrowserAutomationInput {
         }
     }
 
-    /// One key press (`makePreviewAutomationNativeKeySequence`): `chord` names the key as T3TerminalKeys does
+    /// One key press (`makePreviewAutomationNativeKeySequence`): `chord` names the key as T3Keys does
     /// ("Meta+a", "Enter"); `text` is a printable key's character, typed when no other modifier than Shift is held.
     static func press(_ web: WKWebView, window: NSWindow, key: [String: Any]) throws {
         let chord = key["chord"] as? String ?? ""
-        var event = T3TerminalKeys.chord(chord)
-        if event == nil, let text = key["text"] as? String, let character = text.first, text.count == 1 { event = T3TerminalKeys.event(for: character) }
+        var event = T3Keys.chord(chord)
+        if event == nil, let text = key["text"] as? String, let character = text.first, text.count == 1 { event = T3Keys.event(for: character) }
         guard let event else { throw T3BrowserHostError.operation("no native key for \(chord)") }
         let characters = (key["text"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? event.characters
         withFocus(web, window) {
