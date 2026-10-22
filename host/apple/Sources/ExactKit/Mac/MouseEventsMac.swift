@@ -213,7 +213,11 @@ extension NodeView {
         }
         if let run = inlinePressed {
             inlinePressed = nil
-            if inlineTarget(at: local(event.locationInWindow), handler: "press")?.id == run { _ = activateInline(run) }
+            if inlineTarget(at: local(event.locationInWindow), handler: "press")?.id == run {
+                presenter?.pressClick = event
+                _ = activateInline(run)
+                presenter?.pressClick = nil
+            }
             return
         }
         if selectsText { presenter?.selection.end(self, event: event); return }
@@ -222,7 +226,7 @@ extension NodeView {
         pressed = false
         if pressInside(event.locationInWindow) {
             let canvas = inputCanvas, ownerWindow = window
-            presenter?.press(id, held: KeyCodes.held(event.modifierFlags))
+            presenter?.press(id, held: KeyCodes.held(event.modifierFlags), click: event)
             finishPress(canvas: canvas, window: ownerWindow, pointer: true)
         }
     }
