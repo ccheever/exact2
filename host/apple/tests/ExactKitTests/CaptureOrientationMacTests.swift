@@ -1,0 +1,197 @@
+#if os(macOS)
+import AppKit
+import XCTest
+import IOSurface
+@testable import ExactKit
+
+private class OrientationView: NSView {
+    var flipsCoordinates = true
+    override var isFlipped: Bool { flipsCoordinates }
+}
+
+private final class OrientationInk: OrientationView {
+    var draws = 0
+    var drawnCTM = CGAffineTransform.identity
+    override func draw(_ dirtyRect: NSRect) {
+        draws += 1
+        drawnCTM = NSGraphicsContext.current!.cgContext.ctm
+        NSColor.white.setFill(); bounds.fill()
+        NSColor.red.setFill()
+        NSRect(x: 0, y: isFlipped ? 0 : 48, width: 20, height: 8).fill()
+        NSColor.blue.setFill()
+        NSRect(x: 0, y: isFlipped ? 48 : 0, width: 20, height: 8).fill()
+        ("Flip Fg" as NSString).draw(at: NSPoint(x: 26, y: isFlipped ? 3 : 29), withAttributes: [
+            .font: NSFont.systemFont(ofSize: 20), .foregroundColor: NSColor.black,
+        ])
+    }
+}
+
+private final class OrientationUpdate: OrientationView {
+    var image: Any?
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() { layer?.contents = image }
+}
+
+final class CaptureOrientationMacTests: XCTestCase {
+    func testContentsAndLateDrawing() throws {
+        _ = NSApplication.shared
+        let shell = OrientationView(frame: NSRect(x: 0, y: 0, width: 480, height: 112))
+        shell.wantsLayer = true
+        let root = OrientationView(frame: shell.bounds); shell.addSubview(root)
+        let window = NSWindow(contentRect: shell.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = shell
+        defer { window.close() }
+        func ink(_ i: Int) -> OrientationInk {
+            let v = OrientationInk(frame: NSRect(x: (i % 4) * 120, y: (i / 4) * 56, width: 120, height: 56))
+            root.addSubview(v); return v
+        }
+        let early = ink(0), redraw = ink(1)
+        window.orderFront(nil); shell.displayIfNeeded(); CATransaction.flush()
+        let late = ink(2)
+        late.displayIfNeeded()
+        let held = ink(3)
+        root.alphaValue = 0
+        root.displayIfNeeded()
+        root.alphaValue = 1
+        redraw.needsDisplay = true
+        // A CGImage and an IOSurface carry the same asymmetric picture.
+        let context = try XCTUnwrap(CGContext(data: nil, width: 120, height: 56, bitsPerComponent: 8, bytesPerRow: 480,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue))
+        context.setFillColor(NSColor.white.cgColor); context.fill(CGRect(x: 0, y: 0, width: 120, height: 56))
+        context.setFillColor(NSColor.red.cgColor); context.fill(CGRect(x: 0, y: 48, width: 20, height: 8))
+        context.setFillColor(NSColor.blue.cgColor); context.fill(CGRect(x: 0, y: 0, width: 20, height: 8))
+        let image = try XCTUnwrap(context.makeImage())
+        let surface = try XCTUnwrap(IOSurface(properties: [.width: 120, .height: 56, .bytesPerElement: 4, .bytesPerRow: 480, .allocSize: 480 * 56, .pixelFormat: UInt32(0x42475241)]))
+        surface.lock(options: [], seed: nil)
+        memcpy(surface.baseAddress, context.data!, 480 * 56)
+        surface.unlock(options: [], seed: nil)
+        var views: [NSView] = [early, redraw, late, held]
+        for i in 4..<8 {
+            let v = OrientationUpdate(frame: NSRect(x: (i % 4) * 120, y: 56, width: 120, height: 56))
+            v.image = i % 2 == 0 ? image : surface
+            v.flipsCoordinates = i < 6
+            root.addSubview(v); views.append(v)
+        }
+        root.displayIfNeeded(); CATransaction.flush()
+        let backing = try XCTUnwrap(root.layer)
+        let tree = Capture.paintOrderLayer(of: root, root: backing)
+        let copy = NSBitmapImageRep(cgImage: try XCTUnwrap(Capture.picture(of: tree, size: root.bounds.size, scale: 1)))
+        let original = NSBitmapImageRep(cgImage: try XCTUnwrap(Capture.picture(of: backing, size: root.bounds.size, scale: 1)))
+        let shownTree = Capture.paintOrderLayer(of: root, root: backing)
+        func swap(_ source: CALayer, _ target: CALayer) {
+            target.contents = source.presentation()?.contents ?? source.contents
+            for (s, t) in zip(source.sublayers ?? [], target.sublayers ?? []) { swap(s, t) }
+        }
+        swap(backing, shownTree)
+        let shownCopy = NSBitmapImageRep(cgImage: try XCTUnwrap(Capture.picture(of: shownTree, size: root.bounds.size, scale: 1)))
+        for (i, v) in views.enumerated() {
+            let layer = try XCTUnwrap(v.layer), contents = layer.contents as? NSObject
+            let pixel = contents?.responds(to: NSSelectorFromString("pixelTransform")) == true ? String(describing: contents?.value(forKey: "pixelTransform")) : "none"
+            print("TIMING \(i) copy=\(marker(copy, i)) original=\(marker(original, i)) shownCopy=\(marker(shownCopy, i)) viewFlip=\(v.isFlipped) geometry=\(layer.isGeometryFlipped) contentsFlip=\(layer.contentsAreFlipped()) update=\(v.wantsUpdateLayer) contents=\(String(describing: layer.contents.map { type(of: $0) })) pixel=\(pixel) ctm=\(String(describing: (v as? OrientationInk)?.drawnCTM))")
+        }
+        let cache = try XCTUnwrap(root.bitmapImageRepForCachingDisplay(in: root.bounds))
+        root.cacheDisplay(in: root.bounds, to: cache)
+        for i in 0..<8 {
+            print("TIMING CACHE \(i) \(marker(cache, i))")
+            XCTAssertEqual(marker(original, i), marker(cache, i), "the original tree agrees with AppKit for case \(i)")
+        }
+        try evidence([("timing-copy", copy), ("timing-original", original), ("timing-cache", cache), ("timing-shown-copy", shownCopy)])
+    }
+
+    func testSubtreeBackingHistories() throws {
+        _ = NSApplication.shared
+        let shell = OrientationView(frame: NSRect(x: 0, y: 0, width: 480, height: 112))
+        shell.wantsLayer = true
+        let root = OrientationView(frame: shell.bounds)
+        shell.addSubview(root)
+        let window = NSWindow(contentRect: shell.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = shell
+        defer { window.close() }
+        var views: [OrientationInk] = []
+        for i in 0..<8 {
+            let ink = OrientationInk(frame: NSRect(x: (i % 4) * 120, y: (i / 4) * 56, width: 120, height: 56))
+            root.addSubview(ink); views.append(ink)
+        }
+        window.orderFront(nil); shell.displayIfNeeded(); CATransaction.flush()
+        views[1].display()
+        views[2].layer?.display()
+        views[3].needsDisplay = true; views[3].displayIfNeeded()
+        views[4].layer?.setNeedsDisplay(); views[4].layer?.displayIfNeeded()
+        views[5].wantsLayer = false; views[5].wantsLayer = true; views[5].display()
+        views[6].layer?.setNeedsDisplay(); root.displayIfNeeded()
+        views[7].layer?.isGeometryFlipped = true; views[7].display()
+        views[7].layer?.isGeometryFlipped = false
+        let drawn = views.map { ($0.draws, $0.drawnCTM) }
+        let layer = try XCTUnwrap(root.layer)
+        let copy = try XCTUnwrap(Capture.paintOrderBitmap(of: root, scale: 1))
+        let original = NSBitmapImageRep(cgImage: try XCTUnwrap(Capture.picture(of: layer, size: root.bounds.size, scale: 1)))
+        CATransaction.flush()
+        let presented = try layer.presentation().map { NSBitmapImageRep(cgImage: try XCTUnwrap(Capture.picture(of: $0, size: root.bounds.size, scale: 1))) }
+        let cache = try XCTUnwrap(root.bitmapImageRepForCachingDisplay(in: root.bounds))
+        root.cacheDisplay(in: root.bounds, to: cache)
+        for (i, ink) in views.enumerated() {
+            let backing = try XCTUnwrap(ink.layer)
+            print("HISTORY \(i) copy=\(marker(copy, i)) original=\(marker(original, i)) presentation=\(presented.map { marker($0, i) } ?? "nil") cache=\(marker(cache, i)) ctmBeforeCache=\(drawn[i]) geometry=\(backing.isGeometryFlipped)/\(layer.isGeometryFlipped)/\(shell.layer!.isGeometryFlipped) flipped=\(backing.contentsAreFlipped()) contents=\(String(describing: backing.contents)) presentedContents=\(String(describing: backing.presentation()?.contents))")
+            XCTAssertEqual(marker(cache, i), "upright")
+            XCTAssertEqual(marker(original, i), "upright")
+        }
+        XCTExpectFailure("QUEUE 465: a copied subtree loses AppKit backing-store orientation") {
+            XCTAssertEqual(marker(copy, 0), marker(cache, 0))
+        }
+        try evidence([("history-copy", copy), ("history-original", original), ("history-cache", cache)])
+    }
+
+    private func marker(_ rep: NSBitmapImageRep, _ i: Int) -> String {
+        let x = (i % 4) * 120 + 4, y = (i / 4) * 56 + 4
+        guard let c = rep.colorAt(x: x * rep.pixelsWide / 480, y: y * rep.pixelsHigh / 112) else { return "missing" }
+        return c.redComponent > 0.8 && c.blueComponent < 0.2 ? "upright" : c.blueComponent > 0.8 && c.redComponent < 0.2 ? "flipped" : "other"
+    }
+
+    private func evidence(_ pictures: [(String, NSBitmapImageRep)]) throws {
+        if let dir = ProcessInfo.processInfo.environment["EXACT_CAPTURE_EVIDENCE"] {
+            for (name, rep) in pictures {
+                try rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name).png"))
+            }
+        }
+    }
+
+    func testBackingStoreOrientationMatrix() throws {
+        _ = NSApplication.shared
+        let root = OrientationView(frame: NSRect(x: 0, y: 0, width: 480, height: 112))
+        root.wantsLayer = true
+        let window = NSWindow(contentRect: root.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = root
+        defer { window.close() }
+        var cases: [(String, OrientationInk)] = []
+        for parentFlipped in [true, false] {
+            for flipped in [true, false] {
+                for explicit in [false, true] {
+                    let i = cases.count
+                    let parent = OrientationView(frame: NSRect(x: (i % 4) * 120, y: (i / 4) * 56, width: 120, height: 56))
+                    parent.flipsCoordinates = parentFlipped
+                    let ink = OrientationInk(frame: parent.bounds)
+                    ink.flipsCoordinates = flipped; ink.wantsLayer = explicit
+                    parent.addSubview(ink); root.addSubview(parent)
+                    cases.append(("parent=\(parentFlipped),view=\(flipped),explicit=\(explicit)", ink))
+                }
+            }
+        }
+        window.orderFront(nil); root.displayIfNeeded(); CATransaction.flush()
+        let backing = try XCTUnwrap(root.layer)
+        let copy = try XCTUnwrap(Capture.paintOrderBitmap(of: root, scale: 1))
+        let original = NSBitmapImageRep(cgImage: try XCTUnwrap(Capture.picture(of: backing, size: root.bounds.size, scale: 1)))
+        let cache = try XCTUnwrap(root.bitmapImageRepForCachingDisplay(in: root.bounds))
+        root.cacheDisplay(in: root.bounds, to: cache)
+        for (i, item) in cases.enumerated() {
+            let (name, ink) = item, layer = try XCTUnwrap(ink.layer)
+            var chain: [Bool] = [], ancestor: CALayer? = layer
+            while let a = ancestor { chain.append(a.isGeometryFlipped); ancestor = a.superlayer }
+            print("ORIENTATION \(name): cache=\(marker(cache, i)) copy=\(marker(copy, i)) original=\(marker(original, i)) layer=\(type(of: layer)) contents=\(String(describing: layer.contents.map { type(of: $0) })) geometry=\(chain) contentsFlipped=\(layer.contentsAreFlipped()) ctm=\(ink.drawnCTM) draws=\(ink.draws)")
+            XCTAssertEqual(marker(cache, i), "upright")
+            XCTAssertEqual(marker(copy, i), "upright")
+            XCTAssertEqual(marker(original, i), "upright")
+        }
+        try evidence([("copy", copy), ("original", original), ("cache", cache)])
+    }
+}
+#endif
