@@ -39,14 +39,52 @@ pub(crate) fn packaged(app: &AppParams, out: &mut Value, paths: bool) {
     }
 }
 
+/// The local wire's watcher's `hello {paths: true}`: each package entry in
+/// `out` given `assets`, a digest of the package SVGs the app's build reads
+/// (stage 13 round 1, Astra 6: an edit of one changes what `draws` says
+/// without touching the design's text), each by its path and bytes, one
+/// looked for and not there by its path; so the watcher announces it as a
+/// change of the package's design.
+pub(crate) fn assets(app: &AppParams, out: &mut Value, graph: &contract::SourceGraph) {
+    // Never `out["packages"]` written: none listed is no key.
+    let listed = out.get_mut("packages").and_then(Value::as_array_mut);
+    for (entry, p) in listed.into_iter().flatten().zip(&app.packages) {
+        let Some(root) = p.root.as_deref() else {
+            continue;
+        };
+        let under = std::path::Path::new(root).join("assets");
+        let mut read: Vec<(String, Option<Vec<u8>>)> = graph
+            .sources
+            .iter()
+            .map(|s| (&s.path, true))
+            .chain(graph.consulted.iter().map(|c| (c, false)))
+            .filter(|(path, _)| path.starts_with(&under))
+            .map(|(path, there)| {
+                (
+                    path.display().to_string(),
+                    there.then(|| std::fs::read(path).ok()).flatten(),
+                )
+            })
+            .collect();
+        read.sort();
+        let mut bytes = Vec::new();
+        for (path, body) in &read {
+            bytes.extend(path.as_bytes());
+            bytes.push(0);
+            bytes.extend(body.as_deref().unwrap_or(b"(none)"));
+            bytes.push(0);
+        }
+        entry["assets"] = json!(digest(&bytes));
+    }
+}
+
 /// What the local wire's watcher watches for the packages' designs
 /// (`hello {paths: true}`'s `watch`): each linked package's directory,
 /// whole (a design made, renamed by its `package.json`, or in a directory
 /// of its own), and the directory each is installed in (a link retargeted,
 /// an install replacing it). Package directories only: never a path a
 /// `package.json` names outside its package.
-pub(crate) fn watched(app_contract: &std::path::Path) -> Value {
-    let graph = contract::source_graph(app_contract);
+pub(crate) fn watched(app_contract: &std::path::Path, graph: &contract::SourceGraph) -> Value {
     // Each package resolved, and each directory a resolution looked for a package.json in and failed
     // past (an export or a manifest missing for now): mending it inside the directory is a change too.
     let mut roots: Vec<String> = graph

@@ -40,7 +40,8 @@ export function packageDesigns({ announce, changed, log = () => {} }) {
     // Each one's presence as of its listing: what the look compares with.
     for (const dir of [...listed.keys(), ...installs]) if (!there.has(dir)) there.set(dir, ino(dir));
     for (const [dir, recursive] of listed) follow(dir, recursive);
-    const now = new Map(packages.map(p => [p.file, p.digest]));
+    // A design's text and the package SVGs it draws (`assets`, stage 13): an SVG edit changes `draws`.
+    const now = new Map(packages.map(p => [p.file, `${p.digest}:${p.assets ?? ''}`]));
     const edited = [...new Set([...now.keys(), ...digests.keys()])].filter(file => now.get(file) !== digests.get(file));
     digests.clear();
     for (const [file, digest] of now) digests.set(file, digest);
