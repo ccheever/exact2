@@ -361,6 +361,22 @@ pub(crate) fn kept(a: &Attr) -> Option<bool> {
     }
 }
 
+/// A written value's type as `expr::compile` gives it: a number, a string,
+/// a choice's arms unified (a choice of both not known, as there).
+fn literal_ty(e: &Expr) -> contract_types::Ty {
+    use contract_types::Ty;
+    let either = |a: &Expr, b: &Expr| literal_ty(a).unify(&literal_ty(b)).unwrap_or(Ty::Unknown);
+    match e {
+        Expr::Number(..) => Ty::Number,
+        Expr::Str(..) => Ty::String,
+        Expr::Ternary(_, a, b, _) => either(a, b),
+        Expr::Match { some, none, .. } => either(some, none),
+        Expr::Let { body, .. } => literal_ty(body),
+        Expr::None(_) => Ty::Option(Box::new(Ty::Unknown)),
+        _ => Ty::Unknown,
+    }
+}
+
 /// A shorthand or `flex` row's longhands, as lowering expands it before
 /// judging each (`bind_shorthand`, `values::flex_component`): `None` for
 /// any other row, and for a transition's or an animation's.
@@ -396,19 +412,7 @@ fn judge_expanded(
             _ => crate::shorthands::component(&a.value, &a.name, index)?,
         };
         let component = Attr { value, ..a.clone() };
-        let mut leaves = Vec::new();
-        super::leaves(&component.value, &mut Vec::new(), &mut leaves);
-        // As the build types the expanded value: a choice of numbers a
-        // number, of strings a string, of both not known.
-        let numbers = leaves
-            .iter()
-            .filter(|e| matches!(e, Expr::Number(..)))
-            .count();
-        let ty = match numbers {
-            n if n == leaves.len() => contract_types::Ty::Number,
-            0 => contract_types::Ty::String,
-            _ => contract_types::Ty::Unknown,
-        };
+        let ty = literal_ty(&component.value);
         crate::values::check_style_value(&component, &[*row], &ty, uses, scope, shapes)?;
     }
     Ok(true)
@@ -979,6 +983,23 @@ mod tests {
         assert_eq!(broken.len(), 1, "{broken:?}");
         assert_eq!(broken[0].row.span, row);
         assert!(broken[0].error.message.contains("\"gap\""), "{broken:?}");
+    }
+
+    /// A written shorthand's longhand is typed as `expr::compile` types it:
+    /// a nested choice of a number and strings is a string, its arms unified
+    /// (Astra's round 2), a choice of a number and a string not known.
+    #[test]
+    fn a_written_values_type_is_the_compilers() {
+        use contract_types::Ty;
+        let s = |t: &str| Expr::Str(t.into(), Span::default());
+        let n = |v: f64| Expr::Number(v, Span::default());
+        let c = |a: Expr, b: Expr| {
+            Expr::Ternary(Box::new(s("c")), Box::new(a), Box::new(b), Span::default())
+        };
+        assert_eq!(literal_ty(&n(1.0)), Ty::Number);
+        assert_eq!(literal_ty(&c(s("8px"), s("auto"))), Ty::String);
+        assert_eq!(literal_ty(&c(c(n(8.0), s("auto")), s("auto"))), Ty::String);
+        assert_eq!(literal_ty(&c(n(1.0), s("auto"))), Ty::Unknown);
     }
 
     /// A font file the build read that has changed since leaves the font
