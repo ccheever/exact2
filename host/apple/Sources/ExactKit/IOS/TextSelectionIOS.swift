@@ -445,7 +445,8 @@ extension Presenter {
     /// has no word there, or a long press belongs to its own or a row's menu.
     func agentSelect(_ hit: UIView, at point: CGPoint, event: String) -> [String: Any]? {
         guard let node = hit as? NodeView, textSelection.admits(node) else { return nil }
-        if event == "contextmenu", node.contextMenuSource != nil { return nil }
+        if event == "contextmenu", let source = node.contextMenuSource,
+           source !== node || node.hasOwnContextMenu || node.inlineContextTarget(at: node.convert(point, from: nil)) != nil { return nil }
         guard let found = textSelection.selectWord(in: node, at: node.convert(point, from: nil)) else { return nil }
         return ["text": found.text, "start": found.range.location, "end": NSMaxRange(found.range)]
     }
@@ -464,7 +465,7 @@ extension NodeView {
         var next: UIView? = self
         while let view = next {
             if let node = view as? NodeView,
-               node.handlers.contains("contextmenu") || node.props["contextPopover"]?.isEmpty == false { return node }
+               node.hasOwnContextMenu || node.hasInlineContextMenu { return node }
             next = presenter.listenerParent(of: view)
         }
         return nil

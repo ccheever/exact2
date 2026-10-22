@@ -603,7 +603,7 @@ extension Agent {
                 presenter.hoverInline(run.handlers.contains("hover") ? id : nil)
                 return ["tapped": Int(id), "hover": true]
             }
-            if node.activateInline(id) { return delivered(["tapped": Int(id), "delivery": "host-activation", "native": "inline-text"], node) }
+            if req["contextmenu"] == nil, req["dblclick"] == nil, node.activateInline(id) { return delivered(["tapped": Int(id), "delivery": "host-activation", "native": "inline-text"], node) }
         }
 
         // A held contact (LLP 1035.003 D1) needs a touch that stays down
@@ -742,6 +742,14 @@ extension Agent {
             // recognized one; a long press's stops there, as a finger's does.
             var selection: [String: Any]?
             #if os(iOS)
+            if event == "contextmenu", let target = hit as? NodeView,
+               presenter.menus.eligible(target, contextMenu: true),
+               let run = target.inlineContextTarget(at: target.convert(p, from: nil)) {
+                MainActor.assumeIsolated { HeldState.input(at: hit) }
+                target.deliverContext(at: target.convert(p, from: nil), inline: run.id)
+                presenter.menus.agentContext(target, inline: run.id)
+                return ["tapped": Int(run.id), "event": event, "injected": true, "at": at]
+            }
             selection = presenter.agentSelect(hit, at: p, event: event)
             #endif
             // Delivered (a handler heard it, or it selected): a long press or a double tap lets a hold where it landed go (HeldState.swift).
