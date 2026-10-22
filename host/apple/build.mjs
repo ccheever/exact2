@@ -570,6 +570,7 @@ export const macInfoPlist = (app, { development = null, icon = {}, reach = null,
   // Usage strings for the devices the app's grants name (LLP 1069.008).
   ...usageKeys(reach),
   ...(app.manifest.host?.macos?.window ? { ExactWindow: app.manifest.host.macos.window } : {}),
+  ...(app.manifest.display_override?.length ? { ExactDisplayOverride: app.manifest.display_override } : {}),
   ...transportSecurity(app.manifest.host?.macos),
   ...([...documentTypes(app), ...webPageTypes(app, distributed)].length ? { CFBundleDocumentTypes: [...documentTypes(app), ...webPageTypes(app, distributed)] } : {}),
   ...(exportedTypes(app).length ? { UTExportedTypeDeclarations: exportedTypes(app) } : {}),
