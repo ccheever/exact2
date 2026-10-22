@@ -855,7 +855,8 @@ fn validate(arena: &NodeArena, b: ContentRegion) -> Result<(), LayoutError> {
             let definite = sized(dim)
                 || (width
                     && dim == Dimension::Auto
-                    && root.position_type != crate::PositionType::Absolute);
+                    && root.position_type != crate::PositionType::Absolute
+                    && !crate::style::top_layer::top_layer(arena, parent));
             if !definite {
                 return Err(bad());
             }
