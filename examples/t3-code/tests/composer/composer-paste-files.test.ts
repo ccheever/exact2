@@ -38,13 +38,24 @@ describe('a paste into the composer (onComposerPaste)', () => {
     expect(calls).toEqual([]);
     card.call('pasted', state, scope, [{ files: ['doc:/1/image.png'], text: '' }]);
     expect(calls).toEqual([['preventDefault'], ['attachFiles', 'paste', ['doc:/1/image.png'], [], false, '']]);
-    card.call('pasteAsTextArm', state, scope, []);
-    card.call('pasted', state, scope, [{ files: ['doc:/1/image.png'], text: '' }]);
-    expect(calls.at(-1)).toEqual(['attachFiles', 'paste', ['doc:/1/image.png'], [], true, '']);
-    // Each paste consumes the arming, as consumePasteAsTextShortcut does, and so does a key press.
-    expect(state.pasteAsText).toBe(false);
-    card.call('pasteAsTextArm', state, scope, []);
-    card.call('richKey', state, scope, ['a', {}]);
+    // ⇧⌘V arms the paste its menu item brings (isPasteAsTextShortcut); so do ⌥⇧⌘V and ⇧⌘ on the V key under Korean 2-Set.
+    const chord = (k: string, code: string, held: Record<string, boolean>) => ({ key: k, code, metaKey: false, shiftKey: false, ctrlKey: false, altKey: false, repeat: false, ...held });
+    const pasteAsText = chord('V', 'KeyV', { metaKey: true, shiftKey: true });
+    for (const [k, e] of [['V', pasteAsText], ['v', chord('v', 'KeyV', { metaKey: true, shiftKey: true, altKey: true })], ['ㅍ', chord('ㅍ', 'KeyV', { metaKey: true, shiftKey: true })]] as const) {
+      card.call('richKey', state, scope, [k, e]);
+      expect(state.pasteAsText).toBe(true);
+      card.call('pasted', state, scope, [{ files: ['doc:/1/image.png'], text: '' }]);
+      expect(calls.at(-1)).toEqual(['attachFiles', 'paste', ['doc:/1/image.png'], [], true, '']);
+      // Each paste consumes the arming, as consumePasteAsTextShortcut does.
+      expect(state.pasteAsText).toBe(false);
+    }
+    // ⌘V, ⌃⇧⌘V and ⇧⌘ on another key arm nothing; a key press after the chord disarms it.
+    for (const [k, e] of [['v', chord('v', 'KeyV', { metaKey: true })], ['V', chord('V', 'KeyV', { metaKey: true, shiftKey: true, ctrlKey: true })], ['B', chord('B', 'KeyB', { metaKey: true, shiftKey: true })]] as const) {
+      card.call('richKey', state, scope, [k, e]);
+      expect(state.pasteAsText).toBe(false);
+    }
+    card.call('richKey', state, scope, ['V', pasteAsText]);
+    card.call('richKey', state, scope, ['a', chord('a', 'KeyA', {})]);
     card.call('pasted', state, scope, [{ files: ['doc:/1/image.png'], text: '' }]);
     expect(calls.at(-1)).toEqual(['attachFiles', 'paste', ['doc:/1/image.png'], [], false, '']);
     // With no thread open (no project), a paste is the field's.

@@ -104,8 +104,11 @@ component ComposerCard
     composerMoved(e)
   action richBeforeInput(e: InputEvent)
     composerBeforeInput(e)
+  // isPasteAsTextShortcut: ⇧⌘V, and the host's Paste and Match Style (⌥⇧⌘V), arm the paste the key brings as Paste as
+  // Text; any other key disarms it, as the reference's deadline does. A key that types no a–z letter is its physical
+  // key's (Korean 2-Set's ㅍ on V).
   action richKey(k: string, e: KeyboardEvent)
-    pasteAsText = false
+    pasteAsText = e.metaKey and e.shiftKey and not e.ctrlKey and (k.toLowerCase() == "v" or (not "abcdefghijklmnopqrstuvwxyz".includes(k.toLowerCase()) and e.code == "KeyV"))
     composerKeyEvent(k, e)
   action richKeyReleased(k: string, e: KeyboardEvent)
     composerKeyReleased(k, e)
@@ -114,12 +117,9 @@ component ComposerCard
   action richCopied
     composerCopied()
   // onComposerPaste: with a thread open, the paste's files attach (preventDefault keeps their names out of the
-  // prompt). Paste as Text (⇧⌘V, Edit › Paste as Text) presses the hidden `paste-as-text` key just before its paste
-  // (T3ComposerEditor.swift pasteAsText), as the reference's keydown arms consumePasteAsTextShortcut: its images get
-  // no inline chip. The next paste or key press disarms it, as the reference's deadline does.
+  // prompt). Armed by its key (richKey), the paste is Paste as Text (consumePasteAsTextShortcut): its images get no
+  // inline chip. Edit › Paste as Text chosen with the pointer has no key before it, so it is a Paste.
   state pasteAsText = false
-  action pasteAsTextArm
-    pasteAsText = true
   action pasted(e: ClipboardEvent)
     let asText = pasteAsText
     pasteAsText = false
@@ -171,8 +171,6 @@ component ComposerCard
         text composerIntentNotice role="status" padding="0.5rem 1rem" testId="composer-intent-notice"
       if editor.promptLimit != "" and not resting
         PromptLengthValidation(message=editor.promptLimit)
-      button hatch="t3-composer-key" data-anchor="paste-as-text" press=pasteAsTextArm position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true tabindex=-1 testId="composer-paste-as-text-key"
-        text "composer-paste-as-text-key" font-size=1
       if data.composer.planVisible
         button hatch="t3-composer-key" data-anchor="mode-plan" press=interaction("plan") disabled=(busy or not data.connected or data.running) position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true tabindex=-1 testId="composer-mode-plan-key"
           text "composer-mode-plan-key" font-size=1

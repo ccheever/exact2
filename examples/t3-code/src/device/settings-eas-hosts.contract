@@ -49,18 +49,14 @@ keyframes easSpin
   from rotate=0
   to rotate=360
 
-// Spinner (LoaderCircle, motion-safe:animate-spin) that stays in the tree: visible, and turning, only while `spinning`.
-// A child arriving in a button leaves the button's label undrawn on macOS, and `display` "none" to "flex" is such an
-// arrival there (clone/issues/device-eas-pressed-button-label.md), so the spinner is hidden by `visibility` and keeps
-// its 12 pt and the button's gap while idle.
+// Spinner size xs (LoaderCircle, motion-safe:animate-spin), shown before a button's label while its work runs.
 component EasSpinner
   inject
     still: bool
   props
-    spinning: bool
     color: string
   view
-    box visibility=(spinning ? "visible" : "hidden") width="0.75rem" height="0.75rem" flex-shrink=0 animation=(spinning and not still ? "easSpin 1s linear infinite" : "none") aria-hidden=true
+    box width="0.75rem" height="0.75rem" flex-shrink=0 animation=(still ? "none" : "easSpin 1s linear infinite") aria-hidden=true
       svg width="0.75rem" height="0.75rem" viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
         path d="M21 12a9 9 0 1 1-6.219-8.56"
 
@@ -216,7 +212,8 @@ component EasHostDialog
           row width="100%" align-items="center" justify-content="space-between" gap="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" testId="eas-host-account"
             text (account == "signed-in" or account == "failed" ? editor.accountMessage : (account == "checking" ? "Checking the Expo account…" : "Check the Expo account before choosing a project.")) role="status" flex=1 min-width=0 font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="eas-host-account-status"
             button press=check disabled=(busy or account == "checking") testId="eas-host-check" display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" flex-shrink=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow=(busy or account == "checking" ? "none" : "0 1px 2px #0000000d") opacity=(busy or account == "checking" ? 0.64 : 1)
-              EasSpinner(spinning=(account == "checking"), color="light-dark(#71717b, #818181)")
+              if account == "checking"
+                EasSpinner(color="light-dark(#71717b, #818181)")
               text "Check account" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
           column gap="0.375rem"
             text "EAS project" font-size="0.875rem" line-height="1.0625rem" color="light-dark(#27272a, #f5f5f5)"
@@ -240,7 +237,8 @@ component EasHostDialog
           button press=rest("eas-close", "") disabled=busy aria-keyshortcuts="Escape" testId="eas-host-cancel" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
             text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
           button press=rest("eas-save", saveInput) disabled=(busy or problem != "") testId="eas-host-save" gap="0.375rem" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" border-radius="0.5rem" border-width=0 background-color="light-dark(#1b4ed8, #346bf1)" display="flex" flex-direction="row" align-items="center" opacity=(busy or problem != "" ? 0.64 : 1) data-focus-stop=(busy or problem != "" ? "" : "enabled")
-            EasSpinner(spinning=busy, color="#ffffff")
+            if busy
+              EasSpinner(color="#ffffff")
             text "Save host" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
         // DialogPopup's X, hidden while saving (showCloseButton={!busy}).
         if not busy
