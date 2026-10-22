@@ -182,7 +182,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     /// back in the step in which it stopped. Never from inside a pass:
     /// telling the kernel can apply a batch, whose own pass must run whole.
     private func reportCover() {
-        var covers: [UInt32: HostCover] = projected ? header.map { [$0.header.id: .whole] } ?? [:] : [:]
+        var covers: [UInt32: HostCover] = projected ? owner.map { [$0.id: .whole] } ?? [:] : [:]
         for part in besideParts { covers[part.node.id] = .whole }
         presenter.covers.report("header", covers)
     }
