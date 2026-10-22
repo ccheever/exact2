@@ -303,9 +303,9 @@ test('open_url declares the schemes openURL may hand to the system, and refuses 
   const dir = mkdtempSync(resolve(tmpdir(), 'manifest-open-url-'));
   try {
     const save = (open_url) => writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Editors', app: { id: 'dev.exact.editors', name: 'Editors' }, open_url }));
-    save({ schemes: ['vscode-insiders', 'cursor'] });
-    assert.deepEqual(readManifest(dir, 'editors').open_url.schemes, ['vscode-insiders', 'cursor']);
-    for (const [open_url, says] of [[{ schemes: ['file'] }, /does not match/], [{ schemes: ['javascript'] }, /does not match/], [{ schemes: ['https'] }, /does not match/],
+    save({ schemes: ['vscode-insiders', 'cursor', 'sms'] });
+    assert.deepEqual(readManifest(dir, 'editors').open_url.schemes, ['vscode-insiders', 'cursor', 'sms']);
+    for (const [open_url, says] of [[{ schemes: ['file'] }, /does not match/], [{ schemes: ['javascript'] }, /does not match/], [{ schemes: ['https'] }, /does not match/], [{ schemes: ['vbscript'] }, /does not match/], [{ schemes: ['view-source'] }, /does not match/], [{ schemes: ['intent'] }, /does not match/],
       [{ schemes: ['vscode://'] }, /does not match/], [{ schemes: [] }, /fewer than 1/], [{ apps: ['vscode'] }, /not a known key/]]) {
       save(open_url);
       assert.throws(() => readManifest(dir, 'editors'), says);

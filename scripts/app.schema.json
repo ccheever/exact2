@@ -365,12 +365,12 @@
     "open_url": {
       "type": "object",
       "additionalProperties": false,
-      "description": "What `openURL` hands to the system beyond http, https, mailto and tel (LLP 1133.000 §2, open a URL). Each scheme is one another app registers, such as an editor's (`vscode`, `zed`, `jetbrains`): web, macOS and iOS open a URL of a declared scheme with whatever the system has registered for it (a browser asks first); an undeclared one stays refused. Under the agent the open is journaled, not performed. Schemes the hosts handle themselves, or that run or read content (`file`, `javascript`, `data`, `blob`, `about`), are refused here.",
+      "description": "What `openURL` hands to the system beyond http, https, mailto and tel (LLP 1133.000 §2, open a URL). Each scheme is one another app registers, such as an editor's (`vscode`, `zed`, `jetbrains`): web, macOS and iOS open a URL of a declared scheme with whatever the system has registered for it (a browser asks first); an undeclared one stays refused. Under the agent the open is journaled, not performed. Schemes the hosts handle themselves (`http`, `https`, `mailto`, `tel`, `doc`, `app`, `app-settings`) or that run or read content (`file`, `filesystem`, `javascript`, `vbscript`, `data`, `blob`, `about`, `view-source`, `jar`, `intent`, `content`) are refused here, and refused again by the hosts. `sms` may be declared: it opens the system's message composer.",
       "properties": {
         "schemes": {
           "type": "array",
           "minItems": 1,
-          "items": { "type": "string", "pattern": "^(?!(?:https?|mailto|tel|sms|file|javascript|data|blob|about|doc|app|app-settings)$)[a-z][a-z0-9+.-]*$" }
+          "items": { "type": "string", "pattern": "^(?!(?:https?|mailto|tel|file|filesystem|javascript|vbscript|data|blob|about|view-source|jar|intent|content|doc|app|app-settings)$)[a-z][a-z0-9+.-]*$" }
         }
       }
     },
