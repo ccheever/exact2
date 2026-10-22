@@ -190,7 +190,8 @@ extension Presenter {
     /// the field takes the focus from whatever holds it, and its caret goes
     /// under the click, as AppKit's click-to-edit begins editing a cell
     /// under the pointer (`NSCell.edit(withFrame:in:editor:delegate:event:)`).
-    /// A press from the keyboard or an agent's plain tap carries no click.
+    /// Only the mouse paths give the click: a press from the keyboard, from
+    /// VoiceOver or from a hatch carries none, whatever the app's current event.
     func pressMount(_ field: NodeView, in window: NSWindow) -> NSPoint? {
         guard let click = pressClick, [.leftMouseDown, .leftMouseUp].contains(click.type), click.window === window,
               field.field != nil || field.textArea != nil else { return nil }
