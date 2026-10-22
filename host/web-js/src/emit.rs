@@ -1241,7 +1241,7 @@ impl Em<'_> {
                         let _ = write!(self.out, "{}({e});", self.uses.rt("cp"));
                     }
                 }
-                BindingKind::Style => self.style_row(i, &b, &parts, &e, &f)?,
+                BindingKind::Style => self.style_row(i, &b, &parts, &e, &f, scope)?,
             }
             // The row item's fields it reads (LLP 1071.000 D3).
             if let Some(m) = crate::reads::field_mask(&raw).filter(|_| self.out.len() > at) {

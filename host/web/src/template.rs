@@ -7,9 +7,7 @@
 //! writes as authored ([`crate::css::css_text_relative`]): the page keeps no
 //! kernel to re-resolve them when a font size changes, and the browser does.
 
-use super::{
-    browser_kernel, css_style_named, font_names, host_css, in_button, props_for, svg_props, tag_for,
-};
+use super::{browser_kernel, font_names, host_css, in_button, props_for, svg_props, tag_for};
 use exact_kernel::{Kernel, SortedMap, ViewId};
 use exact_plan::Plan;
 
@@ -25,7 +23,7 @@ pub struct Parts {
     pub tag: String,
     /// DOM props by the DOM's names, before the document's attribute rules.
     pub props: SortedMap<String, String>,
-    /// The inline CSS the live host would write, host additions included.
+    /// The CSS for the node's static class, host additions included.
     pub css: String,
     /// Rows this host does not lower, with the reason.
     pub skipped: Vec<(String, &'static str)>,
@@ -64,8 +62,12 @@ pub fn parts_with(
         props.insert("data-decoration-styles".into(), css);
     }
     svg_props(kernel, &node, &mut props);
-    let (text, skipped) =
-        crate::css::css_text_relative(&css_style_named(kernel, &node, false), &font_names(plan));
+    let style = super::element::css_style_of(
+        &|from, target| kernel.resolve_id(from, target),
+        &node.facts(),
+    );
+    let (mut text, skipped) = crate::css::css_text_relative(&style, &font_names(plan));
+    crate::css::text_style::fills(&node.facts(), &mut text);
     let css = super::element::contents(
         host_css(kernel, &node, text, tag),
         may_fold && super::element::folded(kernel, &node, false),

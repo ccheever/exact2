@@ -1,0 +1,36 @@
+// Bare styles fill only rows no ancestor says (LLP 1115.000 D12.2).
+component App
+  state weighted = false
+  action flip
+    weighted = not weighted
+  view
+    column testId="root" padding=8 gap=4
+      button testId="flip" press=flip "Flip"
+      text testId="alone" font-size="-exact-headline" "Bare headline"
+      column font-weight=(weighted ? 700 : none) line-height=(weighted ? "40px" : none)
+        text testId="bound" font-size="-exact-headline" "Bound ancestor"
+      column font-weight="unset" line-height="unset"
+        text testId="clear-above" font-size="-exact-headline" "Clear above"
+      text testId="clear-own" font-size="-exact-headline" font-weight="unset" line-height="unset" "Own clear"
+      column font-size="-exact-headline"
+        text testId="nested" font-size="-exact-body" "Nested bare body"
+      column font-size=20 line-height="2em" font-weight=700
+        text testId="relative" font-size="-exact-caption1" "Computed inherited leading"
+      column font="-exact-headline"
+        text testId="shorthand-child" font-size="-exact-body" "Shorthand ancestor"
+      text role="heading" aria-level=1
+        text testId="heading-child" font-size="-exact-headline" "Heading ancestor"
+      button
+        text testId="control-child" font-size="-exact-headline" "Control ancestor"
+      button testId="control-own" font-size="-exact-headline" "Control start"
+      text testId="dynamic" font-size=(weighted ? "-exact-body" : "-exact-headline") "Bound bare style"
+      text testId="dynamic-own" font-size=(weighted ? "-exact-body" : "-exact-headline") font-weight=(weighted ? 700 : none) line-height=(weighted ? "40px" : none) "Bound style and rows"
+      column font=(weighted ? "-exact-body" : "-exact-headline") font-weight=(weighted ? 700 : none) line-height=(weighted ? "40px" : none)
+        text testId="dynamic-shorthand-child" font-size="-exact-body" "Bound shorthand ancestor"
+      column font="-exact-headline" font-weight=(weighted ? "unset" : none) line-height=(weighted ? "unset" : none)
+        text testId="cleared-shorthand-child" font-size="-exact-body" "Cleared shorthand ancestor"
+      column font-weight=700 line-height="40px"
+        column font=(weighted ? none : "-exact-body") font-weight=(weighted ? none : 300) line-height=(weighted ? none : 1.5)
+          text testId="removed-style-inherits" font-size="-exact-headline" "Removed shorthand inherits"
+      column font=(weighted ? none : "-exact-body") font-weight=(weighted ? none : 300) line-height=(weighted ? none : 1.5)
+        text testId="removed-style-fills" font-size="-exact-headline" "Removed shorthand fills"
