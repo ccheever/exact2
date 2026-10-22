@@ -186,6 +186,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
     func owns(_ node: NodeView) -> Bool { (entries + resuming).contains { $0.dialog === node } }
     /// A dialog's authored parent while it is in its sheet; nil for any other node.
     func authoredParent(of node: NodeView) -> UIView? { (entries + resuming).first { $0.dialog === node }?.parent }
+    func preservesFocus(_ id: UInt32) -> Bool { resuming.contains { $0.focused?.id == id && $0.focused === presenter?.views[id] } }
     func isOpen(_ node: NodeView) -> Bool {
         entries.contains { $0.dialog === node && !$0.closing } || resuming.contains { $0.dialog === node }
     }
@@ -287,7 +288,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         entries.append(entry)
         if let old { presenter.menus.replacePopoverHost(old.controller, with: controller) }
         presenter.controls.syncShown()
-        previous?.resignFirstResponder()
+        if old == nil { previous?.resignFirstResponder() }
         controller.loadViewIfNeeded()
         #if os(iOS)
         controller.relay = MountRelay(presenter, mount: controller.view)
@@ -357,6 +358,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         }
         entry.dialog.endEditing(true)
         let controller = entry.controller
+        let owner = controller.presentingViewController
         // UIKit drops a dismissal asked for while it presents: that one waits.
         func leave(_ work: @escaping () -> Void) { if controller.isBeingPresented { entry.afterPresenting = work } else { work() } }
         // Only the sheet's own window makes its dismissal observable. Its
@@ -365,11 +367,11 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         guard animated, controller.viewIfLoaded?.window?.windowScene != nil, controller.presentingViewController != nil else {
             ended(entry, cancelled: cancelled)
             if controller.presentingViewController != nil {
-                leave { controller.dismiss(animated: false) { [weak self] in self?.presenter?.menus.resumeAfterRouteDismissal() } }
+                leave { owner?.dismiss(animated: false) { [weak self] in self?.presenter?.menus.resumeAfterRouteDismissal() } }
             }
             return
         }
-        leave { controller.dismiss(animated: animated) { [weak self] in self?.ended(entry, cancelled: cancelled) } }
+        leave { owner?.dismiss(animated: animated) { [weak self] in self?.ended(entry, cancelled: cancelled) } }
     }
     /// The sheet has gone: the dialog goes back under its authored parent,
     /// hidden, at its kernel frame, and the focus goes back where it was.
@@ -388,7 +390,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         dialog.accessibilityViewIsModal = false
         entry.under?.accessibilityElementsHidden = entry.underHidden
         // A focus or scroll still waiting for the sheet's window has nowhere to go.
-        if presenter?.pendingFocusNode?.isDescendant(of: dialog) == true { presenter?.cancelPendingFocus() }
+        if !resuming.contains(where: { $0 === entry }), presenter?.pendingFocusNode?.isDescendant(of: dialog) == true { presenter?.cancelPendingFocus() }
         presenter?.elementScrolls.cancel(inside: dialog)
         dialog.isHidden = true
         if live(dialog), let parent = entry.parent {
@@ -484,7 +486,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         }
         for entry in affected where !entry.closing {
             if presenter?.authored(entry.dialog, inside: route) == false {
-                entry.focused = presenter?.focusedNode.flatMap { presenter?.authored($0, inside: entry.dialog) == true ? $0 : nil }
+                entry.focused = (presenter?.pendingFocusNode ?? presenter?.focusedNode).flatMap { presenter?.authored($0, inside: entry.dialog) == true ? $0 : nil }
                 resuming.append(entry)
             }
             entry.retiring = true
@@ -503,7 +505,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
 
     /// One at a time: UIKit must finish presenting a sheet before it can present another.
     func resumeAfterRouteDismissal() -> Bool {
-        guard let presenter, !presenter.modals.inTransition,
+        guard let presenter, !presenter.modals.inTransition, !presenter.navigation.inTransition,
               !entries.contains(where: { $0.closing || $0.controller.isBeingPresented || $0.controller.isBeingDismissed }) else { return false }
         while let entry = resuming.first {
             let dialog = entry.dialog

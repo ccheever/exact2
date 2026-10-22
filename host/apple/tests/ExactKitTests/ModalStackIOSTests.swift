@@ -170,5 +170,58 @@ final class ModalStackIOSTests: XCTestCase {
         // owed; on a simulator the sheet goes and the list shows (`agent ios`: Cancel, then tap a room).
         XCTAssertTrue(navigation.syncOwed, "the sheet's close is owed")
     }
+    func testAReplacementRoutePresentsBeforeAPageDialogResumes() throws {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "route replacement needs a presented stack")
+        }
+        let session = ExactApp.shared.makeSession(label: "dialog-route-replacement")
+        sessions.append(session)
+        XCTAssertNotNil(session.boot(plan: Data(), size: CGSize(width: 402, height: 874)).error)
+        let view = ExactView(session: session), host = UIViewController()
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.addSubview(view)
+        view.frame = host.view.bounds
+        self.window = window
+        self.host = host
+        let p = session.presenter
+        p.viewport.frame = host.view.bounds
+        session.firstDrawMs = ExactEnv.wall()
+        func frame(_ id: Int, _ height: Double = 874) -> [String: Any] {
+            ["op": "frame", "id": id, "x": 0.0, "y": 0.0, "w": 402.0, "h": height]
+        }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "props": ["navigationBack": "back", "navigationKey": "home"]], frame(1),
+            ["op": "create", "id": 2, "kind": "view", "props": ["navigationKey": "home"]], frame(2),
+            ["op": "create", "id": 20, "kind": "view", "props": ["semanticTag": "dialog", "id": "form"]], frame(20, 180),
+            ["op": "create", "id": 21, "kind": "input", "props": [:]], frame(21, 40),
+            ["op": "children", "id": 20, "ids": [21]],
+            ["op": "children", "id": 2, "ids": []],
+            ["op": "children", "id": 1, "ids": [2, 20]], ["op": "roots", "ids": [1]],
+        ]))
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "view", "props": ["navigationKey": "old", "navigationPresentation": "modal"]], frame(4),
+            ["op": "children", "id": 1, "ids": [2, 20, 4]],
+            ["op": "props", "id": 1, "set": ["navigationKey": "old"]],
+        ]))
+        until("the old route is presented") { presented().count == 1 && !p.modals.inTransition }
+        p.dialogCommand("showModal", "form")
+        until("the page dialog is over the old route") { presented().count == 2 && !p.menus.inTransition }
+        let dialog = try XCTUnwrap(p.views[20])
+        p.apply(wireBatch([
+            ["op": "create", "id": 6, "kind": "view", "props": ["navigationKey": "replacement", "navigationPresentation": "modal"]], frame(6),
+            ["op": "children", "id": 1, "ids": [2, 20, 6]],
+            ["op": "destroy", "id": 4],
+            ["op": "props", "id": 1, "set": ["navigationKey": "replacement"]],
+        ]))
+        until("the replacement route and restored dialog are both presented") {
+            p.modals.routes.last?.node.id == 6 && presented().count == 2 && !p.modals.inTransition && !p.menus.inTransition
+        }
+        XCTAssertTrue(p.menus.sheets.isOpen(dialog))
+        XCTAssertTrue(p.menus.sheets.top?.presentingViewController === p.modals.owner)
+        XCTAssertEqual(p.navigation.selectedKey, "replacement")
+    }
+
 }
 #endif
