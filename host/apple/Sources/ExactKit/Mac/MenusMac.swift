@@ -391,7 +391,11 @@ final class MenuHost: NSObject {
                 presenter.session?.log("context menu \(name) refused: no popover has that id")
                 return
             }
-            while let last = self.entries.last { self.close(last.popover, restoreFocus: false) }
+            // A source in an open popover nests its menu there, as HTML's
+            // popover stack nests one shown with that source: the popovers
+            // holding it stay open, and every one above them closes.
+            let holder = self.entries.last { $0.value != "manual" && self.contains($0.popover, source) }
+            while let last = self.entries.last, last !== holder { self.close(last.popover, restoreFocus: false) }
             if ExactEnv.agentMode { self.show(pop, from: source, run: run, contextMenu: true); return }
             // A new presentation only if it has an item: it retires picks of the last.
             guard pop.container.subviews.contains(where: { ($0 as? NodeView).map { $0.isButton && $0.props["contextPreview"] != "true" } ?? false }) else { return }
