@@ -19,6 +19,7 @@ component MobileSidebarPanel
     sidebarChrome: HomeChromeView
     homeLook: HomeColors
     routeId: string
+    homeActionPending: bool
     homeEpochAtZero: number
     refreshHomeClock: action
     reducedMotion: bool
@@ -29,6 +30,7 @@ component MobileSidebarPanel
     addEnvironment: action
     sidebarChromeEvent: action
   view
+    t3-home-swipe-events swipe-controller-pending=homeActionPending swipe-controller-route=routeId width=0 height=0
     column id="sidebar-panel" role="tabpanel" pointer-events="none" width=workspace.sidebarContentWidth height="100%" flex-shrink=0 position="relative" overflow="hidden"
       column navigationKey="t3-workspace-sidebar" pointer-events="auto" position="absolute" inset=0 navigationScroll="sidebar-list" background-color=homeLook.drawer
         header

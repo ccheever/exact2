@@ -55,6 +55,9 @@ export function mobileHomeView(args: unknown[], client: T3Client = mobileClient,
   for (const item of result.items) if (item.kind === 'thread') {
     item.swipe = rowProjection.swipe(item.environmentId, item.threadId);
     item.menuItems = rowProjection.menu(item.environmentId, item.threadId);
+    const recovery = rowProjection.recoveryGeneration(item.environmentId, item.threadId);
+    item.dismissalIdentity = encodeURIComponent(JSON.stringify([requestRoute, item.environmentId, item.threadId,
+      contexts.get(item.environmentId)?.origin ?? '', contexts.get(item.environmentId)?.generation ?? 0, item.swipe.resetKey, ...(recovery ? [recovery] : [])]));
     item.nativeMenu = JSON.stringify({ identity: item.key, requestRoute: String(requestRoute ?? ''), enabled: sidebarVisible === true, items: item.menuItems, swipeItems: item.swipe.snoozeItems, swipeSnoozable: item.swipe.snoozable, swipeResetKey: item.swipe.resetKey,
       environmentId: item.environmentId, threadId: item.threadId, ...contexts.get(item.environmentId),
       homeVisible: homeVisible === true, sidebarVisible: sidebarVisible === true });
