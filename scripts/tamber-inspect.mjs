@@ -188,7 +188,8 @@ export function published(selected, params) {
 // (a `library` is the map's to say, never the host report's: dropped from what the host sent, on every path, a
 // row's own and its source's)
 const bare = ({ library: _host, ...r }) => (r.source && typeof r.source === 'object' ? { ...r, source: (({ library: _said, ...at }) => at)(r.source) } : r);
-const scrubbed = (rows, params) => (rows ?? []).map(bare).map(r => (r.token ? { ...r, token: named(r.token, params).token } : r));
+// (`fromSite`, a page's word to the server, never leaves: the join names it as `fromAt`.)
+const scrubbed = (rows, params) => (rows ?? []).map(bare).map(({ fromSite: _site, ...r }) => (r.token ? { ...r, token: named(r.token, params).token } : r));
 // A held state's rows (LLP 1121 stage 8 E), scrubbed as the selection's.
 const heldOf = ({ library: _host, ...held }, params) => ({ ...held, rows: scrubbed(held.rows, params) });
 
@@ -644,6 +645,12 @@ export function staleMap(map, read = readFileSync, app = null) {
 export function sitesUp(map, site, n) {
   const chain = map.nodes?.[site]?.chain;
   if (!Array.isArray(chain)) return [];
-  const key = c => `${c.file}:${c.line}:${c.col}`, want = chain.slice(Math.min(n, chain.length)).map(key).join('>');
-  return map.nodes.flatMap((node, i) => ((node?.chain ?? []).map(key).join('>') === want ? [i] : []));
+  const key = c => `${c.file}:${c.line}:${c.col}`, chainOf = node => (node?.chain ?? []).map(key).join('>');
+  // A component that only renders another owns no node of its own: the next copy out that does (and past the
+  // outermost, the app's own).
+  for (let k = Math.min(n, chain.length); k <= chain.length; k++) {
+    const want = chain.slice(k).map(key).join('>'), found = map.nodes.flatMap((node, i) => (chainOf(node) === want ? [i] : []));
+    if (found.length) return found;
+  }
+  return [];
 }
