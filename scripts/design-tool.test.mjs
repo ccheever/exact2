@@ -784,7 +784,8 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
       return null;
     })();
     const replies = await drive(url, `design-tool-canvas-${process.pid}`, ['type name Ada', 'tap save-name', 'clock data', 'tree canvas', 'layout', 'type canvas-size tablet', 'layout', 'type canvas-size desktop', 'layout', 'clock +2000 real',
-      ...wait, 'state',
+      // The framed page's first registration, on a loaded machine (another run beside this one) later than a pin's.
+      ...Array.from({ length: 8 }, () => ['clock +2000 real', 'clock data']).flat(), 'state',
       // Dark and Black pinned on the other build only.
       'type pin-build linux-1', 'type pin-scheme dark', 'type pin-mode-dark-style black', 'tap pin-apply', 'clock data', ...wait, 'state',
       // Open past one presence lease (35 s, each real-clock step at least
