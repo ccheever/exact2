@@ -230,30 +230,22 @@ extension TextLinePaint {
         let runs = CTLineGetGlyphRuns(line) as! [CTRun]
         var shadows = runs.map(TextRunShadow.of)
         func hidden(_ run: CTRun) -> Bool { (CTRunGetAttributes(run) as NSDictionary)[NSAttributedString.Key.exactHidden] as? Bool == true }
+        func draw(_ shown: [CTRun]) {
+            guard !shown.isEmpty else { return }
+            ctx.saveGState()
+            ctx.clip(to: shown.map(extent))
+            ctx.textPosition = .zero
+            CTLineDraw(line, ctx)
+            ctx.restoreGState()
+        }
         switch pass {
         case .all: break
         case .ink: shadows = shadows.map { $0.flatMap { ColorRange.isHDR($0.color) ? nil : $0 } }
         case .caster(let cast):
-            for (run, shadow) in zip(runs, shadows) where shadow == cast && !hidden(run) {
-                ctx.textPosition = .zero
-                CTRunDraw(run, ctx, CFRange())
-            }
+            draw(zip(runs, shadows).filter { $0.1 == cast && !hidden($0.0) }.map { $0.0 })
             return true
         }
         guard shadows.contains(where: { $0 != nil }) || runs.contains(where: hidden) else { return false }
-        if !shadows.contains(where: { $0 != nil }) {
-            // Hidden runs alone: the line as CoreText draws it, clipped to
-            // the runs that show, so their underlines and line-throughs stay
-            // (`CTRunDraw` draws none) and hidden text has neither.
-            let shown = runs.filter { !hidden($0) }.map(extent)
-            guard !shown.isEmpty else { return true }
-            ctx.saveGState()
-            ctx.clip(to: shown)
-            ctx.textPosition = .zero
-            CTLineDraw(line, ctx)
-            ctx.restoreGState()
-            return true
-        }
         var i = 0
         while i < runs.count {
             var j = i + 1
@@ -263,10 +255,9 @@ extension TextLinePaint {
                 s.set(on: ctx, scale: scale)
                 ctx.beginTransparencyLayer(auxiliaryInfo: nil)
             }
-            for k in i..<j where !hidden(runs[k]) {
-                ctx.textPosition = .zero
-                CTRunDraw(runs[k], ctx, CFRange())
-            }
+            // Decorations belong to CTLineDraw; clip inside the transparency
+            // layer so the resulting shadow can extend beyond the run stretch.
+            draw(runs[i..<j].filter { !hidden($0) })
             if shadows[i] != nil { ctx.endTransparencyLayer(); ctx.restoreGState() }
             i = j
         }
