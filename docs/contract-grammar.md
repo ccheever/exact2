@@ -242,6 +242,17 @@ platform, and each platform's words as dotted keywords
 platform's implementation declares (`contract-module-positional`,
 `contract-module-argument`, `call-argument-twice`). The device answers it, never
 the build: its placeholder is `else empty()` (`contract-module-placeholder`).
+A send that answers nothing (`"answers": null`, LLP 1133.004 D5) is a statement
+in an action, as a host command is (`showNotification(title="Done", tag=t)`);
+a `send` to one is refused (`contract-module-answers`), and so is a statement
+calling a send that answers something (`contract-module-kind`). A module's
+event (D6) is heard with an attribute on the root component's outermost node,
+`column notificationclick=opened`, naming an action of the root that takes a
+prefix of the event's arguments (an untyped parameter takes the event's type;
+`contract-event-handler`); anywhere else, or a second time, it is refused
+(`contract-event-root`). Each event is delivered once, in order, as its own
+commit; a host raises one only once the app has drawn its first frame, so one
+that starts the app is held until then.
 Fonts are app-wide. A used file cannot declare routes. The root file's first
 component remains the root. A name both declared and used
 (`contract-use-shadows`), one name used from two declarations

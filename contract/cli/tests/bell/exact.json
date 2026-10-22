@@ -1,0 +1,79 @@
+{
+  "kind": "interface",
+  "name": "@fixture/bell",
+  "version": "1.0.0",
+  "permission": {
+    "name": "bell",
+    "status": "bellStatus",
+    "field": "state",
+    "denied": "NotAllowedError"
+  },
+  "shapes": {
+    "BellStatus": {
+      "available": "bool",
+      "state": "enum<granted|prompt|denied|unknown>"
+    },
+    "Ring": {
+      "tag": "string",
+      "data": "option<string>"
+    }
+  },
+  "names": [
+    {
+      "source": "bellStatus",
+      "live": true,
+      "answers": "BellStatus",
+      "substitute": {
+        "default": { "available": true, "state": "prompt" }
+      }
+    },
+    {
+      "send": "ring",
+      "permission": "asks",
+      "options": {
+        "tag": "string",
+        "data": "option<string>",
+        "at": "option<number>",
+        "navigate": "option<string>"
+      },
+      "answers": null,
+      "substitute": {
+        "list": {
+          "state": "rings",
+          "key": "tag",
+          "at": "at",
+          "launch": "notification",
+          "tap": { "event": "ringclick", "args": ["tag", { "tag": "tag", "data": "data" }], "navigate": "navigate" }
+        }
+      }
+    },
+    {
+      "send": "silence",
+      "permission": "none",
+      "options": { "tag": "string" },
+      "answers": null,
+      "substitute": { "unlist": "tag" }
+    },
+    {
+      "send": "setCount",
+      "permission": "none",
+      "options": { "contents": "option<number>" },
+      "answers": null,
+      "substitute": { "set": { "state": "count", "scope": "app", "from": "contents", "absent": "flag", "zero": null } }
+    },
+    {
+      "send": "clearCount",
+      "permission": "none",
+      "answers": null,
+      "substitute": { "set": { "state": "count", "scope": "app", "value": null } }
+    },
+    {
+      "send": "requestBell",
+      "permission": "request",
+      "answers": "BellStatus",
+      "substitute": { "answers": "bellStatus" }
+    },
+    { "event": "ringclick", "on": "root", "raised": "activation", "args": ["string", "Ring"], "hold": 4 },
+    { "event": "chime", "on": "root", "raised": "emit", "args": ["string"], "hold": 4 }
+  ]
+}

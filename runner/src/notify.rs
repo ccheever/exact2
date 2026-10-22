@@ -126,6 +126,27 @@ impl Notice {
     }
 }
 
+/// `state.notifications`: what the app posted under the agent, where none
+/// reaches the system.
+pub(crate) fn state<D: DataSource>(runner: &Runner<D>, s: &mut String) {
+    // A module that lists its own `notifications` writes the key instead.
+    if runner
+        .declared_state()
+        .iter()
+        .any(|(name, _)| name == "notifications")
+    {
+        return;
+    }
+    s.push_str(",\"notifications\":[");
+    for (i, n) in runner.notifications().iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        n.summary(s);
+    }
+    s.push(']');
+}
+
 /// Whether the app's grants name `device.notifications` (LLP 1069.008 D3).
 fn granted<D: DataSource>(runner: &Runner<D>) -> bool {
     crate::device::granted(runner.data_ref().grants(), "notifications")

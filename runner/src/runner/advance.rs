@@ -381,7 +381,10 @@ impl<D: DataSource> Runner<D> {
                 let action = self.plan.mutations[m].then.expect("armed only with a then");
                 let was_poisoned = self.poisoned;
                 let ticket = self.next_ticket;
-                let result = self.scheduled(at, |r| r.run_action(action, Vec::new(), &[]));
+                let device = self.extensions.events.device_then(m);
+                let result = self.caused_by_device(device, |r| {
+                    r.scheduled(at, |r| r.run_action(action, Vec::new(), &[]))
+                });
                 match result {
                     Ok(receipt) => receipts.push(Timed {
                         at_ms: self.now_ms,
