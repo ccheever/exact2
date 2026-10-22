@@ -40,6 +40,7 @@ import {
   shouldRefreshPullRequestActivity, writePullRequestDetailSnapshot, type PullRequestDetailSnapshotRef,
 } from './pages-pr-logic';
 import { holdPullRequestRefreshes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, snapshotStorage, viewRefreshedAt } from './pages-pr-refresh';
+import { breakdownKey, emptyBreakdown, presentChangeBreakdown, readChangeBreakdowns, releaseChangeBreakdowns, type BreakdownTarget } from './pr-change-breakdown';
 import { commentFilter, conversationBodies, emptySummary, presentSummary, toggleCommentFilter, type CommentFilter, type RemarkWrites } from './pages-pr-summary';
 import { emptyTimeline, presentTimeline } from './pages-pr-timeline';
 import { canEditPullRequestChangeRequest } from './pages-pr-writes-logic';
@@ -106,7 +107,7 @@ export function emptyDetail() {
   return {
     open: false, loading: false, phase: 'ghost', error: '', errorTitle: '', githubUrl: '', copiedCheckout: 0, copiedBranch: 0, ref: '', number: 0, numberLabel: '', title: '', repository: '', url: '', state: 'open', stateLabel: 'Open', conflict: '',
     author: '', authorAvatar: '', authorInitial: '', updated: '', updatedAgo: '', filesCount: '', checkoutCommand: '', baseBranch: '', headBranch: '', files: '', additions: '', deletions: '',
-    checksSummary: '', checksTone: '', reviewers: [] as { key: string; login: string; avatar: string; initial: string }[],
+    breakdown: emptyBreakdown(), checksSummary: '', checksTone: '', reviewers: [] as { key: string; login: string; avatar: string; initial: string }[],
     labels: [] as { key: string; name: string; background: string; ink: string }[],
     bodies: [] as { id: string; kind: string; title: string; body: string }[], hasBody: false, bodyId: '',
     commentCount: 0, commentsLabel: 'Comments (0)', activityPending: false, activityError: '',
@@ -162,7 +163,7 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
   const selection = parseSelection(input.selected);
   const live = !!native?.available && client.ready;
   if (!selection) {
-    shown.delete(client); guideReader(client).shownKey = '';
+    shown.delete(client); guideReader(client).shownKey = ''; releaseChangeBreakdowns(client, 'detail');
     if (live) await holdPullRequestRefreshes(client, native!, 'detail', false);
     return view;
   }
@@ -208,6 +209,11 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
   // Then, once the detail says the host keeps stacks, the stack (one native request at a time: an answer burst can
   // fill the native executor's ordered lane, host/apple/src/executor_core.rs COUNTS).
   if (display) await readPanelStack(client, native!, panel.key, display, panel.reference);
+  // The +/- split, read at once for a view of one pull request (PullRequestChangeBreakdownStat `eager`).
+  // Opening the view (or another pull request in it) is the request; it ends when the view closes or moves on.
+  if (display) releaseChangeBreakdowns(client, 'detail', new Set([breakdownKey(client, breakdownTarget(panel, selection, display))]));
+  if (display && await readChangeBreakdowns(client, native!, [breakdownTarget(panel, selection, display)], { eager: 'detail', wakes: [] }) === 'wake')
+    return wake(client, native!, present(view, panel, selection, listEntry, input.now, client), panel);
   // The Code tab's reads once it was opened (the ticks, the slice owed, the contents asked for).
   if (display && await readCode({ client, native: native!, reference: writeReference(selection), environmentId: selection.environmentId ?? '', detail: display, activity: panel.activity, tab: input.tab ?? '', refresh: input.refresh, epoch: pullRequestRefreshEpoch(client) }) === 'wake') {
     return wake(client, native!, present(view, panel, selection, listEntry, input.now, client), panel);
@@ -288,6 +294,7 @@ function present(view: PrDetailView, panel: Panel | null, selection: PrSelection
   const remark = (comment: Obj): RemarkWrites => ({ ...commentEditing(client, reference, display, comment), ...reactionPills(client, reference, str(comment.id), comment.reactions) });
   presentDetail(view, display, panel!.activity, now, { activityPending, activityError: panel!.activity ? '' : panel!.activityError, listEntry, remark, filter: commentFilter(client) });
   view.writes = presentWrites(client, reference, display);
+  view.breakdown = presentChangeBreakdown(client, breakdownTarget(panel!, selection, display), { eager: true });
   const code = presentCode({ client, reference, detail: display, activity: panel!.activity, now, allowAsk: canAskAgent(client) });
   view.codeTab = code.view;
   const guideReference = { ...reference, environmentId: selection.environmentId };
@@ -319,6 +326,8 @@ function pullRequestUrls(markdown: string): string[] {
   const found = [...markdown.matchAll(/\]\((https?:\/\/[^\s)]+)\)|<(https?:\/\/[^\s>]+)>|(https?:\/\/[^\s<>()[\]]+)/g)].map(match => match[1] ?? match[2] ?? match[3] ?? '');
   return found.map(url => url.replace(/[.,;:!?]+$/, '')).filter(url => /\/(?:pulls?|-\/merge_requests|pull-requests|pullrequest)\/\d+/.test(url));
 }
+const breakdownTarget = (panel: Panel, selection: PrSelection, detail: Obj): BreakdownTarget =>
+  ({ reference: panel.reference, environmentId: selection.environmentId, additions: num(detail.additions), deletions: num(detail.deletions) });
 /** PullRequestDetailGhost: the list row's identity and summary stay; the rest are bars. */
 export function ghostOf(entry: Obj | null, now: number): ReturnType<typeof emptyGhost> {
   const ghost = emptyGhost();
@@ -378,7 +387,9 @@ export function presentDetail(view: PrDetailView, detail: Obj, activity: Obj | n
     url: str(detail.url), state, stateLabel: STATE_LABELS[state] ?? 'Open', conflict: conflictLabel(detail), author: author.login, authorAvatar: author.avatar, authorInitial: author.initial,
     updated: `updated ${relativeLabel(detail.updatedAt, now)}`, updatedAgo: relativeLabel(detail.updatedAt, now), filesCount: count(num(detail.changedFiles)),
     checkoutCommand: checkoutCommand(detail), baseBranch: str(detail.baseBranch), headBranch: str(detail.headBranch),
-    files: `${count(num(detail.changedFiles))} ${num(detail.changedFiles) === 1 ? 'file' : 'files'}`, additions: `+${count(num(detail.additions))}`, deletions: `-${count(num(detail.deletions))}`,
+    files: `${count(num(detail.changedFiles))} ${num(detail.changedFiles) === 1 ? 'file' : 'files'}`,
+    // PullRequestChangeBreakdownStat draws nothing for a change without lines.
+    ...(num(detail.additions) + num(detail.deletions) > 0 ? { additions: `+${count(num(detail.additions))}`, deletions: `-${count(num(detail.deletions))}` } : { additions: '', deletions: '' }),
     checksSummary: summarizeChecks(checks), checksTone: checksTone(checks), projectId: str(detail.projectId), host: hostOf(str(detail.url)),
     hostName: sourceControlHostName(str(detail.provider, 'github')),
     linkMenu: `${str(detail.provider)} ${str(detail.url)}`, linkOpenLabel: openOnHostLabel(str(detail.provider)), // the number's menu (PrLinkMenu)
