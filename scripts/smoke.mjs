@@ -952,8 +952,10 @@ if (caltrainFixture) {
       const plainSize = existsSync(plainRef) ? decodePng(readFileSync(plainRef)) : null;
       const reference = !plainSize || (plainSize.width === region.width && plainSize.height === region.height) ? plainRef
         : resolve(ROOT, `scripts/fixtures/canvas-sky.${host}.${region.width}x${region.height}.png`);
+      const references = readdirSync(resolve(ROOT, 'scripts/fixtures')).filter(name => name.startsWith(`canvas-sky.${host}.`) && name.endsWith('.png')).sort().join(', ') || '(none)';
+      console.log(`${host} canvas references: ${references}; selected ${reference.replace(ROOT + '/', '')}`);
       if (recordCanvas) { writeFileSync(reference, encodePng(region)); console.log(`recorded ${reference.replace(ROOT + '/', '')} (${region.width}×${region.height})`); }
-      else if (!existsSync(reference)) failures.push(`no reference picture ${reference.replace(ROOT + '/', '')}: bun scripts/smoke.mjs ${host} --record-canvas`);
+      else if (!existsSync(reference)) failures.push(`no reference picture ${reference.replace(ROOT + '/', '')}; available: ${references}; record with bun scripts/smoke.mjs ${host} --record-canvas`);
       else {
         const d = diff(region, decodePng(readFileSync(reference)));
         check(d.differing <= 0.01, `the canvas differs from its reference: ${(d.differing * 100).toFixed(2)}% of pixels beyond the band, mean ${d.mean.toFixed(2)} (${d.size})`);
