@@ -18,7 +18,7 @@ final class DueBeforeFrameIOSTests: XCTestCase {
 
     /// The fixture booted, its timer armed by a press and its deadline passed
     /// with no turn of the run loop; its state text.
-    private func armedAndDue() throws -> (ExactSession, () -> String, Double) {
+    private func armedAndDue(driverOwned: Bool = false) throws -> (ExactSession, () -> String, Double) {
         let path = try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_DUE_NOW_PLAN"], "build.mjs --test --ios compiles the due-now fixture")
         let session = ExactApp.shared.makeSession(label: "due-before-frame")
         self.session = session
@@ -34,15 +34,26 @@ final class DueBeforeFrameIOSTests: XCTestCase {
         XCTAssertNil(session.boot(plan: try Data(contentsOf: URL(fileURLWithPath: path)), size: frame.size).error)
         view.frame = host.view.bounds
         view.layoutIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        window.layoutIfNeeded()
         let views = session.presenter.views.values
         let arm = try XCTUnwrap(views.first { $0.props["testId"] == "arm" })
         let state = try XCTUnwrap(views.first { $0.props["testId"] == "state" })
         let shown = { state.accessibleText }
         XCTAssertEqual(shown(), "Waiting")
-        _ = Agent(session: session).tap(["id": Int(arm.id)])
-        let due = try XCTUnwrap(session.timerDue, "the press armed the timer")
-        while session.now() < due { usleep(100) }
+        // A slow press batch can outlast the fixture's 50 ms deadline.
+        // Arm with time stopped so its same-turn due check cannot fire it.
+        session.clock = session.now()
+        let reply = Agent(session: session).tap(["id": Int(arm.id)])
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertEqual(reply["pressed"] as? Int, Int(arm.id), "the tap reached Arm: \(reply)")
+        let due = try XCTUnwrap(session.timerDue, "the press armed the timer; state: \(shown())")
+        XCTAssertEqual(shown(), "Waiting", "the timer has not fired while arming")
+        if driverOwned {
+            session.clock = due
+        } else {
+            session.clock = nil
+            while session.now() < due { usleep(100) }
+        }
         XCTAssertEqual(shown(), "Waiting", "nothing has advanced yet")
         return (session, shown, due)
     }
@@ -67,10 +78,12 @@ final class DueBeforeFrameIOSTests: XCTestCase {
     }
 
     func testADriverOwnedClockAdvancesOnlyWhenTheDriverSaysSo() throws {
-        let (session, shown, due) = try armedAndDue()
-        session.clock = session.now()
+        let (session, shown, due) = try armedAndDue(driverOwned: true)
         session.applyUnlessEmpty(Batch(ops: [], timers: true, motion: false, clock: nil, error: nil, timerDueMs: due))
         XCTAssertEqual(shown(), "Waiting", "the driver's clock moves time, not the batch")
+        let reply = Agent(session: session).clock(["to": due])
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertEqual(shown(), "Flipped", "the driver's advance fires the timer")
     }
 }
 #endif
