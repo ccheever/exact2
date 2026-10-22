@@ -603,6 +603,9 @@ them, and ends every segment where the viewport ends if it ends first, never bel
 (`ViewportFold.ending(at:)`). Folded like a laptop, the lower segment keeps its top at
 495.5 and is 0 tall, and with a number pad's Done bar the upper one ends with the
 viewport too; folded like a book, both columns end with the viewport.
+Under `resizes-visual`, the web's default, the layout viewport keeps its size, and the
+last row of segments ends the same way at the visual viewport's end, the keyboard's top,
+the rows above keeping theirs, as Chrome's do.
 The viewport and those extents reach the kernel in one view change, one layout a
 keyboard frame (`exact_view`).
 
@@ -618,8 +621,7 @@ a 6.7-inch flip, its hinge also moved under the keyboard) and read in its source
 - With the band wholly under the keyboard, `resizes-content` drops the fold: one
   segment, the shortened viewport, `env(viewport-segment-*)` without a value, until
   about a second after the keyboard goes. Exact keeps it. `resizes-visual` keeps it too,
-  the lower segment 0 tall, which Exact's iOS `resizes-visual` does not yet do (its
-  segments stay the window's).
+  the lower segment 0 tall, as Exact's iOS `resizes-visual` does.
 
 Both differences are LLP 1001's declared deviation, for one reason each: a top that
 stays at the hinge lets a page tell that the keyboard covers a segment (its top past
@@ -640,6 +642,8 @@ keyboard up. The other is a Japanese keyboard's candidates while composing: the 
 typing composes nothing, and its taps cannot reach keys below the viewport. The agent's
 `prefer segments` grid, the window's, does not follow the keyboard.
 
-So a page places panes by a segment's edges and ends one under the keyboard at `100%` or
-`bottom: 0`, not by a segment's height (the foldables recipe). `smoke.mjs duo` checks
-that the keyboard leaves the lower segment's top and ends it with the viewport.
+So a page places panes by a segment's edges and, under `resizes-content`, ends one under
+the keyboard at `100%` or `bottom: 0`, not by a segment's height (the foldables recipe).
+`smoke.mjs duo` checks that the keyboard leaves the lower segment's top and ends it with
+the viewport, and under `resizes-visual` that it ends the last row at the visual
+viewport's end.
