@@ -902,13 +902,13 @@ if (es) {
     if (r.reason) end(revision, at.epoch);
     report(r.reason ? { kind: "held", state: null, reason: r.reason, revision } : { kind: "held", state: h.state, revision });
   };
-  // `{select: {up, levels, plan, from}}` (tamber/1.16): the selection moves up its call sites, as a click on the node
+  // `{select: {up, levels, plan, from, instance}}` (tamber/1.16): the selection moves up its call sites, as a click on the node
   // it lands on would; it lands in the first of `levels` (each enclosing copy's plan sites, nearest first, by the
-  // server's map for the selection at `from` under `plan`) with a node above the selection, on the outermost there.
+  // server's map for the selection at `from`, instance path `instance`, under `plan`) with a node above the selection, on the outermost there.
   const selectUp = async ({ levels, plan, from, instance }) => {
     const id = inspecting.selected?.id;
     if (!inspecting.on || id == null || !Array.isArray(levels)) { report({ kind: "unsupported", what: "inspect", detail: "no node is selected on this page to move up from" }); return; }
-    // (Only the selection, generation and plan the server took its sites from: another since is selected again first.)
+    // (Only the selection, its instance, generation and plan the server took its sites from: another since is selected again first.)
     if (inspecting.selected.generation !== globalThis.exact.generation || plan !== inspecting.selected.plan || from !== inspecting.selected.site || JSON.stringify(instance ?? []) !== inspecting.selected.instance) { report({ kind: "unsupported", what: "inspect", detail: "the selection moved or the page was rebuilt since: select a node again" }); return; }
     // Its ancestors and their sites, in one read with no node's rows (the runner's `ancestors`), the selection itself
     // left out; the first level with one of them, and in it the outermost.

@@ -360,6 +360,8 @@ shape Changes
   // The builds whose page refused inspect mode, said in the Inspector (at most three), and how many more.
   refusals: InspectRefusal[]
   refusedMore: number
+  // Every refusal event, counted (one more each, the same words again included).
+  refusalCount: number
   // The files' digests as the poll has them: what a design read follows
   // (a build's status, a scrub's frame or a proposal moves `seq`, not them).
   files: string
@@ -950,7 +952,7 @@ component DesignTool
     after(1, dropUp)
   // The page refusing it (its own `unsupported`, said in the Inspector's refusals) ends the move too.
   state upRefusalsAt = ""
-  derive refusalsKey = changes.refusals.map(r => `${r.id}:${r.tail}`).join("|")
+  derive refusalsKey = `${changes.refusalCount}`
   task upPageRefused when upExpect >= 0 and refusalsKey != upRefusalsAt key=refusalsKey
     after(1, dropUp)
   // The edit a panel began (a dial's, a param's, its row's Back to the package), whose proposal docks at the window's
