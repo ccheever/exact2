@@ -419,6 +419,73 @@ impl Said {
                             fonts,
                             computed,
                             within: within.clone(),
+                            element: Span::default(),
+                        });
+                    }
+                    // A style's rows where an element applies it, as lowering
+                    // applies them (`class::rows`: the element's own rows of
+                    // a name replace the style's), each judged here with the
+                    // element's fonts and typing, keyed by the element too.
+                    // Left to the build: a choice of styles, an element whose
+                    // class rows lowering rewrites before judging them (an
+                    // SVG element's, coerced; a box's `transform`; a grouped
+                    // list's rows and sheet; an `audio`'s `display`), and one
+                    // a `for` or `match` binds a name around.
+                    let plain_class = a
+                        .iter()
+                        .find(|r| r.name == "class")
+                        .is_some_and(|c| matches!(c.value, Expr::Ident(..)));
+                    let class_left = left
+                        || local
+                        || !plain_class
+                        || in_svg
+                        || tag == "svg"
+                        || grouped != Grouped::No
+                        || yielding.is_some()
+                        || (tag == "list" && grouped_list(file, tag, a))
+                        || tag == "audio";
+                    let style = |name: &str| {
+                        file.styles
+                            .iter()
+                            .rfind(|s| s.name == name)
+                            .map(|s| s.attrs.as_slice())
+                    };
+                    let class = match class_left {
+                        true => None,
+                        false => crate::class::rows(a, &style).ok().flatten(),
+                    };
+                    let class = class.filter(|(_, rows)| {
+                        let joined: Vec<Attr> = rows.iter().chain(own).cloned().collect();
+                        matches!(crate::box_transform::lower(tag, in_svg, &joined), Ok(None))
+                    });
+                    for r in class
+                        .iter()
+                        .flat_map(|(_, rows)| rows)
+                        .filter(|r| crate::native::refused(tag, r).is_none())
+                    {
+                        let computed = match super::rows::kept(r) {
+                            Some(false) => None,
+                            Some(true) => match super::rows::typed(&r.value, scope) {
+                                Some(ty) => Some((ty, typing.clone())),
+                                None => continue,
+                            },
+                            _ => continue,
+                        };
+                        let fonts = match super::rows::font_row(&r.name) {
+                            false => None,
+                            true => match fonts.get_or_insert_with(|| {
+                                super::rows::Fonts::of(file, a, !children.is_empty(), declared)
+                            }) {
+                                Some(f) => Some(f.clone()),
+                                None => continue,
+                            },
+                        };
+                        rows.push(super::rows::Said {
+                            attr: r.clone(),
+                            fonts,
+                            computed,
+                            within: within.clone(),
+                            element: *span,
                         });
                     }
                     let inside = svg || tag == "svg";

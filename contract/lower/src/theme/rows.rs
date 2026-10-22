@@ -25,11 +25,18 @@
 //! coerced first (`svg::coerce_lengths`, stage 13 D3): a light's `x` is the
 //! prop `lightX`, no row; a rect's `x` a row, a unitless one a number.
 //!
+//! A `style`'s row is judged where an element applies it, as lowering
+//! applies it there (`class::rows`), with that element's fonts and typing,
+//! keyed by the element too: refused once, at the style row, as the build
+//! refuses it (theme2's 02:08 ruling).
+//!
 //! Not checked here, and still caught by the build after a miss: a
 //! computed row whose type the root's scope doesn't give (a call, a `for`'s
 //! item), whose number tokens are the build's; a row through a `let`; a
-//! `font` shorthand naming no type token; a state part's row; and refusals
-//! outside a style row (an SVG attribute, a canvas).
+//! `font` shorthand naming no type token; a state part's row; a style's row
+//! where lowering rewrites class rows first or under a choice of styles
+//! (`scan::Said::of`); and refusals outside a style row (an SVG attribute,
+//! a canvas).
 
 use super::{bind, fold, profiles, scan, Origin, Refusals, Sink, ThemeEntry};
 use crate::{DeclaredFont, LowerError};
@@ -179,6 +186,11 @@ pub struct Place {
     pub at: Span,
     /// The literal.
     pub literal: Span,
+    /// For a style's row, the element that applies it (its span), where the
+    /// build judges it: one row written in a style is judged, and passes or
+    /// fails, per element (theme2's 02:08 Q1). The default for a row of
+    /// the element's own.
+    pub element: Span,
 }
 
 impl Place {
@@ -188,6 +200,7 @@ impl Place {
             row: span,
             at: span,
             literal: span,
+            element: Span::default(),
         }
     }
 }
@@ -209,6 +222,7 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
         fonts,
         computed,
         within,
+        element,
     } in attrs
     {
         let node = match (&fonts, &within) {
@@ -235,6 +249,7 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
                 row: a.span,
                 at: a.span,
                 literal: a.value.span(),
+                element,
             };
             // Found by where its value is written, then compared whole (an
             // expansion writes one row many times over, alike).
@@ -275,6 +290,7 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
                 row: a.span,
                 at: if plain { a.span } else { literal },
                 literal,
+                element,
             };
             let k = (a.name.clone(), plain, key, node);
             match at.get(&k) {
@@ -413,6 +429,8 @@ pub(crate) struct Said {
     pub fonts: Option<Fonts>,
     pub computed: Option<(contract_types::Ty, Typing)>,
     pub within: Option<Arc<Vec<Fonts>>>,
+    /// The element applying a style's row (`Place::element`).
+    pub element: Span,
 }
 
 /// Leave `rows` for [`rows`] (the design server's build reads it).
@@ -516,34 +534,39 @@ pub fn check(
     let Some(before) = before() else {
         return Vec::new();
     };
-    let authored: std::collections::HashSet<Span> = failing
+    // A place is its authored row and, for a style's row, the element
+    // applying it (theme2's 02:08 Q1): passes before, fails after, per key.
+    let key = |p: &Place| (p.row, p.element);
+    let authored: std::collections::HashSet<(Span, Span)> = failing
         .iter()
-        .flat_map(|(r, _)| r.places.iter().map(|p| p.row))
+        .flat_map(|(r, _)| r.places.iter().map(key))
         .collect();
     let theirs: Vec<&Row> = rows
         .iter()
-        .filter(|r| r.places.iter().any(|p| authored.contains(&p.row)))
+        .filter(|r| r.places.iter().any(|p| authored.contains(&key(p))))
         .collect();
     let Some(was) = judged(&before, None, &theirs, exprs, params) else {
         return Vec::new();
     };
-    let failed_before: std::collections::HashSet<Span> = theirs
+    let failed_before: std::collections::HashSet<(Span, Span)> = theirs
         .iter()
         .zip(&was)
         // Failing, or not judged here (a `font` naming no type token, the
         // build's to judge another way): not known to have passed.
         .filter(|(_, w)| !matches!(w, Ok(true)))
-        .flat_map(|(r, _)| r.places.iter().map(|p| p.row))
+        .flat_map(|(r, _)| r.places.iter().map(key))
         .collect();
     // Each place the row is written whose authored row passed, refused
-    // there: where the representative's refusal was, moved alike.
-    let mut out = Vec::new();
+    // there: where the representative's refusal was, moved alike. A style's
+    // row newly failing at several elements is one refusal, the build's
+    // (theme2's 02:08 condition 2): at the row, said once.
+    let mut out: Vec<Broken> = Vec::new();
     for (row, error) in failing {
         let first = row.places[0];
         for p in row
             .places
             .iter()
-            .filter(|p| !failed_before.contains(&p.row))
+            .filter(|p| !failed_before.contains(&key(p)))
         {
             let at = if error.span == first.literal {
                 p.literal
@@ -552,6 +575,11 @@ pub fn check(
             } else {
                 error.span
             };
+            if out.iter().any(|b| {
+                b.row.span == p.row && b.error.span == at && b.error.message == error.message
+            }) {
+                continue;
+            }
             out.push(Broken {
                 row: Attr {
                     span: p.row,
@@ -773,6 +801,77 @@ mod tests {
         );
         assert_eq!(super::super::ROLES.with(|r| r.borrow().len()), 1);
         assert_eq!(crate::scale::declared(), vec!["kept".to_string()]);
+    }
+
+    /// A style's row is keyed by the element applying it too (theme2's
+    /// 02:08 Q1): one already failing where one element applies it doesn't
+    /// hide it newly broken where another does; and broken at several, it
+    /// is one refusal (condition 2). (Here the two elements' rows differ in
+    /// their literal; in an app, in what lowering judges them with, their
+    /// fonts.)
+    #[test]
+    fn a_style_row_is_judged_per_element_and_refused_once() {
+        let row = Span {
+            line: 2,
+            col: 3,
+            end_col: 9,
+            source_id: 0,
+        };
+        let at = |element: u32, value: &str| Row {
+            attr: Attr {
+                name: "padding".into(),
+                value: Expr::Str(value.into(), row),
+                span: row,
+                written: true,
+            },
+            places: vec![Place {
+                element: Span {
+                    line: element,
+                    col: 5,
+                    end_col: 11,
+                    source_id: 0,
+                },
+                ..Place::plain(row)
+            }],
+            fonts: None,
+            computed: None,
+            within: None,
+        };
+        let design = |gap: &str| {
+            tamber::parse(&format!(
+                "tamber t\n\ntheme\n  gap = {gap}\n  bad = #222222\n"
+            ))
+            .unwrap()
+        };
+        let after = design("#333333");
+        let folded = tamber::check_design(after.clone(), &super::super::vocab()).unwrap();
+        // `bad` fails before and after at one element; `gap` passes before at
+        // the other and fails after: refused, by its element's key.
+        let rows = [at(6, "bad"), at(8, "gap")];
+        let broken = check(
+            &rows,
+            &["gap"],
+            &after,
+            &folded,
+            || Some(design("8px")),
+            &[],
+            &[],
+        );
+        assert_eq!(broken.len(), 1, "{broken:?}");
+        assert!(broken[0].error.message.contains("gap"), "{broken:?}");
+        // Newly broken at two elements: one refusal, at the row.
+        let rows = [at(6, "gap"), at(8, "gap")];
+        let broken = check(
+            &rows,
+            &["gap"],
+            &after,
+            &folded,
+            || Some(design("8px")),
+            &[],
+            &[],
+        );
+        assert_eq!(broken.len(), 1, "{broken:?}");
+        assert_eq!(broken[0].row.span, row);
     }
 
     /// A font file the build read that has changed since leaves the font
