@@ -699,6 +699,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// without them, and then the canvas itself is the hit.
     package override func hitTest(_ point: NSPoint) -> NSView? {
         guard !inert, !isHiddenOrHasHiddenAncestor, placedAncestor?.placementHidden != true, let point = spaceHit(point) else { return nil }
+        if drawsRowBezel, let bezel = rowBezelRect, !bezel.contains(convert(point, from: superview)) { return nil }
         if let clipPath, !clipPath.contains(convert(point, from: superview), using: clipRule) { return nil }
         if !fragmentHit(convert(point, from: superview)) { return nil }
         if isSurfaceControl, !cssVisibilityHidden, bounds.contains(convert(point, from: superview)) { return self }
