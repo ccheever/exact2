@@ -8,8 +8,14 @@ import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { appleArtifacts, appleRunBinary } from '../host/apple/build.mjs';
 import { moduleGraph, notBuildInput } from './agent-launch.mjs';
-import { buildArgs, buildFirst, buildReason, failureSummary, nativeBuild, overrideDir, planOverride, planSource, prebuild, rebuildCommand, refuseBuild } from './agent-build.mjs';
+import { buildArgs, buildFirst, buildReason, childFailure, failureSummary, nativeBuild, overrideDir, planOverride, planSource, prebuild, rebuildCommand, refuseBuild } from './agent-build.mjs';
 import { resolveApp } from './app.mjs';
+
+test('a child failure keeps stderr when stdout ends with successful build progress', () => {
+  assert.match(childFailure({ stderr: 'error: simulator installation failed\n', stdout: 'Building for production...\n[1/2] ExactIOS\nBuild complete!\n' }), /simulator installation failed/);
+  assert.match(childFailure({ error: new Error('spawn ENOENT') }), /spawn ENOENT/);
+  assert.equal(childFailure({ stdout: 'error: compiler failed\n' }), 'error: compiler failed');
+});
 
 /** An outside app, as `exact new` lays one out, with only what the decision reads. */
 function scratchApp(name) {
