@@ -1,13 +1,12 @@
-// T3Module's file ops (T3Module.swift routes them): context menus, saving,
-// opening and fetching text.
+// T3Module's file ops (T3Module.swift routes them): the branch picker's menu,
+// saving, opening and fetching text.
 import Foundation
 import AppKit
 
 extension T3Module {
-    /// The branch and chat link menus and text export/import/fetch (T3ContextMenu.swift).
+    /// The branch picker's menu and text export/import/fetch (T3ContextMenu.swift).
     func fileOps(_ request: [String: Any], reply: ExactReply, next: () -> Void) {
-        if request["op"] as? String == "contextMenu" { // Context menus (T3ContextMenu.swift); exportsRoot is set exactly under the agent.
-            DispatchQueue.main.async { [textMenu] in textMenu.pageClickAnswered() } // the app's own menu took the click
+        if request["op"] as? String == "contextMenu" { // exportsRoot is set exactly under the agent.
             return T3ContextMenu.perform(request, agent: exportsRoot != nil) { reply.send($0) }
         }
         if request["op"] as? String == "saveText" { return T3ContextMenu.saveText(request, exportsRoot: exportsRoot) { reply.send($0) } }
