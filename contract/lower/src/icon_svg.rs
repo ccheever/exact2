@@ -35,7 +35,9 @@ const FIX_SHAPE: &str = "convert it to a `<path>` (an editor's Object to Path; `
 
 /// Each open element's fill and stroke, inherited, and whether it is inside
 /// something that draws nothing itself (`defs`).
-type Open = (Option<String>, Option<String>, bool);
+/// What an element passes its children: its fill, stroke and `color`, and
+/// whether it is inside `<defs>` (or a mask, a pattern …).
+type Open = (Option<String>, Option<String>, Option<String>, bool);
 
 /// A tag's name and attributes, entities decoded; `None` for a closing tag.
 #[allow(clippy::type_complexity)]
@@ -125,7 +127,8 @@ fn property(attrs: &[(&str, String)], name: &str) -> Option<String> {
         .and_then(|(_, s)| {
             let declared = s.split(';').filter_map(|d| {
                 let (k, v) = d.split_once(':')?;
-                (k.trim() == name).then(|| (v.trim().ends_with("!important"), clean(v)))
+                // A property's name in any case, as CSS reads it (round 2, R2-5).
+                (k.trim().eq_ignore_ascii_case(name)).then(|| (importance(v).0, clean(v)))
             });
             declared.fold(
                 None,
@@ -146,11 +149,22 @@ fn property(attrs: &[(&str, String)], name: &str) -> Option<String> {
 
 /// A paint's value, lowercase, without `!important`.
 fn clean(v: &str) -> String {
-    let v = v.trim();
-    v.strip_suffix("!important")
-        .unwrap_or(v)
-        .trim()
-        .to_ascii_lowercase()
+    importance(v).1
+}
+
+/// Whether a declared value is `!important`, in any case and with space
+/// after the `!` as CSS reads it (round 3, R3-2), and the value lowercase
+/// without it.
+fn importance(v: &str) -> (bool, String) {
+    let v = v.trim().to_ascii_lowercase();
+    let stripped = v
+        .strip_suffix("important")
+        .map(str::trim_end)
+        .and_then(|rest| rest.strip_suffix('!'));
+    match stripped {
+        Some(rest) => (true, rest.trim().to_string()),
+        None => (false, v),
+    }
 }
 
 /// Whether `d` is path data alone, so it travels in the source form.
@@ -220,10 +234,15 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
             stack.pop();
             continue;
         };
-        let (inherited_fill, inherited_stroke, in_defs) =
-            stack.last().cloned().unwrap_or((None, None, false));
+        let (inherited_fill, inherited_stroke, inherited_color, in_defs) =
+            stack.last().cloned().unwrap_or((None, None, None, false));
         let fill_here = property(&attrs, "fill").or(inherited_fill);
         let stroke_here = property(&attrs, "stroke").or(inherited_stroke);
+        // What `currentColor` is here: the nearest `color` (round 3, R3-1);
+        // `inherit` and `currentColor` keep the parent's (re-check, RE-2).
+        let color_here = property(&attrs, "color")
+            .filter(|c| c != "inherit" && c != "currentcolor")
+            .or(inherited_color);
         let in_defs =
             in_defs || matches!(name, "defs" | "symbol" | "clipPath" | "mask" | "pattern");
         // What a template drawn filled, nonzero, at full opacity would lose.
@@ -282,6 +301,14 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
                     return Err("a `<path>`'s `d` is not path data".into());
                 }
                 let painted = fill_here.clone().unwrap_or_else(|| "black".into());
+                // `currentColor` paints the element's `color` (round 3,
+                // R3-1): two under two colours are two, one under red is
+                // red as an explicit red fill is; with no `color` set, the
+                // host's colour, as on main.
+                let painted = match (painted.as_str(), &color_here) {
+                    ("currentcolor", Some(color)) => color.clone(),
+                    _ => painted,
+                };
                 if painted.starts_with("url(") {
                     note(&mut why, || {
                         (
@@ -334,7 +361,7 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
             }
         }
         if !raw.ends_with('/') {
-            stack.push((fill_here, stroke_here, in_defs));
+            stack.push((fill_here, stroke_here, color_here, in_defs));
         }
     }
     let view_box = view_box.ok_or("it has no `<svg>` with a viewBox (or a width and height)")?;
@@ -401,6 +428,54 @@ mod tests {
             read(r#"<svg viewBox="0 0 24 24"><linearGradient id="a"/><path d="M0 0h1"/></svg>"#)
                 .unwrap();
         assert!(gradient.not_template.unwrap().contains("linearGradient"));
+        // `currentColor` paints the element's `color` (round 3, R3-1): two
+        // fills under red and blue are two colours, in a style or any case
+        // of its name (R2-5) too.
+        for svg in [
+            r#"<svg viewBox="0 0 24 24"><path fill="currentColor" color="red" d="M0 0h1"/><path fill="currentColor" color="blue" d="M2 2h1"/></svg>"#,
+            r#"<svg viewBox="0 0 24 24"><g style="Color: red"><path style="FILL: currentColor" d="M0 0h1"/></g><path fill="currentColor" style="COLOR: blue" d="M2 2h1"/></svg>"#,
+            r#"<svg viewBox="0 0 24 24" color="red"><path fill="currentColor" d="M0 0h1"/><path fill="blue" d="M2 2h1"/></svg>"#,
+        ] {
+            let two = read(svg).unwrap();
+            assert_eq!(
+                two.not_template.as_deref(),
+                Some("it fills in more than one colour"),
+                "{svg}"
+            );
+        }
+        // One colour is a template, as on main: no `color` at all, a `color`
+        // nothing paints in, one `currentColor` under it (Astra's R3-1
+        // case), and `currentColor` under red beside an explicit red fill.
+        for svg in [
+            r#"<svg viewBox="0 0 24 24"><path fill="currentColor" d="M0 0h1"/><path fill="currentColor" d="M2 2h1"/></svg>"#,
+            r#"<svg viewBox="0 0 24 24" color="red"><path fill="black" d="M0 0h1"/></svg>"#,
+            r#"<svg viewBox="0 0 24 24" style="COLOR: red"><path d="M0 0h1"/></svg>"#,
+            r#"<svg viewBox="0 0 24 24" color="red" fill="currentColor"><path d="M0 0h4v4H0Z"/></svg>"#,
+            r#"<svg viewBox="0 0 24 24" color="red"><path fill="currentColor" d="M0 0h1"/><path fill="red" d="M2 2h1"/></svg>"#,
+            // `inherit` and `currentColor` keep the parent's (RE-2).
+            r#"<svg viewBox="0 0 24 24" color="red" fill="currentColor"><path color="inherit" d="M0 0h1"/><path fill="red" d="M2 2h1"/></svg>"#,
+            r#"<svg viewBox="0 0 24 24" color="red" fill="currentColor"><path style="color: currentColor" d="M0 0h1"/><path fill="red" d="M2 2h1"/></svg>"#,
+        ] {
+            assert_eq!(read(svg).unwrap().not_template, None, "{svg}");
+        }
+        // `!important` in any case, a space after its `!` too (R3-2): the
+        // paint is read without it (a translucent fill, no fill) and wins
+        // over a later declaration.
+        let translucent = read(r#"<svg viewBox="0 0 24 24"><path style="fill: #ff000080 !IMPORTANT" d="M0 0h1"/></svg>"#).unwrap();
+        assert_eq!(
+            translucent.not_template.as_deref(),
+            Some("it fills in a translucent colour")
+        );
+        let unfilled = read(
+            r#"<svg viewBox="0 0 24 24"><path style="fill: none ! Important" d="M0 0h1"/></svg>"#,
+        )
+        .unwrap();
+        assert_eq!(
+            unfilled.not_template.as_deref(),
+            Some("a path is not filled")
+        );
+        let important = read(r#"<svg viewBox="0 0 24 24"><path style="fill: blue !Important; fill: red" d="M0 0h1"/><path fill="blue" d="M2 2h1"/></svg>"#).unwrap();
+        assert_eq!(important.not_template, None);
         assert!(read(r#"<svg viewBox="0 0 0 24"><path d="M0 0"/></svg>"#).is_err());
         assert!(read(r#"<svg><path d="M0 0"/></svg>"#).is_err());
     }

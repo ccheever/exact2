@@ -620,6 +620,24 @@ fn a_librarys_names_are_its_api() {
             .any(|e| e.message.contains("lib.gap")),
         "{all:?}"
     );
+    // Its icons are names it defines too (LLP 1121 stage 13): the app's
+    // icon overriding one builds, one under its namespace it lacks is
+    // refused.
+    let icons = format!("{DESIGN}\nicons\n  lib.star = icon(sf \"star\")\n");
+    let drawn = card.replace("      text \"a\"\n", "      image \"symbol:lib.star\"\n");
+    for (name, app_icons, refused) in [
+        ("icon-override", "lib.star", false),
+        ("icon-unknown", "lib.gone", true),
+    ] {
+        let design = format!("tamber app\n\nicons\n  {app_icons} = icon(sf \"heart\")\n");
+        let all = build_as(name, "@acme/lib", "@acme/lib", &icons, &drawn, APP, &design);
+        let unknown = ids(&all, "tamber-package-unknown");
+        assert_eq!(!unknown.is_empty(), refused, "{name}: {all:?}");
+        assert!(
+            unknown.iter().all(|e| e.message.contains("lib.gone")),
+            "{all:?}"
+        );
+    }
 }
 
 #[test]
