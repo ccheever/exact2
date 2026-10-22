@@ -432,7 +432,7 @@ describe('appearance', () => {
     expect(cards.map(card => card.label)).toEqual(['T3 Code', 'T3 Chat', 'Grove', 'Ocean', 'Ember', 'Iris']);
     expect(cards.find(card => card.id === 'iris')!.orbs.every(orb => orb.picked)).toBe(true);
     const rows = appearanceSections(decodeClientPrefs({ glassOpacity: 60 }), true).flatMap(section => section.rows);
-    expect(rows.map(row => row.title)).toEqual(['Contrast', 'Glass opacity', 'Environment identification', 'Diff colors', 'Composer context', 'Chat width', 'Panel animations', 'Interface font', 'Monospace font', 'Word wrap']);
+    expect(rows.map(row => row.title)).toEqual(['Contrast', 'Glass opacity', 'Environment identification', 'Diff colors', 'Composer context', 'Chat width', 'Render math', 'Panel animations', 'Interface font', 'Monospace font', 'Word wrap']);
     expect(rows.find(row => row.id === 'setting-glass-opacity')!.label).toBe('60%');
     expect(rows.filter(row => row.kind === 'font').map(row => [row.info, row.amount])).toEqual([['preview-prompt', 16], ['preview-code-terminal', 13]]);
     // PromptFontPreview is the composer at the Prompt font size, whatever the Interface font size.

@@ -29,7 +29,7 @@ const CLIENT_KEYS = new Set(['notificationMode', 'inAppNotificationsEnabled', 'd
   'environmentIdentificationMode', 'glassOpacity', 'fontSizeInterface', 'fontSizePrompt', 'fontSizeCode', 'fontSizeTerminal', 'fontFamilyCode', 'fontFamilyComposer',
   'fontFamilySans', 'fontFamilyTerminal', 'fontSmoothing', 'persistComposerContextStrip', 'planModeEnabled', 'contextWindowMeterEnabled', 'composerCollapseOnScroll',
   'composerRichTextEnabled', 'sendShortcut', 'followUpBehavior', 'proactivePanelsEnabled', 'showSkillsInSlashMenu', 'legacySidebarEnabled', 'sidebarWorkingShelfEnabled',
-  'wordWrap', 'theme', 'themeLight', 'themeDark', 'typographyAdvanced', 'sidebarProjectSortOrder']);
+  'wordWrap', 'theme', 'themeLight', 'themeDark', 'typographyAdvanced', 'sidebarProjectSortOrder', 'mathRenderingEnabled']);
 const PROJECT_SCOPED_KEYS = new Set<string>(PROJECT_SCOPED_SERVER_SETTING_KEYS);
 
 export const isProjectScopedSettingKey = (key: string) => PROJECT_SCOPED_KEYS.has(key);
