@@ -4,7 +4,7 @@
 // --url`). The tool shows the server's hello, and an agent's write arrives
 // on its long poll attributed. Its stub-server tests are
 // apps/design-tool/app.test.contract.
-import { expect, test } from 'bun:test';
+import { expect, onTestFinished, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -12,6 +12,7 @@ import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { request } from 'node:http';
 import { spawnOwned } from './test-children.mjs';
+import { checkoutPort, takePort } from './port-lock.mjs';
 
 import { DRIVEN, drive, lines, proxied, ROOT, stop, STUB_APP, TOOL_DIST, TOOL_ORIGIN, toolTurns } from './design-tool-harness.mjs';
 import { suiteBrowser } from './agent-launch.mjs';
@@ -1108,6 +1109,10 @@ async function kindsOnTheJsLoop() {
 test('stage 6 kinds on the JS loop: a typed length scrubs live and Keep writes one line, motion says Rebuilds first, an inline font-weight token rebuilds, icons listed', () => kindsOnTheJsLoop(), 900_000);
 
 test('T2b: inspect from the tool selects a view in the canvas frame, shows its source and rows, and opens its token on the branch that won', async () => {
+  // This checkout's apps/theme-fixture (the wasm loop builds the app's crate, so no copy will do), in turn with another
+  // run here: its design server takes the app's .exact/tamber.lock, which refuses a second writer.
+  const giveFixture = await takePort(1000 + checkoutPort(resolve(ROOT, 'apps/theme-fixture')), { label: `T2b on ${ROOT}/apps/theme-fixture` });
+  onTestFinished(giveFixture);
   const listener = (await import('node:http')).createServer();
   await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
   const port = listener.address().port;

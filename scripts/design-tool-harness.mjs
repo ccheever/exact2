@@ -13,7 +13,8 @@ export const ROOT = resolve(new URL('..', import.meta.url).pathname);
 // one of 200 above 17740, never the 7740 a person's tool holds), so two runs at once (one checkout's or two's) each
 // have one and neither waits; EXACT_TOOL_PORT names one instead, taken in turn by each test. Every child the tests
 // spawn serves and frames that origin (and has its turn, EXACT_PORT_TURNS).
-const claimed = process.env.EXACT_TOOL_PORT === undefined ? await claimPort(checkoutPort(ROOT), { label: `the design tool's tests in ${ROOT}` }) : null;
+// (From one past the checkout's own, which its contract tests' stub takes in turn, so neither keeps the other waiting.)
+const claimed = process.env.EXACT_TOOL_PORT === undefined ? await claimPort(checkoutPort(ROOT) + 1, { label: `the design tool's tests in ${ROOT}` }) : null;
 if (claimed) process.env.EXACT_TOOL_PORT = String(claimed.port);
 // The port module reads the port once, at its first import: a file run before these in the same process
 // (tamber-server.test.mjs) loads it with none (7740), where these runs' children serve this checkout's; then
