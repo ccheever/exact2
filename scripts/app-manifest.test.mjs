@@ -291,3 +291,24 @@ test('host.ios.appClip is an object of an id and a name, and an unknown key or a
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('open_url declares the schemes openURL may hand to the system, and refuses the ones the hosts keep', async () => {
+  const { macInfoPlist, infoPlist } = await import('../host/apple/build.mjs');
+  const { readManifest } = await import('./app.mjs');
+  const app = { id: 'dev.exact.editors', displayName: 'Editors', manifest: { open_url: { schemes: ['vscode', 'zed', 'jetbrains'] } } };
+  for (const plist of [macInfoPlist(app), infoPlist(app)]) {
+    assert.match(plist.replace(/\s+/g, ''), /<key>ExactOpenURLSchemes<\/key><array><string>vscode<\/string><string>zed<\/string><string>jetbrains<\/string><\/array>/);
+  }
+  assert.doesNotMatch(infoPlist({ id: 'dev.exact.editors', displayName: 'Editors', manifest: {} }), /ExactOpenURLSchemes/);
+  const dir = mkdtempSync(resolve(tmpdir(), 'manifest-open-url-'));
+  try {
+    const save = (open_url) => writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Editors', app: { id: 'dev.exact.editors', name: 'Editors' }, open_url }));
+    save({ schemes: ['vscode-insiders', 'cursor'] });
+    assert.deepEqual(readManifest(dir, 'editors').open_url.schemes, ['vscode-insiders', 'cursor']);
+    for (const [open_url, says] of [[{ schemes: ['file'] }, /does not match/], [{ schemes: ['javascript'] }, /does not match/], [{ schemes: ['https'] }, /does not match/],
+      [{ schemes: ['vscode://'] }, /does not match/], [{ schemes: [] }, /fewer than 1/], [{ apps: ['vscode'] }, /not a known key/]]) {
+      save(open_url);
+      assert.throws(() => readManifest(dir, 'editors'), says);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

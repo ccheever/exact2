@@ -3,6 +3,9 @@
 // compiler admits (contract/types/src/checks.rs `HOST_COMMANDS`) is one this
 // runtime carries (files diary F5: `selectText` was refused here).
 import { popoverCommand, setFieldSelection, setFieldRangeText, appRootFontSize, liveById } from "./navigation.js";
+// False in a release, which admits no agent mode (build.mjs `gateAgent`, LLP 1069.007 D2).
+const AGENT_ADMITTED = true;
+const agentMode = () => AGENT_ADMITTED && new URLSearchParams(location.search).has("agent");
 import "./prompt-glue.js"; // a prompt's Return (host/web/prompt-glue.js)
 import "./alert-message.js"; // a grouped alert's message box (host/web/alert-message.js)
 import "./menu-rows.js"; // a menu row's popover opens from the menu's invoker (host/web/menu-rows.js, LLP 1021)
@@ -25,14 +28,17 @@ export const commands = say => ({
     if (document.activeElement === e) e.select();
   },
   // An absolute http, https, mailto or tel URL in a new browsing context,
-  // the one scheme allowlist every navigation takes (navigation.js `navigableURL`).
+  // the one scheme allowlist every navigation takes (navigation.js `navigableURL`),
+  // or one of a scheme app.json's `open_url.schemes` declares (`exact.openSchemes`),
+  // which the browser asks about before it hands it to the app registered for it.
   openURL: u => {
-    let to = null;
-    try { const url = new URL(u); if (["http:", "https:", "mailto:", "tel:"].includes(url.protocol)) to = url.href; } catch {}
-    if (to) open(to, "_blank", "noopener,noreferrer");
+    let to = null, declared = false;
+    try { const url = new URL(u); declared = (globalThis.exact?.openSchemes ?? []).includes(url.protocol.slice(0, -1)); if (declared || ["http:", "https:", "mailto:", "tel:"].includes(url.protocol)) to = url.href; } catch {}
+    if (to && declared && agentMode()) say(`openURL ${to.slice(0, to.indexOf(":"))}: ${to.slice(0, 200)} (journaled, not opened under the agent)`);
+    else if (to) open(to, "_blank", "noopener,noreferrer");
     // The app's own settings page (LLP 1133.002 D11): a browser has none to open.
     else if (u === "app-settings:") say("openURL refused: app-settings: has no page on the web; a site's permissions are the browser's own (its address bar, its settings)");
-    else say(`openURL refused: ${JSON.stringify(String(u).slice(0, 80))} is not an absolute http, https, mailto or tel URL`);
+    else say(`openURL refused: ${JSON.stringify(String(u).slice(0, 80))} is not an absolute http, https, mailto or tel URL, nor of a scheme app.json's open_url.schemes declares`);
   },
   // The inverse of `message=`: text into the named surface, every post in
   // order, held until the GPU glue loads and drains `pendingPosts`
