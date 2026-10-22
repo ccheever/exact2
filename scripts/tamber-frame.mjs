@@ -11,9 +11,9 @@ export function framesAllowed(csp, ancestor, page) {
   const a = new URL(ancestor), self = new URL(page).origin;
   const lists = String(csp ?? '').split(',').map(policy => policy.split(';').map(d => d.trim().split(/\s+/)).find(([name]) => name?.toLowerCase() === 'frame-ancestors')?.slice(1)).filter(Boolean);
   for (const sources of lists) {
-    if (!sources.some(s => matches(s, a, self))) return { allowed: false, origins: sources.map(s => named(s, self)).filter(Boolean) };
+    if (!sources.some(s => matches(s, a, self))) return { allowed: false, origins: sources.map(s => named(s, self)).filter(Boolean), portFixes: sources.some(s => portFixes(s, self)) };
   }
-  return { allowed: true, origins: [] };
+  return { allowed: true, origins: [], portFixes: false };
 }
 
 const DEFAULT_PORT = { 'http:': '80', 'https:': '443' };
@@ -45,7 +45,7 @@ function matches(source, a, self) {
   else if (h.startsWith('*.')) { if (!hostname.endsWith(h.slice(1))) return false; }
   else if (hostname !== h) return false;
   // No port: only the URL's own default (CSP3: a null port matches a null port); `*` any.
-  if (port !== '*' && (port === undefined ? a.port !== '' : (a.port || DEFAULT_PORT[a.protocol]) !== port)) return false;
+  if (port !== '*' && (port === undefined ? a.port !== '' : Number(a.port || DEFAULT_PORT[a.protocol]) !== Number(port))) return false;
   // An ancestor is its origin, whose path is `/`: a longer path never matches.
   return path === undefined || path === '/';
 }
@@ -58,7 +58,15 @@ function named(source, self) {
   if (s === "'self'") return self;
   if (s === '*' || /^[a-z][a-z0-9+.-]*:$/.test(s)) return s;
   const m = HOST_SOURCE.exec(source);
-  return m ? `${m[1] ? `${m[1].toLowerCase()}://` : ''}${m[2].toLowerCase()}${m[3] ? `:${m[3]}` : ''}` : '';
+  return m ? `${m[1] ? m[1].toLowerCase() : new URL(self).protocol.slice(0, -1)}://${m[2].toLowerCase()}${m[3] ? `:${m[3] === '*' ? '*' : Number(m[3])}` : ''}` : '';
+}
+
+/** Whether a tool on another loopback port would match: a source naming http://127.0.0.1 (written, or by the page's
+ * scheme) at a port, with no path past `/`. The advice to set EXACT_TOOL_PORT rests on it, not on the names shown. */
+function portFixes(source, self) {
+  const m = HOST_SOURCE.exec(source);
+  if (!m || !m[3] || m[3] === '*' || (m[4] !== undefined && m[4] !== '/')) return false;
+  return (m[1] ? m[1].toLowerCase() : new URL(self).protocol.slice(0, -1)) === 'http' && m[2].toLowerCase() === '127.0.0.1';
 }
 
 /** The loop at `via` asked whether its page lets `tool` frame it: `{via, allowed, origins}`, allowed when the page
@@ -69,7 +77,7 @@ export async function canvasCheck(via, tool) {
     const got = await fetch(`${via}/`, { headers: { accept: 'text/html' }, redirect: 'manual', signal: AbortSignal.timeout(5000) });
     await got.body?.cancel();
     return { via, ...framesAllowed(got.headers.get('content-security-policy'), tool, `http://localhost:${new URL(via).port}`) };
-  } catch { return { via, allowed: true, origins: [] }; }
+  } catch { return { via, allowed: true, origins: [], portFixes: false }; }
 }
 
 /** A refusal in words: the loop's own port for the tool (EXACT_TOOL_PORT) when it names a loopback tool, else the
@@ -77,7 +85,7 @@ export async function canvasCheck(via, tool) {
 export function refusalWords(check, tool) {
   const named = check.origins.join(' ');
   const head = `the dev loop at ${check.via} ${named ? `lets only ${named} frame its page` : 'lets no page frame it'}, not this tool (${tool}), so the canvas stays empty`;
-  return check.origins.some(o => /^http:\/\/127\.0\.0\.1:\d+$/.test(o)) ? `${head}: start the loop with EXACT_TOOL_PORT=${new URL(tool).port}` : `${head}: its page's own policy refuses framing, which no port changes`;
+  return check.portFixes ? `${head}: start the loop with EXACT_TOOL_PORT=${new URL(tool).port}` : `${head}: its page's own policy refuses framing, which no port changes`;
 }
 
 /** What the terminal is told: a refusal, once each time it starts (not on every check). */
@@ -94,5 +102,5 @@ export async function answerCanvasCheck(req, res, access, via, tool, tell) {
   const check = await canvasCheck(via, tool);
   tell(check);
   res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-  res.end(JSON.stringify({ via: check.via, allowed: check.allowed, origins: check.origins }));
+  res.end(JSON.stringify({ via: check.via, allowed: check.allowed, origins: check.origins, portFixes: check.portFixes }));
 }
