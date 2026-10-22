@@ -1141,7 +1141,7 @@ extension Agent {
         if let now = session.clock, session.canvases.waitUntilReady() { session.canvases.settle(now: now) }
         presenter.canvas2d.waitForReplays()
         guard let path = req["path"] as? String else { return ["malformed": true, "error": "screenshot needs a path"] }
-        let v = presenter.viewport
+        let v = presenter.navigation.split.agentRoot
         if req["window"] as? Bool == true {
             // The window server's picture of this window — Metal layers
             // included, which cacheDisplay cannot see. A process may read
