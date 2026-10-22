@@ -147,6 +147,33 @@ describe('the action stream (vcsAction.ts)', () => {
     expect(calls.at(-1)!.payload).toMatchObject({ action: 'push' });
     expect(calls.at(-1)!.payload).not.toHaveProperty('featureBranch');
   });
+  test('a server thread changes its ref only with orchestration:operate (GitActionsControl canChangeThreadBranch)', async () => {
+    const { client, calls } = make();
+    (client.shell.threads as Obj[]).push({ id: 't1' });
+    const changes = status({ hasWorkingTreeChanges: true, isDefaultRef: true, refName: 'main', workingTree: { files: [{ path: 'a.ts', insertions: 1, deletions: 0 }] } });
+    expect(gitCardView(client, changes, '', '/repo', 100).canChangeBranch).toBe(false);
+    await gitCommand(client, native, 'quick', '/repo', '');
+    const sent = calls.length;
+    await gitCommand(client, native, 'confirm', '/repo', 'feature');
+    expect(calls.length).toBe(sent);
+    expect(gitState(client).dialog).toBe('confirm');
+    await gitLocal(client, native, 'dialog-close', '', '');
+    await gitCommand(client, native, 'menu', '/repo', 'commit');
+    await gitCommand(client, native, 'commit-branch', '/repo', 'Fix it');
+    expect(calls.length).toBe(sent);
+    (client as unknown as { scopes: string[] }).scopes = ['source-control:write', 'orchestration:operate'];
+    expect(gitCardView(client, changes, '', '/repo', 100).canChangeBranch).toBe(true);
+    await gitCommand(client, native, 'commit-branch', '/repo', 'Fix it');
+    expect(calls.at(-1)!.payload).toMatchObject({ action: 'commit', featureBranch: true });
+  });
+  test('a closed confirmation keeps its copy while it fades out (ui/dialog.tsx RetainedWhileClosed)', async () => {
+    const { client } = make();
+    const ahead = status({ hasWorkingTreeChanges: false, isDefaultRef: true, refName: 'main', aheadCount: 1 });
+    gitCardView(client, ahead, '', '/repo', 100);
+    await gitCommand(client, native, 'menu', '/repo', 'push');
+    await gitLocal(client, native, 'dialog-close', '', '');
+    expect(gitCardView(client, ahead, '', '/repo', 100)).toMatchObject({ dialog: '', confirmTitle: 'Push to default ref?', confirmContinue: 'Push to main' });
+  });
   test('pull reports inline', async () => {
     const { client } = make();
     gitCardView(client, status({ behindCount: 1 }), '', '/repo', 100);

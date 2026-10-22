@@ -428,11 +428,12 @@ final class T3SnapShot {
                 let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
                 process.arguments = ["-l", String(number), "-o", "-x", "-t", "png", test.path]
                 process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
+                // Set before `run`, so a command that exits at once still signals.
+                let exited = DispatchSemaphore(value: 0)
+                process.terminationHandler = { _ in exited.signal() }
                 let failure: T3TestCaptureFailure? = {
                     guard (try? process.run()) != nil else { return .failed }
                     // MacSnapShot.ts MAC_SCREEN_CAPTURE_TIMEOUT_MS: execFile's timeout kills the command.
-                    let exited = DispatchSemaphore(value: 0)
-                    process.terminationHandler = { _ in exited.signal() }
                     if exited.wait(timeout: .now() + 15) == .timedOut { process.terminate(); process.waitUntilExit(); return .timedOut }
                     if process.terminationStatus != 0 { return .exited(process.terminationStatus) }
                     return (try? Data(contentsOf: test))?.starts(with: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) == true ? nil : .failed
