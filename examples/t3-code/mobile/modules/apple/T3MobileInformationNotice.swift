@@ -7,6 +7,7 @@ import UIKit
 private final class T3InformationSourceButton: UIButton {
     let label = UILabel()
     private let symbol = UIImageView()
+    private let symbolBox = UIView()
     override var isHighlighted: Bool { didSet { alpha = isHighlighted ? 0.6 : 1 } }
     override var intrinsicContentSize: CGSize {
         CGSize(width: label.intrinsicContentSize.width + 7 + 16, height: max(42, label.intrinsicContentSize.height + 14))
@@ -15,14 +16,20 @@ private final class T3InformationSourceButton: UIButton {
         super.init(frame: frame)
         label.text = "Project source"; label.font = UIFont(name: "DMSans-Medium", size: 14) ?? .systemFont(ofSize: 14, weight: .medium)
         symbol.contentMode = .scaleAspectFit
-        [label, symbol].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; $0.isAccessibilityElement = false; addSubview($0) }
+        symbol.isAccessibilityElement = false; symbolBox.isUserInteractionEnabled = false; symbolBox.addSubview(symbol)
+        [label, symbolBox].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; $0.isAccessibilityElement = false; addSubview($0) }
         NSLayoutConstraint.activate([label.leadingAnchor.constraint(equalTo: leadingAnchor), label.centerYAnchor.constraint(equalTo: centerYAnchor),
             label.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 7), label.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -7),
-            symbol.leadingAnchor.constraint(equalTo: label.trailingAnchor, constant: 7), symbol.trailingAnchor.constraint(equalTo: trailingAnchor), symbol.centerYAnchor.constraint(equalTo: centerYAnchor),
-            symbol.widthAnchor.constraint(equalToConstant: 16), symbol.heightAnchor.constraint(equalToConstant: 16), heightAnchor.constraint(greaterThanOrEqualToConstant: 42)])
+            symbolBox.leadingAnchor.constraint(equalTo: label.trailingAnchor, constant: 7), symbolBox.trailingAnchor.constraint(equalTo: trailingAnchor), symbolBox.centerYAnchor.constraint(equalTo: centerYAnchor),
+            symbolBox.widthAnchor.constraint(equalToConstant: 16), symbolBox.heightAnchor.constraint(equalToConstant: 16), heightAnchor.constraint(greaterThanOrEqualToConstant: 42)])
         isAccessibilityElement = true; accessibilityTraits = .link; accessibilityLabel = "Project source, arrow.up.right"; accessibilityHint = "Opens the project website"
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Expo assigns the image frame directly; Auto Layout instead sizes its SF Symbol alignment rect.
+        symbol.frame = symbolBox.bounds
+    }
     func setColor(_ tint: UIColor) {
         label.textColor = tint
         guard let image = UIImage(systemName: "arrow.up.right") else { return }
