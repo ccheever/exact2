@@ -75,8 +75,9 @@ export const appId = 'com.exact.t3code.macos';
 // The camera and microphone grants are for the commands terminals and agents run, which inherit the app's TCC identity:
 // under the hardened runtime they are refused without a prompt unless the app claims both (build-desktop-artifact.ts).
 // Save file and the media menu's Save fetch a server's signed asset and write it under app:/tmp/saves for the window's
-// Save panel; a draft's staged copy is read and saved from composer-files (save-file.ts, attachment-files.ts).
-export const grants = 'net.websocket ws:\nnet.websocket wss:\nnet.fetch http:\nnet.fetch https:\nsecret.keep t3-catalog\nfs.read app:/tmp/saves\nfs.write app:/tmp/saves\nfs.read app:/data/composer-files\nfs.write app:/data/composer-files\nfs.write app:/data/snapshots/drafts\nfs.read doc:/\nfs.read app:/tmp/picked\nfs.read app:/tmp/composer-stage\nfs.write app:/tmp/composer-stage\nfs.read app:/tmp/browser-frames\nfs.write app:/tmp/browser-frames\ndevice.local-network purpose.local-network\ndevice.camera purpose.camera\ndevice.microphone purpose.microphone';
+// Save panel; a draft's staged copy is read and saved from composer-files (save-file.ts, attachment-files.ts). An image
+// chip's accent fetches the image and scales it under app:/tmp/image-accent (image-accent.ts).
+export const grants = 'net.websocket ws:\nnet.websocket wss:\nnet.fetch http:\nnet.fetch https:\nsecret.keep t3-catalog\nfs.read app:/tmp/saves\nfs.write app:/tmp/saves\nfs.read app:/data/composer-files\nfs.write app:/data/composer-files\nfs.write app:/data/snapshots/drafts\nfs.read doc:/\nfs.read app:/tmp/picked\nfs.read app:/tmp/composer-stage\nfs.write app:/tmp/composer-stage\nfs.read app:/tmp/browser-frames\nfs.write app:/tmp/browser-frames\nfs.read app:/tmp/image-accent\nfs.write app:/tmp/image-accent\ndevice.local-network purpose.local-network\ndevice.camera purpose.camera\ndevice.microphone purpose.microphone';
 const client = new T3Client();
 const transport = new Transport();
 
