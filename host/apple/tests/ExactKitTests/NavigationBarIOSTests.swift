@@ -431,8 +431,21 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertNil(about.menu, "no pull-down: its popover is no menu")
         XCTAssertNotNil(about.action)
         let pop = try node(session, "plain-about")
+        // Opening it moves nothing around where it was written (Harmony's room composer jumped).
+        let route = try node(session, "route-plain")
+        func frames() -> [String: CGRect] {
+            var out: [String: CGRect] = [:]
+            for v in session.presenter.views.values where v !== pop && v.isDescendant(of: route) && !v.isDescendant(of: pop) {
+                if let id = v.props["testId"] { out[id] = v.convert(v.bounds, to: nil) }
+            }
+            return out
+        }
+        let before = frames()
         try tap(about)
         until("the popover opens") { session.presenter.menus.isOpen(pop) && pop.window != nil && !pop.isHidden }
+        spin(0.3)
+        let after = frames()
+        for (id, frame) in before { XCTAssertEqual(after[id], frame, "\(id) stays put while the popover is open") }
         let bar = nav.navigationBar.convert(nav.navigationBar.bounds, to: nil)
         let frame = pop.convert(pop.bounds, to: nil)
         XCTAssertGreaterThan(frame.minY, bar.minY, "from the item in the bar: \(frame) \(bar)")

@@ -149,23 +149,26 @@ const headerOf = route => [...(route?.children ?? [])].find(child => child.local
 const authored = '[data-exact-said~="appearance"]'; // a header whose author wrote `appearance: none` (element.rs)
 // The items of the bar iOS makes of a shown `header`, or null where it makes none: kernel/src/bars.rs `header_bar`,
 // ported to the elements both runtimes write alike, since the JS target keeps no kernel to ask. `walk` is `Walk::walk`:
-// a bar's header holds one heading, and an item is a pressable it reaches that is not the title's.
+// a bar's header holds one heading, and an item is a pressable it reaches, not the title's, or a disabled button.
 function barItems(route, header) {
   if (route.getAttribute("data-navigationbar") === "none" || route.firstElementChild !== header || header.matches(authored)) return null;
   const heading = "[data-exact-text][role=heading]", press = '[data-exact-on~="press"]', layer = el => el.matches("[popover], dialog");
   const holds = el => [...el.children].some(child => !layer(child) && (child.matches(heading) || holds(child)));
+  const disabled = el => el.matches("button[disabled]") && !el.hasAttribute("role") && root?.getAttribute("aria-busy") !== "true"; // `fact::DISABLED`, dimmed whether or not it presses; a `button` element carries no `role` unless it has another one (element.rs); until input is ready, the glue disables every control itself (glue.js)
   let headings = 0, tap = null;
   const items = [], walk = node => {
     for (const child of node.children) {
       if (layer(child) || child.matches('[role=tablist], input[type="search"]')) continue; // a layer, the bar's segments or its search field: no item
       if (child.matches(heading)) headings++;
-      else if (child.matches(press) || opensPopover(child)) { if (!tap && child.matches(press) && holds(child)) walk(tap = child); else items.push(child); } // the first to hold a heading is the title, tapped
+      else if (child.matches(press) || opensPopover(child) || (disabled(child) && !holds(child))) { if (!tap && child.matches(press) && holds(child)) walk(tap = child); else items.push(child); } // the first to hold a heading is the title, tapped
       else if (!child.matches("[role=status]") || holds(child)) walk(child); // a readout's face is no item
     }
   };
   walk(header);
   return headings === 1 ? items : null;
 }
+/** Mark every route's bar on a page rendered ahead of time (host/web-js/render.mjs), which runs no projection, as document.rs marks one. */
+export function markBars(node) { for (const child of node.children) { const header = child.hasAttribute("navigationKey") && !child.hasAttribute("navigationBack") && headerOf(child); if (header) header.toggleAttribute("data-exact-bar", !!barItems(child, header)); markBars(child); } }
 // Whether a button shows or toggles a popover, a header's menu (kernel/src/invocation.rs `opens_popover`).
 function opensPopover(el) {
   if (el.localName !== "button") return false;
@@ -183,7 +186,7 @@ export function pageTitle(said = saidTitle) {
   const nav = root?.querySelector("[navigationBack]"), title = said ?? ((nav && titleOf(selectedRoute(nav))) || appName);
   if (document.title !== title) document.title = title;
 }
-function appBarBack(nav, routes, index, split = false) {
+function appBarBack(nav, routes, index, split, shown) {
   const route = routes[index], header = headerOf(route);
   if (!header) return;
   const headerShown = getComputedStyle(header).display !== "none";
@@ -197,7 +200,9 @@ function appBarBack(nav, routes, index, split = false) {
   // Back; in a header not shown, the Back is hidden with it. One hidden on its own in a shown header gets no Back, so
   // nothing shows (QUEUE.md); there and in a header not shown, the browser's Back presses the control.
   const control = pushed ? backControl(nav, route) : null, inShownHeader = headerShown && !!control && header.contains(control) && !header.contains(control.closest("[popover], dialog"));
-  const items = inShownHeader ? barItems(route, header) : null, held = !!items?.includes(control), drawn = pushed && (!inShownHeader || !!items);
+  const items = headerShown && (inShownHeader || shown) ? barItems(route, header) : null;
+  const held = inShownHeader && !!items?.includes(control), drawn = pushed && (!inShownHeader || !!items);
+  if (shown) header.toggleAttribute("data-exact-bar", !!items); // a shown bar, whose symbols are the bar's size (neutral.css)
   let button = header.shadowRoot?.querySelector('button[part="back"]');
   if (drawn && !button && !header.shadowRoot && header.attachShadow) { // not a shadow root of someone else's
     header.attachShadow({ mode: "open" }).innerHTML = BACK;
@@ -443,7 +448,7 @@ export const navigation = {
           const column = !split ? null : index === 0 ? "list" : sheet(route) ? null : "detail";
           if (route.getAttribute("data-exact-split") !== column) column ? route.setAttribute("data-exact-split", column) : route.removeAttribute("data-exact-split");
           route.style.setProperty("--exact-split", column ? `${split}px` : "");
-          appBarBack(nav, routes, index, split > 0); if (stack === at && index === selected) freshPath(route);
+          appBarBack(nav, routes, index, split > 0, active || covered); if (stack === at && index === selected) freshPath(route);
         }
         let row = null; for (let i = detail; i > 0 && !row; i--) row = rowOf.get(routes[i])?.isConnected ? rowOf.get(routes[i]) : null;
         for (const el of routes[0]?.querySelectorAll("[data-exact-split-row]") ?? []) if (el !== row) el.removeAttribute("data-exact-split-row");
@@ -546,13 +551,12 @@ export function afterPaintPieces(load, o) {
     return p && c ? Promise.all([p, c]) : (p ?? c ?? null);
   } };
 }
-// @ref LLP 1063 — -exact-exit-animation and -exact-layout-transition play in
-// `presence-glue.js`, fetched when a batch first carries either row, or after first paint where the plan names either
-// (`preload`: a bound layout transition may declare nothing at boot; a batch before it lands, at boot or a person's first
-// press, still jumps); the agent waits for it (`pending`, bounded by its deadline). A batch
-// with an exit that arrives before the module does waits for it, and every
-// batch after it waits behind it, so no exit is lost and order holds; the
-// caller hands them back through `apply`. `live` is the module, once loaded.
+// @ref LLP 1063 — -exact-exit-animation and -exact-layout-transition play in `presence-glue.js`, fetched when a batch
+// first carries either row, or after first paint where the plan names either (`preload`: a bound layout transition may
+// declare nothing at boot; a batch before it lands, at boot or a person's first press, still jumps); the agent waits
+// for it (`pending`, bounded by its deadline). A batch with an exit that arrives before the module does waits for it,
+// and every batch after it waits behind it, so no exit is lost and order holds; the caller hands them back through
+// `apply`. `live` is the module, once loaded.
 export function presenceLoader(load, root, apply, log) {
   let live = null, loading = null, unavailable = false, scheduled = null;
   const held = [], row = op => op.op === 'exit' || /(^|;)\s*--exact-(layout-transition|exit-animation)\s*:/.test((op.css ?? '').replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, '""'));
@@ -610,23 +614,19 @@ export function animationClock(now, settled, synced) {
     },
   };
 }
-// Synced animations (LLP 1055.002): a node whose `animation-timeline` is
-// `clock(Name)` carries `--exact-animation-clock:Name` (css.rs), and each CSS
-// animation on it joins that clock. A clock is one origin, set when an
-// animation joins it idle (no other member unfinished) and kept while it is
-// busy; a joiner starts on the latest cycle boundary at or before it joins
-// (a cycle is two iterations under `alternate`), so it ends where it would.
-// `start` is the synced start at `now` (the agent's clock seeks from it);
-// `sync`, after a commit, sets each joined or resumed animation's
-// `startTime` once on the page's timeline. Nothing runs per frame.
+// Synced animations (LLP 1055.002): a node whose `animation-timeline` is `clock(Name)` carries
+// `--exact-animation-clock:Name` (css.rs), and each CSS animation on it joins that clock. A clock is one origin, set
+// when an animation joins it idle (no other member unfinished) and kept while it is busy; a joiner starts on the latest
+// cycle boundary at or before it joins (a cycle is two iterations under `alternate`), so it ends where it would.
+// `start` is the synced start at `now` (the agent's clock seeks from it); `sync`, after a commit, sets each joined or
+// resumed animation's `startTime` once on the page's timeline. Nothing runs per frame.
 export function animationClocks(root) {
   const origins = new Map(), members = new Map(), paused = new WeakMap(), clocked = new WeakMap();
   const clockOf = a => a.animationName === undefined ? '' : a.effect?.target?.style?.getPropertyValue('--exact-animation-clock').trim() ?? '';
   const live = a => a.effect?.target?.isConnected && a.playState !== 'idle' && a.playState !== 'finished';
-  // Each commit (`sync`, or the agent's `register`) first lets go of every
-  // member whose node left, whose play ended, or that moved to another
-  // clock: it holds no clock busy, and a removed screen's targets are not
-  // kept for the page's lifetime.
+  // Each commit (`sync`, or the agent's `register`) first lets go of every member whose node left, whose play ended, or
+  // that moved to another clock: it holds no clock busy, and a removed screen's targets are not kept for the page's
+  // lifetime.
   const commit = () => {
     for (const [c, m] of members) { for (const b of m) if (!live(b) || clockOf(b) !== c) m.delete(b); if (!m.size) members.delete(c); }
   };
@@ -660,9 +660,8 @@ export function animationClocks(root) {
         paused.set(a, is); clocked.set(a, c);
         // An ended play stays ended: a clock does not restart it.
         if (a.playState === 'finished' || a.playState === 'idle') continue;
-        // A pause keeps its membership: paused, it still holds the clock
-        // busy. A new one joins (paused, without a start, which would
-        // unpause it); a resume rejoins.
+        // A pause keeps its membership: paused, it still holds the clock busy. A new one joins (paused, without a
+        // start, which would unpause it); a resume rejoins.
         if (is && was !== undefined && c === had && member) continue;
         const s = start(a, now);
         if (s !== null && !is) a.startTime = s;
@@ -681,9 +680,8 @@ function rememberScroll(s) {
 }
 function settleFollow(s) {
   if (!s.el.isConnected) return;
-  // A reader above the end uses the browser's CSS scroll anchoring. Writing
-  // the remembered numeric offset here would undo its adjustment when content
-  // above the visible message changes.
+  // A reader above the end uses the browser's CSS scroll anchoring. Writing the remembered numeric offset here would
+  // undo its adjustment when content above the visible message changes.
   if (s.end) s.el.scrollTop = s.el.scrollHeight - s.el.clientHeight;
   rememberScroll(s);
   const children = [...s.el.children];
@@ -713,8 +711,7 @@ function followScroll(el, enabled) {
 }
 // One scheme allowlist for every URL the page can navigate to: a link's `href` (an authored `link`, an inline run bound
 // to data, a Markdown link), an iframe's `src`, and `openURL`. A `javascript:` URL in any of them runs in this page's
-// origin. The browser's own parser reads the scheme, with the whitespace and control characters `java\tscript:` hides
-// behind.
+// origin. The browser's own parser reads the scheme, past the whitespace and control characters it may hide behind.
 export function navigableURL(href, base = document.baseURI) {
   try {
     const url = new URL(href, base);
@@ -1146,8 +1143,7 @@ export function guestMessageAuthorized(el, eventOrigin) {
 
 // @ref LLP 1069.001 D4 (amended 2026-10-04) — a select, range or date is controlled as a text field is: the committed
 // `value` is written when it changes, and shown again after the options change or a refused `type`; after the action
-// that heard the person (`acted`) it keeps their choice, as the web build's does (x2apps kanban2 #5: a date cleared
-// while a `send` was in flight).
+// that heard the person (`acted`) it keeps their choice, as the web build's does.
 const VALUED = new Set(["range", "date", "time", "datetime-local"]);
 export const valuedControl = (el) => el instanceof HTMLSelectElement || (el instanceof HTMLInputElement && VALUED.has(el.type));
 export function settleValue(el, acted = false) {
