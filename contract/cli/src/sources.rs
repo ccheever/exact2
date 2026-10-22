@@ -481,6 +481,7 @@ fn design(
         source_id: (sources.paths.len() - 1) as u32,
         bindable: code_beside(root),
         package: None,
+        root: None,
     }))
 }
 
@@ -580,11 +581,10 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
     }
     // A package design's components' too (stage 12 B1 round 3): an icon
     // param's SVG is read by the build as the app's own are.
-    let package_designs: Vec<_> = packages::read(&loader.sources, false)
+    let (package_designs, package_of): (Vec<_>, Vec<_>) = packages::read(&loader.sources, false)
         .unwrap_or_default()
         .into_iter()
-        .map(|(d, _)| d)
-        .collect();
+        .unzip();
     let params: Vec<_> = loader
         .units
         .iter()
@@ -625,8 +625,9 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         Some(text) => Some(text),
         None => (!params.is_empty()).then(|| "tamber app\n".to_string()),
     };
-    // With its packages' tokens, which an app token may name (D11).
-    let icons: Vec<PathBuf> = text
+    // With its packages' tokens, which an app token may name (D11); a
+    // package's SVG under its root, a source of the package (stage 13).
+    let icons: Vec<(PathBuf, Origin)> = text
         .and_then(|text| exact_tamber::parse(&text).ok())
         .and_then(|d| contract_lower::with_package_designs(Some(d), &package_designs))
         .and_then(|mut d| {
@@ -639,18 +640,24 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
             exact_tamber::check_design(d, &contract_lower::tamber_vocab()).ok()
         })
         .map(|folding| {
-            let assets = root_key.parent().unwrap_or(Path::new(".")).join("assets");
+            let app = root_key.parent().unwrap_or(Path::new("."));
+            let home = |i| contract_lower::icons::Home::of(i, Some(app), &package_designs, &params);
+            let origin = |i| {
+                let d = contract_lower::icons::written_in(i, &package_designs, &params);
+                let k = d.and_then(|d| package_designs.iter().position(|p| std::ptr::eq(p, d)));
+                k.map_or(Origin::App, |k: usize| packages::origin(&package_of[k]))
+            };
             folding
                 .icons
                 .iter()
-                .filter_map(|i| i.svg.as_ref().map(|f| assets.join(f)))
+                .filter_map(|i| Some((home(i).svg(i.svg.as_ref()?)?, origin(i))))
                 .collect()
         })
         .unwrap_or_default();
     // One not there yet is looked for, as a hidden import is, so making it
     // rebuilds.
-    let (icons, missing): (Vec<PathBuf>, Vec<PathBuf>) =
-        icons.into_iter().partition(|p| p.is_file());
+    let (icons, missing): (Vec<_>, Vec<_>) = icons.into_iter().partition(|(p, _)| p.is_file());
+    let missing = missing.into_iter().map(|(p, _)| p);
     sources.extend(design.map(|path| Source {
         path,
         origin: Origin::App,
@@ -662,10 +669,11 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
     // The files that say which components are the library's (LLP 1139 D0).
     let library = library::read(&loader.sources, app_root).read;
     let missing: Vec<PathBuf> = missing.into_iter().chain(unmade).collect();
-    sources.extend(icons.into_iter().map(|path| Source {
-        path,
-        origin: Origin::App,
-    }));
+    sources.extend(
+        icons
+            .into_iter()
+            .map(|(path, origin)| Source { path, origin }),
+    );
     SourceGraph {
         sources,
         packages: loader.sources.packages,

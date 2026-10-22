@@ -60,6 +60,16 @@ pub(crate) fn packages(sources: &Sources) -> (Vec<Package>, Vec<PathBuf>) {
     (all, read)
 }
 
+/// The origin of a file of `package` (its design, an icon's SVG).
+pub(super) fn origin(package: &Package) -> Origin {
+    Origin::Package {
+        name: package.name.clone(),
+        version: package.version.clone(),
+        root: package.root.clone(),
+        manifest: package.manifest.clone(),
+    }
+}
+
 fn refusal(id: &str, path: &Path, message: String) -> CompileError {
     CompileError {
         pass: "use",
@@ -173,6 +183,7 @@ pub(super) fn read(
                 source_id: 0,
                 bindable,
                 package: Some(design.name),
+                root: Some(package.root.display().to_string()),
             },
             package,
         ));
@@ -193,12 +204,7 @@ pub(super) fn sources(sources: &Sources) -> (Vec<Source>, Vec<PathBuf>) {
         if design.path.is_file() {
             found.push(Source {
                 path: design.path,
-                origin: Origin::Package {
-                    name: package.name.clone(),
-                    version: package.version.clone(),
-                    root: package.root.clone(),
-                    manifest: package.manifest.clone(),
-                },
+                origin: origin(&package),
             });
         } else {
             missing.push(design.path);
