@@ -194,3 +194,64 @@ fn the_covers_in_any_order_leave_the_sheet_its_padding() {
         );
     }
 }
+
+/// HTML's UA sheet puts an open popover in the top layer (`position:
+/// fixed`): uncovered for a host to lift, it takes no room in its parent's
+/// flow, so a footer before it stays at the column's foot (Harmony's room
+/// composer, a popover written after it, jumped up by the popover's height).
+#[test]
+fn an_open_popover_takes_no_room_in_its_parents_flow() {
+    let mut k = Kernel::with_monospace();
+    let mut ops = vec![];
+    // 1 a column route; 2 a list that grows; 3 the footer; 4 a popover written after it.
+    for id in 1..=4 {
+        ops.push(Op::CreateView {
+            id,
+            node_type: NodeType::View,
+        });
+    }
+    ops.push(style(
+        1,
+        &[
+            (StyleId::Display, StyleValue::Text("flex".into())),
+            (StyleId::FlexDirection, StyleValue::Text("column".into())),
+            (StyleId::Height, StyleValue::Number(800.0)),
+        ],
+    ));
+    ops.push(style(
+        2,
+        &[
+            (StyleId::FlexGrow, StyleValue::Number(1.0)),
+            (StyleId::MinHeight, StyleValue::Number(0.0)),
+        ],
+    ));
+    ops.push(style(3, &[(StyleId::Height, StyleValue::Number(50.0))]));
+    ops.push(style(4, &[(StyleId::Height, StyleValue::Number(300.0))]));
+    ops.push(Op::SetProp {
+        id: 4,
+        prop: crate::PropId::Popover,
+        value: crate::props::PropValue::Str("auto".into()),
+    });
+    ops.push(Op::SetChildren {
+        id: 1,
+        children: vec![2, 3, 4],
+    });
+    ops.push(Op::AttachRoot { id: 1 });
+    k.apply(0, 1, &ops).unwrap();
+    k.compute_layout(1, Offer::definite(390.0, 800.0)).unwrap();
+    assert_eq!(
+        k.node(3).unwrap().frame.y,
+        750.0,
+        "the footer at the column's foot"
+    );
+    assert_eq!(
+        k.node(2).unwrap().frame.height,
+        750.0,
+        "the list keeps its room"
+    );
+    assert_eq!(
+        k.node(4).unwrap().frame.height,
+        300.0,
+        "the popover keeps its own size"
+    );
+}
