@@ -55,6 +55,7 @@ final class SheetWindow: NSWindow {}
 /// its own title row and buttons round that view (`RouteChrome`, D7.4).
 final class DialogSheet {
     let window: SheetWindow
+    let rootEdits = RootEdits()
     let content = BlockView(frame: .zero)
     /// A modal route's sheet: its rows round the content. Nil for a dialog's.
     let chrome: RouteChrome?
@@ -208,6 +209,8 @@ extension DialogHost {
         var over = front
         while let top = over.attachedSheet { over = top }
         let sheet = DialogSheet(over: over, size: entry.frame.size, chrome: entry.route ? RouteChrome() : nil)
+        sheet.rootEdits.presenter = presenter
+        sheet.rootEdits.join(sheet.window)
         sheet.content.pointerTracking = { [weak presenter] in presenter?.trackPointer($0) }
         entry.sheet = sheet
         if entry.route { adopt(entry, sheet) }
@@ -239,6 +242,7 @@ extension DialogHost {
     func end(_ entry: Entry, _ sheet: DialogSheet) {
         let dialog = entry.dialog, over = sheet.over
         let key = sheet.window.isKeyWindow
+        sheet.rootEdits.leave(sheet.window)
         if let over, over.sheets.contains(sheet.window) { over.endSheet(sheet.window) }
         sheet.window.orderOut(nil)
         if entry.route { release(entry) }
