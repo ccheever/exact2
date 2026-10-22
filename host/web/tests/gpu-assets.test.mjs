@@ -30,6 +30,53 @@ test('a failed cosmetic never gets a first-frame stamp or repeated state seriali
   expect(reads).toBe(1);
 });
 
+test('a final paused frame delivers submitted output once without another render', () => {
+  const entry = {id:1,view:1,name:'world',el:{},host:{},wants:true};
+  const surfaces = new Map([[entry.view,entry]]), delivered = [], records = [];
+  let renders = 0, submits = 0, pending = false, output = [], record;
+  const gpu = {
+    gpu_render:()=>{ pending = true; return ++renders === 1 ? 1 : 0; },
+    gpu_dirty:()=>false,
+    gpu_flush:()=>{
+      if (pending) {
+        pending = false; submits++;
+        if (submits === 2) { output.push('custom frame submitted'); record = '{"complete":true}'; }
+      }
+      return true;
+    },
+    // The first-frame diagnostic asks state, which settles the first render.
+    gpu_agent:()=>{ gpu.gpu_flush(); return '{"world":{}}'; },
+    gpu_published:()=>{ const next = record; record = undefined; return next; },
+    gpu_messages:()=>output.length ? JSON.stringify(output.splice(0)) : undefined,
+  };
+  const body = `
+    let recoveringDevice, recoveryTimer, terminalDevice = false, hidden = false;
+    let raf = null, frameAt = null, frameRaw = 0, frameGeneration = 0, sentPeriod = 0, liveWindow = false;
+    const trapped = () => false, retainTrap = error => { throw error; };
+    const pace = Object.assign(now => now, {period_ms:0}), clockFor = now => now;
+    const size = () => ({w:10,h:10,s:1}), supplyChildren = () => {}, placeChildren = () => {};
+    const assets = () => {}, finishRestore = () => {}, reportRestore = () => {};
+    const publishers = new Map([['world',entry]]), live = view => surfaces.get(view);
+    const surfaceRecord = (name,json) => records.push([name,json]);
+    const exact = {message:(host,text) => delivered.push([host,text])};
+    const requestAnimationFrame = () => 1;
+  ` + source.slice(source.indexOf('function flush('), source.indexOf('// The live frame clock'))
+    + source.slice(source.indexOf('function frame(now)'), source.indexOf('// An editable element'))
+    + source.slice(source.indexOf('function messages(entry'), source.indexOf('function listen(entry)'));
+  const api = new Function('globalThis','gpu','surfaces','entry','delivered','records',body + 'return {frame,flush};')(
+    {exact:{}},gpu,surfaces,entry,delivered,records);
+  api.frame(0);
+  expect(delivered).toEqual([]);
+  api.frame(16);
+  expect(entry.wants).toBe(false);
+  expect(delivered).toEqual([[entry.host,'custom frame submitted']]);
+  expect(records).toEqual([['world','{"complete":true}']]);
+  api.flush(); api.frame(32);
+  expect([renders,submits]).toEqual([2,2]);
+  expect(delivered).toHaveLength(1);
+  expect(records).toHaveLength(1);
+});
+
 function harness({names, fetch, exact = {}}) {
   const entry = {id: 1, view: 1}, delivered = [], failed = [];
   let retired = [];
