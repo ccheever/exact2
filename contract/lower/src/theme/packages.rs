@@ -1,9 +1,10 @@
 //! Package designs (LLP 1121 D11 "Packages", stage 11 A): a package the
 //! app's sources link may ship `<name>.tamber` beside its entry, its tokens
 //! named under its namespace (`reading.measure`). Each is checked alone for
-//! what only a package may not do, then its tokens join the app's design,
-//! which folds them as one table: the app's design sets any of them by full
-//! name (the app's definition is the token, whole). One name from two
+//! what only a package may not do, then its tokens (and its icons, stage
+//! 13) join the app's design, which folds them as one table: the app's
+//! design sets any of them by full name (the app's definition is the
+//! token, or the icon, whole). One name from two
 //! packages can't happen: each names its tokens under its namespace, and
 //! two packages taking one namespace are refused where they are read
 //! (`contract/cli/src/sources.rs` `package_designs`); one name twice in one
@@ -114,6 +115,7 @@ pub(crate) fn merge(
     let mut refused = Vec::new();
     let mut merged = design.unwrap_or_default();
     let own: Vec<String> = merged.tokens.iter().map(|t| t.name.value.clone()).collect();
+    let own_icons: Vec<String> = merged.icons.iter().map(|t| t.name.value.clone()).collect();
     for (k, source) in packages.iter().enumerate() {
         let package = source.package.as_deref().unwrap_or_default();
         let ns = namespace(package);
@@ -159,7 +161,6 @@ pub(crate) fn merge(
             .map(|a| (&a.name, "an axis: axes are the app's alone (D11); the app declares it and the package's `when` lines name it"))
             .chain(design.dials.iter().map(|d| (&d.name, "a dial: dials are the app's alone (D11)")))
             .chain(design.params.iter().map(|t| (&t.name, "a `params` line: a param's value is the app's to set, in the app's design; a package declares its components' params and their defaults (`component … params`)")))
-            .chain(design.icons.iter().map(|t| (&t.name, "an icon token: a package's icons are not read yet (QUEUE)")))
             .chain(design.exports.iter().flatten().map(|e| (e, "an `exports` line: what a build keeps of a package's tokens is D7's rule, as for the app's")));
         for (name, why) in blocks {
             ok = false;
@@ -173,7 +174,13 @@ pub(crate) fn merge(
                 ),
             ));
         }
-        for t in &design.tokens {
+        // Its icons are named under its namespace as its tokens are (stage 13).
+        let named = design
+            .tokens
+            .iter()
+            .map(|t| (t, "token"))
+            .chain(design.icons.iter().map(|t| (t, "icon")));
+        for (t, what) in named {
             let name = &t.name.value;
             if !name.starts_with(&format!("{ns}.")) || BASE.contains(&name.as_str()) {
                 ok = false;
@@ -182,7 +189,7 @@ pub(crate) fn merge(
                     t.name.line,
                     t.name.col,
                     format!(
-                        "`{name}`: a package's token is named under its package (`{ns}.…`){}",
+                        "`{name}`: a package's {what} is named under its package (`{ns}.…`){}",
                         if shared(name) {
                             "; a role or base name is the app's to set"
                         } else {
@@ -196,19 +203,26 @@ pub(crate) fn merge(
             continue;
         }
         let band = LINE + k as u32 * BAND;
-        for mut token in design.tokens {
-            // The app's definition is the token, whole.
-            if own.contains(&token.name.value) {
-                continue;
-            }
+        let lined = |mut token: tamber::Token| {
             token.name.line += band;
             token.value.line += band;
             for w in &mut token.whens {
                 w.line += band;
                 w.value.line += band;
             }
-            merged.tokens.push(token);
-        }
+            token
+        };
+        // The app's definition is the token, whole; and the icon (stage 13).
+        let tokens = design
+            .tokens
+            .into_iter()
+            .filter(|t| !own.contains(&t.name.value));
+        merged.tokens.extend(tokens.map(lined));
+        let icons = design
+            .icons
+            .into_iter()
+            .filter(|t| !own_icons.contains(&t.name.value));
+        merged.icons.extend(icons.map(lined));
     }
     (Some(merged), refused)
 }
@@ -260,6 +274,27 @@ pub(crate) fn references(
         .map(|p| tamber::parse(&p.text).map_or_else(|_| Vec::new(), |d| d.tokens))
         .collect();
     let own = |band: usize, name: &str| declared[band].iter().any(|t| t.name.value == name);
+    // A package's icon names only its own package's icons (stage 13), as
+    // its tokens name only its tokens: one the app overrides is still its
+    // own to name.
+    let icons: Vec<Vec<tamber::Token>> = packages
+        .iter()
+        .map(|p| tamber::parse(&p.text).map_or_else(|_| Vec::new(), |d| d.icons))
+        .collect();
+    for (band, source) in packages.iter().enumerate() {
+        let package = source.package.as_deref().unwrap_or_default();
+        for t in &icons[band] {
+            let whole = t.value.value.trim();
+            if whole.contains('(') || icons[band].iter().any(|i| i.name.value == whole) {
+                continue;
+            }
+            refused.push(LowerError {
+                id: "tamber-unknown-token",
+                message: format!("`{}` names `{whole}`, an icon that isn't the package `{package}`'s: a package's icon names its own icons only (D11)", t.name.value),
+                span: at(source, t.name.line, t.name.col),
+            });
+        }
+    }
     let tokens: Vec<&str> = folding
         .design
         .tokens
@@ -342,7 +377,10 @@ pub(crate) fn references(
                     span: p.param.default_span,
                 })
             };
-            let foreign = |name: &str| !own(band, name) && !shared(name) && !sibling(name);
+            // Its own package's icons too (stage 13): an icon param's default may name one.
+            let own_icon = |name: &str| icons[band].iter().any(|t| t.name.value == name);
+            let foreign =
+                |name: &str| !own(band, name) && !own_icon(name) && !shared(name) && !sibling(name);
             // What its fold read (an icon param's is on `icons`, with none).
             let checked = folding.tokens.iter().find(|t| t.name == p.token);
             let names: Vec<&String> = checked
@@ -426,7 +464,13 @@ impl crate::Lowerer<'_> {
             let package = source.package.as_deref().unwrap_or_default();
             let ns = namespace(package);
             let declared: Vec<String> = tamber::parse(&source.text)
-                .map(|d| d.tokens.into_iter().map(|t| t.name.value).collect())
+                .map(|d| {
+                    d.tokens
+                        .into_iter()
+                        .chain(d.icons)
+                        .map(|t| t.name.value)
+                        .collect()
+                })
                 .unwrap_or_default();
             // The nine base names are no package's (`space.md` under a
             // package `space` is the app's base override).
@@ -439,7 +483,13 @@ impl crate::Lowerer<'_> {
                 format!("`{name}` is under the library package `{package}`'s namespace, which defines no `{name}`: a library's names are its API, so a renamed or removed one fails the build (LLP 1139 D8)")
             };
             if let Some(app) = &app {
-                for t in app.tokens.iter().filter(|t| unknown(&t.name.value)) {
+                // Its icons too (stage 13): an icon override is a line of the app's.
+                for t in app
+                    .tokens
+                    .iter()
+                    .chain(&app.icons)
+                    .filter(|t| unknown(&t.name.value))
+                {
                     let span = self.token_span(&origin, t.name.line, t.name.col);
                     self.push(LowerError {
                         id: "tamber-package-unknown",

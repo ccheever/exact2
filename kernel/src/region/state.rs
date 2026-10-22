@@ -756,7 +756,7 @@ fn holds_absolute(arena: &NodeArena, owner: u32) -> bool {
         while let Some(s) = stack.pop() {
             seen += 1;
             let children = arena.children(s);
-            if arena.style(s).position_type == crate::PositionType::Absolute
+            if crate::style::top_layer::layout_position(arena, s) == crate::PositionType::Absolute
                 || seen + stack.len() + children.len() > REGION_NODES
             {
                 return true;
@@ -836,7 +836,9 @@ fn validate(arena: &NodeArena, b: ContentRegion) -> Result<(), LayoutError> {
     // absolute is under it. The compiler positions a clipping box only when
     // something absolute can be under it (487f14493), so a static owner holds
     // none; one that does is refused, at registration and at each commit.
-    if s.position_type == crate::PositionType::Static && holds_absolute(arena, b.owner.index) {
+    if crate::style::top_layer::layout_position(arena, b.owner.index) == crate::PositionType::Static
+        && holds_absolute(arena, b.owner.index)
+    {
         return Err(bad());
     }
     // Deliberately narrow certificate: percentages only under a direct root.
@@ -854,7 +856,8 @@ fn validate(arena: &NodeArena, b: ContentRegion) -> Result<(), LayoutError> {
             let definite = sized(dim)
                 || (width
                     && dim == Dimension::Auto
-                    && root.position_type != crate::PositionType::Absolute);
+                    && crate::style::top_layer::layout_position(arena, parent)
+                        != crate::PositionType::Absolute);
             if !definite {
                 return Err(bad());
             }
@@ -895,7 +898,7 @@ fn flex_height_independent(arena: &NodeArena, owner: u32) -> bool {
         && definite(root.height)
         && s.height == Dimension::Auto
         && definite(s.width)
-        && s.position_type != crate::PositionType::Absolute
+        && crate::style::top_layer::layout_position(arena, owner) != crate::PositionType::Absolute
         && s.flex_grow == 1.
         && s.flex_shrink == 1.
         && zero(s.flex_basis)

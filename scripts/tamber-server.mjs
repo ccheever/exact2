@@ -90,9 +90,9 @@ import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { developmentGate, installBrowserOrigins } from './install-page.mjs';
 import { stageTool, TOOL_DIST, TOOL_ORIGIN, TOOL_PORT } from './tamber-tool-port.mjs';
 export { stageTool, TOOL_DIST, TOOL_ORIGIN, TOOL_PORT } from './tamber-tool-port.mjs';
-import { buildChannel, navigateRequest } from './tamber-builds.mjs';
+import { buildChannel, navigateRequest, selectRequest } from './tamber-builds.mjs';
 import { scrubSessions } from './tamber-scrub.mjs';
-import { correspondingSite, current, join, paramsOf, published, sitesAt, staleMap } from './tamber-inspect.mjs';
+import { correspondingSite, current, join, levelsUp, paramsOf, published, sitesAt, staleMap } from './tamber-inspect.mjs';
 import { designSession } from './tamber-commit.mjs';
 import { designCommit, designLog } from './tamber-history.mjs';
 import { openRemote, pluginOnLoopback, remoteArgs } from './tamber-remote.mjs';
@@ -792,6 +792,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
    * (`selections`), asking no build again, since a build's answer outlines
    * on the developer's screens. */
   function inspect(request, scope) {
+    // (tamber/1.16 `select`, tamber-builds.mjs: the sites n call sites up from the last selection, by its map; write, as `on` is.)
+    if (request.select !== undefined) return !allows(scope, 'write') ? refusal('inspect', scope, 'write') : selectRequest(channel, request, (id, up) => { const s = lastSelection.get(id), plan = channel.list().find(b => b.id === id)?.planDigest, map = plan ? mapOf(plan) : null; return map && Number.isSafeInteger(s?.site) ? { levels: levelsUp(map, s.site, up), plan, from: s.site, instance: s.instance ?? [] } : null; });
     if (!allows(scope, 'write')) {
       const build = request.build ?? null;
       if (build !== null && typeof build !== 'string') return { status: 400, error: { message: '`build` is a registered build\'s id' } };
