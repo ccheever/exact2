@@ -6,11 +6,34 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { open, jsonLines, MalformedOperation, main } from './agent.mjs';
+import { open, jsonLines, MalformedOperation, main, webFrame } from './agent.mjs';
 import { chromium, launchFacts, noteDefaultStore } from './agent-launch.mjs';
 import { need } from './coverage.mjs';
 import { typeCommand } from './agent-keys.mjs';
 import { render, stateOp } from './agent-inspect.mjs';
+
+test('a web frame fallback settles its evaluate request when two RAFs do not complete', async () => {
+  const frames = new Map(); let next = 0, inFlight = 0;
+  const evaluate = async expression => {
+    inFlight++;
+    try {
+      return await Function('requestAnimationFrame', 'cancelAnimationFrame', `return ${expression}`)(
+        callback => { const id = ++next; frames.set(id, callback); return id; },
+        id => frames.delete(id),
+      );
+    } finally { inFlight--; }
+  };
+  assert.equal(await webFrame(evaluate, 1), false);
+  assert.equal(inFlight, 0);
+  assert.equal(frames.size, 0);
+
+  const presented = async expression => Function('requestAnimationFrame', 'cancelAnimationFrame', `return ${expression}`)(
+    callback => { const id = ++next; frames.set(id, callback); queueMicrotask(() => { if (frames.delete(id)) callback(); }); return id; },
+    id => frames.delete(id),
+  );
+  assert.equal(await webFrame(presented, 100), true);
+  assert.equal(frames.size, 0);
+});
 
 need('chrome', chromium().unavailable)('the web agent keeps desktop input facts through preferences and injected touches', async () => {
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response(
