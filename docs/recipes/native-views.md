@@ -1,8 +1,8 @@
 # Recipe: native views
 
-A view needing a platform API (video, a map, the camera) is a Swift view: a hyphenated tag in
-`app.json` `modules`, made by `modules/apple/*.swift`. Drawing is not: a Skia or Reanimated
-screen ports to boxes, SVG, keyframes and transitions, on every platform. Contract places it:
+A view needing a platform API (a map, the camera) is a Swift view: a hyphenated tag in
+`app.json` `modules`, made by `modules/apple/*.swift`. A video is the `video` element, with a
+`poster`; a Skia or Reanimated screen is boxes, SVG and keyframes. Contract places it:
 
 ```text
 component Clip

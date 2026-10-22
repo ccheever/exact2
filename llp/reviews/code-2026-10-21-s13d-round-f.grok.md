@@ -1,0 +1,19 @@
+# Code review: Tamber stage 13 D, the write check's gaps (LLP 1121), narrow re-check, 2026-10-21 (grok)
+
+- **Family:** xAI. Grok via `grok -p`, reasoning effort xhigh, Edit and Write denied, a throwaway worktree at `af82d07cbf`.
+- **Method:** one brief (sha256 `fe1819ef4c9ce1dcde07e4951c3b3661cb41f4abef7d37b0cc5e7c126bec69cb`), blind to the other reviewer; D1 and D3 3 rounds (they touch lowering's shared code), D2 2 rounds (theme2's 15:31 approval), then narrow re-checks until clean. The author (Claude, reload1) is not a reviewer.
+- **Transcription:** the final message, unedited but for the worktree path prefix.
+
+I'll re-check only the three fixes against the build's words and the tests you named, without editing anything. First I'll read those commits and the write-check path they touch.The three commits are on HEAD. Next I’ll read the diffs against the build’s audio, font-family, row-look, and failed-build paths.The diffs are in. I’ll compare each fix with the build’s audio, font, and row-look functions, and with how the retention key is chosen.The font-family chain, the retention key, and the fixing-write gate match the build. One blocker remains in the row-look predicate, and two majors remain beside it.
+
+1. **Blocker** — `contract/lower/src/theme/scan.rs:268`. A hand-written swipe’s content keeps its look in the write check and loses it in the build. `grouped::row` calls `row_look::yielded` on the element `swipe_rows::written` selects (`swipe_rows.rs:199` then `swiped` at `swipe_rows.rs:374`): the `swipeContent` child of a section-body `scroll`, including one nested through an element, `if`, or `match`. That child’s parent tag is `scroll` (or a wrapper), so `yields` is false and a broken `padding` / `background` / `border` / `box-shadow` is refused. The build has already stripped those rows, so the same write compiles. Set `yields` for that content element as well as for the section-body row `swipe_rows::grouped` passes to `row` directly.
+
+2. **Major** — `contract/lower/src/theme/scan.rs:268`. The same predicate yields on every `section` child that is not a `header` or `footer`. `grouped::row` runs only from `grouped::sections`, which `prepare_element` calls when `grouped::style` is `list` with literal `appearance="auto"` (`nodes.rs:189`). A marked box in any other `section` keeps its look: `swipe_rows::stray` drops only `-exact-row-look`. A write that breaks that look is accepted here and refused by `contract build`. Require that grouped-list section before yielding.
+
+3. **Major** — `contract/lower/src/theme/scan.rs:273`. `media::audio_rows` is called on the element’s own rows after length coercion and `box_transform`, not on the list the build uses. The build calls it on `expanded` (`nodes.rs:233`): the `ua:` sheet, then class rows, then the element’s own attributes, last wins. A class `controls` (true, or bound) is invisible here, so an authored `display` is replaced with `none` and never judged. The build keeps that `display` and checks it. Pass `audio_rows` that same expanded list.
+
+What holds:
+
+- **Font-family.** `Row::within` is the element’s `font-family` `Fonts` plus every ancestor that has one (`scan.rs:285`), grouping keys include those attrs (`rows.rs:218`), and `judge` returns not-judged when any `fonts::font_use` fails under the design just bound (`rows.rs:666`). That is the `?` in `prepare_element` (`nodes.rs:478`), which returns before children are lowered (`lib.rs:933`).
+- **Retention key.** A scrub verify passes `base.key` (`tamber_scrub.rs:127`); a transaction passes `last_key` set in `synthetic` before `write_checks` (`tamber_serve.rs:433` and `:1160`). `seen_failed` reads that key.
+- **Fixing write.** Before the verdict the row is judged and a value that passes is not refused (`rows.rs:505`). After it, `seen_failed` skips row judgment and the write is accepted (`tamber_scrub.rs:181`).

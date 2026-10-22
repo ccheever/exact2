@@ -570,6 +570,7 @@ export const macInfoPlist = (app, { development = null, icon = {}, reach = null,
   // Usage strings for the devices the app's grants name (LLP 1069.008).
   ...usageKeys(reach),
   ...(app.manifest.host?.macos?.window ? { ExactWindow: app.manifest.host.macos.window } : {}),
+  ...(app.manifest.display_override?.length ? { ExactDisplayOverride: app.manifest.display_override } : {}),
   ...transportSecurity(app.manifest.host?.macos),
   ...([...documentTypes(app), ...webPageTypes(app, distributed)].length ? { CFBundleDocumentTypes: [...documentTypes(app), ...webPageTypes(app, distributed)] } : {}),
   ...(exportedTypes(app).length ? { UTExportedTypeDeclarations: exportedTypes(app) } : {}),
@@ -644,12 +645,20 @@ async function main(args, lockHeld = false) {
   }
   const app = quietFor(resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive', '--optimize', '--link', '--watch-sim'].includes(args[i - 1]))), root);
   if (args.includes('--watchos')) return (await import('./watch.mjs')).buildWatch(app, args, { runApple, appleArtifacts, appleBuildLock, receipt, buildParent: args => main(args, true) });
-  if (args.includes('--prebuild')) { process.exitCode = await (await import('../../scripts/agent-build.mjs')).prebuild(app, args); return; } // LLP 1116.003 D1.2
+  // A build of this app already running (a --prebuild's) is waited for, as test and agent wait for it, and a background
+  // build's failure is said by the next build (scripts/agent-build.mjs `waitForBuild`, `reportPrebuild`).
+  const running = !lockHeld && !args.includes('--prebuild') && existsSync(appleArtifacts(app).lock);
+  const prebuilt = existsSync(resolve(app.dir, '.exact', `${tv ? 'tvos' : ios ? 'ios' : 'macos'}-prebuild.json`));
+  const agentBuild = running || prebuilt || args.includes('--prebuild') ? await import('../../scripts/agent-build.mjs') : null;
+  if (running) await agentBuild.waitForBuild(app);
+  if (prebuilt) await agentBuild.reportPrebuild(app, args);
+  if (args.includes('--prebuild')) { process.exitCode = await agentBuild.prebuild(app, args); return; } // LLP 1116.003 D1.2
   const gallery = process.env.EXACT_UPDATE_TRUST !== 'production' && !tv && (args.includes('--widget-gallery') || process.env.EXACT_WIDGET_GALLERY === '1');
   // An entry of either kind (a widget, a Live Activity) is the extension, the shared framework, the App Group and
   // the Keychain group (LLP 1126.001 WP13); tvOS has none of them.
   let widgets = !tv && (ios ? hasEntries(app) : platformWidgetEntries(app, 'macos').length > 0);
-  const release = lockHeld ? () => {} : appleBuildLock(app);
+  // Another build may take the claim first after that wait: this one waits again rather than refusing as busy.
+  const release = lockHeld ? () => {} : awaitBuildOutput(app, appleArtifacts(app).lock, () => console.error(`waiting for the Apple build of ${app.name} already running`));
   const cleanup = [], beside = []; // what to remove, and the steps started beside the build, when it ends
   try {
   const crate = app.crate(ios ? 'ios' : 'macos');
@@ -811,8 +820,18 @@ async function main(args, lockHeld = false) {
   // capabilities that link did (`<product>.linked`), since this build's are known only once the bake ends.
   const sole = args.includes('--host') ? null : ios ? 'ExactIOS' : 'ExactMac';
   const widgetCore = widgets ? prepareWidgetCore({ app, directory: resolve(pkg, '.build/widget-core'), swiftBuildRoot, swiftArgs, swiftc, triple: moduleTripleFor(app, ios, device, tv), device, platform: ios ? 'ios' : 'macos' }) : null;
+  const coreFrameworkBuilt = widgetCore && existsSync(resolve(widgetCore.xcframework, 'Info.plist'));
+  // A widget build links ExactCore as a framework (`sharedWidgetCore`), which an app's first build of a set
+  // of ExactCore sources does not have yet. ExactKit is compiled against that framework only: an ExactCore
+  // module built from source in this scratch would stay among SwiftPM's products and be found before the
+  // framework, and ExactKit would be compiled against one ExactCore while the app links another. So with no
+  // framework yet ExactKit is left to the product build. A module an older build left goes here, through
+  // this compiler's and arguments' answer file, and again before the product builds, from the products'
+  // directory itself, which other arguments share.
+  const dropLeftoverCore = (bin) => { for (const name of ['ExactCore.swiftmodule', 'ExactCore.o']) rmSync(resolve(bin, name), { recursive: true, force: true }); };
+  if (widgetCore && existsSync(binAnswer)) dropLeftoverCore(readFileSync(binAnswer, 'utf8'));
   const earlyEnv = (link = 'all') => ({ ...swiftEnv(expected.capture, expected.composition, link),
-    ...(widgetCore && existsSync(resolve(widgetCore.xcframework, 'Info.plist')) ? { EXACT_CORE_FRAMEWORK: relative(pkg, widgetCore.xcframework) } : {}) });
+    ...(coreFrameworkBuilt ? { EXACT_CORE_FRAMEWORK: relative(pkg, widgetCore.xcframework) } : {}) });
   const early = (() => {
     if (widgets || embedOnly || cargoProfile !== HOST_DEV || !sole || !existsSync(binAnswer)) return null;
     const bin = readFileSync(binAnswer, 'utf8');
@@ -828,7 +847,7 @@ async function main(args, lockHeld = false) {
     beside.push(step);
     return { claim, step };
   })();
-  const hostCompile = embedOnly || early ? null : startApple('swift', [...swiftArgs, '--target', 'ExactKit'], resolve(webBuildDir, 'swift-compile.log'),
+  const hostCompile = embedOnly || early || (widgetCore && !coreFrameworkBuilt) ? null : startApple('swift', [...swiftArgs, '--target', 'ExactKit'], resolve(webBuildDir, 'swift-compile.log'),
     { cwd: pkg, env: earlyEnv() });
   if (hostCompile) beside.push(hostCompile);
   // The host's two Rust modules (SVG islands, Canvas 2D on the GPU) are the
@@ -1182,6 +1201,7 @@ async function main(args, lockHeld = false) {
       mkdirSync(swiftBuildRoot, { recursive: true });
       writeFileSync(answer, swiftBinDir);
     }
+    if (widgetCore) dropLeftoverCore(swiftBinDir);
     const archive = buildReceipt.products.find(made => made.path === resolve(cargoLibDir, `lib${crate.replace(/-/g, '_')}.a`))?.sha256;
     // The linked plan, compat.json and bytecode, as the bake verified them, where this app alone links from (and its next early build).
     const linkedPlan = buildReceipt.linkedPlan ? placeLinkedPlan(resolve(linkRoot, 'plan'), bakedPlan, readFileSync(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.json`)), bakedCompat.id, readFileSync(resolve(buildReceipt.linkedPlan, 'app.hbc'))) : null;

@@ -519,6 +519,14 @@ impl Em<'_> {
                 "transition",
                 Some(pressed_transition_map()),
             ),
+            // GitHub #809: what the kernel writes for each value the code
+            // can push (style.rs `layout_transitions`); presence follows it
+            // (rt.js `lt`, below). Another value is unset.
+            StyleId::LayoutTransition => {
+                let values = style::layout_transitions(plan, plan.code(b.expr));
+                let (say, view) = (self.uses.rt("say"), self.uses.rt("viewId"));
+                one("--exact-layout-transition", Some(style::layout_transition_map(&values, &format!("{view}({e})"), &say)))
+            }
             _ => style::style_writes(b.id, timeline)
                 .map_err(|x| format!("node {i}: {x}"))?
                 .into_iter()
@@ -651,6 +659,23 @@ impl Em<'_> {
                     let _ = write!(self.out, "{s}({e},\"{name}\",\"{unit}\",{value});");
                 }
             }
+        }
+        // The values that declare it, which presence asks of the binding
+        // before each commit's tree update (rt.js `lt`).
+        if id == StyleId::LayoutTransition {
+            let values = style::layout_transitions(plan, plan.code(b.expr));
+            let declaring: Vec<&String> = values
+                .held
+                .iter()
+                .filter(|(_, css)| css.is_some())
+                .map(|(v, _)| v)
+                .collect();
+            let lt = self.uses.rt("lt");
+            let _ = write!(
+                self.out,
+                "{lt}({e},{},{f});",
+                serde_json::to_string(&declaring).unwrap()
+            );
         }
         Ok(())
     }

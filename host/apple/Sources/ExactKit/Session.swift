@@ -19,6 +19,8 @@ struct LaunchPlace: Equatable {
     let locale: String
     let timeZone: String
     let seed: UInt64
+    /// The Region's format (`Locale.current`; English in Korea is `en-KR`), else empty (the locale).
+    let formatLocale: String
     /// Under the agent, the Unix milliseconds at the clock's zero (LLP
     /// 1027.000.000 D3; default 2026-01-01T00:00:00Z); nil reads the machine.
     let epoch: Double?
@@ -27,12 +29,14 @@ struct LaunchPlace: Equatable {
             locale = environment["EXACT_AGENT_LOCALE"] ?? "en-US"
             timeZone = environment["EXACT_AGENT_TIME_ZONE"] ?? "UTC"
             seed = UInt32(environment["EXACT_AGENT_SEED"] ?? "1").map(UInt64.init) ?? 1 // below 2^32 (LLP 1116.005 D5); else 1, as exact_data::crypto takes it
+            formatLocale = environment["EXACT_AGENT_FORMAT_LOCALE"] ?? ""
             epoch = Double(environment["EXACT_AGENT_EPOCH"] ?? "1767225600000") ?? 1_767_225_600_000
         } else {
             epoch = nil
             locale = Locale.preferredLanguages.first ?? Locale.current.identifier(.bcp47)
             timeZone = TimeZone.current.identifier
             seed = UInt64(UInt32.random(in: .min ... .max))
+            formatLocale = Locale.current.identifier(.bcp47)
         }
     }
 }
@@ -398,6 +402,10 @@ public final class ExactSession {
     var clockTimer: Timer?
     /// The runner deadline `clockTimer` fires for.
     var clockDue: Double?
+    /// The last two timer advances changed nothing the presenter shows,
+    /// and no batch has applied since (`scheduleClock`).
+    var timersQuiet: Bool { quietTimerAdvances >= 2 }
+    private(set) var quietTimerAdvances = 0
     /// An advance of a deadline already due is running (`advanceIfDue`)
     var advancingDue = false
     /// The agent's clock (milliseconds) when the driver owns time; nil runs
@@ -1008,7 +1016,8 @@ public final class ExactSession {
     /// before its handler ran is reconciled by the pass (a refused tab), and
     /// the agent's clock seeks native animations through it. Slices published
     /// before it land first (T4), and it is asked again (a fling's fills).
-    func applyUnlessEmpty(_ batch: Batch, scrolled: Bool = false) {
+    /// `timer`: a clock advance's, which `timersQuiet` counts.
+    func applyUnlessEmpty(_ batch: Batch, scrolled: Bool = false, timer: Bool = false) {
         guard !batch.busy else { return }
         guard !applying else { apply(batch); return }
         if !landing, ownerInFlight, hasPublished {
@@ -1020,6 +1029,7 @@ public final class ExactSession {
         // Its transactions are reported once (LLP 1079 D3): account for them, at no presentation cost.
         sampler?.batch(batch.seq, ms: 0)
         if let q = batch.seq { natives.hatchClock.seq = q.1 } // its commits are the hatches' latest
+        if timer { quietTimerAdvances = min(quietTimerAdvances + 1, 2) }
         timerDue = batch.timerDueMs
         scheduleClock(due: batch.timerDueMs)
         // What the pass did that a scroll moves (`scrolledWithoutPass`).
@@ -1049,6 +1059,7 @@ public final class ExactSession {
     package func apply(_ batch: Batch) {
         guard state != .destroyed, !batch.busy else { return }
         appliedBatches += 1
+        quietTimerAdvances = 0
         // A slice the owner committed before this batch applies first (T4).
         if !applying, !landing, ownerInFlight, hasPublished {
             // What the landed slices leave owed is asked after this batch,
@@ -1286,7 +1297,16 @@ public final class ExactSession {
     public func resize(_ size: CGSize) { guard booted, state != .destroyed else { return }; apply(runtime.resize(width: size.width, height: size.height)) }
     public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) { guard booted, state != .destroyed else { return }; apply(runtime.insets(top: top, right: right, bottom: bottom, left: left)) }
     /// What changed of the view (`Runtime.ViewChange`); the window's size is what every viewport unit resolves against everywhere (LLP 1075.003 §9.11).
-    func view(_ change: Runtime.ViewChange) { guard booted, state != .destroyed, !change.isEmpty else { return }; if let screen = change.screen { screenSize = screen }; apply(runtime.view(change)) }
+    /// `fold`: a fold on the kernel's grid whose rects go with the change (a keyboard's), kept as `segments` keeps one.
+    func view(_ change: Runtime.ViewChange, fold: ViewportFold? = nil) {
+        var change = change
+        change.segments = fold?.rects
+        guard booted, state != .destroyed, !change.isEmpty else { return }
+        if let screen = change.screen { screenSize = screen }
+        let batch = runtime.view(change)
+        if let fold, batch.error == nil { presenter.fold = fold }
+        apply(batch)
+    }
     private(set) var screenSize: CGSize? // the screen last told, for the agent's synthetic segments
     /// The device's posture and the viewport segments a fold makes (LLP 1078 D4, D5): the view's reading,
     /// kept for the agent's `layout.env` and told to the kernel and the runner in one batch.

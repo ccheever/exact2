@@ -1316,13 +1316,17 @@ fn exports(source: &str, name: &str) -> bool {
 }
 
 /// With async break checks in every loop and function, so a host can
-/// interrupt a running call from another thread (LLP 1048.000 D10).
+/// interrupt a running call from another thread (LLP 1048.000 D10), and with
+/// ES6 block scoping: without it Hermes scopes `let` and `const` like `var`,
+/// and every closure made in a loop sees the loop's last binding. `js/build.rs`
+/// compiles the prelude with the same flags.
 fn compile_bytecode(stage: &Path, hermesc: &Path) -> Result<(), String> {
     run(
         hermesc,
         &[
             "-O",
             "-emit-async-break-check",
+            "-Xes6-block-scoping",
             "-emit-binary",
             "-out",
             "app.hbc",

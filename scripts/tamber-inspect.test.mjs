@@ -6,8 +6,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join as joinPath } from 'node:path';
-import { buildChannel } from './tamber-builds.mjs';
-import { correspondingSite, current, editable, join, plainAt, rowRung, stateRung, mapCard, mapFor, paramsOf, published, pullMap, sitesAt, staleMap } from './tamber-inspect.mjs';
+import { buildChannel, selectRequest } from './tamber-builds.mjs';
+import { correspondingSite, current, editable, join, plainAt, rowRung, stateRung, mapCard, mapFor, paramsOf, published, pullMap, sitesAt, levelsUp, staleMap } from './tamber-inspect.mjs';
 
 const sha = text => createHash('sha256').update(text).digest('hex');
 
@@ -821,4 +821,78 @@ test("a selection on a variant gallery cell, joined: its literal rows read only 
     ]);
     expect(s.rows[1].editable.reason).toBe(why);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('tamber/1.16: an inherited row\'s ancestor named by its source from the page\'s site (fromAt; fromSite never leaves); the sites a call site up, past the outermost the root', () => {
+  const map = { digest: 'p1', sources: [], nodes: [
+    { file: 'app.contract', line: 3, col: 5, end_col: 9, component: 'App', chain: [], bindings: [] },
+    { file: 'row.contract', line: 8, col: 3, end_col: 9, component: 'Row', chain: [{ file: 'app.contract', line: 4, col: 7, end_col: 11, component: 'App' }], bindings: [] },
+    { file: 'glyph.contract', line: 2, col: 1, end_col: 5, component: 'Glyph', chain: [{ file: 'row.contract', line: 9, col: 5, end_col: 9, component: 'Row' }, { file: 'app.contract', line: 4, col: 7, end_col: 11, component: 'App' }], bindings: [] },
+    { file: 'row.contract', line: 10, col: 3, end_col: 9, component: 'Row', chain: [{ file: 'app.contract', line: 4, col: 7, end_col: 11, component: 'App' }], bindings: [] },
+  ] };
+  const selected = { node: 9, site: 2, instance: [], rows: [
+    { name: 'text_color', value: '#000', source: 'inherited', from: 5, fromSite: 1, token: { names: [], modes: '', implied: false } },
+    { name: 'font_size', value: '16px', source: 'inherited', from: 6 },
+  ] };
+  const s = join({ id: 'web-1' }, selected, map);
+  expect(s.rows[0].fromAt).toEqual({ file: 'row.contract', line: 8, component: 'Row' });
+  // A native host's report (the runner's node, as iOS and the Mac send it) joins the same way.
+  expect(join({ id: 'ios-1', host: 'ios' }, selected, map).rows[0].fromAt).toEqual({ file: 'row.contract', line: 8, component: 'Row' });
+  expect(editable(s.rows[0], null).reason).toBe('inherited from Row (row.contract:8): the token is that node\'s to edit');
+  // No site given (a host that can't say): the view id, as before.
+  expect(s.rows[1].fromAt).toBeUndefined();
+  expect(editable(s.rows[1], null).reason).toContain('inherited from #6');
+  expect(s.rows.some(r => 'fromSite' in r)).toBe(false);
+  // Nor with no map.
+  expect(join({ id: 'web-1' }, selected, null).rows.some(r => 'fromSite' in r)).toBe(false);
+  // One call site up from the glyph: Row's copy (both its nodes), then the app's own; two up, or past it: the app's own.
+  expect(levelsUp(map, 2, 1)).toEqual([[1, 3], [0]]);
+  expect(levelsUp(map, 2, 2)).toEqual([[0]]);
+  expect(levelsUp(map, 2, 9)).toEqual([[0]]);
+  expect(levelsUp(map, 7, 1)).toEqual([]);
+  // A component that only renders another (Wrap → Label: Wrap owns no node): one up from Label's node is the next copy
+  // out that owns one, here the app's own.
+  const wrapped = { nodes: [
+    { file: 'app.contract', line: 3, chain: [] },
+    { file: 'label.contract', line: 2, chain: [{ file: 'wrap.contract', line: 4, col: 3 }, { file: 'app.contract', line: 5, col: 7 }] },
+  ] };
+  expect(levelsUp(wrapped, 1, 1)).toEqual([[0]]);
+  // App only rendering Wrap, only rendering Label: no level above owns a node, so nothing to move to.
+  const delegated = { nodes: [{ file: 'label.contract', line: 2, chain: [{ file: 'wrap.contract', line: 4, col: 3 }, { file: 'app.contract', line: 5, col: 7 }] }] };
+  expect(levelsUp(delegated, 0, 1)).toEqual([]);
+  // The raw `selected` event the server republishes carries no fromSite either.
+  expect(JSON.stringify(published(selected, new Map()))).not.toContain('fromSite');
+});
+
+test('tamber/1.16: inspect select moves only the inspecting client\'s selection, with sites to choose from, and is checked', () => {
+  const frames = [];
+  const channel = buildChannel({ send: () => {}, log: () => {} });
+  const opened = channel.open(f => frames.push(f));
+  channel.report(JSON.stringify({ nonce: opened.nonce, kind: 'register', id: 'web-1', host: 'web-js', capabilities: ['inspect'], plan: 'g1', design: 'd1' }));
+  const at = { levels: [[1]], plan: 'g1', from: 2 };
+  expect(selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 0 } }, () => at).status).toBe(400);
+  expect(selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 65 } }, () => at).status).toBe(400);
+  expect(selectRequest(channel, { client: 'tool', select: { up: 1 } }, () => at).status).toBe(400);
+  // Not its inspector: refused; no selection to move from: refused.
+  expect(selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 1 } }, () => at).status).toBe(409);
+  channel.inspect('tool', 'web-1', { on: true });
+  expect(selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 1 } }, () => null).status).toBe(409);
+  expect(selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 1 } }, () => ({ levels: [], plan: 'g1', from: 2 })).status).toBe(409);
+  expect(selectRequest(channel, { client: 'other', build: 'web-1', select: { up: 1 } }, () => at).status).toBe(409);
+  // No selection reported yet: stale (the chain read from none), 409 with stale: true (theme2 15:02).
+  const none = selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 2 } }, () => ({ levels: [[0, 4], [1]], plan: 'g1', from: 2, instance: [] }));
+  expect([none.status, none.error.stale]).toEqual([409, true]);
+  // The page's selection, as it reported it (under inspect's command).
+  const seqNow = frames.filter(f => f.kind === 'inspect' && f.on).at(-1).seq;
+  expect(channel.report(JSON.stringify({ nonce: opened.nonce, kind: 'selected', inspect: seqNow, selected: { node: 9, site: 2, instance: [], planDigest: 'g1', rows: [] }, plan: 'g1', design: 'd1', revision: 0 })).status).toBe(204);
+  frames.length = 0;
+  expect(selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 2 } }, () => ({ levels: [[0, 4], [1]], plan: 'g1', from: 2, instance: [] }))).toEqual({ ok: { builds: ['web-1'] } });
+  expect(frames.filter(f => f.kind === 'inspect')).toEqual([{ kind: 'inspect', select: { up: 2, levels: [[0, 4], [1]], plan: 'g1', from: 2, instance: [] } }]);
+  // A rebuild since (another plan) or another node: stale, never sent.
+  frames.length = 0;
+  for (const at of [{ plan: 'g2', from: 2, instance: [] }, { plan: 'g1', from: 3, instance: [] }, { plan: 'g1', from: 2, instance: [{ region: 1, key: 2 }] }]) {
+    const r = selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 1 } }, () => ({ levels: [[0]], ...at }));
+    expect([r.status, r.error.stale]).toEqual([409, true]);
+  }
+  expect(frames.filter(f => f.kind === 'inspect')).toEqual([]);
 });

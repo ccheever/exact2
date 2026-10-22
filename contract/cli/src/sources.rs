@@ -1,6 +1,7 @@
 //! File loading and source identity shared by Contract compilation and navigation.
 //! @ref LLP 1017.000 P8; LLP 1035.005 D2/D3; LLP 1091 (module scope).
 
+mod home;
 mod library;
 pub(crate) mod packages;
 mod refused;
@@ -280,80 +281,6 @@ impl Loader<'_> {
     }
 }
 
-/// A source's file as a component's identity names it (LLP 1121 D15),
-/// from where the file is alone, never the route a `use` reached it by: a
-/// file in a package (the nearest directory above it, below the app's own
-/// and no higher than a linked package's root, whose `package.json` has a
-/// name: under `node_modules`, linked from elsewhere, or vendored) under
-/// the package's name, else the file relative to the app's directory (the
-/// root linked into the app's tree, where the link sits). None for a file
-/// outside the app in no named package: its place from
-/// the app would spell this machine's directories, so it is refused
-/// ([`UNNAMED`]).
-fn home(path: &Path, origin: &Origin, app_root: &Path) -> Option<String> {
-    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    let app = app_root
-        .canonicalize()
-        .unwrap_or_else(|_| app_root.to_path_buf());
-    let relative = |root: &Path| {
-        path.strip_prefix(root)
-            .ok()
-            .map(|p| p.to_string_lossy().replace('\\', "/"))
-    };
-    let named = |root: &Path| {
-        std::fs::read_to_string(root.join("package.json"))
-            .ok()
-            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-            .and_then(|m| m["name"].as_str().map(str::to_string))
-    };
-    // A directory above a linked package's root is none of the package's.
-    let root = match origin {
-        Origin::Package { root, .. } => Some(root.as_path()),
-        _ => None,
-    };
-    for dir in path.ancestors().skip(1) {
-        // The app's own directory and those above it are no package of it,
-        // unless the package holds the app (a package's own test app).
-        let ours = root.is_some_and(|r| dir.starts_with(r));
-        if !ours && app.starts_with(dir) {
-            break;
-        }
-        if let (Some(name), Some(rest)) = (named(dir), relative(dir)) {
-            return Some(format!("{name}/{rest}"));
-        }
-        if root == Some(dir) {
-            break;
-        }
-    }
-    if let Some(rest) = relative(&app) {
-        return Some(rest);
-    }
-    match origin {
-        Origin::Builtin => Some(path.to_string_lossy().into_owned()),
-        _ => None,
-    }
-}
-
-/// [`home`] for the root file linked into the app's tree from elsewhere
-/// (conform's corpus fixtures: `conformance/tabs.contract`, a link to the
-/// corpus's), by `given`, the path it was named by: the app's own, named
-/// where the link sits. None for a package's file, or a link outside. A
-/// file a `use` reaches is its canonical path's, refused outside the app
-/// by its `use` (`contract-use-path`).
-fn linked_home(given: &Path, origin: &Origin, app_root: &Path) -> Option<String> {
-    if matches!(origin, Origin::Package { .. }) {
-        return None;
-    }
-    let app = app_root.canonicalize().ok()?;
-    // A bare file name's directory is the working one, as `app_root`'s is.
-    let dir = given.parent().filter(|d| !d.as_os_str().is_empty());
-    let dir = dir.unwrap_or(Path::new(".")).canonicalize().ok()?;
-    let at = dir.join(given.file_name()?);
-    at.strip_prefix(&app)
-        .ok()
-        .map(|p| p.to_string_lossy().replace('\\', "/"))
-}
-
 /// The refusal of a component file outside the app in no named package.
 const UNNAMED: &str = "contract-package-unnamed";
 
@@ -481,6 +408,7 @@ fn design(
         source_id: (sources.paths.len() - 1) as u32,
         bindable: code_beside(root),
         package: None,
+        root: None,
     }))
 }
 
@@ -507,6 +435,7 @@ pub fn code_beside(root: &Path) -> bool {
     })
 }
 
+use home::{home, linked_home, named_home};
 pub(crate) use uses::{apply as apply_uses, unreached, use_fixes};
 
 /// One source a compilation reads (LLP 1091 D10).
@@ -545,6 +474,10 @@ pub struct SourceGraph {
     pub consulted: Vec<PathBuf>,
     /// The loader's refusals; empty when every source loaded and scoped.
     pub errors: Vec<CompileError>,
+    /// Each named package whose `assets/` an icon's SVG is read from (LLP
+    /// 1121 stage 13), the SVG there or not (one vendored in the app
+    /// included): what a watcher watches and digests for it.
+    pub owners: Vec<Package>,
 }
 
 pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
@@ -623,10 +556,14 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         .and_then(|d| std::fs::read_to_string(d).ok())
     {
         Some(text) => Some(text),
-        None => (!params.is_empty()).then(|| "tamber app\n".to_string()),
+        // Its packages' designs alone fold too: their icons' SVGs are read (round 1, Astra 5).
+        None => {
+            (!params.is_empty() || !package_designs.is_empty()).then(|| "tamber app\n".to_string())
+        }
     };
-    // With its packages' tokens, which an app token may name (D11).
-    let icons: Vec<PathBuf> = text
+    // With its packages' tokens, which an app token may name (D11); a
+    // package's SVG under its root, a source of the package (stage 13).
+    let icons: Vec<(PathBuf, Option<Origin>, Option<Origin>)> = text
         .and_then(|text| exact_tamber::parse(&text).ok())
         .and_then(|d| contract_lower::with_package_designs(Some(d), &package_designs))
         .and_then(|mut d| {
@@ -639,18 +576,62 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
             exact_tamber::check_design(d, &contract_lower::tamber_vocab()).ok()
         })
         .map(|folding| {
-            let assets = root_key.parent().unwrap_or(Path::new(".")).join("assets");
+            let app = root_key.parent().unwrap_or(Path::new("."));
+            let home = |i| contract_lower::icons::Home::of(i, Some(app), &package_designs, &params);
+            // A package's file, by its root (a Contract component's
+            // package may ship no design).
+            let all = packages::packages(&loader.sources).0;
+            // One vendored in the app and reached by a relative `use` is no resolved
+            // package, but the named package its identity names (round 3, R3-3).
+            let origin = |i| {
+                let (name, root) = contract_lower::icons::written_in(i, &package_designs, &params)?;
+                let root = root.map(Path::new)?;
+                let found = all.iter().find(|p| p.root == root).map(packages::origin);
+                Some(found.unwrap_or_else(|| packages::named(name, root)))
+            };
             folding
                 .icons
                 .iter()
-                .filter_map(|i| i.svg.as_ref().map(|f| assets.join(f)))
+                .filter_map(|i| {
+                    let home = home(i);
+                    let path = home.svg(i.svg.as_ref()?)?;
+                    // A package's link out of its `assets/` is refused by the build: its bytes are
+                    // no source, but the link is looked at, so mending it rebuilds (round 1, Astra 4).
+                    let owner = origin(i);
+                    let origin =
+                        (!home.leaves(&path)).then(|| owner.clone().unwrap_or(Origin::App));
+                    Some((path, origin, owner))
+                })
                 .collect()
         })
         .unwrap_or_default();
     // One not there yet is looked for, as a hidden import is, so making it
     // rebuilds.
-    let (icons, missing): (Vec<PathBuf>, Vec<PathBuf>) =
-        icons.into_iter().partition(|p| p.is_file());
+    // Each package an SVG is read from owns it there or not (narrow re-check,
+    // Astra RE-1): its manifest an input, its directory watched.
+    let mut owners: Vec<Package> = Vec::new();
+    for (_, _, owner) in &icons {
+        if let Some(Origin::Package {
+            name,
+            version,
+            root,
+            manifest,
+        }) = owner
+        {
+            if !owners.iter().any(|p| p.root == *root) {
+                owners.push(Package {
+                    name: name.clone(),
+                    version: version.clone(),
+                    root: root.clone(),
+                    manifest: manifest.clone(),
+                });
+            }
+        }
+    }
+    let (icons, missing): (Vec<_>, Vec<_>) = icons
+        .into_iter()
+        .partition(|(p, o, _)| o.is_some() && p.is_file());
+    let missing = missing.into_iter().map(|(p, ..)| p);
     sources.extend(design.map(|path| Source {
         path,
         origin: Origin::App,
@@ -662,21 +643,33 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
     // The files that say which components are the library's (LLP 1139 D0).
     let library = library::read(&loader.sources, app_root).read;
     let missing: Vec<PathBuf> = missing.into_iter().chain(unmade).collect();
-    sources.extend(icons.into_iter().map(|path| Source {
-        path,
-        origin: Origin::App,
+    sources.extend(icons.into_iter().filter_map(|(path, origin, _)| {
+        Some(Source {
+            path,
+            origin: origin?,
+        })
     }));
+    // A named package's manifest an icon's SVG is owned by (one vendored in
+    // the app) is read for its name: an input (round 3, R3-3).
+    let manifests: Vec<PathBuf> = owners.iter().map(|p| p.manifest.clone()).collect();
+    let mut consulted: Vec<PathBuf> = loader
+        .sources
+        .consulted
+        .into_iter()
+        .chain(missing)
+        .chain(library)
+        .collect();
+    for m in manifests {
+        if !consulted.contains(&m) {
+            consulted.push(m);
+        }
+    }
     SourceGraph {
         sources,
         packages: loader.sources.packages,
-        consulted: loader
-            .sources
-            .consulted
-            .into_iter()
-            .chain(missing)
-            .chain(library)
-            .collect(),
+        consulted,
         errors,
+        owners,
     }
 }
 
@@ -742,12 +735,12 @@ impl Loader<'_> {
         // Each component's identity, its file relative to its root and its
         // name (LLP 1121 D15): what its params are named by.
         let origin = &self.sources.origins[source_id as usize];
-        let found = home(path, origin, self.app_root);
+        let found = named_home(path, origin, self.app_root);
         let linked = || match source_id {
-            0 => linked_home(&self.root_given, origin, self.app_root),
+            0 => linked_home(&self.root_given, origin, self.app_root).map(|h| (h, None)),
             _ => None,
         };
-        let Some(home) = found.or_else(linked) else {
+        let Some((home, owner)) = found.or_else(linked) else {
             // `link` refuses it at the `use` first; this is the backstop.
             let span = Span {
                 source_id,
@@ -759,8 +752,17 @@ impl Loader<'_> {
             };
             return Err(vec![name_error(UNNAMED, unnamed(name), span)]);
         };
+        // A package's components know their package, whose `assets/` a
+        // literal icon default reads (stage 13): the named package their
+        // identity names, vendored ones included (round 2, Astra 1).
+        let (package, root) = match owner {
+            Some((name, dir)) => (Some(name), Some(dir.display().to_string())),
+            None => (None, None),
+        };
         for c in &mut file.components {
             c.params.identity = Some(format!("{home}#{}", c.name));
+            c.params.package = package.clone();
+            c.params.root = root.clone();
         }
         let homes = &mut self.sources.homes;
         if homes.len() <= source_id as usize {

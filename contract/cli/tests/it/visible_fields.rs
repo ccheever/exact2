@@ -481,7 +481,7 @@ fn a_placeholder_part_colours_a_text_field_and_nothing_else() {
         node.style
             .mask
             .has(StyleId::PlaceholderColor)
-            .then_some(node.style.placeholder_color)
+            .then_some(node.style.rare.placeholder_color)
     };
     let fixed = |r, g, b, a| Some(ColorValue::Fixed(Color::rgba(r, g, b, a)));
     assert_eq!(colour(&r, "class"), fixed(0x6b, 0x72, 0x80, 0xff));

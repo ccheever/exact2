@@ -823,7 +823,9 @@ final class MacShortcutTests: XCTestCase {
         XCTAssertEqual(menu("Edit").items.filter { $0.title == "Undo" }.map(\.isHidden), [true])
         XCTAssertEqual(shown("Edit").map(\.title), ["Undo Move", "Redo", "Cut", "Copy", "Paste", "Paste and Match Style", "Delete", "Select All", "Duplicate",
                                                 "Find", "Spelling and Grammar", "Substitutions", "Transformations", "Speech"])
-        XCTAssertEqual(shown("View").first?.title, "Zoom In")
+        // ⌘= stands in for the host's Zoom In, in its place (LLP 1021 §5.3.1).
+        XCTAssertEqual(shown("View").prefix(3).map(\.title), ["Actual Size", "Zoom In", "Zoom Out"])
+        XCTAssertTrue(shown("View")[1].target is ShortcutHost)
         XCTAssertEqual(shown("File").map(\.title).prefix(2), ["Close Board", "Export"])
         let close = menu("File").items.first { $0.title == "Close Window" }!
         XCTAssertEqual(close.keyEquivalent, "", "⌘W is the app's Close Board, once")

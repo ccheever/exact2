@@ -1,7 +1,7 @@
 # Recipe: app.json, assets and modules
 
 `app.json` names the app and what it ships; its `$schema` gives an editor every key. Files
-the app carries are folders beside it, not keys.
+the app carries are folders beside it.
 
 ```json
 {
@@ -39,8 +39,8 @@ component App
   mute it); the default `ambient` mixes with other audio.
 - **`app.id` and `app.name`** are set before the first build (`exact new --name --bundle-id`
   writes them, [porting-and-release](porting-and-release.md)); `app.ts`'s `appId` matches.
-- **`host.ios.launchImage`** `{ "src": "assets/splash.png", "width": 276 }`: a PNG the launch
-  screen centres, `width` points wide.
+- **`host.ios.launchImage`** `{ "src": "assets/splash.png", "width": 276 }`: the launch
+  screen's PNG, `width` points wide, on `background_color`.
 - **`host.ios.icon`** `"assets/App.icon"`: an Icon Composer `.icon` instead of `icons`.
 - **`protocol_handlers`**: `euxy://p/abc` is `/p/euxy%3A%2F%2Fp%2Fabc` (whole at `%s`).
   A cold launch opens it in its route's tab: declare it (`p "/p/:d"`). Running, `go` can

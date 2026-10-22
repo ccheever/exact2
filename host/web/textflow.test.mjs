@@ -632,9 +632,10 @@ async function targetKeyFixture() {
   const [glue, rt] = await Promise.all(['/glue.js', '/rt.js'].map(url => fetch(url).then(r => r.text())));
   const attach = glue.slice(glue.indexOf('function attach('), glue.indexOf('function viewFor('));
   const on = rt.slice(rt.indexOf('export function on('), rt.indexOf('// Each event family')).replace('export ', '');
-  const onKey = rt.split('\n').find(line => line.startsWith('export const onKey =')).replace('export ', '');
+  // onKey hears a key with nothing focused through atBody, the line before it (0c3cf4405f).
+  const onKey = [rt.split('\n').find(line => line.startsWith('let BodyHeard;')), rt.split('\n').find(line => line.startsWith('export const onKey =')).replace('export ', '')].join('\n');
   const bindWasm = new Function('el', 'heard', `
-    let keyEvent = null;
+    let keyEvent = null, bodyHeard; // glue.js declares both; attach reads them (0c3cf4405f)
     const views = new Map([[1, el]]), retiredViews = new WeakSet(), inputReady = true, page = null;
     const send = () => {}, writeIn = s => s, now = () => 0, keyChord = e => e.key;
     const compositionFlush = new Map(), composing = new Set();
@@ -805,7 +806,7 @@ async function flowKeyFixture() {
   const glue = await fetch('/glue.js').then(r => r.text());
   const attach = glue.slice(glue.indexOf('function attach('), glue.indexOf('function viewFor('));
   const bindWasm = new Function(`
-    let keyEvent = null;
+    let keyEvent = null, bodyHeard; // glue.js declares both; attach reads them (0c3cf4405f)
     const views = new Map(), callbacks = new Map(), retiredViews = new WeakSet(), inputReady = true, page = null;
     const send = () => {}, writeIn = s => s, now = () => 0, keyChord = e => e.key;
     const api = { stopPropagation() { keyEvent.exactStopped = true; }, preventDefault() { keyEvent.preventDefault(); } };
@@ -1045,7 +1046,12 @@ async function flowInputFixture() {
     const clone = paragraph.querySelector('a');
     if (!clone || clone === original) throw Error('fixture must click a flowed clone');
     const event = new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: modified });
+    // A modified click the glue leaves to the browser is the browser's to open elsewhere; Chromium 156 follows a
+    // script's one in this tab, to /story, which ends the page under this evaluate. The page stays.
+    const stay = e => { if (!e.hashChange) e.preventDefault(); };
+    if (modified) navigation.addEventListener('navigate', stay);
     clone.dispatchEvent(event);
+    navigation.removeEventListener('navigate', stay);
     results.push({ press: presses, navigate: navigates, prevented: event.defaultPrevented });
     if (native) {
       history.replaceState(null, '', '/');

@@ -734,8 +734,9 @@ A cut, copy or paste with nothing focused goes to the root's handler too, as
 the DOM's goes to `<body>`.
 
 - **Web** (`rt.js` `atBody`, `glue.js` `attach`): a listener on `<html>`
-  takes each keydown, keyup and clipboard event whose target is outside
-  `#exact-root` to the first root's handlers as it bubbles, its capture
+  takes each keydown, keyup and clipboard event whose target is `<body>` or
+  `<html>` (nothing focused; never a copy a text flow forwards to a detached
+  node) to the first root's handlers as it bubbles, its capture
   before its `key`: after the shortcuts' capture listener at the document,
   and before the document's defaults, so the root's `preventDefault()` keeps
   a sheet's Escape (`navigation.js`) and a list's ⌘A (`list-selection.js`),

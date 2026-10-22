@@ -559,7 +559,9 @@ fn one_cancel_component_on_both_arms_of_a_when_is_one_cancel() {
 
 #[test]
 fn menu_bar_placement_is_a_button_hint_with_fixed_literal_destinations() {
-    for menu in ["app", "file", "edit", "view", "go", "window", "help"] {
+    for menu in [
+        "about", "app", "file", "edit", "view", "go", "window", "help", "none",
+    ] {
         let r = boot(&app(&format!(
             "button \"Check for Updates…\" -exact-menu=\"{menu}\" press=go testId=\"updates\""
         )));
@@ -577,7 +579,7 @@ fn menu_bar_placement_is_a_button_hint_with_fixed_literal_destinations() {
 
 #[test]
 fn menu_bar_removal_accepts_only_root_literal_standard_ids() {
-    let ids = "close-all autofill show-tab-bar show-all-tabs enter-full-screen minimize zoom bring-all-to-front show-previous-tab show-next-tab move-tab-to-new-window merge-all-windows";
+    let ids = "close-all autofill show-tab-bar show-all-tabs enter-full-screen minimize zoom bring-all-to-front show-previous-tab show-next-tab move-tab-to-new-window merge-all-windows back develop paste-and-match-style find spelling-and-grammar substitutions transformations app-help actual-size zoom-in zoom-out";
     for value in [ids, "", "show-tab-bar show-tab-bar"] {
         let source = format!(
             "component App\n  view\n    column -exact-menu-remove=\"{value}\" testId=\"root\"\n"
@@ -587,7 +589,7 @@ fn menu_bar_removal_accepts_only_root_literal_standard_ids() {
         assert_eq!(node(&r, "root").props.str(prop), Some(value));
     }
     for source in [
-        "component App\n  view\n    column -exact-menu-remove=\"develop\"\n".to_owned(),
+        "component App\n  view\n    column -exact-menu-remove=\"format\"\n".to_owned(),
         "component App\n  state removal = \"show-tab-bar\"\n  view\n    column -exact-menu-remove=removal\n".to_owned(),
         app("column -exact-menu-remove=\"show-tab-bar\""),
         app("if busy\n  column -exact-menu-remove=\"autofill\""),

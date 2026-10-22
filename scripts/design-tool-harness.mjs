@@ -5,17 +5,22 @@ import { afterEach, beforeEach } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { checkoutPort, takePort } from './port-lock.mjs';
+import { checkoutPort, claimPort, takePort } from './port-lock.mjs';
 import { spawnOwned, stopAll } from './test-children.mjs';
 
 export const ROOT = resolve(new URL('..', import.meta.url).pathname);
-// The tool's port for these runs: this checkout's own (one of 200 above 17740,
-// by its path), not the 7740 a person's tool holds, so a run here waits on
-// another checkout's only where their paths share a port (then it takes its
-// turn); EXACT_TOOL_PORT names another. Every child the tests spawn serves and
-// frames that origin.
-process.env.EXACT_TOOL_PORT ??= String(checkoutPort(ROOT));
-export const { TOOL_DIST, TOOL_ORIGIN, TOOL_PORT, stageTool } = await import('./tamber-server.mjs');
+// The tool's port for this run: one of its own, held for the whole run (`claimPort`, from this checkout's own on,
+// one of 200 above 17740, never the 7740 a person's tool holds), so two runs at once (one checkout's or two's) each
+// have one and neither waits; EXACT_TOOL_PORT names one instead, taken in turn by each test. Every child the tests
+// spawn serves and frames that origin (and has its turn, EXACT_PORT_TURNS).
+// (From one past the checkout's own, which its contract tests' stub takes in turn, so neither keeps the other waiting.)
+const claimed = process.env.EXACT_TOOL_PORT === undefined ? await claimPort(checkoutPort(ROOT) + 1, { label: `the design tool's tests in ${ROOT}`, except: [checkoutPort(ROOT)] }) : null;
+if (claimed) process.env.EXACT_TOOL_PORT = String(claimed.port);
+// The port module reads the port once, at its first import: a file run before these in the same process
+// (tamber-server.test.mjs) loads it with none (7740), where these runs' children serve this checkout's; then
+// these take an instance of their own (a query is a module of its own).
+const loaded = await import('./tamber-tool-port.mjs');
+export const { TOOL_DIST, TOOL_ORIGIN, TOOL_PORT, stageTool } = String(loaded.TOOL_PORT) === process.env.EXACT_TOOL_PORT ? loaded : await import(`./tamber-tool-port.mjs?port=${process.env.EXACT_TOOL_PORT}`);
 // The app a drive names: the staged tool (no server of its own) on another port, so no drive starts the stub on 7740.
 export const DRIVEN = TOOL_PORT === 7740 ? { args: ['--app', 'design-tool'], env: process.env } : { args: [], env: { ...process.env, EXACT_APP_DIR: stageTool().dir } };
 // The stub's app (its components' params, which the stub's design sets):
@@ -30,7 +35,8 @@ export function toolTurns() {
 let givePort = () => {};
 beforeEach(async () => {
   const port = Number(new URL(TOOL_ORIGIN).port);
-  givePort = await takePort(port, { label: `the design tool's tests in ${ROOT}` });
+  // (A port this run claimed is its own already: no turn to wait for.)
+  givePort = claimed ? () => {} : await takePort(port, { label: `the design tool's tests in ${ROOT}` });
   const pid = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8' }).stdout.trim().split('\n')[0];
   if (pid) {
     givePort();
@@ -49,9 +55,13 @@ export function lines(child) {
   let buf = '';
   child.stdout.setEncoding('utf8');
   child.stdout.on('data', d => { buf += d; const all = buf.split('\n'); buf = all.pop(); seen.push(...all); });
+  // Its stderr's tail too, said when a wait fails (a child that exits, or waits on a lock, says why there).
+  let err = '';
+  child.stderr?.setEncoding?.('utf8');
+  child.stderr?.on?.('data', d => { err = (err + d).slice(-3000); });
   const until = async (pass, ms) => {
     const end = Date.now() + ms;
-    while (!seen.some(pass)) { if (Date.now() > end || child.exitCode !== null) throw new Error(`not seen: ${seen.join('\n')}`); await Bun.sleep(50); }
+    while (!seen.some(pass)) { if (Date.now() > end || child.exitCode !== null) throw new Error(`not seen${child.exitCode !== null ? ` (it exited ${child.exitCode})` : ` in ${ms} ms`}: ${seen.join('\n')}${err ? `\n--- its stderr's tail:\n${err}` : ''}`); await Bun.sleep(50); }
     return seen.find(pass);
   };
   return { seen, until };

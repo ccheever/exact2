@@ -16,7 +16,7 @@ import { drive, proxied, ROOT, toolTurns } from './design-tool-harness.mjs';
 toolTurns();
 
 // As the tool says a column's source (apps/design-tool/base.ts `fromOf`).
-const from = s => s.kind === 'metric' ? s.ref : s.kind === 'measured' ? `measured: ${s.id}` : s.kind === 'guideline' ? s.cite : s.kind === 'full' ? 'the pill' : s.kind === 'terminal' ? 'cells' : '';
+const from = s => s.kind === 'metric' ? s.ref : s.kind === 'measured' ? `measured: ${s.id}` : s.kind === 'guideline' ? s.cite : s.kind === 'stretch' ? `${s.ref}${s.why ? `, ${s.why}` : ''}` : s.kind === 'full' ? 'the pill' : s.kind === 'terminal' ? 'cells' : '';
 const LABELS = { ios: 'iOS', mac: 'Mac', neutral: 'neutral', material: 'Android', terminal: 'terminal' };
 
 test('stage 11 on a real server: the base scale read-only with each shipped platform and its source, an override, a package\'s tokens; Set for this app and Back to the base each one line, and Back\'s undo gives the bytes back', async () => {
@@ -49,7 +49,7 @@ test('stage 11 on a real server: the base scale read-only with each shipped plat
     const measure = described.ir.tokens.find(t => t.name === 'reading.measure'), pkgName = measure?.package;
     expect(pkgName).toBeTruthy();
     const replies = await drive(tool.url, `design-tool-scale-${process.pid}`, [
-      'type name Ada', 'tap save-name', 'clock data', 'clock +1', 'clock data', 'tree',
+      'type name Ada', 'tap save-name', 'clock data', 'clock +1', 'clock data', 'tree', 'layout',
       'tap token-base-more-space.md', 'tap token-base-more-radius.md', 'tree',
       // Set for this app: space.md, from the first shipped column's value.
       'tap set-for-app-space.md', 'clock data', 'clock +1', 'clock data', 'state', 'tree', 'tap apply', 'clock data', 'clock +1', 'clock data', 'tree',
@@ -70,6 +70,15 @@ test('stage 11 on a real server: the base scale read-only with each shipped plat
       'tap cell-radius.md-0-light', 'clock data', 'tree',
     ]);
     const trees = replies.filter(r => r.nodes && !('x' in (r.nodes[0] ?? {})));
+    // A base row reads across the grid, as it is laid out: its name, then each shipped column's cell side by side
+    // (not stacked in the name column), then its controls (finding #3 of the clone's pass).
+    const laid = replies.find(r => r.nodes && 'x' in (r.nodes[0] ?? {}));
+    const box = id => laid.nodes.find(n => (n.props?.testId ?? n.testId) === id);
+    const cells = shipped.map(c => box(`token-base-cell-space.md-${c}`));
+    expect(cells.every(Boolean)).toBe(true);
+    for (let i = 1; i < cells.length; i++) { expect(cells[i].x).toBeGreaterThanOrEqual(cells[i - 1].x + cells[i - 1].w); expect(cells[i].y).toBeLessThan(cells[0].y + cells[0].h); expect(cells[0].y).toBeLessThan(cells[i].y + cells[i].h); }
+    expect(cells[0].x).toBeGreaterThan(box('token-source-space.md').x);
+    expect(box('set-for-app-space.md').x).toBeGreaterThanOrEqual(cells.at(-1).x + cells.at(-1).w);
     const node = (t, id) => t.nodes.find(n => n.props.testId === id);
     const text = (t, id) => node(t, id)?.props.text;
     const [first, expanded, setAsked, setDone, setCell, backDone, undone, pkgCell, pkgSet, pkgBack, aliasCell, overCell] = trees;
@@ -82,8 +91,12 @@ test('stage 11 on a real server: the base scale read-only with each shipped plat
     expect(order(first, 'space.md')).toEqual(shipped);
     expect(order(expanded, 'space.md')).toEqual([...shipped, ...rest]);
     for (const column of [...shipped, ...rest]) expect(text(expanded, `token-base-space.md-${column}`)).toBe(cell('space.md', column));
-    // Every source kind the server emits, as the tool words it: metric, measured, guideline, the pill, cells.
+    // Every source kind the server emits, as the tool words it: metric, measured, guideline, a stretch, the pill, cells.
     for (const column of [...shipped, ...rest]) expect(text(expanded, `token-base-radius.md-${column}`)).toBe(cell('radius.md', column));
+    // The Mac's space.xl, the one stretch (stage 13 D5): marked, with its metric and why.
+    expect(row('space.xl').columns.mac.source.kind).toBe('stretch');
+    expect(text(expanded, 'token-base-space.xl-mac')).toBe(cell('space.xl', 'mac'));
+    expect(text(expanded, 'token-base-space.xl-mac')).toContain('(a stretch) · grouped-label-inset, ');
     expect(text(first, `token-base-radius.full-${shipped[0]}`)).toBe(cell('radius.full', shipped[0]));
     expect(new Set(Object.values(row('radius.md').columns).map(c => c.source.kind)).size).toBeGreaterThan(1);
     // The app's override of radius.md, and the package's tokens under their package, as the server names it.
