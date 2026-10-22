@@ -631,7 +631,7 @@ async function rescopeFor(file: string, op: Record<string, unknown>, token: stri
 }
 
 const sources: Sources = {
-  ...pairingSources(call, pairWith, remote), sendSelectUp: async ([client, build, up]) => { stepping.add(String(build)); const r = await call('/__tamber', { method: 'inspect', client, build, select: { up } }); return { ok: !r.error, error: r.error }; },
+  ...pairingSources(call, pairWith, remote), sendSelectUp: async ([client, build, up]) => { stepping.add(String(build)); const r = await call('/__tamber', { method: 'inspect', client, build, select: { up } }); if (r.error) stepping.delete(String(build)); return { ok: !r.error, error: r.error }; },
   ...gridSources(call, () => buildsNow, () => selectionNow, () => designAxes), loadCanvasCheck: () => canvasRefusal(API),
   loadHello: async () => {
     const { error, reply } = await call('/__tamber', { method: 'hello' });
