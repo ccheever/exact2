@@ -101,8 +101,13 @@ pub fn launch_place(
                 .unwrap_or_else(|| "UTC".into()),
             seed: f64::from(u32::from_ne_bytes(bytes)),
             // POSIX's category for dates and times (`LC_TIME`) beside the
-            // messages' language.
-            format_locale: locale(&env, "LC_TIME"),
+            // messages' language; none of its variables set, none apart
+            // from the locale.
+            format_locale: ["LC_ALL", "LC_TIME", "LANG"]
+                .iter()
+                .any(|key| env(key).is_some_and(|s| !s.is_empty()))
+                .then(|| locale(&env, "LC_TIME"))
+                .unwrap_or_default(),
         }
     };
     place
@@ -214,6 +219,13 @@ mod tests {
         assert_eq!(
             (place.locale.as_str(), place.format_locale.as_str()),
             ("en-US", "ko-KR")
+        );
+        // With no LC_ALL, LC_TIME or LANG (an Android process), none apart
+        // from the locale, which the runner then answers.
+        let bare = launch_place(|key| (key == "LC_MESSAGES").then(|| "ko_KR".into())).unwrap();
+        assert_eq!(
+            (bare.locale.as_str(), bare.format_locale.as_str()),
+            ("ko-KR", "")
         );
         let agent = launch_place(|key| match key {
             "EXACT_AGENT" => Some("1".into()),
