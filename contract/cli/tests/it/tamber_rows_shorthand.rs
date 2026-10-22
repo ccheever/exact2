@@ -69,8 +69,7 @@ fn a_styles_flex_row_is_judged_where_it_is_applied() {
 
 /// A choice of shorthand literals is judged whole, as the build expands and
 /// judges it: a write breaking both arms in other words is refused in the
-/// build's first (Astra's round 1), here `bad`'s, which `measure_row` meets
-/// before `gap`'s colour.
+/// build's first (Astra's round 1), as `contract build` reports it.
 #[test]
 fn a_choice_of_shorthands_is_refused_with_the_builds_first_words() {
     let dir = reading("rows-short-both");
@@ -111,4 +110,23 @@ fn a_choice_of_shorthands_is_refused_with_the_builds_first_words() {
         "{w}"
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A choice with a `none` arm, which lowering expands as a clear (Grok's
+/// round 3), and a token an expansion writes itself (`flex="none"`'s basis
+/// `auto`, Astra's round 3): refused in the build's first words.
+#[test]
+fn a_none_arm_and_an_expansions_own_text_are_judged() {
+    kind(
+        &reading("rows-short-none"),
+        "use Card from \"@acme/reading\"\ncomponent App\n  state on = true\n  view\n    column flex=(on ? \"1 1 gap\" : none) padding=\"gap\"\n      Card()\n",
+    );
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  auto = 8px\n";
+    same_words(
+        &reading("rows-short-auto"),
+        design,
+        "use Card from \"@acme/reading\"\ncomponent App\n  view\n    column flex=\"none\" width=\"auto\"\n      Card()\n",
+        json!({"op": "set-token", "name": "auto", "value": "2"}),
+        &design.replace("auto = 8px", "auto = 2"),
+    );
 }
