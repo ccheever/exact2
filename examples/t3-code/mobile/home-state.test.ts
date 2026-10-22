@@ -1,8 +1,11 @@
 import { expect, test } from 'bun:test';
 import { mobileHomeView } from './home-state';
+import { mobileHomeSnoozePresets } from './home-actions';
+import { homeOrderState } from './home-order';
+import { mobileNewTaskDraftList } from './mobile-new-task-drafts';
 import { T3Client } from './shared/client';
 import { EnvironmentFleet, type FleetEntry } from './shared/settings-b-fleet';
-import { initialShell } from './shared/domain';
+import { initialShell, type Obj } from './shared/domain';
 import { runThreadSearch } from './shared/sidebar-presentation';
 import type { Native } from './shared/protocol';
 
@@ -169,3 +172,98 @@ test('sidebar empty presentation does not replace visible draft or thread rows',
   expect(sidebar.emptyDetail).toBe(''); expect(sidebar.addEnvironment).toBe(false);
   expect(JSON.stringify([f.client.shell, f.remote.shell])).toBe(before);
 });
+
+test('Home row action projection resolves catalogue entries in linear work', () => {
+  const measurements: { threads: number; operable: boolean; workingEnabled: boolean; identityReads: number;
+    timeFormats: number; dateFormats: number; plainMs: number; countedMs: number; outputSHA256: string }[] = [];
+  let measuring = false, identityReads = 0, timeFormats = 0, dateFormats = 0;
+  const timeFormat = Date.prototype.toLocaleTimeString, dateFormat = Date.prototype.toLocaleDateString;
+  Date.prototype.toLocaleTimeString = function (...args) { if (measuring) timeFormats++; return timeFormat.apply(this, args); };
+  Date.prototype.toLocaleDateString = function (...args) { if (measuring) dateFormats++; return dateFormat.apply(this, args); };
+  try {
+    measuring = true; mobileHomeSnoozePresets(now); measuring = false;
+    const onePresetFormatting = { timeFormats, dateFormats };
+    for (const operable of [false, true]) for (const workingEnabled of [false, true]) for (const count of [40, 200, 400, 741]) {
+      const catalogue = () => {
+        const f = fixture(); mobileNewTaskDraftList(f.client);
+        const scopes = ['orchestration:read', 'diagnostics:read', 'terminal:read', 'filesystem:read'];
+        if (operable) scopes.push('orchestration:operate');
+        f.client.scopes = [...scopes]; f.remote.scopes = [...scopes];
+        f.client.config = f.remote.config = { environment: { capabilities: {
+          threadSettlement: true, threadSnooze: true, threadPinning: true, threadPinReorder: true, threadActiveReorder: true,
+        } } };
+        f.client.shell.threads = []; f.remote.shell.threads = [];
+        for (const [environment, shell] of [['one', f.client.shell], ['two', f.remote.shell]] as const) {
+          shell.projects = Array.from({ length: 20 }, (_, index) => ({
+            id: `project-${index}`, title: `Project ${index}`, workspaceRoot: `/synthetic/${environment}/project-${index}`,
+          }));
+        }
+        for (let index = 0; index < count; index++) {
+          const state: Obj = index % 8 === 0 ? { pinnedAt: '2026-10-01T00:00:00Z', pinOrderKey: 'm' }
+            : index % 8 === 1 ? { latestRunId: 'run', activeRunId: 'run', status: 'running' }
+            : index % 8 === 2 ? { snoozedUntil: '2026-10-08T12:00:00Z' }
+            : index % 8 === 3 ? { settledOverride: 'settled' }
+            : index % 8 === 4 ? { pendingRuntimeRequest: { kind: 'approval' } }
+            : index % 8 === 5 ? { pendingRuntimeRequest: { kind: 'user_input' } }
+            : index % 8 === 6 ? { latestRunId: 'run', status: 'preparing', latestUserMessageAt: new Date(now).toISOString() } : {};
+          const shell = index % 2 === 0 ? f.client.shell : f.remote.shell;
+          shell.threads.push({ ...thread, id: `thread-${String(Math.floor(index / 2)).padStart(4, '0')}`,
+            title: `Thread ${index}`, projectId: `project-${Math.floor(index / 2) % 20}`,
+            createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', settledOverride: 'active', ...state });
+        }
+        return f;
+      };
+      const plain = catalogue(), counted = catalogue();
+      const snapshot = (f: ReturnType<typeof fixture>) => JSON.stringify([f.client.shell, f.remote.shell, f.client.local,
+        f.client.environmentId, f.client.projectId, f.client.threadId, f.client.origin, f.client.generation]);
+      const before = snapshot(counted);
+      for (const shell of [counted.client.shell, counted.remote.shell]) shell.threads = shell.threads.map(raw => new Proxy(raw, {
+        get(target, property, receiver) {
+          if (measuring && property === 'id') identityReads++;
+          return Reflect.get(target, property, receiver);
+        },
+      }));
+      const view = (f: ReturnType<typeof fixture>) => mobileHomeView([0, now, '', count, true, workingEnabled, true, true, true,
+        '', '', '', 'repository', 'workload-visit', true, true], f.client, f.background);
+      const start = performance.now(), expected = view(plain), plainMs = performance.now() - start;
+      identityReads = timeFormats = dateFormats = 0; measuring = true;
+      const countedStart = performance.now(), actual = view(counted), countedMs = performance.now() - countedStart;
+      measuring = false;
+      const rows = actual.items.filter(item => item.kind === 'thread');
+      expect(actual).toEqual(expected);
+      expect(new Set(rows.map(row => row.key))).toEqual(new Set([
+        ...plain.client.shell.threads.map(row => `one:${row.id}`), ...plain.remote.shell.threads.map(row => `two:${row.id}`),
+      ]));
+      expect(rows).toHaveLength(count);
+      expect((['pinned', 'active', 'snoozed', 'settled'] as const).flatMap(section => actual.arrangement[section]).length).toBe(count);
+      expect(actual.arrangement.workingEnabled).toBe(workingEnabled);
+      const rank = { pinned: 0, active: 1, working: 2, snoozed: 3, settled: 4 };
+      expect(rows.every((row, index) => index === 0 || rank[rows[index - 1]!.section] <= rank[row.section])).toBe(true);
+      expect(rows.some(row => row.section === 'working')).toBe(workingEnabled);
+      for (const row of rows) {
+        const focused = row.environmentId === 'one';
+        expect(JSON.parse(row.nativeMenu)).toEqual({ identity: row.key, requestRoute: 'workload-visit', enabled: true,
+          items: row.menuItems, swipeItems: row.swipe.snoozeItems, swipeSnoozable: row.swipe.snoozable, swipeResetKey: row.swipe.resetKey,
+          environmentId: row.environmentId, threadId: row.threadId, origin: focused ? 'https://one.test' : 'https://two.test',
+          generation: focused ? 3 : 8, connected: true, homeVisible: true, sidebarVisible: true });
+      }
+      expect(rows.every(row => operable ? row.menuItems.some(item => item.id === 'copy-thread-id') && !!row.swipe.primary
+        : row.menuItems.length === 0 && row.swipe.primary === '' && !row.swipe.snoozable)).toBe(true);
+      expect(rows.some(row => row.swipe.snoozable)).toBe(operable);
+      expect(actual.nextSwipeRefreshAt).toBe(operable ? now + 120050 : 0);
+      expect(snapshot(counted)).toBe(before); expect(homeOrderState(counted.client)).toEqual(homeOrderState(plain.client));
+      const outputSHA256 = new Bun.CryptoHasher('sha256').update(JSON.stringify(actual)).digest('hex');
+      measurements.push({ threads: count, operable, workingEnabled, identityReads, timeFormats, dateFormats, plainMs, countedMs, outputSHA256 });
+    }
+    console.info('Home synthetic catalogue workload', JSON.stringify(measurements));
+    // Count raw identity reads across every traversal method, including spreads.
+    // Independent order/row/Arrange passes have a linear allowance, never a timer.
+    for (const measurement of measurements) {
+      expect(measurement.identityReads).toBeLessThanOrEqual(32 * measurement.threads);
+      expect(measurement.timeFormats).toBeLessThanOrEqual(onePresetFormatting.timeFormats);
+      expect(measurement.dateFormats).toBeLessThanOrEqual(onePresetFormatting.dateFormats);
+    }
+  } finally {
+    measuring = false; Date.prototype.toLocaleTimeString = timeFormat; Date.prototype.toLocaleDateString = dateFormat;
+  }
+}, 45_000);
