@@ -98,13 +98,15 @@ theme
   actions.bar-badge-pad: length = 5px
   actions.bar-badge-pad-top: length = 1px
   actions.bar-badge-pad-bottom: length = 2px
+  // Bluesky's pill is a rounded rectangle at 6, not a full pill: it stays
+  // 6 as the type grows.
   actions.bar-badge-corner: length = 6px
   actions.bar-badge-size: length = 0.75rem
   actions.bar-badge-line: length = 0.9375rem
   actions.bar-dot-top: length = 10px
   actions.bar-dot-gap: length = space.xs
   actions.bar-dot: length = space.sm
-  actions.bar-dot-corner: length = space.xs
+  actions.bar-dot-corner: length = radius.full
   // An app's own header's buttons (HeaderButton): a round slot, its icon in
   // the label colour (a small one's smaller, in the secondary label), and
   // the back button's pull to the edge (no base name is negative).
