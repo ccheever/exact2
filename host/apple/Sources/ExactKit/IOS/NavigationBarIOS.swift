@@ -177,6 +177,7 @@ struct HeaderShape: Equatable {
         }
     }
     let header: NodeView
+    let heading: NodeView?
     let title: String
     let level: Int
     let leading: [Item], trailing: [Item]
@@ -222,6 +223,7 @@ struct HeaderShape: Equatable {
         let projects = { (node: NodeView) in !authored.contains { node === $0 || node.isDescendant(of: $0) } }
         authoredBack = back != nil && roles.contains { $0.props["id"] == back && !projects($0) }
         let heading = rule.heading, titleProjects = projects(heading)
+        self.heading = titleProjects ? heading : nil
         let search = rule.search.flatMap { projects($0) ? $0 : nil }
         let segments = rule.segments.flatMap { projects($0) ? $0 : nil }
         let tap = rule.tap.flatMap { projects($0) ? $0 : nil }
@@ -736,6 +738,8 @@ extension NavigationHost {
             searchField(shows ? shape?.search : nil, in: c)
             segmentedTitle(shows ? shape?.segments : nil, in: c)
             richTitle(shows ? shape : nil, in: c)
+            c.titleInk.update(shows ? shape?.heading?.ownUIColor("text_color") : nil, item: c.navigationItem, bar: nav?.navigationBar)
+            c.titleView?.title.textColor = shows ? shape?.heading?.ownUIColor("text_color") : nil
             guard c.projected != signature || !c.hatched else { continue }
             c.projected = signature
             guard presenter.session?.natives.hatchesConnected == true else { continue }

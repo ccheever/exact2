@@ -52,6 +52,7 @@ final class RouteController: UIViewController {
     var search: HeaderSearch?
     /// The title Exact drew from the heading's group, and the subtitle it
     /// wrote; whether the root's tablist was hidden when it last looked (§9.10).
+    let titleInk = NavigationTitleInk()
     var titleView: HeaderTitleView?, subtitle: String?, tablistHidden: Bool?
     /// The route appeared, first or again after a cancelled swipe: a zoom
     /// push's landing hears it (ZoomPushIOS).
