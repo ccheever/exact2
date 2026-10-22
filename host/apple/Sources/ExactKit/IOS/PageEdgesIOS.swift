@@ -60,6 +60,12 @@ extension Presenter {
                 let edgeEffect = v.style["scroll_edge_effect"]?.string != "none"
                 if let route = ViewPresentation.controllers(for: v).lazy.compactMap({ $0 as? RouteController }).first(where: { $0.host === navigation && v.isDescendant(of: $0.node) }) {
                     if let judge, edgeEffect { found = routeBands(of: v, sv, in: route, judge) }
+                    #if os(iOS)
+                    if route.edgeScroll === v, let top = keyboardTop,
+                       abs(route.node.convert(route.node.bounds, to: nil).maxY - top) < 1 {
+                        found.band.bottom += keyboardAccessoryHeight
+                    }
+                    #endif
                     var r = routes[ObjectIdentifier(route)] ?? (nil, nil)
                     if !found.top.isEmpty, navigation.contentScroller(of: route) === v { r.top = sv }
                     if !found.bottom.isEmpty { r.bottom = sv }
