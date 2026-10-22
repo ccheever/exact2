@@ -947,6 +947,11 @@ component DesignTool
     after(1, landUp)
   task upRefused when upExpect >= 0 and not pending(selectedUp) and upFailed key=upFromKey
     after(1, dropUp)
+  // The page refusing it (its own `unsupported`, said in the Inspector's refusals) ends the move too.
+  state upRefusalsAt = ""
+  derive refusalsKey = changes.refusals.map(r => `${r.id}:${r.tail}`).join("|")
+  task upPageRefused when upExpect >= 0 and refusalsKey != upRefusalsAt key=refusalsKey
+    after(1, dropUp)
   // The edit a panel began (a dial's, a param's, its row's Back to the package), whose proposal docks at the window's
   // bottom: the panels sit far above the panel's own place. One begun from the token grid stays in place, under it.
   state dockedFor = ""
@@ -1215,6 +1220,7 @@ component DesignTool
     if not pending(selectedUp)
       // How deep the selection it lands on should be, from the selection it moves from (review2 11:33).
       upFromKey = inspected.key
+      upRefusalsAt = refusalsKey
       upExpect = inspected.chain.length - up
       upNote = ""
       send selectedUp = sendSelectUp(client, inspected.build, up)

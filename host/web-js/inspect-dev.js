@@ -294,9 +294,10 @@ async function select(el, clicked = false, click = null) {
   }
   env.report(r);
 }
-// `inspect` `{select: {up, sites}}` (tamber/1.16): the selection moves to the ancestor `up` call sites above it, as a
-// click on it would select it; `sites` are that copy's plan sites, by the server's map: the outermost of them above
-// the selected node is it (past the root, the root: the server names the app's own).
+// `inspect` `{select: {up, levels, plan, from}}` (tamber/1.16): the selection moves up its call sites, as a click on
+// the node it lands on would select it. `levels` are the plan sites of each enclosing copy that owns a node, nearest
+// first (past the outermost call, the app's own), by the server's map for the selection at site `from` under `plan`:
+// it lands in the first level with a node above the selection, on the outermost there, by this page's own tree.
 async function selectUp({ levels, plan, from }) {
   const el = inspecting.selected?.el;
   if (!inspecting.on || !el?.isConnected || !Array.isArray(levels)) { env.report({ kind: "unsupported", what: "inspect", detail: "no node is selected on this page to move up from" }); return; }
