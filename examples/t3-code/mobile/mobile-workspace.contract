@@ -33,9 +33,7 @@ shape MobileWorkspace
   environmentId: string
   threadId: string
   overlayCount: number
-  inspectorRouteKey: string
   inspectorContentWidth: number
-  sidebarRouteKey: string
   configuration: string
   inspectorToken: string
   inspectorRouteId: string
