@@ -76,18 +76,30 @@ pub(super) fn font_size(
             continue;
         }
         let map = share(style_map(plan, map));
+        let shell_leading = id == StyleId::LineHeight
+            && (parts.tag == "select" && !parts.props.contains_key("multiple")
+                || parts.props.contains_key("data-exact-field"));
         let fill = if shorthand {
             map.clone()
         } else {
-            format!(
-                "v=>{{const t=({map})(v);return t==null?null:`var({},${{t}})`}}",
+            let marker = if shell_leading {
+                exact_web::css::text_style::SHELL_LEADING.to_string()
+            } else {
                 said(name)
-            )
+            };
+            format!("v=>{{const t=({map})(v);return t==null?null:`var({marker},${{t}})`}}")
         };
         let (property, fill) = if dynamic == Some(true) {
+            // No named style exposes the shell's own row, if this control has one.
+            let absent = if shell_leading {
+                format!("var({})", exact_web::css::text_style::CONTROL_LEADING)
+            } else {
+                // Custom-property `initial` is invalid, so the inherited row's var() inherits.
+                "initial".into()
+            };
             (
                 style::style_fallback(name),
-                format!("v=>({fill})(v)??\"initial\""),
+                format!("v=>({fill})(v)??{absent:?}"),
             )
         } else {
             (name.into(), fill)

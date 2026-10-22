@@ -25,6 +25,11 @@ pub const ROWS: [(StyleId, &str); 2] = [
     (StyleId::LineHeight, "line-height"),
 ];
 
+/// A shell-only control leading is conditional on an ancestor saying the row.
+pub const SHELL_LEADING: &str = "--exact-shell-line-height";
+/// The shell's leading when no text style or authored row applies.
+pub const CONTROL_LEADING: &str = "--exact-control-line-height";
+
 /// Append the same declarations to a static class and its server document.
 pub fn fills(node: &NodeFacts<'_>, out: &mut String) {
     let own = node.style;
@@ -33,8 +38,15 @@ pub fn fills(node: &NodeFacts<'_>, out: &mut String) {
         return;
     };
     let shorthand = node.props.bool(PropId::FontShorthand) == Some(true);
-    let button = exact_kernel::ControlKind::of(node.node_type, node.props)
-        == Some(exact_kernel::ControlKind::Button);
+    use exact_kernel::ControlKind;
+    let kind = ControlKind::of(node.node_type, node.props);
+    let button = kind == Some(ControlKind::Button);
+    let shell_leading = kind == Some(ControlKind::Select)
+        && node.props.bool(PropId::Multiple) != Some(true)
+        || matches!(
+            kind,
+            Some(ControlKind::Date | ControlKind::Time | ControlKind::DateTimeLocal)
+        ) && own.appearance == exact_kernel::Appearance::Auto;
     let field =
         node.node_type == NodeType::TextInput && own.appearance != exact_kernel::Appearance::None;
     for (id, name) in ROWS {
@@ -52,6 +64,8 @@ pub fn fills(node: &NodeFacts<'_>, out: &mut String) {
         };
         if shorthand {
             write!(out, "{name}:{value};--exact-said-{name}: ;").unwrap();
+        } else if id == StyleId::LineHeight && shell_leading {
+            write!(out, "{name}:var({SHELL_LEADING},{value});").unwrap();
         } else {
             write!(out, "{name}:var(--exact-said-{name},{value});").unwrap();
         }
