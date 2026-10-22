@@ -2050,9 +2050,10 @@ the virtual clock).
   text. `disabled`/inert disable the item; hidden or removed buttons leave the
   menu. An item in the app menu or Help (`about`, `app`, `help`, and Settings…)
   is the app's, not its window's: it stays enabled, and its chord works, while
-  no window is key, under a sheet and under a modal dialog, as in a hand-built
-  Mac app; an authored `inert`, or a route behind a modal route, still
-  disables it. The agent uses `tap` on that
+  no window is key, under a sheet and under a Contract modal dialog, as in a
+  hand-built Mac app; an authored `inert`, or a route behind a modal route,
+  still disables it, and an app-modal panel (`NSApp.runModal`) disables it
+  as AppKit disables every item then. The agent uses `tap` on that
   same button. Help retains the system search field; the standard menus, and
   Develop in a development build, remain unless removed. Other hosts keep the ordinary button
   and ignore this Mac presentation hint. On a top-level root,
@@ -2075,7 +2076,8 @@ the virtual clock).
 
   View holds Actual Size ⌘0, Zoom In ⌘+ (⌘= too) and Zoom Out ⌘-, as Safari's
   and Preview's View does, stepping through Safari's zoom levels (50% to 300%)
-  for the key window. The zoom multiplies the root font size last, over the
+  for the main window (the key one, or the one under a key panel). The zoom
+  multiplies the root font size last, over the
   app's own `setRootFontSize` as a browser's page zoom is over
   `html { font-size }`, so every `rem` and inherited text size grows; it is
   per window and not kept across a launch. Declared deviation: a browser's

@@ -2523,7 +2523,7 @@ About, where Check for Updates… goes), `app`, `file`, `edit`, `view`, `go`,
 explicit placement overrides the usual `aria-keyshortcuts` chord filing. Its
 accessible label or text titles it, and `disabled` disables it. An item in the
 app menu or Help is the app's, so it stays enabled while no window is key and
-under a sheet or a modal dialog. Keep the button reachable: the agent taps it,
+under a sheet or a Contract modal dialog. Keep the button reachable: the agent taps it,
 and other hosts show that ordinary button, with no application menu.
 On the root, `-exact-menu-remove="show-tab-bar autofill close-all"` removes
 selected standard items. Its whitespace-separated list must be literal; unknown

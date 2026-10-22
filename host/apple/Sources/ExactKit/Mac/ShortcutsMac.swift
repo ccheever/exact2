@@ -414,17 +414,20 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             // ⌘[ and stands in for it (`claim`).
             let own = navigationMenu.items.filter { !($0.target is ShortcutHost) }
             let routed = presenter?.carrying("navigationBack").isEmpty == false
-            for item in own { item.isHidden = !routed || replaced.contains { $0 === item } || removals.contains("back") }
+            for item in own { item.isHidden = !routed || replaced.contains { $0 === item } }
             // History commands precede destinations regardless of where the
             // toolbar sits in the authored tree; destinations keep tree order.
             let history = navigation.filter { $0.keyEquivalentModifierMask == .command && ["[", "]"].contains($0.keyEquivalent) }
             navigation = history.sorted { $0.keyEquivalent < $1.keyEquivalent }
                 + navigation.filter { item in !history.contains(where: { $0 === item }) }
             place(navigation, in: navigationMenu, at: own.count)
-            navigationMenu.supermenu?.items.first(where: { $0.submenu === navigationMenu })?.isHidden = navigation.isEmpty && own.allSatisfy(\.isHidden)
         }
         for menu in [fileMenu, applicationMenu, navigationMenu, editMenu, viewMenu, windowMenu, helpMenu] {
             (menu as? ShortcutMenu)?.removeStandardItems(removals)
+        }
+        // Go shows while it has an item to show, Back once `back` removed it.
+        if let navigationMenu {
+            navigationMenu.supermenu?.items.first(where: { $0.submenu === navigationMenu })?.isHidden = navigationMenu.items.allSatisfy(\.isHidden)
         }
         // What a removal restored, a command still stands in for.
         for item in replaced where !item.isHidden { item.isHidden = true }
