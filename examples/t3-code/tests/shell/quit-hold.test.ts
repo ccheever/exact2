@@ -19,10 +19,11 @@ const fns = contractFns('src/shell/quit-hold.contract', ['QuitHoldState']) as un
 const HOLD_MS = 1200, DOUBLE_MS = 500, GRACE_MS = 600;
 const HOLD_DOWN = 'down:hold', DOUBLE_CLICK_DOWN = 'down:double-click', UP = 'up';
 
-type Input = { type?: 'keyDown' | 'keyUp'; key?: string; meta?: boolean; alt?: boolean; shift?: boolean; isAutoRepeat?: boolean };
+type Input = { type?: 'keyDown' | 'keyUp'; key?: string; code?: string; meta?: boolean; alt?: boolean; shift?: boolean; isAutoRepeat?: boolean };
+/** A US-layout event unless `code` names the physical key (another layout's letter on it). */
 const event = (input: Input): Key => {
   const key = input.key ?? 'q';
-  const code = key === 'q' || key === 'ㅂ' ? 'KeyQ' : key === 'Meta' ? 'MetaLeft' : key.length === 1 ? `Key${key.toUpperCase()}` : key;
+  const code = input.code ?? (key === 'q' || key === 'ㅂ' ? 'KeyQ' : key === 'Meta' ? 'MetaLeft' : key.length === 1 ? `Key${key.toUpperCase()}` : key);
   return { key, code, metaKey: input.meta ?? true, altKey: input.alt ?? false, shiftKey: input.shift ?? false, ctrlKey: false, repeat: input.isAutoRepeat ?? false };
 };
 
@@ -241,6 +242,22 @@ describe('makeQuitShortcutHandler', () => {
     h.send({ key: 'ㅂ' });
     expect(h.notifications).toEqual([HOLD_DOWN]);
   });
+  test('another layout\'s letter on Q\'s key is not the shortcut (AZERTY\'s ⌘A selects all, Dvorak\'s ⌘\' does not quit)', () => {
+    for (const mode of ['hold', 'double-click', 'direct']) {
+      const azerty = new Harness(mode);
+      azerty.send({ key: 'a', code: 'KeyQ' });
+      azerty.send({ type: 'keyUp', key: 'a', code: 'KeyQ' });
+      azerty.send({ key: 'a', code: 'KeyQ' });
+      expect([azerty.prevented, azerty.quits, azerty.notifications]).toEqual([0, 0, []]);
+      const dvorak = new Harness(mode);
+      dvorak.send({ key: "'", code: 'KeyQ' });
+      expect([dvorak.prevented, dvorak.quits, dvorak.notifications]).toEqual([0, 0, []]);
+    }
+    // AZERTY's Q is on A's key: its key, not its code, is the shortcut.
+    const azertyQ = new Harness();
+    azertyQ.send({ key: 'q', code: 'KeyA' });
+    expect(azertyQ.notifications).toEqual([HOLD_DOWN]);
+  });
   test('the hint says the reference\'s words', () => {
     // Read from the source: the fixture's word operators would rewrite the strings' "or".
     expect(readFileSync(appPath('src/shell/quit-hold.contract'), 'utf8')).toContain('fn quitHint(mode: string): string = mode == "hold" ? "Hold ⌘Q or press twice to quit" : "Press ⌘Q again to quit"');
@@ -304,5 +321,35 @@ describe('the window root takes ⌘Q ahead of the menu', () => {
     expect(calls).toEqual([]);
     run(state, env, 'modifierKey', [true, event({ key: 'w', isAutoRepeat: true }), false]);
     expect(calls).toEqual(['preventDefault']);
+  });
+});
+
+describe('the window takes rightPanel.close\'s ⌘W ahead of File › Close Window', () => {
+  const window = contractComponent('src/shell/app-window.contract', 'T3Window');
+  const latin = contractFns('src/shell/quit-hold.contract', ['QuitHoldState']).quitTypesLatin;
+  const keys = contractFns('src/composer/composer-keys.contract');
+  const { windowChord } = contractFns('src/shell/app-window.contract', [], { quitTypesLatin: latin, composerChordKey: keys.composerChordKey });
+  const run = (chord: string, kind: string, input: Input) => {
+    const calls: string[] = [];
+    const scope: Env = {
+      shortcuts: chord ? [{ command: 'rightPanel.close', chord, kind, target: 'files' }] : [], windowChord,
+      preventDefault: () => calls.push('preventDefault'), panelUi: (what: string, id: string) => calls.push(`panel ${what} ${id}`),
+      prClose: () => calls.push('pr close'), modifierKey: () => {}, interacted: () => {},
+    };
+    scope.closeRightPanel = (k: string, t: string) => window.call('closeRightPanel', {}, scope, [k, t]);
+    window.call('modifierDown', { focusEditable: false }, scope, [event(input).key, event(input)]);
+    return calls;
+  };
+  test('⌘W closes the active surface, a pull request or the panel, and keeps it from the menu', () => {
+    expect(run('Meta+W', 'close-surface', { key: 'w' })).toEqual(['preventDefault', 'panel tab-close files']);
+    expect(run('Meta+W', 'pr-close', { key: 'w' })).toEqual(['preventDefault', 'pr close']);
+    expect(run('Meta+W', 'close-diff', { key: 'w' })).toEqual(['preventDefault', 'panel close ']);
+  });
+  test('no open panel, a repeat, or another layout\'s letter on W\'s key leaves ⌘W to the menu', () => {
+    expect(run('', '', { key: 'w' })).toEqual([]);
+    expect(run('Meta+W', 'close-surface', { key: 'w', isAutoRepeat: true })).toEqual([]);
+    expect(run('Meta+W', 'close-surface', { key: 'z', code: 'KeyW' })).toEqual([]);
+    // Korean 2-Set types ㅈ on W's key: its physical key is the chord's.
+    expect(run('Meta+W', 'close-surface', { key: 'ㅈ', code: 'KeyW' })).toEqual(['preventDefault', 'panel tab-close files']);
   });
 });

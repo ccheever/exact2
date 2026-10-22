@@ -1,10 +1,9 @@
 import AppKit
 import XCTest
 
-// The reference menu bar over the host's (T3MenuBar.swift), routed
-// keystrokes through real NSMenu key-equivalent lookup with the bar installed as
-// the main menu, and the surface launcher's letters beside type-to-focus (T3Composer)
-// in a real window. Compiled with every file in modules/apple (T3Module included).
+// The surface launcher's letters beside type-to-focus (T3Composer) in a real window. The menu bar is the host's and
+// Contract's now (`-exact-menu`, `-exact-menu-remove`), with nothing of the module's in it but Paste as Text (menus).
+// Compiled with every file in modules/apple (T3Module included).
 
 private var acted: [(node: UInt32, action: UInt32)] = []
 private let hatchResolve: ExactHatches.ResolveFn = { _, _, _, _, _ in 0 }
@@ -23,128 +22,12 @@ private func makeHooks() -> ExactHatches {
     return ExactHatches(host: nil, table: UnsafeRawPointer(table))!
 }
 
-/// Stands in for the host's command items (ShortcutsMac.swift ShortcutHost): one
-/// action for every item, the label as the title, enabled while its button is.
-final class ShortcutHost: NSObject, NSMenuItemValidation {
-    var pressed: [String] = []
-    var disabled: Set<String> = []
-    @objc func activate(_ item: NSMenuItem) { if validateMenuItem(item) { pressed.append(item.title) } }
-    func validateMenuItem(_ item: NSMenuItem) -> Bool { !disabled.contains(item.title) }
-}
-final class DevTarget: NSObject {
-    var reloads = 0, infos = 0, traces = 0
-    @objc func reload(_ sender: Any?) { reloads += 1 }
-    @objc func trace(_ sender: Any?) { traces += 1 }
-    @objc func info(_ sender: Any?) { infos += 1 }
-}
-final class Recorder: NSObject { var closes = 0; @objc func performClose(_ sender: Any?) { closes += 1 } }
-
-/// The bar DevMenuMac.makeMenu builds, with the host's command items already filed.
-private func hostBar(_ host: ShortcutHost, _ dev: DevTarget) -> NSMenu {
-    let bar = NSMenu()
-    func add(_ title: String) -> NSMenu { let item = NSMenuItem(title: title, action: nil, keyEquivalent: ""); let menu = NSMenu(title: title); item.submenu = menu; bar.addItem(item); return menu }
-    let app = add("T3 Code")
-    app.addItem(withTitle: "About T3 Code", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
-    app.addItem(withTitle: "Quit T3 Code", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-    let file = add("File")
-    for title in ["Thread 1", "Undo", "Close Right Panel", "Toggle Diff", "Open in Editor", "Medium"] {
-        let item = NSMenuItem(title: title, action: #selector(ShortcutHost.activate(_:)), keyEquivalent: "")
-        item.target = host
-        file.addItem(item)
-    }
-    file.addItem(.separator())
-    file.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
-    let edit = add("Edit")
-    edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
-    let redo = edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
-    redo.keyEquivalentModifierMask = [.command, .shift]
-    let view = add("View")
-    // The window's Reload and Force Reload (settings-shortcuts.contract ViewReload), which the host files first in View
-    // with a separator after them (`-exact-menu="view"`).
-    for (title, mask) in [("Reload", NSEvent.ModifierFlags.command), ("Force Reload", [.command, .shift])] {
-        let item = NSMenuItem(title: title, action: #selector(ShortcutHost.activate(_:)), keyEquivalent: "r")
-        item.keyEquivalentModifierMask = mask
-        item.target = host
-        view.addItem(item)
-    }
-    view.addItem(.separator())
-    let full = view.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
-    full.keyEquivalentModifierMask = [.command, .control]
-    let go = add("Go")
-    let back = NSMenuItem(title: "Back", action: #selector(ShortcutHost.activate(_:)), keyEquivalent: "[")
-    back.target = host
-    go.addItem(back)
-    _ = add("Window")
-    let develop = add("Develop")
-    develop.addItem(withTitle: "Reload", action: #selector(DevTarget.reload(_:)), keyEquivalent: "r").target = dev
-    develop.addItem(withTitle: "Open Project…", action: #selector(DevTarget.info(_:)), keyEquivalent: "o").target = dev
-    develop.addItem(withTitle: "App Info…", action: #selector(DevTarget.info(_:)), keyEquivalent: "d").target = dev
-    let trace = develop.addItem(withTitle: "Save Trace", action: #selector(DevTarget.trace(_:)), keyEquivalent: "t")
-    trace.keyEquivalentModifierMask = [.command, .option]
-    trace.target = dev
-    return bar
-}
 private func key(_ characters: String, _ code: UInt16, _ flags: NSEvent.ModifierFlags = [.command], window: NSWindow? = nil, at time: TimeInterval = 0) -> NSEvent {
     NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: time, windowNumber: window?.windowNumber ?? 0, context: nil,
         characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!
 }
-/// What ShortcutHost.sync does on each plan batch: the declared chord onto its item.
-private func sync(_ bar: NSMenu, _ chords: [String: (String, NSEvent.ModifierFlags)]) {
-    let file = bar.items.first { $0.submenu?.title == "File" }!.submenu!
-    for item in file.items where item.target is ShortcutHost {
-        guard let (key, mask) = chords[item.title] else { continue }
-        item.keyEquivalent = key
-        item.keyEquivalentModifierMask = mask
-    }
-}
 
-final class MenuBarTests: XCTestCase {
-    let chords: [String: (String, NSEvent.ModifierFlags)] = ["Thread 1": ("1", .command), "Undo": ("z", .command), "Close Right Panel": ("w", .command),
-                                                            "Toggle Diff": ("d", .command), "Open in Editor": ("o", .command), "Medium": ("e", [.command, .shift])]
-
-    /// The bar's menus and items are the host's and Contract's (`-exact-menu`, `-exact-menu-remove`); the module adds
-    /// Paste as Text and routes Edit › Undo, and leaves every other item where the host put it.
-    func testTheModuleLeavesTheHostsBarButEditsUndo() {
-        _ = NSApplication.shared
-        let host = ShortcutHost(), dev = DevTarget()
-        let bar = hostBar(host, dev)
-        let menus = T3Menus()
-        let before = bar.items.map { menu in (menu.title, menu.submenu!.items.map { "\($0.title)\($0.isHidden ? " (hidden)" : "")" }) }
-        menus.augment(bar)
-        menus.augment(bar)
-        let after = bar.items.map { menu in (menu.title, menu.submenu!.items.filter { $0.title != "Paste as Text" }.map { "\($0.title)\($0.isHidden ? " (hidden)" : "")" }) }
-        XCTAssertEqual(after.map(\.0), before.map(\.0))
-        XCTAssertEqual(after.map(\.1), before.map(\.1))
-        XCTAssertEqual(bar.items.first { $0.title == "Edit" }!.submenu!.items.filter { $0.title == "Paste as Text" }.count, 1)
-        XCTAssertTrue(bar.items.first { $0.title == "Edit" }!.submenu!.items[0].target === menus.keys)
-    }
-
-    func testKeystrokesReachTheWindowsCommands() {
-        _ = NSApplication.shared
-        let host = ShortcutHost(), dev = DevTarget()
-        let bar = hostBar(host, dev)
-        NSApp.mainMenu = bar
-        let menus = T3Menus()
-        menus.augment(bar)
-        menus.keys.keystroke = { true }
-        sync(bar, chords)
-        XCTAssertTrue(bar.performKeyEquivalent(with: key("1", 18)))
-        XCTAssertTrue(bar.performKeyEquivalent(with: key("e", 14, [.command, .shift])))
-        XCTAssertEqual(host.pressed, ["Thread 1", "Medium"])
-        // ⌘Z: Edit › Undo keeps the chord; with no editable text focused, a keystroke is thread.undo.
-        host.pressed = []
-        XCTAssertTrue(bar.performKeyEquivalent(with: key("z", 6)))
-        XCTAssertEqual(host.pressed, ["Undo"])
-        let file = bar.items.first { $0.submenu?.title == "File" }!.submenu!
-        let undo = bar.items.first { $0.submenu?.title == "Edit" }!.submenu!.items[0]
-        XCTAssertTrue(menus.keys.validateMenuItem(undo), "enabled while the undo notice is live")
-        host.disabled = ["Undo"]
-        XCTAssertFalse(menus.keys.validateMenuItem(undo), "nothing to undo")
-        file.item(withTitle: "Undo").map { $0.menu?.removeItem($0) }
-        XCTAssertFalse(menus.keys.validateMenuItem(undo))
-        NSApp.mainMenu = nil
-    }
-
+final class LauncherTests: XCTestCase {
     /// The launcher's letters are its rows' `aria-keyshortcuts`
     /// (shell-panels.contract SurfaceRow), which Exact's session monitor presses (ShortcutsMac `perform`) wherever the
     /// focus is but an input context, and its `autofocus` focuses it on mount. AppKit calls a window's local key monitors
@@ -225,91 +108,16 @@ final class MenuBarTests: XCTestCase {
     /// textarea, whose text view keeps its own history (host TextAreaMac.swift `textUndo`), as the composer and the prompt
     /// preview are. Since exact2 #327 the textarea answers `undo:` and `redo:` itself, so the clone's Edit › Undo sends it
     /// up the chain and Edit › Redo is the host's own item.
-    func testUndoAndRedoActOnTheFocusedTextsOwnHistory() {
-        _ = NSApplication.shared
-        let host = ShortcutHost(), dev = DevTarget()
-        let bar = hostBar(host, dev)
-        NSApp.mainMenu = bar
-        let menus = T3Menus()
-        menus.updatesDisabledReason = { "no feed" }
-        menus.augment(bar)
-        menus.keys.keystroke = { true }
-        sync(bar, chords)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        let text = OwnHistoryText(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
-        text.allowsUndo = true
-        window.contentView = text
-        window.makeFirstResponder(text)
-        text.insertText("stable", replacementRange: NSRange(location: NSNotFound, length: 0))
-        menus.keys.focusedText = { text }
-        let edit = bar.items.first { $0.submenu?.title == "Edit" }!.submenu!
-        let undo = edit.items.first { $0.title == "Undo" }!, redo = edit.items.first { $0.title == "Redo" }!
-        // The clone keeps no Redo of its own: Edit › Redo is the host's item, `redo:` up the responder chain (#327).
-        XCTAssertNil(redo.target)
-        XCTAssertEqual(redo.action, Selector(("redo:")))
-        XCTAssertTrue(undo.target === menus.keys, "Edit › Undo stays the clone's: ⌘Z is thread.undo with no editable focus")
-        XCTAssertTrue(menus.keys.validateMenuItem(undo), "validated by the text's own history")
-        XCTAssertFalse(text.validateMenuItem(redo), "nothing undone yet")
-        host.pressed = []
-        XCTAssertTrue(bar.performKeyEquivalent(with: key("z", 6, window: window)))
-        XCTAssertEqual(text.string, "", "⌘Z undoes the typing")
-        XCTAssertEqual(host.pressed, [], "and is not thread.undo")
-        XCTAssertTrue(text.validateMenuItem(redo))
-        // ⇧⌘Z and Edit › Redo: the host's nil-targeted action reaches the focused text (a synthetic shifted event does not
-        // match a menu item reliably, so the action is sent up the chain as the menu sends it).
-        XCTAssertTrue(text.tryToPerform(redo.action!, with: redo))
-        XCTAssertEqual(text.string, "stable", "⇧⌘Z redoes it")
-        menus.keys.keystroke = { false } // a click on the item
-        menus.keys.undo(undo)
-        XCTAssertEqual(text.string, "", "Edit › Undo from the menu")
-        XCTAssertTrue(text.tryToPerform(redo.action!, with: redo))
-        XCTAssertEqual(text.string, "stable", "Edit › Redo from the menu")
-        // While it composes (marked text, a Korean or Japanese input source), the history is left alone.
-        menus.keys.keystroke = { true }
-        text.setMarkedText("ㅎ", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
-        XCTAssertTrue(text.hasMarkedText())
-        XCTAssertFalse(menus.keys.validateMenuItem(undo))
-        XCTAssertTrue(bar.performKeyEquivalent(with: key("z", 6, window: window)))
-        XCTAssertTrue(text.string.hasPrefix("stable"), "no undo under a composition")
-        text.unmarkText()
-        // Editable text with the focus and nothing to undo: ⌘Z is not thread.undo (`!editableFocus`).
-        text.undoManager?.removeAllActions()
-        XCTAssertFalse(menus.keys.validateMenuItem(undo))
-        XCTAssertTrue(bar.performKeyEquivalent(with: key("z", 6, window: window)))
-        XCTAssertEqual(host.pressed, [])
-        // No editable text with the focus: the keystroke is the window's thread.undo.
-        menus.keys.focusedText = { nil }
-        XCTAssertTrue(bar.performKeyEquivalent(with: key("z", 6, window: window)))
-        XCTAssertEqual(host.pressed, ["Undo"])
-        NSApp.mainMenu = nil
-    }
 }
-/// Exact's textarea as exact2 #327 makes it (host TextAreaMac.swift `TextArea`): its own undo manager, not the window's,
-/// and `undo:` / `redo:` answered from it (NSTextView implements neither, so before #327 they went on to NSWindow).
-final class OwnHistoryText: NSTextView {
-    private let history = UndoManager()
-    override var undoManager: UndoManager? { history }
-    @objc func undo(_ sender: Any?) {
-        if isEditable, !hasMarkedText(), undoManager?.canUndo == true { undoManager?.undo() }
-    }
-    @objc func redo(_ sender: Any?) {
-        if isEditable, !hasMarkedText(), undoManager?.canRedo == true { undoManager?.redo() }
-    }
-    override func validateMenuItem(_ item: NSMenuItem) -> Bool {
-        if item.action == #selector(undo(_:)) { return isEditable && !hasMarkedText() && undoManager?.canUndo == true }
-        if item.action == #selector(redo(_:)) { return isEditable && !hasMarkedText() && undoManager?.canRedo == true }
-        return super.validateMenuItem(item)
-    }
-}
+
 final class LauncherView: NSView {
     var keys: [String] = []
     override var acceptsFirstResponder: Bool { true }
     override func keyDown(with event: NSEvent) { keys.append(event.characters ?? "") }
 }
 
-let suite = XCTestSuite(forTestCaseClass: MenuBarTests.self)
+let suite = XCTestSuite(forTestCaseClass: LauncherTests.self)
 suite.run()
 let run = suite.testRun!
-print("Menu bar tests: \(run.executionCount) run, \(run.totalFailureCount) failed")
-exit(run.executionCount == 4 && run.totalFailureCount == 0 ? 0 : 1)
+print("Launcher tests: \(run.executionCount) run, \(run.totalFailureCount) failed")
+exit(run.executionCount == 1 && run.totalFailureCount == 0 ? 0 : 1)

@@ -11,7 +11,7 @@ import XCTest
 // window server sends it (a CGEvent-backed NSEvent through NSApp.sendEvent), from the composer and with nothing
 // focused, past the clone's own monitors (T3Menus, T3Composer with its launcher-letter guard, T3LatinChords,
 // T3TextContextMenu) and its menu bar
-// (T3Menus.augment, T3MenuBar.arrange) over the host's, and must reach the host's monitor and the host's item for
+// (T3Menus.augment) over the host's, and must reach the host's monitor and the host's item for
 // that chord, leaving the composer's text and the focus alone. The host's parts are stand-ins, as in menu-bar: its bar
 // (DevMenuMac.makeMenu's items), a session monitor that only records (the host's presses and consumes), and
 // ShortcutHost's items, filed after the clone's augment as each plan batch files them, with the chords they take from
@@ -30,8 +30,7 @@ let referenceChords = ["mod+b", "mod+[", "mod+]", "mod+j", "mod+alt+b", "mod+shi
                        "mod+shift+a", "mod+shift+x", "mod+shift+g", "mod+shift+l", "mod+shift+k", "mod+o", "mod+shift+[",
                        "mod+shift+]", "mod+shift+c", "mod+shift+s", "mod+shift+p", "mod+z", "mod+1", "mod+2", "mod+3",
                        "mod+4", "mod+5", "mod+6", "mod+7", "mod+8", "mod+9"]
-/// ⌘Z is Edit › Undo's: the focused text's own history, else the window's thread.undo (T3MenuBar.undo), which
-/// menu-bar's testKeystrokesReachTheWindowsCommands and testUndoAndRedoActOnTheFocusedTextsOwnHistory drive.
+/// ⌘Z is Edit › Undo's: the app's thread.undo stands in for the host's item while the undo notice claims it.
 let editMenuChords: Set<String> = ["mod+z"]
 
 /// ANSI key codes, as a US keyboard sends them.
@@ -61,14 +60,14 @@ struct Chord {
 }
 private let chordMask: NSEvent.ModifierFlags = [.command, .shift, .option, .control]
 
-/// Stands in for the host's ShortcutHost (ShortcutsMac.swift; the name T3MenuBar.isCommand reads): one item per
+/// Stands in for the host's ShortcutHost (ShortcutsMac.swift): one item per
 /// declared chord, pressed by the menu.
 final class ShortcutHost: NSObject, NSMenuItemValidation {
     var pressed: [String] = []
     @objc func activate(_ item: NSMenuItem) { pressed.append(item.title) }
     func validateMenuItem(_ item: NSMenuItem) -> Bool { true }
     /// ShortcutHost.sync on a plan batch: an item elsewhere in the bar with a declared chord gives it up (`claim`),
-    /// and each command's item goes into File with its chord, where T3MenuBar keeps it a hidden key equivalent.
+    /// and each command's item goes into File with its chord, hidden (`-exact-menu="none"`) but a key equivalent.
     func file(_ chords: [Chord], in bar: NSMenu) {
         var menus = bar.items.compactMap(\.submenu)
         while let menu = menus.popLast() {

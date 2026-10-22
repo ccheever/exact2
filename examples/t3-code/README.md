@@ -335,14 +335,17 @@ menu has Check for Updates… directly under About and Help holds it alone (two 
 buttons, `-exact-menu="about"` and `"help"`, enabled under a sheet or with no key window; settings-shortcuts.contract
 `UpdateMenuItems`), File shows only Close Window, View starts with Reload and Force Reload (two
 Contract buttons the host files there, `-exact-menu="view"`, which run `reload()`; `ViewReload`)
-and then the host's Actual Size, Zoom In and Zoom Out, and the window's root removes the Develop
+and then Actual Size ⌘0, Zoom In ⌘= and Zoom Out ⌘- (the app's own commands, which take the host items'
+places, stepping by half a Chromium zoom level as the root font size; `ViewZoom`), and the window's root removes the Develop
 and Go menus, the help book and Edit's template items (`-exact-menu-remove`, app-window.contract), so
 ⌘D (diff), ⌘O (open in editor) and ⌘1–9 reach the window. Every button chord is a shortcut with no
 item (`-exact-menu="none"`) but one that stands in for a host item (⌘Z, ⌘,), one dispatch button
-per chord (⌘N and ⇧⌘O both start a thread with no text field focused). Edit › Undo sends ⌘Z to
-thread.undo when no editable text has the focus (`T3MenuBar.swift`), and ⌘W closes the active
-right-panel surface tab (its neighbour becomes active; the last tab closes the panel; on the Pull
-Requests page the open pull request) before it closes the window; a held ⌘W's repeats are dropped.
+per chord (⌘N and ⇧⌘O both start a thread with no text field focused). While the sidebar's undo
+notice claims ⌘Z, thread.undo stands in for Edit › Undo. ⌘W closes the active right-panel surface
+tab (its neighbour becomes active; the last tab closes the panel; on the Pull Requests page the open
+pull request) before it closes the window: the window root's capture handler hears it ahead of the
+menu (`app-window.contract` `modifierDown`), so File › Close Window keeps ⌘W; a held ⌘W's repeats
+are dropped.
 The Quit shortcut setting's hold (Hold ⌘Q or press twice) is the window root's `key` handler, ahead
 of the menu's Quit (`quit-hold.contract`). Edit's Paste as Text (⇧⌘V) stays the module's
 (`T3Menus.swift`): it is the responder chain's `pasteAsPlainText:`, which a button's press is not. The surface launcher takes the focus when it mounts (`autofocus`), and
@@ -460,14 +463,14 @@ filed were moved there or closed). The gaps someone using this app runs into:
   while a right-click goes on to the shell's menu. Chrome sends the request on to the default menu.
 - On the pull request page a file link's press opens its menu below the link (a popover invoker), where the
   reference opens it at the click.
-- View's zoom is the host's (LLP 1021 §5.3.1): it steps through Safari's levels (115% after 100%) where
-  Electron steps a 0.5 zoom level (109.5%), scales the root font size, so every `rem` and inherited text
-  size, but not `px` lengths or the module's native views, and is not kept across a launch; Zoom In shows
-  Safari's ⌘+ where the reference's shows ⌘=.
-- A completed ⌘Q hold leaves the window as it is until the keys go quiet: the reference turns it
-  transparent first (concealPendingQuitWindow), and Contract has no window opacity.
-- File › Close Window shows no ⌘W while a command takes ⌘W (Close Right Panel with a panel open): the host
-  gives a hidden command's chord to it, and the item keeps its place without it.
+- View's zoom scales the root font size, so every `rem` and inherited text size, but not `px` lengths or
+  the module's native views, where Electron's page zoom scales the whole page.
+- A completed ⌘Q hold leaves the window as it is until the keys go quiet: the reference leaves full
+  screen and turns the window transparent first (concealPendingQuitWindow), and Contract has neither.
+- Edit › Undo chosen from the menu while the undo notice claims ⌘Z is thread.undo, also with a field
+  focused, where the reference's menu item undoes the field's text (its ⌘Z is thread.undo then too).
+- Check for Updates… shows in every build. In a build with an update store its press would do nothing (the
+  module has no hook into the host's check); no build has one while `deploy.store` is `"0"`.
 - An external open the system cannot perform is not reported: Contract's `openURL` returns nothing, so the
   reference's "Unable to open link" and "Could not open the sign-in page" toasts do not appear.
 - A backdrop blur sees only its parent ([`issues/closed/20261010-macos-backdrop-beyond-parent.md`](../../issues/closed/20261010-macos-backdrop-beyond-parent.md);

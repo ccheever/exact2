@@ -119,5 +119,5 @@ test('the chord buttons are hidden from accessibility and keep their chords', ()
   const box = source.split('\n').find(line => line.includes('testId="keyboard-dispatch"'))!;
   expect(box).toContain('aria-hidden=true');
   const button = source.split('\n').find(line => line.includes('hatch="t3-terminal-key"'))!;
-  expect(button).toContain('aria-keyshortcuts=(held and editingChord(item.chord) ? "" : item.chord)'); // the device tab's rename field holds some (window-interaction.test.ts)
+  expect(button).toContain('aria-keyshortcuts=(item.command == "rightPanel.close" or (held and editingChord(item.chord)) ? "" : item.chord)'); // rightPanel.close is the window capture's (app-window.contract modifierDown); the device tab's rename field holds some (window-interaction.test.ts)
 });
