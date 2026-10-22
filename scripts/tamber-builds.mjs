@@ -549,6 +549,15 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
      * build that can (`id` null). The builds it went to, and those that
      * cannot inspect; inspect mode is its client's, turned off when it goes
      * (`clear`). */
+    /** `client`'s selection on build `id` moved `up` call sites (tamber/1.16 `inspect` `select`): sent to the page,
+     * which selects that ancestor and reports it as a click would; refused unless `client` inspects that build. */
+    selectUp(client, id, up, sites) {
+      sweep();
+      if (!listed().some(b => b.id === id)) return { error: `no registered build \`${id}\`` };
+      if (inspectors.get(id) !== client) return { error: `inspect is not on for \`${client}\` on \`${id}\`: turn it on first` };
+      frame(id, { kind: 'inspect', select: { up, sites } });
+      return { builds: [id] };
+    },
     inspect(client, id, { on = false, refresh = false } = {}) {
       sweep();
       if (id != null && !listed().some(b => b.id === id)) return { error: `no registered build \`${id}\`` };
@@ -754,4 +763,19 @@ export function streamFrame(res, text, latest) {
   if (res.writableLength <= BEHIND) { res.write(`data: ${text}\n\n`); return; }
   res.behind = true;
   res.once('drain', () => { res.behind = false; const f = latest(); if (f) res.write(`data: ${JSON.stringify(f)}\n\n`); });
+}
+
+/** `inspect` `{select: {up: n}, build}` (tamber/1.16): the selection inspect made on that build moves n call sites up,
+ * as a click on that ancestor would select it, past the root to the root; the inspecting client's alone (one at read
+ * never inspects). The answer as `inspect`'s. */
+export function selectRequest(channel, request, sitesOf) {
+  const up = request.select?.up;
+  if (!Number.isSafeInteger(up) || up < 1 || up > 64) return { status: 400, error: { message: '`select` is `{up: n}`, n a whole number from 1 to 64' } };
+  if (typeof request.build !== 'string') return { status: 400, error: { message: '`select` names the `build` whose selection moves' } };
+  // The plan sites of the ancestor n call sites up, by the last selection's map: the page selects the outermost of
+  // them above its selected node.
+  const sites = sitesOf(request.build, up);
+  if (!sites?.length) return { status: 409, error: { message: `\`${request.build}\` has no selection with a source map to move up from: select a node first` } };
+  const done = channel.selectUp(request.client, request.build, up, sites);
+  return done.error ? { status: 409, error: { message: done.error } } : { ok: done };
 }

@@ -11,6 +11,15 @@ shape FileDigest
 shape CanvasCheck
   refused: string
 
+shape ChainLink
+  text: string
+  up: number
+
+// A move of the selection up the chain (`inspect` `select`): sent, or why not.
+shape SelectUp
+  ok: bool
+  error: string
+
 shape Hello
   ok: bool
   error: string
@@ -273,7 +282,8 @@ shape Inspected
   node: number
   readOnly: string
   source: string
-  chain: string[]
+  // Each call site above it, innermost first, and how many up it is (tamber/1.16 `inspect` `select`).
+  chain: ChainLink[]
   // The grid column of the branch that won for it (its modes and scheme),
   // and that column's place, whole (every axis's value, the scheme).
   modes: string
@@ -773,6 +783,7 @@ component DesignTool
   // impact the inspector shows.
   resource inspected = loadSelection(changes.answer, design.answer, appAxes.answer) as shape Inspected else empty()
   mutation inspectSent as shape Pinned refreshes inspected
+  mutation selectedUp as shape SelectUp
   mutation holdSent as shape Pinned refreshes inspected
   state impactToken = ""
   resource uses = loadUses(impactToken, changes.paced) as shape Uses else empty(ok=true)
@@ -1188,6 +1199,9 @@ component DesignTool
   action toggleInspect
     if not pending(inspectSent)
       send inspectSent = sendInspect(client, not inspected.inspecting)
+  action selectUp(up: number)
+    if not pending(selectedUp)
+      send selectedUp = sendSelectUp(client, inspected.build, up)
   action showInitial(key: string)
     initialFor = key
   action editState(target: string, value: string)
@@ -1798,8 +1812,10 @@ component DesignTool
               else
                 column gap=4 testId="selection"
                   text inspected.source font="-exact-headline" testId="selection-source"
-                  for c in inspected.chain key=c
-                    text `in ${c}` color="-exact-secondary-label" font="-exact-footnote"
+                  // Each a press that selects that ancestor on the build, as a click on it would (tamber/1.16).
+                  for c in inspected.chain key=c.up
+                    button press=selectUp(c.up) disabled=(not inspected.inspecting or pending(selectedUp)) aria-label=`Select ${c.text}` testId=`selection-up-${c.up}`
+                      text `in ${c.text}` color="-exact-secondary-label" font="-exact-footnote"
                   text `${inspected.build}${inspected.modes != "" ? ` · ${inspected.modes}` : ""}` color="-exact-secondary-label" font="-exact-footnote" testId="selection-build"
                   if inspected.libraryIdentity != ""
                     column gap=2 testId="selection-library"

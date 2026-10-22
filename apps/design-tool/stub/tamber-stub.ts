@@ -265,6 +265,15 @@ Bun.serve({ hostname, port: Number(port), routes: {
         // and moving no inspect mode (ruling 5), as the server answers it.
         if (request.refresh === true && asker.scope !== 'write') return send({ ok: { selections: BUILDS.map(b => log.findLast(e => e.event === 'selection' && e.build === b.id)).filter(Boolean) } });
         if (!present.has(request.client)) return send({ error: { message: `inspect: \`${request.client}\` is not present` } }, 409);
+        // `select: {up}` (tamber/1.16): the build's page selects that ancestor, reported as a click would be: the last
+        // selection again, its source the call site `up` above and its chain what is left above that.
+        if (request.select) {
+          const last = log.findLast(e => e.event === 'selection' && e.build === request.build) as { source?: { chain?: unknown[] } } | undefined;
+          const chain = last?.source?.chain ?? [], up = Math.min(Number(request.select.up), chain.length);
+          if (!last || !up) return send({ error: { message: `\`${request.build}\` has no selection with a source map to move up from: select a node first` } }, 409);
+          log.push({ ...last, source: { ...(chain[up - 1] as object), chain: chain.slice(up) }, seq: seq() + 1 }); save();
+          return send({ ok: { builds: [request.build] } });
+        }
         // A refresh asks a build's page to report again, inspect mode as it is:
         // its last selection again, with the held look a test set (`/__stub/held-answer`).
         if (request.refresh && !('on' in request)) {
