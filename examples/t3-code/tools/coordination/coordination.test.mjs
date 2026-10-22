@@ -73,6 +73,8 @@ test('boot identity survives a hostname change without trusting another boot or 
   expect(processHostMatches({ host: 'before' }, now, { before: { bootId: 'boot-b' } })).toBe(false);
   expect(processHostMatches({ host: 'after' }, now)).toBe(true);
   expect(processHostMatches({ host: 'before', bootId: 'boot-b' }, now, { before: { bootId: 'boot-a' } })).toBe(false);
+  expect(processHostMatches({ host: 'after' }, now, { after: { bootId: 'boot-b' } })).toBe(false);
+  expect(processHostMatches({ host: 'after' }, now, { after: { bootId: 'boot-a' } })).toBe(true);
 });
 
 test('legacy hostname recovery requires a live owned launcher and never releases its process lease', async () => {

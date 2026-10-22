@@ -25,7 +25,8 @@ const bootId = (() => {
 export function processHostMatches(receipt, current, bindings = {}) {
   if (!receipt || !current) return false;
   if (receipt.bootId) return !!current.bootId && receipt.bootId === current.bootId;
-  return receipt.host === current.host || (!!current.bootId && bindings[receipt.host]?.bootId === current.bootId);
+  if (Object.hasOwn(bindings, receipt.host)) return !!current.bootId && bindings[receipt.host]?.bootId === current.bootId;
+  return receipt.host === current.host;
 }
 export function processIdentity(pid) {
   try {
