@@ -262,7 +262,7 @@ describe('sent attachment preview (AttachmentFilePreview)', () => {
     expect(view.attachment.code.map(block => block.code)).toContain('const x = 1;');
     expect(view.attachment.md.chips).toEqual([]);
     expect(view.attachment.diagrams.map(diagram => [diagram.code, diagram.dark.diagram])).toEqual([[flow, 'loading']]);
-    noteMermaidFrame(JSON.stringify({ status: 'rendered', width: 120, height: 80, theme: 'dark', source: flow }));
+    noteMermaidFrame(JSON.stringify({ status: 'rendered', width: 120, height: 80, theme: 'dark', source: flow, view: 'file' }));
     view = await panelView(client, native, 1);
     expect(view.attachment.diagrams[0]).toMatchObject({ code: flow, dark: { diagram: 'rendered', width: 120 } });
     diagramPreviewAction(client, 'diagram-open', flow);

@@ -20,6 +20,7 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["setting-glass-opacity", "Glass opacity", "appearance", "", "transparent transparency solid menus dialogs composer", "", ""],
   ["diff-color-scheme", "Diff colors", "appearance", "", "red green blue orange additions deletions changes counts palette colorblind", "", ""],
   ["chat-width", "Chat width", "appearance", "", "wide full width column layout messages composer monitor", "", ""],
+  ["math-rendering", "Render math", "appearance", "", "latex tex katex equations formulas markdown", "", ""],
   ["panel-animations", "Panel animations", "appearance", "", "", "", ""],
   ["environment-identification", "Environment identification", "appearance", "appearance-interface", "dev nightly artwork pill label hide none", "", ""],
   ["interface-font", "Interface font", "appearance", "", "typography family size system sans", "", ""],

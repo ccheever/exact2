@@ -29,14 +29,17 @@
   const encoded = value => {
     try { const text = JSON.stringify(value); return encoder.encode(text).byteLength <= maxBytes ? text : null; } catch { return null; }
   };
-  const emit = message => {
-    const text = encoded({ t3Document: config.token, message });
+  // McpAppFrame opens full screen only right after input in the app: this page holds the app's frame, so a tap
+  // there gives it the focus and this page the activation; input elsewhere in the host never reaches this web view.
+  const activation = () => ({ focused: document.hasFocus() && document.activeElement === frame, active: navigator.userActivation?.isActive === true });
+  const emit = (message, extra) => {
+    const text = encoded({ t3Document: config.token, message, ...extra });
     if (text !== null) parent.postMessage(text, direct ? '*' : hostOrigin);
   };
   addEventListener('message', event => {
     if (revoked) return;
     if (event.source === frame.contentWindow && event.origin === 'null') {
-      if (validMessage(event.data) && encoded(event.data) !== null) emit(event.data);
+      if (validMessage(event.data) && encoded(event.data) !== null) emit(event.data, event.data.method === 'ui/request-display-mode' ? { activation: activation() } : undefined);
       return;
     }
     // Native direct guests receive an isolated-world synthesized event. Web

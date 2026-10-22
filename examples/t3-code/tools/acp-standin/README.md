@@ -26,7 +26,9 @@ thought over a running tool, and the settled row name that thread by its title. 
 thread <id> for <n>s" holds a running `t3_thread_wait` tool call on that id for n seconds, so the
 server reports the turn blocked on another thread (the sidebar's Waiting); "Link the thread <id>"
 replies with a `t3-thread://v1/<id>` link (a thread chip); "Fail the turn" fails the turn with a
-provider's JSON error whose message is a sentence (the thread error banner's message). Each new or
+provider's JSON error whose message is a sentence (the thread error banner's message). "Show the
+Markdown sample pausing <n>s" replies with a Mermaid flowchart, then n seconds later a sequence
+diagram, a table and two display formulas, so a drive sees a closed fence drawn mid-reply. Each new or
 loaded session advertises one skill, `$frontend-design` (`available_commands_update`, which T3
 lists under `$` as a skill), so a stand-in thread's composer can hold a skill chip. It
 advertises `loadSession`, and `session/load` brings a session back with no history (it keeps
