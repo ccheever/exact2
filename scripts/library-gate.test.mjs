@@ -12,6 +12,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { cellsFor, conditional, markedSlot, option, placements, uncommented } from './library-gate.mjs';
+import { SLOTTED } from './stage12-gate.mjs';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const APP = join(ROOT, 'apps/library-gate/app.contract');
@@ -27,6 +28,8 @@ test('every exported component, once per variant value, every cell rendered, eve
   const library = ir();
   const names = library.map(c => c.name);
   expect(names.sort()).toEqual(['ActionRow', 'AtCard', 'ListRow', 'PostButton', 'PostCard', 'ProfileHeader', 'SwitchRow']);
+  // The gate's slot-rendered line reads every component with a slot.
+  expect(library.filter(c => c.parts.some(p => p.slot)).map(c => c.name).sort()).toEqual([...SLOTTED].sort());
   const app = readFileSync(APP, 'utf8');
   // One component, the root, so every placement is in the rendered view.
   expect([...app.matchAll(/^component (\w+)/gm)].map(m => m[1])).toEqual(['App']);
