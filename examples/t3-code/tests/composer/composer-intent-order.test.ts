@@ -11,6 +11,7 @@ const source = readFileSync(appPath('app.contract'), 'utf8').split('\n');
 const record = (fields: Env) => fields;
 const sum = (xs: number[]) => xs.reduce((a, x) => a + x, 0);
 const chipFns = contractFns('src/composer/composer-rich.contract', {sum});
+const keyFns = contractFns('src/composer/composer-keys.contract');
 const chipsOf = (text: string) => composerRichProjection({value: text, owner: 'draft', styling: true, literal: false}).chips;
 function fixture(initial = 'word', caret = initial.length) {
   const client = {snapshotOwner: 'snapshot'};
@@ -30,7 +31,7 @@ function fixture(initial = 'word', caret = initial.length) {
   const observations: unknown[][] = [];
   const scope = (): Env => {
     const env: Env = {
-      data: {snapshotOwner: client.snapshotOwner, requestKey: '', requestMode: ''}, richComposerOwner: 'draft', composerOwner: 'draft',
+      data: {snapshotOwner: client.snapshotOwner, requestKey: '', requestMode: '', composer: {sendChords: 'Meta+Enter', sendCommandChords: ''}}, richComposerOwner: 'draft', composerOwner: 'draft', shortcuts: [], ...keyFns,
       composerText: state.draft, richComposer: projection, composerFieldLive: true, composerRequiresModifier: false, composerShift: false, composerCommand: false,
       editor: {menu: {open: false}, stash: {menuOpen: false}}, composerInCode: false, composerInList: false, composerCodeStart: false,
       first: (items: unknown[]) => items[0], ComposerIntentMetadata: record, ComposerFieldObservation: record, composerFieldObserved: (...args: unknown[]) => {observations.push(args); return {};}, command: () => '',

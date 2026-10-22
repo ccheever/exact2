@@ -110,11 +110,8 @@ component ShortcutDispatch
         // A command whose argument is its value (composer.cycleHost → environment-run-on).
         if item.kind == "command-value"
           ShortcutButton(item=item, press=command(item.target, "", item.extra, 0))
-        // ⌥↑ (thread.editQueuedMessage) is no menu chord; the native composer presses this
-        // button only with the caret at the very start (T3ComposerQueueKey.swift), so elsewhere the key moves the caret.
-        if item.kind == "composer-key"
-          button hatch="t3-composer-key" data-anchor=`queued-edit|${item.chord}` press=command(item.target, item.extra, "", 0) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true
-            text item.label font-size=1
+        // ⌥↑ (thread.editQueuedMessage, kind "composer-key") is no menu chord: the composer takes it only with the caret
+        // at the very start (app.contract composerKeyEvent), so elsewhere the key moves the caret.
 
 // The commands the reference's bubble-phase window listeners take (74541bab17: CommandPalette.tsx's palette, theme and
 // usage commands, Sidebar.tsx's traversal and jumps, AppSidebarLayout.tsx's navigation, _chat.tsx's new-thread and preview

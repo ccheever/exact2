@@ -1,9 +1,8 @@
 #if os(macOS)
 import AppKit
 
-/// Intercepts large text pastes and the open command menus' keys. Exact
-/// remains the text/selection delegate and every other command's; its shared
-/// field owns every source edit.
+/// Intercepts large text pastes. Exact remains the text/selection delegate and
+/// every command's; its shared field owns every source edit.
 final class T3ComposerTextDelegate: NSObject, NSTextViewDelegate {
     weak var inner: NSObject?
     weak var editor: T3ComposerEditor?
@@ -18,10 +17,6 @@ final class T3ComposerTextDelegate: NSObject, NSTextViewDelegate {
         if editor?.shouldChange(textView, range: range, text: text) == false { return false }
         return (inner as? NSTextViewDelegate)?.textView?(textView, shouldChangeTextIn: range, replacementString: text) ?? true
     }
-    func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-        if editor?.menuCommand(selector, in: textView) == true { return true }
-        return (inner as? NSTextViewDelegate)?.textView?(textView, doCommandBy: selector) ?? false
-    }
 }
 
 /// Observes the mounted composer and holds large pastes until the shared field
@@ -33,8 +28,6 @@ final class T3ComposerEditor {
     private(set) weak var textView: NSTextView?
     private weak var element: ExactElement?
     private let proxy = T3ComposerTextDelegate()
-    private final class Key { weak var element: ExactElement?; init(_ element: ExactElement) { self.element = element } }
-    private var keys: [String: Key] = [:]
     private struct Owner: Equatable {
         let snapshot: String
         let field: String
@@ -60,11 +53,6 @@ final class T3ComposerEditor {
     }
 
     func install(_ element: ExactElement) {
-        if element.hatch == .t3ComposerKey {
-            let name = element.data[.anchor] ?? ""
-            if !name.isEmpty { keys[name] = Key(element) }
-            return
-        }
         guard element.hatch == .t3Composer else { return }
         if self.element !== element || textView !== element.textView {
             detach()
@@ -79,10 +67,9 @@ final class T3ComposerEditor {
     }
 
     func remove(_ element: ExactElement) {
-        for (name, key) in keys where key.element == nil || key.element === element { keys[name] = nil }
         if self.element === element { detach() }
     }
-    func destroy() { detach(); keys.removeAll() }
+    func destroy() { detach() }
 
     private func detach() {
         if let view = textView {
@@ -92,56 +79,6 @@ final class T3ComposerEditor {
         textView = nil
         element = nil
         resetOwner(Owner(snapshot: "", field: ""))
-    }
-
-    func key(_ name: String) -> ExactElement? {
-        guard let element = keys[name]?.element, element.isLive else { return nil }
-        return element
-    }
-
-    /// An open command or stash menu's keys (ChatComposer onComposerCommandKey, ComposerStashMenu):
-    /// its hidden key buttons are mounted only while it is open, and take ↑, ↓,
-    /// Return, Tab (the highlighted item) and Escape before the field's own command.
-    func menuCommand(_ selector: Selector, in view: NSTextView) -> Bool {
-        guard view === textView, view.isEditable, !view.hasMarkedText() else { return false }
-        if let step = Self.arrow(selector, NSApp.currentEvent) {
-            // ⌥↓ is two commands (moveForward:, moveToEndOfParagraph:): its first press holds the second.
-            if let event = NSApp.currentEvent, event === arrowEvent { return true }
-            let pressed = step > 0 ? press("ArrowDown") || press("stash-ArrowDown") : press("ArrowUp") || press("stash-ArrowUp")
-            arrowEvent = pressed ? NSApp.currentEvent : nil
-            return pressed
-        }
-        switch selector {
-        case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
-            return press("Enter") || press("stash-Enter")
-        case #selector(NSResponder.insertTab(_:)): return press("Enter")
-        case #selector(NSResponder.cancelOperation(_:)): return press("Escape") || press("stash-Escape")
-        case #selector(NSResponder.deleteToBeginningOfLine(_:)): return press("stash-Delete")
-        default: return false
-        }
-    }
-    private weak var arrowEvent: NSEvent?
-    /// The menus read `event.key` (onComposerCommandKey, ComposerStashMenu), so ↑ and ↓ move the highlight with
-    /// any modifier held, ⇧ included, while ⌃N and ⌃P, which AppKit binds to moveDown: and moveUp: too, move the
-    /// caret. With no key event (a command sent directly), the selector alone decides.
-    static func arrow(_ selector: Selector, _ event: NSEvent?) -> Int? {
-        if let event, event.type == .keyDown {
-            switch event.charactersIgnoringModifiers?.unicodeScalars.first.map({ Int($0.value) }) {
-            case NSDownArrowFunctionKey: return 1
-            case NSUpArrowFunctionKey: return -1
-            default: return nil
-            }
-        }
-        switch selector {
-        case #selector(NSResponder.moveDown(_:)): return 1
-        case #selector(NSResponder.moveUp(_:)): return -1
-        default: return nil
-        }
-    }
-    private func press(_ name: String) -> Bool {
-        guard let key = key(name) else { return false }
-        key.click()
-        return true
     }
 
     private func refreshOwner() {

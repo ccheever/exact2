@@ -42,6 +42,8 @@ fn prCheckStatus(rollup: string): string = rollup == "passing" ? "success" : rol
 // ThreadDetailsPrRows: the current pull request's row, then (with other links)
 // "Show N more" and, expanded, one row per other link.
 component DetailsPrRows
+  inject
+    frameMoved: action
   props
     prs: DetailsPrRowList
     act: action
@@ -56,7 +58,7 @@ component DetailsPrRows
       // The other links as one list (data-thread-details-pr-list): it scrolls with the card, so the
       // details card's density leaves its height out (thread-details-card-layout.ts).
       if prs.rest.length > 0
-        column width="100%" hatch="t3-frame" data-frame="details-pr-list"
+        column width="100%" id="frame-details-pr-list" resize=frameMoved
           for row in prs.rest key=row.key
             DetailsPrRowView(row=row, act=act, local=local)
       if prs.moreLabel != ""
