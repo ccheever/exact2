@@ -653,6 +653,9 @@ uint32_t exact_midi(ExactRuntime rt, size_t len);
 /* @ref LLP 1124 D7: the agent's `prefer extension`, JSON in the input buffer:
  * a native module source's preferred value. Returns the batch length. */
 uint32_t exact_extension(ExactRuntime rt, size_t len);
+/* A module event the platform reported (LLP 1133.004 D6): {"extension",
+ * "event", "args", "activation"} in the input buffer; the batch's length. */
+uint32_t exact_module_event(ExactRuntime rt, size_t len);
 /* @ref LLP 1133.001 D4: the extensions the app's module composes, one name a
  * line in the input buffer: the runner sends their names to the module. A
  * line `agent <name>` is an implementation bound under the agent, which

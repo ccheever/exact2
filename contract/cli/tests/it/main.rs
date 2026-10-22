@@ -98,6 +98,7 @@ mod menus;
 mod midi;
 mod migrate;
 mod miswiring;
+mod module_events;
 mod module_seam;
 mod module_views;
 mod modules;

@@ -157,6 +157,8 @@ impl<D: DataSource> Runner<D> {
         if state != "prompt" {
             self.status_fields(&rows, name, which, asked);
         }
+        // The answerless sends held on it are done or refused (LLP 1133.004 §7).
+        self.settle_effects(name, state);
         // An implementation bound under the agent hears the states and the
         // status it now answers beside (LLP 1133.019 §10: a picture of a
         // photo the person took back is revoked).

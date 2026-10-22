@@ -255,6 +255,19 @@ impl<D: DataSource> Bridge<D> {
             .map_or_else(not_booted, |h| h.extension(&text));
         self.emit(out)
     }
+
+    /// A module event the platform reported, in the input buffer
+    /// (`Host::module_event`, LLP 1133.004 D6).
+    pub fn module_event(&mut self, len: usize) -> u32 {
+        let text = std::str::from_utf8(&self.input[..len.min(self.input.len())])
+            .unwrap_or("")
+            .to_owned();
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.module_event(&text));
+        self.emit(out)
+    }
 }
 
 /// The presenter's clock in the runner's milliseconds (`ExactEnv.wall`).

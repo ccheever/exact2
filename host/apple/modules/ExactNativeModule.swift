@@ -98,11 +98,16 @@ public final class ExactModuleContext: @unchecked Sendable {
     var ticks: [UInt64: (ExactFrame) -> Void] = [:], afters: [UInt64: () -> Void] = [:]
     private var nextToken: UInt64 = 1
 
+    /// Who posts what an activation is for (LLP 1133.004 D7): the session, its owner, the process.
+    let poster: [String: String]
+    var emitted: UInt64 = 0
+
     init(json: [String: Any], host: UnsafeMutableRawPointer?, changed: @escaping ExactModuleChangedFn, now: @escaping ExactModuleNowFn) {
         diagnostics = ExactDiagnostics(host: host, scope: "module", node: 0)
         let url = { (key: String) in URL(fileURLWithPath: json[key] as? String ?? NSTemporaryDirectory(), isDirectory: true) }
         agent = json["agent"] as? Bool ?? false
         data = url("data"); cache = url("cache"); temporary = url("temporary")
+        poster = ["session", "owner", "process"].reduce(into: [:]) { $0[$1] = json[$1] as? String ?? "" }
         self.host = host; changedFn = changed; nowFn = now
     }
 

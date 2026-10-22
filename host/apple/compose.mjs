@@ -29,6 +29,7 @@ export function composedModule(packages, ownModule) {
     `        impl = ${p.className}(context: context)`,
     '    }',
     '    override func later(_ name: String, _ args: [String: Any], preferred: Any?, origin: String, request: Int?, reply: ExactReply) { context.origin = origin; context.request = request; impl.later(name, args, preferred: preferred) { reply.send($0) } }',
+    '    override func ask(_ name: String, _ args: [String: Any], answer: @escaping ([String: Any]) -> Void) { impl.later(name, args, preferred: nil, reply: answer) }',
     '    override func call(_ name: String, _ args: [String: Any]) throws -> [String: Any] { try impl.call(name, args) }',
     '    override func release(_ name: String) { impl.release(name) }',
     '    override func release(_ name: String, args: [String: Any]) { impl.release(name, args: args) }',

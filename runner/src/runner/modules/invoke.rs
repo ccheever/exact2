@@ -92,6 +92,7 @@ impl<D: DataSource> Runner<D> {
             grant.handlers.clone()
         };
         let origin = match body["origin"].as_str() {
+            Some("device") => CallOrigin::Device,
             Some("wake") => CallOrigin::Wake,
             Some("tool") => CallOrigin::Tool,
             _ => CallOrigin::App,

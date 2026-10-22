@@ -161,6 +161,20 @@ impl<D: DataSource> Runner<D> {
         };
         if origin != super::CallOrigin::App {
             body["origin"] = json!(origin.word());
+            // A call not the app's that would ask (LLP 1133.002 D12): the
+            // host reads the status first and refuses it while `prompt`,
+            // since only the implementation knows the platform's state.
+            let sub = self.substitute(row);
+            if self.asks(row, row.send)
+                && sub["admission"] != "none"
+                && sub["permission"]["status"].is_string()
+            {
+                body["admit"] = json!({
+                    "status": sub["permission"]["status"],
+                    "field": sub["permission"]["field"],
+                    "denied": sub["permission"]["denied"],
+                });
+            }
         }
         // A send's number, which `cancel` names if it is let go (LLP 1133.016 D15 item 2).
         if row.send {

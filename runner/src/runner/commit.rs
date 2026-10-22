@@ -265,6 +265,7 @@ impl<D: DataSource> Runner<D> {
         for m in std::mem::take(&mut self.landed) {
             if stood && self.plan.mutations[m].then.is_some() {
                 self.then_due[m] = self.armed_at();
+                self.note_then(m);
             }
         }
     }
@@ -628,6 +629,9 @@ impl<D: DataSource> Runner<D> {
             ));
         }
         self.take_set_modes(first_command);
+        // A module's sends that answer nothing (LLP 1133.004 D5): the
+        // runner's, run once the commit stands.
+        let effects = self.take_module_effects(first_command);
         // The scheme and root size a development host holds: kept as asked, not applied (LLP 1122 T7).
         self.take_held(first_command);
         // `setRootFontSize` is the runner's too: the size lands in this
@@ -681,6 +685,7 @@ impl<D: DataSource> Runner<D> {
                 self.log(line);
             }
             self.apply_sounds(first_command);
+            self.run_module_effects(effects);
         }
         result
     }
@@ -1162,7 +1167,8 @@ impl<D: DataSource> Runner<D> {
         let origin = self.ticket_origin(ticket);
         let result = self.as_origin(origin, |r| r.fulfill_inner(p, outcome));
         self.conclude(checkpoint, &result, was_poisoned);
-        self.arm_then(result.is_ok());
+        // Its `then` runs under the same origin.
+        self.as_origin(origin, |r| r.arm_then(result.is_ok()));
         self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
         if let (Some(handles), Err(_)) = (handles, &result) {

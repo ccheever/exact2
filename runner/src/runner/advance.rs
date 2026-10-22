@@ -382,7 +382,11 @@ impl<D: DataSource> Runner<D> {
                 let action = self.plan.mutations[m].then.expect("armed only with a then");
                 let was_poisoned = self.poisoned;
                 let ticket = self.next_ticket;
-                let result = self.scheduled(at, |r| r.run_action(action, Vec::new(), &[]));
+                // A `then` runs under its answer's origin (LLP 1133.002 D12).
+                let origin = self.then_origin(m);
+                let result = self.as_origin(origin, |r| {
+                    r.scheduled(at, |r| r.run_action(action, Vec::new(), &[]))
+                });
                 match result {
                     Ok(receipt) => receipts.push(Timed {
                         at_ms: self.now_ms,

@@ -119,7 +119,7 @@ pub use runner::{
     Write, BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS, PICKED, QUEUE_BOUND, RESIZE_UNDELIVERED,
     TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };
-pub use runner::{LiveApplied, LiveRefusal, Place, Tamber};
+pub use runner::{AppState, LiveApplied, LiveRefusal, Place, Tamber};
 /// The binding core's names (LLP 1121 D12): what `contract tamber gen rust`
 /// writes (`pub const SURFACE_CARD: Token<Color>`) and resolves.
 pub mod tamber {
