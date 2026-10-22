@@ -33,15 +33,19 @@ export interface HomeActionResult {
 }
 interface Surface { requestRoute: string; homeVisible: boolean; sidebarVisible: boolean }
 interface Uncertain { origin: string; environmentId: string; threadId: string; payload: Obj; before: Obj }
+interface HomeDismissalScope { requestRoute: string; environmentId: string; threadId: string; origin: string; generation: number; resetKey: string }
+interface HomeDismissalRecovery { scope: HomeDismissalScope; token: string; recoveryGeneration: number }
 const surfaces = new WeakMap<T3Client, Surface>();
 const locks = new WeakMap<T3Client, Set<string>>();
 const uncertainWrites = new WeakMap<T3Client, Map<string, Uncertain>>();
+const dismissalRecoveries = new WeakMap<T3Client, { serial: number; rows: Map<string, HomeDismissalRecovery> }>();
 function lockSet(client: T3Client) { let value = locks.get(client); if (!value) { value = new Set(); locks.set(client, value); } return value; }
 function uncertainSet(client: T3Client) { let value = uncertainWrites.get(client); if (!value) { value = new Map(); uncertainWrites.set(client, value); } return value; }
 
 /** Root observes both current surfaces with identical inputs; this performs no I/O. */
 export function mobileHomeActionsObserve(requestRoute: string, homeVisible: boolean, sidebarVisible: boolean, client: T3Client = mobileClient): void {
   const prior = surfaces.get(client);
+  if (prior?.requestRoute !== requestRoute) dismissalRecoveries.get(client)?.rows.clear();
   if (!prior || prior.requestRoute !== requestRoute || prior.homeVisible !== homeVisible || prior.sidebarVisible !== sidebarVisible)
     surfaces.set(client, { requestRoute, homeVisible, sidebarVisible });
 }
@@ -50,6 +54,37 @@ function row(environmentId: string, threadId: string, client: T3Client, backgrou
   const thread = environment?.shell.threads.find(value => value.id === threadId && sidebarVisible(value));
   const scopes = environment?.focused ? client.scopes : background.entries.get(environment?.key ?? '')?.scopes ?? [];
   return { environment, thread, allowed: !!environment?.connected && scopes.includes('orchestration:operate') };
+}
+function dismissalScope(current: ReturnType<typeof row>, now: number, queued: boolean, client: T3Client, background: EnvironmentFleet): HomeDismissalScope | undefined {
+  const { environment, thread } = current, requestRoute = surfaces.get(client)?.requestRoute;
+  if (!environment || !thread || requestRoute === undefined) return undefined;
+  const endpoint = environment.focused ? client : background.entries.get(environment.key);
+  if (!endpoint) return undefined;
+  return { requestRoute, environmentId: environment.environmentId, threadId: str(thread.id), origin: endpoint.origin, generation: endpoint.generation,
+    // Recovery is presentation cleanup, including after an operation grant is lost.
+    resetKey: homeSwipePolicy(thread, capabilities(environment.config), now, queued, true, environment.environmentId).resetKey };
+}
+function sameDismissalScope(left: HomeDismissalScope, right: HomeDismissalScope | undefined): boolean {
+  return !!right && left.requestRoute === right.requestRoute && left.environmentId === right.environmentId && left.threadId === right.threadId
+    && left.origin === right.origin && left.generation === right.generation && left.resetKey === right.resetKey;
+}
+function captureDismissalRecovery(scope: HomeDismissalScope, token: string, client: T3Client): HomeDismissalRecovery {
+  let owner = dismissalRecoveries.get(client);
+  if (!owner) { owner = { serial: 0, rows: new Map() }; dismissalRecoveries.set(client, owner); }
+  const key = JSON.stringify([scope.environmentId, scope.threadId]), previous = owner.rows.get(key);
+  const attempt = { scope, token, recoveryGeneration: previous && sameDismissalScope(previous.scope, scope) ? previous.recoveryGeneration : 0 };
+  owner.rows.set(key, attempt);
+  return attempt;
+}
+function finishDismissalRecovery(attempt: HomeDismissalRecovery, committed: boolean, now: number, client: T3Client, background: EnvironmentFleet): void {
+  const owner = dismissalRecoveries.get(client), key = JSON.stringify([attempt.scope.environmentId, attempt.scope.threadId]);
+  if (!owner || owner.rows.get(key) !== attempt || !attempt.token) return;
+  const current = row(attempt.scope.environmentId, attempt.scope.threadId, client, background);
+  const queued = homeOrderState(client).queuedThreadKeys.includes(`${attempt.scope.environmentId}:${attempt.scope.threadId}`);
+  if (!sameDismissalScope(attempt.scope, dismissalScope(current, now, queued, client, background))) { owner.rows.delete(key); return; }
+  attempt.token = '';
+  if (!committed) attempt.recoveryGeneration = ++owner.serial;
+  else if (attempt.recoveryGeneration === 0) owner.rows.delete(key);
 }
 function item(id: string, label: string, symbol = '', extra: Partial<HomeMenuItem> = {}): HomeMenuItem {
   return { id, parentId: '', label, operation: id, value: '', symbol, subtitle: '', destructive: false, checked: false, disabled: false, ...extra };
@@ -157,10 +192,17 @@ export function mobileHomeRowProjection(live: readonly LiveEnvironment[], now: n
   };
   let formattedPresets: ReturnType<typeof mobileHomeSnoozePresets> | undefined;
   const presets = () => formattedPresets ??= mobileHomeSnoozePresets(now);
+  const recovery = dismissalRecoveries.get(client);
+  if (recovery) for (const [key, attempt] of recovery.rows) {
+    const { environmentId, threadId } = attempt.scope, current = resolve(environmentId, threadId);
+    if (!sameDismissalScope(attempt.scope, dismissalScope(current, now, order.queuedThreadKeys.has(`${environmentId}:${threadId}`), client, background)))
+      recovery.rows.delete(key);
+  }
   return {
     swipe: (environmentId: string, threadId: string) => projectHomeSwipe(resolve(environmentId, threadId), now,
       order.queuedThreadKeys.has(`${environmentId}:${threadId}`), presets),
     menu: (environmentId: string, threadId: string) => projectHomeMenu(resolve(environmentId, threadId), now, order, presets),
+    recoveryGeneration: (environmentId: string, threadId: string) => recovery?.rows.get(JSON.stringify([environmentId, threadId]))?.recoveryGeneration ?? 0,
   };
 }
 const titles: Record<string, string> = { rename: 'Could not rename thread', delete: 'Could not delete thread',
@@ -258,6 +300,9 @@ export async function mobileHomeAction(requestRoute: string, environmentId: stri
   if (!initial.allowed || !initial.thread || !initial.environment || !nativeInput?.available) return result('This connection cannot change threads.');
   held.add(key); client.revision++;
   let sent = false, acknowledged = false, refused = false, payload: Obj = {};
+  let finishDismissal: ((committed: boolean) => Promise<void>) | undefined;
+  let dismissalRecovery: HomeDismissalRecovery | undefined;
+  let eligibilityTime = now;
   try {
     const base = letGoAware(mobileNative(nativeInput));
     const guarded: Native = { available: base.available, watch: topic => { check(); base.watch(topic); }, later: async input => {
@@ -285,7 +330,6 @@ export async function mobileHomeAction(requestRoute: string, environmentId: stri
       if (!state.allowed || !state.thread) throw new ClientError('That thread is no longer available.');
       return state.thread;
     };
-    let eligibilityTime = now;
     const available = () => {
       const thread = freshThread(), caps = capabilities(row(environmentId, threadId, client, background).environment!.config);
       if (['settle', 'unsettle'].includes(kind) && !caps.settlement) throw new ClientError("This environment's server does not support settling yet. Update the server to use Settle.");
@@ -365,6 +409,30 @@ export async function mobileHomeAction(requestRoute: string, environmentId: stri
     try { await local({ op: 'mobileHomeHaptic', kind: 'light' }); } catch (error) { if (letGo(error)) throw error; }
     const [commandId] = await environment.ids(1); available();
     if (kind === 'archive' && !mobileHomeCanArchive(freshThread())) throw new ClientError('This thread is working. Interrupt it first, then try again.');
+    if (['settle', 'unsettle', 'unsnooze', 'archive', 'delete'].includes(kind) || kind.startsWith('snooze:')) {
+      // Capture the token before the cancellable wait. Cleanup intentionally uses
+      // the local native owner, even after route/endpoint admission has changed.
+      const dismiss = async (phase: string, token = '', committed = false) => {
+        const reply = await bridgeReply(base, { op: 'mobileHomeDismissal', phase, token, committed,
+          requestRoute, environmentId, threadId, origin, generation });
+        if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind);
+        return obj(reply.value);
+      };
+      const recoveryScope = dismissalScope(row(environmentId, threadId, client, background), eligibilityTime,
+        homeOrderState(client).queuedThreadKeys.includes(`${environmentId}:${threadId}`), client, background);
+      const prepared = await dismiss('prepare'), token = str(prepared.token);
+      if (prepared.token !== undefined && !token) throw new ClientError('The thread dismissal capture was invalid.');
+      if (token) {
+        finishDismissal = async committed => { await dismiss('finish', dismissalRecovery?.token || token, committed); };
+        check();
+        if (recoveryScope) dismissalRecovery = captureDismissalRecovery(recoveryScope, token, client);
+        const completion = await dismiss('begin', token);
+        if (completion.token !== token || completion.completed !== true) throw new ClientError('The thread dismissal did not finish.');
+        await grant(); available();
+      }
+      available();
+      if (kind === 'archive' && !mobileHomeCanArchive(freshThread())) throw new ClientError('This thread is working. Interrupt it first, then try again.');
+    }
     payload.commandId = commandId!;
     await environment.request('orchestration.dispatchCommand', payload, true);
     return currentSurface() ? result('', '', kind === 'archive' || kind === 'delete') : result();
@@ -374,7 +442,13 @@ export async function mobileHomeAction(requestRoute: string, environmentId: stri
     if (letGo(error)) throw error;
     return currentSurface() ? result((error instanceof Error ? error.message : 'The action could not be completed.')
       + (uncertain ? ' The request may have reached the server. Refresh the thread before retrying.' : ''), '', false, uncertain) : result();
-  } finally { held.delete(key); client.revision++; }
+  } finally {
+    // Pending/route retirement and native teardown also release captured rows.
+    // Cleanup must not change write outcomes.
+    if (finishDismissal) await finishDismissal(acknowledged).catch(() => undefined);
+    if (dismissalRecovery) finishDismissalRecovery(dismissalRecovery, acknowledged, eligibilityTime, client, background);
+    held.delete(key); client.revision++;
+  }
 }
 
 /** Source moveThread: one shared order hold and sequential assignments across captured endpoints. */

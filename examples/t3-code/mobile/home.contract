@@ -104,6 +104,7 @@ shape HomeItem
   searchExcerpt: string
   menuItems: HomeMenuItem[]
   nativeMenu: string
+  dismissalIdentity: string
   swipe: HomeSwipeData
 
 component Home
@@ -336,7 +337,60 @@ component HomeListItem
     toggleShelf: action
     showMore: action
     colors: HomeColors
+  state exitIdentity = ""
+  state exitToken = ""
+  state exitRegistration = 0
+  state exitPhase = "idle"
+  state exitStarted = 0
+  state exitWidth = 0
+  state exitHeight = 0
+  state exitFrom = 0
+  state exitProgress = 0
+  derive exiting = exitToken != "" and exitIdentity == item.dismissalIdentity
+  derive collapsing = exiting and (exitPhase == "collapse" or exitPhase == "collapsed")
+  derive exitEase = 1 - (1 - exitProgress) * (1 - exitProgress) * (1 - exitProgress)
+  derive exitTarget = min(exitFrom, 0 - exitWidth)
   derive swipeOffset = dragToken == item.swipe.token and item.swipe.token != "" ? dragOffset : openToken == item.swipe.token and item.swipe.token != "" ? (item.swipe.secondary == "" ? -58 : -116) : 0
+  derive exitOffset = exiting ? (exitPhase == "out" ? exitFrom + (exitTarget - exitFrom) * exitEase : exitTarget) : swipeOffset
+  derive swipeTransition = exitToken != "" or dragToken == item.swipe.token or reducedMotion ? "none" : "translate -exact-spring(330, 26, 0.7)"
+  action resetDismissal
+    exitIdentity = ""
+    exitToken = ""
+    exitRegistration = 0
+    exitPhase = "idle"
+    exitStarted = 0
+    exitWidth = 0
+    exitHeight = 0
+    exitFrom = 0
+    exitProgress = 0
+  action dismissalEvent(message: string)
+    let parts = message.split("|")
+    if parts.length == 5 and homeSwipeField(parts, 0) == "2" and homeSwipeField(parts, 1) == item.dismissalIdentity and homeSwipeInteger(parts, 2) and homeSwipeNumber(parts, 2) > 0 and homeSwipeNumber(parts, 2) == exitRegistration and homeSwipeField(parts, 3) != "" and homeSwipeField(parts, 3) == exitToken and homeSwipeField(parts, 4) == "retired"
+      resetDismissal()
+    else if parts.length == 8 and homeSwipeField(parts, 0) == "2" and homeSwipeField(parts, 1) == item.dismissalIdentity and homeSwipeInteger(parts, 2) and homeSwipeNumber(parts, 2) > 0 and homeSwipeField(parts, 3) != "" and homeSwipeFinite(parts, 5) and homeSwipeFinite(parts, 6) and homeSwipeNumber(parts, 6) > 0 and homeSwipeFinite(parts, 7) and homeSwipeNumber(parts, 7) > 0
+      let phase = homeSwipeField(parts, 4)
+      if phase == "out"
+        exitIdentity = item.dismissalIdentity
+        exitToken = homeSwipeField(parts, 3)
+        exitRegistration = homeSwipeNumber(parts, 2)
+        exitStarted = homeSwipeNumber(parts, 5)
+        exitWidth = homeSwipeNumber(parts, 6)
+        exitHeight = homeSwipeNumber(parts, 7)
+        exitFrom = swipeOffset
+        exitProgress = reducedMotion ? 1 : 0
+        exitPhase = reducedMotion ? "out-done" : "out"
+      else if exiting and exitToken == homeSwipeField(parts, 3) and exitRegistration == homeSwipeNumber(parts, 2)
+        if phase == "collapse"
+          exitStarted = homeSwipeNumber(parts, 5)
+          exitProgress = reducedMotion ? 1 : 0
+          exitPhase = reducedMotion ? "collapsed" : "collapse"
+        else if phase == "restore"
+          resetDismissal()
+        else if phase == "tick" and (exitPhase == "out" or exitPhase == "collapse")
+          let progress = min(1, max(0, (homeSwipeNumber(parts, 5) - exitStarted) / (exitPhase == "out" ? 220 : 180)))
+          exitProgress = progress
+          if progress == 1
+            exitPhase = exitPhase == "out" ? "out-done" : "collapsed"
   derive menuId = `home-menu-${surface}-${item.key}`
   derive statusColor = item.statusTone == "approval" or item.statusTone == "limited" ? colors.warning : item.statusTone == "input" ? colors.inputStatus : item.statusTone == "working" ? colors.workingStatus : item.statusTone == "failed" ? colors.dangerForeground : item.statusTone == "done" ? colors.done : colors.tertiary
   derive sidebar = surface == "sidebar-list"
@@ -349,7 +403,11 @@ component HomeListItem
   derive rowStatusColor = item.status.length > 0 ? statusColor : selectedRow ? colors.selectedForeground : rowTertiary
   derive queuedColor = selectedRow ? colors.selectedQueued : colors.muted
   view
-    column padding-bottom=(item.last ? bottomClearance : 0)
+    column padding-bottom=(item.last ? bottomClearance * (collapsing ? 1 - exitEase : 1) : 0)
+      height=(collapsing ? exitHeight * (1 - exitEase) : "auto") min-height=0 box-sizing="border-box" overflow=(exiting ? "hidden" : "visible") pointer-events=(exiting ? "none" : "auto")
+      hatch="mobile-home-dismissal" data-mobile-swipe-owner=owner data-mobile-swipe-row=item.swipe.token data-mobile-dismissal-identity=item.dismissalIdentity
+      if item.kind == "thread"
+        t3-home-swipe-events swipe-owner=owner swipe-row=item.swipe.token swipe-context=item.nativeMenu swipe-dismissal-identity=item.dismissalIdentity swipe-dismissal-registration=`${exitRegistration}` swipe-dismissal-token=exitToken swipe-dismissal-phase=(exiting ? exitPhase : "idle") swipe-dismissal-progress=`${exitProgress}` width=0 height=0 change=dismissalEvent
       if item.kind == "shelf"
         button press=toggleShelf(item.section)
           disabled=item.disabled
@@ -425,8 +483,8 @@ component HomeListItem
       else
         box position="relative" overflow="hidden" border-radius=(sidebar ? 12 : 0) background-color=(sidebar ? colors.drawer : colors.screen)
           if item.swipe.primary != ""
-            HomeSwipeControls(surface=surface, owner=owner, token=item.swipe.token, menuId=`home-snooze-${surface}-${item.key}`, context=item.nativeMenu, enabled=active and item.swipe.snoozable, open=openToken == item.swipe.token, card=item.card, offset=swipeOffset, secondary=item.swipe.secondary != "", primaryLabel=item.swipe.primaryLabel, primarySymbol=item.swipe.primarySymbol, primaryAccessibilityLabel=item.swipe.primaryAccessibilityLabel, secondaryAccessibilityLabel=item.swipe.secondaryAccessibilityLabel, foreground=colors.foreground, muted=colors.muted, primary=colors.primary, primaryForeground=colors.primaryForeground, secondaryFill=colors.secondaryFill, secondaryForeground=colors.secondaryForeground)
-          column translate=`${swipeOffset}px 0px` transition=(dragToken == item.swipe.token or reducedMotion ? "none" : "translate -exact-spring(330, 26, 0.7)") background-color=rowBackground border-radius=(sidebar ? 12 : 0) overflow=(sidebar ? "hidden" : "visible") testId=`home-swipe-content-${item.key}`
+            HomeSwipeControls(surface=surface, owner=owner, token=item.swipe.token, menuId=`home-snooze-${surface}-${item.key}`, context=item.nativeMenu, enabled=active and item.swipe.snoozable, open=openToken == item.swipe.token, card=item.card, offset=swipeOffset, secondary=item.swipe.secondary != "", primaryLabel=item.swipe.primaryLabel, primarySymbol=item.swipe.primarySymbol, primaryAccessibilityLabel=item.swipe.primaryAccessibilityLabel, secondaryAccessibilityLabel=item.swipe.secondaryAccessibilityLabel, foreground=colors.foreground, muted=colors.muted, primary=colors.primary, primaryForeground=colors.primaryForeground, secondaryFill=colors.secondaryFill, secondaryForeground=colors.secondaryForeground, actionOpacity=(exiting ? (exitPhase == "out" ? 1 - exitEase : 0) : 1))
+          column translate=`${exitOffset}px 0px` transition=swipeTransition background-color=rowBackground border-radius=(sidebar ? 12 : 0) overflow=(sidebar ? "hidden" : "visible") testId=`home-swipe-content-${item.key}`
             button press=selectThread(item.id)
               hatch="mobile-home-row"
               data-mobile-swipe-owner=owner

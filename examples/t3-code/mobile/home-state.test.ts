@@ -1,11 +1,11 @@
 import { expect, test } from 'bun:test';
 import { mobileHomeView } from './home-state';
-import { mobileHomeSnoozePresets } from './home-actions';
+import { mobileHomeAction, mobileHomeSnoozePresets } from './home-actions';
 import { homeOrderState } from './home-order';
 import { mobileNewTaskDraftList } from './mobile-new-task-drafts';
 import { T3Client } from './shared/client';
 import { EnvironmentFleet, type FleetEntry } from './shared/settings-b-fleet';
-import { initialShell, type Obj } from './shared/domain';
+import { initialShell, obj, type Obj } from './shared/domain';
 import { runThreadSearch } from './shared/sidebar-presentation';
 import type { Native } from './shared/protocol';
 
@@ -171,6 +171,46 @@ test('sidebar empty presentation does not replace visible draft or thread rows',
   expect(sidebar.items).toEqual(compact.items); expect(sidebar.emptyTitle).toBe('');
   expect(sidebar.emptyDetail).toBe(''); expect(sidebar.addEnvironment).toBe(false);
   expect(JSON.stringify([f.client.shell, f.remote.shell])).toBe(before);
+});
+
+test('failed dismissal recovery survives filtered projections and changes only the captured logical row in both lists', async () => {
+  const f = fixture(); f.client.shell.threads.push({ ...thread, id: 'unrelated' });
+  const project = (surface: string, query = '') => mobileHomeView([0, now, query, 10, true, false, false, true, true,
+    '', '', '', 'repository', 'visit', true, true, [], surface, true], f.client, f.background);
+  const before = new Map(['compact', 'sidebar'].map(surface => [surface, project(surface)]));
+  const first = before.get('compact')!.items.find(row => row.key === 'one:same')!;
+  expect(first.dismissalIdentity).toBe(encodeURIComponent(JSON.stringify(['visit', 'one', 'same', 'https://one.test', 3, first.swipe.resetKey])));
+  let release!: () => void, started!: () => void;
+  const begun = new Promise<void>(resolve => { started = resolve; });
+  const native: Native = { available: true, watch() {}, async later(input) {
+    const request = obj(input);
+    if (request.op === 'mobileHomeDismissal' && request.phase === 'begin') {
+      started(); await new Promise<void>(resolve => { release = resolve; });
+      return { ok: true, generation: 3, value: { token: 'recovery-capture', completed: true } };
+    }
+    return request.method === 'orchestration.dispatchCommand'
+      ? { ok: false, generation: 3, error: { kind: 'transport', message: 'Synthetic refusal' } }
+      : { ok: true, generation: 3, value: request.path === '/api/auth/session' ? { authenticated: true, permissions: ['orchestration:operate'] }
+        : request.op === 'ids' ? ['recovery-command'] : request.op === 'mobileHomeDismissal' && request.phase === 'prepare' ? { token: 'recovery-capture' } : {} };
+  } };
+  const snapshot = JSON.stringify([f.client.shell, f.remote.shell, f.client.local]);
+  const pending = mobileHomeAction('visit', 'one', 'same', 'settle', '', now, native, f.client, f.background);
+  try {
+    await begun;
+    for (const surface of ['compact', 'sidebar']) expect(project(surface, 'no matching title').items).toEqual([]);
+    release(); expect((await pending).message).toBe('Synthetic refusal');
+    for (const surface of ['compact', 'sidebar']) {
+      const after = project(surface), original = before.get(surface)!;
+      expect(after.items.map(({ dismissalIdentity, ...row }) => row)).toEqual(original.items.map(({ dismissalIdentity, ...row }) => row));
+      for (const row of after.items) {
+        const previous = original.items.find(value => value.key === row.key)!;
+        if (row.key === 'one:same') expect(row.dismissalIdentity).not.toBe(previous.dismissalIdentity);
+        else expect(row.dismissalIdentity).toBe(previous.dismissalIdentity);
+      }
+      for (let count = 0; count < 3; count++) expect(project(surface)).toEqual(after);
+    }
+    expect(JSON.stringify([f.client.shell, f.remote.shell, f.client.local])).toBe(snapshot);
+  } finally { release?.(); await pending.catch(() => undefined); }
 });
 
 test('Home row action projection resolves catalogue entries in linear work', () => {
