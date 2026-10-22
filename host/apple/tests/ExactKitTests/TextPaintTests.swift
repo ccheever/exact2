@@ -261,6 +261,37 @@ final class TextPaintTests: XCTestCase {
         XCTAssertNil(engine.attributed(same).attribute(.exactShadow, at: 4, effectiveRange: nil))
     }
 
+    func testShadowedRunsKeepTheWholeLinesDecorations() throws {
+        let font = engine.font(size: 32, weight: 400, family: 1, italic: false)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font, .foregroundColor: PlatformColor.black,
+            .underlineStyle: 1, .strikethroughStyle: 1,
+            .underlineColor: PlatformColor.red, .strikethroughColor: PlatformColor.blue,
+        ]
+        let plain = NSAttributedString(string: "MM  WW  II", attributes: attributes)
+        let shadowed = NSMutableAttributedString(attributedString: plain)
+        let shadow = TextRunShadow([0, 8, 0, 0, 0, 0, 0])
+        shadowed.addAttribute(.exactShadow, value: shadow, range: NSRange(location: 4, length: 4))
+        func capture(_ string: NSAttributedString, pass: TextLinePaint.Pass = .all) throws -> [UInt8] {
+            let ctx = try XCTUnwrap(CGContext(data: nil, width: 240, height: 60, bitsPerComponent: 8,
+                bytesPerRow: 240 * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            TextLinePaint.draw(CTLineCreateWithAttributedString(string), at: CGPoint(x: 10, y: 40), in: ctx, pass: pass)
+            return Array(UnsafeBufferPointer(start: try XCTUnwrap(ctx.data).assumingMemoryBound(to: UInt8.self), count: 240 * 60 * 4))
+        }
+        let reference = try capture(plain)
+        for pass: TextLinePaint.Pass in [.all, .ink] {
+            let actual = try capture(shadowed, pass: pass)
+            let error = zip(reference, actual).reduce(0) { $0 + abs(Int($1.0) - Int($1.1)) }
+            XCTAssertLessThan(error, 500, "a transparent run shadow keeps glyphs, underline and line-through")
+        }
+        let hidden = NSMutableAttributedString(attributedString: plain)
+        hidden.addAttribute(.exactHidden, value: true, range: NSRange(location: 0, length: 4))
+        hidden.addAttribute(.exactHidden, value: true, range: NSRange(location: 8, length: 2))
+        XCTAssertTrue(try capture(shadowed, pass: .caster(shadow)) == capture(hidden),
+                       "the separate shadow caster includes decorations and excludes neighbouring runs")
+    }
+
     /// A run's own shadow past the raster's 256-point ink allowance stays in
     /// its pixels, as the layer shadow a uniform paragraph casts would, up
     /// to `maxShadowReach`; a huge one is cut there (LLP 1077 D3).
