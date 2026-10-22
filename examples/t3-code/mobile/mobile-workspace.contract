@@ -34,6 +34,8 @@ shape MobileWorkspace
   threadId: string
   overlayCount: number
   inspectorContentWidth: number
+  inspectorMotion: string
+  inspectorTransition: string
   configuration: string
   inspectorToken: string
   inspectorRouteId: string

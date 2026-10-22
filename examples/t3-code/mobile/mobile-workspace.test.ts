@@ -192,3 +192,23 @@ test('inline inspector controls execute only for the current interactive owner a
   expect(state).toMatchObject({ fileInspectorPreferredVisible: false, inspectorResizing: false, draft: 'unsent draft', nav });
   expect(state.nav).toBe(nav);
 });
+
+test('inspector timing follows the source cubic within subpixel error and settles for reduced motion or direct resize', () => {
+  const projected = mobileWorkspace([home, files], { ...options, inspector });
+  expect(projected.inspectorMotion.startsWith('260ms linear(')).toBe(true);
+  const values = projected.inspectorMotion.slice('260ms linear('.length, -1).split(',').map(Number);
+  expect(values.length).toBeLessThanOrEqual(64);
+  let largestError = 0;
+  for (let millisecond = 0; millisecond <= 260; millisecond++) {
+    const progress = millisecond / 260, position = progress * (values.length - 1), index = Math.min(values.length - 2, Math.floor(position));
+    const shown = values[index]! + (values[index + 1]! - values[index]!) * (position - index);
+    const source = progress <= 0.5 ? Math.pow(progress * 2, 3) / 2 : 1 - Math.pow((1 - progress) * 2, 3) / 2;
+    largestError = Math.max(largestError, Math.abs(shown - source) * 480);
+  }
+  expect(largestError).toBeLessThan(0.2);
+  for (const override of [{ reducedMotion: true }, { inspectorResizing: true }]) {
+    const settled = mobileWorkspace([home, files], { ...options, inspector, ...override });
+    expect(settled).toMatchObject({ inspectorMotion: 'none', inspectorTransition: 'none',
+      inspectorToken: projected.inspectorToken, contentSettledWidth: projected.contentSettledWidth });
+  }
+});
