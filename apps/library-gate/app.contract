@@ -12,7 +12,7 @@
 // gate can see the slot render both.
 // scripts/library-gate.test.mjs holds the cells to the compiler's IR. No
 // `if`, `for` or `match` in this view: every cell renders.
-use PostCard, AtCard from "@exact/cards"
+use PostCard, AtCard, ProfileHeader, ProfileAlert from "@exact/cards"
 use ActionRow, PostButton from "@exact/actions"
 use ListRow, SwitchRow from "@exact/lists"
 
@@ -26,6 +26,8 @@ component App
     pressed = pressed + 1
   action flip(on: bool)
     switched = on
+  action pick(id: string)
+    pressed = pressed + 1
   view
     scroll testId="root" flex=1 background-color="gate.ground"
       column gap=12 padding-bottom=40
@@ -69,6 +71,32 @@ component App
           PostButton(id="sample-pb-reply", label="Post", reply=true, disabled=false, press=press)
           PostButton(id="sample-pb-disabled", label="Post", reply=false, disabled=true, press=press)
         AtCard(id="at-base", href="https://fixture.attie.site/garden", title="A garden plan", description="Beds, paths and what grows where.", thumb="", atName="Eli Brandt", atHandle="@eli.fixture.invalid", atAvatar="")
+        // The profile header: its two variants, then each badge, "Follows you" and a
+        // note in place of the counts as samples (structure, no recipe).
+        ProfileHeader(id="ph-base", bannerSrc="", avatarSrc="", avatarFlight="", name="Ada Lindqvist", handle="ada.fixture.invalid", badge="none", followsYou=false, followers="1.2K", followersNoun="followers", follows="210", posts="3.4K", alerts=[], note="", blocked=false, compact=false, pull=0, openAvatar=press, openFollowers=press, openFollows=press, openAlert=pick)
+          box testId="marker-ph-base" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ProfileHeader(id="ph-blocked", bannerSrc="", avatarSrc="", avatarFlight="", name="Ada Lindqvist", handle="ada.fixture.invalid", badge="none", followsYou=false, followers="1.2K", followersNoun="followers", follows="210", posts="3.4K", alerts=[], note="", blocked=true, compact=false, pull=0, openAvatar=press, openFollowers=press, openFollows=press, openAlert=pick)
+          box testId="marker-ph-blocked" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ProfileHeader(id="ph-compact", bannerSrc="", avatarSrc="", avatarFlight="", name="Ada Lindqvist", handle="ada.fixture.invalid", badge="none", followsYou=false, followers="1.2K", followersNoun="followers", follows="210", posts="3.4K", alerts=[], note="", blocked=false, compact=true, pull=0, openAvatar=press, openFollowers=press, openFollows=press, openAlert=pick)
+          box testId="marker-ph-compact" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ProfileHeader(id="sample-ph-verified", bannerSrc="", avatarSrc="", avatarFlight="", name="Ada Lindqvist", handle="ada.fixture.invalid", badge="verified", followsYou=false, followers="1.2K", followersNoun="followers", follows="210", posts="3.4K", alerts=[], note="", blocked=false, compact=false, pull=0, openAvatar=press, openFollowers=press, openFollows=press, openAlert=pick)
+          box testId="marker-sample-ph-verified" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ProfileHeader(id="sample-ph-verifier", bannerSrc="", avatarSrc="", avatarFlight="", name="Ada Lindqvist", handle="ada.fixture.invalid", badge="verifier", followsYou=false, followers="1.2K", followersNoun="followers", follows="210", posts="3.4K", alerts=[], note="", blocked=false, compact=false, pull=0, openAvatar=press, openFollowers=press, openFollows=press, openAlert=pick)
+          box testId="marker-sample-ph-verifier" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ProfileHeader(id="sample-ph-follows-you", bannerSrc="", avatarSrc="", avatarFlight="", name="Ada Lindqvist", handle="ada.fixture.invalid", badge="none", followsYou=true, followers="1.2K", followersNoun="followers", follows="210", posts="3.4K", alerts=[], note="", blocked=false, compact=false, pull=0, openAvatar=press, openFollowers=press, openFollows=press, openAlert=pick)
+          box testId="marker-sample-ph-follows-you" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ProfileHeader(id="sample-ph-alerts", bannerSrc="", avatarSrc="", avatarFlight="", name="Ada Lindqvist", handle="ada.fixture.invalid", badge="none", followsYou=false, followers="1.2K", followersNoun="followers", follows="210", posts="3.4K", alerts=[ProfileAlert(id="blocked", label="User Blocked", icon="ban"), ProfileAlert(id="muted", label="Account Muted", icon="eyeslash"), ProfileAlert(id="label", label="Adult Content", icon="warning"), ProfileAlert(id="info", label="Note", icon="info")], note="", blocked=false, compact=false, pull=0, openAvatar=press, openFollowers=press, openFollows=press, openAlert=pick)
+          box testId="marker-sample-ph-alerts" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ProfileHeader(id="sample-ph-note", bannerSrc="", avatarSrc="", avatarFlight="", name="Ada Lindqvist", handle="ada.fixture.invalid", badge="none", followsYou=false, followers="1.2K", followersNoun="followers", follows="210", posts="3.4K", alerts=[], note="This account couldn't be loaded.", blocked=false, compact=false, pull=0, openAvatar=press, openFollowers=press, openFollows=press, openAlert=pick)
+          box testId="marker-sample-ph-note" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
         // The lists' rows sit in a grouped list's section, as the platform's
         // list cells do (LLP 1084): each accessory and a destructive row are
         // samples (structure and an attribute, no recipe).

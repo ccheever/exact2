@@ -34,3 +34,45 @@ test('runs take a port in turn: a second waits and says for whom, a holder kille
   await new Promise((ok) => killed.on('exit', ok));
   (await takePort(PORT, { waitMs: 2000, say: () => {} }))();
 });
+
+test('claimPort: two runs at once each get a port of their own, past one something listens on, and give it back', async () => {
+  const { claimPort } = await import('./port-lock.mjs');
+  const net = await import('node:net');
+  // A start whose own port something already listens on (a tool run by hand): it is passed over.
+  const busy = net.createServer();
+  await new Promise((ok) => busy.listen({ host: '127.0.0.1', port: 0 }, ok));
+  const start = 17741 + Math.floor(Math.random() * 150);
+  const squatter = net.createServer();
+  const squatted = await new Promise((ok) => { squatter.once('error', () => ok(false)); squatter.listen({ host: '127.0.0.1', port: start, exclusive: true }, () => ok(true)); });
+  busy.close();
+  const before = process.env.EXACT_PORT_TURNS;
+  try {
+    const a = await claimPort(start, { label: 'run a' });
+    // A second claim in another process sees a's turn held and takes the next.
+    const b = await run(`const { claimPort } = await import(${LOCK}); console.log((await claimPort(${a.port}, { label: 'run b' })).port);`, { EXACT_PORT_TURNS: '' });
+    const bPort = Number(b.stdout.trim());
+    expect(bPort, b.stderr).toBeGreaterThan(0);
+    if (squatted) expect(a.port).not.toBe(start);
+    expect(bPort).not.toBe(a.port);
+    expect(process.env.EXACT_PORT_TURNS?.split(',')).toContain(String(a.port));
+    a.give();
+    expect((process.env.EXACT_PORT_TURNS ?? '').split(',')).not.toContain(String(a.port));
+  } finally {
+    squatter.close();
+    if (before === undefined) delete process.env.EXACT_PORT_TURNS; else process.env.EXACT_PORT_TURNS = before;
+  }
+});
+
+test('claimPort: a port named in except is never taken (the contract tests\' stub on the checkout port)', async () => {
+  const { claimPort } = await import('./port-lock.mjs');
+  const before = process.env.EXACT_PORT_TURNS;
+  const start = 17741 + Math.floor(Math.random() * 150);
+  try {
+    const got = await claimPort(start, { label: 'run c', except: [start, start + 1] });
+    expect(got.port).not.toBe(start);
+    expect(got.port).not.toBe(start + 1);
+    got.give();
+  } finally {
+    if (before === undefined) delete process.env.EXACT_PORT_TURNS; else process.env.EXACT_PORT_TURNS = before;
+  }
+});

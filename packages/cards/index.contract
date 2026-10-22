@@ -1,10 +1,12 @@
 // @exact/cards — library components for cards (LLP 1139 §5 E, from the
-// Bluesky clone's own pieces): a post card's shell and an Attie card. Their
-// look is their params and the package's tokens (cards.tamber); an app
-// restyles them by setting either by full name, never by editing this file.
+// Bluesky clone's own pieces): a post card's shell, an Attie card and a
+// profile's header. Their look is their params and the package's tokens
+// (cards.tamber); an app restyles them by setting either by full name, never
+// by editing this file.
 // The shell takes plain props and one slot: the app keeps its data, its
 // moderation and embeds, and places its own content (and its action row)
 // in the slot (theme2's 06:46 ruling).
 
 use PostCard from "./post-card.contract"
 use AtCard from "./at-card.contract"
+use ProfileHeader, ProfileAlert from "./profile-header.contract"
