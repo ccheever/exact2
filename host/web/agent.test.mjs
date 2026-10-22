@@ -627,7 +627,7 @@ test('agent launch facts never read the platform locale, zone or entropy', async
   await f.boot(null);
   await f.boot(new Uint8Array([1]));
   const date = [Date.UTC(2026, 0, 1), 0];
-  expect(reported).toEqual([date, ['en-US', 'UTC', 1].join('\0'), date, ['en-US', 'UTC', 1].join('\0')]);
+  expect(reported).toEqual([date, ['en-US', 'UTC', 1, ''].join('\0'), date, ['en-US', 'UTC', 1, ''].join('\0')]); // no formatLocale given (#952)
   expect(draws).toBe(0);
 });
 
@@ -640,7 +640,7 @@ test('ordinary web reloads keep the launch seed', async () => {
   f.wasm.exact_set_place = wire => { reported.push(wire); return '{"ops":[]}'; };
   await f.boot(null);
   await f.boot(new Uint8Array([1]));
-  expect(reported).toEqual([['fr-FR', 'Europe/Paris', 1].join('\0'), ['fr-FR', 'Europe/Paris', 1].join('\0')]);
+  expect(reported).toEqual([['fr-FR', 'Europe/Paris', 1, ''].join('\0'), ['fr-FR', 'Europe/Paris', 1, ''].join('\0')]); // no formatLocale given (#952)
   expect(draws).toBe(1);
 });
 
