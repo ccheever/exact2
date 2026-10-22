@@ -149,7 +149,8 @@ extension NodeView {
     var materialRequest: String? {
         if let material = props["backgroundMaterial"] { return material }
         if !backdropOperations.isEmpty { return "backdrop" }
-        return defaultSurfaceRadius == nil ? nil : "glass"
+        // An authored corner the glass can't take (not one circle): no default surface, rather than a square one.
+        return defaultSurfaceRadius == nil || unevenCorners ? nil : "glass"
     }
 
     /// The corner of a popover's default surface (LLP 1021; theme2
@@ -175,13 +176,20 @@ extension NodeView {
     /// content view's: the scroll view takes the default surface's corner
     /// while that applies, and gives it up when it no longer does.
     func syncDefaultSurfaceScroll() {
-        let corner = materialView == nil || writesCorner ? nil : defaultSurfaceRadius
+        // The corner the glass has: the author's (one circle) or the default's.
+        let corner = materialView == nil || defaultSurfaceRadius == nil ? nil : writesCorner ? cornerSizes(in: bounds).first?.width : defaultSurfaceRadius
         guard let scroll, corner != nil || scrollCornered else { return }
         scroll.layer.cornerRadius = corner ?? 0
         scroll.layer.cornerCurve = corner == nil ? .circular : .continuous
         scrollCornered = corner != nil
     }
     #endif
+
+    /// Whether its author's corners differ from one another, as written (a
+    /// row each, or `border-radius` for the ones it covers), whatever the box.
+    var unevenCorners: Bool {
+        Set(["top_left", "top_right", "bottom_right", "bottom_left"].map { (style["border_radius_" + $0] ?? style["border_radius"] ?? .null).key }).count > 1
+    }
 
     /// Whether its author wrote a corner, even 0: theirs, not the default's.
     var writesCorner: Bool {

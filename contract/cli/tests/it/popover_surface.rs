@@ -40,6 +40,8 @@ component App
         text "Hovered"
       column id="pressed" popover="auto" -exact-press-background-color="#dddddd" testId="pressed"
         text "Pressed"
+      column id="clipped" popover="auto" background-clip="padding-box" testId="clipped"
+        text "Clipped"
       column id="menu" popover="auto" role="menu" testId="menu"
         button testId="item"
           text "Item"
@@ -69,6 +71,7 @@ fn a_popover_whose_author_wrote_no_surface_is_marked_for_the_platforms() {
     };
     assert!(marked("bare"), "no surface: the platform's");
     assert!(marked("round"), "a corner draws no surface");
+    assert!(marked("clipped"), "nor does a background's clip alone");
     for t in [
         "filled", "classed", "shadowed", "glass", "hovered", "pressed", "menu", "plain", "open",
     ] {

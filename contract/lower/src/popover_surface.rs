@@ -16,7 +16,7 @@ use contract_syntax::{Attr, Expr, Span};
 fn surface(name: &str) -> bool {
     let name = contract_syntax::state::state_of(name).map_or(name, |(_, row)| row);
     let name = name.strip_prefix("-exact-press-").unwrap_or(name);
-    name.starts_with("background")
+    name.starts_with("background") && !matches!(name, "background-clip" | "background-attachment")
         || name == "box-shadow"
         || name.starts_with("border") && !name.ends_with("radius")
 }
