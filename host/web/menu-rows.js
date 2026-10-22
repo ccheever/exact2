@@ -9,16 +9,19 @@
 // source. Loaded after the first paint (glue.js), the JS target at boot.
 import { popoverSource } from "./navigation.js";
 
+/** HTML's popover commands, and what each does. */
+const POPOVER_COMMANDS = new Map([["show-popover", "show"], ["hide-popover", "hide"], ["toggle-popover", "toggle"]]);
+
 /** The popover `row` invokes, as HTML resolves it, with what to do: by `commandfor` when it names an
  * element (a popover command on an HTML element; its `command` lowercased), else by `popovertarget`. None
- * for anything else (a dialog's command, a custom one, a submit button of a form), which keeps HTML's own
- * activation. Whether the target is a popover is read when it's acted on. */
+ * for anything else (a dialog's command, a custom one, a button of a form that isn't `type="button"`),
+ * which keeps HTML's own activation. Whether the target is a popover is read when it's acted on. */
 function invoked(row) {
-  if (row.type === "submit" && row.form) return null;
+  if (row.form && row.getAttribute("type")?.toLowerCase() !== "button") return null;
   const commanded = document.getElementById(row.getAttribute("commandfor") || "");
   if (commanded) {
     const command = (row.getAttribute("command") ?? "").toLowerCase();
-    const action = { "show-popover": "show", "hide-popover": "hide", "toggle-popover": "toggle" }[command];
+    const action = POPOVER_COMMANDS.get(command);
     return action && commanded instanceof HTMLElement ? { target: commanded, command, action } : null;
   }
   const target = document.getElementById(row.getAttribute("popovertarget") || "");
@@ -59,10 +62,11 @@ function menuRows() {
   addEventListener("click", e => {
     const row = e.target.closest?.("button[popovertarget], button[commandfor]");
     const menu = row?.closest('[popover][role="menu"]');
-    // Only a row that names a popover at the click: every other keeps HTML's own activation (a press
+    // Only a row that opens a popover at the click: every other keeps HTML's own activation (a press
     // retargeting a row between a popover and anything else acts on what it named at the click).
+    // And one that would close its popover (a hide, a toggle of an open one) nests nothing: HTML's too.
     const clicked = menu ? invoked(row) : null;
-    if (!clicked) return;
+    if (!clicked || clicked.action === "hide" || clicked.action === "toggle" && clicked.target.matches(":popover-open")) return;
     // HTML would act on what the row names before its own press; this acts after it, on the popover it names then.
     e.preventDefault();
     setTimeout(() => act(row, menu, clicked));
