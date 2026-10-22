@@ -576,7 +576,7 @@ try {
       return { tree, deckState, frameNode: byTestId(tree, 'deck-frame') };
     }, ({ frameNode, deckState }) => frameNode?.loading === false && deckState.slots.deckLoaded === true && deckState.slots.deckMessage === 'deck-ready');
     tree = loaded.tree;
-    const { frameNode, deckState } = loaded;
+    let { frameNode, deckState } = loaded;
     check(frameNode?.type === 'WebView' && frameNode.url === '/deck/index.html', `the iframe tree node is ${JSON.stringify(frameNode)}`);
     check(frameNode?.loading === false, `the iframe is still loading: ${JSON.stringify(frameNode)}`);
     check(deckState?.slots.deckLoaded === true, `load did not record its flag: ${JSON.stringify(deckState?.slots)}`);
