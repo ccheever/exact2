@@ -345,7 +345,6 @@ if (host === 'deploy') {
   if (failures.length) { for (const f of failures) console.error('  ' + f); process.exit(1); }
   process.exit(0);
 }
-
 // The sample host (LLP 1031 D10): a native macOS app that is not Exact's,
 // hosting two sessions of the one plan. What the fixture holds, driven
 // through the same carrier with each request routed by session label: two
@@ -453,9 +452,9 @@ component App
         let shown = 0;
         for (let i = 0; i < 40 && !(shown > 0); i++) { await sleep(50); shown = (await s.layout()).env['keyboard-inset-height']; }
         s.session = 'a';
-        // Its ground, a point at its top left: a plain tap names `main`, which has no press, and is refused when its
-        // middle holds a control (LLP 1012 §1) — the departure card a finger there would press.
-        await s.tap('caltrain-main', { at: [2, 2] });
+        // The page's left padding below the host's bar, whose scroll-edge
+        // view covers its top left. The reported inset includes that bar.
+        await s.tap('caltrain-main', { at: [2, laBack.env['safe-area-inset-top'] + 20] });
         s.session = 'b';
         const kept = (await s.layout()).env['keyboard-inset-height'];
         const sb3 = await s.state();
@@ -486,6 +485,8 @@ component App
     s.session = 'b';
     const tbAfter = await s.tree();
     hcheck(byTestId(tbAfter, 'station-search') != null, 'b still answers, its state intact, after a was destroyed');
+    // The blur assertion is complete; leave the editor before pressing the page's header again.
+    if (host === 'host-ios') { await s.type('station-search', { key: 'Tab' }); await s.clock('settle'); }
     await s.tap('scheme-light');
     await s.clock('settle');
     const logs2 = await s.logs();
@@ -498,7 +499,6 @@ component App
   console.log(`${host} smoke: ok in ${((Date.now() - t0) / 1000).toFixed(1)} s — two sessions of one plan, interleaved, one pushed under a native screen and back, a bad plan refused, one destroyed under the other`);
   process.exit(0);
 }
-
 // Materialize the selected app once, as it ships (the JS target when it takes it, LLP 1071;
 // it stages nothing), into this smoke's private dist before its many sessions. Another
 // build cannot swap a different app under the run; agent.open proves its identity.
