@@ -449,7 +449,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
   // The tool's canvas check as `tamber tool --via` answers it (scripts/tamber-frame.mjs), as a test sets it
   // (`/__stub/canvas-check`); not found by default, as a tool served without --via.
   '/__tamber/tool/canvas-check': { GET: () => (canvasCheck ? send(canvasCheck) : send({ message: 'Not found.' }, 404)) },
-  '/__stub/page-refuses-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); pageRefusesSelect = true; return send({ ok: true }); } },
+  '/__stub/page-refuses-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); pageRefusesSelect = true; refuseSelect = false; return send({ ok: true }); } },
   '/__stub/refuse-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); refuseSelect = true; return send({ ok: true }); } },
   '/__stub/shallow-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); shallowSelect = true; return send({ ok: true }); } },
   '/__stub/canvas-check': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); canvasCheck = await req.json().catch(() => null); return send({ ok: true }); } },

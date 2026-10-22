@@ -151,6 +151,7 @@ function reportRefused(r) {
  * that site `site` of plan `from` is, by their source maps, or null.
  * `timers` (`{set, clear}`, a test's clock) wait out a design-only status. */
 export function buildChannel({ send = () => {}, log = () => {}, selected = null, correspond = () => null, timers = { set: setTimeout, clear: clearTimeout } } = {}) {
+  const picks = new Map(); // build id -> its last selection's {plan, site, instance}, for `select` (tamber/1.16)
   const streams = new Map(); // nonce -> { write(frame), build: id | null, seen?, poll? }
   const builds = new Map(); // id -> { id, host, capabilities, plan, design, status, nonce }
   const pins = new Map(); // id -> { client, pin, revision }
@@ -501,6 +502,8 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         // its names as the server's clients may see them).
         const joined = r.selected != null && selected ? selected(shown(b), r, f => frame(b.id, f)) : null;
         if (joined?.status) return joined;
+        // (What a move up the chain is checked against: the selection as the page made it, its plan, site and instance.)
+        picks.set(b.id, r.selected ? { plan: r.selected.planDigest ?? null, site: r.selected.site ?? null, instance: JSON.stringify(r.selected.instance ?? []) } : null);
         send({ event: 'selected', build: b.id, selected: joined?.publish ?? r.selected ?? null });
       }
       return { status: 204, body: null };
@@ -555,6 +558,10 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
       sweep();
       if (!listed().some(b => b.id === id)) return { error: `no registered build \`${id}\`` };
       if (inspectors.get(id) !== client) return { error: `inspect is not on for \`${client}\` on \`${id}\`: turn it on first` };
+      // The selection moved since its chain was read (another node, or a rebuild): stale, as the protocol says it
+      // everywhere (theme2 15:02), so the client reads its chain again; never `unsupported`, which is a page that can't.
+      const pick = picks.get(id);
+      if (!pick || pick.plan !== plan || pick.site !== from || pick.instance !== JSON.stringify(instance ?? [])) return { stale: true, error: 'the selection moved since its chain was read: select again' };
       frame(id, { kind: 'inspect', select: { up, levels, plan, from, instance } });
       return { builds: [id] };
     },
@@ -778,5 +785,5 @@ export function selectRequest(channel, request, sitesOf) {
   if (!at) return { status: 409, error: { message: `\`${request.build}\` has no selection with a source map to move up from: select a node first` } };
   if (!at.levels.length) return { status: 409, error: { message: 'nothing above the selected node owns a node of its own to move to' } };
   const done = channel.selectUp(request.client, request.build, up, at);
-  return done.error ? { status: 409, error: { message: done.error } } : { ok: done };
+  return done.error ? { status: 409, error: { message: done.error, ...(done.stale ? { stale: true } : {}) } } : { ok: done };
 }
