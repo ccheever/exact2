@@ -15,15 +15,24 @@ struct Leaving {
 extension Presenter {
     func beginExit(_ id: UInt32) {
         guard let view = views[id] else { return }
-        landFlights(inside: view) // a flying view leaves with its subtree (LLP 1013.000)
-        var members: [NodeView] = []
-        var stack: [NSView] = [view]
+        let held = (blocks.shown + dialogs.entries.filter(\.route).map(\.dialog)).filter {
+            views[$0.id] === $0 && !$0.isDescendant(of: view) && logicallyWithin($0, view)
+        }
+        // Native containers hold these routes outside their authored ancestors.
+        for leaving in [view] + held { landFlights(inside: leaving) }
+        var members: [NodeView] = [], seen = Set<UInt32>()
+        var stack: [NSView] = [view] + held
         while let next = stack.popLast() {
-            if let node = next as? NodeView, views[node.id] === node { members.append(node) }
+            if let node = next as? NodeView, views[node.id] === node {
+                guard seen.insert(node.id).inserted else { continue }
+                members.append(node)
+            }
             stack.append(contentsOf: next.subviews)
         }
-        if let responder = view.window?.firstResponder as? NSView, responder.isDescendant(of: view) {
-            view.window?.makeFirstResponder(nil)
+        for leaving in [view] + held {
+            guard let window = leaving.window, let responder = dialogs.focusOwner(window),
+                  responder === leaving || responder.isDescendant(of: leaving) else { continue }
+            window.makeFirstResponder(nil)
         }
         for member in members { member.holdGone() } // a held node that starts to leave is gone (HeldState.swift)
         for member in members { release(member.id, forget: false) }
