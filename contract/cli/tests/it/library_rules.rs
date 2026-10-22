@@ -662,7 +662,7 @@ fn a_package_is_its_own_name_and_base_names_are_no_packages() {
 fn a_library_button_is_named_and_says_the_state_its_look_shows() {
     let id = "lower-library-control";
     let card = |body: &str| {
-        format!("component Card\n  props\n    selected: bool\n    small: bool\n    go: action\n  derive lit = selected\n  derive spoken = (selected ? \"Selected\" : \"Select\")\n  derive fade = (selected ? 1 : 0.5)\n  view\n    column\n{body}")
+        format!("component Card\n  props\n    selected: bool\n    small: bool\n    go: action\n  derive lit = selected\n  derive spoken = (selected ? \"Selected\" : \"Select\")\n  derive fade = (selected ? 1 : 0.5)\n  derive fade2 = (lit ? 1 : 0.5)\n  view\n    column\n{body}")
     };
     let app = "use Card from \"@acme/lib\"\n\ncomponent App\n  action go\n  view\n    Card(selected=true, small=false, go=go)\n";
     for (name, body, said) in [
@@ -727,6 +727,16 @@ fn a_library_button_is_named_and_says_the_state_its_look_shows() {
             "doesn't say aloud",
         ),
         (
+            "labelledby-wins",
+            "      text \"Home\" id=\"home-name\"\n      button press=go aria-labelledby=\"home-name\" aria-label=(selected ? \"On\" : \"Off\") opacity=(selected ? 1 : 0.5)\n        box width=4 height=4\n",
+            "doesn't say aloud",
+        ),
+        (
+            "derive-met-twice",
+            "      button press=go aria-label=\"Home\" opacity=([lit].length * fade2)\n        box width=4 height=4\n",
+            "its look reads `selected`",
+        ),
+        (
             "unsaid-inside",
             "      button press=go aria-label=\"Home\"\n        box width=4 height=4 opacity=(selected ? 1 : 0.5)\n",
             "doesn't say aloud",
@@ -742,7 +752,7 @@ fn a_library_button_is_named_and_says_the_state_its_look_shows() {
     // button, and a presentational bool needs nothing: the build passes.
     let all = build(
         "btn-ok",
-        &card("      button press=go aria-label=\"Home\" aria-selected=selected opacity=(selected ? 1 : 0.5)\n        box width=4 height=4\n      button press=go aria-label=(selected ? \"Undo\" : \"Do\") opacity=(selected ? 1 : 0.5)\n        box width=4 height=4\n      button press=go\n        text \"Go\"\n      button press=go aria-label=\"Back\" opacity=(small ? 0.5 : 1)\n        box width=4 height=4\n      button press=go aria-label=spoken opacity=(selected ? 1 : 0.5)\n        box width=4 height=4\n      for selected in [\"a\"] key = selected\n        button press=go aria-label=\"Row\" opacity=(selected == \"a\" ? 1 : 0.5)\n          box width=4 height=4\n"),
+        &card("      button press=go aria-label=\"Home\" aria-selected=selected opacity=(selected ? 1 : 0.5)\n        box width=4 height=4\n      button press=go aria-label=(selected ? \"Undo\" : \"Do\") opacity=(selected ? 1 : 0.5)\n        box width=4 height=4\n      button press=go\n        text \"Go\"\n      button press=go aria-label=\"Back\" opacity=(small ? 0.5 : 1)\n        box width=4 height=4\n      button press=go aria-label=spoken opacity=(selected ? 1 : 0.5)\n        box width=4 height=4\n      button press=go aria-label=\"\" opacity=(selected ? 1 : 0.5)\n        text (selected ? \"On\" : \"Off\")\n      text (selected ? \"Mine\" : \"Theirs\") id=\"state-name\"\n      button press=go aria-labelledby=\"state-name\" opacity=(selected ? 1 : 0.5)\n        box width=4 height=4\n      for selected in [\"a\"] key = selected\n        button press=go aria-label=\"Row\" opacity=(selected == \"a\" ? 1 : 0.5)\n          box width=4 height=4\n"),
         app,
         PLAIN,
     );
