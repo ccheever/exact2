@@ -2669,7 +2669,8 @@ stored size again. Do not multiply a scale factor into every size instead.
 Platform facts are reserved sources (`exactViewport`, `exactPage`, `exactDelivery`,
 `exactSurface`, `exactTime`); the bake refuses a declared field the source does
 not have. `exactViewport().displayMode` is a string: the current CSS display
-mode on the web, `fullscreen` or `standalone` on macOS, `standalone` on other
+mode on the web, `fullscreen`, `window-controls-overlay` (the tall title row
+`display_override` asks for) or `standalone` on macOS, `standalone` on other
 native hosts. Declare it on the resource's shape; `state.device.displayMode`
 reports it too. `prefer display-mode fullscreen` substitutes it on Apple;
 browser drivers refuse that override, so test real fullscreen transitions. This reads the window, not a fullscreen navigation route.

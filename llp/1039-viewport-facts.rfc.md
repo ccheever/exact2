@@ -240,8 +240,10 @@ at its own height (52 points on macOS 27) and centres the traffic lights in
 it, and the title-bar area is that row less the traffic lights, as above.
 `exactViewport().displayMode` reads `window-controls-overlay`. In full screen
 the toolbar leaves as the window enters and comes back after it leaves, as
-Chrome's overlay does, and the area is zero. A route's toolbar (LLP 1115.002
-D2) replaces it, and the area is zero again. This amends the ruling's "no
+Chrome's overlay does, and the area is zero. The row is on in any window of
+the app while that window has no toolbar of the session's own: a route's
+toolbar (LLP 1115.002 D2) replaces it, under the agent's chrome too, and the
+area is zero again. This amends the ruling's "no
 manifest field" with the web manifest's own field, and "Nothing moves the
 traffic lights or sets the title bar's height" only in that the row is the
 unified toolbar's: the host still sets no height and moves no traffic light.
