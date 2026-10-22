@@ -345,10 +345,15 @@ pub(crate) fn style_changed(
     slot: u32,
     mask: &crate::StyleMask,
 ) {
-    use crate::StyleId::{Display, OverflowX, OverflowY, PositionType};
-    if [Display, PositionType, OverflowX, OverflowY]
-        .iter()
-        .any(|&id| mask.has(id))
+    use crate::StyleId;
+    if [
+        StyleId::Display,
+        StyleId::PositionType,
+        StyleId::OverflowX,
+        StyleId::OverflowY,
+    ]
+    .iter()
+    .any(|&id| mask.has(id))
     {
         chain_changed(arena, layout, slot);
     }
