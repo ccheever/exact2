@@ -13,6 +13,8 @@ import { wokeAt as sidebarWokeAt } from '../sidebar/sidebar-model';
 import { beginQueuedEdit, cancelQueuedEdit, queuedDrop, queueState, removeQueuedEditAttachment } from './composer-controls-queue';
 import { copyBranchName, dismissBranchMismatch, restoreThreadBranch, selectBranch, setEnvMode } from './composer-controls-branch';
 import { attachIncoming, type IncomingFiles } from './composer-controls-attach';
+import { foldPaste, heldPaste } from './composer-editor-files';
+import { uuid } from '../transport/transport-wire';
 import { queueRowDrop } from '../sidebar/legacy-sidebar-drop';
 import { openUsageLimits, closeUsageLimits, changeLimitRecovery, usageLocal } from './composer-controls-usage';
 import { feedbackLocal } from './composer-feedback';
@@ -259,6 +261,8 @@ export async function composerLocal(client: T3Client, _native: Native, _storage:
   if (op === 'previous-worktree') { setEnvMode(client, 'previous'); return ''; }
   if (op === 'attach-files') { // a drop, a paste, Attach files or a sidebar row's drop (app.contract attachFiles)
     const incoming = JSON.parse(value) as IncomingFiles;
+    // A large text paste the composer held (composer.contract pasted): its record, the field's value and the text.
+    if (id === 'fold') { const held = heldPaste(incoming.files); if (held) await foldPaste(client, _native, held.disposition, held, uuid()).catch(() => undefined); return ''; }
     return id === 'row' ? queueRowDrop(client, incoming.target, incoming) : attachIncoming(client, _native, id, incoming);
   }
   if (op === 'branch-mismatch-dismiss') { dismissBranchMismatch(client, id); return ''; }

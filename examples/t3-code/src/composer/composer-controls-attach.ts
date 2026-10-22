@@ -14,7 +14,7 @@ import type { T3Client } from '../client/client';
 import { folderDropTarget, primary } from '../connections/local-primary';
 import { pushToast } from '../shell/toast';
 import { acceptAttachedFile, appendChipLinks, attachStagingLimit, imageChipLink, imagesGetChips, insertFileChips, releaseStagedFile, reservedAttachments, reservedAttachmentsIn } from './composer-editor-attach';
-import { fileChipLink, holdDraftFiles, type DraftFile } from './composer-editor-files';
+import { fileChipLink, holdDraftFiles, pasteAsTextArmed, type DraftFile } from './composer-editor-files';
 import { rememberVideoFrame } from './composer-attachments';
 import { handleSource, stageAttachment, statSource, type AttachSource } from './composer-attach-stage';
 import { requestPresentation } from './requests';
@@ -59,14 +59,16 @@ const pickedSource = (file: Obj): AttachSource => ({ path: str(file.path), name:
 /**
  * The files a drop, a paste or Attach files brings (`origin` "drop", "paste" or "pick"). A drop's or a paste's folders
  * are addComposerFolders': such a folder is a handle with no path (LLP 1069.010 D1), so each is the reference's own
- * refusal for a folder whose path it cannot get. Paste as Text (`asText`) gives images no inline chip
+ * refusal for a folder whose path it cannot get. Paste as Text (`asText`, or armed from the menu) gives images no inline chip
  * (skipImageInlineChip). The answer's "focus:composer" focuses the prompt, as the reference's drop and Attach do.
  */
 export async function attachIncoming(client: T3Client, native: Native, origin: string, incoming: IncomingFiles): Promise<string> {
   const sources = [...incoming.files.map(handleSource), ...incoming.picked.map(pickedSource)];
   if (!sources.length) return '';
   if (questionRefuses(client)) return '';
-  const imageChips = imagesGetChips(client) && !(origin === 'paste' && incoming.asText);
+  // Edit › Paste as Text chosen with the pointer arms the paste in the module, as its key arms it in Contract.
+  const asText = origin === 'paste' && (incoming.asText || await pasteAsTextArmed(native));
+  const imageChips = imagesGetChips(client) && !asText;
   // Files finish staging (an image's compression) after the person may have moved to another draft; they stay
   // with the draft they were given to (insertAttachmentReferencesForDraft).
   const target = draftTarget(client);
@@ -105,7 +107,7 @@ export async function stageFiles(client: T3Client, native: Native, sources: Atta
       else if (stat.folder) staged.push({ kind: 'folder', name: source.name, path: source.path });
       else if (room <= 0) staged.push({ kind: 'over-limit', name: source.name });
       else {
-        const file = await stageAttachment(native, source, stat.size, limit);
+        const file = await stageAttachment(source, stat.size, limit);
         if (file.kind === 'image' || str(file.id)) room -= 1;
         staged.push(file);
       }
