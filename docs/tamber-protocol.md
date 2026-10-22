@@ -152,9 +152,10 @@ on macOS and Linux.
   node it inherits from, joined from the plan site the page reports (`fromSite`, the server's alone; a
   host that gives none leaves `fromAt` out and a client falls back to `from`); and `inspect` takes
   `{select: {up: n}, build}` (n from 1 to 64, the scope `inspect` has, the build's inspecting
-  client's alone): that build's page selects the node `n` call sites above its selection, as a click
-  on it would, past the outermost to the app's root, and reports it as a click's selection; a page
-  that can't answers `unsupported` with `what: "inspect"`.
+  client's alone): that build's page moves its selection `n` call sites up, to the outermost node above
+  it of the nearest enclosing copy that owns one, past the outermost call to the app's root, and
+  reports it as a click's selection; a page that can't, or whose selection or plan moved since,
+  answers `unsupported` with `what: "inspect"`.
 
 ## Where it runs
 
