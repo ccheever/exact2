@@ -587,11 +587,15 @@ export function slotOn(host, plan, dir, app = 'unsaid') {
   if (!ids.length) return [{ host, id: '(none)', ok: false, why: 'apps/library-gate places no slotted cell' }];
   if (host === 'terminal') {
     // Each marker tapped (a pressable box taps there since 2193289076), its
-    // cells read in the two text shots.
+    // cells read in the two text shots. The terminal taps only what it
+    // shows, and library-gate's page is taller than 64 rows with nothing
+    // scrolling it (its root grows), so the screen is made as tall as the
+    // page first.
+    const tall = 'resize 64x512';
     return ids.map(id => {
       const a = join(dir, `terminal-${id}-a.txt`), b = join(dir, `terminal-${id}-b.txt`);
       let layout;
-      try { layout = drivePlan('terminal', plan, null, [`tap marker-${id}`, 'layout', `screenshot ${a}`, `tap marker-${id}`, `screenshot ${b}`]); } catch (e) { return { host, id, ok: false, why: whyOf(e) }; }
+      try { layout = drivePlan('terminal', plan, null, [tall, `tap marker-${id}`, 'layout', `screenshot ${a}`, `tap marker-${id}`, `screenshot ${b}`]); } catch (e) { return { host, id, ok: false, why: whyOf(e) }; }
       const first = layout.earlier?.[0];
       if (!first) return { host, id, ok: false, why: 'the first render\'s layout was not read' };
       const [A, B] = [markerIn(first, id), markerIn(layout, id)];
