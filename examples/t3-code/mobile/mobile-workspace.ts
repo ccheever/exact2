@@ -33,6 +33,12 @@ const text = (value: unknown) => typeof value === 'string' ? value : '';
 const finite = (value: number) => Number.isFinite(value) ? Math.max(0, value) : 0;
 const preferredWidth = (value: number | null | undefined) => typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
 const pathname = (url: string) => url.split(/[?#]/, 1)[0] || '/';
+// CSS linear() samples the pinned inOut(cubic) curve; 63 stops keep a 480pt
+// pane within 0.2pt of the source curve without reflowing children per frame.
+const inspectorTiming = `260ms linear(${Array.from({ length: 63 }, (_, index) => {
+  const progress = index / 62;
+  return (progress < 0.5 ? 4 * progress ** 3 : 1 - (-2 * progress + 2) ** 3 / 2).toFixed(7);
+}).join(', ')})`;
 
 /** Contract projects only these scalar entry fields, never its whole Router. */
 export function mobileWorkspaceEntries(input: unknown): MobileWorkspaceEntry[] {
@@ -105,6 +111,7 @@ export function mobileWorkspace(input: unknown, options: MobileWorkspaceOptions)
     inspectorRegistered: registered, inspectorActive: active };
   const geometry = adaptiveWorkspace(geometryInput);
   const inspectorContentWidth = geometry.inspectorMounted ? geometry.auxiliaryPaneWidth : 0;
+  const inspectorMotion = options.reducedMotion || options.inspectorResizing ? 'none' : inspectorTiming;
   const configuration = JSON.stringify({ inspectorOwner: geometry.inspectorMounted ? registration!.token : '',
     viewportWidth: geometryInput.width, viewportHeight: geometryInput.height,
     inspectorContentWidth, inspectorVisible: geometry.inspectorVisible, inspectorResizing: options.inspectorResizing === true,
@@ -112,7 +119,8 @@ export function mobileWorkspace(input: unknown, options: MobileWorkspaceOptions)
   return { ...geometry, ready: !!workspace, topRouteId: top?.id ?? '', workspaceRouteId: workspace?.id ?? '',
     workspaceName: workspace?.name ?? '', workspaceURL: workspace?.url ?? '', workspacePath: geometryInput.pathname,
     environmentId: workspace?.params.threadEnvironment ?? '', threadId: workspace?.params.threadId ?? '',
-    overlayCount, inspectorContentWidth, configuration,
+    overlayCount, inspectorContentWidth, configuration, inspectorMotion,
+    inspectorTransition: inspectorMotion === 'none' ? 'none' : `opacity ${inspectorMotion}, translate ${inspectorMotion}`,
     inspectorToken: registered ? registration!.token : '', inspectorRouteId: registered ? registration!.routeId : '',
     inspectorKind: registered ? registration!.kind : 'none', inspectorSelectedPath: registered ? registration!.selectedPath : '',
     threadOwner, inspectorCandidate: candidateKind, inspectorMain: focusedCandidate.main, inspectorAutomatic: candidateKind !== 'none' && focusedCandidate.automatic,
