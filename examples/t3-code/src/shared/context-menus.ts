@@ -148,16 +148,17 @@ export function pullRequestLinkContextMenuItems(openLabel: string): MenuItem[] {
 // ── Chat file link ───────────────────────────────────────────────────────
 
 /**
- * ChatMarkdown's file-link menu: "Preview media" for media in a thread, the open item whenever
- * shell actions are allowed (named for the preferred editor), the reveal item with the server's
- * wording, then the copies; the relative path only for a file inside the thread's workspace
- * (MarkdownFileLink.logic.ts markdownFileCopyMenuItems, T3 Code 74541bab17). "Open in integrated
- * browser" is the Browser surface's (#100).
+ * ChatMarkdown's file-link menu (MarkdownFileLink.tsx showFileContextMenu, T3 Code 74541bab17): "Preview media" for
+ * media in a thread, the open item whenever shell actions are allowed (named for the preferred editor), "Open in
+ * integrated browser" for a page or a PDF the thread's Browser can show, the reveal item with the server's wording,
+ * then the copies; the relative path only for a file inside the thread's workspace (MarkdownFileLink.logic.ts
+ * markdownFileCopyMenuItems).
  */
-export function markdownFileMenuItems(input: { canPreviewMedia: boolean; canOpen: boolean; preferredEditor: string | null; revealLabel: string | undefined; canCopyRelative?: boolean }): MenuItem[] {
+export function markdownFileMenuItems(input: { canPreviewMedia: boolean; canOpen: boolean; canOpenInBrowser?: boolean; preferredEditor: string | null; revealLabel: string | undefined; canCopyRelative?: boolean }): MenuItem[] {
   return [
     ...(input.canPreviewMedia ? [{ id: 'preview-media', label: 'Preview media' }] : []),
     ...(input.canOpen ? [{ id: 'open', label: openInEditorMenuLabel(input.preferredEditor) }] : []),
+    ...(input.canOpenInBrowser ? [{ id: 'open-in-browser', label: 'Open in integrated browser' }] : []),
     ...(input.canOpen && input.revealLabel ? [{ id: 'reveal', label: input.revealLabel }] : []),
     ...(input.canCopyRelative !== false ? [{ id: 'copy-relative', label: 'Copy relative path' }] : []), { id: 'copy-full', label: 'Copy full path' },
   ];

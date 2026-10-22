@@ -7,7 +7,9 @@ import { obj, type Obj } from '../../src/client/domain';
 import { ClientError, reply, type Native } from '../../src/client/protocol';
 import { failure } from '../../src/transport/transport-wire';
 import { toasts } from '../../src/shell/toast';
-import { editFile, filesLocal, filesState, filesView, markdownFileMenu, mediaUnavailableDescription } from '../../src/panel/files-surface';
+import { editFile, filesLocal, filesState, filesView, mediaUnavailableDescription } from '../../src/panel/files-surface';
+import { markdownFileMenuRows } from '../../src/timeline/file-link-menu';
+import { loadSshAliases } from '../../src/connections/remote-open';
 import { crumbs } from '../../src/panel/files-surface';
 import { fileBreadcrumbs, isHostPath, isListableHostFolder } from '../../src/panel/files-path';
 import { openFileLink, panelState, type Surface } from '../../src/panel/panel-surfaces';
@@ -23,7 +25,7 @@ const files: Surface = { id: 'files', kind: 'files', path: '', line: 0, reveal: 
 
 type Answer = (method: string, payload: Obj) => unknown;
 /** A client on `/work/repo` (or `root`) whose server answers each request with `answer`, and the native calls it made. */
-function fixture(answer: Answer = () => ({}), options: { root?: string; remote?: boolean; picked?: string } = {}) {
+function fixture(answer: Answer = () => ({}), options: { root?: string; remote?: boolean } = {}) {
   const root = options.root ?? '/work/repo', origin = 'http://127.0.0.1:41857';
   const client = new T3Client();
   client.origin = origin; client.generation = 0; client.environmentId = 'env'; client.projectId = 'p'; client.threadId = 't';
@@ -45,7 +47,6 @@ function fixture(answer: Answer = () => ({}), options: { root?: string; remote?:
     if (request.op === 'sshHosts') return { ok: true, generation: 0, value: { targets: options.remote ? { [origin]: { alias: 'devbox', username: 'dev' } } : {} } };
     if (request.op === 'remoteEditorsProbe') return { ok: true, generation: 0, value: { editors: ['vscode'] } };
     if (request.op === 'remoteEditorsOpen') return { ok: true, generation: 0, value: { opened: true } };
-    if (request.op === 'contextMenu') return { ok: true, generation: 0, value: { clicked: options.picked ?? '' } };
     if (request.op === 'copyText') return { ok: true, generation: 0, value: { copied: true } };
     return { ok: true, generation: 0, value: {} };
   } };
@@ -206,8 +207,9 @@ describe('chat file links resolve the file they name', () => {
   });
   test('Open in editor, reveal and the copies act on the bare name\'s match', async () => {
     for (const picked of ['open', 'reveal', 'copy-full', 'copy-relative']) {
-      const { client, native, calls, requests } = fixture((method) => method === 'projects.searchEntries' ? { entries: [{ path: 'docs/guide.md', kind: 'file' }] } : {}, { picked });
-      await markdownFileMenu(client, native, '/work/repo/guide.md:3', { lookup: 'guide.md' });
+      const { client, native, calls, requests } = fixture((method) => method === 'projects.searchEntries' ? { entries: [{ path: 'docs/guide.md', kind: 'file' }] } : {});
+      // The chip's popover row, as link-menus.contract sends it: the chip's full path, then the row and the chip's lookup.
+      await filesLocal(client, native, 'link-pick', '/work/repo/guide.md:3', `${picked}\nguide.md`);
       const last = requests.at(-1)!;
       if (picked === 'open') expect(last).toEqual({ method: 'shell.openInEditor', payload: { cwd: '/work/repo/docs/guide.md:3', editor: 'vscode' } });
       if (picked === 'reveal') expect(last).toEqual({ method: 'shell.openInEditor', payload: { cwd: '/work/repo/docs/guide.md', editor: 'file-manager', reveal: true } });
@@ -219,9 +221,9 @@ describe('chat file links resolve the file they name', () => {
     }
   });
   test('the relative copy is offered only inside the thread workspace, and paths keep their host separators', async () => {
-    const { client, native, calls } = fixture();
-    await markdownFileMenu(client, native, '/work/elsewhere/main.ts');
-    expect(obj(calls.find(call => call.op === 'contextMenu')).items).toEqual([{ id: 'open', label: 'Open in VS Code' }, { id: 'reveal', label: 'Reveal in Finder' }, { id: 'copy-full', label: 'Copy full path' }]);
+    const { client, native } = fixture();
+    await loadSshAliases(native);
+    expect(markdownFileMenuRows(client, '/work/elsewhere/main.ts')).toEqual([{ id: 'open', label: 'Open in VS Code' }, { id: 'reveal', label: 'Reveal in Finder' }, { id: 'copy-full', label: 'Copy full path' }]);
     expect(workspaceRelativeFilePath('/work/repo/src/main.ts', '/work/repo/')).toBe('src/main.ts');
     expect(workspaceRelativeFilePath('C:/Repo/reports/a.csv', 'c:\\repo')).toBe('reports/a.csv');
     expect(fileLinkCopyPaths('C:/repo/reports/Device Users.csv:12:3', { absolutePath: 'C:/repo/reports/Device Users.csv', matched: false }, 'C:/repo'))
