@@ -42,19 +42,22 @@ test('a loaded presence module releases the original batch order', async () => {
 // first gains one. The agent waits for the scheduled load and the load under way (`pending`), and for none once it lands
 // or fails; a failed module is not fetched again by a later boot's preload.
 test('preload schedules the one load after paint, which pending names until it lands', async () => {
-  const raf = globalThis.requestAnimationFrame;
-  globalThis.requestAnimationFrame = f => setTimeout(f, 0);
+  const raf = globalThis.requestAnimationFrame, frames = [];
+  globalThis.requestAnimationFrame = f => frames.push(f);
+  const paint = () => { for (let n = 0; n < 2; n++) for (const f of frames.splice(0)) f(); }; // afterPaint's two frames
   try {
     let ready, calls = 0;
     const live = {};
     const presence = presenceLoader(() => { calls++; return new Promise(resolve => { ready = resolve; }); }, {}, () => {});
     expect(presence.pending()).toBeNull();
+    expect(await presence.landed(0)).toBe(true);
     presence.preload();
     presence.preload();
     expect(calls).toBe(0); // not before paint
     const waiting = presence.pending();
     expect(waiting).toBeInstanceOf(Promise);
-    await new Promise(r => setTimeout(r, 5));
+    expect(await presence.landed(0)).toBe(false);
+    paint();
     expect(calls).toBe(1);
     expect(presence.hold({ ops: [{ op: 'create', id: 1, css: '--exact-layout-transition:200 0 linear' }] })).toBe(false);
     ready(() => live);
@@ -64,11 +67,11 @@ test('preload schedules the one load after paint, which pending names until it l
     let fail; calls = 0;
     const failed = presenceLoader(() => { calls++; return new Promise((_, reject) => { fail = reject; }); }, {}, () => {}, () => {});
     failed.preload();
-    await new Promise(r => setTimeout(r, 5));
+    paint();
     fail(new Error('offline'));
-    await new Promise(r => setTimeout(r, 0));
+    await failed.pending();
     failed.preload();
-    await new Promise(r => setTimeout(r, 5));
+    paint();
     expect([failed.pending(), calls]).toEqual([null, 1]);
   } finally { globalThis.requestAnimationFrame = raf; }
 });
@@ -77,7 +80,7 @@ test('preload schedules the one load after paint, which pending names until it l
 test('a batch with another custom property fetches nothing', () => {
   let calls = 0;
   const presence = presenceLoader(() => { calls++; return new Promise(() => {}); }, {}, () => {});
-  expect(presence.hold({ ops: [{ op: 'style', id: 1, css: '--exact-press: 0.96; --exact-tint: red' }] })).toBe(false);
+  expect(presence.hold({ ops: [{ op: 'style', id: 1, css: '--exact-press: 0.96; --exact-tint: red; font-family: "--exact-layout-transition"' }] })).toBe(false);
   expect(calls).toBe(0);
   presence.hold({ ops: [{ op: 'style', id: 1, css: '--exact-exit-animation: leave 200ms' }] });
   expect(calls).toBe(1);

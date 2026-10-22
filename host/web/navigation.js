@@ -551,7 +551,7 @@ export function afterPaintPieces(load, o) {
 // caller hands them back through `apply`. `live` is the module, once loaded.
 export function presenceLoader(load, root, apply, log) {
   let live = null, loading = null, unavailable = false, scheduled = null;
-  const held = [], row = op => op.op === 'exit' || /--exact-(layout-transition|exit-animation)\b/.test(op.css ?? '');
+  const held = [], row = op => op.op === 'exit' || /(^|;)\s*--exact-(layout-transition|exit-animation)\s*:/.test(op.css ?? '');
   const release = () => { for (const batch of held.splice(0)) apply(batch); };
   const start = () => loading ??= load('./presence-glue.js', 'presence')
     .then(create => { live = create(root); release(); })
@@ -560,6 +560,7 @@ export function presenceLoader(load, root, apply, log) {
     get live() { return live; },
     preload() { if (!live && !unavailable && !loading) scheduled ??= new Promise(resolve => afterPaint(() => { scheduled = null; resolve(unavailable ? null : start()); })); },
     pending: () => live || unavailable ? null : loading ?? scheduled,
+    landed(ms) { const p = this.pending(); let t; return !p ? Promise.resolve(true) : Promise.race([p.then(() => true), new Promise(r => { t = setTimeout(r, ms, false); })]).finally(() => clearTimeout(t)); }, // whether no load is left within `ms`
     resize(batch) { return { ...batch, presenceSnap: true }; },
     hold(batch) {
       if (live || unavailable) return false;
