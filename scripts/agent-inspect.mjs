@@ -448,6 +448,8 @@ export async function perfOp(s, args, line, step) {
     if (live !== undefined && !(Number.isInteger(live) && live > 0 && live <= 120000)) throw new MalformedOperation('perf frames live <ms>: a whole number of milliseconds, 1–120000');
     return s.perf(null, { frames: true, late, ...(live !== undefined ? { live } : {}) });
   }
+  // `perf streams [start]` (LLP 1133.003 §9): each stream message's receipt to mapper entry, decode and commit.
+  if (args[0] === 'streams') return s.op({ op: 'perf', streams: true, ...(args[1] === 'start' ? { start: true } : {}) });
   // `perf hatches` (LLP 1075.003.000.001 §3.3): the hatches' calls and what their code counted.
   if (args[0] === 'hatches') {
     const read = () => s.op({ op: 'perf', hatches: true });
@@ -526,10 +528,17 @@ export function hatchDelta(a, b) {
   return { ...b, hatches, calls, counters, timings, from: { seq: a.seq, clock: a.clock } };
 }
 
+// `perf streams` (LLP 1133.003 §9): a line per stream, its latencies from receipt in ms.
+function renderStreamTiming(t) {
+  if (!t.measuring) return 'stream timing is not measuring: `perf streams start` begins it';
+  const ms = x => `p50 ${x.p50} p95 ${x.p95} p99 ${x.p99} max ${x.max} (${x.n})`;
+  return [`stream timing over ${t.seconds} s`, ...t.streams.map(x => `  ${x.name ?? `ticket ${x.ticket}`}: ${x.messages} messages (${x.messageRate}/s) · ${x.commits} commits (${x.commitRate}/s) · ${x.decodes} decodes (${x.decodeRate}/s, ${x.decodedBytes} bytes)${x.frames != null ? ` · ${x.frames} frames out, ${x.decodeErrors} errors` : ''}${x.refused ? ` · ${x.refused} refused` : ''} · busy ${(x.busy * 100).toFixed(2)}%\n    receipt to entry ${ms(x.toEntry)}\n    receipt to decode ${ms(x.toDecode)}\n    receipt to commit ${ms(x.toCommit)}`)].join('\n');
+}
 function renderPerf(r) {
   if (r.spans) return [`${r.target} · tick ${r.from ? r.from.tick + '..' : ''}${r.tick} · exclusive ms${r.tickMs ? ` · tick p50 ${r.tickMs.p50} p95 ${r.tickMs.p95} mean ${r.tickMs.mean}` : ''}`,
     ...r.spans.map(s => `  ${s.name} at ${s.at}: p50 ${s.p50} p95 ${s.p95} max ${s.max} perTick ${s.perTick} (${s.count} ticks)`)].join('\n');
   if (r.calls && r.hatches) return renderHatchPerf(r);
+  if (r.streamTiming) return renderStreamTiming(r.streamTiming);
   if (r.virtual) return 'virtual clock: no frame was presented (LLP 1079 D4); `perf frames live <ms>` measures a live window';
   if (r.unavailable) return 'this host observes no presented frames';
   if (r.unmeasured) return `frames not measured: ${r.unmeasured}`;

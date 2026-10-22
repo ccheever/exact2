@@ -89,6 +89,11 @@ function handle(transport, owner) {
     },
   });
 }
+// LLP 1133.003 §9's gate, under the agent only: agent.js installs
+// `exact.streamGate`, which times each message from its receipt
+// (http-body.js `received`) through the mapper to the commit, and the stub
+// decode the mapper calls. A page with no agent has none of it.
+const gate = () => globalThis.exact?.streamGate;
 export function open({ input, init, redirect }, conv, grantSet, deliver, controller) {
   let req;
   try { req = request(input, init, redirect); } catch (e) { return Promise.resolve({ error: String(e?.message ?? e), code: failureCode(e), reason: failureReason(e) }); }
@@ -99,7 +104,8 @@ export function open({ input, init, redirect }, conv, grantSet, deliver, control
   else own?.addEventListener?.('abort', () => controller.abort(own.reason), { once: true });
   const map = init.exactStream;
   let socket;
-  const protocol = /^wss?:/i.test(req.url) ? { socket: transport => { socket = handle(transport, controller); controller.socket = transport; } } : undefined;
+  // An HTTP body that is not events is a byte stream (http-body.js `readBytes`).
+  const protocol = /^wss?:/i.test(req.url) ? { socket: transport => { socket = handle(transport, controller); controller.socket = transport; } } : { bytes: true };
   // A mapper call's replies are refused with the frame: the journal says so.
   const refused = why => journal.push(`t=${clock.now} mapper ${controller.streamName} failed: ${why}; socket frames were refused`);
   // `frame`: the socket's `open` or a `message`, which its mapper may answer
@@ -121,8 +127,16 @@ export function open({ input, init, redirect }, conv, grantSet, deliver, control
       return { error: String(e?.message ?? e), code: failureCode(e), reason: failureReason(e) };
     } finally { if (turn) answering.mapper = null; }
   };
-  return streamed(req, grantSet, m => deliver({ ...value({ type: m.event || 'message', data: m.data, lastEventId: m.id, coalesced: m.coalesced }, true), coalesced: m.coalesced }), controller, readBodyFile, protocol)
+  const message = m => deliver({ ...value({ type: m.event || 'message', data: m.data, lastEventId: m.id, coalesced: m.coalesced }, true), coalesced: m.coalesced });
+  const timed = m => {
+    const g = gate();
+    if (!g) return message(m);
+    g.enter(controller.streamName, m.received);
+    try { message(m); } finally { g.leave(); }
+  };
+  return streamed(req, grantSet, timed, controller, readBodyFile, protocol)
     .then(o => {
+      gate()?.ended(controller.streamName);
       if (o.close) journal.push(`t=${clock.now} socket close: ${o.close.code} ${o.close.reason} (${controller.streamName})`);
       return value(o.close ? { type: 'close', data: '', lastEventId: '', coalesced: 0, ...o.close } : o.kind
       ? { type: 'error', data: '', lastEventId: '', coalesced: 0, kind: KINDS[o.kind], message: said.decode(o.body), status: 0 }

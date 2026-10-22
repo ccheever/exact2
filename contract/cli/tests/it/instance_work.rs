@@ -449,3 +449,29 @@ component App
         "a second ask keeps the cursor"
     );
 }
+
+/// LLP 1133.003 §9: `perf streams` is a development build's read, refused
+/// under production trust as `perf` is, and answered otherwise.
+#[test]
+fn perf_streams_is_refused_under_production_trust() {
+    let mut r = boot("component App\n  view\n    text \"x\"\n");
+    let streams = |r: &Runner<Rows>| {
+        serde_json::from_str::<serde_json::Value>(&exact_runner::agent::handle(
+            r,
+            r#"{"op":"perf","streams":true,"start":true}"#,
+        ))
+        .unwrap()
+    };
+    r.measure_later(Some(r#"{"inputs":{"trust":"production"}}"#));
+    let refused = streams(&r);
+    assert!(
+        refused["error"]
+            .as_str()
+            .unwrap()
+            .contains("production trust"),
+        "{refused}"
+    );
+    r.measure_later(None);
+    let answered = streams(&r);
+    assert_eq!(answered["streamTiming"]["measuring"], true, "{answered}");
+}

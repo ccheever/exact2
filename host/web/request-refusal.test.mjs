@@ -1227,6 +1227,7 @@ self.__exact_host = op => {
 };
 const storage = api.createStorage(self, { appId: 'test', grantSet: null }, () => context.owner, 'k');
 if (typeof api.bindAnswerStorage === 'function') api.bindAnswerStorage(self, storage, () => context.owner);
+eval(readFileSync(${JSON.stringify(resolve(ROOT, 'js/src/binary.js'))}, 'utf8'));
 eval(readFileSync(${JSON.stringify(resolve(ROOT, 'js/src/prelude.js'))}, 'utf8'));
 self.__exact_storage = storage.capability;
 self.__exact_install_storage();
@@ -1322,6 +1323,7 @@ self.__exact_host = op => {
 };
 const storage = api.createStorage(self, { appId: 'test', grantSet: null }, () => context.owner, 'k');
 if (typeof api.bindAnswerStorage === 'function') api.bindAnswerStorage(self, storage, () => context.owner);
+eval(readFileSync(${JSON.stringify(resolve(ROOT, 'js/src/binary.js'))}, 'utf8'));
 eval(readFileSync(${prelude}, 'utf8'));
 self.__exact_storage = storage.capability;
 self.__exact_install_storage();
