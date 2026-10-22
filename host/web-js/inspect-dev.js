@@ -451,6 +451,8 @@ function place() {
     const r = el.getBoundingClientRect();
     Object.assign(mark.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, display: el.isConnected ? "block" : "none" });
   }
+  // (A view gone takes its box: the count said is of those still shown.)
+  if (marks.length) legend(marks.filter(({ el }) => el.isConnected).length);
 }
 function outlineSites(frame) {
   if (frame.clear) { unmark(); return; }
