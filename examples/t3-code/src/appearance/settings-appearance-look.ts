@@ -23,7 +23,7 @@ export type Look = {
   chatMax: number; artwork: boolean; pill: string; diff: string;
   diffAdd: string; diffDel: string; diffAddSurface: string; diffDelSurface: string; diffAddLine: string; diffDelLine: string;
   terminalLight: string; terminalDark: string; terminalFont: string; terminalSize: number;
-  fontSans: string; fontSize: number; promptSize: number; promptFont: string; codeFont: string; codeSize: number; wordWrap: boolean; smoothing: boolean; panelMs: number;
+  fontSans: string; fontSize: number; promptSize: number; promptFont: string; codeFont: string; codeSize: number; wordWrap: boolean; math: boolean; smoothing: boolean; panelMs: number;
   contextStrip: boolean; contextMeter: boolean; richText: boolean; skillsInSlash: boolean; followUp: string; legacySidebar: boolean;
   confirmUnpin: boolean; confirmArchive: boolean; confirmDelete: boolean;
 };
@@ -78,7 +78,7 @@ export function look(client: T3Client): Look {
     diff: prefs.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green', chatMax: chatMaxWidth(prefs.chatWidth, rootFontSize), artwork: prefs.environmentIdentificationMode === 'artwork', pill: prefs.environmentIdentificationMode === 'pill' ? 'Nightly' : '',
     diffAdd: diff.add, diffDel: diff.del, diffAddSurface: diff.addSurface, diffDelSurface: diff.delSurface, diffAddLine: diff.addLine, diffDelLine: diff.delLine,
     fontSans: fontStack(prefs.fontFamilySans, false) ?? 'system-ui', fontSize: rootFontSize, promptSize: clampPromptFontSize(prefs.fontSizePrompt), promptFont: fontStack(prefs.fontFamilyComposer.trim() ? prefs.fontFamilyComposer : prefs.fontFamilySans, false), codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace',
-    codeSize: prefs.fontSizeCode, wordWrap: prefs.wordWrap, smoothing: prefs.fontSmoothing, panelMs: prefs.panelAnimationDurationMs,
+    codeSize: prefs.fontSizeCode, wordWrap: prefs.wordWrap, math: prefs.mathRenderingEnabled, smoothing: prefs.fontSmoothing, panelMs: prefs.panelAnimationDurationMs,
     contextStrip: prefs.persistComposerContextStrip, contextMeter: prefs.contextWindowMeterEnabled, richText: prefs.composerRichTextEnabled,
     skillsInSlash: prefs.showSkillsInSlashMenu, followUp: prefs.followUpBehavior, legacySidebar: prefs.legacySidebarEnabled,
     confirmUnpin: prefs.confirmThreadUnpin, confirmArchive: prefs.confirmThreadArchive, confirmDelete: prefs.confirmThreadDelete,

@@ -43,6 +43,8 @@ shape Look
   codeFont: string
   codeSize: number
   wordWrap: bool
+  // Render math: display formulas typeset in the math page (markdown.contract MathBlock).
+  math: bool
   smoothing: bool
   panelMs: number
   contextStrip: bool

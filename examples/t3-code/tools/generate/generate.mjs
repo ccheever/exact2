@@ -12,7 +12,8 @@
 //   gen-morph.mjs      src/shell/shell-morph.contract: morphicons' plan for each icon pair
 //   gen-vectors.mjs    macos/tests/terminal/vectors.json: the buffer cases and their committed expectations
 //   gen-shell-parser.mjs src/highlight/shell-parser/: unbash parser runtime and declarations
-//   gen-mermaid.mjs    assets/mermaid/vendor/: Mermaid's ES module build and DOMPurify for the Mermaid page
+//   gen-mermaid.mjs    assets/mermaid/vendor/ and assets/math/vendor/: pele and DOMPurify for the Mermaid page,
+//                      KaTeX for the math page
 //   gen-codex-directives.mjs src/highlight/codex-directives.js and .d.ts: the pinned inline directive parser
 //   gen-minimap-text.mjs src/timeline/minimap-text.js and .d.ts: the minimap preview's Markdown as plain text
 //
@@ -87,17 +88,19 @@ if (import.meta.main && !process.argv.includes('--installed')) {
   if (process.env.OUT_DIR && process.env.CARGO_MANIFEST_DIR) for (const file of [...inputs(), ...files.map(({ file }) => file)]) console.log(`cargo:rerun-if-changed=${file}`);
   let differs = 0;
   for (const { file, text } of files) {
-    const current = existsSync(file) ? readFileSync(file, 'utf8') : null;
-    if (current === text) continue;
+    // A font is bytes; every other output is text.
+    const bytes = typeof text === 'string' ? Buffer.from(text) : text;
+    const current = existsSync(file) ? readFileSync(file) : null;
+    if (current?.equals(bytes)) continue;
     differs++;
     if (check) { console.error(`${current === null ? 'missing' : 'differs'}: ${name(file)}`); continue; }
     const directory = dirname(file);
     mkdirSync(directory, { recursive: true });
     const before = current === null ? statSync(directory) : null;
-    writeFileSync(file, text);
+    writeFileSync(file, bytes);
     utimesSync(file, time, time);
     if (before) utimesSync(directory, before.atime, before.mtime);
-    console.error(`generate: wrote ${name(file)} (${text.length} bytes)`);
+    console.error(`generate: wrote ${name(file)} (${bytes.length} bytes)`);
   }
   for (const file of stale) {
     differs++;

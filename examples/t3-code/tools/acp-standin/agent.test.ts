@@ -169,7 +169,7 @@ describe("the agent", () => {
     expect(notes.find(note => note.params?.update?.sessionUpdate === "tool_call")!.params.update.rawInput).toEqual({ threadId: "thread-9" });
   });
 
-  test("'Wait on the thread <id>' holds a t3_thread_wait call; 'Link the thread <id>' links it; 'Fail the turn' fails with a JSON error", async () => {
+  test("'Wait on the thread <id>' holds a t3_thread_wait call; 'Link the thread <id>' links it; 'Show the Markdown sample' replies in two chunks; 'Fail the turn' fails with a JSON error", async () => {
     const home = join(root, "home-wait");
     const { executable } = install(home, { methods: "none" });
     const prompt = (sessionId: string, text: string) => ({ method: "session/prompt", params: { sessionId, prompt: [{ type: "text", text: `<user_request>\n${text}\n</user_request>` }] } });
@@ -185,6 +185,11 @@ describe("the agent", () => {
     expect(wait.kinds).toEqual([["tool_call", "t3_thread_wait"], ["tool_call_update", "completed"], ["agent_message_chunk", "Stand-in reply: the other thread finished"]]);
     expect(wait.updates[0].rawInput).toEqual({ threadId: "thread-7" });
     expect((await turn("Link the thread thread-7")).kinds).toEqual([["agent_message_chunk", "Stand-in reply: the plan continues in [the other thread](t3-thread://v1/thread-7)."]]);
+    // A Markdown reply in two chunks, the first a closed Mermaid fence.
+    const sample = await turn("Show the Markdown sample pausing 0s");
+    expect(sample.kinds.map(([kind]) => kind)).toEqual(["agent_message_chunk", "agent_message_chunk"]);
+    expect(sample.updates[0].content.text).toStartWith("Here is the sample.\n\n```mermaid\nflowchart LR");
+    expect(sample.updates[1].content.text).toContain("$$\nE = mc^2\n$$");
     const failed = await turn("Fail the turn");
     expect(failed.reply.error.code).toBe(-32603);
     expect(JSON.parse(failed.reply.error.message).error.message).toBe("The stand-in could not finish this turn.");
