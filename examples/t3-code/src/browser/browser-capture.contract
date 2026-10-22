@@ -108,6 +108,7 @@ component BrowserMiniPlayer
   inject
     rem: number
     still: bool
+    interacted: action
   props
     mini: BrowserMini
     frame: ChatCanvasMini
@@ -142,6 +143,7 @@ component BrowserMiniPlayer
     tipAt = value ? tipAt : ""
     tipShut = value ? tipShut : ""
   action movePlayer(e: PointerEvent)
+    interacted()
     let at = bcPlayerZone(e.offsetX, e.offsetY, frame.width, frame.pillInset, pillWidth, rem)
     let shown = over and (at == "dot" or (at == "pill" and pill))
     let slot = shown ? bcPillSlot(e.offsetX - (frame.width - frame.pillInset - pillWidth), e.offsetY - frame.pillInset, rem, mini.recording) : ""

@@ -169,7 +169,7 @@ export class Drive {
   private async moduleOp(request: Obj): Promise<unknown> {
     this.moduleCalls.push(request);
     if (request.op === 'localBearer') return { ok: true, generation: 0, value: { token: this.primaryBearer } };
-    if (request.op === 'status') return { ok: true, generation: 0, value: { presentation: { scrollEnds: {} }, activityLastInteraction: 0 } };
+    if (request.op === 'status') return { ok: true, generation: 0, value: { presentation: { scrollEnds: {} } } };
     return { ok: true, generation: 0, value: {} };
   }
 

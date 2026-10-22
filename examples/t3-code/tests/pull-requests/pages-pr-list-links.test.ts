@@ -120,7 +120,7 @@ const list = contractComponent('src/pull-requests/pages-prs.contract', 'PrList')
 test('a close sweep includes eligible rows in its group, stops at another group, and Escape cancels it', () => {
   const calls: unknown[][] = [];
   const row = (key: string, disabled = false) => ({ key, ref: key, speed: [{ action: 'close', disabled }] });
-  const scope = { page: { groups: [{ key: 'authored', rows: [row('a'), row('b'), row('c', true)] }, { key: 'others', rows: [row('d')] }] }, frame: (id: string) => ({ y: { a: 100, b: 156, c: 212, d: 268 }[id.slice('pr-row-wrap-'.length)] ?? 0, height: 56 }), min: Math.min, max: Math.max, abs: Math.abs, act: (...args: unknown[]) => calls.push(args) };
+  const scope = { page: { groups: [{ key: 'authored', rows: [row('a'), row('b'), row('c', true)] }, { key: 'others', rows: [row('d')] }] }, frame: (id: string) => ({ y: { a: 100, b: 156, c: 212, d: 268 }[id.slice('pr-row-wrap-'.length)] ?? 0, height: 56 }), min: Math.min, max: Math.max, abs: Math.abs, act: (...args: unknown[]) => calls.push(args), interacted: () => {} };
   const state = list.state(scope);
   list.call('sweepDown', state, scope, ['a', 'authored', 'close', { buttons: 1, clientY: 120 }]);
   list.call('sweepMove', state, scope, [{ buttons: 1, clientY: 280 }]);

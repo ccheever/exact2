@@ -8,7 +8,7 @@ import { composerFieldOwner } from './auto-balance-owner';
 // removeImage/removeFile (lib/composerContextReferences removeInlineContextReference),
 // composerAttachmentFiles isPreviewableComposerVideo and packages/shared video.ts.
 import type { T3Client } from '../client/client';
-import { ClientError, nativeFiles, type Native } from '../client/protocol';
+import { ClientError, preferenceFiles, type Native } from '../client/protocol';
 import { obj, str, type Obj } from '../client/domain';
 import { draftFiles, setDraftFiles } from './composer-editor-files';
 import { contextId, contextReferences } from './composer-editor-menu';
@@ -118,10 +118,10 @@ export async function videoOp(client: T3Client, native: Native, op: string, id: 
   if (op !== 'shelf-video-remove') throw new ClientError(`Unknown editor action: ${op}`);
   if (previews.get(client) === id) previews.delete(client);
   const key = client.draftKey;
-  await removeAttachmentReferences(client, native, key, 'file', file.contextId, { applied: async current => {
+  await removeAttachmentReferences(client, native, key, 'file', file.contextId, { applied: async () => {
     const previous = draftFiles(client.local);
     setDraftFiles(client.local, previous.filter(candidate => candidate !== file));
-    try { await client.persist(nativeFiles(current)); } catch (error) { setDraftFiles(client.local, previous); throw error; }
+    try { await client.persist(preferenceFiles()); } catch (error) { setDraftFiles(client.local, previous); throw error; }
     if (file.status === 'staged' && !stagedInUse(client.local, file.id)) await removeStaged(file.id);
   } });
   return '';

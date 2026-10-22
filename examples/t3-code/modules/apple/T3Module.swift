@@ -6,9 +6,6 @@ import AppKit
 final class T3Module: ExactModule {
     /// The module's links to the environments the data module has connected (T3Link.swift): terminals, Browser automation, devices.
     let links = T3Links()
-    let activityInput: T3ActivityInput // when the reader last pointed, typed or scrolled (T3ActivityInput.swift)
-    private let preferencesURL: URL? // t3-code.json (T3Preferences.swift)
-    private let panelTabs = RightPanelTabsInput()
     private let toolIcons = T3ToolActivityIcon()
     let ssh: T3Ssh // Add Environment → SSH: discovery, ssh -G, tunnels (T3Ssh.swift).
     let composer: T3Composer
@@ -48,8 +45,6 @@ final class T3Module: ExactModule {
         frames = T3ComposerFrames(changed: changed)
         attach = T3ComposerAttach(dataRoot: context.data)
         media = T3MediaPreview(agent: context.agent, stagedFile: attach.stagedFile) // a draft file's preview reads its staged copy
-        activityInput = T3ActivityInput(changed: changed)
-        preferencesURL = context.data.appendingPathComponent("t3-code.json", isDirectory: false)
         devices = T3DeviceStreams(access: { [links] done in links.deviceHubAccess(done) }, changed: changed)
         ssh = T3Ssh(agent: context.agent, promptsAvailable: true, changed: changed) // the window shows the SSH password dialog
         composerInput = T3ComposerInput()
@@ -89,13 +84,8 @@ final class T3Module: ExactModule {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return failed(T3Failure(kind: "Closed", message: "The window was closed.")) }
                 let presentation = self.composer.status.merging(self.intent.status) { first, _ in first }.merging(self.frames.status) { first, _ in first }.merging(self.media.status) { first, _ in first }.merging(self.devices.status) { first, _ in first }.merging(self.chrome.status) { first, _ in first }.merging(T3Terminals.shared.status) { first, _ in first }.merging(self.browserSessions.status) { first, _ in first }.merging(self.browserAutomation.status) { first, _ in first }
-                reply.send(["ok": true, "generation": generation, "value": ["presentation": presentation, "activityLastInteraction": self.activityInput.lastInteractionAt()]])
+                reply.send(["ok": true, "generation": generation, "value": ["presentation": presentation]])
             }
-        case "readPreferences":
-            do { reply.send(["ok": true, "generation": generation, "value": ["text": try T3Preferences.read(preferencesURL)]]) } catch { failed(error as? T3Failure ?? T3Failure(kind: "Persistence", message: "\(error)")) }
-        case "writePreferences":
-            guard let text = request["text"] as? String else { return failed(T3Failure(kind: "Arguments", message: "writePreferences requires text.")) }
-            do { try T3Preferences.write(text, to: preferencesURL); reply.send(["ok": true, "generation": generation, "value": [:] as [String: Any]]) } catch { failed(error as? T3Failure ?? T3Failure(kind: "Persistence", message: "\(error)")) }
         // The data module's connected environments (src/transport/transport.ts pushLinks).
         case "links":
             DispatchQueue.main.async { [links] in links.update(request); reply.send(["ok": true, "generation": generation, "value": [:] as [String: Any]]) }
@@ -104,7 +94,7 @@ final class T3Module: ExactModule {
     }
     override func element(_ element: ExactElement) {
         T3TerminalCommandKey.install(element)
-        panelTabs.install(element); toolIcons.install(element)
+        toolIcons.install(element)
         frames.install(element)
         composer.install(element); promptPreview.install(element); chrome.install(element); menus.install(element); media.install(element); devices.install(element)
         composerInput.install(element); mediaFocus.install(element)
@@ -115,13 +105,13 @@ final class T3Module: ExactModule {
     }
     override func elementEnded(_ element: ExactElement) {
         T3TerminalCommandKey.remove(element)
-        panelTabs.remove(element); toolIcons.remove(element)
+        toolIcons.remove(element)
         frames.remove(element)
         composer.remove(element); promptPreview.remove(element); composerInput.remove(element); media.remove(element); devices.remove(element); mediaFocus.remove(element)
         if element.hatch == .t3SnapshotTile, let view = element.view { snapShot.removeTile(view: view) }
         if element.hatch == .t3Composer { snapShot.removeComposer(key: ObjectIdentifier(element)) }
     }
-    override func destroy() { detachAppControl(); activityInput.destroy(); links.destroy(); mediaFocus.destroy(); T3MenuDismissal.disarm(); panelTabs.destroy(); toolIcons.destroy(); latinChords.destroy(); composerInput.destroy(); textMenu.destroy(); notifications.destroy(); snapShot.destroy(); composer.destroy(); promptPreview.destroy(); media.destroy(); devices.destroy(); intent.destroy(); frames.destroy(); chrome.destroy(); menus.destroy(); ssh.destroy(); browserSessions.sync([]); T3LocalBackend.shared.detach(self) } // detachAppControl first: the window's request fails at once (renderer-unavailable), and the control lets go of the backend before the last module stops it
+    override func destroy() { detachAppControl(); links.destroy(); mediaFocus.destroy(); T3MenuDismissal.disarm(); toolIcons.destroy(); latinChords.destroy(); composerInput.destroy(); textMenu.destroy(); notifications.destroy(); snapShot.destroy(); composer.destroy(); promptPreview.destroy(); media.destroy(); devices.destroy(); intent.destroy(); frames.destroy(); chrome.destroy(); menus.destroy(); ssh.destroy(); browserSessions.sync([]); T3LocalBackend.shared.detach(self) } // detachAppControl first: the window's request fails at once (renderer-unavailable), and the control lets go of the backend before the last module stops it
 }
 
 let exactModule: ExactModule.Type = T3Module.self
