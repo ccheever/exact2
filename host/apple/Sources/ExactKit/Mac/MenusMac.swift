@@ -92,6 +92,9 @@ final class MenuHost: NSObject {
     /// not in.
     private func track(_ menu: NSMenu, positioning item: NSMenuItem? = nil, at point: NSPoint, in source: NodeView,
                        click: NSEvent? = nil, closed: () -> Void) {
+        // Native tracking owns the contact and may consume its up.
+        presenter?.pointerSource?.pointerReleased(click)
+        guard source.window != nil, source.presenter === presenter else { closed(); return }
         nativeTracking += 1
         if let click, [.rightMouseDown, .leftMouseDown].contains(click.type), let window = source.window,
            let press = NSEvent.mouseEvent(with: click.type, location: source.convert(point, to: nil), modifierFlags: click.modifierFlags,
@@ -106,13 +109,6 @@ final class MenuHost: NSObject {
             menu.popUp(positioning: item, at: point, in: source)
         }
         nativeTracking -= 1
-        // A menu that opens while the button that opened it is down takes
-        // that button's release (a right press's context menu; a click's
-        // button menu): the view it went down on never hears its up. The
-        // press's hold ends here, with `pointerup`, as a native button's does
-        // after its own tracking loop (NativeButtonsMac.swift); a hold left
-        // standing kept hover from following the pointer until a left click.
-        if let presenter, presenter.pointerHolds, NSEvent.pressedMouseButtons == 0 { source.pointerReleased(nil) }
         closed()
         if nativeTracking == 0 {
             let work = afterTracking; afterTracking.removeAll()

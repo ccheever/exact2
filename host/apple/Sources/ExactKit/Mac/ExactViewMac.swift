@@ -319,12 +319,17 @@ public final class ExactView: NSView {
         if window != nil {
             // Text editors can consume control chords before the responder chain.
             // Route declared commands first, scoped to this session's focused view.
-            shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp]) { [weak self] event in
-                guard let self, self.session.presenter.hosts(event.window) else { return event }
+            shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseUp]) { [weak self] event in
+                guard let self else { return event }
                 #if EXACT_INSPECT
                 // Inspect mode's monitor has every event (InspectMac.swift): none is the app's.
                 if Inspect.on || InspectHost.draining { return event }
                 #endif
+                // AppKit can route an up to no view after the pressed subtree leaves its window.
+                if [.leftMouseUp, .rightMouseUp, .otherMouseUp].contains(event.type) {
+                    self.session.presenter.pointerSource?.pointerReleased(event)
+                }
+                guard self.session.presenter.hosts(event.window) else { return event }
                 // A modifier pressed is a keydown on the web (`"Shift"`), and
                 // released a keyup (#140); to AppKit a flags change, which
                 // goes on to it either way.
