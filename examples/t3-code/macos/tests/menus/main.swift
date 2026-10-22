@@ -752,7 +752,7 @@ suite.addTest(QuitHoldTests.defaultTestSuite)
 suite.addTest(MenuTests.defaultTestSuite)
 suite.addTest(InstalledFontTests.defaultTestSuite)
 suite.run()
-guard let run = suite.testRun, run.executionCount == 49 else { print("Menus: unexpected test count \(suite.testRun?.executionCount ?? 0)"); exit(1) }
+guard let run = suite.testRun, run.executionCount == 50 else { print("Menus: unexpected test count \(suite.testRun?.executionCount ?? 0)"); exit(1) }
 print("Menus: \(run.executionCount) tests, \(run.totalFailureCount) failures")
 exit(run.hasSucceeded ? 0 : 1)
 
