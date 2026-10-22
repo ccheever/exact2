@@ -29,7 +29,7 @@ async function prerequisite() {
   return null;
 }
 const missing = process.env.EXACT_GLUE_FAST === '1' ? null : await prerequisite();
-const check = process.env.EXACT_GLUE_FAST === '1' ? notApplicable('the async glue step does not build apps; the web-build-test step runs this test')
+const check = process.env.EXACT_GLUE_FAST === '1' ? notApplicable('the async glue step does not build apps; the web-ax-test step runs this test')
   : need(...(missing ?? ['chrome', null]));
 
 // Calm at boot: the row says `none`, so the boot batch carries no presence row.
