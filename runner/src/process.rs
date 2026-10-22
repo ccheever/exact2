@@ -128,6 +128,7 @@ impl Request {
             body,
             stream,
             socket: stream,
+            bytes: false,
             timeout_ms: None,
             body_from: None,
             redirect: Redirect::Follow,

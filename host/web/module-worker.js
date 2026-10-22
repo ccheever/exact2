@@ -88,6 +88,7 @@ function init(message) {
   }
   // Kept keys (LLP 1069.005 D1b): the CryptoKeyPair in this realm's IndexedDB.
   self.__exact_keys = keyStore(message.storage, self.indexedDB);
+  evaluate(message.binary);
   evaluate(message.prelude);
   self.__exact_storage = storage.capability;
   self.__exact_install_storage();

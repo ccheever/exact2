@@ -1095,6 +1095,20 @@ commit coalesce to the newest, counted in `coalesced`. The end is
 `{type: 'error', kind, message, status}`: `kind` is `Network` (the far side
 closed: `the socket closed (1000)`), `Refused` (outside the grants), `Aborted`,
 or `Response` with the status and body of a reply that was not an event stream.
+
+A TypeScript source's `http:`/`https:` stream whose 2xx body is not
+`text/event-stream` is a **byte stream** (LLP 1016.000, the amendment of
+2026-10-23): each `message` has an ArrayBuffer `data`, the bytes read since the
+mapper's last turn, at arbitrary boundaries (a framing is the mapper's to
+parse), never dropped or coalesced. At most 1 MiB, or the stream's
+`exactIndependentHttp.maxResponseBytes` if smaller, waits for the mapper; a read
+past it ends the stream with `Refused` (`byte stream receive queue exceeds 1
+MiB`) after the bytes already waiting. The body's end is `Network`, `the byte
+stream ended`. A 204, a 205 and a `HEAD` have no body and stay the one answer.
+The request carries `Accept: text/event-stream`, as every stream's does, unless
+the source names an `accept` header; name one where the server negotiates by
+it. The web JS target, macOS, iOS and Linux read it; the web's wasm host, Rust
+sources and worker-placed sources still take such a body as the one answer.
 A caller's abort signal maps an `error` with kind `Aborted` while the resource
 is still held. New arguments, `refresh` or the resource leaving the view close
 the stream without further mapper calls;

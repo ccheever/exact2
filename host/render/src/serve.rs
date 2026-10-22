@@ -1483,7 +1483,7 @@ fn csp(grants: &str, dist: &Path) -> String {
         hash(crate::page::scroll_document_js().as_bytes()),
         hash(crate::direct::boot_swap_js().as_bytes())
     );
-    for file in ["module-prelude.js", "app.js"] {
+    for file in ["module-binary.js", "module-prelude.js", "app.js"] {
         if let Ok(bytes) = std::fs::read(dist.join(file)) {
             let _ = write!(scripts, " 'sha256-{}'", hash(&bytes));
         }

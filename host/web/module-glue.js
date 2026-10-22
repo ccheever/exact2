@@ -17,7 +17,7 @@ const checkpoint = () => new Promise(resolve => {
   channel.port1.onmessage = () => { channel.port1.close(); channel.port2.close(); resolve(); };
   channel.port2.postMessage(null);
 });
-let nextId = 1, prelude;
+let nextId = 1, prelude, binary;
 const hash = async bytes => {
   // Dev protocol supplies its LAN-capable implementation; static pages need HTTPS.
   if (globalThis.exact.moduleDigest) return globalThis.exact.moduleDigest(bytes);
@@ -92,9 +92,11 @@ export async function prepare(payload, admitted, id = nextId++) {
   const childGrantSet = scopedGrantSet(admitted.grantSet, meta.grants);
   if (grantError(childGrantSet)) throw new Error('module integrity, ABI, identity, or grants mismatch');
   admitted = {...admitted,grants:meta.grants,grantSet:childGrantSet};
+  // The prelude and its byte helpers (js/src/binary.js), evaluated just before it: each a script of its own, whose hash the served page's CSP names.
   prelude ??= read(new URL('./module-prelude.js', import.meta.url), 256 * 1024).then(bytes => decoder.decode(bytes)).catch(error => { prelude = null; throw error; });
-  const before = await prelude;
-  if (admitted.placement === 'worker') return prepareWorker(payload, admitted, id, before, meta);
+  binary ??= read(new URL('./module-binary.js', import.meta.url), 64 * 1024).then(bytes => decoder.decode(bytes)).catch(error => { binary = null; throw error; });
+  const [helpers, before] = await Promise.all([binary, prelude]);
+  if (admitted.placement === 'worker') return prepareWorker(payload, admitted, id, before, meta, helpers);
   const frame = document.createElement('iframe'); frame.hidden = true;
   frame.setAttribute('aria-hidden', 'true'); document.body.append(frame);
   const win = frame.contentWindow;
@@ -159,7 +161,7 @@ export async function prepare(payload, admitted, id = nextId++) {
     if (!win.crypto.subtle && globalThis.exact.moduleDigest) win.__exact_digest = bytes => globalThis.exact.moduleDigest(bytes);
     // Kept keys (LLP 1069.005 D1b): the CryptoKeyPair in this realm's IndexedDB.
     win.__exact_keys = keyStore(storageKey(admitted.appId), win.indexedDB);
-    for (const source of [before, decoder.decode(payload.script)]) {
+    for (const source of [helpers, before, decoder.decode(payload.script)]) {
       const script = win.document.createElement('script'); script.textContent = source; win.document.head.append(script);
       if (initializationError) throw new Error(initializationError);
       if (source === before) {
@@ -399,7 +401,7 @@ export async function prepare(payload, admitted, id = nextId++) {
 // The module's realm on a dedicated Worker (LLP 1027.002 D2): the prelude,
 // storage capability and turn discipline of the iframe realm, off the
 // page's main thread (module-worker.js). Same interface as the iframe realm.
-async function prepareWorker(payload, admitted, id, before, meta) {
+async function prepareWorker(payload, admitted, id, before, meta, helpers) {
   const worker = new Worker(new URL('./module-worker.js', import.meta.url), { type: 'module' });
   const waiting = new Map();
   let disposed = false;
@@ -419,7 +421,7 @@ async function prepareWorker(payload, admitted, id, before, meta) {
   worker.onerror = event => { event.preventDefault(); fail(`module worker failed: ${event.message}`); };
   worker.onmessageerror = () => fail('module worker message failed');
   const ready = new Promise((resolve, reject) => waiting.set(0, { resolve, reject }));
-  worker.postMessage({ op: 'init', token: 0, prelude: before, script: decoder.decode(payload.script), admitted,
+  worker.postMessage({ op: 'init', token: 0, binary: helpers, prelude: before, script: decoder.decode(payload.script), admitted,
     storage: storageKey(admitted.appId), pageDigest: !!globalThis.exact.moduleDigest, seed: agentSeed() });
   try { await ready; } catch (error) { worker.terminate(); throw error; }
   const realm = { frame: null, meta, grantSet: admitted.grantSet, id, placement: 'worker',

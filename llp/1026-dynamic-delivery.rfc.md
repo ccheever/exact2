@@ -1,7 +1,7 @@
 # LLP 1026: Dynamic delivery — the app over the wire, from a cloud that builds it
 
 **Type:** RFC
-**Status:** Draft r2 (amended 2026-09-03 by LLP 1027, accepted: D2–D3's wasm *data* module leaves §9's staging — a phone binary carries one interpreter, chosen by the app's language; §7's "A JS engine" is withdrawn; §10 Q1 is 1027 §10 Q3, Q6 and Q7 are answered by 1027 D6/D5. Everything about plans, assets, the update store, signing, digest identity, and Level A stands.)
+**Status:** Superseded by LLP 1029.000 and LLP 1030 (Charlie, 2026-10-22). A record of the exploration; §10 records the rulings against what is built.
 **Systems:** Serving (LLP 1023's envelope grows one platform-neutral card and an internet rung; the same envelope is the update manifest), Runner (a second `DataSource` executor: the app's data crate as a wasm module behind a bytes-only ABI), GPU (wgpu moves from the app's module to the host; the app's surfaces compile to wasm against WebGPU imports; shaders as assets), Apple host and Linux host (the executor; the update store, selection at launch, the swap rule; loaders follow redirects and speak HTTPS), Release hosts (the embedded bundle plus an on-disk update store — the update economy, minimal, D9–D12), Web dev loop (`dev.mjs` builds and serves the module and classifies a rebuild by what changed), Build (bake emits the update bundle beside the native archive; the cloud runs the same scripts), Launcher (LLP 1023 Stage 3: grant admission per origin), Native modules (LLP 1024: the roster ships in the binary — the honest boundary)
 **Author:** Claude (Fable 5.1) for Charlie Cheever
 **Date:** 2026-09-02
@@ -189,7 +189,9 @@ origin needs what a LAN did not:
   plan and module (the envelope's pointers are same-origin, 1023 D1);
   the envelope itself may land on the final URL a redirect names —
   that is what "final response URL" was for.
-- **A capability URL, not a header, for dev.** The artifact endpoints
+- **A capability URL, not a header, for dev.** (Replaced for a phone
+  beyond the LAN by §10 Q5's ruling, 2026-10-22: pairing, not a bearer
+  URL.) The artifact endpoints
   are reached at a path with an unguessable segment the cloud mints per
   project (`https://<host>/p/<token>/`). It is the credential: it can
   be typed into the dev menu's URL field, scanned as a QR, pasted into
@@ -792,7 +794,13 @@ dev client.
 - **Withdrawn in r2:** r1's refusal of release binaries that fetch —
   replaced by D9–D12 on Charlie's ask, at the cost §8 names.
 
-## 8. The DEFERRED and 1023 §8 trades this RFC owes (Charlie's, before Acceptance)
+## 8. The DEFERRED and 1023 §8 trades
+
+**Ruled (Charlie, 2026-10-22):** this is a record overtaken by LLP
+1029.000 and LLP 1030, not a pending admission. LLP 1009 §5 and
+`rules/DEFERRED.md` settle the shader wording. §10 Q5 replaces the
+capability-URL proposal with pairing; GPU surfaces as wasm stay deferred
+under LLP 1029.000 §8.
 
 The rule: name what it unblocks, and take something off the doing-list
 in the same PR.
@@ -824,10 +832,9 @@ in the same PR.
 - **1023 §8 "release binaries never fetch"** → they fetch after first
   pixel, from a baked-in origin, signed, into a store, for the next
   launch (D11). Take: covered by the first bullet.
-- **1023 §8 "No auth on the artifact endpoints in v1"** → a capability
-  URL over HTTPS for dev (D1), a signature for production (D11). Take:
-  none needed — it removes a limitation; `--loopback` stays the
-  embargo switch.
+- **1023 §8 "No auth on the artifact endpoints in v1"** → scoped,
+  revocable pairing tokens over TLS for dev beyond the LAN (§10 Q5,
+  Charlie, 2026-10-22), a signature for production (D11).
 - **`rules/DEFERRED.md` §Runtime "HBC compilation, hot revision
   surfaces, staged reload"** — not moved. A module change is not a hot
   revision surface: no patch format, no generations, a restart carrying
@@ -905,49 +912,33 @@ rotation without a binary (D11), ahead-of-time compilation of the
 module on desktop (D2/D6 — an engine choice, made when the per-frame
 number asks for it).
 
-## 10. Open questions (for Charlie)
+## 10. Questions and rulings
 
-1. **Is 1.0 MB acceptable** in the iOS dev client and the launcher, and
-   is it acceptable in *release* at Level B? Level A exists so the
-   answer can be "dev and launcher yes, release not yet." The
-   alternatives are a smaller interpreter (wasm3, C) or no phone half.
-2. **Apply policy in production:** next launch by default with an
-   app-issued `Command` to apply now (D11), or apply-on-background as
-   Expo's default? Leaning: next launch; a restart under the user's
-   hands is the one thing this design must never do on its own.
-3. **Does the launcher ever admit `secret.keep`?** A cloud-served app
-   asking for the Keychain is the one grant whose misuse outlives the
-   session. Leaning: never in the launcher; only in the app's own dev
-   client and its release binary.
-4. **The WebGPU import surface:** the standard C header verbatim (owned
-   elsewhere, wide) or the subset the `custom` backend's traits
-   actually need (narrower, ours to keep in step)? Leaning: the header,
-   trimmed to what wgpu's dispatch traits call, generated from a table
-   as the other ABIs are.
-5. **Capability URL or a pairing code for the phone** in dev? The URL is
-   the simplest thing that survives the threat model stated; a
-   six-digit pairing code trades a scan for a keyboard.
-6. **Should the web load the module separately** (D4), making the app
-   module one artifact under two loaders and `{rebuilt}` a restart
-   with carry on the web too? It is the web's boot path; it needs a
-   number first.
-7. **Should the cloud's bake run the module** through the same
-   interpreter, so bake's boot values are provably the module's? The
-   native crate and the module answer the same bytes today, so it may
-   be ceremony.
-8. **The executor crate's name**, and whether the ABI table lives in it
-   or beside `format.json`.
+**Charlie, 2026-10-22:**
+
+1. **Is 1.0 MB acceptable?** Yes, for apps with a Rust module; ratifies
+   the 2026-09-13 request implemented by LLP 1029.000.
+2. **Apply policy in production?** Built as `deploy.activate` (LLP 1030).
+3. **Does the launcher ever admit `secret.keep`?** Never. The Keychain
+   grant belongs only in the app's own dev client and release binary.
+4. **The WebGPU import surface?** Obsolete for this work; GPU/surface
+   replacement is deferred (LLP 1029.000 §8).
+5. **Capability URL or pairing for a phone beyond the LAN?** Reuse the
+   existing pairing model: scoped, revocable tokens over TLS, as in
+   `scripts/tamber-pairing.mjs`, `scripts/tamber-remote.mjs` and the canvas
+   gateway (`scripts/tamber-canvas.mjs`). A QR may carry a one-time pairing
+   grant. This replaces D1's bearer capability URL; no phone dev-loop
+   integration is built. `QUEUE.md` carries the work.
+6. **Should the web load the module separately?** Built (LLP 1027 D6;
+   LLP 1029.000 §2 for Rust).
+7. **Should bake run the module through the same interpreter?** Built
+   (LLP 1027 D5).
+8. **The executor crate's name?** `exact-logic` (`logic/`).
 
 ## Ratification note
 
-Draft r2, 2026-09-02, unreviewed. r1 was written after the probe in §5
-ran; r2 folds Charlie's two asks the same day — the embedded-plus-update
-model (D9–D12) and the GPU and native-module boundary restated (D6,
-D7) — and withdraws r1's refusal of release fetch at the cost §8 names.
-The numbers are this Mac's; the surface numbers are counted from
-source, not measured. Charlie may say which doors in §8 open, ask for a
-panel, or park it. Nothing in the repo changes until an implementer and
-a date are named.
+Superseded by LLP 1029.000 and LLP 1030 (Charlie, 2026-10-22).
+The exploration remains the record; §10's rulings govern its open questions.
 
 ## 11. Appendix — the probe, verbatim
 
