@@ -26,7 +26,7 @@ final class FormRowsMacTests: XCTestCase {
     /// A field in a row has no bezel, no ground and no ring, and is measured
     /// as that: its chrome is nothing round one line, so the row stays 36
     /// points where a bezelled field made it 42. Out of a row it is the
-    /// platform's field again. A text area in a row keeps its box.
+    /// platform's field again. A text area in a row is borderless too.
     func testAFieldInAFormRowIsBorderlessAndMeasuredSo() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "form-row-field")
@@ -63,7 +63,16 @@ final class FormRowsMacTests: XCTestCase {
             XCTAssertLessThan(cell.minimum_height, bezelled.minimum_height)
         }
         let area = chrome(3), areaInRow = chrome(7)
-        XCTAssertEqual([areaInRow.top, areaInRow.left, areaInRow.minimum_height], [area.top, area.left, area.minimum_height])
+        XCTAssertEqual([areaInRow.top, areaInRow.left, areaInRow.minimum_height], [0, 0, 0])
+        XCTAssertGreaterThan(area.left, areaInRow.left)
+
+        let textarea = NodeView(id: 2, kind: "textarea", presenter: session.presenter)
+        textarea.applyFieldContent(["rect": [0.0, 0.0, 240.0, 60.0], "cell": true])
+        XCTAssertEqual(textarea.textAreaScroll?.borderType, .noBorder)
+        XCTAssertEqual(textarea.textArea?.textContainerInset, .zero)
+        XCTAssertEqual(textarea.textArea?.drawsBackground, false)
+        textarea.applyFieldContent(["rect": [4.0, 3.0, 232.0, 54.0]])
+        XCTAssertEqual(textarea.textAreaScroll?.borderType, .bezelBorder)
     }
 
     /// A row's switch is the size its sheet names: AppKit's mini, 36 by 16,
@@ -117,6 +126,8 @@ final class FormRowsMacTests: XCTestCase {
         XCTAssertNil(button.hitTest(NSPoint(x: 20, y: 20)), "the row takes the press")
         XCTAssertFalse(button.acceptsFirstResponder)
         XCTAssertEqual((remove.rowBezelObservation?["frame"] as? [Double]) ?? [], [0, 10, 150, 24])
+        XCTAssertNotNil(remove.hitTest(NSPoint(x: 30, y: 20)))
+        XCTAssertNil(remove.hitTest(NSPoint(x: 300, y: 20)), "only the button's bezel takes a click")
         // A longer title, and the bezel is as much longer.
         p.apply(wireBatch([["op": "frame", "id": 3, "x": 12.0, "y": 14.0, "w": 160.0, "h": 16.0]]))
         remove.layoutSubtreeIfNeeded()
