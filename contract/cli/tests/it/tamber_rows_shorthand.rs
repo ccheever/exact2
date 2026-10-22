@@ -6,7 +6,7 @@
 #![cfg(unix)]
 
 use super::tamber_package_params::reading;
-use super::tamber_rows_check::{same_words, transaction};
+use super::tamber_rows_check::same_words;
 use super::tamber_serve::Serve;
 use serde_json::json;
 
@@ -38,7 +38,7 @@ fn a_flex_row_the_build_refuses_first_is_refused_first() {
 fn a_shorthands_longhand_is_refused_as_the_build_refuses_it() {
     for (name, row) in [
         ("rows-short-margin", "margin=\"gap 4px\""),
-        ("rows-short-choice", "padding=(on ? \"gap 4px\" : \"2px\")"),
+        ("rows-short-choice", "flex=(on ? \"1 1 gap\" : \"1 1 4px\")"),
     ] {
         kind(
             &reading(name),
@@ -67,28 +67,48 @@ fn a_styles_flex_row_is_judged_where_it_is_applied() {
     );
 }
 
-/// A computed `flex` is the build's: not refused here.
+/// A choice of shorthand literals is judged whole, as the build expands and
+/// judges it: a write breaking both arms in other words is refused in the
+/// build's first (Astra's round 1), here `bad`'s, which `measure_row` meets
+/// before `gap`'s colour.
 #[test]
-fn a_computed_shorthand_is_left_to_the_build() {
-    let dir = reading("rows-short-computed");
-    std::fs::write(dir.join("app.tamber"), DESIGN).unwrap();
-    std::fs::write(
-        dir.join("app.contract"),
-        "use Card from \"@acme/reading\"\ncomponent App\n  state basis = \"gap\"\n  view\n    column margin=`${basis} 4px`\n      Card()\n",
-    )
-    .unwrap();
+fn a_choice_of_shorthands_is_refused_with_the_builds_first_words() {
+    let dir = reading("rows-short-both");
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  gap = 8px\n  bad = 8px\n";
+    let contract = "use Card from \"@acme/reading\"\ncomponent App\n  state on = true\n  view\n    column flex=(on ? \"1 1 gap\" : \"1 1 bad\")\n      Card()\n";
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    std::fs::write(dir.join("app.contract"), contract).unwrap();
     let mut s = Serve::start(&dir, &[]);
     s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
-    let w = transaction(
-        &mut s,
-        &dir,
-        json!({"op": "set-token", "name": "gap", "value": "#444444"}),
-    );
-    let refused: Vec<&serde_json::Value> = w["error"]["diagnostics"]
-        .as_array()
-        .map(|d| d.iter().filter(|d| d["file"] == "app.contract").collect())
-        .unwrap_or_default();
-    assert!(refused.is_empty(), "{w}");
+    let w = s
+        .ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": super::tamber_serve::digest(&dir.join("app.tamber"))}, "ops": [
+            {"op": "set-token", "name": "gap", "value": "#444444"},
+            {"op": "set-token", "name": "bad", "value": "2"},
+        ]}))
+        .0;
     drop(s);
+    let d = &w["error"]["diagnostics"][0];
+    assert!(d.is_object(), "refused: {w}");
+    std::fs::write(
+        dir.join("app.tamber"),
+        design
+            .replace("gap = 8px", "gap = #444444")
+            .replace("bad = 8px", "bad = 2"),
+    )
+    .unwrap();
+    let built = contract::compile_path(&dir.join("app.contract")).unwrap_err();
+    assert_eq!(
+        (
+            d["message"].as_str().unwrap(),
+            d["line"].as_u64().unwrap(),
+            d["col"].as_u64().unwrap()
+        ),
+        (
+            built.message.as_str(),
+            built.span.line as u64,
+            built.span.col as u64
+        ),
+        "{w}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
