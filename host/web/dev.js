@@ -905,11 +905,11 @@ if (es) {
   // `{select: {up, levels, plan, from}}` (tamber/1.16): the selection moves up its call sites, as a click on the node
   // it lands on would; it lands in the first of `levels` (each enclosing copy's plan sites, nearest first, by the
   // server's map for the selection at `from` under `plan`) with a node above the selection, on the outermost there.
-  const selectUp = async ({ levels, plan, from }) => {
+  const selectUp = async ({ levels, plan, from, instance }) => {
     const id = inspecting.selected?.id;
     if (!inspecting.on || id == null || !Array.isArray(levels)) { report({ kind: "unsupported", what: "inspect", detail: "no node is selected on this page to move up from" }); return; }
     // (Only the selection, generation and plan the server took its sites from: another since is selected again first.)
-    if (inspecting.selected.generation !== globalThis.exact.generation || plan !== inspecting.selected.plan || from !== inspecting.selected.site) { report({ kind: "unsupported", what: "inspect", detail: "the selection moved or the page was rebuilt since: select a node again" }); return; }
+    if (inspecting.selected.generation !== globalThis.exact.generation || plan !== inspecting.selected.plan || from !== inspecting.selected.site || JSON.stringify(instance ?? []) !== inspecting.selected.instance) { report({ kind: "unsupported", what: "inspect", detail: "the selection moved or the page was rebuilt since: select a node again" }); return; }
     // Its ancestors and their sites, in one read with no node's rows (the runner's `ancestors`), the selection itself
     // left out; the first level with one of them, and in it the outermost.
     const above = (ask({ op: "ancestors", id }).ancestors ?? []).slice(1);

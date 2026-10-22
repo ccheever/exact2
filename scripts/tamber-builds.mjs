@@ -551,11 +551,11 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
      * (`clear`). */
     /** `client`'s selection on build `id` moved `up` call sites (tamber/1.16 `inspect` `select`): sent to the page,
      * which selects that ancestor and reports it as a click would; refused unless `client` inspects that build. */
-    selectUp(client, id, up, { levels, plan, from }) {
+    selectUp(client, id, up, { levels, plan, from, instance }) {
       sweep();
       if (!listed().some(b => b.id === id)) return { error: `no registered build \`${id}\`` };
       if (inspectors.get(id) !== client) return { error: `inspect is not on for \`${client}\` on \`${id}\`: turn it on first` };
-      frame(id, { kind: 'inspect', select: { up, levels, plan, from } });
+      frame(id, { kind: 'inspect', select: { up, levels, plan, from, instance } });
       return { builds: [id] };
     },
     inspect(client, id, { on = false, refresh = false } = {}) {

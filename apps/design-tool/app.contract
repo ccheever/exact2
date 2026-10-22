@@ -939,7 +939,8 @@ component DesignTool
   // the page's own tree may have fewer above it (a rebuild), and its selection then lands higher, said so.
   state upFromKey = ""
   state upExpect = -1
-  // Said of the selection the move lands on alone (the first after it), kept while that selection is shown.
+  // Said of the selection the move lands on alone (the first after it), kept for that visit of it (a click away and
+  // back is another).
   state upNote = ""
   state upNoteKey = ""
   derive upFailed = match selectedUp { case some(r) => not r.ok, case none => false }
@@ -1598,7 +1599,7 @@ component DesignTool
     readyFor = draftReadyKey
   action landUp
     upNote = inspected.chain.length < upExpect ? `The page's tree had fewer above it: it selected ${inspected.source}.` : ""
-    upNoteKey = inspected.key
+    upNoteKey = inspected.visit
     upExpect = -1
   action dropUp
     upExpect = -1
@@ -1844,7 +1845,7 @@ component DesignTool
                   for c in inspected.chain key=c.up
                     button press=selectUp(c.up) disabled=(not inspected.inspecting or pending(selectedUp)) aria-label=`Select ${c.text}` testId=`selection-up-${c.up}`
                       text `in ${c.text}` color="-exact-secondary-label" font="-exact-footnote"
-                  if upNote != "" and upNoteKey == inspected.key
+                  if upNote != "" and upNoteKey == inspected.visit
                     text upNote color="-exact-system-orange" font="-exact-footnote" testId="selection-up-note"
                   // (A move refused: the server's or the page's words.)
                   match selectedUp
