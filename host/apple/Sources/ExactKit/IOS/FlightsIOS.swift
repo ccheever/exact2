@@ -210,7 +210,9 @@ extension Presenter {
     /// Flights whose place is inside `view` land now: it is leaving with an
     /// exit, and they leave with it.
     func landFlights(inside view: UIView) {
-        for f in flights.values where f.slot?.isDescendant(of: view) == true { landFlight(f) }
+        for f in flights.values where f.slot.map({ slot in
+            sequence(first: slot, next: retirementParent).contains { $0 === view }
+        }) == true { landFlight(f) }
     }
 
     /// A reset ends every flight, its view and layer with it.
