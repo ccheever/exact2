@@ -1,7 +1,10 @@
-// latest(channel, limit), around/before/after(channel, id, limit): oldest-first history pages.
+// latest(channel, limit), around/before/after(channel, id, limit): oldest-first history pages, each
+//   with the message before its first (`previous`) when the store holds it.
 // channelList(): channel snapshots; me(), user(id), channelName(id), roleName(id): directories.
-// message(channel, id), previous(channel, id): one record or its immediate predecessor (id or nonce).
-// send(channel, content, replyTo, at): pending record; settle(channel): confirm or fail pending sends.
+// message(channel, id), previous(channel, id): one record or its immediate predecessor (id or nonce);
+//   deleted(channel, id): whether the store saw that message deleted, as opposed to never having held it.
+// send(channel, content, replyTo, at): pending record; settle(): confirm or fail every pending send;
+//   pendingSends(): how many sends await confirmation, in every channel.
 // retry(channel, key), remove(channel, key), edit(channel, id, content), react(channel, id, emoji): writes.
 // markRead(channel): read through the tail; inject(channel, what, near, at): scripted fixture traffic.
 // createWorld(): an independent store; WORLD_NOW: the deterministic fixture epoch in milliseconds.
@@ -24,8 +27,12 @@ export interface Message {
   message_reference?: { message_id: string }; nonce?: string; type: number;
   state: 'sent' | 'pending' | 'failed'; revision: number;
 }
-export interface Page { messages: Message[]; hasBefore: boolean; hasAfter: boolean }
-interface Channel { messages: Message[]; version: number; lastRead: string; typing: string[]; failNext: boolean }
+export interface Page { messages: Message[]; previous?: Message; hasBefore: boolean; hasAfter: boolean }
+// `arrived` counts messages created since the store opened; a deletion never lowers it.
+interface Channel {
+  messages: Message[]; version: number; lastRead: string; typing: string[]; failNext: boolean;
+  arrived: number; deleted: Set<string>;
+}
 
 function lowerBound(messages: Message[], id: string): number {
   let low = 0, high = messages.length;
@@ -52,13 +59,19 @@ export function createWorld() {
   const roleName = (id: string) => ({ '201': 'Maintainers', '202': 'Cyclists' }[id] ?? id);
   function get(channel: string): Channel {
     let c = channels.get(channel);
-    if (!c) { c = { ...generate(channel), version: 1, typing: [], failNext: false }; channels.set(channel, c); }
+    if (!c) {
+      const g = generate(channel);
+      c = { messages: g.messages, lastRead: g.lastRead, version: 1, typing: [], failNext: false, arrived: 0,
+        deleted: new Set(g.deleted) };
+      channels.set(channel, c);
+    }
     return c;
   }
   function page(c: Channel, start: number, end: number): Page {
     start = Math.max(0, Math.min(start, c.messages.length));
     end = Math.max(start, Math.min(end, c.messages.length));
-    return { messages: c.messages.slice(start, end), hasBefore: start > 0, hasAfter: end < c.messages.length };
+    return { messages: c.messages.slice(start, end), previous: start > 0 ? c.messages[start - 1] : undefined,
+      hasBefore: start > 0, hasAfter: end < c.messages.length };
   }
   function latest(channel: string, limit: number): Page {
     const c = get(channel);
@@ -87,6 +100,11 @@ export function createWorld() {
     const c = get(channel), i = indexOf(c, key);
     return i > 0 ? c.messages[i - 1] : undefined;
   }
+  function deleted(channel: string, id: string): boolean { return get(channel).deleted.has(id); }
+  function drop(c: Channel, i: number): void {
+    const [m] = i >= 0 ? c.messages.splice(i, 1) : [];
+    if (m) c.deleted.add(m.id);
+  }
   function requireMessage(channel: string, key: string): Message {
     const m = message(channel, key);
     if (!m) throw new Error('Message no longer exists.');
@@ -102,6 +120,7 @@ export function createWorld() {
     const m: Message = { id: idAt(at, sequence), channel_id: channel, author, content, timestamp: at,
       edited_timestamp: null, attachments: [], embeds: [], reactions: [], type: 0, state: 'sent', revision: 0 };
     c.messages.splice(lowerBound(c.messages, m.id), 0, m);
+    c.arrived++;
     c.typing = c.typing.filter(id => id !== author.id);
     return m;
   }
@@ -114,8 +133,11 @@ export function createWorld() {
     c.version++;
     return m;
   }
-  function settle(channel: string): void {
-    const c = get(channel);
+  function settle(): void {
+    for (const c of channels.values()) settleChannel(c);
+  }
+  function settleChannel(c: Channel): void {
+    if (!c.messages.some(m => m.state === 'pending')) return;
     for (const m of c.messages) {
       if (m.state !== 'pending') continue;
       if (c.failNext) { m.state = 'failed'; c.failNext = false; }
@@ -142,7 +164,7 @@ export function createWorld() {
   function remove(channel: string, key: string): void {
     const m = requireMessage(channel, key); own(m);
     const c = get(channel);
-    c.messages.splice(indexOf(c, key), 1); c.version++;
+    drop(c, indexOf(c, key)); c.version++;
   }
   function edit(channel: string, id: string, content: string): void {
     const m = requireMessage(channel, id); own(m);
@@ -173,6 +195,11 @@ export function createWorld() {
       const id = c.typing.includes('101') ? '102' : '101';
       if (!c.typing.includes(id)) c.typing.push(id);
     } else if (what === 'typing-stop') c.typing = [];
+    else if (what === 'delete-unread') {
+      const i = lowerBound(c.messages, c.lastRead) + 1;
+      if (!c.messages[i]) throw new Error('Nothing is unread.');
+      drop(c, i);
+    }
     else if (what === 'message' || what === 'burst') {
       for (let i = 0; i < (what === 'burst' ? 6 : 1); i++) {
         const author = user(c.typing[0]) ?? members[1 + i % 3];
@@ -185,7 +212,7 @@ export function createWorld() {
       const found = near ? indexOf(c, near) : -1;
       const i = Math.max(0, found >= 0 ? found - 3 : c.messages.length - 11), m = c.messages[i];
       if (!m) throw new Error('No message to change.');
-      if (what === 'delete-above') c.messages.splice(i, 1);
+      if (what === 'delete-above') drop(c, i);
       else {
         if (what === 'edit-above') {
           m.content += '\nA longer update from the device:\nThe image finished decoding.\nThe keyboard opened and closed.\nThe visible row kept its offset.';
@@ -211,14 +238,18 @@ export function createWorld() {
       const names = c.typing.map(id => user(id)?.global_name ?? id);
       return { id: spec.id, name: spec.name, topic: spec.topic, version: c.version, total: c.messages.length,
         unread: unread.length, mentions: unread.filter(m => /<@!?me>|@(?:everyone|here)\b/.test(m.content)).length,
-        firstUnread: unread[0]?.id ?? '', firstUnreadAt: unread[0]?.timestamp ?? 0,
-        typing: names.length === 0 ? '' : names.length === 1 ? `${names[0]} is typing…` : `${names.join(' and ')} are typing…`,
-        pending: c.messages.reduce((n, m) => n + Number(m.state === 'pending'), 0) };
+        firstUnread: unread[0]?.id ?? '', firstUnreadAt: unread[0]?.timestamp ?? 0, lastRead: c.lastRead, arrived: c.arrived,
+        typing: names.length === 0 ? '' : names.length === 1 ? `${names[0]} is typing…` : `${names.join(' and ')} are typing…` };
     });
   }
-  return { latest, around, before, after, channelList, me, user, channelName, roleName, message, previous,
+  function pendingSends(): number {
+    let n = 0;
+    for (const c of channels.values()) for (const m of c.messages) n += Number(m.state === 'pending');
+    return n;
+  }
+  return { latest, around, before, after, channelList, me, user, channelName, roleName, message, previous, deleted, pendingSends,
     send, settle, retry, remove, edit, react, markRead, inject };
 }
 
-export const { latest, around, before, after, channelList, me, user, channelName, roleName, message, previous,
+export const { latest, around, before, after, channelList, me, user, channelName, roleName, message, previous, deleted, pendingSends,
   send, settle, retry, remove, edit, react, markRead, inject } = createWorld();

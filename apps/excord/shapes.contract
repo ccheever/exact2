@@ -68,20 +68,25 @@ shape Reaction
   count: number
   me: bool
 
-// The message a reply answers; `missing` when it was deleted.
+// The message a reply answers. `state` is "present", "deleted" (the store saw it
+// deleted, or Discord sent the reply with a null `referenced_message`) or
+// "unknown" (the store does not hold it, so a jump has to load it).
 shape ReplyRef
   id: string
   author: string
   tint: number
   preview: string
-  missing: bool
+  state: string
 
 // One transcript row. `key` is the row's identity for its whole life: the
 // nonce of a message sent from here, else its id, so a confirmed send keeps
 // its row. `grouped` says it continues the previous message's group (same
 // author within seven minutes, Discord's rule); the view also breaks a group
 // at a day change, which it decides from `prevAt` in the reader's time zone.
-// `state` is "sent", "pending" or "failed".
+// `prevAt` is 0 for a channel's first message and -1 when the store does not
+// hold the message before. `state` is "sent", "pending" or "failed". `source` is
+// the Markdown as sent, for Edit and Copy Text. `isNew` marks the first message
+// after the read position the window was asked with.
 shape Message
   key: string
   id: string
@@ -100,6 +105,8 @@ shape Message
   jumbo: bool
   system: string
   plain: string
+  source: string
+  isNew: bool
   blocks: Block[]
   media: Media[]
   embeds: Embed[]
@@ -121,9 +128,10 @@ shape Window
   pin: string
 
 // What the gateway knows about one channel. `version` moves whenever its
-// history changes; `total` counts its messages; `firstUnread` is the oldest
-// unread message ("" when read to the end); `typing` names who is typing; `pending`
-// counts sends not yet confirmed.
+// history changes; `total` counts its messages and `arrived` the messages that
+// arrived since the app started (a deletion never lowers it); `lastRead` is the
+// read position and `firstUnread` the oldest unread message ("" when read to the
+// end); `typing` names who is typing.
 shape Channel
   id: string
   name: string
@@ -134,12 +142,15 @@ shape Channel
   mentions: number
   firstUnread: string
   firstUnreadAt: number
+  lastRead: string
+  arrived: number
   typing: string
-  pending: number
 
+// `pending` counts sends awaiting Discord's confirmation, in every channel.
 shape Gateway
   state: string
   me: string
+  pending: number
   channels: Channel[]
 
 shape Ack
