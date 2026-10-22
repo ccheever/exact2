@@ -83,7 +83,8 @@ fn popovers<'a>(nodes: &'a [Node], out: &mut BTreeMap<&'a str, Kind>) {
 /// `commandfor` with a showing `command` before `popovertarget` without
 /// `hide`; none for a hide, a value the source doesn't settle, or neither.
 fn opens(attrs: &[Attr]) -> Option<&str> {
-    if has(attrs, "commandfor") {
+    // An empty `commandfor` names nothing, and HTML falls back to `popovertarget`.
+    if has(attrs, "commandfor") && literal(attrs, "commandfor") != Some("") {
         let command = literal(attrs, "command")?.to_ascii_lowercase();
         return matches!(command.as_str(), "show-popover" | "toggle-popover")
             .then(|| literal(attrs, "commandfor"))

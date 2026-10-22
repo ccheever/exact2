@@ -300,8 +300,9 @@ final class MenuHost: NSObject {
         // menu rule): an open menu's, or the native menu's it was chosen from, which has closed by now.
         let menuRow = { (menu: NodeView?) in menu?.props["accessibilityRole"] == "menu" && row.map { self.contains(menu!, $0) } == true }
         let picked = pop.props["accessibilityRole"] != "menu" && menuOpener.pops.contains(where: { menuRow($0.pop) }) ? menuOpener.opener : nil
-        var source = row, hops = 0 // past any open submenu, to what opened the outermost menu
-        while pop.props["accessibilityRole"] != "menu", hops < 8, let e = entries.last(where: { e in e.popover.props["accessibilityRole"] == "menu" && source.map { s in contains(e.popover, s) } == true }) { source = e.source; hops += 1 }
+        var source = row, seen = Set<ObjectIdentifier>() // past any open submenu, to what opened the outermost menu
+        while pop.props["accessibilityRole"] != "menu", let e = entries.last(where: { e in e.popover.props["accessibilityRole"] == "menu" && source.map { s in contains(e.popover, s) } == true }),
+              seen.insert(ObjectIdentifier(e)).inserted { source = e.source }
         if source === row, let picked { source = picked }
         let bubbled = bubbled && source.map { presenter?.dialogs.isBehindModal($0) == true } == true
         guard let presenter, !isOpen(pop), live(pop), source.map(live) ?? true, pop.props["popover"] != nil,
@@ -396,8 +397,7 @@ final class MenuHost: NSObject {
             guard pop.container.subviews.contains(where: { ($0 as? NodeView).map { $0.isButton && $0.props["contextPreview"] != "true" } ?? false }) else { return }
             self.presentations[pop.id, default: 0] += 1
             self.revalidate()
-            let menu = self.menu(of: pop)
-            self.menuOpener = MenuOpener(pop, opener: source) // a chosen row's popover opens from the pressed node
+            let menu = self.contextMenu(of: pop, on: source)
             let entry = Entry(pop, source: source, previous: source.window.flatMap(self.focusOwner), run: run)
             entry.menu = menu; entry.tracking = true
             self.entries.append(entry)
@@ -688,6 +688,13 @@ final class MenuHost: NSObject {
         let sub = invocation.target
         guard !isConfirmation(sub), !path.contains(where: { $0 === sub }), isMenuShaped(sub), sub.props["accessibilityRole"] == "menu" else { return nil }
         return sub
+    }
+    /// `pop`'s menu as `source`'s context menu: a chosen row's popover opens
+    /// from the pressed node, the record set before the menu is built so its
+    /// beside-written submenus join it as they are.
+    func contextMenu(of pop: NodeView, on source: NodeView) -> NSMenu {
+        menuOpener = MenuOpener(pop, opener: source)
+        return menu(of: pop)
     }
     /// `pop`'s button menu, opened from `source` (nil for a context menu,
     /// and when a test builds one with no invoker).
