@@ -786,8 +786,11 @@ extension Presenter {
               modal.window?.isSheet != true, !(modal.window.map(menus.hosts) ?? false), !landing.namedDialogs.contains(where: { $0 === modal }) else { return }
         landing.namedDialogs.append(modal)
         guard target !== modal, let words = modal.dialogWords else { return }
+        landing.pendingNames += 1
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.dialogNameDelay) { [weak self, weak modal] in
-            guard let self, let modal, macAccessibilityModal === modal else { return }
+            guard let self else { return }
+            defer { landing.pendingNames -= 1 }
+            guard let modal, macAccessibilityModal === modal else { return }
             NSAccessibility.post(element: modal, notification: .announcementRequested,
                 userInfo: [.announcement: words, .priority: NSAccessibilityPriorityLevel.low.rawValue])
         }
@@ -1050,5 +1053,7 @@ struct VoiceOverLanding {
     weak var toldFocus: NSView?
     /// The dialogs drawn in the page named as they opened that are still up.
     var namedDialogs: [NodeView] = []
+    /// Deferred naming operations, including those whose dialog has closed.
+    var pendingNames = 0
 }
 #endif

@@ -74,6 +74,17 @@ private final class AXClient: @unchecked Sendable {
         }
         return snapshot()
     }
+    func settleDialogNames(in presenter: Presenter) throws {
+        let deadline = Date().addingTimeInterval(10)
+        while presenter.landing.scheduled || presenter.landing.pendingNames > 0, Date() < deadline {
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
+        XCTAssertFalse(presenter.landing.scheduled)
+        XCTAssertEqual(presenter.landing.pendingNames, 0, "all deferred dialog naming finished")
+        // This post follows any naming post through AX delivery before a
+        // caller asserts that no announcement occurred.
+        try checkReady()
+    }
     /// What was heard once the main run loop has turned for `seconds`:
     /// by default, until a dialog drawn in the page has been named.
     func notifications(after seconds: TimeInterval = Presenter.dialogNameDelay + 0.2) -> [(name: String, info: [String: Any], element: AXUIElement)] {
@@ -680,7 +691,48 @@ final class AccessibilityClientMacTests: XCTestCase {
         XCTAssertTrue(p.macAccessibilityModal === p.views[30], "the alert dialog is the modal")
         XCTAssertEqual(heard(["AXLayoutChanged"]), ["AXLayoutChanged AXScrollArea Discard this environment?"], "no focus in it: VoiceOver goes to the dialog")
         p.apply(wireBatch([["op": "children", "id": 1, "ids": [2, 10]]]))
-        XCTAssertEqual(heard(["AXLayoutChanged", "AXFocusedUIElementChanged"]), ["AXLayoutChanged AXGroup Rename project Project title", "AXFocusedUIElementChanged AXTextField Project title"])
+        _ = client.notifications(until: ["AXLayoutChanged", "AXFocusedUIElementChanged"])
+        try client.settleDialogNames(in: p)
+        XCTAssertEqual(heard([]), ["AXLayoutChanged AXGroup Rename project Project title", "AXFocusedUIElementChanged AXTextField Project title"])
+    }
+
+    func testANotificationWaitIncludesDeferredDialogNaming() throws {
+        let p = try fixture([])
+        let client = AXClient()
+        try client.listen(["AXAnnouncementRequested", "AXLayoutChanged", "AXFocusedUIElementChanged"])
+        client.clear()
+        p.apply(wireBatch([
+            ["op": "create", "id": 10, "kind": "view",
+             "props": ["accessibilityRole": "dialog", "accessibilityModal": "true", "accessibilityLabel": "Rename project"]],
+            ["op": "create", "id": 11, "kind": "input", "handlers": ["input"],
+             "props": ["value": "", "accessibilityLabel": "Project title", "autofocus": "true"]],
+            ["op": "children", "id": 10, "ids": [11]],
+            ["op": "children", "id": 1, "ids": [2, 10]],
+            ["op": "frame", "id": 10, "x": 50.0, "y": 50.0, "w": 300.0, "h": 150.0],
+            ["op": "frame", "id": 11, "x": 10.0, "y": 10.0, "w": 280.0, "h": 24.0],
+        ]))
+        p.syncAccessibility()
+        _ = client.notifications(until: ["AXLayoutChanged", "AXFocusedUIElementChanged"])
+        try client.settleDialogNames(in: p)
+        let names = client.notifications(until: []).filter { $0.name == "AXAnnouncementRequested" }
+        XCTAssertEqual(names.map { $0.info["AXAnnouncementKey"] as? String }, ["Rename project, dialog"],
+                       "the wait includes naming work scheduled after the focus notification")
+
+        client.clear()
+        p.apply(wireBatch([
+            ["op": "create", "id": 30, "kind": "view",
+             "props": ["accessibilityRole": "alertdialog", "accessibilityModal": "true", "accessibilityLabel": "Discard changes?"]],
+            ["op": "children", "id": 1, "ids": [2, 10, 30]],
+            ["op": "frame", "id": 30, "x": 80.0, "y": 80.0, "w": 200.0, "h": 80.0],
+        ]))
+        _ = client.notifications(until: ["AXLayoutChanged"])
+        try client.settleDialogNames(in: p)
+        client.clear()
+        p.apply(wireBatch([["op": "children", "id": 1, "ids": [2, 10]]]))
+        _ = client.notifications(until: ["AXLayoutChanged", "AXFocusedUIElementChanged"])
+        try client.settleDialogNames(in: p)
+        XCTAssertTrue(client.notifications(until: []).allSatisfy { $0.name != "AXAnnouncementRequested" },
+                      "the parent dialog is not named again after its child closes")
     }
 
     /// AppKit posts the focus change itself as a view becomes the first
