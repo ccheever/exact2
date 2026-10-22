@@ -292,6 +292,23 @@ test('host.ios.appClip is an object of an id and a name, and an unknown key or a
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('display_override is the web manifest\'s, written into manifest.json and baked for the Mac', async () => {
+  const { readManifest, webAppManifest } = await import('./app.mjs');
+  const { macInfoPlist } = await import('../host/apple/build.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'manifest-display-override-'));
+  const save = display_override => writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Row', app: { id: 'dev.exact.row', name: 'Row' }, display: 'standalone', display_override }));
+  try {
+    save(['window-controls-overlay', 'standalone']);
+    const manifest = readManifest(dir, 'row');
+    assert.deepEqual(manifest.display_override, ['window-controls-overlay', 'standalone']);
+    assert.deepEqual(webAppManifest(manifest, 'Row').display_override, ['window-controls-overlay', 'standalone']);
+    const plist = macInfoPlist({ id: 'dev.exact.row', displayName: 'Row', manifest });
+    assert.match(plist, /<key>ExactDisplayOverride<\/key>\s*<array>\s*<string>window-controls-overlay<\/string>/);
+    save(['borderless']);
+    assert.throws(() => readManifest(dir, 'row'), /display_override/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('open_url declares the schemes openURL may hand to the system, and refuses the ones the hosts keep', async () => {
   const { macInfoPlist, infoPlist } = await import('../host/apple/build.mjs');
   const { readManifest } = await import('./app.mjs');

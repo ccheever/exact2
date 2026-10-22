@@ -169,6 +169,21 @@
         "browser"
       ]
     },
+    "display_override": {
+      "description": "The Web App Manifest's display modes in order of preference, each used where the platform takes it, else the next, else `display`. `window-controls-overlay` puts the page under the title bar beside the window's controls: Chrome's in an installed app; on macOS, an app without routes gets the platform's tall unified title row, an empty toolbar over the page, and `env(titlebar-area-*)` its area beside the traffic lights (LLP 1039 D8).",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "window-controls-overlay",
+          "tabbed",
+          "fullscreen",
+          "standalone",
+          "minimal-ui",
+          "browser"
+        ]
+      }
+    },
     "orientation": {
       "type": "string",
       "description": "The Web App Manifest's default screen orientation (Screen Orientation API values). The web manifest carries it; the iPhone and Android lock to it; iPad keeps every orientation, as its multitasking requires.",
