@@ -66,12 +66,12 @@ component App
       row line-height="48px" gap=4
         select testId="select-said" value="Static" font-size="-exact-body"
           option "Static"
-        select testId="select-bound-said" value="Bound" font-size=(weighted ? "-exact-caption1" : "-exact-body")
+        select testId="select-bound-said" multiple=false value="Bound" font-size=(weighted ? "-exact-caption1" : "-exact-body")
           option "Bound"
         input type="date" testId="date-said" font-size="-exact-body"
         input type="time" testId="time-bound-said" font-size=(weighted ? "-exact-caption1" : "-exact-body")
       row line-height="48px" gap=4
-        select testId="select-removed" value="Removed" font-size=(weighted ? none : "-exact-body") line-height=(weighted ? none : 1.5)
+        select testId="select-removed" multiple=false value="Removed" font-size=(weighted ? none : "-exact-body") line-height=(weighted ? none : 1.5)
           option "Removed"
         input type="datetime-local" testId="datetime-removed" font-size=(weighted ? none : "-exact-body") line-height=(weighted ? none : 1.5)
       row gap=4
