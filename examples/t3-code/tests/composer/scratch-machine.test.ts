@@ -14,6 +14,7 @@ import { chatCanvasView } from '../../src/shell/chat-canvas-view';
 import { resolvePreviewMiniPlayerFrame, resolveDeviceMiniPlayerSourceSize } from '../../src/device/previewMiniPlayerLayout';
 import { deviceMini, floatMiniDevice } from '../../src/device/device-session';
 import { toasts } from '../../src/shell/toast';
+import { setLayoutFrames } from '../support/layout-frames';
 
 const scratchRoot = (machine: string) => `/Users/${machine}/.t3/scratch`;
 const entry = (id: string, extra: Partial<FleetEntry> = {}): FleetEntry => ({
@@ -155,14 +156,16 @@ describe('a thread\'s device session floats (ChatView autoShowFloatingPreview)',
     // previewMiniPlayerLayout.test.ts "floats a phone at the minimum width rather than the default box".
     expect(resolvePreviewMiniPlayerFrame({ width: null, position: null, source: resolveDeviceMiniPlayerSourceSize('ios', null), container: { width: 1_000, height: 700 } })).toMatchObject({ width: 240, height: 520 });
     // chatCanvasLayout.ts "New players start beside the composer": its bottom 12 above the canvas's, 12 from the right edge.
-    const client = { ...thread(), draftKey: 'env:t1', local: {}, presentation: { frames: { chat: [400, 0, 740, 840], overlay: [400, 668, 740, 172] } } } as unknown as T3Client;
+    const client = { ...thread(), draftKey: 'env:t1', local: {}, presentation: {} } as unknown as T3Client;
+    setLayoutFrames(client, { chat: [400, 0, 740, 840], overlay: [400, 668, 740, 172] });
     floatMiniDevice(client, 't1', { hostId: 'local', deviceId: 'IPHONE', platform: 'ios', name: 'iPhone 18 Pro' });
     const canvas = await chatCanvasView(client, null, { width: 740, viewportHeight: 840, detailsInline: false, chatMax: 736, overlaid: true, gesture: '' });
     // 740 pt leaves no readable lane beside it, so it rises above the composer and overlaps messages instead.
     expect([canvas.mini.width, canvas.mini.height, canvas.mini.x + canvas.mini.width, canvas.overlapsChat]).toEqual([240, 520, 740 - 12, true]);
     expect(canvas.mini.top + canvas.mini.height).toBeLessThanOrEqual(668 - 12);
     // A landscape source at the default box: 320 × 180 at the bottom right of a wide canvas.
-    const wide = { ...thread(), draftKey: 'env:t1', local: {}, presentation: { frames: { chat: [0, 0, 1600, 840], overlay: [432, 668, 736, 172] }, deviceStreams: { 'local\u0000IPHONE': { width: 1920, height: 1080, orientation: 'landscape_left' } } } } as unknown as T3Client;
+    const wide = { ...thread(), draftKey: 'env:t1', local: {}, presentation: { deviceStreams: { 'local\u0000IPHONE': { width: 1920, height: 1080, orientation: 'landscape_left' } } } } as unknown as T3Client;
+    setLayoutFrames(wide, { chat: [0, 0, 1600, 840], overlay: [432, 668, 736, 172] });
     floatMiniDevice(wide, 't1', { hostId: 'local', deviceId: 'IPHONE', platform: 'ios', name: 'iPhone 18 Pro' });
     expect((await chatCanvasView(wide, null, { width: 1600, viewportHeight: 840, detailsInline: false, chatMax: 736, overlaid: true, gesture: '' })).mini)
       .toMatchObject({ width: 320, height: 180, x: 1600 - 12 - 320, top: 840 - 12 - 180 });

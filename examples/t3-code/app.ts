@@ -68,6 +68,7 @@ import { keepAlivePrepare } from './src/client/keep-alive'; // running threads' 
 import { migrationToast } from './src/connections/local-lifecycle'; // a let-go answer's native calls reject as 'superseded', never as an error
 import { activationPrepare } from './src/shell/desktop-activation';
 import { Transport } from './src/transport/transport';
+import { noteLayoutFrames } from './src/shell/layout-frames';
 import type { SecretStore } from './src/transport/transport-catalog';
 
 export const appId = 'com.exact.t3code.macos';
@@ -134,6 +135,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
     noteServerUpdateClock(client, String(args[1] ?? ''), String(args[2] ?? '')); // server-update-notices.ts: the 2 s and 20 s timers
     noteTranscriptFacts(client, args); // the transcript's viewport (transcript-facts.ts)
     noteComposerTyping(client, args[9] === true); // the composer's typing clock (composer-typing-guard.ts)
+    noteLayoutFrames(client, args[10]); // the boxes app.contract measured (layout-frames.ts)
     await client.refresh(native, storage);
     await prepareTimeline(client, native); // Mermaid layouts and the worktree setup stream (timeline-prepare.ts).
     await autoBalancePrepare(client, native); // auto-balance.ts
@@ -152,7 +154,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   }
   if (source === 'composerWorkspace') return composerWorkspaceView(client, args[1] !== false, typeof args[2] === 'number' ? args[2] : undefined); // args[1]: the chat view is on screen (ChatComposer mounted)
   if (source === 'refreshComposerWorkspace') return refreshComposerWorkspace(client, native, String(args[0] || ''));
-  if (source === 'composerEditor') return composerEditorView(client, native, Number(args[1]) || 0);
+  if (source === 'composerEditor') { noteLayoutFrames(client, args[2]); return composerEditorView(client, native, Number(args[1]) || 0); }
   if (source === 'composerRich') return composerRichSource(client, { snapshotOwner: String(args[0] ?? ''), owner: String(args[1] ?? ''), value: String(args[2] ?? ''), inputType: String(args[4] ?? ''), surface: args[5] === 'preview' ? 'preview' : 'composer' });
   if (source === 'composerField') return composerFieldResource(client, args, composerFieldOwner(client), native);
   if (source === 'composerFieldObserved') return composerFieldObserved(client, args, composerFieldOwner(client));
@@ -216,6 +218,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'paletteCommand') return paletteCommand(client, native, storage, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''));
   if (source === 'shellDetails') return shellDetails(client, native, args[0] === true, String(args[1] || ''), args[3] === true, Number(args[4]) || 0, Number(args[5]) || 0, args[6] !== false, Array.isArray(args[7]) ? args[7].map(String) : [], Array.isArray(args[8]) ? args[8].map(String) : [], Array.isArray(args[9]) ? args[9].map(String) : []); // args[3]: the card docks inline; args[4]: wall time; args[5]: the window right of the canvas; args[6]: the window has the focus and is visible (exact2 #219)
   if (source === 'sidebarLaunchWidth') return sidebarLaunchWidth(client, Number(args[0]) || 0, !!native?.available); // the width fixed at load
+  if (source === 'chatCanvas') noteLayoutFrames(client, args[11]);
   if (source === 'chatCanvas') return chatCanvasView(client, native, { width: Number(args[1]) || 0, viewportHeight: Number(args[2]) || 0, detailsInline: args[3] === true, chatMax: Number(args[4]) || 0, overlaid: args[5] === true, gesture: String(args[6] || ''), wide: args[9] === true, popoverOpen: args[10] === true }); // args[7..8] re-ask when the player changes
   if (source === 'terminalDrawer') return terminalDrawerView(client, native, Number(args[1]) || 0, Number(args[2]) || 0); // args[0] re-asks on each revision
   if (source === 'shellView') { noteNow(client, Number(args[1]) || 0); return shellView(client, native, storage, Number(args[1]) || 0, String(args[2] || ''), args[3] === true, args[4] === true, { focused: args[5] !== false, visible: args[6] !== 'hidden' }, args[7] !== false); } // args[5..6]: exactPage().hasFocus and visibilityState (exact2 #219); args[7]: the chat view is shown

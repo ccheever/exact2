@@ -1,0 +1,5 @@
+// The window-space boxes the TypeScript layouts read (app.contract `layoutFrames`, src/shell/layout-frames.ts).
+
+fn halfPoint(value: number): number = floor(value * 2 + 0.5) / 2
+// One box as `name:x,y,width,height`, to the half point; "" for a box that is not laid out.
+fn layoutFrame(name: string, box: Geometry): string = box.unavailable ? "" : `${name}:${halfPoint(box.x)},${halfPoint(box.y)},${halfPoint(box.width)},${halfPoint(box.height)}`

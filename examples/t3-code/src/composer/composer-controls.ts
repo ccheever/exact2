@@ -210,20 +210,6 @@ export function withDispatchMode(payload: Obj, mode: DispatchMode, selection?: O
   return next;
 }
 
-/**
- * The keyboard or pointer gesture that pressed Send (T3ComposerIntent.swift):
- * ⌘/Ctrl alone is the alternate (composer.sendAlternate while a turn runs, or
- * a ⌘-click), ⌥⌘ in a draft starts it in the background (composer.sendBackground).
- */
-export function submissionIntent(gesture: Obj, running: boolean, draft: boolean): 'foreground' | 'alternate' | 'background' {
-  const modifiers = str(gesture.modifiers), age = Number(gesture.ageMs);
-  if (!Number.isFinite(age) || age < 0 || age > 2000) return 'foreground';
-  const meta = /\b(meta|control)\b/.test(modifiers), alt = /\balt\b/.test(modifiers), shift = /\bshift\b/.test(modifiers);
-  if (meta && alt && !shift && draft && gesture.source === 'key') return 'background';
-  if (meta && !alt && !shift && running) return 'alternate';
-  return 'foreground';
-}
-
 // ── Plan follow-up ─────────────────────────────────────────────────────────
 
 export const PLAN_IMPLEMENTATION_PROMPT_PREFIX = 'PLEASE IMPLEMENT THIS PLAN:\n';

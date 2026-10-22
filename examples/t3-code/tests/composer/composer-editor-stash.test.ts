@@ -65,7 +65,6 @@ describe('stash drawer keys (ComposerStashMenu at T3 Code 74541bab17)', () => {
     const source = readFileSync(appPath('src/composer/composer-editor.contract'), 'utf8');
     const drawer = source.slice(source.indexOf('component StashMenu'), source.indexOf('component ComposerEditorDock'));
     expect(drawer).not.toContain('aria-keyshortcuts="Escape"');
-    // From the composer, the native editor presses this key button (T3ComposerEditor.menuCommand, cancelOperation).
-    expect(drawer).toContain('data-anchor="stash-Escape" press=op("stash-menu", "", "close")');
+    // From the composer, its key action closes it (app.contract composerStashKey; composer-plan-key.test.ts).
   });
 });

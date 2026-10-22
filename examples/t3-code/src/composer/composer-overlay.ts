@@ -4,8 +4,8 @@
 // its end (TimelineListFooter: the overlay's height plus 16pt) so its last row
 // can scroll clear of the composer.
 //
-// T3ComposerFrames.swift measures the stack (`overlay`), the card, the dock
-// banners and their shoulder row in window space. The reservation follows
+// The layout frames (layout-frames.ts) hold the stack (`overlay`), the card, the
+// dock banners and their shoulder row in window space. The reservation follows
 // resolveComposerTimelineInset: while the composer rests it keeps the height it
 // had expanded, so resting and expanding again never move the transcript, and
 // notices opened from the stack's peek (ComposerDock's `notices` frame, 0.75rem
@@ -22,6 +22,7 @@
 // A smaller reservation applies at once. A new thread rebuilds it.
 import { obj, type Obj } from '../client/domain';
 import { transcriptFacts } from '../timeline/transcript-facts';
+import { layoutFrames } from '../shell/layout-frames';
 import { clampInterfaceFontSize } from '../appearance/appearance-fonts';
 
 export type OverlayHold = { owner: string; inset: number; applied: number; content: string; pulls: number };
@@ -86,11 +87,11 @@ export function composerOverlay(hold: OverlayHold, input: { owner: string; frame
 
 const holds = new WeakMap<object, OverlayHold>();
 /** The snapshot's fields for one client (presentation.ts). */
-export function composerOverlaySnapshot(client: { origin: string; projectId: string; threadId: string; presentation: Obj; local?: unknown }, rows: ReadonlyArray<unknown>): ComposerOverlay {
+export function composerOverlaySnapshot(client: { origin: string; projectId: string; threadId: string; local?: unknown }, rows: ReadonlyArray<unknown>): ComposerOverlay {
   let hold = holds.get(client);
   if (!hold) { hold = newOverlayHold(); holds.set(client, hold); }
   const owner = `${client.origin}:${client.projectId}:${client.threadId}`;
-  const presentation = client.presentation, transcript = transcriptFacts(client), mine = transcript.owner === owner;
-  return composerOverlay(hold, { owner, frames: obj(presentation.frames), atEnd: !mine || transcript.atEnd,
+  const transcript = transcriptFacts(client), mine = transcript.owner === owner;
+  return composerOverlay(hold, { owner, frames: layoutFrames(client), atEnd: !mine || transcript.atEnd,
     pulls: transcript.pulls, content: contentKey(rows), rem: clampInterfaceFontSize(obj(obj(client.local).clientSettings).fontSizeInterface) });
 }
