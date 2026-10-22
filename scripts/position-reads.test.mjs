@@ -52,15 +52,15 @@ const GLOB = /\bStyleId\s*::\s*(?:\*|\{[^}]*\*[^}]*\})/;
 // they reach nothing past it, and a bare `PositionType` there counts (BARE).
 const ROWS_USE = /\buse\b[^;]*\bStyleId\s*::\s*(?:\*|\{)[^;]*;/g;
 
-/** Whether offset `i` of Rust `code` is in a module's own scope: every
- * enclosing `{` opens a `mod`. */
+/** Whether offset `i` of Rust `code` is in a module's own scope: the
+ * innermost enclosing `{` opens a `mod`, or there is none (a file's top). */
 export function inModuleScope(code, i) {
   const stack = [];
   for (let j = 0; j < i; j++) {
     if (code[j] === '{') stack.push(/\bmod\s+\w+\s*$/.test(code.slice(Math.max(0, j - 200), j)));
     else if (code[j] === '}') stack.pop();
   }
-  return stack.every(Boolean);
+  return stack.length === 0 || stack[stack.length - 1];
 }
 const BARE = /(?<!::\s*)\bPositionType\b(?!\s*::)/g;
 
@@ -309,6 +309,8 @@ test('the scan finds a new read in any form, and skips comments, strings and tes
       '',
       'type Id<T> where T: Clone = crate::StyleId;',
     ].join('\n'));
+    // A module in a function's body: its glob is a module's.
+    writeFileSync(join(root, 'kernel/src/fnmod.rs'), ['fn layout(s: &Row) {', '    mod rows {', '        use crate::StyleId::*;', '        pub fn read(s: &Row) { let _ = s.get(self::PositionType); }', '    }', '}'].join('\n'));
     // A grouped glob alone in its file, in a function's body.
     writeFileSync(join(root, 'kernel/src/grouped.rs'), ['fn local(s: &Row) {', '    use crate::StyleId::{self, *};', '    let _ = s.get(PositionType);', '}'].join('\n'));
     writeFileSync(join(root, 'host/linux/src/scan_tests.rs'), 'fn t(s: &StyleProps) { s.position_type; }');
@@ -337,6 +339,7 @@ test('the scan finds a new read in any form, and skips comments, strings and tes
       'kernel/src/parent.rs:1',
       ...[2, 6, 11].map(line => `kernel/src/nested.rs:${line}`),
       'kernel/src/grouped.rs:3',
+      'kernel/src/fnmod.rs:3',
       ...[1, 2, 3, 4, 6, 7, 8, 9, 10].map(line => `kernel/src/rename.rs:${line}`),
       ...[1, 4, 5, 9, 10, 11, 12, 14, 15].map(line => `host/apple/Sources/New.swift:${line}`),
     ].sort());
