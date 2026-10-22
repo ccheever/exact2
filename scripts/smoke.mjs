@@ -12,7 +12,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { browserDiagnosticNoise, open as openAgent, render, runTests as runAgentTests } from './agent.mjs';
-import { driveStore } from './agent-launch.mjs';
+import { driveStore, pollUntil } from './agent-launch.mjs';
 import { HOST_DEV, resolveApp, withAppFixture } from './app.mjs';
 import { agree, explainNode, hostSections, httpFrameSmoke, poolingDrive, rebooted } from './smoke-inspect.mjs';
 import { DirectoryOrigin, parseWebRoot, webReleasePath, webRootPath } from './origin.mjs';
@@ -571,14 +571,12 @@ try {
   if ((host === 'web' || apple) && byTestId(tree, 'open-deck')) {
     await s.tap('open-deck');
     await s.clock('settle');
-    let frameNode, deckState;
-    for (let i = 0; i < 40; i++) {
-      tree = await s.tree();
-      deckState = await s.state();
-      frameNode = byTestId(tree, 'deck-frame');
-      if (frameNode?.loading === false && deckState.slots.deckLoaded === true && deckState.slots.deckMessage === 'deck-ready') break;
-      await sleep(50);
-    }
+    const loaded = await pollUntil(async () => {
+      const tree = await s.tree(), deckState = await s.state();
+      return { tree, deckState, frameNode: byTestId(tree, 'deck-frame') };
+    }, ({ frameNode, deckState }) => frameNode?.loading === false && deckState.slots.deckLoaded === true && deckState.slots.deckMessage === 'deck-ready');
+    tree = loaded.tree;
+    const { frameNode, deckState } = loaded;
     check(frameNode?.type === 'WebView' && frameNode.url === '/deck/index.html', `the iframe tree node is ${JSON.stringify(frameNode)}`);
     check(frameNode?.loading === false, `the iframe is still loading: ${JSON.stringify(frameNode)}`);
     check(deckState?.slots.deckLoaded === true, `load did not record its flag: ${JSON.stringify(deckState?.slots)}`);
