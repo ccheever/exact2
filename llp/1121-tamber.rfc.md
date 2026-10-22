@@ -5827,6 +5827,14 @@ design can't do yet" (1). D11 is amended (above).
   - Tests: `icon_svg`'s cases (main's, R3-1's, red and blue, `currentColor` beside red, `!IMPORTANT` and
     `! Important`), `confined`'s unit test (a planted link, a link inside, dangling, absent),
     `an_app_vendored_packages_svg_is_its_packages`, and the module test of an app-vendored package's SVG edit.
+- **After the narrow re-check (Grok RIGHT; Astra RIGHT WITH CHANGES).**
+  - A package an icon's SVG is read from owns it there or not (RE-1): the source graph's `owners` lists each
+    such package (one vendored in the app included) from the identity's owner, its manifest is consulted, and the
+    local wire's `watch.roots` and `watch.assets` come from it, so making a missing SVG is announced.
+  - `color="inherit"` or `currentColor` keeps the parent's colour (RE-2).
+  - A three-swap interleaving of the confined read is a stated limit, in confined.rs and QUEUE (RE-3).
+  - Tests: `an_app_vendored_packages_missing_svg_is_still_watched`, the module test of a vendored package's SVG
+    made where none was, and `icon_svg`'s `inherit` and `currentColor` cases.
 - **Unchanged:** every app's plan and `tamber check` output (no app has a package icon), and `@exact/cards` and
   `@exact/actions`, whose icons are still path functions (their move to icon tokens is the follow-up).
 - **Tests:** `contract/cli/tests/it/package_icons.rs` (the namespace and its refusal; an alias within the package
