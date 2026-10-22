@@ -415,7 +415,7 @@ impl Lowerer<'_> {
                         .as_ref()
                         .is_none_or(|e| e.iter().any(|x| x.value == name))
         };
-        // Each SVG beside the design file it is written in (stage 13).
+        // Each SVG under the assets of the root whose file writes it (stage 13).
         let home = |icon: &tamber::Icon| {
             crate::icons::Home::of(icon, asset_root, &file.package_designs, &kinded)
         };

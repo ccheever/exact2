@@ -773,8 +773,8 @@ impl Server {
         if paths {
             let at = self.dir.join("app.contract");
             let graph = contract::source_graph(&at);
-            crate::tamber_packages::assets(&app, &mut out, &graph);
             out["watch"] = crate::tamber_packages::watched(&at, &graph);
+            crate::tamber_packages::assets(&app, &mut out, &graph);
         }
         Ok(out)
     }
