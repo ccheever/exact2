@@ -77,7 +77,7 @@ pub(super) fn font_size(
         }
         let map = share(style_map(plan, map));
         let shell_leading = id == StyleId::LineHeight
-            && (parts.tag == "select" && !parts.props.contains_key("multiple")
+            && (parts.tag == "select" && !parts.props.get("multiple").is_some_and(|v| v == "true")
                 || parts.props.contains_key("data-exact-field"));
         let fill = if shorthand {
             map.clone()
