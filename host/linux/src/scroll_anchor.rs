@@ -146,7 +146,13 @@ fn excluded(kernel: &Kernel, node: NodeRef<'_>, scroller: ViewId) -> bool {
     if node.style.display == Display::None {
         return true;
     }
-    match node.style.position_type {
+    // A popover lays out absolute (the kernel's top layer), unless sticky.
+    let position = if out_of_flow(node) {
+        PositionType::Absolute
+    } else {
+        node.style.position_type
+    };
+    match position {
         PositionType::Sticky => true,
         PositionType::Absolute if scroller != PAGE => {
             let mut at = node.parent;
