@@ -73,7 +73,7 @@ export async function mobileScheduledCommand(op: string, scopeJSON: string, envi
     return result();
   } catch (error) { if (letGo(error)) throw error; return result(error instanceof Error ? error.message : 'Could not update task.'); }
 }
-interface Editor { id: number; environmentId: string; label: string; initial: string; draft: MobileTaskDraft; busy: boolean; saved: boolean; error: string;
+interface Editor { id: number; environmentId: string; label: string; initial: string; draft: MobileTaskDraft; busy: boolean; saved: boolean; error: string; connectionError: string;
   config: Obj; projects: Obj[]; environments: { id: string; label: string }[]; canOperate: boolean; missing: boolean; connected: boolean; webhook: { address: string; copyable: boolean; note: string }; branches: Obj[]; branchQuery: string; nextCursor: number | null; branchError: string }
 let editor: Editor | null = null, editorSerial = 0, branchSerial = 0, branchLoadedSerial = -1, branchLoadedEditor = -1;
 function defaultDraft(live: LiveEnvironment, scope: MobileServerScope) {
@@ -90,7 +90,7 @@ export async function mobileScheduledBegin(scopeJSON: string, environmentId: str
     const task = tasks.find(task => task.id === taskId) ?? null;
     if (taskId && (!task || !inScope(scope, id, str(task.projectId)))) throw new ClientError('This scheduled task no longer exists in the selected scope.');
     const draft = task ? mobileTaskDraft('', null, task) : defaultDraft(live, scope);
-    editor = { id: ++editorSerial, environmentId: id, label: source.label, initial: JSON.stringify([id,mobileTaskSignature(draft)]), draft, busy: false, saved: false, error: '', config: live.config,
+    editor = { id: ++editorSerial, environmentId: id, label: source.label, initial: JSON.stringify([id,mobileTaskSignature(draft)]), draft, busy: false, saved: false, error: '', connectionError: '', config: live.config,
       projects: live.shell.projects, environments: sources.filter(source => source.enabled && source.phase === 'connected').map(source => ({id:source.environmentId,label:source.label})), canOperate, missing: false, connected: true,
       webhook: task?.webhook ? mobileWebhookAddress(obj(task.webhook), source.origin) : { address:'',copyable:false,note:'' }, branches: [], branchQuery:'',nextCursor:null,branchError:'' };
     return result();
@@ -102,11 +102,11 @@ export async function mobileScheduledPrepare(nativeInput: Native | null | undefi
   try {
     const { live, source, canOperate } = await target(state.environmentId, settingsNative(nativeInput));
     if (editor !== state) return mobileScheduledEditor();
-    state.config = live.config; state.projects = live.shell.projects; state.label = source.label; state.canOperate = canOperate; state.connected = true;
+    state.config = live.config; state.projects = live.shell.projects; state.label = source.label; state.canOperate = canOperate; state.connected = true; state.connectionError = '';
     const task = state.draft.task ? live.tasks.value === null ? state.draft.task : live.tasks.value.find(task => task.id === state.draft.task?.id) : null;
     state.missing = !!state.draft.task && live.tasks.value !== null && !task;
     state.webhook = task?.webhook ? mobileWebhookAddress(obj(task.webhook), source.origin) : {address:'',copyable:false,note:''};
-  } catch(error) { if (letGo(error)) throw error; state.connected = false; state.error = error instanceof Error ? error.message : 'Could not refresh task.'; }
+  } catch(error) { if (letGo(error)) throw error; state.connected = false; state.connectionError = error instanceof Error ? error.message : 'Could not refresh task.'; }
   return mobileScheduledEditor();
 }
 export function mobileScheduledEditor() {
@@ -123,7 +123,7 @@ export function mobileScheduledEditor() {
   const options = descriptors.map(descriptor => { const value = resolvedCurrent(descriptor, arr(selection.options)); return { id:str(descriptor.id),label:str(descriptor.label),boolean:descriptor.type==='boolean',on:value===true,
     choices:arr(descriptor.options).filter(option => option.id !== 'ultracode' && !(Array.isArray(descriptor.promptInjectedValues)&&descriptor.promptInjectedValues.includes(option.id ?? null))).map(option=>({id:str(option.id),label:str(option.label),selected:option.id===value})) }; });
   const provider = arr(config.providers).find(provider => provider.instanceId === selection.instanceId), supported = provider?.supportedRuntimeModes;
-  return { present:!!state, id:state?.id??0, title:draft?.task?'Edit scheduled task':'New scheduled task', error:state?.error??'', busy:state?.busy??false, saving:state?.busy??false, saved:state?.saved??false,
+  return { present:!!state, id:state?.id??0, title:draft?.task?'Edit scheduled task':'New scheduled task', error:state?.error||state?.connectionError||'', busy:state?.busy??false, saving:state?.busy??false, saved:state?.saved??false,
     dirty:!!state&&state.initial!==JSON.stringify([state.environmentId,mobileTaskSignature(state.draft)]), canSave:!!state&&state.canOperate&&state.connected&&!state.missing&&!state.busy&&!state.saved,
     connected:state?.connected??false, missing:state?.missing??false, taskId:str(draft?.task?.id), environmentId:state?.environmentId??'', environmentLabel:state?.label??'', editing:!!draft?.task,
     name:draft?.title??'',prompt:draft?.prompt??'',projectId:draft?.projectId??'',modelLabel:current?.label||str(selection.model)||'Choose model',
