@@ -737,6 +737,11 @@ fn a_library_button_is_named_and_says_the_state_its_look_shows() {
             "its look reads `selected`",
         ),
         (
+            "label-own-binding",
+            "      for selected in [\"row\"] key = selected\n        text selected id=\"bound-name\"\n        button press=go aria-labelledby=\"bound-name\" opacity=fade\n          box width=4 height=4\n",
+            "doesn't say aloud",
+        ),
+        (
             "unsaid-inside",
             "      button press=go aria-label=\"Home\"\n        box width=4 height=4 opacity=(selected ? 1 : 0.5)\n",
             "doesn't say aloud",

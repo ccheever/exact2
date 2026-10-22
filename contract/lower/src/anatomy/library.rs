@@ -613,7 +613,7 @@ pub(crate) fn control(c: &Component) -> Controls {
         .map(|p| p.name.as_str())
         .collect();
     let mut labels = std::collections::HashMap::new();
-    texts_by_id(&c.view, &mut labels);
+    texts_by_id(&c.view, &mut Vec::new(), &mut labels);
     let cx = Buttons {
         comp: &c.name,
         states: &states,
@@ -640,13 +640,13 @@ const SAID: [&str; 5] = [
     "aria-expanded",
 ];
 
-/// Each `text` of `nodes` with a literal `id`, by that id: its words, or
-/// `None` for an id two texts take (in two arms, which of them names a
-/// button the view doesn't settle).
-fn texts_by_id<'a>(
-    nodes: &'a [Node],
-    out: &mut std::collections::HashMap<&'a str, Option<&'a Expr>>,
-) {
+/// Texts by literal `id`: their words and the names bound around them.
+type Labels<'a> = std::collections::HashMap<&'a str, Option<(&'a Expr, Vec<String>)>>;
+
+/// Each `text` of `nodes` with a literal `id`, by that id: its words and
+/// the names `bound` around it, or `None` for an id two texts take (in two
+/// arms, which of them names a button the view doesn't settle).
+fn texts_by_id<'a>(nodes: &'a [Node], bound: &mut Vec<String>, out: &mut Labels<'a>) {
     for n in nodes {
         match n {
             Node::Element {
@@ -660,22 +660,32 @@ fn texts_by_id<'a>(
                     (tag == "text", text(attrs, "id"), positional.first())
                 {
                     let seen = out.contains_key(id);
-                    out.insert(id, (!seen).then_some(words));
+                    out.insert(id, (!seen).then(|| (words, bound.clone())));
                 }
-                texts_by_id(children, out);
+                texts_by_id(children, bound, out);
             }
-            Node::Use { children, .. } | Node::Each { body: children, .. } => {
-                texts_by_id(children, out)
+            Node::Use { children, .. } => texts_by_id(children, bound, out),
+            Node::Each {
+                var, index, body, ..
+            } => {
+                let mark = bound.len();
+                bound.push(var.clone());
+                bound.extend(index.clone());
+                texts_by_id(body, bound, out);
+                bound.truncate(mark);
             }
             Node::When {
                 then, otherwise, ..
             } => {
-                texts_by_id(then, out);
-                texts_by_id(otherwise, out);
+                texts_by_id(then, bound, out);
+                texts_by_id(otherwise, bound, out);
             }
             Node::Match { some, none, .. } => {
-                texts_by_id(&some.1, out);
-                texts_by_id(none, out);
+                let mark = bound.len();
+                bound.push(some.0.clone());
+                texts_by_id(&some.1, bound, out);
+                bound.truncate(mark);
+                texts_by_id(none, bound, out);
             }
             Node::Children { .. } => {}
         }
@@ -690,7 +700,7 @@ struct Buttons<'a> {
     derives: &'a [contract_syntax::Binding],
     /// Each text of the view with a literal `id`: what `aria-labelledby`
     /// names (`None` where two texts take one id, in two arms).
-    labels: std::collections::HashMap<&'a str, Option<&'a Expr>>,
+    labels: Labels<'a>,
 }
 
 impl Buttons<'_> {
@@ -849,15 +859,14 @@ fn check_button(
         // What names it says it: `aria-labelledby` first (the texts its ids
         // name in this view; one the view doesn't settle is taken as saying
         // it), else a non-empty `aria-label`, else its own text.
-        // (A text it names reads in its own scope, which `bound` doesn't
-        // reach; an empty `aria-labelledby` names nothing.)
+        // (A text it names reads in its own scope, with its own bindings,
+        // not the button's; an empty `aria-labelledby` names nothing.)
         let name_says = match text(attrs, "aria-labelledby").filter(|ids| !ids.trim().is_empty()) {
             Some(ids) => ids.split_whitespace().any(|id| {
                 cx.labels
                     .get(id)
-                    .copied()
-                    .flatten()
-                    .is_none_or(|e| cx.mentions(e, state, &[]))
+                    .and_then(Option::as_ref)
+                    .is_none_or(|(e, bound)| cx.mentions(e, state, bound))
             }),
             None if has(attrs, "aria-labelledby") && text(attrs, "aria-labelledby").is_none() => {
                 true
