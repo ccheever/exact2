@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, watch, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Coordination, GiB, command, processIdentity, terminalProof } from './state.mjs';
+import { Coordination, GiB, command, processHostMatches, processIdentity, terminalProof } from './state.mjs';
 
 const fixtures = [];
 afterEach(() => {
@@ -63,6 +63,59 @@ function waitFile(file) {
 const proof = task => ({ thread: { threadId: task.thread, worktreePath: task.worktree, status: 'completed', activeRunId: null, pendingRequestCount: 0, updatedAt: 'fixture' } });
 const audit = (task, operation, processes = [], auditorThreadId = task.thread) => ({ taskId: task.id, worktree: task.worktree, auditorThreadId, operation, processes, noUnrecordedDescendants: true });
 const own = task => ['--task', task.id, '--thread', task.thread];
+
+test('boot identity survives a hostname change without trusting another boot or unbound legacy host', () => {
+  const now = { host: 'after', bootId: 'boot-a' };
+  expect(processHostMatches({ host: 'before', bootId: 'boot-a' }, now)).toBe(true);
+  expect(processHostMatches({ host: 'after', bootId: 'boot-b' }, now)).toBe(false);
+  expect(processHostMatches({ host: 'before' }, now)).toBe(false);
+  expect(processHostMatches({ host: 'before' }, now, { before: { bootId: 'boot-a' } })).toBe(true);
+  expect(processHostMatches({ host: 'before' }, now, { before: { bootId: 'boot-b' } })).toBe(false);
+  expect(processHostMatches({ host: 'after' }, now)).toBe(true);
+  expect(processHostMatches({ host: 'before', bootId: 'boot-b' }, now, { before: { bootId: 'boot-a' } })).toBe(false);
+});
+
+test('legacy hostname recovery requires a live owned launcher and never releases its process lease', async () => {
+  const f = fixture(); await f.start();
+  const pidFile = join(f.dir, 'rename-child.pid');
+  const running = f.cli(f.a, ['run', ...own(f.ta), '--', process.execPath, '-e', `await Bun.write(${JSON.stringify(pidFile)}, String(process.pid)); await Bun.sleep(300000)`]);
+  await waitFile(pidFile);
+  const stateFile = join(f.root, 'state.json');
+  const state = await f.c(f.main).status();
+  const [key, lease] = Object.entries(state.leases).find(([, l]) => l.task === f.ta.id);
+  const current = processIdentity(lease.guard.pid);
+  expect(current.bootId).toBeTruthy();
+  for (const p of [...state.tasks[f.ta.id].processes, lease.guard]) { p.host = 'before-rename'; delete p.bootId; }
+  writeFileSync(stateFile, JSON.stringify(state));
+  const witness = { fromHost: 'before-rename', toHost: current.host, bootId: current.bootId,
+    anchor: { taskId: f.ta.id, operation: lease.operation, pid: lease.guard.pid, started: lease.guard.started } };
+  await expect(f.c(f.main).bindProcessHost('thread-a', witness)).rejects.toThrow('coordinator');
+  await expect(f.c(f.main).bindProcessHost('coordinator', { ...witness, bootId: 'another-boot' })).rejects.toThrow('current boot');
+  await expect(f.c(f.main).bindProcessHost('coordinator', { ...witness, toHost: 'elsewhere' })).rejects.toThrow('current boot');
+  await expect(f.c(f.main).bindProcessHost('coordinator', { ...witness, anchor: { ...witness.anchor, started: 'wrong' } })).rejects.toThrow('matching legacy');
+  const changedStart = structuredClone(state); changedStart.leases[key].guard.started = 'reused PID';
+  writeFileSync(stateFile, JSON.stringify(changedStart));
+  await expect(f.c(f.main).bindProcessHost('coordinator', { ...witness, anchor: { ...witness.anchor, started: 'reused PID' } })).rejects.toThrow('dead, changed or unknown');
+  const foreignWorktree = structuredClone(state); foreignWorktree.tasks[f.ta.id].worktree = f.b;
+  writeFileSync(stateFile, JSON.stringify(foreignWorktree));
+  await expect(f.c(f.main).bindProcessHost('coordinator', witness)).rejects.toThrow('worktree mismatch');
+  const foreignThread = structuredClone(state); foreignThread.tasks[f.ta.id].thread = 'another-thread';
+  writeFileSync(stateFile, JSON.stringify(foreignThread));
+  await expect(f.c(f.main).bindProcessHost('coordinator', witness)).rejects.toThrow('ownership arguments');
+  writeFileSync(stateFile, JSON.stringify(state));
+  await expect(f.c(f.a).stop(f.ta.id, f.ta.thread, Number(readFileSync(pidFile, 'utf8')))).rejects.toThrow('unknown process');
+  const bound = await f.c(f.main).bindProcessHost('coordinator', witness);
+  expect(bound.action).toBe('process-host-bound');
+  expect((await f.c(f.main).status()).leases[key]).toBeDefined();
+  await expect(f.c(f.a).auditRun(f.ta.id, f.ta.thread, audit(f.ta, lease.operation))).rejects.toThrow('launcher still live');
+  const saved = (await f.c(f.main).status()).tasks[f.ta.id].processes;
+  await f.c(f.a).stop(f.ta.id, f.ta.thread, Number(readFileSync(pidFile, 'utf8')));
+  const result = await running;
+  await expect(f.c(f.main).bindProcessHost('coordinator', witness)).rejects.toThrow('dead, changed or unknown');
+  const descendants = saved.filter(p => p.role !== 'guard');
+  await expect(f.c(f.a).auditRun(f.ta.id, f.ta.thread, audit(f.ta, result.value.operation, [{ ...descendants[0], host: 'foreign' }]))).rejects.toThrow('unknown audited');
+  expect((await f.c(f.a).auditRun(f.ta.id, f.ta.thread, audit(f.ta, result.value.operation, descendants))).held).toBe(false);
+});
 
 test('only empty read-only native investigations accept matching terminal native proof', async () => {
   const f = fixture(); await f.c(f.main).init('coordinator');
