@@ -939,7 +939,14 @@ component DesignTool
   // the page's own tree may have fewer above it (a rebuild), and its selection then lands higher, said so.
   state upFromKey = ""
   state upExpect = -1
-  derive upNote = upExpect >= 0 and inspected.has and inspected.key != upFromKey and inspected.chain.length < upExpect ? `The page's tree had fewer above it: it selected ${inspected.source}.` : ""
+  // Said of the selection the move lands on alone (the first after it), kept while that selection is shown.
+  state upNote = ""
+  state upNoteKey = ""
+  derive upFailed = match selectedUp { case some(r) => not r.ok, case none => false }
+  task upLanded when upExpect >= 0 and inspected.has and inspected.key != upFromKey key=inspected.key
+    after(1, landUp)
+  task upRefused when upExpect >= 0 and not pending(selectedUp) and upFailed key=upFromKey
+    after(1, dropUp)
   // The edit a panel began (a dial's, a param's, its row's Back to the package), whose proposal docks at the window's
   // bottom: the panels sit far above the panel's own place. One begun from the token grid stays in place, under it.
   state dockedFor = ""
@@ -1209,6 +1216,7 @@ component DesignTool
       // How deep the selection it lands on should be, from the selection it moves from (review2 11:33).
       upFromKey = inspected.key
       upExpect = inspected.chain.length - up
+      upNote = ""
       send selectedUp = sendSelectUp(client, inspected.build, up)
   action showInitial(key: string)
     initialFor = key
@@ -1582,6 +1590,12 @@ component DesignTool
     filesShown = not filesShown
   action markReady
     readyFor = draftReadyKey
+  action landUp
+    upNote = inspected.chain.length < upExpect ? `The page's tree had fewer above it: it selected ${inspected.source}.` : ""
+    upNoteKey = inspected.key
+    upExpect = -1
+  action dropUp
+    upExpect = -1
   action moreHistory
     historyPages = historyPages + 1
   action newerHistory
@@ -1824,8 +1838,15 @@ component DesignTool
                   for c in inspected.chain key=c.up
                     button press=selectUp(c.up) disabled=(not inspected.inspecting or pending(selectedUp)) aria-label=`Select ${c.text}` testId=`selection-up-${c.up}`
                       text `in ${c.text}` color="-exact-secondary-label" font="-exact-footnote"
-                  if upNote != ""
+                  if upNote != "" and upNoteKey == inspected.key
                     text upNote color="-exact-system-orange" font="-exact-footnote" testId="selection-up-note"
+                  // (A move refused: the server's or the page's words.)
+                  match selectedUp
+                    case some(r)
+                      if not r.ok
+                        text r.error color="-exact-system-red" font="-exact-footnote" white-space="pre-wrap" testId="selection-up-error"
+                    case none
+                      text "" display="none"
                   text `${inspected.build}${inspected.modes != "" ? ` · ${inspected.modes}` : ""}` color="-exact-secondary-label" font="-exact-footnote" testId="selection-build"
                   if inspected.libraryIdentity != ""
                     column gap=2 testId="selection-library"

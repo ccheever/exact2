@@ -551,11 +551,11 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
      * (`clear`). */
     /** `client`'s selection on build `id` moved `up` call sites (tamber/1.16 `inspect` `select`): sent to the page,
      * which selects that ancestor and reports it as a click would; refused unless `client` inspects that build. */
-    selectUp(client, id, up, sites) {
+    selectUp(client, id, up, { levels, plan, from }) {
       sweep();
       if (!listed().some(b => b.id === id)) return { error: `no registered build \`${id}\`` };
       if (inspectors.get(id) !== client) return { error: `inspect is not on for \`${client}\` on \`${id}\`: turn it on first` };
-      frame(id, { kind: 'inspect', select: { up, sites } });
+      frame(id, { kind: 'inspect', select: { up, levels, plan, from } });
       return { builds: [id] };
     },
     inspect(client, id, { on = false, refresh = false } = {}) {
@@ -772,10 +772,10 @@ export function selectRequest(channel, request, sitesOf) {
   const up = request.select?.up;
   if (!Number.isSafeInteger(up) || up < 1 || up > 64) return { status: 400, error: { message: '`select` is `{up: n}`, n a whole number from 1 to 64' } };
   if (typeof request.build !== 'string') return { status: 400, error: { message: '`select` names the `build` whose selection moves' } };
-  // The plan sites of the ancestor n call sites up, by the last selection's map: the page selects the outermost of
-  // them above its selected node.
-  const sites = sitesOf(request.build, up);
-  if (!sites?.length) return { status: 409, error: { message: `\`${request.build}\` has no selection with a source map to move up from: select a node first` } };
-  const done = channel.selectUp(request.client, request.build, up, sites);
+  // The plan sites it may land on, level by level, by the last selection's map, and the plan and site they were taken
+  // from: the page moves only that selection, under that plan, choosing by its own tree.
+  const at = sitesOf(request.build, up);
+  if (!at?.levels?.length) return { status: 409, error: { message: `\`${request.build}\` has no selection with a source map to move up from: select a node first` } };
+  const done = channel.selectUp(request.client, request.build, up, at);
   return done.error ? { status: 409, error: { message: done.error } } : { ok: done };
 }

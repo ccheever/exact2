@@ -1425,10 +1425,12 @@ The tool drives no input into an app; a command changes only what `prefer` would
     "more"|"less"|"no-preference", mode?: {axis: value}, rootFontSize?: px}`, the facts `prefer`
     pins, or null to hand them back. Each pin replaces the whole set: a fact it doesn't name is
     what the first pin replaced.
-  - `inspect` (*1.3*) `{on, seq}` or `{refresh: true}`, or `{select: {up, sites}}` (*1.16*: the page
-    selects the outermost node above its selection whose plan site is one of `sites`, which the
-    server takes from its map as the copy `up` call sites above, and reports it as a click's
-    selection): inspect mode on or off (`seq` numbers
+  - `inspect` (*1.3*) `{on, seq}` or `{refresh: true}`, or `{select: {up, levels, plan, from}}` (*1.16*:
+    `levels` are the plan sites of each enclosing copy from `up` call sites out to the app's own,
+    each that owns a node, nearest first, as the server's map gives them for the selection at site
+    `from` under `plan`; a page whose selection or plan is another answers `unsupported`, else it
+    selects, in the first level with a node above its selection, the outermost by its own tree,
+    and reports it as a click's selection): inspect mode on or off (`seq` numbers
     the command), or the selection
     reported again under the digests now (found again by its site and instance path after a
     new generation, or said gone). In inspect mode the page shows a banner with a close control
