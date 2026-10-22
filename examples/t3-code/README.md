@@ -282,7 +282,10 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   where the reader may not comment; the host's conversations on their lines; what a failed diff
   read means, with Try again), hand-offs and quick actions (`pages-pr-handoffs*`,
   `pages-pr-quick*`) and the thread links (`pages-pr-links*`). A thread's pull request surface
-  keeps the tab it was left on.
+  keeps the tab it was left on. Every +/- splits into code, tests, mocks, generated files and docs
+  (`pr-change-breakdown.ts`, the server's `pullRequests.changeBreakdown`): a list row's on its first
+  hover, the detail's at once (drawn by the window's hover layer, since the header folds), the
+  details card's inline under the diff size.
 - Terminal: the thread terminal drawer below the chat column (`terminal.contract`,
   `terminal-drawer*.ts`; T3 Code's ThreadTerminalDrawer in its drawer mode): sessions on the
   server, split and close, the drawer's state kept per thread. The terminal is T3 Code's own
