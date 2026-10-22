@@ -225,8 +225,6 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'terminalDrawer') return terminalDrawerView(client, native, Number(args[1]) || 0, Number(args[2]) || 0); // args[0] re-asks on each revision
   if (source === 'shellView') { noteNow(client, Number(args[1]) || 0); return shellView(client, native, storage, Number(args[1]) || 0, String(args[2] || ''), args[3] === true, args[4] === true, { focused: args[5] !== false, visible: args[6] !== 'hidden' }, args[7] !== false); } // args[5..6]: exactPage().hasFocus and visibilityState (exact2 #219); args[7]: the chat view is shown
   // A drop, a paste, Attach files or a sidebar row's drop (app.contract attachFiles): composer-controls-attach.ts.
-  // A large paste the composer held back (app.contract composerPasteFold): composer-editor-files.ts foldPaste.
-  if (source === 'composerFold') return client.command('cclocal:fold-paste', String(args[0] || ''), JSON.stringify({ id: Number(args[1]) || 0, snapshotOwner: String(args[2] ?? ''), fieldOwner: String(args[3] ?? ''), value: String(args[4] ?? ''), start: Number(args[5]) || 0, end: Number(args[6]) || 0, text: String(args[7] ?? '') }), 0, native, storage);
   if (source === 'composerAttach') return client.command('cclocal:attach-files', String(args[0] || ''), JSON.stringify({ files: (Array.isArray(args[1]) ? args[1] : []).map(String), picked: Array.isArray(args[2]) ? args[2] : [], asText: args[3] === true, target: String(args[4] ?? '') }), 0, native, storage);
   if (source === 'command') return client.command(String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), Number(args[3]) || 0, native, storage);
   throw new Error(`Unknown T3 source: ${source}`);

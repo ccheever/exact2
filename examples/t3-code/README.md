@@ -543,13 +543,18 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
   An image within its limits keeps its bytes and type; one over them is encoded by
   `compressImage`. Paste as Text is the Contract's: Exact fires `paste` for `pasteAsPlainText:` as
   for Paste, and the composer's `key` handler arms the paste its ⇧⌘V brings, as the reference's
-  keydown does (`isPasteAsTextShortcut`). Paste is enabled for files or image data alone where a
+  keydown does (`isPasteAsTextShortcut`); Edit › Paste as Text chosen with the pointer arms it in the
+  module (`T3Menus.swift`, the reference's `DESKTOP_PASTE_AS_TEXT_EVENT`), which TypeScript reads for
+  the paste it holds or the files it attaches. Paste is enabled for files or image data alone where a
   `paste` is heard. A text paste of 32 KB or more (UTF-16 units or UTF-8 bytes), or one that
-  would take the prompt past 120,000 units, is the composer's `paste` too: it prevents the paste
-  and sends the field's value and selection with the text (`app.contract` `composerPasteFold`,
-  `composer.contract` `composerPasteDisposition`), and TypeScript stages a `pasted-text.txt` file
-  whose chip one guarded `setRangeText` puts in the paste's place, or shows the reference's
-  refusal (`composer-editor-files.ts` `foldPaste`); a paste Paste as Text armed stays inline.
+  would take the prompt past 120,000 units, is the composer's `paste` too (`composer.contract`
+  `pasted`, `composerPasteDisposition`): lengths decide most pastes there, and a paste only its byte
+  count can decide is held for TypeScript to measure. A held paste is prevented and goes, with the
+  field's value and selection, through `attachFiles`' queue to `composer-editor-files.ts` `foldPaste`,
+  which stages a `pasted-text.txt` file whose chip one guarded `setRangeText` puts in the paste's
+  place, shows the reference's refusal, or puts the text in as the field's paste would. A paste
+  Paste as Text armed, and every paste into a literal answer, stays inline; a question that takes
+  attachments folds as the thread's draft does.
   A staged video or audio file keeps its extension (`composer-staged-copies.ts` `stagedName`),
   which AVFoundation needs to play it; a video's shelf tile is a muted, paused `video` of that
   copy sought to its first frame, and its display size for the preview is read from its header
@@ -565,6 +570,10 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
 
 Differences that belong to the app:
 
+- With Markdown formatting off the composer is a plain `textarea` (`markup="none"`), where a held paste's
+  `setRangeText` (a folded chip, or text a held paste puts in) is no undo step, and Apple clears the
+  field's undo history when its value changes (`docs/contract-grammar.md`, `setRangeText`): ⌘Z
+  does not take it back, where the reference's undoes it. In the Markdown editor each call is one undo step.
 - The server connections are the data module's (`src/transport/`). Each environment's socket is a
   stream resource, admitted by `net.websocket ws:` and `wss:` since servers are named at run time
   (#703), whose mapper answers Pings and acknowledges chunks in the frame's own commit (#705, LLP
