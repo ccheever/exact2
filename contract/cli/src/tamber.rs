@@ -426,7 +426,8 @@ fn fmt(path: &Path, src: &str, check: bool) -> ExitCode {
 }
 
 /// The design's IR, with its app's components' params (LLP 1121 D15) when
-/// it declares any: under `components` by full name, never among the
+/// it declares any, or uses an exported library component (its parts and
+/// variants, stage 12 D3): under `components` by full name, never among the
 /// tokens by their names below the IR.
 fn ir(
     src: &str,
@@ -439,7 +440,8 @@ fn ir(
     let Ok(mut ir) = serde_json::from_str::<serde_json::Value>(&folding.ir()) else {
         return folding.ir();
     };
-    if !app.tokens.is_empty() {
+    // (as `describe` lists them: a library component with no params too, stage 12 D3)
+    if !app.tokens.is_empty() || app.library.iter().any(|(_, _, d)| d.library) {
         contract::tamber_params::hide(&mut ir);
         let design = exact_tamber::parse(src).ok();
         ir["components"] = contract::tamber_params::components(

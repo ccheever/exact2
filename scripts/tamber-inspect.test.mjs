@@ -779,3 +779,46 @@ test('round 1: a held state on a library node gives its rows and its source the 
     expect([out.held.library, out.held.rows[0].library, out.held.rows[0].source?.library, out.rows?.[0]?.library]).toEqual([undefined, undefined, undefined, undefined]);
   }
 });
+
+test("a node of the variant gallery's generated source (the JS dev loop's build cache) offers no template, style or state write, whatever the server's own files; its tokens and params are the app's (variant gallery G4)", () => {
+  const app = '/repo/apps/x', read = () => ['component Gallery', '  view', '    column gap=4 opacity=1', ''];
+  const why = "the variant gallery's generated source: read-only (its tokens and params are the app's)";
+  for (const file of ['/repo/node_modules/.cache/exact-gallery/com.x/live/app.contract', '/repo/apps/x/node_modules/.cache/exact-gallery/com.x/live/app.contract', '/repo/target/dev-gallery/com.x/live/app.contract']) {
+    const at = { file, line: 3, col: 18, end_col: 27 };
+    const map = { sources: [{ file, sha256: 'a'.repeat(64) }] };
+    expect(rowRung({ name: 'opacity' }, { origin: 'own', at, attr: 'opacity' }, map, app, 1, read)).toEqual({ rung: null, reason: why });
+    expect(rowRung({ name: 'opacity' }, { origin: 'class:Cell', at, attr: 'opacity' }, map, app, 1, read)).toEqual({ rung: null, reason: why });
+    expect(stateRung({ name: 'opacity' }, { state: 'hover', origin: 'class:Cell', at }, app, read)).toEqual({ rung: null, reason: why });
+  }
+});
+
+test("a selection on a variant gallery cell, joined: its literal rows read only by the gallery's reason, its token rows still the app's token rung (variant gallery G4)", () => {
+  const dir = mkdtempSync(joinPath(tmpdir(), 'exact-inspect-gallery-'));
+  try {
+    const live = joinPath(dir, 'node_modules/.cache/exact-gallery/com.x/live');
+    mkdirSync(live, { recursive: true });
+    const gallery = joinPath(live, 'app.contract'), text = 'component Gallery\n  view\n    column background-color="surface.card" opacity=1 border-color="param.fill"\n';
+    writeFileSync(gallery, text);
+    // A library component's param, as the app's design sets it.
+    const IR = 'param.f00000002.Card.fill';
+    const params = paramsOf({ tokens: [], components: [{ identity: '@acme/lib/card.contract#Card', name: 'Card', params: [{ name: '@acme/lib/card.contract#Card.fill', short: 'Card.fill', token: IR, default: '#0a7aff', set: null }] }] });
+    const line = 3, at = (attr) => ({ file: gallery, line, col: text.split('\n')[line - 1].indexOf(attr) + 1, end_col: text.split('\n')[line - 1].indexOf(attr) + 1 + attr.length });
+    const map = { digest: 'g1', sources: [{ file: gallery, sha256: sha(text) }], nodes: [
+      { file: gallery, line, col: 5, end_col: 11, component: 'Gallery', chain: [], bindings: [{ row: 'background_color', origin: 'own', at: at('background-color'), attr: 'background-color' }, { row: 'opacity', origin: 'own', at: at('opacity'), attr: 'opacity' }, { row: 'border_color', origin: 'own', at: at('border-color'), attr: 'border-color' }] },
+    ] };
+    const selected = { node: 1, site: 0, instance: [], tuple: {}, rows: [
+      { name: 'background_color', value: '#fff', source: 'authored', token: { names: ['surface.card'], text: 'surface.card', modes: '', implied: false } },
+      { name: 'opacity', value: 1, source: 'authored' },
+      { name: 'border_color', value: '#0a7aff', source: 'authored', token: { names: [IR], text: IR, modes: '', implied: false } },
+    ] };
+    const s = join({ id: 'web-js-2' }, selected, map, { app: dir, params });
+    const why = "the variant gallery's generated source: read-only (its tokens and params are the app's)";
+    // The token and the param stay the app design's to write; no template (and so no detach) on the gallery's source.
+    expect(s.rows.map(r => [r.name, r.editable.rung, r.editable.token ?? r.editable.param ?? null, r.editable.template ?? null])).toEqual([
+      ['background_color', 'token', 'surface.card', null],
+      ['opacity', null, null, null],
+      ['border_color', 'param', '@acme/lib/card.contract#Card.fill', null],
+    ]);
+    expect(s.rows[1].editable.reason).toBe(why);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

@@ -7,14 +7,14 @@
 // body whole, so it cannot follow the server-sent stream. A failure is
 // words in the answer, never a throw.
 import type { Answer, Result, Sources } from './app.contract.d.ts';
-import { buildKey, placeOf, schemeOf, selectionView, staleness, type Selected } from './inspector';
+import { buildKey, placeOf, schemeOf, selectionView, staleness, visitOf, type Selected } from './inspector';
 // The panel's controls and the grid's cells by kind.
 import { cellText, colourLiteral, panelOf, sides } from './dials';
-import { componentsOf } from './components';
+import { componentsOf, levelsOf } from './components';
 import { baseColumns, groupOf, shippedOf, sourceOf, writable } from './base';
 import { pageOf } from './origins';
 import { pairingSources } from './pairing';
-import { gridSources } from './grid';
+import { gridSources } from './grid'; import { refusalOf, refusalRows, refuse, restoreRefusals, takeRefusals } from './refusals';
 import { GONE, wire, type Reply } from './wire';
 import { heldEvent, holdingOf, holdNote, letGo, type Holding } from './holds';
 import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
@@ -41,7 +41,7 @@ const WRITE_WAIT = 130_000;
 const READ_WAIT = WRITE_WAIT;
 // The resolves a read has in flight at once (a browser opens six
 // connections to one origin).
-const RESOLVES_AT_ONCE = 4;
+const RESOLVES_AT_ONCE = 4, LEVEL_WAIT = 5000;
 // The one `tamber/1` client (wire.ts): this machine's server at API, or
 // another machine's the tool paired with.
 const { call, RESTARTED, pairWith, remote, scope: scopeNow } = wire(API, id => (heldRaw.find(p => String(p.proposal) === id)?.client ?? null) as string | null);
@@ -69,7 +69,7 @@ function change(e: any): Change | null {
 }
 
 type Design = Result<'loadDesign'>;
-const noDesign = (error: string): Design => ({ ok: false, error, file: '', answer: ++designs, groups: [], columns: [], tokenGroups: [], names: [], axes: [], icons: [], components: [] });
+const noDesign = (error: string): Design => ({ ok: false, error, file: '', answer: ++designs, groups: [], columns: [], firstColumn: '', tokenGroups: [], names: [], axes: [], icons: [], components: [] });
 let designs = 0;
 
 
@@ -92,7 +92,7 @@ const whenText = (w: When[]) => w.map(c => `${c.axis}=${c.value}`).sort().join('
 // its answer), so it keeps nothing; the shown one is the newest kept, and
 // what follows it (a cell's branch, contrast) names it.
 type Stored = { css: string; srgb: string; residual: boolean; note: string; value: string };
-type Snapshot = { file: string; axes: Axis[]; columns: Column[]; stored: Map<string, Stored[][]>; dials: Map<string, { group: string; more: boolean }>; digests: string; kinds: Map<string, string>; params: Map<string, ParamInfo>; tokenOf: (v: string) => string | null };
+type Snapshot = { file: string; axes: Axis[]; columns: Column[]; stored: Map<string, Stored[][]>; dials: Map<string, { group: string; more: boolean }>; digests: string; kinds: Map<string, string>; params: Map<string, ParamInfo>; tokenOf: (v: string) => string | null; levelParams: string[] };
 const snapshots = new Map<number, Snapshot>();
 // Design reads, and reads of the app design's axes (either kind): only the
 // newest of the second sets the axes a selection is placed by.
@@ -106,7 +106,7 @@ let liveTable = false;
  * the files' digests again after them; if a write landed between, the
  * replies may be of two revisions, so it reads again. `wanted`: false once
  * a newer read overtakes it, which then asks for nothing more. */
-async function readDesign(file: string, wanted: () => boolean): Promise<{ error: string; ir?: any; resolved?: { tuples: any[] }[]; files?: Record<string, string>; pairs?: unknown; base?: any[]; targets?: unknown }> {
+async function readDesign(file: string, wanted: () => boolean): Promise<{ error: string; ir?: any; resolved?: { tuples: any[] }[]; files?: Record<string, string>; pairs?: unknown; base?: any[]; targets?: unknown; params?: string[] }> {
   const which = file ? { file } : {};
   for (let attempt = 0; attempt < 3 && wanted(); attempt++) {
     const described = await call('/__tamber', { method: 'describe', ...which }, READ_WAIT);
@@ -116,12 +116,16 @@ async function readDesign(file: string, wanted: () => boolean): Promise<{ error:
     // A few at a time, so the browser keeps connections for the long poll
     // and the other reads; each waits behind the others at the one design
     // server, so the wait is the whole read's, not one request's.
+    // And, in the app's design, each package component's param (an icon's has no level), whose levels `loadLevels` reads after.
+    const owned = new Set(Object.keys(described.reply.ok?.files ?? {})), listed = (!file || file === designFile) && [...owned].some(f => f.endsWith('.contract'));
+    const params: string[] = listed ? (ir.components ?? []).filter((c: { identity: string }) => { const home = c.identity.split('#')[0]; return !owned.has(home) && home !== designFile; }).flatMap((c: { params?: { name: string; kind: string }[] }) => (c.params ?? []).filter(p => p.kind !== 'icon').map(p => p.name)) : [];
+    const asks = ir.tokens.map((t: { name: string }) => t.name);
     const resolved: Awaited<ReturnType<typeof call>>[] = [];
     let next = 0;
-    await Promise.all(Array.from({ length: Math.min(RESOLVES_AT_ONCE, ir.tokens.length) }, async () => {
-      while (next < ir.tokens.length && wanted()) {
+    await Promise.all(Array.from({ length: Math.min(RESOLVES_AT_ONCE, asks.length) }, async () => {
+      while (next < asks.length && wanted()) {
         const i = next++;
-        resolved[i] = await call('/__tamber', { method: 'resolve', token: ir.tokens[i].name, ...which }, READ_WAIT);
+        resolved[i] = await call('/__tamber', { method: 'resolve', token: asks[i], ...which }, READ_WAIT);
       }
     }));
     if (!wanted()) return { error: 'overtaken by a newer read' };
@@ -141,7 +145,9 @@ async function readDesign(file: string, wanted: () => boolean): Promise<{ error:
       const col = tuples.find(c => c.tuple === i);
       return !col || ir.axes.every((a: Axis, k: number) => t.modes?.[a.name] === col.values[k]);
     }));
-    if (same && placed) return { error: '', ir, resolved: resolved.map(r => r.reply.ok), files: before, pairs, base: Array.isArray(described.reply.ok?.base) ? described.reply.ok.base : [], targets: described.reply.ok?.targets };
+    if (same && placed) {
+      return { error: '', ir, resolved: resolved.map(r => r.reply.ok), files: before, pairs, base: Array.isArray(described.reply.ok?.base) ? described.reply.ok.base : [], targets: described.reply.ok?.targets, params };
+    }
   }
   return { error: wanted() ? 'The design kept changing while it was read. Try again.' : 'overtaken by a newer read' };
 }
@@ -328,7 +334,7 @@ function wroteMine(ok: { write?: number; diff?: string }, redoneBy = '') {
 // gap, a new run), then the build events. Each with the revision of the
 // last pin frame it was sent (`pinRevision`, whoever sent it), and the last
 // command it could not apply, kept while that pin is its pin.
-type BuildState = { id: string; host: string; status: any; plan: string | null; planDigest: string | null; design: string | null; pin: any; pinRevision: number; unsupported: { what: string; detail: string | null } | null; holding: Holding; navRefusals?: number };
+type BuildState = { inspectRefused?: string | null; refusalSeq?: number; id: string; host: string; page: string; status: any; plan: string | null; planDigest: string | null; design: string | null; pin: any; pinRevision: number; unsupported: { what: string; detail: string | null } | null; holding: Holding; navRefusals?: number };
 let buildsNow = new Map<string, BuildState>();
 // The latest selection (the server's join, LLP 1122 D5) with what it was
 // made under; a stale one stays stale until a fresh selection (a reload back
@@ -344,6 +350,15 @@ const sameHold = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.
  * was of the last one, so it is asked for again under this one. */
 const forgetHeld = (id: string) => { if (selectionNow?.e.held && String(selectionNow.e.build) === id) selectionNow.e = { ...selectionNow.e, held: undefined }; };
 let designAxes: Axis[] = [];
+// Each library component's parts, by its declaring identity, as the app design's newest describe lists them (stage
+// 12 D3, LLP 1139 D5): the inspector's part outline. Empty until the server says them.
+let libraryParts = new Map<string, { name: string; slot: boolean }[]>();
+const partsFrom = (ir: { components?: { identity: string; parts?: { name: unknown; slot?: unknown }[] }[] } | undefined) =>
+  new Map((ir?.components ?? []).filter(c => Array.isArray(c.parts)).map(c => [c.identity, c.parts!.map(p => ({ name: String(p.name), slot: p.slot === true }))]));
+// Each app describe's read while another file is open, numbered: the inspector's outline follows it. And every app
+// describe that gives the parts (the app design's read, or its read while another file is open), numbered: only the
+// newest sets them, so a late one never puts back what a newer one dropped.
+let appReads = 0, partsReads = 0;
 const inspectOn = new Set<string>();
 const latch = () => { if (selectionNow && !selectionNow.stale) selectionNow.stale = staleness(selectionNow, buildsNow.get(String(selectionNow.e.build)), designAxes); };
 // The poll now (a newer one replaces it), and whether the build list must
@@ -360,7 +375,7 @@ const buildRows = () => [...buildsNow.values()].map(b => {
   const st = b.status ?? {};
   const mode = Object.entries((st.mode ?? {}) as Record<string, string>).map(([a, v]) => `${a}=${v}`).join(' ');
   return {
-    id: b.id, host: b.host, reported: b.status != null, scheme: String(st.scheme ?? ''), contrast: String(st.contrast ?? ''), mode, rootFontSize: Number(st.rootFontSize ?? 0),
+    id: b.id, host: b.host, gallery: b.page === 'gallery', reported: b.status != null, scheme: String(st.scheme ?? ''), contrast: String(st.contrast ?? ''), mode, rootFontSize: Number(st.rootFontSize ?? 0),
     pin: pinText(b.pin), caughtUp: Number.isSafeInteger(st.revision) && st.revision >= b.pinRevision,
     behind: Number.isSafeInteger(st.revision) && st.revision < b.pinRevision,
     unsupported: b.unsupported ? `${b.unsupported.what}${b.unsupported.detail ? `: ${b.unsupported.detail}` : ''}` : '',
@@ -372,7 +387,7 @@ const buildOf = (b: any, was?: BuildState): BuildState => {
   if (note) holdNotes.set(id, note); else holdNotes.delete(id);
   // Another hold, none, or a new frame of the same one (its report forgotten at the server): asked afresh.
   if (!sameHold(holding.hold, was?.holding.hold) || (holding.hold && was?.holding.held && !holding.held)) { forgetHeld(id); asked.delete(id); }
-  return { id, host: String(b.host ?? was?.host ?? ''), status: b.status ?? null, plan: b.plan ?? null, planDigest: 'planDigest' in b ? (typeof b.planDigest === 'string' ? b.planDigest : null) : was?.planDigest ?? null, design: b.design ?? null, pin: b.pin ?? null, pinRevision: Number(b.pinRevision ?? 0), unsupported: b.unsupported ?? null, holding, navRefusals: was?.navRefusals };
+  return { id, host: String(b.host ?? was?.host ?? ''), page: b.page === 'gallery' ? 'gallery' : '', status: b.status ?? null, plan: b.plan ?? null, planDigest: 'planDigest' in b ? (typeof b.planDigest === 'string' ? b.planDigest : null) : was?.planDigest ?? null, design: b.design ?? null, pin: b.pin ?? null, pinRevision: Number(b.pinRevision ?? 0), unsupported: b.unsupported ?? null, holding, navRefusals: was?.navRefusals, ...refusalOf(b, was) };
 };
 /** The server's list, whole: a build it no longer lists is gone. */
 const takeBuilds = (list: any[], client = '') => {
@@ -380,7 +395,7 @@ const takeBuilds = (list: any[], client = '') => {
   for (const b of list ?? []) owned(b, client);
 };
 // This tool's inspect mode on a build, as its record says (tamber/1.6).
-const owned = (b: any, client: string) => { if (client && b && 'inspector' in b) { if (b.inspector === client) inspectOn.add(String(b.id)); else inspectOn.delete(String(b.id)); } };
+const owned = (b: any, client: string) => { if (client && b && 'inspector' in b) { if (b.inspector === client) inspectOn.add(String(b.id)); else { inspectOn.delete(String(b.id)); const s = buildsNow.get(String(b.id)); if (s?.inspectRefused != null) refuse(s, null); } } };
 // The app's design file, as hello names it: what "" reads.
 let designFile = '';
 let lastFiles: Record<string, string> = {};
@@ -633,7 +648,7 @@ const sources: Sources = {
       scope: String(ok.scope ?? 'write'), local, client: String(ok.client ?? ''), epoch: String(ok.epoch ?? '') };
   },
   loadDesign: async ([file]) => {
-    const number = ++issued, axesAt = !file || file === designFile ? ++axesReads : -1;
+    const number = ++issued, axesAt = !file || file === designFile ? ++axesReads : -1, partsAt = !file || file === designFile ? ++partsReads : -1;
     try {
       const read = await readDesign(file, () => number === issued);
       if (read.error) return noDesign(read.error);
@@ -713,7 +728,8 @@ const sources: Sources = {
       if (number === issued) {
         // The app design's axes, of the newest read only.
         if (axesAt === axesReads) designAxes = axes;
-        snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files), kinds: new Map([...(ir.dials ?? []), ...ir.tokens, ...(ir.components ?? []).flatMap((c: { params: unknown[] }) => c.params)].map((t: { name: string; kind: string }) => [t.name, t.kind])), params: paramInfoOf(ir), tokenOf: tokenOfIn(ir) });
+        if (partsAt === partsReads) libraryParts = partsFrom(ir);
+        snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files), kinds: new Map([...(ir.dials ?? []), ...ir.tokens, ...(ir.components ?? []).flatMap((c: { params: unknown[] }) => c.params)].map((t: { name: string; kind: string }) => [t.name, t.kind])), params: paramInfoOf(ir), tokenOf: tokenOfIn(ir), levelParams: read.params ?? [] });
         if (!file || file === designFile) { appParams = snapshots.get(number)!.params; appParamsKey = snapshots.get(number)!.digests; appKinds = snapshots.get(number)!.kinds; paramNames = new Map([...appParams].map(([name, p]) => [name, p.short])); }
         for (const old of snapshots.keys()) if (old < number - 4) snapshots.delete(old);
         reads.set(`${named(file)}|${read.files?.[named(file)] ?? ''}`, { stored, axes, columns });
@@ -721,12 +737,12 @@ const sources: Sources = {
       }
       return {
         ok: true, error: '', file: file || '', answer: number, groups: panel, axes: axes.map(a => ({ name: a.name, values: a.values })),
-        columns: columns.map(({ id, label }) => ({ id, label })),
+        columns: columns.map(({ id, label }) => ({ id, label })), firstColumn: columns[0]?.id ?? '',
         tokenGroups: [...groups].map(([name, rows]) => ({ name, tokens: rows })),
         names: [...names],
         icons: (ir.icons ?? []).map((i: { name: string; sf: string | null; material: string | null; svg: string | null }) => ({ name: i.name, sf: i.sf ?? '', material: i.material ?? '', svg: i.svg ?? '' })),
         // A param's line is the app design's: the panel only while that is open.
-        components: file && file !== designFile ? [] : componentsOf(ir.components, designFile, names),
+        components: file && file !== designFile ? [] : componentsOf(ir.components, designFile, names, new Set(Object.keys(read.files ?? {})), (v => { const t = tokenOfIn(ir)(v); return t ?? (names.has(v.trim()) ? v.trim() : null); }), new Map(ir.tokens.filter((t: { package?: string | null }) => t.package).map((t: { name: string; package: string }) => [t.name, t.package])), new Set([...baseRows.values()].filter((r: { name: string; override?: unknown }) => !r.override && !ir.tokens.some((t: { name: string }) => t.name === r.name)).map((r: { name: string }) => String(r.name)))),
       };
     } catch (e) {
       if ((e as { code?: string }).code === 'bake') throw e;
@@ -969,6 +985,10 @@ const sources: Sources = {
     if (inverse) { undoStack.push({ ...top, inverse, rescope: null }); wroteMine(reply.ok, top.client && top.client !== client ? client : ''); }
     return stacks(true, '', 'redo');
   },
+  loadLevels: async ([answer]) => { // (components.ts `levelsOf`: after the design shows, so a slow resolve delays only its words)
+    const snap = snapshots.get(answer), which = snap?.file ? { file: snap.file } : {}, fits = (ok: any) => !!snap && digestKey(ok?.files) === snap.digests && (ok?.tuples ?? []).every((t: { modes?: Record<string, string> }, i: number) => { const col = snap.columns.find(c => c.tuple === i); return !col || snap.axes.every((a, k) => t.modes?.[a.name] === col.values[k]); });
+    return { ok: true, answer, rows: !snap ? [] : await levelsOf(snap.levelParams, name => call('/__tamber', { method: 'resolve', token: name, ...which }, LEVEL_WAIT), () => answer === issued, fits) };
+  },
   loadContrast: async ([a, b, answer]) => {
     if (!a || !b) return { ok: true, error: '', ratios: [] };
     const snap = snapshots.get(answer);
@@ -993,7 +1013,7 @@ const sources: Sources = {
     if (client !== polled) { polled = client; inspectOn.clear(); resync = true; }
     const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch, client, ...(heldAt.epoch === epoch ? { held: heldAt.revision } : {}) } : { after: 0, wait: false, client }, 40000);
     answers += 1;
-    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, clients: `${clientMoves}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows() });
+    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, clients: `${clientMoves}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows(), ...refusalRows(buildsNow.values()) });
     if (error) return { ok: false, error, missed: false, ...state() };
     if (gen !== polls) return { ok: true, error: '', missed: false, ...state() };
     const r = reply as { events?: unknown[]; seq?: number; epoch?: string; missed?: boolean; held?: number; proposals?: any[] };
@@ -1081,22 +1101,22 @@ const sources: Sources = {
         const b = buildsNow.get(String(e.build)); if (b) b.unsupported = { what: String(e.what ?? ''), detail: e.detail ?? null };
         // (A navigation its page refused, counted: the grid reloads that copy at the place instead, LLP 1122 T7.)
         if (b && e.what === 'navigate') b.navRefusals = (b.navRefusals ?? 0) + 1;
-        if (e.what === 'hold') holdNotes.set(String(e.build), `This build cannot hold that state${e.detail ? `: ${e.detail}` : ''}.`);
+        if (e.what === 'hold') holdNotes.set(String(e.build), `This build cannot hold that state${e.detail ? `: ${e.detail}` : ''}.`); else if (b && e.what === 'inspect' && inspectOn.has(String(e.build))) refuse(b, String(e.detail ?? '')); // (refusals.ts)
         if (e.what === 'inspect' && selectionNow && String(selectionNow.e.build) === String(e.build)) selectionNow.stale ||= `its page could not inspect it${e.detail ? ` (${e.detail})` : ''}`;
       }
       // A selection joined to source, with what it was made under.
       // A selection's held report counts only as the answer to the hold its page was asked under: one
       // from before the hold moved (or unasked) is asked for again.
       else if (e.event === 'selection') {
-        const b = buildsNow.get(String(e.build)), held = e.held && asked.get(String(e.build)) === JSON.stringify(b?.holding.hold ?? null);
-        selectionNow = { e: held || !e.held ? e : { ...e, held: undefined }, at: buildKey(b), axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: '', files: i < lastWrite ? '' : digestKey(filesAt) };
+        const b = buildsNow.get(String(e.build)), held = e.held && asked.get(String(e.build)) === JSON.stringify(b?.holding.hold ?? null); if (b?.inspectRefused != null) refuse(b, null);
+        selectionNow = { e: held || !e.held ? e : { ...e, held: undefined }, at: buildKey(b), axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: '', files: i < lastWrite ? '' : digestKey(filesAt), visit: visitOf(e) };
       }
       // Inspect mode's owners as they move (tamber/1.6): this client's on or
       // off, or another's taking a build over. Inspect mode ending where the
       // selection is (an off taken by no one, `to: null`) ends it, whoever
       // had it; this client's own loss ends it too.
       else if (e.event === 'inspect' && Array.isArray(e.builds)) {
-        for (const id of e.builds.map(String)) { if (e.client === client && e.on) inspectOn.add(id); else if (e.client === client || e.on) inspectOn.delete(id); }
+        for (const id of e.builds.map(String)) { if (e.client === client && e.on) inspectOn.add(id); else if (e.client === client || e.on) { inspectOn.delete(id); const b = buildsNow.get(id); if (b?.inspectRefused != null) refuse(b, null); } }
         if (!e.on && (e.client === client || !e.to) && selectionNow && e.builds.map(String).includes(String(selectionNow.e.build))) selectionNow.stale ||= 'inspect mode was turned off there';
       }
       // A page that left inspect mode itself (the server says so only for
@@ -1347,12 +1367,14 @@ const sources: Sources = {
     // The running app's axes while another file is open: its own design's,
     // read again as the changes move (the open file's read is the app's
     // when none is open).
-    if (!file) return { axes: [] };
-    const axesAt = ++axesReads, { error, reply } = await call('/__tamber', { method: 'describe' });
-    const axes = error ? [] : (((reply.ok as { ir?: { axes?: Axis[] } })?.ir?.axes) ?? []);
-    // Also the axes a selection is placed by, while this file is open.
+    if (!file) return { axes: [], answer: 0 };
+    const axesAt = ++axesReads, partsAt = ++partsReads, { error, reply } = await call('/__tamber', { method: 'describe' });
+    const ir = (reply?.ok as { ir?: { axes?: Axis[] } } | undefined)?.ir, axes = error ? [] : (ir?.axes ?? []);
+    // Also the axes a selection is placed by, while this file is open; and its library components' parts, of the
+    // newest of these reads (the open file's own reads move `axesReads`, never the parts).
     if (!error && axesAt === axesReads) designAxes = axes;
-    return { axes: axes.map(a => ({ name: a.name, values: a.values })) };
+    if (!error && partsAt === partsReads) libraryParts = partsFrom(ir as Parameters<typeof partsFrom>[0]);
+    return { axes: axes.map(a => ({ name: a.name, values: a.values })), answer: ++appReads };
   },
   loadSelection: async () => {
     // Below write (paired, T6), once a server run, its builds and the design read: the selection each build
@@ -1367,7 +1389,7 @@ const sources: Sources = {
     }
     latch();
     const b = selectionNow ? buildsNow.get(String(selectionNow.e.build)) : undefined;
-    const view = () => selectionView(selectionNow, selectionNow?.stale ?? '', designAxes, columnsOf(designAxes), inspectOn.size > 0, b?.holding, holdNotes.get(String(selectionNow?.e.build)) ?? '');
+    const view = () => selectionView(selectionNow, selectionNow?.stale ?? '', designAxes, columnsOf(designAxes), inspectOn.size > 0, b?.holding, holdNotes.get(String(selectionNow?.e.build)) ?? '', id => libraryParts.get(id) ?? null);
     const shown = view();
     // Held here and the selection not reporting that state yet (none, or an
     // earlier hold's): its page is asked to report it again, once a hold.
@@ -1391,9 +1413,9 @@ const sources: Sources = {
     return error ? { ok: false, error, note: '' } : { ok: true, error: '', note: '' };
   },
   sendInspect: async ([client, on]) => {
-    // Inspect mode on every build that can (LLP 1122 D4), or off.
-    const { error, reply } = await call('/__tamber', { method: 'inspect', client, on });
-    if (error) return { ok: false, error, note: '' };
+    // Inspect mode on every build that can (LLP 1122 D4), or off; asked again, the refusals said before go (back on a failure).
+    const refused = takeRefusals(buildsNow), { error, reply } = await call('/__tamber', { method: 'inspect', client, on });
+    if (error) { restoreRefusals(buildsNow, refused); return { ok: false, error, note: '' }; }
     const ok = reply.ok as { builds: string[]; unsupported: string[] };
     // The toggle follows the server's records and `inspect` events, not this
     // answer, which a newer event (another client taking over) may follow.

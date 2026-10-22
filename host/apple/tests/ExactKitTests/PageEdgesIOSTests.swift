@@ -161,6 +161,28 @@ final class PageEdgesIOSTests: XCTestCase {
         }
     }
 
+    /// A virtualized transcript over its composer (the chat recipe), shown when its messages
+    /// arrive mid-push, opens with its newest row above the composer. As the push lands its
+    /// box grows under the bar and its top band goes to UIKit's inset, which leaves its port
+    /// the same size: keeping its scrollTop put the last two rows under the composer, and the
+    /// runner, which saw only the offset move, took it for the reader leaving the end (round
+    /// 32's chat-rooms).
+    func testAPushedTranscriptOpensWithItsNewestRowAboveItsComposer() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the bars and the safe area are a scene window's") }
+        guard #available(iOS 26.0, *) else { throw XCTSkip("control bars are iOS 26's, where UIKit draws the edge effect over them") }
+        let (session, _) = try fixture("CONTROL_BARS")
+        session.presenter.press(try node(session, "pick-thread").id)
+        until("the push lands, the transcript under the bar and its composer") {
+            // Not `node`: its XCTUnwrap records a failure while the messages are on their way.
+            guard let list = session.presenter.views.values.first(where: { $0.props["testId"] == "transcript" }), list.window != nil else { return false }
+            return list.pageBand.top == 0 && list.pageBand.bottom > 0
+        }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        let composer = try node(session, "thread-composer"), last = try node(session, "message-30")
+        XCTAssertEqual(last.convert(last.bounds, to: nil).maxY, composer.convert(composer.bounds, to: nil).minY - 6, accuracy: 1,
+                       "the newest message ends at the composer's margin")
+    }
+
     func testScrollTopIsKeptWhenTheBandGoes() throws {
         guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the status bar and the safe area are a scene window's") }
         let (session, view) = try fixture()

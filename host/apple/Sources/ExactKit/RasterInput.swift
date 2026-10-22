@@ -42,6 +42,7 @@ final class RasterInput: @unchecked Sendable {
     }
     private static let launchSource = Bundle.main.object(forInfoDictionaryKey: "ExactLaunchImageSource") as? String
     private static let launchDigest = Bundle.main.object(forInfoDictionaryKey: "ExactLaunchImageSHA256") as? String
+    private static let launchImage = (Bundle.main.object(forInfoDictionaryKey: "UILaunchScreen") as? [String: Any])?["UIImageName"] as? String
     deinit { if temporary { try? FileManager.default.removeItem(at: url) } }
     /// CommonCrypto's, not CryptoKit's: launching an app that touches no
     /// other CryptoKit then dirties none of its pages (40 KB in euxy on iOS).
@@ -79,7 +80,23 @@ final class RasterInput: @unchecked Sendable {
         guard values.isRegularFile == true, let count = values.fileSize,
               count > 0, count <= RasterMetadata.encodedLimit else { throw RasterFailure.encodedLimit }
         return RasterInput(url: url, encodedBytes: count, temporary: false,
-                           catalog: name == launchSource && launchDigest != nil ? "ExactLaunchImage" : nil)
+                           catalog: name == launchSource && launchDigest != nil ? launchImage : nil)
+    }
+    /// The URL of an `http:` or `https:` source, which `fetch` downloads.
+    static func remote(_ name: String) -> URL? {
+        guard let url = URL(string: name), url.scheme == "https" || url.scheme == "http" else { return nil }
+        return url
+    }
+    /// Downloads a remote source without waiting for it: `done` gets its
+    /// spooled input, or why not, on the download's queue (or at once, for
+    /// a response already stored). Many download at a time over the
+    /// process's shared connections, as a browser's images do.
+    static func fetch(_ url: URL, cancellation: RasterCancellation, done: @escaping (Result<RasterInput, Error>) -> Void) {
+        do {
+            try RasterDownload(url: url).start(cancellation) { result in
+                done(result.map { RasterInput(url: $0.0, encodedBytes: $0.1, temporary: true) })
+            }
+        } catch { done(.failure(error)) }
     }
     /// A `data:` URL's bytes: base64 after `;base64`, else percent-decoded;
     /// whitespace and percent escapes in base64 forgiven, as browsers do.
@@ -134,10 +151,10 @@ struct RasterHTTPStatus: Error, CustomStringConvertible {
     var description: String { "HTTP \(code)" }
 }
 
-private final class RasterDownload: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+private final class RasterDownload: NSObject, @unchecked Sendable {
     // Encoded HTTP responses are separate from the decoded-raster ledger.
     // Keep them across process restarts without another in-memory image cache.
-    private static let responseCache = URLCache(memoryCapacity: 0, diskCapacity: 64 * 1024 * 1024,
+    static let responseCache = URLCache(memoryCapacity: 0, diskCapacity: 64 * 1024 * 1024,
         directory: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
             .appendingPathComponent("exact-raster-http", isDirectory: true))
     static var cacheUsage: [String: Int] {
@@ -147,9 +164,10 @@ private final class RasterDownload: NSObject, URLSessionDataDelegate, @unchecked
     private let url: URL
     private let destination: URL
     private let file: FileHandle
-    private let done = DispatchSemaphore(value: 0)
     private var count = 0
     private var failure: Error?
+    private var cancellation: RasterCancellation?
+    private var done: ((Result<(URL, Int), Error>) -> Void)?
     private let policy: URLRequest.CachePolicy
     init(url: URL, policy: URLRequest.CachePolicy = .useProtocolCachePolicy) throws {
         self.url = url
@@ -159,30 +177,42 @@ private final class RasterDownload: NSObject, URLSessionDataDelegate, @unchecked
         file = try FileHandle(forWritingTo: destination)
         super.init()
     }
+    /// Waits for `start`'s answer.
     func run(_ cancellation: RasterCancellation) throws -> (URL, Int) {
+        let finished = DispatchSemaphore(value: 0)
+        var outcome: Result<(URL, Int), Error> = .failure(RasterFailure.decode)
+        start(cancellation) { outcome = $0; finished.signal() }
+        finished.wait() // bounded by URLSession's resource timeout
+        return try outcome.get()
+    }
+    /// Downloads into the spool file and answers once, on the sessions'
+    /// queue, or at once for a stored response it may show.
+    func start(_ cancellation: RasterCancellation, done: @escaping (Result<(URL, Int), Error>) -> Void) {
         // Show a stored response that is stale but within its
         // `stale-while-revalidate` window now and refresh it behind, as a
         // browser does (RFC 5861): URLCache knows only freshness, so it would
         // wait on the network for an image it already holds.
         if policy == .useProtocolCachePolicy, let data = Self.staleWithinWindow(url) {
-            do { try file.write(contentsOf: data); try file.close() } catch { try? FileManager.default.removeItem(at: destination); throw error }
+            do { try file.write(contentsOf: data); try file.close() } catch {
+                try? FileManager.default.removeItem(at: destination); return done(.failure(error))
+            }
             count = data.count
             Self.revalidate(url)
-            return (destination, count)
+            return done(.success((destination, count)))
         }
-        let queue = OperationQueue(); queue.maxConcurrentOperationCount = 1
-        let session = URLSession(configuration: Self.configuration(policy), delegate: self, delegateQueue: queue)
-        let task = session.dataTask(with: url)
+        self.done = done; self.cancellation = cancellation
+        let task = RasterDownloads.shared.task(url, policy: policy, for: self)
         cancellation.install { task.cancel() }
         requested = Date()
         task.resume()
-        done.wait() // bounded URLSession resource timeout, on a process worker
-        cancellation.clear()
-        session.finishTasksAndInvalidate()
+    }
+    private func finish() {
+        cancellation?.clear()
         try? file.close()
-        if let failure { try? FileManager.default.removeItem(at: destination); throw failure }
-        guard count > 0 else { try? FileManager.default.removeItem(at: destination); throw RasterFailure.decode }
-        return (destination, count)
+        let answer = done; done = nil
+        if let failure { try? FileManager.default.removeItem(at: destination); answer?(.failure(failure)); return }
+        guard count > 0 else { try? FileManager.default.removeItem(at: destination); answer?(.failure(RasterFailure.decode)); return }
+        answer?(.success((destination, count)))
     }
     /// The stored body for `url` when it is stale but may still be shown:
     /// its age past `max-age` and within `stale-while-revalidate`, no
@@ -234,16 +264,6 @@ private final class RasterDownload: NSObject, URLSessionDataDelegate, @unchecked
         return queue
     }()
 
-    private static func configuration(_ policy: URLRequest.CachePolicy) -> URLSessionConfiguration {
-        let configuration = URLSessionConfiguration.default
-        configuration.urlCache = responseCache; configuration.requestCachePolicy = policy
-        // Switching cache policy must not add ambient cookies or credentials.
-        configuration.httpCookieStorage = nil; configuration.httpShouldSetCookies = false
-        configuration.urlCredentialStorage = nil
-        configuration.timeoutIntervalForRequest = 15; configuration.timeoutIntervalForResource = 30
-        return configuration
-    }
-
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
                     completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
@@ -284,6 +304,58 @@ private final class RasterDownload: NSObject, URLSessionDataDelegate, @unchecked
         catch { failure = error; dataTask.cancel() }
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        failure = failure ?? error; done.signal()
+        failure = failure ?? error; finish()
+    }
+}
+
+/// The process's image downloads: one session for each cache policy, made
+/// on first use and kept, so images share connections (HTTP/2 streams on
+/// one) and run at once. A session per download, waited out on a raster
+/// worker, fetched two images at a time, each on its own new connection.
+private final class RasterDownloads: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    static let shared = RasterDownloads()
+    private let lock = NSLock()
+    private var sessions: [UInt: URLSession] = [:]
+    /// By task, not `taskIdentifier`, which is unique only within one session.
+    private var downloads: [ObjectIdentifier: RasterDownload] = [:]
+    /// Callbacks for every download run one at a time, so each download's
+    /// state is touched by one thread.
+    private let queue: OperationQueue = { let queue = OperationQueue(); queue.maxConcurrentOperationCount = 1; return queue }()
+    func task(_ url: URL, policy: URLRequest.CachePolicy, for download: RasterDownload) -> URLSessionDataTask {
+        lock.lock(); defer { lock.unlock() }
+        let session = sessions[policy.rawValue] ?? URLSession(configuration: Self.configuration(policy), delegate: self, delegateQueue: queue)
+        sessions[policy.rawValue] = session
+        let task = session.dataTask(with: url)
+        downloads[ObjectIdentifier(task)] = download
+        return task
+    }
+    private func download(_ task: URLSessionTask, finished: Bool = false) -> RasterDownload? {
+        lock.lock(); defer { lock.unlock() }
+        return finished ? downloads.removeValue(forKey: ObjectIdentifier(task)) : downloads[ObjectIdentifier(task)]
+    }
+    private static func configuration(_ policy: URLRequest.CachePolicy) -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.default
+        configuration.urlCache = RasterDownload.responseCache; configuration.requestCachePolicy = policy
+        // Switching cache policy must not add ambient cookies or credentials.
+        configuration.httpCookieStorage = nil; configuration.httpShouldSetCookies = false
+        configuration.urlCredentialStorage = nil
+        configuration.timeoutIntervalForRequest = 15; configuration.timeoutIntervalForResource = 30
+        return configuration
+    }
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        guard let download = download(dataTask) else { return completionHandler(.cancel) }
+        download.urlSession(session, dataTask: dataTask, didReceive: response, completionHandler: completionHandler)
+    }
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, willCacheResponse proposed: CachedURLResponse,
+                    completionHandler: @escaping (CachedURLResponse?) -> Void) {
+        guard let download = download(dataTask) else { return completionHandler(proposed) }
+        download.urlSession(session, dataTask: dataTask, willCacheResponse: proposed, completionHandler: completionHandler)
+    }
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        download(dataTask)?.urlSession(session, dataTask: dataTask, didReceive: data)
+    }
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        download(task, finished: true)?.urlSession(session, task: task, didCompleteWithError: error)
     }
 }

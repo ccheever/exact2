@@ -15,7 +15,11 @@ export const ROOT = resolve(new URL('..', import.meta.url).pathname);
 // turn); EXACT_TOOL_PORT names another. Every child the tests spawn serves and
 // frames that origin.
 process.env.EXACT_TOOL_PORT ??= String(checkoutPort(ROOT));
-export const { TOOL_DIST, TOOL_ORIGIN, TOOL_PORT, stageTool } = await import('./tamber-server.mjs');
+// The port module reads the port once, at its first import: a file run before these in the same process
+// (tamber-server.test.mjs) loads it with none (7740), where these runs' children serve this checkout's; then
+// these take an instance of their own (a query is a module of its own).
+const loaded = await import('./tamber-tool-port.mjs');
+export const { TOOL_DIST, TOOL_ORIGIN, TOOL_PORT, stageTool } = String(loaded.TOOL_PORT) === process.env.EXACT_TOOL_PORT ? loaded : await import(`./tamber-tool-port.mjs?port=${process.env.EXACT_TOOL_PORT}`);
 // The app a drive names: the staged tool (no server of its own) on another port, so no drive starts the stub on 7740.
 export const DRIVEN = TOOL_PORT === 7740 ? { args: ['--app', 'design-tool'], env: process.env } : { args: [], env: { ...process.env, EXACT_APP_DIR: stageTool().dir } };
 // The stub's app (its components' params, which the stub's design sets):

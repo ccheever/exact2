@@ -1261,7 +1261,7 @@ fn a_substitution_is_tokens_the_row_reads_as_its_own() {
         Dimension::Points(50.0)
     );
     let mut style = StyleProps::default();
-    style.column_width = Dimension::Percent(50.0);
+    style.rare.column_width = Dimension::Percent(50.0);
     style.mask.set(ColumnWidth);
     let bytes = exact_kernel::wire::frame::encode(
         1,

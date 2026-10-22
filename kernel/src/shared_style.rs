@@ -11,30 +11,34 @@
 //! Two authored styles are equal when their set rows encode the same: a row
 //! a style does not set holds its initial value, because the only writers
 //! are a patch (which copies set rows) and a clear (which restores initial
-//! ones). Two engine styles are equal as the layout already compares them.
+//! ones). A held style's encoding is made again to compare, rather than
+//! kept: it was a few hundred bytes a style. Two engine styles are equal as
+//! the layout already compares them.
+//!
+//! Styles that differ elsewhere often hold equal rare or cold rows (a row of
+//! lights, each with its own `animation` delay and the same
+//! `animation-timeline`), so those groups are shared too ([`Groups`]).
 
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::rc::Rc;
+use std::sync::{Arc, Weak};
 
-use crate::generated::{StyleMask, StyleProps};
+use crate::generated::{Cold, ColdRows, Rare, RareRows, StyleMask, StyleProps};
 use crate::id::IdHasher;
 use crate::wire::codec::Writer;
 
-/// The values under one hash, each with what equality reads.
-type Bucket<T, K> = Vec<(K, Rc<T>)>;
-
-/// Values by a hash of their content, each with what equality reads (`K`).
-/// A value no one else holds is forgotten at the next sweep.
+/// Values by a hash of their content. A value no one else holds is
+/// forgotten at the next sweep.
 #[derive(Debug, Clone)]
-pub(crate) struct Interner<T, K> {
-    table: HashMap<u64, Bucket<T, K>, BuildHasherDefault<IdHasher>>,
+pub(crate) struct Interner<T> {
+    table: HashMap<u64, Vec<Rc<T>>, BuildHasherDefault<IdHasher>>,
     entries: usize,
     /// Entries after the last sweep; the next sweep comes at twice this.
     swept: usize,
 }
 
-impl<T, K> Default for Interner<T, K> {
+impl<T> Default for Interner<T> {
     fn default() -> Self {
         Interner {
             table: HashMap::default(),
@@ -44,23 +48,17 @@ impl<T, K> Default for Interner<T, K> {
     }
 }
 
-impl<T, K> Interner<T, K> {
+impl<T> Interner<T> {
     /// The held value `same` accepts under `hash`.
-    pub(crate) fn get(&self, hash: u64, same: impl Fn(&K, &T) -> bool) -> Option<Rc<T>> {
+    pub(crate) fn get(&self, hash: u64, mut same: impl FnMut(&T) -> bool) -> Option<Rc<T>> {
         let bucket = self.table.get(&hash)?;
-        bucket
-            .iter()
-            .find(|(k, v)| same(k, v))
-            .map(|(_, v)| Rc::clone(v))
+        bucket.iter().find(|v| same(v)).map(Rc::clone)
     }
 
-    /// Hold `value` under `hash`, with what equality reads of it.
-    pub(crate) fn insert(&mut self, hash: u64, key: K, value: T) -> Rc<T> {
+    /// Hold `value` under `hash`.
+    pub(crate) fn insert(&mut self, hash: u64, value: T) -> Rc<T> {
         let shared = Rc::new(value);
-        self.table
-            .entry(hash)
-            .or_default()
-            .push((key, Rc::clone(&shared)));
+        self.table.entry(hash).or_default().push(Rc::clone(&shared));
         self.entries += 1;
         if self.entries > 2 * self.swept + 64 {
             self.sweep();
@@ -71,7 +69,7 @@ impl<T, K> Interner<T, K> {
     /// Forget the values no one else holds.
     pub(crate) fn sweep(&mut self) {
         self.table.retain(|_, bucket| {
-            bucket.retain(|(_, v)| Rc::strong_count(v) > 1);
+            bucket.retain(|v| Rc::strong_count(v) > 1);
             !bucket.is_empty()
         });
         self.entries = self.table.values().map(Vec::len).sum();
@@ -108,8 +106,12 @@ pub(crate) fn hash_bytes(bytes: &[u8]) -> u64 {
 #[derive(Debug, Clone)]
 pub(crate) struct SharedStyles {
     default: Rc<StyleProps>,
-    table: Interner<StyleProps, Box<[u8]>>,
+    table: Interner<StyleProps>,
+    /// The key being looked up.
     scratch: Writer,
+    /// A held style's key, made again to compare with `scratch`.
+    probe: Writer,
+    groups: Groups,
     /// Each held style's wide colour slots, by its allocation, visited once:
     /// a style is never changed in place, and a dead one's entry no longer
     /// upgrades (the wide table's sweep, LLP 1121 stage 4).
@@ -127,6 +129,8 @@ impl Default for SharedStyles {
             default: Rc::new(StyleProps::default()),
             table: Interner::default(),
             scratch: Writer::new(),
+            probe: Writer::new(),
+            groups: Groups::default(),
             wide: HashMap::new(),
             wide_all: Default::default(),
             wide_stale: false,
@@ -134,10 +138,46 @@ impl Default for SharedStyles {
     }
 }
 
+/// A style's key: its set rows encoded, then what was written in `rem`/`em`,
+/// which tells two styles apart even when their pixels agree (LLP 1069.000
+/// D3).
+fn key(style: &StyleProps, w: &mut Writer) {
+    w.clear();
+    style.encode_patch(w);
+    relative_key(&style.relative, w);
+}
+
+fn relative_key(relative: &crate::style::relative::Relative, w: &mut Writer) {
+    if !relative.is_empty() {
+        let mut tail = Vec::new();
+        relative.encode(&mut tail);
+        w.bytes(&tail);
+    }
+}
+
 impl SharedStyles {
     /// The initial style, shared by every node that sets no row.
     pub(crate) fn default_style(&self) -> Rc<StyleProps> {
         Rc::clone(&self.default)
+    }
+
+    /// The held style whose key is `scratch`'s.
+    fn find(&mut self, hash: u64) -> Option<Rc<StyleProps>> {
+        let (bytes, probe) = (self.scratch.as_slice(), &mut self.probe);
+        self.table.get(hash, |held| {
+            key(held, probe);
+            probe.as_slice() == bytes
+        })
+    }
+
+    /// Hold `style` under `hash`, its groups shared.
+    fn hold(&mut self, hash: u64, mut style: StyleProps) -> Rc<StyleProps> {
+        self.groups
+            .share(&mut style, &mut self.scratch, &mut self.probe);
+        let held = self.table.len();
+        let style = self.table.insert(hash, style);
+        self.noted(&style, held);
+        style
     }
 
     /// One allocation for every style whose set rows equal `style`'s.
@@ -149,27 +189,13 @@ impl SharedStyles {
             );
             return self.default_style();
         }
-        self.scratch.clear();
-        style.encode_patch(&mut self.scratch);
-        // What was written in `rem`/`em` tells two styles apart even when
-        // their pixels agree (LLP 1069.000 D3).
-        let mut keyed;
-        let bytes = if style.relative.is_empty() {
-            self.scratch.as_slice()
-        } else {
-            keyed = self.scratch.as_slice().to_vec();
-            style.relative.encode(&mut keyed);
-            &keyed[..]
-        };
-        let hash = hash_bytes(bytes);
-        if let Some(found) = self.table.get(hash, |b, _| **b == *bytes) {
+        key(&style, &mut self.scratch);
+        let hash = hash_bytes(self.scratch.as_slice());
+        if let Some(found) = self.find(hash) {
             debug_assert!(*found == style, "an unset row holds its initial value");
             return found;
         }
-        let held = self.table.len();
-        let style = self.table.insert(hash, bytes.into(), style);
-        self.noted(&style, held);
-        style
+        self.hold(hash, style)
     }
 
     /// Look up a patch's result before cloning the full style. Repeated
@@ -183,26 +209,18 @@ impl SharedStyles {
         }
         self.scratch.clear();
         base.encode_overlaid(mask, written, patch, &mut self.scratch);
-        let mut keyed;
-        let bytes = if base.relative.is_empty() && patch.relative.is_empty() {
-            self.scratch.as_slice()
-        } else {
+        if !base.relative.is_empty() || !patch.relative.is_empty() {
             let mut relative = base.relative.clone();
             relative.copy(&patch.relative, affected);
-            keyed = self.scratch.as_slice().to_vec();
-            relative.encode(&mut keyed);
-            &keyed[..]
-        };
-        let hash = hash_bytes(bytes);
-        if let Some(found) = self.table.get(hash, |b, _| **b == *bytes) {
+            relative_key(&relative, &mut self.scratch);
+        }
+        let hash = hash_bytes(self.scratch.as_slice());
+        if let Some(found) = self.find(hash) {
             return found;
         }
         let mut next = base.clone();
         next.apply_patch(patch);
-        let held = self.table.len();
-        let next = self.table.insert(hash, bytes.into(), next);
-        self.noted(&next, held);
-        next
+        self.hold(hash, next)
     }
 
     /// Look up the remaining rows before materializing a cleared style.
@@ -222,33 +240,26 @@ impl SharedStyles {
         }
         self.scratch.clear();
         base.encode_overlaid(mask, written, base, &mut self.scratch);
-        let mut keyed;
-        let bytes = if base.relative.is_empty() {
-            self.scratch.as_slice()
-        } else {
+        if !base.relative.is_empty() {
             let mut relative = base.relative.clone();
             relative.copy(&self.default.relative, cleared);
-            keyed = self.scratch.as_slice().to_vec();
-            relative.encode(&mut keyed);
-            &keyed[..]
-        };
-        let hash = hash_bytes(bytes);
-        if let Some(found) = self.table.get(hash, |b, _| **b == *bytes) {
+            relative_key(&relative, &mut self.scratch);
+        }
+        let hash = hash_bytes(self.scratch.as_slice());
+        if let Some(found) = self.find(hash) {
             return found;
         }
         let mut next = base.clone();
         next.clear(cleared);
         next.written = written;
-        let held = self.table.len();
-        let next = self.table.insert(hash, bytes.into(), next);
-        self.noted(&next, held);
-        next
+        self.hold(hash, next)
     }
 
     /// Sweep, then return spare capacity.
     pub(crate) fn trim(&mut self) {
         self.wide_stale = true;
         self.table.trim();
+        self.groups.sweep();
         self.wide.retain(|_, (weak, _)| weak.strong_count() > 0);
     }
 
@@ -258,10 +269,85 @@ impl SharedStyles {
     }
 }
 
-impl<T, K> Interner<T, K> {
+/// The rare and cold rows of held styles, each distinct group once, by a
+/// hash of every row in it encoded (so `-0` and `0` stay apart, as styles
+/// do). One under a hash another live group already has stays the style's
+/// own. Held weakly: a group no style holds is in no wide-colour mark (LLP
+/// 1121 stage 4), so its colours' ids may be reclaimed and must not be read.
+#[derive(Debug, Clone, Default)]
+struct Groups {
+    rare: HashMap<u64, Weak<RareRows>, BuildHasherDefault<IdHasher>>,
+    cold: HashMap<u64, Weak<ColdRows>, BuildHasherDefault<IdHasher>>,
+    /// Groups after the last sweep; the next comes at twice this.
+    swept: usize,
+}
+
+impl Groups {
+    /// Replace `style`'s groups with equal ones already held.
+    fn share(&mut self, style: &mut StyleProps, ours: &mut Writer, theirs: &mut Writer) {
+        if let Some(own) = style.rare.rows() {
+            let rows = StyleMask::rare();
+            ours.clear();
+            style.encode_overlaid(rows, StyleMask::EMPTY, style, ours);
+            let hash = hash_bytes(ours.as_slice());
+            match self.rare.get(&hash).and_then(Weak::upgrade) {
+                Some(held) if Arc::ptr_eq(&held, own) => {}
+                Some(held) => {
+                    let probe = StyleProps {
+                        rare: Rare::share(held),
+                        ..StyleProps::default()
+                    };
+                    theirs.clear();
+                    probe.encode_overlaid(rows, StyleMask::EMPTY, &probe, theirs);
+                    if theirs.as_slice() == ours.as_slice() {
+                        style.rare = probe.rare;
+                    }
+                }
+                None => {
+                    self.rare.insert(hash, Arc::downgrade(own));
+                }
+            }
+        }
+        if let Some(own) = style.cold.rows() {
+            let rows = StyleMask::cold();
+            ours.clear();
+            style.encode_overlaid(rows, StyleMask::EMPTY, style, ours);
+            let hash = hash_bytes(ours.as_slice());
+            match self.cold.get(&hash).and_then(Weak::upgrade) {
+                Some(held) if Arc::ptr_eq(&held, own) => {}
+                Some(held) => {
+                    let probe = StyleProps {
+                        cold: Cold::share(held),
+                        ..StyleProps::default()
+                    };
+                    theirs.clear();
+                    probe.encode_overlaid(rows, StyleMask::EMPTY, &probe, theirs);
+                    if theirs.as_slice() == ours.as_slice() {
+                        style.cold = probe.cold;
+                    }
+                }
+                None => {
+                    self.cold.insert(hash, Arc::downgrade(own));
+                }
+            }
+        }
+        if self.rare.len() + self.cold.len() > 2 * self.swept + 64 {
+            self.sweep();
+        }
+    }
+
+    /// Forget the groups no style holds.
+    fn sweep(&mut self) {
+        self.rare.retain(|_, rows| rows.strong_count() > 0);
+        self.cold.retain(|_, rows| rows.strong_count() > 0);
+        self.swept = self.rare.len() + self.cold.len();
+    }
+}
+
+impl<T> Interner<T> {
     /// Every value held, whoever else holds it.
     pub(crate) fn rcs(&self) -> impl Iterator<Item = &Rc<T>> {
-        self.table.values().flatten().map(|(_, v)| v)
+        self.table.values().flatten()
     }
 }
 
@@ -481,6 +567,36 @@ mod tests {
                 "clear changed its source: {mask:?}"
             );
         }
+    }
+
+    #[test]
+    fn styles_that_differ_share_their_equal_rare_and_cold_rows() {
+        let style = |width: f64, z: f64| {
+            let mut s = StyleProps::default();
+            s.set_dynamic(StyleId::Width, &StyleValue::Number(width))
+                .unwrap();
+            s.set_dynamic(StyleId::ScrollPaddingTop, &StyleValue::Number(8.0))
+                .unwrap();
+            s.set_dynamic(StyleId::ZIndex, &StyleValue::Number(z))
+                .unwrap();
+            s
+        };
+        let rare = |s: &StyleProps| Arc::clone(s.rare.rows().unwrap());
+        let cold = |s: &StyleProps| Arc::clone(s.cold.rows().unwrap());
+        let mut shared = SharedStyles::default();
+        let a = shared.intern(style(10.0, 1.0));
+        let b = shared.intern(style(20.0, 1.0));
+        assert!(!Rc::ptr_eq(&a, &b));
+        assert!(Arc::ptr_eq(&rare(&a), &rare(&b)));
+        assert!(Arc::ptr_eq(&cold(&a), &cold(&b)));
+        let c = shared.patch(&b, &style(30.0, 2.0));
+        assert!(Arc::ptr_eq(&rare(&a), &rare(&c)));
+        assert!(!Arc::ptr_eq(&cold(&a), &cold(&c)));
+        assert_eq!(*c, style(30.0, 2.0));
+        assert_eq!(*b, style(20.0, 1.0));
+        drop((a, b, c));
+        shared.trim();
+        assert!(shared.groups.rare.is_empty() && shared.groups.cold.is_empty());
     }
 
     #[test]

@@ -4,6 +4,8 @@ use exact_runner::{DataError, DataSource, Event, Runner, Value, Viewport};
 use std::cell::Cell;
 use std::rc::Rc;
 
+// A row's text, and its press on a box beside it: a press around the text
+// would make it a control's label, which a copy leaves out as the page does.
 const SOURCE: &str = r#"shape Item
   id: number
 component App
@@ -28,8 +30,9 @@ component Cell
   action bump
     count = count + 1
   view
-    view press=bump testId=`row-${item.id}` height=24
+    row height=24
       text `${item.id}:${count}` testId=`value-${item.id}`
+      view press=bump testId=`row-${item.id}` width=24 height=24
 "#;
 
 #[derive(Clone)]
@@ -201,8 +204,9 @@ fn logical_text_joins_inline_runs_skips_hidden_text_and_uses_utf16_positions() {
 fn logical_text_leaves_out_unselectable_text() {
     use exact_runner::ListTextPosition;
     let source = SOURCE.replace(
-        r#"    view press=bump testId=`row-${item.id}` height=24
-      text `${item.id}:${count}` testId=`value-${item.id}`"#,
+        r#"    row height=24
+      text `${item.id}:${count}` testId=`value-${item.id}`
+      view press=bump testId=`row-${item.id}` width=24 height=24"#,
         r#"    row height=24
       text `L${item.id}` user-select="none"
       text `code ${item.id}`

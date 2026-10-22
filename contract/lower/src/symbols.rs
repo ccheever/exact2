@@ -89,6 +89,12 @@ fn constant(parts: &[TemplatePart]) -> Option<String> {
     })
 }
 
+/// An image source's warnings: a symbol by another spelling (`aliases`). An SVG file draws
+/// as a picture on every host (LLP 1011.001), so none names one.
+pub(crate) fn image_source(e: &Expr, platform: &mut Vec<LowerError>) -> Vec<LowerError> {
+    aliases(e, platform)
+}
+
 /// `lower-symbol-alias`: a literal source that names a role by another spelling builds as the
 /// role, and says which. The role is what the recipe, `contract vocab` and the refusal's list
 /// name, so the next edit finds it by search.

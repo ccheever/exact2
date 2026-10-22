@@ -343,7 +343,13 @@ pub(super) fn subst_stmts(
                 span: *span,
             },
             Stmt::Refresh { target, span } => Stmt::Refresh {
-                target: target.clone(),
+                // A name that stands for another resource (a child's device
+                // fact, the root's `name@Component`) refreshes that one.
+                target: match s.get(target) {
+                    Some(Replacement::Name(name)) => name.to_owned(),
+                    Some(Replacement::Expr(Expr::Ident(name, _))) => name.clone(),
+                    _ => target.clone(),
+                },
                 span: *span,
             },
             Stmt::If {

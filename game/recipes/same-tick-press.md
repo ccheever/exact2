@@ -33,7 +33,7 @@ assert!(sim.world().resource::<Shots>().by_held > 1);
 // A flick: the left button goes down, moves 30 points and lifts inside one tick.
 let mut sim = Sim::<Gun>::new(()).unwrap();
 for (phase, dx, buttons) in [(PointerPhase::Down, 0., 1), (PointerPhase::Move, 30., 1), (PointerPhase::Up, 0., 0)] {
-    sim.input(InputEvent::Pointer { id: 1, phase, x: 100. + dx, y: 100., dx, dy: 0., buttons, at_ms: 0. });
+    sim.input(InputEvent::Pointer { id: 1, phase, x: 100. + dx, y: 100., dx, dy: 0., buttons, at_ms: 0., player: 0 });
 }
 sim.run(20.);
 let shots = sim.world().resource::<Shots>();

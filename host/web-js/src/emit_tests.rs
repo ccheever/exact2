@@ -10,6 +10,7 @@ fn collection_edges_keep_the_compilers_refusal_for_a_plan_without_virtualization
         let disabled = plan.slots[0].init;
         let binding = plan
             .bindings
+            .to_mut()
             .iter_mut()
             .find(|b| {
                 b.kind == exact_plan::BindingKind::Prop
@@ -58,6 +59,22 @@ fn a_state_family_is_applied_as_css_when_it_changes() {
     let js = crate::emit::emit(&plan, false, false).unwrap().js;
     assert!(js.contains("fontFamily"), "{js}");
     assert!(js.contains("\"font-family\""), "{js}");
+}
+
+/// LLP 1019 D9: `font-variation-settings` is the property, literal or bound.
+#[test]
+fn font_variation_settings_are_written_literal_and_bound() {
+    let plan = contract::compile(
+        "component App\n  state bold = false\n  view\n    column\n      text \"a\" font-variation-settings=`'GRAD' 150, 'wdth' 60`\n      text \"b\" font-variation-settings=(bold ? `\"wght\" 800` : \"normal\")\n",
+    )
+    .unwrap();
+    let out = crate::emit::emit(&plan, false, false).unwrap();
+    let all = format!("{}{}", out.css, out.js);
+    assert!(
+        all.contains(r#"font-variation-settings:"GRAD" 150, "wdth" 60;"#),
+        "{all}"
+    );
+    assert!(out.js.contains("\"font-variation-settings\""), "{}", out.js);
 }
 
 #[test]
@@ -230,6 +247,37 @@ fn a_header_with_its_own_justify_content_is_named() {
     assert_eq!(headers.len(), 2, "{}", out.js);
     assert_eq!(headers.iter().filter(|h| named(h)).count(), 1, "{}", out.js);
     assert!(named(headers[0]), "the first header wrote it: {}", out.js);
+}
+
+/// An author's `user-select` is written in WebKit's prefixed property too,
+/// the one Safari selects by, literal and bound; its `auto` and a clear
+/// write nothing, so the page's sheet decides, as the native hosts read `auto`.
+#[test]
+fn user_select_is_written_for_webkit_too() {
+    let plan = contract::compile(
+        "component App\n  state on = false\n  view\n    column\n      text \"Copy me\" user-select=\"text\"\n      text \"Or me\" user-select=(on ? \"text\" : \"auto\")\n      text \"Not me\" user-select=\"auto\"\n      text \"Nor me\" user-select=\"unset\"\n",
+    )
+    .unwrap();
+    let out = crate::emit::emit(&plan, false, false).unwrap();
+    let all = format!("{}{}", out.js, out.css);
+    assert!(
+        all.contains("-webkit-user-select:text;user-select:text;"),
+        "{all}"
+    );
+    for unsaid in ["user-select:auto", "user-select:unset"] {
+        assert!(!all.contains(unsaid), "{unsaid}: {all}");
+    }
+    assert_eq!(
+        out.js
+            .matches("(auto|initial|unset)\\s*$/i.test(v)?null:v")
+            .count(),
+        2,
+        "{}",
+        out.js
+    );
+    for name in ["\"-webkit-user-select\"", "\"user-select\""] {
+        assert!(out.js.contains(name), "{name}: {}", out.js);
+    }
 }
 
 /// LLP 1116 D8: a literal `value` on a `progress` is its `<progress>`'s

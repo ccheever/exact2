@@ -129,6 +129,15 @@ The schema metadata changes its digest, so producers and hosts re-bake together.
 > `elementFromPoint()?.closest("[id]")` names it. This keeps the ruled first-entry
 > equality for the T3 Inspect overlay on every host.
 >
+> A viewport-segment deviation (2026-10-21; LLP 1078, "As built (the keyboard)"): on
+> iOS, under `interactive-widget="resizes-content"`, a keyboard that ends the viewport
+> inside a fold's band, or above it, leaves the fold in place: the lower segment's top
+> stays at the hinge, which tells a page the keyboard covers that segment, and segments
+> past the viewport's end are 0 tall. Chrome clips the band to the viewport, which moves
+> the lower segment's top to the viewport's end, and drops a fold the keyboard covers
+> whole until about a second after the keyboard goes; dropping it would switch a branch
+> that reads the count and take the focused field, and its keyboard, away.
+>
 > Where a later paragraph of this spec still states a presentation default as Chrome's
 > (`hr`'s shading, a bare `button` as `appearance: none`, `-exact-tint-color`
 > "initially opaque black", `-exact-press-scale`, `keyboardDismissMode`, which hosts

@@ -30,6 +30,9 @@ enum ActivityAgent {
                     throw HeadlessSession.Failure(description: "unknown activity; available: \(entries.map(\.kind).joined(separator: ", "))")
                 }
                 let placement = address["placement"] ?? "lockScreen", scheme = address["scheme"] ?? "light"
+                // The stand-in's pixels per point: 1 unless asked, a device's 2 or 3.
+                let scale = CGFloat(Int(address["scale"] ?? "1") ?? 0)
+                guard [1, 2, 3].contains(scale) else { throw HeadlessSession.Failure(description: "activity --scale: 1, 2 or 3") }
                 guard ["lockScreen", "compactLeading", "compactTrailing", "minimal", "expanded"].contains(placement), ["light", "dark"].contains(scheme) else {
                     throw HeadlessSession.Failure(description: "invalid activity placement or scheme")
                 }
@@ -84,13 +87,13 @@ enum ActivityAgent {
                 case "screenshot":
                     guard let path = request["path"] as? String else { throw HeadlessSession.Failure(description: "screenshot needs a path") }
                     let renderer = ImageRenderer(content: ActivityAddressView(preview: preview, placement: placement, width: width))
-                    renderer.scale = 1; renderer.proposedSize = ProposedViewSize(width: width, height: nil)
+                    renderer.scale = scale; renderer.proposedSize = ProposedViewSize(width: width, height: nil)
                     guard let image = renderer.cgImage, let destination = CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL, UTType.png.identifier as CFString, 1, nil) else {
                         throw HeadlessSession.Failure(description: "could not render activity screenshot")
                     }
                     CGImageDestinationAddImage(destination, image, nil)
                     guard CGImageDestinationFinalize(destination) else { throw HeadlessSession.Failure(description: "could not write activity screenshot") }
-                    result["screenshot"] = path; result["w"] = image.width; result["h"] = image.height; result["scale"] = 1
+                    result["screenshot"] = path; result["w"] = image.width; result["h"] = image.height; result["scale"] = scale
                     result["rendering"] = "in-process ActivityKit region stand-in"
                 default: break
                 }

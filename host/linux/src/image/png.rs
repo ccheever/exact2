@@ -19,6 +19,9 @@ pub(super) struct Header {
 /// `color` for a JPEG, GIF or WebP (not a PNG colour type); its pixels come
 /// from `jpeg_decode`, the platform's decoder.
 const JPEG: u8 = 0xFF;
+/// `color` for an SVG document (LLP 1011.001): its pixels are painted from
+/// the resolved scene (`super::svg_picture`).
+const SVG: u8 = 0xFE;
 
 impl Header {
     /// Whether [`DecodePlan::new`] snaps this source's decode to a
@@ -46,6 +49,23 @@ impl Header {
             interlaced: false,
         }
     }
+
+    /// An SVG's header: its natural size the document's (LLP 1011.001 D1),
+    /// its pixels painted at any size up to the island's.
+    pub(super) fn svg(metadata: Metadata) -> Header {
+        Header {
+            metadata,
+            depth: 8,
+            channels: 4,
+            color: SVG,
+            interlaced: false,
+        }
+    }
+
+    /// Whether the picture is an SVG document, drawn rather than decoded.
+    pub(super) fn is_svg(&self) -> bool {
+        self.color == SVG
+    }
 }
 
 /// Metadata inspection allocates no image/decoder buffers and inspects at most
@@ -60,17 +80,34 @@ pub(super) fn inspect(
     input
         .seek(SeekFrom::Start(0))
         .map_err(|_| Refusal::DecodeFailed)?;
+    // As much of the first 33 bytes as there are: an SVG may be shorter.
     let mut head = [0; 33];
-    input
-        .read_exact(&mut head)
-        .map_err(|_| Refusal::DecodeFailed)?;
-    if super::jpeg_decode::is_jpeg(&head) {
+    let mut got = 0;
+    while got < head.len() {
+        match input.read(&mut head[got..]) {
+            Ok(0) => break,
+            Ok(n) => got += n,
+            Err(_) => return Err(Refusal::DecodeFailed),
+        }
+    }
+    let head = &head[..got];
+    if super::jpeg_decode::is_jpeg(head) {
         return super::jpeg_decode::inspect(input, encoded_bytes);
     }
-    if let Some(header) = super::jpeg_decode::inspect_animated(&head, encoded_bytes)? {
+    if let Some(header) = super::jpeg_decode::inspect_animated(head, encoded_bytes)? {
         return Ok(header);
     }
-    if &head[..8] != b"\x89PNG\r\n\x1a\n"
+    if super::svg_picture::could_be(head) {
+        if let Some(header) = super::svg_picture::inspect(input, encoded_bytes)? {
+            return Ok(header);
+        }
+        // The SVG read took a prefix: the chunk walk starts after the head.
+        input
+            .seek(SeekFrom::Start(got as u64))
+            .map_err(|_| Refusal::DecodeFailed)?;
+    }
+    if head.len() < 33
+        || &head[..8] != b"\x89PNG\r\n\x1a\n"
         || head[8..12] != 13u32.to_be_bytes()
         || &head[12..16] != b"IHDR"
         || crc(&head[12..29]) != u32::from_be_bytes(head[29..33].try_into().unwrap())
@@ -169,6 +206,9 @@ impl DecodePlan {
     }
     pub fn new(header: Header, pixels: (u32, u32)) -> Result<Self, Refusal> {
         let natural = header.metadata.natural;
+        if header.is_svg() {
+            return Self::svg(header, pixels);
+        }
         if pixels.0 == 0 || pixels.1 == 0 || pixels.0 > natural.width || pixels.1 > natural.height {
             return Err(Refusal::InvalidDimensions);
         }
@@ -229,6 +269,35 @@ impl DecodePlan {
         } else {
             (pixels, scratch)
         };
+        let cost = DecodeCost::checked(u64::from(pixels.0) * 4, pixels.1, scratch, 0)?;
+        if cost.peak()? > SESSION_BYTES {
+            return Err(Refusal::TooLarge);
+        }
+        Ok(Self {
+            header,
+            pixels: PixelSize {
+                width: pixels.0,
+                height: pixels.1,
+            },
+            cost,
+            crop: Crop::default(),
+        })
+    }
+    /// An SVG's plan (LLP 1011.001 D1): drawn at `pixels`, which may exceed
+    /// the natural size, up to the island's side. The output is the
+    /// painter's own pixmap; the scratch bounds the parse (the document's
+    /// text, its ops and the scratch kernel's nodes: a few times the file).
+    fn svg(header: Header, pixels: (u32, u32)) -> Result<Self, Refusal> {
+        let side = super::svg_picture::MAX_SIDE;
+        if pixels.0 == 0 || pixels.1 == 0 || pixels.0 > side || pixels.1 > side {
+            return Err(Refusal::InvalidDimensions);
+        }
+        let scratch = header
+            .metadata
+            .encoded_bytes
+            .checked_mul(4)
+            .and_then(|n| n.checked_add(1024 * 1024))
+            .ok_or(Refusal::Overflow)?;
         let cost = DecodeCost::checked(u64::from(pixels.0) * 4, pixels.1, scratch, 0)?;
         if cost.peak()? > SESSION_BYTES {
             return Err(Refusal::TooLarge);

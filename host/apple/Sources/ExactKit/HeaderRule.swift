@@ -52,6 +52,9 @@ struct HeaderRule {
         if node.props["accessibilityRole"] == "status" { facts |= 1024 }
         if node.props["popover"] != nil || node.props["semanticTag"] == "dialog" { facts |= 2048 }
         if node.handlers.contains("press") { facts |= 8 }
+        // A disabled button, native or bare: a dimmed bar item, pressed or not, never the title's tap.
+        let button = node.kind == "button" || (node.kind == "control" && node.props["type"] == "button")
+        if button && node.props["accessibilityRole"] == "button" && node.disabled { facts |= 4096 }
         if node.presenter?.invocation(of: node)?.opensPopover == true { facts |= 16 }
         if back != nil, node.props["id"] == back { facts |= 32 }
         if node.props["semanticTag"] == "header" { facts |= 64 }

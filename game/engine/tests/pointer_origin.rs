@@ -48,6 +48,7 @@ fn pointer(s: &mut Sim<Select>, phase: PointerPhase, x: f32, y: f32, buttons: u3
         dy: 9.,
         buttons,
         at_ms,
+        player: 0,
     });
 }
 fn queue_gesture(s: &mut Sim<Select>, at: f64) {

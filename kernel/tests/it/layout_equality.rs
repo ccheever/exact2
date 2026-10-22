@@ -187,7 +187,7 @@ fn random_style(rng: &mut Rng, node_type: NodeType) -> Box<StyleProps> {
             s.mask.set(StyleId::ColumnCount);
         }
         if rng.side(3) != 0 {
-            s.column_width = Dimension::Points(40.0 + rng.side(80) as f32);
+            s.rare.column_width = Dimension::Points(40.0 + rng.side(80) as f32);
             s.mask.set(StyleId::ColumnWidth);
         }
         if rng.side(2) == 0 {

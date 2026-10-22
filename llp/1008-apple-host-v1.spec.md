@@ -698,7 +698,10 @@ it, a focused field keeps its text and focus, a pushed screen and a presented
 sheet survive, a scrolled list keeps its offset, the two-session sample host's
 panes both follow, the scene turns with the device at every pose, and in a
 resizable app session the Fold screen follows each window UIKit gives it (the
-`insets`, `keyboard-bar`, `lab`, `host`, `rotate` and `resize` legs). `devicectl device
+`insets`, `keyboard-bar`, `lab`, `host`, `rotate` and `resize` legs). Under the
+agent's own chrome, its tablist below the routes, flat and folded like a book and
+like a laptop, the Fold screen's panes and the note sheet end where the routes
+do (the `web` leg). `devicectl device
 orientation set` is accepted and turns nothing, so the turns go through the
 helper. Not exercised: Split View with another app beside this one (QUEUE).
 

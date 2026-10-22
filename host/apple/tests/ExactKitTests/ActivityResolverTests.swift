@@ -211,7 +211,12 @@ final class ActivityResolverTests: XCTestCase {
             var data = [UInt8](repeating: 0, count: w * h * 4)
             let context = try XCTUnwrap(CGContext(data: &data, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
             context.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-            return stride(from: 0, to: data.count, by: 4).map { Int(data[$0]) + Int(data[$0 + 1]) + Int(data[$0 + 2]) }.min() ?? 765
+            var darkest = 765
+            for at in stride(from: 0, to: data.count, by: 4) {
+                let sum = Int(data[at]) + Int(data[at + 1]) + Int(data[at + 2])
+                darkest = min(darkest, sum)
+            }
+            return darkest
         }
         let freshInk = try darkest(try render(fresh)), keptInk = try darkest(try render(kept))
         XCTAssertLessThan(freshInk, 120, "black text on white")

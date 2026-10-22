@@ -184,7 +184,10 @@ final class ContentOwnersIOSTests: XCTestCase {
             return n.count == 4 && zip(n, [rect.minX, rect.minY, rect.width, rect.height]).allSatisfy { abs($0 - $1) < 1e-6 }
         }
         let shown = seen(session, card)
-        XCTAssertEqual(shown, CGRect(x: 16, y: 400, width: 100, height: 40), "the route fills the window")
+        // The route fills the window, covered by the status bar, which the
+        // card's `top` starts past (`cover::apply`) as below it on the web.
+        let status = try XCTUnwrap(window).safeAreaInsets.top
+        XCTAssertEqual(shown, CGRect(x: 16, y: 400 + status, width: 100, height: 40), "the route fills the window")
         until("the observers have run") { slots()["beacon"] as? String == "true" && slots()["seen"] as? String != "unseen" }
         let before = try read()
         XCTAssertTrue(near(before[0], shown), before[0])
@@ -336,8 +339,8 @@ final class ContentOwnersIOSTests: XCTestCase {
     func testASheetsRouteIsCoveredForItsOwnSafeArea() {
         let cover = UIEdgeInsets(top: 62, left: 0, bottom: 34, right: 0)
         let edges = { (safe: UIEdgeInsets, presented: Bool, whole: Bool, reached: CGFloat) in
-            NavigationHost.routeEdges(safe: safe, document: cover, presented: presented, whole: whole,
-                                      collapses: false, scrollsToBottom: false, reached: reached)
+            NavigationHost.routeEdges(safe: safe, document: cover, presented: presented, whole: whole, covered: !presented && !whole,
+                                      collapses: false, reached: reached)
         }
         XCTAssertEqual(edges(UIEdgeInsets(top: 44, left: 0, bottom: 0, right: 0), true, true, 0),
                        .init(top: 44, right: 0, bottom: 0, left: 0), "a floating sheet's inline bar")
@@ -345,6 +348,12 @@ final class ContentOwnersIOSTests: XCTestCase {
                        .init(top: 56, right: 0, bottom: 34, left: 0), "an edge-attached sheet's bar and home indicator")
         XCTAssertEqual(edges(UIEdgeInsets(top: 106, left: 0, bottom: 34, right: 0), false, false, 34),
                        .init(top: 44, right: 0, bottom: 0, left: 0), "a route in the document: its bar past the status bar the page pads for")
+        // A tab's route under `viewport-fit="cover"`: the tab bar past the home indicator env() has, the bar's 49.
+        XCTAssertEqual(edges(UIEdgeInsets(top: 106, left: 0, bottom: 83, right: 0), false, false, 83),
+                       .init(top: 44, right: 0, bottom: 49, left: 0), "a covered page's route still clears the tab bar, which its env() does not hold")
+        XCTAssertEqual(NavigationHost.routeEdges(safe: UIEdgeInsets(top: 106, left: 0, bottom: 83, right: 0), document: .zero, presented: false, whole: true,
+                                                 collapses: false, reached: 83),
+                       .init(top: 106, right: 0, bottom: 83, left: 0), "the whole view's route: the bar and the status bar")
     }
 
     /// A sheet's route ends only at a docked keyboard (LLP 1123 C26): the
@@ -367,6 +376,47 @@ final class ContentOwnersIOSTests: XCTestCase {
         p.owners.publish()
         RunLoop.main.run(until: Date().addingTimeInterval(0.5))
         XCTAssertEqual(laidOut(session, sheet.id), sheetView.bounds.size, "no keys, no end")
+    }
+
+    /// A scroller that ends a sheet's route reaches the sheet's bottom edge
+    /// (LLP 1116 D2): UIKit insets its content by the sheet's bottom safe
+    /// area, and nothing above it clips there, so its content shows through
+    /// the inset down to the edge. A hand-built scroll view in a floating 45%
+    /// sheet on iOS 27 has the same: the sheet's bottom safe area is 34 points
+    /// in its own space, though it floats clear of the home indicator.
+    func testASheetsEdgeScrollerReachesTheSheetsBottom() throws {
+        guard let scene = UIApplication.shared.connectedScenes.first(where: { $0 is UIWindowScene }) as? UIWindowScene else {
+            throw missing("scene", "a sheet is presented, with its safe area, only in a scene's window")
+        }
+        // The whole screen, so the window reaches the home indicator.
+        let session = try fixture("owner-sheet-edge", scene.screen.bounds.size, plan: "EXACT_NAVIGATION_BARS_PLAN")
+        let p = session.presenter
+        p.press(try node(session, "start-open-form").id)
+        until("UIKit has presented the sheet") {
+            guard let sheet = self.host?.presentedViewController else { return false }
+            return sheet.view.window != nil && !sheet.isBeingPresented && sheet.transitionCoordinator == nil
+        }
+        let route = try node(session, "route-form")
+        let controller = try XCTUnwrap(p.navigation.controllers[route.id])
+        let sheetView = try XCTUnwrap(controller.view)
+        until("the sheet's route takes the sheet's size") { self.laidOut(session, route.id) == sheetView.bounds.size }
+        let form = try node(session, "form-scroll"), sv = try XCTUnwrap(form.scroll)
+        XCTAssertTrue(controller.edgeScroll === form, "the scroller ends the route")
+        let bottom = { form.convert(form.bounds, to: sheetView).maxY }
+        until("the scroller reaches the sheet's bottom edge, inset by the sheet's bottom safe area") {
+            sheetView.safeAreaInsets.bottom > 0 && abs(bottom() - sheetView.bounds.maxY) < 0.5
+                && abs(sv.adjustedContentInset.bottom - sheetView.safeAreaInsets.bottom) < 0.5
+        }
+        XCTAssertGreaterThan(sheetView.safeAreaInsets.bottom, 0, "the sheet has a bottom safe area")
+        XCTAssertEqual(bottom(), sheetView.bounds.maxY, accuracy: 0.5, "the scroller ends at the sheet's bottom edge")
+        XCTAssertEqual(sv.adjustedContentInset.bottom, sheetView.safeAreaInsets.bottom, accuracy: 0.5)
+        var view: UIView? = sv
+        while let v = view, v !== sheetView {
+            if v.clipsToBounds {
+                XCTAssertEqual(v.convert(v.bounds, to: sheetView).maxY, sheetView.bounds.maxY, accuracy: 0.5, "\(type(of: v)) clips at the sheet's edge")
+            }
+            view = v.superview
+        }
     }
 
     /// A sheet's editor is revealed once the keys have settled and the

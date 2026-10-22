@@ -760,3 +760,78 @@ fn sent_is_in_time_order_outlives_the_queue_and_leaves_out_clock() {
         &went[..2]
     );
 }
+
+/// LLP 1125 D6 (2026-10-20, second amendment): `""` is no output. What a
+/// sequence plays to it and what `sendMIDI("")` sends is queued, taken back
+/// and listed in `sent` as any message is, with `output: ""`, whether or
+/// not MIDI access was asked for, and no host is handed it: euxy's activity
+/// log with no device. A named output that is not connected still drops.
+#[test]
+fn no_output_is_listed_and_handed_to_no_host() {
+    let source = sent_source()
+        .replace("output=\"synth\"", "output=\"\"")
+        .replace(
+            "  action ask\n",
+            "  action sendNone\n    sendMIDI(\"\", [176, 123, 0])\n  action ask\n",
+        );
+    let mut r = boot_with(&source);
+    assert_eq!(r.midi().ports().access.word(), "prompt");
+    r.act("start", vec![]).unwrap();
+    r.land_then();
+    r.advance(600.0).unwrap();
+    r.act("halt", vec![]).unwrap();
+    r.act("sendNone", vec![]).unwrap();
+    r.advance(700.0).unwrap();
+    let Some(Value::Record(f)) = r.resource("midi") else {
+        panic!()
+    };
+    let Value::List(items) = &f[1] else {
+        panic!("{:?}", f[1])
+    };
+    let went: Vec<(String, String, f64)> = items
+        .iter()
+        .map(|m| match m {
+            Value::Record(m) => {
+                let Value::List(d) = &m[1] else { panic!() };
+                let d: Vec<u8> = d
+                    .iter()
+                    .map(|b| match b {
+                        Value::Number(n) => *n as u8,
+                        _ => panic!(),
+                    })
+                    .collect();
+                let Value::Number(at) = m[2] else { panic!() };
+                (m[0].text().to_string(), crate::midi::hex(&d), at)
+            }
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    let at = |hex: &str, at: f64| ("".to_string(), hex.to_string(), at);
+    // Two beats' notes, the second's note-off moved to the stop, then the
+    // app's control change; the note-on at 1000 never went.
+    assert_eq!(
+        went,
+        [
+            at("90 3c 64", 0.0),
+            at("80 3c 00", 250.0),
+            at("90 3c 64", 500.0),
+            at("80 3c 00", 600.0),
+            at("b0 7b 00", 600.0)
+        ]
+    );
+    assert!(
+        r.take_midi()
+            .iter()
+            .all(|op| !matches!(op, MidiOp::Send { .. } | MidiOp::Retract { .. })),
+        "no host is handed or asked to take back a message to no output"
+    );
+    let lines = said(&r);
+    assert!(
+        lines.contains(&"midi 1 to no output 90 3c 64 at 0".to_string()),
+        "{lines:?}"
+    );
+    assert!(
+        !lines.iter().any(|l| l.contains("notes not sent")),
+        "{lines:?}"
+    );
+}

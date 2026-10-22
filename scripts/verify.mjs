@@ -554,6 +554,9 @@ export function largeRemedy(f, { inRow = false } = {}) {
     : wide && f.detail?.need ? `give it room (no px width on its box), or ${WRAP}; ${oneWord ? 'a word longer than any line breaks between syllables with `hyphens="auto"`, as a UILabel breaks it' : 'not `hyphens="auto"`, which breaks words a UILabel wraps whole'}`
     : f.detail?.need ? 'let its box grow with its text: no px height on it (a rem size, or none)' : `give the box that cuts it room (no px width or height on it), or ${WRAP}`;
   if (f.kind === 'squeezed') return `let it keep its words (no min-width: 0 or px width beside it), or ${WRAP}`;
+  // Overlapping cells of a row that stays one line (a week's days) wrap nowhere: UIKit's calendar caps its day numbers, which
+  // grow to 31 points and no further (iOS 27), never shrinking them.
+  if (f.kind === 'overlap') return `${WRAP}; for a row of equal cells that must stay one line (a week's days), cap the size its text grows to, as UIKit's calendar does: font-size="min(-exact-subheadline, 31px)"`;
   return WRAP;
 }
 /** LLP 1116.020 D4: each font size the app's own Contract fixes (no-tells.mjs `fixedSizesIn`), which no spill shows (a fixed

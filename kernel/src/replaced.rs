@@ -120,14 +120,22 @@ pub(crate) fn symbol_role(arena: &NodeArena, slot: u32) -> Option<&str> {
 
 /// The Apple system symbol a `symbol:` role draws: an `sf/<name>`'s own
 /// name, an icon token's SF Symbol (LLP 1121 D10), or a portable role's
-/// Apple name; "" for a role with none, which draws no glyph.
+/// Apple name; "" for a role with none, which draws no glyph. A role is read
+/// by any of its spellings, as the compiler reads a literal source: a
+/// computed `symbol:house` or `symbol:gear` draws what the literal would.
 pub fn apple_symbol_name(role: &str) -> &str {
     if let Some(icon) = Icon::parse(role) {
         return icon.sf;
     }
     role.strip_prefix("sf/")
-        .or_else(|| crate::generated::symbol(role).map(|s| s.0))
+        .or_else(|| crate::generated::symbol(portable_role(role)).map(|s| s.0))
         .unwrap_or("")
+}
+
+/// The portable role `name` spells (itself, Apple's name for it or a table
+/// alias), or `name` as given when it spells none.
+fn portable_role(name: &str) -> &str {
+    crate::generated::symbol_role(name).unwrap_or(name)
 }
 
 /// An icon token's source form, as the build writes it after `symbol:`
@@ -189,7 +197,7 @@ pub fn symbol_path(name: &str) -> Option<SymbolPath<'_>> {
             .iter()
             .copied()
             .find(|r| crate::generated::symbol(r).is_some_and(|s| s.0 == sf))?,
-        None => name,
+        None => portable_role(name),
     };
     crate::generated::symbol(role).map(|(_, d, filled)| SymbolPath {
         d,
@@ -224,5 +232,23 @@ mod tests {
         assert_eq!(symbol_path(&format!("sf/{}", back.0)), Some(role));
         assert_eq!(symbol_path("sf/flag.checkered"), None);
         assert_eq!(apple_symbol_name("sf/flag.checkered"), "flag.checkered");
+    }
+
+    /// A computed source spells a role as a literal may: by Apple's name or
+    /// a table alias, which the runtime reads as the compiler does.
+    #[test]
+    fn a_role_by_another_spelling_draws_as_the_role() {
+        let home = crate::generated::symbol("home").unwrap();
+        assert_eq!(apple_symbol_name("home"), home.0);
+        assert_eq!(
+            apple_symbol_name("house"),
+            home.0,
+            "Apple's name, `.` read as `-`"
+        );
+        assert_eq!(symbol_path("house"), symbol_path("home"));
+        let settings = crate::generated::symbol("settings").unwrap();
+        assert_eq!(apple_symbol_name(settings.0), settings.0);
+        assert_eq!(apple_symbol_name("no-such-role"), "");
+        assert_eq!(symbol_path("no-such-role"), None);
     }
 }

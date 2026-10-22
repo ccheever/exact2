@@ -8,9 +8,9 @@
 // `match` in the view), and every PostCard's slot holds its marker.
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { cellsFor, conditional, markedSlot, option, placements, uncommented } from './library-gate.mjs';
 
 const ROOT = new URL('..', import.meta.url).pathname;
@@ -26,7 +26,7 @@ function ir() {
 test('every exported component, once per variant value, every cell rendered, every slot marked', () => {
   const library = ir();
   const names = library.map(c => c.name);
-  expect(names.sort()).toEqual(['ActionRow', 'AtCard', 'PostButton', 'PostCard']);
+  expect(names.sort()).toEqual(['ActionRow', 'AtCard', 'ListRow', 'PostButton', 'PostCard', 'SwitchRow']);
   const app = readFileSync(APP, 'utf8');
   // One component, the root, so every placement is in the rendered view.
   expect([...app.matchAll(/^component (\w+)/gm)].map(m => m[1])).toEqual(['App']);
@@ -49,6 +49,27 @@ test('every exported component, once per variant value, every cell rendered, eve
   expect(new Set(ids).size).toBe(ids.length);
   const used = [...app.matchAll(/^use (.+) from "@exact\/(\w+)"/gm)].flatMap(([, n]) => n.split(',').map(x => x.trim()));
   expect(used.sort()).toEqual(names.sort());
+}, 600_000);
+
+// `contract gallery` (the design tool's variant gallery, LLP 1139 §9 Q2): the same cells as this app's, by the compiler's
+// own rule, each component's every cell placed (none refused), and the gallery's design the app's own.
+test("contract gallery places the cells this app does, each placed, on the app's design", () => {
+  const library = ir();
+  mkdirSync(join(ROOT, 'target'), { recursive: true });
+  const out = mkdtempSync(join(ROOT, 'target', 'library-gate-gallery-'));
+  const r = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'gallery', join(ROOT, 'apps/library-gate'), '-o', out], { cwd: ROOT, encoding: 'utf8' });
+  expect([r.status, r.stderr]).toEqual([0, '']);
+  expect(r.stdout).toContain('gallery: 6 components, 13 cells (0 refused)');
+  const gallery = readFileSync(join(out, 'app.contract'), 'utf8');
+  expect(gallery).not.toContain("can't place");
+  const placed = placements(gallery, library.map(c => c.name));
+  for (const c of library) {
+    const want = cellsFor(c.variants).map(v => JSON.stringify(v)).sort();
+    const got = placed.filter(p => p.name === c.name).map(p => JSON.stringify(Object.fromEntries(c.variants.map(v => [v.prop, option(p.values[v.prop])])))).sort();
+    expect([c.name, got]).toEqual([c.name, want]);
+  }
+  expect(JSON.parse(readFileSync(join(out, 'app.json'), 'utf8')).tamber).toBe(relative(out, join(ROOT, 'apps/library-gate/app.tamber')));
+  rmSync(out, { recursive: true, force: true });
 }, 600_000);
 
 test('the cells rule, and the parse refuses what could hide a cell', () => {

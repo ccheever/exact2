@@ -374,13 +374,14 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         id
     }
     /// An animated merged mesh: each vertex follows its part's node as a
-    /// weight-one joint.
+    /// weight-one joint, its other joints u32::MAX, which the vertex shader
+    /// reads as one joint without the weights (model_vertex.wgsl `skin_of`).
     fn merged_mesh(&mut self, vertices: &[Vertex], indices: &[u32], parts: &[u32]) -> MeshId {
         let id = self.add_mesh(vertices, indices);
         self.meshes[id.0].asset = true;
         let words: Vec<u32> = parts
             .iter()
-            .flat_map(|&p| [p, 0, 0, 0, 1f32.to_bits(), 0, 0, 0])
+            .flat_map(|&p| [p, u32::MAX, u32::MAX, u32::MAX, 1f32.to_bits(), 0, 0, 0])
             .collect();
         let start = self.meshes[id.0].base_vertex as u64 * 32;
         let buffer = &mut self.models.skinning.as_mut().unwrap().weights;

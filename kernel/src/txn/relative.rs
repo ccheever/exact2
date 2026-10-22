@@ -106,7 +106,7 @@ pub(crate) fn resolve(
             if id != StyleId::FontSize {
                 continue;
             }
-            let px = n * unit.basis(root, parent, device);
+            let px = unit.px(n, root, parent, device);
             if next.set_resolved(id, px) {
                 changed.set(id);
             }
@@ -118,7 +118,7 @@ pub(crate) fn resolve(
             if id == StyleId::FontSize {
                 continue;
             }
-            let px = n * unit.basis(root, font, device);
+            let px = unit.px(n, root, font, device);
             if next.set_resolved(id, px) {
                 changed.set(id);
             }

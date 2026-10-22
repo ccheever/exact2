@@ -289,6 +289,8 @@ component App
         EmptyState(symbol="symbol:calendar", title="Bare", message="No action.")
       column testId="space" height=600
         EmptyState(symbol="symbol:calendar", title="Centred", message="In the space it is given.")
+      column testId="short" height=120
+        EmptyState(symbol="symbol:calendar", title="Taller", message="Than the space it is given, which it scrolls.")
       column testId="rows"
         RowText(title="Monday", detail="Oct 5", value=some("1,800 ml"))
         RowText(title="Tuesday", detail="", value=none)
@@ -398,6 +400,22 @@ component App
         (space[1].frame.height - 600.0).abs() < 0.5 && title.y > 150.0,
         "{:?} {title:?}",
         space[1].frame
+    );
+    // Taller than its space, it scrolls with its top in reach.
+    let short = k.node(at(k, "short")).unwrap().frame;
+    let taller = find("short", "Taller").frame;
+    assert!(
+        taller.y >= short.y,
+        "the title in reach: {short:?} {taller:?}"
+    );
+    let scroll = under(k, at(k, "short"))
+        .into_iter()
+        .find(|n| n.node_type == NodeType::ScrollView)
+        .expect("a scroll");
+    assert!(
+        (scroll.frame.height - 120.0).abs() < 0.5,
+        "the scroll is the space: {:?}",
+        scroll.frame
     );
     // A row's detail and trailing value show only when given.
     find("rows", "Oct 5");

@@ -261,7 +261,8 @@ internal class Fields(context: Context) : FrameLayout(context) {
             val (value, look) = string(w, i + HEAD)
             val (placeholder, afterHint) = string(w, look + LOOK)
             val (autocomplete, afterFill) = string(w, afterHint)
-            val (family, end) = string(w, afterFill)
+            val (family, afterFamily) = string(w, afterFill)
+            val (axes, end) = string(w, afterFamily)
             seen.add(id)
             var f = fields[id]
             // A view made for a field exact2 already knows (the activity was made again) starts at exact2's count
@@ -284,7 +285,7 @@ internal class Fields(context: Context) : FrameLayout(context) {
                 f.look = words
                 // Setting an input type sets the text again: no edit of the person's.
                 quiet = true
-                try { style(f, w, look, placeholder, autocomplete, family) } finally { quiet = false }
+                try { style(f, w, look, placeholder, autocomplete, family, axes) } finally { quiet = false }
             }
             if (sized) size(f) else if (shown) f.dirty = true
             position(f)
@@ -476,15 +477,15 @@ internal class Fields(context: Context) : FrameLayout(context) {
         f.node.discardDisplayList()
     }
 
-    /** The field's look and its keyboard, from the look's words ([Native.fields]) and its three strings. */
-    private fun style(f: Field, w: IntArray, at: Int, placeholder: String, autocomplete: String, family: String) {
+    /** The field's look and its keyboard, from the look's words ([Native.fields]) and its four strings. */
+    private fun style(f: Field, w: IntArray, at: Int, placeholder: String, autocomplete: String, family: String, axes: String) {
         val what = w[at]; val keyboard = w[at + 1]; val enter = w[at + 3]
         val text = f.text
         f.multiline = what and MULTILINE != 0
         val type = inputType(what, keyboard, w[at + 2])
         if (text.inputType != type) text.inputType = type
         // Its type after its input type, which sets a password in a monospace face.
-        face(text, fl(w[at + 11]), w[at + 12], what and ITALIC != 0, fl(w[at + 13]), fl(w[at + 14]), family)
+        face(text, fl(w[at + 11]), w[at + 12], what and ITALIC != 0, fl(w[at + 13]), fl(w[at + 14]), family, axes)
         f.action = when {
             f.multiline -> 0
             enter in DONE..SEND -> enter
@@ -801,16 +802,17 @@ internal class Fields(context: Context) : FrameLayout(context) {
         }
 
         /** The type a field is set in ([Native.fields]): size in px, weight, slant, tracking in ems, the line's
-         * height in px (0: the font's own) and the face's file with its index in a collection (`path#index`; empty:
-         * the device's default family). */
-        private fun face(v: EditText, size: Float, weight: Int, italic: Boolean, spacing: Float, line: Float, family: String) {
+         * height in px (0: the font's own), the face's file with its index in a collection (`path#index`; empty:
+         * the device's default family) and its axes as CSS writes `font-variation-settings` (empty: the weight's
+         * alone), which a file's face takes and the device's default family does not. */
+        private fun face(v: EditText, size: Float, weight: Int, italic: Boolean, spacing: Float, line: Float, family: String, axes: String) {
             v.setTextSize(TypedValue.COMPLEX_UNIT_PX, size)
-            v.typeface = faces.getOrPut("$family|$weight|$italic") {
+            v.typeface = faces.getOrPut("$family|$weight|$italic|$axes") {
                 val w = weight.coerceIn(1, 1000)
                 val hash = family.lastIndexOf('#')
                 val made = if (hash <= 0) null else try {
                     Typeface.Builder(File(family.substring(0, hash))).setTtcIndex(family.substring(hash + 1).toIntOrNull() ?: 0)
-                        .setFontVariationSettings("'wght' $w").setWeight(w).setItalic(italic).build()
+                        .setFontVariationSettings(axes.ifEmpty { "'wght' $w" }).setWeight(w).setItalic(italic).build()
                 } catch (e: RuntimeException) { null }
                 made ?: Typeface.create(Typeface.DEFAULT, w, italic)
             }
@@ -870,7 +872,7 @@ internal class Fields(context: Context) : FrameLayout(context) {
          * first baseline in px, 21 bits each, or -1 when there is no reader to measure in. [flags]: bit 0 italic, bit
          * 1 a textarea, whose lines wrap at [width] px (negative: as long as they are).
          */
-        @JvmStatic fun measure(size: Float, weight: Int, flags: Int, spacing: Float, line: Float, family: String, text: String, width: Float): Long {
+        @JvmStatic fun measure(size: Float, weight: Int, flags: Int, spacing: Float, line: Float, family: String, axes: String, text: String, width: Float): Long {
             val context = context ?: return -1L
             // A host booting on a thread of exact2's own: a view wants a looper to be made on.
             if (Looper.myLooper() == null) Looper.prepare()
@@ -882,7 +884,7 @@ internal class Fields(context: Context) : FrameLayout(context) {
             val type = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS or
                 (if (multiline) InputType.TYPE_TEXT_FLAG_MULTI_LINE else 0)
             if (v.inputType != type) v.inputType = type
-            face(v, size, weight, flags and 1 != 0, spacing, line, family)
+            face(v, size, weight, flags and 1 != 0, spacing, line, family, axes)
             v.setText(text)
             val free = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
             val wide = if (multiline && width >= 0f) MeasureSpec.makeMeasureSpec(ceil(width).toInt(), MeasureSpec.EXACTLY) else free

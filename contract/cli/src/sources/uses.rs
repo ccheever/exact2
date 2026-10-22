@@ -406,9 +406,10 @@ pub(crate) fn apply(src: &str, lines: &[UseLine]) -> String {
 }
 
 /// A loader holding the root at `root_key` alone, `src` its text.
-fn root_loader<'a>(app_root: &'a Path, root_key: &Path, src: &str) -> Loader<'a> {
+fn root_loader<'a>(app_root: &'a Path, root: &Path, root_key: &Path, src: &str) -> Loader<'a> {
     Loader {
         app_root,
+        root_given: root.to_path_buf(),
         sources: Sources {
             paths: vec![root_key.to_path_buf()],
             origins: vec![Origin::App],
@@ -449,7 +450,7 @@ pub(crate) fn use_fixes(
     let root_key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let mut left_out: HashSet<PathBuf> = HashSet::new();
     loop {
-        let mut loader = root_loader(app_root, &root_key, src);
+        let mut loader = root_loader(app_root, path, &root_key, src);
         let resolve = |sources: &Sources, all: Vec<CompileError>| {
             all.into_iter()
                 .map(|e| sources.resolve(e))

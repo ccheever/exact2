@@ -4,7 +4,7 @@ use super::*;
 /// The host's paragraph and `user-select: auto` rules for logical copies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ListTextPolicy {
-    /// DOM paragraphs, with the host stylesheet's unselectable button labels.
+    /// DOM paragraphs, with the host stylesheet's unselectable control labels.
     Web,
     /// AppKit labels/chrome are unselectable; native titles have no paragraph.
     MacOS,

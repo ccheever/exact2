@@ -201,7 +201,9 @@ fn a_reported_palette_is_what_the_roles_and_the_controls_paint_in() {
             faint(Material::Primary, dark, 0x66)
         );
     }
-    assert_eq!(role("-exact-system-orange", false), Color(0xff95_00ff));
+    // A role the device's palette has no tone for is the schema table's
+    // (UIKit's iOS 27 orange since dd9ab2dd51, LLP 1115.000 D4).
+    assert_eq!(role("-exact-system-orange", false), Color(0xff8d_28ff));
 
     // Told the same again, nothing is painted again; a new wallpaper's
     // palette is.

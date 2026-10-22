@@ -289,6 +289,9 @@ fn observe<D: DataSource>(r: &mut Runner<D>) -> (Seen, Vec<u64>) {
         collections,
         r.journal().collect::<Vec<_>>(),
     );
+    // Its own roles, as a host binds them (LLP 1121 stage 5): the two
+    // runners compared share this thread.
+    let _roles = r.bind_roles();
     let kernel = r.kernel().export(None).map_err(|e| format!("{e:?}"));
     (Seen { kernel, rest }, tickets)
 }

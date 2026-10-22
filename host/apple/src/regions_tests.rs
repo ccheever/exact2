@@ -109,6 +109,7 @@ fn the_view_told_at_once_is_laid_out_as_told_one_by_one() {
         Some([62., 0., 34., 0.]),
         Some(regions),
         Some((402., 874.)),
+        None,
     );
     assert!(!batch.contains("\"error\":\""), "{batch}");
     assert_eq!(frames(&together), frames(&apart));
@@ -118,7 +119,33 @@ fn the_view_told_at_once_is_laid_out_as_told_one_by_one() {
     );
     assert_eq!(padding_left(&together, "margins"), 20.);
     // Only what is given changes: the insets alone.
-    together.set_view(None, Some([0., 0., 0., 0.]), None, None);
+    together.set_view(None, Some([0., 0., 0., 0.]), None, None, None);
     apart.set_insets(0., 0., 0., 0.);
     assert_eq!(frames(&together), frames(&apart));
+    // A keyboard folded like a laptop: the viewport and the lower segment's
+    // extent in one batch, as the two calls leave them; a rect off the
+    // kernel's grid is refused and changes nothing.
+    let stacked = |h: f32| {
+        vec![
+            exact_kernel::Rect::new(0., 0., 402., 400.),
+            exact_kernel::Rect::new(0., 440., 402., h),
+        ]
+    };
+    apart.set_segments(1, 1, 2, stacked(434.));
+    together.set_segments(1, 1, 2, stacked(434.));
+    apart.resize(402., 455.);
+    apart.set_segments(1, 1, 2, stacked(15.));
+    let batch = together.set_view(None, None, None, Some((402., 455.)), Some(stacked(15.)));
+    assert!(!batch.contains("\"error\":\""), "{batch}");
+    assert_eq!(frames(&together), frames(&apart));
+    assert_eq!(
+        together.runner().kernel().env(),
+        apart.runner().kernel().env()
+    );
+    let refused = together.set_view(None, None, None, None, Some(stacked(15.)[..1].to_vec()));
+    assert!(refused.contains("segments off the grid"), "{refused}");
+    assert_eq!(
+        together.runner().kernel().env(),
+        apart.runner().kernel().env()
+    );
 }

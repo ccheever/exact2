@@ -92,8 +92,11 @@ impl Causes {
     pub const IMAGE: Causes = Causes(16);
     /// A font it used became available (stage 2).
     pub const FONT: Causes = Causes(32);
+    /// The colour or direction it draws in changed (`currentColor`,
+    /// `direction = "inherit"`): its node's, or the scheme's it resolves in.
+    pub const STYLE: Causes = Causes(64);
 
-    const NAMES: [&'static str; 6] = ["mount", "args", "size", "frame", "image", "font"];
+    const NAMES: [&'static str; 7] = ["mount", "args", "size", "frame", "image", "font", "style"];
 
     /// Whether `other`'s causes are all present.
     pub fn has(self, other: Causes) -> bool {
@@ -110,17 +113,17 @@ impl Causes {
         self.0 == 0
     }
 
-    /// `frame.cause`: the first of mount, args, size, frame, image, font
-    /// present.
+    /// `frame.cause`: the first of mount, args, size, frame, image, font,
+    /// style present.
     pub fn primary(self) -> &'static str {
-        (0..6)
+        (0..7)
             .find(|i| self.0 & (1 << i) != 0)
             .map_or("frame", |i| Self::NAMES[i])
     }
 
     /// Every cause present, by name.
     pub fn names(self) -> Vec<&'static str> {
-        (0..6)
+        (0..7)
             .filter(|i| self.0 & (1 << i) != 0)
             .map(|i| Self::NAMES[i])
             .collect()

@@ -73,7 +73,7 @@ extension Agent {
     func nativeInFlight() -> Bool {
         !presenter.collections.animating.isEmpty || presenter.pageElementAnimation != nil
             || presenter.views.values.contains(where: { $0.scrollEnd?.elementAnimation != nil })
-            || session.natives.activationQueued || presenter.launchAutofocusPending
+            || session.activationInFlight || presenter.launchAutofocusPending
     }
 
     /// `tap {close:true}`: the window's close button, pressed as ⌘W, File ▸

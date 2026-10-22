@@ -231,7 +231,7 @@ function fixture(agentMode = true) {
     INHERITED_CSS: {}, getComputedStyle: () => ({}), inertAncestor: () => false,
     viewBox: element => element.getBoundingClientRect(),
     navigation: { observation: () => ({ location: '/' }), reset() {} },
-    presence: { live: null },
+    presence: { live: null, pending: () => null, landed: async () => true },
     ask: req => req.op === 'state' ? state : req.op === 'logs' ? logs : req.op === 'node' ? { id: req.id, type: 'Text' }
       : req.op === 'tags' ? { epoch: 2, incarnation: 1, clock: 0 } : { error: 'unknown op' },
     tree: () => outline, now: () => 0, environment: () => ({}),
@@ -243,7 +243,7 @@ function fixture(agentMode = true) {
       exact_plan_fonts: () => '[]', exact_boot: () => '{"ops":[],"timers":true}',
       exact_boot_plan: () => '{"ops":[],"timers":true}', exact_advance: () => '{"ops":[],"clock":16}' },
     devAssets: null, bootAttempt: 0, encoder: new TextEncoder(), location: { pathname: '/', search: '', href: 'https://fixture.invalid/' }, URL,
-    focus: focusController({ ready: () => true, elements: () => [], inert: () => false }), loadGpuIfNeeded() {}, afterPaint: fn => context.requestAnimationFrame(() => context.requestAnimationFrame(fn)), writeIn: value => value, send() {}, messageViews: new Set(), markupModule: null,
+    focus: focusController({ ready: () => true, elements: () => [], inert: () => false }), loadGpuIfNeeded() {}, afterPaint: fn => context.requestAnimationFrame(() => context.requestAnimationFrame(fn)), writeIn: value => value, send() {}, messageViews: new Set(), markupModule: null, decorationsModule: null, liveTimeModule: null,
     prepareFonts: async () => [], commitFonts() {}, releaseAssets() {}, appRootFontSize() {} /* no app root rule to drop (LLP 1069.000 D3) */, incarnation: 0,
     // Ordinary boot tests model an already-loaded post-paint scheduler.
     timerFactory: () => ({ update() { events.push('ticker'); }, dispose() {} }),
@@ -258,7 +258,7 @@ function fixture(agentMode = true) {
     ready: Promise.resolve(), moduleReady: Promise.resolve(), inputReady: true, logicInfo: null, activeModule: null,
     page: null, // a built document's boot (LLP 1048.000 D6); these pages have none
     loadStage: () => Promise.resolve(), stageLoaded: () => true, // every stage linked (LLP 1047.000 §9)
-    preferences: () => '{}', localAssetURL: source => source,
+    preferences: () => '{}', localAssetURL: source => source, pageFacts: {} /* `globalThis.exact` exposes it (LLP 1139.003 D2) */, sizes: new Set(), mediaAttached: (deadline, set = context.mediaAttaching) => Promise.all(set).then(() => true) /* glue.js's, unbounded */,
     launchLocation: () => launchLocation(context), // the launch path less the drive's facts (feed F16)
   });
   vm.runInContext(`let toldOffset = null; const folded = () => false; /* no folded text here (LLP 1007.001) */ const viewBox = ${viewBox}; const layoutBoxes = ${layoutBoxes}; const scrollRange = ${scrollRange};\n` + ['let gpuLoading', 'const POST_BOUND', 'let frameSampler', 'const followOffset', 'const shownValue'].map(head => source.match(new RegExp(`^${head} = .*$`, 'm'))[0]).join('\n') + '\n' + ['nodeDetail', 'agentInputReady', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
@@ -696,8 +696,9 @@ function inputFixture() {
     views: new Map([[7, el]]), retiredViews: new WeakSet(), frames, sent, captured, el,
     root: { querySelectorAll: s => s.includes('aria-modal') ? [] : buttons, addEventListener() {}, contains: () => true }, // press feedback's listener: press.test.mjs drives it
     // The shortcuts' keydown listens in the capture phase, a pressable's activation in the bubble phase.
-    document: { addEventListener(kind, fn, capture) { if (kind === 'keydown') f[capture ? 'keydown' : 'keyActivate'] = fn; }, activeElement: { closest: () => null } },
+    document: { addEventListener(kind, fn, capture) { if (kind === 'keydown') f[capture ? 'keydown' : 'keyActivate'] = fn; }, activeElement: { closest: () => null }, getElementById: id => (id === 'exact-snap' ? {} : null), styleSheets: [] },
     HTMLIFrameElement: class {}, HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLButtonElement: class {},
+    MutationObserver: class { observe() {} disconnect() {} takeRecords() { return []; } }, queueMicrotask, Element: class {}, matchMedia: () => ({ matches: false, addEventListener() {} }), // the input glue's start: sheets, looks, hover
     inertAncestor: node => node.inert, getComputedStyle: () => ({ visibility: 'visible' }),
     requestAnimationFrame(fn) { frames.set(++serial, fn); return serial; },
     cancelAnimationFrame(id) { frames.delete(id); },
@@ -708,8 +709,7 @@ function inputFixture() {
     removeEventListener(kind, fn) { windowListeners.set(kind, (windowListeners.get(kind) ?? []).filter(g => g !== fn)); },
   });
   const module = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8');
-  const withoutPrompt = module.replace(/^import\s+["']\.\/prompt-glue\.js["'];[^\n]*\n/m, '');
-  if (withoutPrompt === module) throw new Error('input glue must retain the prompt side-effect import');
+  const withoutPrompt = ['prompt-glue', 'alert-message'].reduce((source, name) => { const out = source.replace(new RegExp(`^import\\s+["']\\./${name}\\.js["'];[^\\n]*\\n`, 'm'), ''); if (out === source) throw new Error(`input glue must retain its ${name} side-effect import`); return out; }, module);
   const tested = withoutPrompt.replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput');
   vm.runInContext(tested + '\n' + declaration('attach'), f);
   f.attach(el, 7, ['pan']);
@@ -836,7 +836,7 @@ test('moved keyboard shortcuts preserve modifiers, readiness, repeat and modal g
 // a link, as a click, after the key's handlers and unless one prevented it.
 test('a pressable that is no button activates by Enter or Space', () => {
   const h = inputFixture(); h.load(); let clicks = 0;
-  const pressable = (tag, role = null) => ({ dataset: { exactOn: 'press' }, matches: s => s.split(', ').includes(tag), getAttribute: () => role, click() { clicks++; }, toggleAttribute() {}, style: { getPropertyValue: () => '' }, addEventListener() {}, removeEventListener() {} }); // Space also shows the press (tests/press.test.mjs)
+  const pressable = (tag, role = null) => ({ dataset: { exactOn: 'press' }, matches: s => s.split(', ').includes(tag), getAttribute: () => role, closest: () => null /* no disabled ancestor (LLP 1121 D8) */, click() { clicks++; }, toggleAttribute() {}, style: { getPropertyValue: () => '' }, addEventListener() {}, removeEventListener() {} }); // Space also shows the press (tests/press.test.mjs)
   const key = (target, extra) => { const e = { key: 'Enter', target, preventDefault() { this.prevented = true; }, ...extra }; h.f.keyActivate(e); return e; };
   expect(key(pressable('div')).prevented).toBe(true);
   expect(key(pressable('div'), { key: ' ' }).prevented).toBe(true);
