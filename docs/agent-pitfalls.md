@@ -413,6 +413,12 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `EXACT_AGENT=1` and `EXACT_AGENT_FAIL_FETCH`, no socket) shows the native bars
   and menus, its fetches still failing. (Signal Clone, builds 5 and 10; Splitter,
   rough 4 and 11; Recipe Finder, round 27.)
+- **The iOS app renders but the agent handshake times out.** A deeply nested
+  task-private `TMPDIR` can make the agent's Unix socket path exceed the host's
+  length limit. Use a short, task-owned temporary directory, such as
+  `/private/tmp/exact-<task-id>`, and retain its ownership and cleanup record.
+  Shortening that path restored the handshake without rebuilding the app.
+  (T3 Code Review qualification, ENG-28508.)
 - **An `EmptyState`'s button sits at the bottom of the screen.** Cause: the part
   takes the free height it is given, so a `button` written after it lands at that
   space's foot. Fix: indent the button under the `EmptyState` call, its slot.
