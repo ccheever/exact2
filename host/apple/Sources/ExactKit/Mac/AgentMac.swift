@@ -296,11 +296,13 @@ extension Agent {
     func layout(_ req: [String: Any]) -> [String: Any] {
         var reply = layout()
         guard let id = req["id"] as? Int else { return reply }
-        guard let v = presenter.textHost(UInt32(id)) else { return ["error": "stale node #\(id)"] }
         let includePlan = req["plan"] as? Bool == true
         guard let d = session.agent("{\"op\":\"node\",\"id\":\(id),\"plan\":\(includePlan)}").data(using: .utf8),
               var node = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return ["error": "node #\(id): unreadable"] }
         if let e = node["error"] { return ["error": e] }
+        // A live node with no view of its own (a native button's face draws
+        // its svg): the runner's rows, and that nothing was mounted for it.
+        guard let v = presenter.textHost(UInt32(id)) else { return Self.unmounted(node, into: reply, now: session.now()) }
         MainActor.assumeIsolated { if let held = HeldState.rows(for: UInt32(id), in: presenter) { node["held"] = held } } // what is held on it (LLP 1122 D8)
         let host = v.paragraphOwner
         // @ref LLP 1043.000 §3 D7 — diagnose actual painted fragments, not a replay.
