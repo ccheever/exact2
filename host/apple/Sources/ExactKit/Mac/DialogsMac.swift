@@ -11,7 +11,7 @@ import AppKit
 final class DialogHost {
     private(set) weak var presenter: Presenter?
     final class Entry {
-        let dialog: NodeView
+        var dialog: NodeView
         weak var parent: NSView?
         weak var previous: NSView?
         let index: Int
@@ -23,6 +23,7 @@ final class DialogHost {
         /// A modal route in its sheet, not a `dialog`: what its sheet shows
         /// of its header, and the header's nodes hidden while it does.
         let route: Bool
+        var routeBase: NodeView?
         var header: SheetHeader?
         var stoodFor: [NodeView] = []
         init(_ dialog: NodeView, previous: NSView?, route: Bool = false) {
@@ -248,7 +249,7 @@ final class DialogHost {
         if let window, active != nil,
            ownsFocus(window), focusOwner(window).map({ blocks($0) }) ?? true { enterFocus() }
     }
-    private func refreshInputGates() {
+    func refreshInputGates() {
         guard let presenter else { return }
         accessibilityBlocker = accessibleActive.map(ObjectIdentifier.init)
         presenter.navigation.refreshInputGates(Array(presenter.views.values))

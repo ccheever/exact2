@@ -134,12 +134,15 @@ final class BlockHost {
 
     /// Give the subtree back to the page, where its authored parent has it.
     func release(_ node: NodeView) {
-        guard owns(node), let entry = entries.removeValue(forKey: node.id) else { return }
+        guard owns(node), let entry = entries[node.id] else { return }
+        let siblings = entry.home.map { authored($0.subviews.compactMap { $0 as? NodeView }, in: $0) } ?? []
+        let following = siblings.drop { $0 !== node }.dropFirst().first { $0.superview === entry.home }
+        entries[node.id] = nil
         used[node.id] = nil
         if presenter?.views[node.id] === node, let home = entry.home {
             // Before the sibling that followed it, when that is still there;
             // the authored parent's next `children` op settles any other order.
-            if let next = entry.next, next.superview === home { home.addSubview(node, positioned: .below, relativeTo: next) }
+            if let next = following ?? entry.next, next.superview === home { home.addSubview(node, positioned: .below, relativeTo: next) }
             else { home.addSubview(node) }
             presenter?.topLayerChanged()
         } else { node.removeFromSuperview() }
