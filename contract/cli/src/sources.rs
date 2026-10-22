@@ -581,10 +581,11 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
     }
     // A package design's components' too (stage 12 B1 round 3): an icon
     // param's SVG is read by the build as the app's own are.
-    let (package_designs, package_of): (Vec<_>, Vec<_>) = packages::read(&loader.sources, false)
+    let package_designs: Vec<_> = packages::read(&loader.sources, false)
         .unwrap_or_default()
         .into_iter()
-        .unzip();
+        .map(|(d, _)| d)
+        .collect();
     let params: Vec<_> = loader
         .units
         .iter()
@@ -642,15 +643,21 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         .map(|folding| {
             let app = root_key.parent().unwrap_or(Path::new("."));
             let home = |i| contract_lower::icons::Home::of(i, Some(app), &package_designs, &params);
+            // A package's file, by its root (a Contract component's
+            // package may ship no design).
+            let all = packages::packages(&loader.sources).0;
             let origin = |i| {
-                let d = contract_lower::icons::written_in(i, &package_designs, &params);
-                let k = d.and_then(|d| package_designs.iter().position(|p| std::ptr::eq(p, d)));
-                k.map_or(Origin::App, |k: usize| packages::origin(&package_of[k]))
+                let (_, root) = contract_lower::icons::written_in(i, &package_designs, &params)?;
+                let root = root.map(Path::new)?;
+                all.iter().find(|p| p.root == root).map(packages::origin)
             };
             folding
                 .icons
                 .iter()
-                .filter_map(|i| Some((home(i).svg(i.svg.as_ref()?)?, origin(i))))
+                .filter_map(|i| {
+                    let path = home(i).svg(i.svg.as_ref()?)?;
+                    Some((path, origin(i).unwrap_or(Origin::App)))
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -767,8 +774,18 @@ impl Loader<'_> {
             };
             return Err(vec![name_error(UNNAMED, unnamed(name), span)]);
         };
+        // A package's components know their package, whose `assets/` a
+        // literal icon default reads (stage 13).
+        let (package, root) = match origin {
+            Origin::Package { name, root, .. } => {
+                (Some(name.clone()), Some(root.display().to_string()))
+            }
+            _ => (None, None),
+        };
         for c in &mut file.components {
             c.params.identity = Some(format!("{home}#{}", c.name));
+            c.params.package = package.clone();
+            c.params.root = root.clone();
         }
         let homes = &mut self.sources.homes;
         if homes.len() <= source_id as usize {

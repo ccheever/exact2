@@ -112,7 +112,7 @@ structs! {
     Anatomy { parts, marks }
     PartDecl { name, groups, span }
     Mark { part, span, node, own }
-    Params { identity, list }
+    Params { identity, package, root, list }
     ComponentParam { name, kind, default, default_span, attrs, span }
     ParamAttr { name, value, span }
     Sequence { name, gate, key, tracks, options, ended, span }
