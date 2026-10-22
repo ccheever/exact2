@@ -266,7 +266,7 @@ describe('Files surface', () => {
     expect(files.diagrams.map(diagram => [diagram.code, diagram.light.diagram, diagram.dark.diagram])).toEqual([[flow, 'loading', 'loading']]);
     expect(calls.some(call => call.method === 'mermaidRender')).toBe(false); // the page renders it, no native module
     // The light page reports its render; the next view carries the diagram, and its expand opens it.
-    noteMermaidFrame(JSON.stringify({ status: 'rendered', width: 120, height: 80, theme: 'light', source: flow }));
+    noteMermaidFrame(JSON.stringify({ status: 'rendered', width: 120, height: 80, theme: 'light', source: flow, view: 'file' }));
     files = (await panelView(client, native, 0)).files;
     expect(files.diagrams[0]).toMatchObject({ code: flow, light: { diagram: 'rendered', width: 120, height: 80 } });
     diagramPreviewAction(client, 'diagram-open', flow);

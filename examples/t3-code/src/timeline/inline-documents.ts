@@ -1,4 +1,4 @@
-// Inline HTML pages and MCP app documents (T3 Code 9c161462c9, MIT; LICENSE-T3).
+// Inline HTML pages and MCP app documents (T3 Code 74541bab17, MIT; LICENSE-T3).
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import type { Files, Native } from '../client/protocol';
@@ -9,14 +9,14 @@ import { paintOf } from '../appearance/settings-appearance-look';
 import { fontStack, themeRoles } from '../appearance/settings-appearance';
 import { STANDARD } from '../appearance/settings-appearance-editor';
 import { builtInThemeColors } from '../appearance/settings-theme-library';
-import { htmlRenderFileName, htmlRenderTheme, htmlRenderThemeFragment, htmlRenderThemeMessage, readHtmlRenderKeyDown, readHtmlRenderLinkRequest, readHtmlRenderImageRequest, htmlRenderResult, htmlRenderFrameHeight, htmlRenderOutlineBoxes, readHtmlRenderContentHeight, type HtmlRenderReference } from './html-render';
+import { htmlRenderFileName, htmlRenderTheme, htmlRenderThemeFragment, htmlRenderThemeMessage, readHtmlRenderKeyDown, readHtmlRenderLinkRequest, readHtmlRenderImageRequest, htmlRenderResult, htmlRenderFrameHeight, readHtmlRenderContentHeight, type HtmlRenderReference } from './html-render';
 import { clampMcpAppHeight, mcpAppFileName, type McpAppReference } from './mcp-app';
 import { documentShortcutCommand, documentShortcutsMessage } from './inline-document-shortcuts';
 import { makeDocumentRuntime, drainDocumentRuntime, disposeDocumentRuntime, type DocumentRuntime } from './inline-document-host';
 import { htmlRenderFromToolItem, mcpAppFromToolItem } from './inline-tool-output';
 
 export type InlineReference = { kind: 'html'; reference: HtmlRenderReference } | { kind: 'mcp'; reference: McpAppReference };
-export type InlineDocumentView = { key: string; kind: string; title: string; server: string; src: string; ready: boolean; error: string; height: number; posts: { key: string; text: string }[]; permission: string; permissionSerial: number; fullscreen: boolean; closed: boolean; shortcut: string; shortcutSerial: number; outline: { key: string; kind: string; x: number; y: number; width: number; height: number; lines: number }[] };
+export type InlineDocumentView = { key: string; kind: string; title: string; server: string; src: string; ready: boolean; error: string; height: number; posts: { key: string; text: string }[]; permission: string; permissionSerial: number; fullscreen: boolean; closed: boolean; shortcut: string; shortcutSerial: number };
 type Frame = { token: string; url: string; expiresAt: number; src: string; ready: boolean; error: string; height?: number; reading: boolean; lastTheme?: string; lastShortcuts?: string; shortcut?: string; shortcutSerial?: number; posts: { key: string; text: string }[]; serial: number; runtime?: DocumentRuntime; fullscreen?: boolean; width?: number; inlineWidth?: number; viewportHeight?: number };
 type State = { systemScheme: string; generation: number; environment: string; origin: string; frames: Map<string, Frame>; posted: number };
 const states = new WeakMap<T3Client, State>();
@@ -135,8 +135,7 @@ export function inlineDocumentView(client: T3Client, key: string, ref: InlineRef
   const inlineWidth = frame?.inlineWidth ?? width;
   return { key, kind: ref.kind, title: ref.kind === 'html' ? ref.reference.title : ref.reference.tool, server: ref.kind === 'mcp' ? ref.reference.server : '', src: frame?.src ?? '', ready: frame?.ready ?? false, error: frame?.error ?? '',
     height: ref.kind === 'html' ? htmlRenderFrameHeight(ref.reference, inlineWidth, frame?.height) : clampMcpAppHeight(frame?.height ?? 320),
-    posts: frame?.posts ?? [], permission: frame?.runtime?.permission?.text ?? '', permissionSerial: frame?.runtime?.permission?.serial ?? 0, fullscreen: frame?.runtime?.fullscreen ?? frame?.fullscreen ?? false, closed: frame?.runtime?.closed ?? false, shortcut: frame?.shortcut ?? '', shortcutSerial: frame?.shortcutSerial ?? 0,
-    outline: ref.kind === 'html' ? htmlRenderOutlineBoxes(ref.reference, inlineWidth).map((box, index) => ({ ...box, key: String(index) })) : [] };
+    posts: frame?.posts ?? [], permission: frame?.runtime?.permission?.text ?? '', permissionSerial: frame?.runtime?.permission?.serial ?? 0, fullscreen: frame?.runtime?.fullscreen ?? frame?.fullscreen ?? false, closed: frame?.runtime?.closed ?? false, shortcut: frame?.shortcut ?? '', shortcutSerial: frame?.shortcutSerial ?? 0 };
 }
 export async function inlineDocumentEvent(client: T3Client, key: string, op: string, payload: string, native?: Native, storage?: Files, openImage?: (image: { src: string; name: string }) => void): Promise<void> {
   const frame = state(client).frames.get(key);
@@ -149,8 +148,11 @@ export async function inlineDocumentEvent(client: T3Client, key: string, op: str
   // The adapter's own load does not mean its nested server document is ready.
   if (op === 'retry') { if (frame.runtime) disposeDocumentRuntime(frame.runtime); frame.runtime = undefined; frame.posts = []; frame.error = ''; frame.src = ''; frame.ready = false; frame.token = `${client.generation}:${++nextDocument}`; }
   if (op === 'message') {
-    let message: unknown;
-    try { const envelope = obj(JSON.parse(payload)); if (envelope.t3Document !== frame.token) return; message = envelope.message; } catch { return; }
+    let message: unknown, activated = false;
+    try {
+      const envelope = obj(JSON.parse(payload)); if (envelope.t3Document !== frame.token) return; message = envelope.message;
+      activated = obj(envelope.activation).focused === true && obj(envelope.activation).active === true;
+    } catch { return; }
     if (obj(message).method === 't3/adapter-ready') { frame.ready = true; updateShortcuts(client, frame); if (!frame.runtime) updateHtmlTheme(client, frame, state(client).systemScheme); }
     if (!frame.runtime) {
       const link = readHtmlRenderLinkRequest(message);
@@ -163,7 +165,8 @@ export async function inlineDocumentEvent(client: T3Client, key: string, op: str
     }
     const keyEvent = readHtmlRenderKeyDown(message);
     if (keyEvent && !frame.runtime?.permission) { const command = documentShortcutCommand(client.config, keyEvent); if (command) { frame.shortcut = command; frame.shortcutSerial = (frame.shortcutSerial ?? 0) + 1; } }
-    frame.runtime?.host.receive(message);
+    // The host answers `ui/request-display-mode` while it receives the request, so the activation holds for this message only.
+    if (frame.runtime) { frame.runtime.activated = activated; frame.runtime.host.receive(message); frame.runtime.activated = false; }
     const height = readHtmlRenderContentHeight(message);
     if (height !== undefined) { if (!frame.runtime?.fullscreen && !frame.fullscreen) frame.height = height; frame.ready = true; }
   }
