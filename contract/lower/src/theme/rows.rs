@@ -30,10 +30,15 @@
 //! keyed by the element too: refused once, at the style row, as the build
 //! refuses it (theme2's 02:08 ruling).
 //!
+//! A written shorthand or `flex` row is expanded by lowering's own
+//! `shorthands::component` or `values::flex_component`, and each longhand
+//! judged in row order, the first refusal the build's first (theme2's
+//! ruling on the shorthand plan).
+//!
 //! Not checked here, and still caught by the build after a miss: a
 //! computed row whose type the root's scope doesn't give (a call, a `for`'s
 //! item), whose number tokens are the build's; a row through a `let`; a
-//! `font` shorthand naming no type token; a state part's row; a style's row
+//! computed shorthand or `flex`; a state part's row; a style's row
 //! any element applying it leaves to the build (lowering rewrites its class
 //! rows first, it chooses between styles, or a `for` or `match` binds a name
 //! around it: `scan::Said::of`); and refusals outside a style row (an SVG
@@ -338,16 +343,63 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
 /// scope are known ([`typed`]): its literal arms, and, in a number row,
 /// every number token a string may name, or its string arms where the
 /// design has none (stage 13 D2). Never through a `let`, which the build
-/// judges through the binding; not a shorthand (the build projects it into
-/// longhands first) but `font`, whose type tokens are judged whole
-/// ([`font_row`]); not a transition's or an animation's, whose motion
+/// judges through the binding; a shorthand or `flex` only written (its
+/// longhands judged as the build expands them, [`expanded`]), and `font`,
+/// whose type tokens are judged whole ([`font_row`]); not a transition's
+/// or an animation's, whose motion
 /// tokens the loader writes in before this map is read.
 pub(crate) fn kept(a: &Attr) -> Option<bool> {
     let mut leaves = Vec::new();
     match written(&a.value, &mut leaves) {
-        true => style_row(a).then_some(false),
+        true => (style_row(a) || expanded(a).is_some()).then_some(false),
         false => (!bound(&a.value) && style_row(a)).then_some(true),
     }
+}
+
+/// A shorthand or `flex` row's longhands, as lowering expands it before
+/// judging each (`bind_shorthand`, `values::flex_component`): `None` for
+/// any other row, and for a transition's or an animation's.
+fn expanded(a: &Attr) -> Option<Vec<exact_kernel::StyleId>> {
+    let n = a.name.as_str();
+    // A `font` is a type token's or a text style, never a design's longhands
+    // (`type_font`; `shorthands::font` names only text styles).
+    if n.contains("transition") || n.contains("animation") || n == "font" {
+        return None;
+    }
+    use exact_kernel::StyleId::{FlexBasis, FlexGrow, FlexShrink};
+    match crate::tags::attr_valued(n, &a.value) {
+        Some(crate::tags::AttrTarget::Shorthand) => Some(crate::shorthands::rows(n).to_vec()),
+        Some(crate::tags::AttrTarget::Flex) => Some(vec![FlexGrow, FlexShrink, FlexBasis]),
+        _ => None,
+    }
+}
+
+/// Each longhand of shorthand or `flex` row `a` judged as lowering judges
+/// it: expanded by the build's own function, typed by its leaves, then
+/// `values::check_style_value` on the one row, in row order, the first
+/// refusal the row's.
+fn judge_expanded(
+    a: &Attr,
+    rows: &[exact_kernel::StyleId],
+    uses: &[crate::FontUse],
+    scope: &contract_types::Scope,
+    shapes: &contract_types::Shapes,
+) -> Result<bool, LowerError> {
+    for (index, row) in rows.iter().enumerate() {
+        let value = match crate::tags::attr_valued(&a.name, &a.value) {
+            Some(crate::tags::AttrTarget::Flex) => crate::values::flex_component(&a.value, index)?,
+            _ => crate::shorthands::component(&a.value, &a.name, index)?,
+        };
+        let component = Attr { value, ..a.clone() };
+        let mut leaves = Vec::new();
+        super::leaves(&component.value, &mut Vec::new(), &mut leaves);
+        let ty = match leaves.iter().all(|e| matches!(e, Expr::Number(..))) {
+            true => contract_types::Ty::Number,
+            false => contract_types::Ty::String,
+        };
+        crate::values::check_style_value(&component, &[*row], &ty, uses, scope, shapes)?;
+    }
+    Ok(true)
 }
 
 /// `v`'s type as lowering's `expr::compile` gives it, for the values it
@@ -753,6 +805,9 @@ fn judge(
     if let (Some((kind, uses)), Some(f)) = (kind, fonts) {
         return crate::type_tokens::tokens_named(a, kind, uses, &f.declared.fonts, f.children)
             .map(|named| named.is_some());
+    }
+    if let Some(rows) = expanded(a).filter(|_| r.computed.is_none()) {
+        return judge_expanded(a, &rows, &uses, scope, shapes);
     }
     let rows = crate::tags::rows(a);
     let mut leaves = Vec::new();
