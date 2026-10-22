@@ -109,9 +109,10 @@ fn in_flow(arena: &NodeArena, slot: u32) -> bool {
     let s = arena.effective_style(slot);
     let offset = |d: Dimension| d == Dimension::Auto || own_length(d, arena.env());
     // A static or sticky box's insets do not move its layout; a relative one's
-    // must not depend on the context's height.
-    matches!(s.position_type, PositionType::Static | PositionType::Sticky)
-        || (s.position_type == PositionType::Relative && offset(s.top) && offset(s.bottom))
+    // must not depend on the context's height. A popover is out of flow.
+    !crate::style::top_layer::top_layer(arena, slot)
+        && (matches!(s.position_type, PositionType::Static | PositionType::Sticky)
+            || (s.position_type == PositionType::Relative && offset(s.top) && offset(s.bottom)))
 }
 
 /// Each visible context under the root and whether it refuses auto height.
