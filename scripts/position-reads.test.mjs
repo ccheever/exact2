@@ -19,15 +19,24 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 // Where the rule's readers live, and what a direct read looks like there:
 // in Rust the field itself (as a word, so a destructuring, a rename, a
-// spaced or split access all count), or its row id: `StyleId::PositionType`
-// spaced or split across lines, or a bare `PositionType` as a value (where a
-// `use StyleId::{…}` group or glob brought the row id in; the enum's own uses
-// are paths, `PositionType::…`, types after `:` or `->`, and imports), in
-// code outside comments, strings and tests; in Swift the row's name, in code
-// outside comments and string interpolation's code.
-const RUST = /\bposition_type\b|\bStyleId\s*::\s*PositionType\b|(?<!(?:::|->|:)\s*)\bPositionType\b(?!\s*::)/g;
-// An alias of the row ids would hide `Alias::PositionType`: none may be made.
-const ALIAS = /\bStyleId\s+as\b/;
+// spaced or split access all count) or its row id `StyleId::PositionType`
+// (spaced or split across lines), in code outside comments, strings and
+// tests; in Swift the row's name, in code outside comments.
+const RUST = /\bposition_type\b|\bStyleId\s*::\s*PositionType\b/g;
+// The row id reached any other way is refused outright, as no read may
+// hide behind it: a `use` group naming it, a rename in a `use` of StyleId
+// (`PositionType as P`, `self as Ids`, `StyleId as S`), a type alias of
+// StyleId, and, where a glob brings StyleId's rows in bare, `PositionType`
+// as anything but a path (`PositionType::…`, `crate::PositionType`, the
+// enum's).
+const REFUSED = [
+  [/\buse\b[^;]*\bStyleId\s*::\s*\{[^;]*\bPositionType\b[^;]*;/g, 'a `use` group naming StyleId::PositionType: write it out'],
+  [/\buse\b[^;]*\bStyleId\b[^;]*\bas\b[^;]*;/g, 'a rename in a `use` of StyleId'],
+  [/\btype\s+\w+\s*=\s*[\w:]*\bStyleId\b/g, 'a type alias of StyleId'],
+];
+const GLOB = /\bStyleId\s*::\s*\*/;
+const BARE = /(?<!::\s*)\bPositionType\b(?!\s*::)/g;
+
 const SCOPES = [
   { dir: 'kernel/src', ext: '.rs', read: RUST },
   { dir: 'host/apple/src', ext: '.rs', read: RUST },
@@ -44,7 +53,7 @@ export const ALLOWED = [
   { file: 'kernel/src/style.rs', text: 's.position = match self.position_type', why: 'the engine mapping of the rows (to_taffy); top_layer::apply makes a top-layer box absolute right after, in cover::apply' },
   { file: 'kernel/src/style.rs', text: 's.inset = if self.position_type == PositionType::Sticky', why: "the engine mapping of the rows (to_taffy): a sticky row's insets aren't offsets; top_layer::apply makes a top-layer box's offsets again" },
   { file: 'kernel/src/arena/defaults.rs', text: '(StyleId::PositionType, "-exact-header-position")', why: "the neutral route header's platform start: a row it sets, not a read" },
-  { file: 'kernel/src/kernel/cover.rs', text: 'if [Display, PositionType, OverflowX, OverflowY]', why: "a row list, not a value: a change of the row moves a box on the bottom edge's chain (style_changed); a popover's prop change does too (top_layer::prop_changed)" },
+  { file: 'kernel/src/kernel/cover.rs', text: 'StyleId::PositionType,', why: "a row list, not a value: a change of the row moves a box on the bottom edge's chain (style_changed); a popover's prop change does too (top_layer::prop_changed)" },
   { file: 'host/linux/src/scroll_anchor.rs', text: 'StyleId::PositionType,', why: 'a row list, not a value: a change of the row is a layout change' },
   { file: 'host/apple/Sources/ExactKit/LayoutPosition.swift', text: 'let authored = style["position_type"]', why: 'the accessor itself' },
   { file: 'host/apple/Sources/ExactKit/LayoutPosition.swift', text: '.contains(.string("position_type"))', why: 'the accessor itself: whether the author wrote the sticky' },
@@ -130,6 +139,14 @@ function swiftString(text, i) {
     if (text[j] !== '(') { j++; continue; }
     for (let depth = 0; j < text.length;) {
       if (text[j] === '"' || (text[j] === '#' && /^#+"/.test(text.slice(j, j + 260)))) { j = swiftString(text, j); continue; }
+      // A comment in the interpolation's code: its parens and quotes count for nothing.
+      if (text.startsWith('//', j)) { const e = text.indexOf('\n', j); j = e < 0 ? text.length : e; continue; }
+      if (text.startsWith('/*', j)) {
+        for (let c = 0; j < text.length;) {
+          if (text.startsWith('/*', j)) { c++; j += 2; } else if (text.startsWith('*/', j)) { j += 2; if (--c === 0) break; } else j++;
+        }
+        continue;
+      }
       if (text[j] === '(') depth++;
       else if (text[j] === ')' && --depth === 0) { j++; break; }
       j++;
@@ -166,17 +183,20 @@ export function directReads(root = ROOT) {
       const scanned = rust ? source(path, code(text, true)) : code(text, false), lines = text.split('\n');
       // Over the whole file, so a read split across lines counts, on the
       // line it starts.
+      const lineOf = i => scanned.slice(0, i).split('\n').length;
       const inUse = i => { const u = scanned.lastIndexOf('use ', i); return u >= 0 && !scanned.slice(u, i).includes(';') && /(^|[\s{;}])$/.test(scanned.slice(0, u)); };
-      const at = new Set([...scanned.matchAll(read)].filter(m => !(rust && m[0] === 'PositionType' && inUse(m.index))).map(m => scanned.slice(0, m.index).split('\n').length));
-      if (rust && ALIAS.test(scanned)) out.push({ file, line: scanned.slice(0, scanned.search(ALIAS)).split('\n').length, text: 'an alias of StyleId' });
+      const at = new Set([...scanned.matchAll(read)].map(m => lineOf(m.index)));
+      if (rust && GLOB.test(scanned)) for (const m of scanned.matchAll(BARE)) if (!inUse(m.index)) at.add(lineOf(m.index));
+      if (rust) for (const [re, why] of REFUSED) for (const m of scanned.matchAll(re)) out.push({ file, line: lineOf(m.index), text: lines[lineOf(m.index) - 1].trim(), refused: why });
       for (const line of [...at].sort((a, b) => a - b)) out.push({ file, line, text: lines[line - 1].trim() });
     }
   }
-  return out.sort((a, b) => (a.file === b.file ? a.line - b.line : 0));
+  const seen = new Set();
+  return out.sort((a, b) => (a.file === b.file ? a.line - b.line : 0)).filter(r => !seen.has(`${r.file}:${r.line}`) && seen.add(`${r.file}:${r.line}`));
 }
 
 test('every direct read of the authored position is on the allowlist, with its reason', () => {
-  const stray = directReads().filter(r => !ALLOWED.some(a => a.file === r.file && r.text.includes(a.text)));
+  const stray = directReads().filter(r => r.refused || !ALLOWED.some(a => a.file === r.file && r.text.includes(a.text)));
   assert.deepEqual(stray, [], 'a layout read goes through layout_position / layoutPosition (kernel/src/style/top_layer.rs); a read that means the author\'s value goes on ALLOWED with why');
 });
 
@@ -228,6 +248,18 @@ test('the scan finds a new read in any form, and skips comments, strings and tes
       'fn typed(p: PositionType) -> PositionType { if p == PositionType::Static { p } else { crate::PositionType::Sticky } }',
       'use crate::StyleId as S;',
     ].join('\n'));
+    writeFileSync(join(root, 'kernel/src/glob.rs'), [
+      'use crate::StyleId::*;',
+      'fn a(s: &Row) { s.get(PositionType); }',
+      'fn b() -> crate::PositionType { crate::PositionType::Static }',
+      'fn c() { let _ = Req { id: PositionType }; }',
+    ].join('\n'));
+    writeFileSync(join(root, 'kernel/src/rename.rs'), [
+      'use crate::StyleId::{PositionType as P};',
+      'use crate::StyleId::{self as Ids};',
+      'type Id = crate::StyleId;',
+      'fn d(s: &Row) { s.get(P); s.get(Ids::Top); }',
+    ].join('\n'));
     writeFileSync(join(root, 'host/linux/src/scan_tests.rs'), 'fn t(s: &StyleProps) { s.position_type; }');
     writeFileSync(join(root, 'host/apple/Sources/New.swift'), [
       'let p = view.style["position_type"]?.string',
@@ -242,11 +274,15 @@ test('the scan finds a new read in any form, and skips comments, strings and tes
       'let raw = #"a \\" /* "#; let t = view.style["position_type"]',
       'let marker2 = "\\(String("/*"))"; let u = view.style["position_type"]',
       'let raw2 = #"x \\#"# /* still a string "#; let v = view.style["position_type"]',
+      'let marker3 = "\\(/* ) */ "/*")"',
+      'let w = view.style["position_type"]',
     ].join('\n'));
-    assert.deepEqual(directReads(root).map(r => `${r.file}:${r.line}`), [
-      ...[2, 3, 6, 9, 10, 22, 23, 24, 26, 27, 31, 33].map(line => `kernel/src/new.rs:${line}`),
-      ...[1, 4, 5, 9, 10, 11, 12].map(line => `host/apple/Sources/New.swift:${line}`),
-    ]);
+    assert.deepEqual(directReads(root).map(r => `${r.file}:${r.line}`).sort(), [
+      ...[2, 3, 6, 9, 10, 22, 23, 24, 26, 27, 29, 33].map(line => `kernel/src/new.rs:${line}`),
+      ...[2, 4].map(line => `kernel/src/glob.rs:${line}`),
+      ...[1, 2, 3].map(line => `kernel/src/rename.rs:${line}`),
+      ...[1, 4, 5, 9, 10, 11, 12, 14].map(line => `host/apple/Sources/New.swift:${line}`),
+    ].sort());
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
