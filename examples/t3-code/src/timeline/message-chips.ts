@@ -19,10 +19,13 @@ import { COMPOSER_CITATION } from '../composer/composer-source-chips';
 import { markdownLinkHref, markdownMediaChips, noteMarkdownDocument, type MediaScope } from '../media/media-views'; // a message's images and their actions
 import type { ThreadLinkGlyph } from './markdown-thread-glyphs';
 import { parseThreadLinkHref, percentDecodedThreadLinkId, resolveThreadLink } from './thread-links';
+import { notePullRequestLinks } from './pull-link-registry';
 
 export interface ChipView {
   id: string; href: string; kind: string; label: string; size: string; tip: string;
   detail: string; icon: string; target: string; owner: string;
+  /** A file link's menu rows (file-link-menu.ts withFileLinkMenus); [] until then and for every other chip. */
+  menu: { id: string; label: string }[];
 }
 export interface MarkdownEnv { codeFont: string; codeSize: number; wrap: boolean; chips: ChipView[]; runCommands: string[]; threadGlyphs: ThreadLinkGlyph[] }
 
@@ -153,7 +156,7 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
   const records = new Map(arr(obj(item.context).records).map(record => [str(record.contextId), record]));
   const attachments = new Map(arr(item.attachments).map(attachment => [str(attachment.id), attachment]));
   const seen = new Set<string>();
-  const add = (chip: Omit<ChipView, 'id' | 'owner'>) => { if (seen.has(chip.href)) return; seen.add(chip.href); chips.push({ id: `chip-${chips.length}`, ...chip, owner }); };
+  const add = (chip: Omit<ChipView, 'id' | 'owner' | 'menu'>) => { if (seen.has(chip.href)) return; seen.add(chip.href); chips.push({ id: `chip-${chips.length}`, ...chip, owner, menu: [] }); };
   if (text.includes('](t3-context:')) for (const match of text.matchAll(CONTEXT_LINK)) {
     const href = match[3]!, kind = match[4]!.toLowerCase(), label = match[2]!.trim() || kind;
     const record = records.get(match[5]!);
@@ -180,18 +183,19 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
     add({ href: `t3-inline-code:${code}`, kind: 'link', label: `${name}${position ? ` · L${position[1]}` : ''}`, size: '', tip: target, detail: '', icon: fileIconToken(path), target: workspaceLookupPath(candidate, fromRoot ? cwd : root, cwd) });
   }
   // An image's chip (kind "media") is matched by href and kind, so a link to the same file keeps its own.
-  for (const chip of markdownMediaChips(text, root, media)) chips.push({ id: `chip-${chips.length}`, ...chip, owner });
+  for (const chip of markdownMediaChips(text, root, media)) chips.push({ id: `chip-${chips.length}`, ...chip, owner, menu: [] });
   if (client) for (const chip of chips) {
     if (chip.kind === 'link' || chip.kind === 'mention') chip.icon = workspaceFileIcon(client, chip.kind === 'link' ? chip.href.slice('t3-file:'.length) : chip.tip, root);
   }
   noteMarkdownDocument(owner, text, root, media); // the image's press opens the preview over this document's images
+  notePullRequestLinks(text); // a web link's menu rows (pull-link-registry.ts)
   return chips;
 }
 
 /** AssistantCitationChip (T3 Code 9c161462c9): the label is the quote (or its comment) cut at 64 characters; its popover
  * shows the quote (`tip`) and the comment (`size`), and "Go to source" opens the cited thread (`target`) at the answer
  * (`detail`). Each citation link's destination is read with the reference's parseAssistantCitationHref (diff-citations.ts). */
-function citationChip(href: string): Omit<ChipView, 'id' | 'owner'> {
+function citationChip(href: string): Omit<ChipView, 'id' | 'owner' | 'menu'> {
   const citation = parseAssistantCitationHref(href);
   return { href, kind: 'citation', label: citation ? assistantCitationLabel(citation) : '', size: citation?.comment ?? '', tip: citation?.text ?? '',
     detail: citation?.messageId ?? '', icon: '', target: citation?.threadId ?? '' };
@@ -201,7 +205,7 @@ function citationChip(href: string): Omit<ChipView, 'id' | 'owner'> {
  * "Thread no longer available", and what a press opens (`target`; `detail` "link" routes it through openThreadLink, so an
  * archived thread's transcript still opens and another environment's thread focuses that environment).
  */
-function threadLinkChip(href: string, label: string, threads: Obj[], client?: T3Client): Omit<ChipView, 'id' | 'owner'> | null {
+function threadLinkChip(href: string, label: string, threads: Obj[], client?: T3Client): Omit<ChipView, 'id' | 'owner' | 'menu'> | null {
   const written = parseThreadLinkHref(href);
   if (!written) return null;
   const local = threads.find(thread => thread.id === written) ?? threads.find(thread => thread.id === percentDecodedThreadLinkId(written));
@@ -210,7 +214,7 @@ function threadLinkChip(href: string, label: string, threads: Obj[], client?: T3
     detail: 'link', icon: '', target: target?.id ?? written };
 }
 const UNAVAILABLE = 'This context is no longer available.';
-function contextChip(href: string, kind: string, label: string, record: Obj | undefined, attachments: Map<string, Obj>, threads: Obj[]): Omit<ChipView, 'id' | 'owner'> {
+function contextChip(href: string, kind: string, label: string, record: Obj | undefined, attachments: Map<string, Obj>, threads: Obj[]): Omit<ChipView, 'id' | 'owner' | 'menu'> {
   const base = { href, label, size: '', tip: '', detail: '', icon: '', target: '' };
   const unresolved = { ...base, kind: 'unresolved', tip: UNAVAILABLE };
   if (!record) return unresolved;

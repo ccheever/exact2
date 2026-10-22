@@ -7,6 +7,7 @@ import type { Files, Native } from '../../src/client/protocol';
 import { T3Client } from '../../src/client/client';
 import { filesState } from '../../src/panel/files-surface';
 import { resetRemoteEditorsForTests } from '../../src/connections/remote-open';
+import { contractComponent } from '../support/contract-action-fixture';
 
 const files: Files = { fs: { mkdir: async () => undefined, readFile: async () => { throw new Error('none'); }, atomicWriteFile: async () => undefined } } as unknown as Files;
 function fixture() {
@@ -32,6 +33,24 @@ describe('right-click hookup', () => {
     await command('chatlocal:pr-link-pick', '', 'open-external\ngitlab https://gitlab.com/a/b/-/merge_requests/7');
     await command('chatlocal:surface-files-row-pick', 'README.md', 'copy-mention');
     expect(calls.filter(call => call.op === 'copyText').map(call => call.text)).toEqual(['https://github.com/a/b/pull/7', '[README.md](README.md)']);
+    expect(menus()).toEqual([]);
+  });
+
+  test('a chat file link\'s popover row, from the chip\'s rows to the copy, asks for no native menu', async () => {
+    const { calls, menus, command } = fixture();
+    // FileLinkButton hands the chip's rows to the window's popover; its row's press sends the window's pick.
+    const button = contractComponent('src/timeline/link-menus.contract', 'FileLinkButton'), window = contractComponent('src/shell/app-window.contract', 'T3Window');
+    const sent: unknown[][] = [], state: Obj = { fileMenuTip: '', fileMenuTarget: '', fileMenuRows: [] };
+    const rows = [{ id: 'copy-relative', label: 'Copy relative path' }, { id: 'copy-full', label: 'Copy full path' }];
+    const windowScope = { chatLocal: (...args: unknown[]) => sent.push(args) };
+    const buttonScope = { tip: '/srv/project/README.md', target: 'README.md', menu: rows, local: (...args: unknown[]) => sent.push(args),
+      fileLinkMenu: (...args: unknown[]) => window.call('fileLinkMenu', state, windowScope, args) };
+    button.call('press', {}, buttonScope, []);
+    expect(state).toEqual({ fileMenuTip: '/srv/project/README.md', fileMenuTarget: 'README.md', fileMenuRows: rows });
+    window.call('fileLinkPick', state, windowScope, ['copy-full']);
+    expect(sent).toEqual([['surface-file-link', '/srv/project/README.md', 'README.md'], ['surface-files-link-pick', '/srv/project/README.md', 'copy-full\nREADME.md']]);
+    await command(`chatlocal:${sent[1]![0]}`, String(sent[1]![1]), String(sent[1]![2]));
+    expect(calls.filter(call => call.op === 'copyText').map(call => call.text)).toEqual(['/srv/project/README.md']);
     expect(menus()).toEqual([]);
   });
 });

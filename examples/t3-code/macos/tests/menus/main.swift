@@ -493,8 +493,7 @@ final class MenuTests: XCTestCase {
         XCTAssertEqual(pasteText.keyEquivalent, "v")
         XCTAssertEqual(pasteText.keyEquivalentModifierMask, [.command, .shift])
         XCTAssertEqual(pasteText.action, #selector(NSTextView.pasteAsPlainText(_:)))
-        XCTAssertTrue(pasteText.target === menus, "the prompt's Paste as Text is a paste the Contract hears (T3Menus.pasteAsPlainText)")
-        XCTAssertFalse(menus.validateMenuItem(pasteText), "with no prompt and no responder that pastes as text")
+        XCTAssertNil(pasteText.target, "the first responder's own `pasteAsPlainText:`, which Exact's fields fire as a `paste`")
         XCTAssertEqual(view.items.map { $0.isSeparatorItem ? "—" : "\($0.title)\($0.isHidden ? " (hidden)" : "") \($0.keyEquivalent)" },
                        ["Actual Size 0", "Zoom In =", "Zoom In (hidden) +", "Zoom Out -", "—", "Enter Full Screen f"])
     }

@@ -33,20 +33,41 @@ describe('a paste into the composer (onComposerPaste)', () => {
   test('a paste of files is prevented and attached, Paste as Text armed by its key; a text paste is the field\'s', () => {
     const card = contractComponent('composer.contract', 'ComposerCard'), state = card.state();
     const calls: unknown[][] = [];
-    const scope = { ...fns, data: { projectId: 'p1' }, composerKeyEvent: () => {}, preventDefault: () => calls.push(['preventDefault']), attachFiles: (...args: unknown[]) => calls.push(['attachFiles', ...args]) };
+    let now = 5000;
+    const scope = { ...fns, data: { projectId: 'p1' }, performanceNow: () => now, composerKeyEvent: () => {}, onBlur: () => calls.push(['blur']),
+      preventDefault: () => calls.push(['preventDefault']), attachFiles: (...args: unknown[]) => calls.push(['attachFiles', ...args]) };
+    const image = [{ files: ['doc:/1/image.png'], text: '' }];
     card.call('pasted', state, scope, [{ files: [], text: 'hello' }]);
     expect(calls).toEqual([]);
-    card.call('pasted', state, scope, [{ files: ['doc:/1/image.png'], text: '' }]);
+    card.call('pasted', state, scope, image);
     expect(calls).toEqual([['preventDefault'], ['attachFiles', 'paste', ['doc:/1/image.png'], [], false, '']]);
-    card.call('pasteAsTextArm', state, scope, []);
-    card.call('pasted', state, scope, [{ files: ['doc:/1/image.png'], text: '' }]);
-    expect(calls.at(-1)).toEqual(['attachFiles', 'paste', ['doc:/1/image.png'], [], true, '']);
-    // Each paste consumes the arming, as consumePasteAsTextShortcut does, and so does a key press.
-    expect(state.pasteAsText).toBe(false);
-    card.call('pasteAsTextArm', state, scope, []);
-    card.call('richKey', state, scope, ['a', {}]);
-    card.call('pasted', state, scope, [{ files: ['doc:/1/image.png'], text: '' }]);
-    expect(calls.at(-1)).toEqual(['attachFiles', 'paste', ['doc:/1/image.png'], [], false, '']);
+    // isPasteAsTextShortcut: ⇧⌘V with no ⌥ or ⌃, by the key's character (event.key).
+    const chord = (k: string, code: string, held: Record<string, boolean>) => ({ key: k, code, metaKey: false, shiftKey: false, ctrlKey: false, altKey: false, repeat: false, ...held });
+    const pasteAsText = chord('V', 'KeyV', { metaKey: true, shiftKey: true });
+    const armed = () => { const before = calls.length; card.call('pasted', state, scope, image); return (calls.slice(before).find(c => c[0] === 'attachFiles') ?? [])[4]; };
+    card.call('richKey', state, scope, ['V', pasteAsText]);
+    expect(armed()).toBe(true);
+    // One paste consumes it (consumePasteAsTextShortcut).
+    expect(armed()).toBe(false);
+    for (const [k, e] of [['v', chord('v', 'KeyV', { metaKey: true })], ['V', chord('V', 'KeyV', { metaKey: true, shiftKey: true, ctrlKey: true })],
+      ['v', chord('v', 'KeyV', { metaKey: true, shiftKey: true, altKey: true })], ['ㅍ', chord('ㅍ', 'KeyV', { metaKey: true, shiftKey: true })], ['B', chord('B', 'KeyB', { metaKey: true, shiftKey: true })]] as const) {
+      card.call('richKey', state, scope, [k, e]);
+      expect(armed()).toBe(false);
+    }
+    // Armed for one second (armPasteAsTextShortcut's deadline); another key in between leaves it armed.
+    card.call('richKey', state, scope, ['V', pasteAsText]);
+    now += 400;
+    card.call('richKey', state, scope, ['a', chord('a', 'KeyA', {})]);
+    now += 600;
+    expect(armed()).toBe(true);
+    card.call('richKey', state, scope, ['V', pasteAsText]);
+    now += 1001;
+    expect(armed()).toBe(false);
+    // Leaving the composer disarms it, as the reference's window blur does, and tells the window.
+    card.call('richKey', state, scope, ['V', pasteAsText]);
+    card.call('richBlurred', state, scope, []);
+    expect(calls.at(-1)).toEqual(['blur']);
+    expect(armed()).toBe(false);
     // With no thread open (no project), a paste is the field's.
     const before = calls.length;
     card.call('pasted', state, { ...scope, data: { projectId: '' } }, [{ files: ['doc:/1/image.png'], text: '' }]);
