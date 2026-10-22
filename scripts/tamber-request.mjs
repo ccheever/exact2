@@ -30,7 +30,9 @@ export const readBody = (req, limit, res = null, raw = false) => new Promise(don
   const over = () => (res ? refuseBody(req, res) : req.destroy?.());
   if (Number(req.headers['content-length']) > limit) { over(); return done(null); }
   const chunks = []; let size = 0, settled = false;
-  const finish = v => { if (!settled) { settled = true; done(v); } };
+  // (its connection's close, below, let go of once settled: a keep-alive connection's requests add none for good)
+  const gone = () => finish(undefined);
+  const finish = v => { if (!settled) { settled = true; req.socket?.off?.('close', gone); done(v); } };
   req.on('data', chunk => {
     if (settled) return;
     size += chunk.length;
@@ -39,6 +41,9 @@ export const readBody = (req, limit, res = null, raw = false) => new Promise(don
   req.on('end', () => finish(raw ? Buffer.concat(chunks) : Buffer.concat(chunks).toString('utf8')));
   req.on('error', () => finish(undefined));
   req.on('close', () => finish(undefined));
+  // (and when its connection closes: Bun loses `req`'s close on a socket a TLS door hands to the HTTP
+  // server, so a client that left mid-body would hold this, and its chunks, for good)
+  req.socket?.once?.('close', gone);
 });
 
 /** A remote door's body, read while the server may still be starting (`ready`):
