@@ -432,6 +432,23 @@ final class PresenceIOSTests: XCTestCase {
         XCTAssertEqual(v.bounds.size, CGSize(width: 100, height: 50))
     }
 
+    func testAnExitRetiresAPopoverInItsLiftLayer() throws {
+        let p = fixture()
+        defer { p.menus.reset(); window.isHidden = true }
+        let leaving = try XCTUnwrap(p.views[2]), pop = try XCTUnwrap(p.views[3])
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["popover": "auto", "id": "lifted"]]]))
+        p.menus.agentShow(pop, named: "lifted", from: 4)
+        XCTAssertFalse(pop.isDescendant(of: leaving))
+        XCTAssertTrue(p.menus.isOpen(pop))
+        p.apply(wireBatch([["op": "exit", "id": 2], ["op": "children", "id": 1, "ids": [4]]]))
+        XCTAssertNil(p.views[3], "the lifted descendant retires with its authored parent")
+        XCTAssertFalse(p.menus.isOpen(pop))
+        XCTAssertNil(pop.superview)
+        XCTAssertEqual(Set(try XCTUnwrap(p.leaving[2]).members.map(\.id)), [2, 3])
+        p.apply(wireBatch([["op": "destroy", "id": 2]]))
+        XCTAssertNil(pop.presenter)
+    }
+
     func testAnExitKeepsTheViewWhereItWasInertAndUnnamedUntilItsDestroy() throws {
         let p = fixture()
         let (parent, leaving, inner, sibling) = try (XCTUnwrap(p.views[1]), XCTUnwrap(p.views[2]), XCTUnwrap(p.views[3]), XCTUnwrap(p.views[4]))
