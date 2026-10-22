@@ -147,6 +147,14 @@ on macOS and Linux.
   (stage 13): a package icon's `describe` row carries `package` and `file`, its `resolve` answer
   `package`, `file` and `identity`, and its `explain` answer those and, when the app's design
   overrides it, `package_value`, as a package token's do (its `draws` reads the package's `assets/`).
+  Also in 1.16 (stage 13 E, the design tool's second hands-on pass, theme2's 09:29 ruling): a
+  selection's inherited row carries `fromAt: {file, line, component}` beside `from`, the source of the
+  node it inherits from, joined from the plan site the page reports (`fromSite`, the server's alone; a
+  host that gives none leaves `fromAt` out and a client falls back to `from`); and `inspect` takes
+  `{select: {up: n}, build}` (n from 1 to 64, the scope `inspect` has, the build's inspecting
+  client's alone): that build's page selects the node `n` call sites above its selection, as a click
+  on it would, past the outermost to the app's root, and reports it as a click's selection; a page
+  that can't answers `unsupported` with `what: "inspect"`.
 
 ## Where it runs
 
@@ -1417,7 +1425,10 @@ The tool drives no input into an app; a command changes only what `prefer` would
     "more"|"less"|"no-preference", mode?: {axis: value}, rootFontSize?: px}`, the facts `prefer`
     pins, or null to hand them back. Each pin replaces the whole set: a fact it doesn't name is
     what the first pin replaced.
-  - `inspect` (*1.3*) `{on, seq}` or `{refresh: true}`: inspect mode on or off (`seq` numbers
+  - `inspect` (*1.3*) `{on, seq}` or `{refresh: true}`, or `{select: {up, sites}}` (*1.16*: the page
+    selects the outermost node above its selection whose plan site is one of `sites`, which the
+    server takes from its map as the copy `up` call sites above, and reports it as a click's
+    selection): inspect mode on or off (`seq` numbers
     the command), or the selection
     reported again under the digests now (found again by its site and instance path after a
     new generation, or said gone). In inspect mode the page shows a banner with a close control
@@ -1638,7 +1649,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
   says no plan). Answered `{sites, builds}`: the running plan's sites, and the builds sent one. A
   build whose map is missing, or compiled a file that has changed since (a fresh span would land
   on another node), is sent none; refused (409, or 503 with no map) only when no build could be.
-- **`inspect`** `{client, build?, on | refresh: true}` (*1.3*, a present client; `on`, and `refresh` sent to the builds, need write scope; below it `refresh` reads the last selections, *1.13*)
+- **`inspect`** `{client, build?, on | refresh: true}` (*1.3*, a present client; `on`, and `refresh` sent to the builds, need write scope; below it `refresh` reads the last selections, *1.13*), or `{client, build, select: {up: n}}` (*1.16*, n from 1 to 64; the build's inspecting client's alone, 409 otherwise or with no selection to move from: its selection moves `n` call sites up, past the outermost to the root, answered `{builds}`)
   sends
   `inspect` to a build, or to every build that can. Answered `{builds, unsupported}`: the builds
   it went to, and those that can't inspect. Inspect mode is its client's: when the client stops
