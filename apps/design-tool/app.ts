@@ -1208,7 +1208,7 @@ const sources: Sources = {
     // writes from before the tool opened among them, a refusal to say, or no answer (it says why when pressed).
     // Read again only when the files move, a commit is told or the server starts again; never for no one
     // (`design-tool:`, before the name).
-    if (!client || client.endsWith(':')) return { open: 0, refused: false, unavailable: false };
+    if (!client || client === 'design-tool:') return { open: 0, refused: false, unavailable: false };
     const dry = await call('/__tamber', { method: 'commit', client, dry: true }, 15000, heldToken || undefined);
     const refused = ((dry.reply.error as { refused?: unknown[] } | undefined)?.refused ?? []).length;
     const nothing = /nothing to commit|written nothing/.test(dry.error);
