@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { cellsFor, conditional, markedSlot, option, placements, uncommented } from './library-gate.mjs';
 import { SLOTTED } from './stage12-gate.mjs';
+import { COMPONENTS, DERIVED, READS, cases as restyleCases, newTokens, packageParams, readsOf } from './s13c-restyle.mjs';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const APP = join(ROOT, 'apps/library-gate/app.contract');
@@ -109,4 +110,25 @@ test('the cells rule, and the parse refuses what could hide a cell', () => {
   const marked = '      Card(id="a")\n        box testId="marker-a" press=toggle width=24 height=24\n          text glyph\n';
   const unmarked = '      Card(id="a")\n        // box testId="marker-a" press=toggle width=24 height=24\n        text glyph\n';
   expect([markedSlot(placements(marked, ['Card'])[0]), markedSlot(placements(unmarked, ['Card'])[0])]).toEqual([true, false]);
+});
+
+// The gate's restyle cases (theme2 09:49 (c), 10:28 (5)): every token and
+// param stage 13 C added, by the packages' sources, is in a case and read
+// somewhere, so a new one with no case or no read fails here.
+test("the restyle cases name every stage 13 C token and param, each one read", () => {
+  const tokens = newTokens(), params = packageParams(), all = restyleCases();
+  const named = new Set(all.flatMap(c => c.set.map(s => (c.param ? s.key : s.name))));
+  const derived = new Set(all.flatMap(c => c.derived));
+  expect(tokens.map(t => t.name).filter(n => !named.has(n) && !derived.has(n))).toEqual([]);
+  expect(params.map(p => p.key).filter(k => !named.has(k))).toEqual([]);
+  // Read on a node: itself, through a param it is the default of, or as an
+  // input of a derived token that is.
+  const read = n => readsOf(n).length > 0 || params.some(p => p.token === n && readsOf(p.key).length > 0)
+    || Object.entries(DERIVED).some(([d, x]) => x.from.includes(n) && readsOf(d).length > 0);
+  expect([...named, ...derived].filter(n => !read(n))).toEqual([]);
+  // No read of a name that isn't stage 13 C's.
+  expect(Object.keys(READS).filter(k => !tokens.some(t => t.name === k) && !params.some(p => p.key === k))).toEqual([]);
+  // The cases' components and instances are library-gate's.
+  const app = readFileSync(APP, 'utf8');
+  for (const [name, c] of Object.entries(COMPONENTS)) expect([name, placements(app, [name]).map(p => p.id).sort()]).toEqual([name, [...c.ids].sort()]);
 });
