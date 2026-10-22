@@ -59,6 +59,11 @@ extension MenuHost {
             route = host.presenter?.navigation.routeKey(containing: source ?? popover)
             alert = UIAlertController(title: title, message: message, preferredStyle: style == .alert ? .alert : .actionSheet)
         }
+        func observeDisappearance() {
+            let lifetime = ConfirmationLifetime(frame: .zero)
+            lifetime.owner = self
+            alert.view.addSubview(lifetime)
+        }
         func owns(_ node: NodeView) -> Bool { actions.contains { $0.node === node } }
         func adaptivePresentationStyle(for controller: UIPresentationController) -> UIModalPresentationStyle { .none }
         #if !os(tvOS)
@@ -72,4 +77,18 @@ extension MenuHost {
     }
 
 }
+private final class ConfirmationLifetime: UIView {
+    weak var owner: MenuHost.Confirmation?
+    private var mounted = false
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil { mounted = true; return }
+        guard mounted else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let owner = self?.owner, owner.alert.presentingViewController == nil, !owner.finishing else { return }
+            owner.host?.cancelled(owner)
+        }
+    }
+}
+
 #endif
