@@ -282,6 +282,8 @@ fn scroller_insets_bottom(arena: &NodeArena, slot: u32) -> bool {
             s.display != crate::Display::None
                 && s.position_type != crate::PositionType::Absolute
                 && arena.cover(c) != Some(HostCover::Whole)
+                // A popover is out of flow, open or closed (`style::taffy_style`).
+                && !crate::style::top_layer(arena, c)
         };
         let Some(&last) = arena.children(at).iter().rev().find(flowing) else {
             return false;

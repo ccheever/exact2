@@ -1214,7 +1214,7 @@ extension NavigationHost {
     /// the scroller, leave the scroller its route's top and bottom edges. A
     /// dialog given back to layout to show in Exact's views counts as laid out.
     static func inFlow(_ v: NodeView) -> Bool {
-        if v.props["popover"] != nil { return false }
+        if v.props["popover"] != nil, v.style["position_type"]?.string != "sticky" { return false }
         let dialog = v.props["semanticTag"] == "dialog"
         return v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
             && (!dialog || v.presenter?.menus.isLaidOut(v) == true)

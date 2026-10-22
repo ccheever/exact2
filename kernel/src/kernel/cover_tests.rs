@@ -254,4 +254,36 @@ fn an_open_popover_takes_no_room_in_its_parents_flow() {
         300.0,
         "the popover keeps its own size"
     );
+    // The prop cleared, the box is in flow again; set again, out of it.
+    k.apply(
+        1,
+        2,
+        &[Op::ClearProp {
+            id: 4,
+            prop: crate::PropId::Popover,
+        }],
+    )
+    .unwrap();
+    k.compute_layout(1, Offer::definite(390.0, 800.0)).unwrap();
+    assert_eq!(
+        k.node(3).unwrap().frame.y,
+        450.0,
+        "no popover: the box takes its room"
+    );
+    k.apply(
+        2,
+        3,
+        &[Op::SetProp {
+            id: 4,
+            prop: crate::PropId::Popover,
+            value: crate::props::PropValue::Str("manual".into()),
+        }],
+    )
+    .unwrap();
+    k.compute_layout(1, Offer::definite(390.0, 800.0)).unwrap();
+    assert_eq!(
+        k.node(3).unwrap().frame.y,
+        750.0,
+        "a popover again: out of flow"
+    );
 }
