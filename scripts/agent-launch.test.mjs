@@ -6,6 +6,18 @@ import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { Cdp, chromium, chromiumBuilds, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort } from './agent-launch.mjs';
 import { PassThrough } from 'node:stream';
+import { placeReporter } from '../host/web/navigation.js';
+
+// The Region's format apart from the language (`exactTime().formatLocale`): unsaid, no host is told one and each
+// answers the locale; said, it reaches the native hosts' environment and the page, as the fourth place field.
+test('--format-locale reaches every host, and is left out when unsaid', () => {
+  const regional = launchFacts(parseFlags(['web', '--format-locale', 'en-kr', 'tree']).flags);
+  expect(regional.formatLocale).toBe('en-KR');
+  expect(launchEnvironment(regional).EXACT_AGENT_FORMAT_LOCALE).toBe('en-KR');
+  expect(launchEnvironment(launchFacts({})).EXACT_AGENT_FORMAT_LOCALE).toBeUndefined();
+  expect(placeReporter(new URLSearchParams({agent: '1', ...regional}))().split('\0')).toEqual(['en-US', 'UTC', '1', 'en-KR']);
+  expect(() => launchFacts({formatLocale: 'en_KR'})).toThrow();
+});
 
 test('drive clock warnings compare explicit and default epochs with the actual backend clock', async () => {
   const {backendClock, backendClockNote, driveNotes} = await import('./agent-test.mjs');

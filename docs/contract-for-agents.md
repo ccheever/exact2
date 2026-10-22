@@ -2336,7 +2336,10 @@ in 1970, and one stored is meaningless after a relaunch. Anything stored or sent
 `exactTime` source and add `time.epochAtZero + performanceNow()`. There is no
 `now()`: it is refused (`type-now-renamed`) with those two repairs. Its fields, which a shape declares as it reads them:
 `epochAtZero` (Unix milliseconds when `performanceNow()` read zero), `utcOffset` (minutes east
-of UTC), `locale` (BCP 47), `timeZone` (IANA), `resolvedLocale` (the language of
+of UTC), `locale` (BCP 47, the first preferred language), `formatLocale` (BCP 47, the
+regional format the platform's own formatters use: macOS and iOS's Region, so English
+with a Korean region is `en-US` and `en-KR`; `locale` where a host keeps none apart),
+`timeZone` (IANA), `resolvedLocale` (the language of
 the string table the app shows, `""` with no tables) and `seed` (a whole number
 below 2^32, drawn once per launch, so `%` and `>>> 0` take all of it; mix a round
 into it in 32-bit steps, as the [random recipe](recipes/random-and-shuffle.md) does). A read does not itself schedule a future render, and a
