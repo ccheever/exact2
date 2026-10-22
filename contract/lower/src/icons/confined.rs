@@ -30,8 +30,14 @@ pub enum Unread {
 /// it names the outside file); a parent directory swapped between the open
 /// and the re-check (the resolved file is another inode). What it doesn't:
 /// a file inside the package's `assets/` replaced by another file there
-/// (still the package's own bytes), and on a host without inodes the
-/// identity check, where only the resolution after the open is compared.
+/// (still the package's own bytes); on a host without inodes the identity
+/// check, where only the resolution after the open is compared; and a
+/// three-swap interleaving (narrow re-check, RE-3; QUEUE): the path a link
+/// out when it is opened, a plain file when it is resolved (so it resolves
+/// to itself, inside), and a link out again before that resolved path's
+/// metadata is read, which then follows the link to the opened outside
+/// file and passes, so the outside bytes are read. It takes three swaps by
+/// a writer of the package's `assets/` within a few system calls.
 pub fn read(path: &Path, root: &Path) -> Result<Vec<u8>, Unread> {
     if let Err(e) = path.symlink_metadata() {
         return Err(match e.kind() {

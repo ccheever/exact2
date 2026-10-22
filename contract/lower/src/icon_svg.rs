@@ -238,8 +238,11 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
             stack.last().cloned().unwrap_or((None, None, None, false));
         let fill_here = property(&attrs, "fill").or(inherited_fill);
         let stroke_here = property(&attrs, "stroke").or(inherited_stroke);
-        // What `currentColor` is here: the nearest `color` (round 3, R3-1).
-        let color_here = property(&attrs, "color").or(inherited_color);
+        // What `currentColor` is here: the nearest `color` (round 3, R3-1);
+        // `inherit` and `currentColor` keep the parent's (re-check, RE-2).
+        let color_here = property(&attrs, "color")
+            .filter(|c| c != "inherit" && c != "currentcolor")
+            .or(inherited_color);
         let in_defs =
             in_defs || matches!(name, "defs" | "symbol" | "clipPath" | "mask" | "pattern");
         // What a template drawn filled, nonzero, at full opacity would lose.
@@ -303,11 +306,7 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
                 // red as an explicit red fill is; with no `color` set, the
                 // host's colour, as on main.
                 let painted = match (painted.as_str(), &color_here) {
-                    ("currentcolor", Some(color))
-                        if color != "currentcolor" && color != "inherit" =>
-                    {
-                        color.clone()
-                    }
+                    ("currentcolor", Some(color)) => color.clone(),
                     _ => painted,
                 };
                 if painted.starts_with("url(") {
@@ -453,6 +452,9 @@ mod tests {
             r#"<svg viewBox="0 0 24 24" style="COLOR: red"><path d="M0 0h1"/></svg>"#,
             r#"<svg viewBox="0 0 24 24" color="red" fill="currentColor"><path d="M0 0h4v4H0Z"/></svg>"#,
             r#"<svg viewBox="0 0 24 24" color="red"><path fill="currentColor" d="M0 0h1"/><path fill="red" d="M2 2h1"/></svg>"#,
+            // `inherit` and `currentColor` keep the parent's (RE-2).
+            r#"<svg viewBox="0 0 24 24" color="red" fill="currentColor"><path color="inherit" d="M0 0h1"/><path fill="red" d="M2 2h1"/></svg>"#,
+            r#"<svg viewBox="0 0 24 24" color="red" fill="currentColor"><path style="color: currentColor" d="M0 0h1"/><path fill="red" d="M2 2h1"/></svg>"#,
         ] {
             assert_eq!(read(svg).unwrap().not_template, None, "{svg}");
         }
