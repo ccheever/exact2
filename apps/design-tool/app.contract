@@ -985,10 +985,13 @@ component DesignTool
   // while a scrub replaces Apply or the draft is stale (review2's round 1).
   state readyFor = ""
   derive draftReadyKey = `${editKind}|${editTarget}|${editWhen}|${editValue}`
-  derive readyLine = readyFor == draftReadyKey and editKind != "" and not scrubShown and not draftStale and not partsStale and not stateStale ? "Proposal ready: Apply or Cancel." : ""
+  derive readyLine = readyFor == draftReadyKey and editKind != "" and applyAnswer and not scrubShown ? "Proposal ready: Apply or Cancel." : ""
   task sayReady when applyReady and editKind != "" and readyFor != draftReadyKey key=draftReadyKey
     after(1, markReady)
-  derive applyReady = not (not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or partsStale or stateStale or pending(written) or not canPropose or (branch.readOnly != "" and editTarget == branch.token and editKind == branchOp))
+  // The answer in hand is this draft's and could be applied (a re-read on each answer keeps the last one in hand);
+  // Apply itself waits on no read or write in flight.
+  derive applyAnswer = not (not proposal.ok or not proposal.active or proposal.key != draftKey or draftStale or partsStale or stateStale or not canPropose or (branch.readOnly != "" and editTarget == branch.token and editKind == branchOp))
+  derive applyReady = applyAnswer and not pending(proposal) and not pending(written)
   task follow when not pending(changes) and changes.ok key=changes.answer
     after(1, advance)
   task retry when not pending(changes) and not changes.ok key=changes.answer
@@ -1094,9 +1097,7 @@ component DesignTool
       send written = cancelScrub(scrubAsk)
     editKind = op
     editTarget = name
-    // The dock newly opened for this edit: its row scrolled to the top, clear of it (the focus stays in the field).
-    if dockedFor != `${op}|${name}`
-      scrollIntoView(`dial-${name}`, block="start")
+    // (A slider mid-drag is not scrolled: its row goes clear of the dock when it is let go.)
     dockedFor = `${op}|${name}`
     editWhen = ""
     // A panel edit: the param's own line, no branch editor draft or mode scope.
@@ -1114,7 +1115,7 @@ component DesignTool
     editKind = op
     editTarget = name
     // The dock newly opened for this edit: its row scrolled to the top, clear of it (the focus stays in the field).
-    if dockedFor != `${op}|${name}`
+    if not docked or dockedFor != `${op}|${name}`
       scrollIntoView(`dial-${name}`, block="start")
     dockedFor = `${op}|${name}`
     editWhen = ""
@@ -1125,6 +1126,8 @@ component DesignTool
     scopeOwn = false
     editValue = v.trim() == "" ? "" : `${v.trim()}${unit}`
   action dialReleased(op: string, name: string, n: number)
+    if docked and dockedFor == `${op}|${name}`
+      scrollIntoView(`dial-${name}`, block="start")
     // A slider let go: the scrub on it writes its last value, once that is
     // previewed.
     if scrubShown and editKind == op and editTarget == name and editWhen == "" and not pending(written)
@@ -1140,7 +1143,7 @@ component DesignTool
     editKind = op
     editTarget = name
     // The dock newly opened for this edit: its row scrolled to the top, clear of it (the focus stays in the field).
-    if dockedFor != `${op}|${name}`
+    if not docked or dockedFor != `${op}|${name}`
       scrollIntoView(`dial-${name}`, block="start")
     dockedFor = `${op}|${name}`
     editWhen = ""
@@ -1285,6 +1288,7 @@ component DesignTool
       opened = opened.concat([group])
     focusDial = name
   action cellText(v: string)
+    dockedFor = ""
     // A scrub open on another edit (another branch of it, a panel edit) ends first.
     if scrubShown and not (editKind == branchOp and editTarget == branch.token and editWhen == (scopeOwn ? branch.own : branch.when))
       scrubTick = scrubTick + 1
@@ -1300,6 +1304,7 @@ component DesignTool
     partFor = ""
     draftFor = branchKey
   action partEdit(i: number, v: string)
+    dockedFor = ""
     // One typed field: the value with this part changed and every other as
     // written, so the line written changes only there.
     if typed.ok and typed.of == partsBase
@@ -1317,6 +1322,7 @@ component DesignTool
       editWhen = scopeOwn ? branch.own : branch.when
       editValue = missing ? "" : [typed.parts.map(p => p.control == "fixed" ? p.text : (texts.slice(p.index, p.index + 1).join("") == "" and p.optional ? "" : [p.pre, texts.slice(p.index, p.index + 1).join(""), p.post].join(""))).join(""), typed.tail].join("")
   action onlyThisMode
+    dockedFor = ""
     if scrubShown and not (editKind == branchOp and editTarget == branch.token and editWhen == branch.own)
       scrubTick = scrubTick + 1
       scrubWant = false
@@ -1387,9 +1393,9 @@ component DesignTool
     editTarget = name
     editWhen = ""
     editValue = ""
-  action panelBackToPackage(name: string)
-    // Back to the package from a param's row: as backToBase, its proposal docked.
-    file = ""
+  action panelBackToPackage(name: string, row: string)
+    // Back to the package from a param's row: as backToBase, its proposal docked and its row scrolled clear of it.
+    // (No file reset: the component panel shows for the app's design alone, so the proposal is drawn at once.)
     if scrubShown
       scrubTick = scrubTick + 1
       scrubWant = false
@@ -1400,6 +1406,7 @@ component DesignTool
     editValue = ""
     dockedFor = `remove-token|${name}`
     focus("proposal-dock")
+    scrollIntoView(`dial-${row}`, block="start")
   action openBase(name: string)
     openedBase = openedBase.concat([name])
   action editRename(v: string)
@@ -1426,6 +1433,7 @@ component DesignTool
     editValue = ""
   action cancelEdit
     dockedFor = ""
+    readyFor = ""
     if scrubShown
       scrubTick = scrubTick + 1
       scrubWant = false
@@ -1460,6 +1468,9 @@ component DesignTool
           picked = picked.concat(w.carried)
         if w.ok and w.key != "" and w.key == draftKey
           editKind = ""
+          // (Its dock and its readiness go with it: the same field edited again opens, and is said, afresh.)
+          dockedFor = ""
+          readyFor = ""
           scopeOwn = false
           rawFor = ""
           partFor = ""
@@ -1993,13 +2004,13 @@ component DesignTool
                           if g.name != ""
                             text g.name font="-exact-subheadline"
                           for r in g.params key=r.c.name
-                            ParamControl(locked=(not canPropose), r=r, won=(levels.answer == design.answer ? levels.rows.filter(l => l.name == r.c.name) : []), focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn), onBackToPackage=panelBackToPackage(r.packageToken))
+                            ParamControl(locked=(not canPropose), r=r, won=(levels.answer == design.answer ? levels.rows.filter(l => l.name == r.c.name) : []), focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn), onBackToPackage=panelBackToPackage(r.packageToken, r.c.name))
                           if g.more.length > 0
                             button press=toggleMore(`${k.identity}|${g.name}`) testId=`more-${k.name}-${g.name}`
                               text (opened.includes(`${k.identity}|${g.name}`) ? "Fewer" : `More (${g.more.length})`)
                             if opened.includes(`${k.identity}|${g.name}`)
                               for r in g.more key=r.c.name
-                                ParamControl(locked=(not canPropose), r=r, won=(levels.answer == design.answer ? levels.rows.filter(l => l.name == r.c.name) : []), focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn), onBackToPackage=panelBackToPackage(r.packageToken))
+                                ParamControl(locked=(not canPropose), r=r, won=(levels.answer == design.answer ? levels.rows.filter(l => l.name == r.c.name) : []), focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn), onBackToPackage=panelBackToPackage(r.packageToken, r.c.name))
               column gap=8 testId="tokens"
                 text "Tokens" role="heading" aria-level=2
                 column overflow-x="auto" align-items="flex-start" testId="grid"
