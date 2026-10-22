@@ -388,7 +388,7 @@ extension DialogHost {
         chrome.back.isHidden = entry.routeBase === entry.dialog || !presenter.navigation.backOffered
         chrome.back.isEnabled = presenter.navigation.back != nil
         let changed = chrome.show(title: header?.title, cancel: chrome.back.isHidden ? row(header?.cancel) : nil, confirm: row(header?.confirm),
-                                  escapes: (entry.routeBase ?? entry.dialog).props["closedby"] != "none")
+                                  escapes: dismissalOwner(of: entry.dialog).props["closedby"] != "none")
         guard fits, changed else { return }
         // Its rows take another height: the content's maximum and the window's size follow.
         if let block = block(of: entry) { presenter.blocks.resize(entry.dialog, block) }
@@ -445,7 +445,7 @@ extension DialogHost {
             let size = entry.sheet?.window.contentView?.frame.size ?? .zero
             return ["route": Int(entry.dialog.id), "presentation": "sheet", "title": entry.header?.title ?? NSNull(),
                     "cancel": id(entry.header?.cancel), "confirm": id(entry.header?.confirm), "header": entry.header.map { $0.whole ? "projected" : "partly" } ?? "authored",
-                    "size": [Agent.r2(size.width), Agent.r2(size.height)], "closedby": entry.dialog.props["closedby"] ?? "closerequest"]
+                    "size": [Agent.r2(size.width), Agent.r2(size.height)], "closedby": dismissalOwner(of: entry.dialog).props["closedby"] ?? "closerequest"]
         }
         guard let painted = presenter.navigation.paintedModal else { return nil }
         return ["route": Int(painted.id), "presentation": "painted", "kept": presenter.navigation.keptSheets[painted.id] ?? NSNull()]
