@@ -182,7 +182,7 @@ describe('Annotate\'s result (handlePickElement → addPreviewAnnotation)', () =
 });
 
 describe('⌘↩ in Annotate\'s editor (PickPreload: the page has the key)', () => {
-  it('while Annotate is on in the thread\'s Browser tab, the send button leaves Meta+Enter to the page', async () => {
+  it('while Annotate is on in the thread\'s Browser tab, the composer\'s send chords leave Meta+Enter to the page', async () => {
     const { client } = await opened();
     client.config.keybindings = DEFAULT_SEND_RULES;
     expect(snapshot(client).composer.sendChords).toBe('Meta+Enter Meta+Alt+Enter');

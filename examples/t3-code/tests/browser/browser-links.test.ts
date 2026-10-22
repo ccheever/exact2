@@ -145,7 +145,7 @@ describe('tabMuteMenuItem', () => {
 // ── The clone's rows ──────────────────────────────────────────────────────────────────────────────
 const storage: Files = { fs: { async mkdir() {}, async atomicWriteFile() {}, async readFile() { return new ArrayBuffer(0); } } };
 /** A client on thread-1 whose server answers preview.list/open and whose module records its ops. */
-function linkClient(options: { preference?: BrowserLinkTarget; failOpen?: boolean; modifiers?: string } = {}) {
+function linkClient(options: { preference?: BrowserLinkTarget; failOpen?: boolean } = {}) {
   const client = new T3Client(), rpcs: Array<{ method: string; payload: Obj }> = [], ops: Obj[] = [];
   client.environmentId = 'local'; client.threadId = 'thread-1'; client.projectId = 'p';
   Object.assign(client, { loaded: true }); // the saved settings were read: the open defaults refuse unread ones
@@ -158,7 +158,6 @@ function linkClient(options: { preference?: BrowserLinkTarget; failOpen?: boolea
   };
   const native: Native = { available: true, watch() {}, async later(request) {
     const op = obj(request); ops.push(op);
-    if (op.op === 'composerSendIntent') return { ok: true, generation: 0, value: { modifiers: options.modifiers ?? '', source: 'pointer' } };
     if (op.op === 'terminalOpenExternal') return { ok: true, generation: 0, value: { opened: true } };
     return { ok: true, generation: 0, value: { opened: true } };
   } };
@@ -203,26 +202,23 @@ describe('openLink (useOpenLink)', () => {
 
 describe('links from the UI (chatlocal:link-open)', () => {
   it('a chat link reads the click’s ⌘ or Ctrl from its own press; a check’s button has none', async () => {
-    // app-window.contract linkOpen sends `link|meta+shift`, the press's MouseEvent; the
-    // module's gesture recorder is never asked.
+    // app-window.contract linkOpen sends `link|meta+shift`, the press's MouseEvent.
     for (const held of ['meta', 'control', 'meta+shift', 'control+alt']) {
-      const link = linkClient({ modifiers: '' });
+      const link = linkClient();
       await chatLocal(link.client, link.native, 'link-open', `link|${held}`, 'https://example.com/');
       expect(external(link.ops)).toEqual(['https://example.com/']);
-      expect(link.ops.some(op => op.op === 'composerSendIntent')).toBe(false);
     }
     for (const held of ['', 'alt', 'shift']) { // ⌥ keeps the in-app default: resolveLinkTarget reads no ⌥
-      const plain = linkClient({ modifiers: 'meta' }); // a recorded gesture is not this click's
+      const plain = linkClient();
       await chatLocal(plain.client, plain.native, 'link-open', `link|${held}`, 'https://example.com/');
       expect(plain.rpcs.some(call => call.method === 'preview.open')).toBe(true);
       expect(external(plain.ops)).toEqual([]);
     }
-    const bare = linkClient({ modifiers: '' });
+    const bare = linkClient();
     await chatLocal(bare.client, bare.native, 'link-open', 'link', 'https://example.com/');
     expect(bare.rpcs.some(call => call.method === 'preview.open')).toBe(true);
-    const button = linkClient({ modifiers: 'control' });
+    const button = linkClient();
     await openLinkFromUi(button.client, button.native, 'button|meta', 'https://ci.example.com/run/1');
-    expect(button.ops.some(op => op.op === 'composerSendIntent')).toBe(false);
     expect(button.rpcs.find(call => call.method === 'preview.open')?.payload.url).toBe('https://ci.example.com/run/1');
     const page = linkClient();
     await openLinkFromUi(page.client, page.native, 'button-page', 'https://ci.example.com/run/2');
@@ -231,11 +227,10 @@ describe('links from the UI (chatlocal:link-open)', () => {
   it('a work-log web search result ("external") opens the system browser even when the setting says T3 Code, ⌘ or not', async () => {
     // V2ItemInspector's result is a target=_blank link; the desktop's setWindowOpenHandler hands it to the shell.
     for (const modifiers of ['', 'meta']) {
-      const { client, rpcs, ops, native } = linkClient({ preference: 'app', modifiers });
-      await chatLocal(client, native, 'link-open', 'external', 'https://example.test/tables');
+      const { client, rpcs, ops, native } = linkClient({ preference: 'app' });
+      await chatLocal(client, native, 'link-open', modifiers ? `external|${modifiers}` : 'external', 'https://example.test/tables');
       expect(external(ops)).toEqual(['https://example.test/tables']);
       expect(rpcs.some(call => call.method === 'preview.open')).toBe(false);
-      expect(ops.some(op => op.op === 'composerSendIntent')).toBe(false);
     }
     const { client } = linkClient();
     const refused: Native = { available: true, watch() {}, async later() { return { ok: true, generation: 0, value: { opened: false } }; } };
@@ -248,9 +243,9 @@ describe('links from the UI (chatlocal:link-open)', () => {
     // (parseSafeExternalUrl: http(s) and remote editor links), and nothing opens. A table cell's link is the same anchor
     // (measured 2026-10-12 on `[the list](mailto:list@example.test)` in a cell).
     for (const [preference, modifiers] of [['app', ''], ['system', ''], ['app', 'meta']] as const) {
-      const { client, rpcs, ops, native } = linkClient({ preference, modifiers });
+      const { client, rpcs, ops, native } = linkClient({ preference });
       for (const url of ['mailto:team@example.test', 'irc://irc.example.test/t3', 'ircs://irc.example.test/t3', 'xmpp:team@example.test']) {
-        await chatLocal(client, native, 'link-open', 'link', url);
+        await chatLocal(client, native, 'link-open', modifiers ? `link|${modifiers}` : 'link', url);
       }
       expect(ops).toEqual([]);
       expect(rpcs).toEqual([]);
@@ -293,7 +288,7 @@ describe('links from the UI (chatlocal:link-open)', () => {
   });
   it('a link the system browser could not open says so', async () => {
     const { client } = linkClient({ preference: 'system' });
-    const native: Native = { available: true, watch() {}, async later(request) { return obj(request).op === 'composerSendIntent' ? { ok: true, generation: 0, value: {} } : { ok: true, generation: 0, value: { opened: false } }; } };
+    const native: Native = { available: true, watch() {}, async later() { return { ok: true, generation: 0, value: { opened: false } }; } };
     await openLinkFromUi(client, native, 'link', 'https://example.com/');
     expect(toasts(client).at(-1)).toMatchObject({ title: 'Unable to open link' });
   });
@@ -409,8 +404,7 @@ describe('the "Open links in" setting', () => {
   });
 });
 
-// A link's click modifiers are its press's MouseEvent's, sent with it, not the module's
-// recorded gesture (T3ComposerIntent no longer reports pointers).
+// A link's click modifiers are its press's MouseEvent's, sent with it.
 describe('a link press carries its own modifiers', () => {
   const fns = contractFns('press-modifiers.contract');
   const mouse = (mods: string) => ({ metaKey: mods.includes('meta'), ctrlKey: mods.includes('ctrl'), altKey: mods.includes('alt'), shiftKey: mods.includes('shift') });
