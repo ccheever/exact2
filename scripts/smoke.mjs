@@ -1316,8 +1316,6 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
     const f = await open({host, browser: 'chrome', plan, ...(host === 'macos' ? {env:{EXACT_DEV_PLAN:plan}} : {})});
     try {
       let t = await f.tree();
-      // Apple hosts focus a launch autofocus the turn after the first frame, which may follow `ready`.
-      for (let i = 0; i < 40 && byTestId(t, 'first')?.focused !== true; i++) { await sleep(25); t = await f.tree(); }
       check(byTestId(t, 'first')?.focused === true, 'autofocus takes focus after mount');
       const axName = async (id) => { const ax = (await f.tree(null, {ax: true})).ax; return ax.unavailable ? (host === 'linux' ? 'unavailable' : null) : ax.elements.find(e => e.testId === id)?.name; }; // LLP 1080.002
       check(await axName('first') === (host === 'linux' ? 'unavailable' : 'Increment'), 'button name is its text, as the platform exposes it'); check(host === 'linux' || await axName('labelled') === '20 sheckles', 'a label names a text, as the platform exposes it');
@@ -1327,6 +1325,8 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
       t = await f.tree();
       check(byTestId(t, 'live-count')?.props.text === 'Count 1', 'live text changes through an action');
       await f.tap('other');
+      // AppKit button activation keeps the old responder; Tab moves focus for this autofocus-retention check.
+      if (host === 'macos') await f.type('first', { key: 'Tab' });
       check(byTestId(await f.tree(), 'other')?.focused === true, 'a text update does not steal focus back');
       check(byTestId(t, 'pressed')?.props.accessibilityPressed === 'true' && byTestId(t, 'mixed')?.props.accessibilityPressed === 'mixed', `aria-pressed is in the tree: ${JSON.stringify([byTestId(t, 'pressed')?.props, byTestId(t, 'mixed')?.props])}`); await f.clock('+1000'); check(byTestId(await f.tree(), 'pressed')?.props.accessibilityPressed === 'false', 'aria-pressed follows its bool'); await f.clock('+1000');
       t = await f.tree();
