@@ -32,6 +32,8 @@ use BrandGitCafe from "./settings-brands.contract"
 use BrandForgejo from "./settings-brands.contract"
 use DeviceHostsView from "../device/settings-a-hosts.contract"
 use DeviceHostsRow from "../device/settings-a-hosts.contract"
+use EasHostsView from "../device/settings-eas-hosts.contract"
+use EasDeviceHostsRow from "../device/settings-eas-hosts.contract"
 use SimulatorSupportRow from "../device/device-support.contract"
 use SimulatorSupportSettingsRow from "../device/device-support.contract"
 use ScopedSwitch from "./settings-scoped-switch.contract"
@@ -149,6 +151,9 @@ shape IntegrationsPage
   agentTool: DeviceTool
   hostsRow: ScopedRow
   deviceHosts: DeviceHostsView
+  // EAS Simulator hosts (settings-eas-hosts.ts), shown when the device state says `supportsEasHosts`.
+  easHostsRow: ScopedRow
+  easHosts: EasHostsView
   simulatorSupport: SimulatorSupportRow[]
   // Browser profiles and the import wizard (browser-profiles-settings.ts).
   browserProfiles: BrowserProfilesView
@@ -509,6 +514,10 @@ component IntegrationsPanel
             DeviceHostsRow(view=data.deviceHosts, busy=busy, rest=rest)
               if data.hostsRow.summary != ""
                 Inheritance(row=data.hostsRow, rest=rest)
+            if data.easHosts.supported
+              EasDeviceHostsRow(view=data.easHosts, busy=busy, rest=rest)
+                if data.easHostsRow.summary != ""
+                  Inheritance(row=data.easHostsRow, rest=rest)
 
 component DeviceRow
   props
