@@ -16,6 +16,7 @@ import { composerBranches } from '../../src/composer/composer-controls-branch';
 import { NO_RUN_ON } from '../../src/details/git-env';
 import { connected } from '../support/composer-controls-fixture';
 import { awaitScratchProject, machineChanging, openRemoteScratch, SCRATCH_NOT_LOADED } from '../../src/composer/scratch-machine';
+import { setLayoutFrames } from '../support/layout-frames';
 
 describe('shouldShowEnvironmentIndicator', () => {
   test('shows the indicator whenever multiple environments are pickable', () => {
@@ -152,7 +153,7 @@ describe('the strip labels give way to icons when they do not fit (useLabelsOver
     expect(resolveContextStripLabelsCompact({ compact: true, neededWidth: 284, availableWidth: 300 })).toBe(false);
   });
   test('the strip\'s padding is not free space; a squeezed label counts at its natural width', () => {
-    const client = { presentation: { frames: {}, anchors: {} } } as unknown as T3Client;
+    const client = { presentation: { anchors: {} } } as unknown as T3Client;
     const view = { show: true, gitless: false, envLocked: false, envShow: false, envLabel: 'Current checkout', envMachineLabel: '', branchLabel: 'feature/a-long-branch-name', prShow: false };
     noteStripLayout(client, view);
     expect(stripLabelTexts(client)).toEqual(['Current checkout', 'feature/a-long-branch-name']);
@@ -160,7 +161,8 @@ describe('the strip labels give way to icons when they do not fit (useLabelsOver
     expect(stripLabelsCompact(client, 16)).toBe(false);
     // A control is its icons and padding (44pt and 60pt here) plus its label as laid out.
     const lay = (stripWidth: number, workspace: number, branch: number) => {
-      client.presentation = { frames: { strip: [0, 0, stripWidth, 32] }, anchors: {
+      setLayoutFrames(client, { strip: [0, 0, stripWidth, 32] });
+      client.presentation = { anchors: {
         'sc:workspace': [8, 44 + workspace], 'sl:workspace': [40, workspace], [probeKey('Current checkout', 12, 400)]: [0, 96],
         'sc:branch': [200, 60 + branch], 'sl:branch': [220, branch], [probeKey('feature/a-long-branch-name', 12, 400)]: [0, 160] } };
       return stripLabelsCompact(client, 16);

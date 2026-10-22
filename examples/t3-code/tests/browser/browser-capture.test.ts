@@ -182,7 +182,7 @@ describe('Annotate\'s result (handlePickElement → addPreviewAnnotation)', () =
 });
 
 describe('⌘↩ in Annotate\'s editor (PickPreload: the page has the key)', () => {
-  it('while Annotate is on in the thread\'s Browser tab, the send button leaves Meta+Enter to the page', async () => {
+  it('while Annotate is on in the thread\'s Browser tab, the composer\'s send chords leave Meta+Enter to the page', async () => {
     const { client } = await opened();
     client.config.keybindings = DEFAULT_SEND_RULES;
     expect(snapshot(client).composer.sendChords).toBe('Meta+Enter Meta+Alt+Enter');
@@ -193,21 +193,19 @@ describe('⌘↩ in Annotate\'s editor (PickPreload: the page has the key)', () 
     (client.presentation as Obj).browserTabs = { [previewRuntimeTabId({ ...ref, threadId: 'other' }, 'epoch-1', 'tab-1')]: { pick: { active: true } }, [tab]: { pick: { active: false } } };
     expect(snapshot(client).composer.sendChords).toBe('Meta+Enter Meta+Alt+Enter');
   });
-  // ChatView's onSendAnnotation: onSend(undefined, "auto", "foreground", …). The window's key monitor saw the page's ⌘↩,
-  // which in a draft resolves to composer.sendBackground (drive 7 found the thread started out of view).
-  it('sends a new thread\'s draft in the foreground, whatever ⌘↩ the window saw', async () => {
+  // ChatView's onSendAnnotation: onSend(undefined, "auto", "foreground", …): even a press that names ⌘↩, which in a
+  // draft resolves to composer.sendBackground, sends an annotation in the foreground.
+  it('sends a new thread\'s draft in the foreground, whatever ⌘↩ pressed it', async () => {
     const { client, native, command } = await connected();
     client.config.keybindings = DEFAULT_SEND_RULES;
-    native.gesture = { modifiers: 'meta', source: 'key', ageMs: 3 };
     markAnnotationSend(client);
-    await command('send', '', 'Send this one too');
+    await command('send', 'key:meta', 'Send this one too');
     expect(native.committed.at(-1)).toMatchObject({ method: 'orchestration.launchThread' });
     expect(client.threadId).not.toBe('');
     expect(toasts(client).map(toast => toast.title)).not.toContain('Started in background');
     // The mark is spent: the next ⌘↩ in a draft is the composer's own, and starts in the background.
     await command('new-thread', client.projectId);
-    native.gesture = { modifiers: 'meta', source: 'key', ageMs: 3 };
-    await command('send', '', 'Background from command return');
+    await command('send', 'key:meta', 'Background from command return');
     expect(toasts(client).at(-1)).toMatchObject({ title: 'Started in background' });
   });
   it('dispatches "auto" while the thread runs, not the follow-up queue', async () => {

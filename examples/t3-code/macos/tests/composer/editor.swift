@@ -4,12 +4,8 @@ import XCTest
 // The OS attachment boundary on a real AppKit text view behind the
 // forwarding delegate. Source edits and grammar belong to the shared field.
 
-var pressedNodes: [UInt32] = [] // queuekey.swift reads it too
 private let editorResolve: ExactHatches.ResolveFn = { _, _, _, _, _ in 0 }
-private let editorAct: ExactHatches.ActFn = { _, node, action in
-    if action == 0 { pressedNodes.append(node) }
-    return 0
-}
+private let editorAct: ExactHatches.ActFn = { _, _, _ in 0 }
 private let editorLog: ExactHatches.LogFn = { _, _, _ in }
 private let editorDelegate: ExactHatches.DelegateFn = { _, _, _ in }
 
@@ -34,11 +30,9 @@ final class EditorFixture {
     var topics: [String] = []
     lazy var composer = T3Composer(changed: { [weak self] topic in self?.topics.append(topic) })
     let element: ExactElement
-    var keys: [String: ExactElement] = [:]
 
     init() {
         _ = NSApplication.shared
-        pressedNodes = []
         table.initializeMemory(as: UInt8.self, repeating: 0, count: 40)
         table.storeBytes(of: UInt32(40), as: UInt32.self)
         table.storeBytes(of: unsafeBitCast(editorResolve, to: UnsafeRawPointer.self), toByteOffset: 8, as: UnsafeRawPointer.self)
@@ -72,42 +66,9 @@ final class EditorFixture {
         composer.install(element)
     }
 
-    func key(_ name: String, node: UInt32) {
-        let key = ExactElement(hatch: .t3ComposerKey, id: name, node: node, hatches: hooks)
-        key.data = ExactData(["anchor": name])
-        keys[name] = key
-        composer.install(key)
-    }
-
     func type(_ text: String) { editor.insertText(text, replacementRange: editor.selectedRange()); tick() }
     /// One event-loop turn: the undo manager closes its event group, as between keystrokes.
     func tick() { RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.005)) }
-
-    /// Through the event queue, so the key is NSApp.currentEvent while the text view handles it, as a typed key is;
-    /// then another event is current, as by the next paste (isPaste reads it).
-    func send(_ characters: String, _ code: UInt16, _ flags: NSEvent.ModifierFlags = [], ignoringModifiers: String? = nil) {
-        let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber,
-            context: nil, characters: characters, charactersIgnoringModifiers: ignoringModifiers ?? characters, isARepeat: false, keyCode: code)!
-        NSApp.postEvent(event, atStart: true)
-        window.sendEvent(NSApp.nextEvent(matching: .keyDown, until: .distantPast, inMode: .default, dequeue: true) ?? event)
-        NSApp.postEvent(NSEvent.otherEvent(with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
-            context: nil, subtype: 0, data1: 0, data2: 0)!, atStart: true)
-        _ = NSApp.nextEvent(matching: .applicationDefined, until: .distantPast, inMode: .default, dequeue: true)
-        tick()
-    }
-    func down(_ flags: NSEvent.ModifierFlags = []) { send("\u{F701}", 125, flags.union([.numericPad, .function])) }
-    func up(_ flags: NSEvent.ModifierFlags = []) { send("\u{F700}", 126, flags.union([.numericPad, .function])) }
-    func control(_ letter: Character) {
-        let scalar = letter.asciiValue! - 96 // ⌃N is U+000E, ⌃P U+0010
-        send(String(UnicodeScalar(scalar)), letter == "n" ? 45 : 35, .control, ignoringModifiers: String(letter))
-    }
-    func left() { send("\u{F702}", 123, [.numericPad, .function]) }
-    func right() { send("\u{F703}", 124, [.numericPad, .function]) }
-    func returnKey(_ flags: NSEvent.ModifierFlags = []) { send("\r", 36, flags) }
-    func tab() { send("\t", 48) }
-    func backtab() { send("\u{19}", 48, .shift) }
-    func escape() { send("\u{1b}", 53) }
-    func backspace() { send("\u{7f}", 51) }
 
     deinit { composer.destroy(); window.close(); table.deallocate() }
 }
@@ -146,53 +107,6 @@ final class ComposerEditorTests: XCTestCase {
         XCTAssertEqual(state["composing"] as? Bool, false)
         fixture.composer.remove(fixture.element)
         XCTAssertTrue(fixture.editor.delegate === fixture.inner)
-    }
-
-    func testOpenMenuKeysPressItsKeyButtonsAndEveryOtherCommandReachesTheSharedField() {
-        let fixture = EditorFixture()
-        fixture.type("@a")
-        fixture.down(); fixture.returnKey(); fixture.escape()
-        XCTAssertEqual(pressedNodes, [], "no menu: nothing is pressed")
-        XCTAssertEqual(fixture.inner.commands, [#selector(NSResponder.moveDown(_:)), #selector(NSResponder.insertNewline(_:)),
-            #selector(NSResponder.cancelOperation(_:))])
-        fixture.key("ArrowDown", node: 3); fixture.key("ArrowUp", node: 4); fixture.key("Enter", node: 5); fixture.key("Escape", node: 6)
-        fixture.inner.commands = []
-        fixture.down(); fixture.up(); fixture.returnKey(); fixture.tab(); fixture.escape()
-        XCTAssertEqual(pressedNodes, [3, 4, 5, 5, 6])
-        XCTAssertEqual(fixture.inner.commands, [], "the open menu takes its keys")
-        XCTAssertEqual(fixture.editor.string, "@a")
-        fixture.left()
-        XCTAssertEqual(fixture.inner.commands, [#selector(NSResponder.moveLeft(_:))])
-        // The menu closes: its buttons unmount and the keys are the field's again.
-        for name in ["ArrowDown", "ArrowUp", "Enter", "Escape"] { fixture.composer.remove(fixture.keys[name]!) }
-        fixture.inner.commands = []; pressedNodes = []
-        fixture.down(); fixture.returnKey()
-        XCTAssertEqual(pressedNodes, [])
-        XCTAssertEqual(fixture.inner.commands, [#selector(NSResponder.moveDown(_:)), #selector(NSResponder.insertNewline(_:))])
-        fixture.key("stash-Enter", node: 8); fixture.key("stash-Delete", node: 9); fixture.key("stash-Escape", node: 10)
-        fixture.inner.commands = []
-        fixture.returnKey(); fixture.send("\u{7f}", 51, .command); fixture.escape()
-        XCTAssertEqual(pressedNodes, [8, 9, 10], "the stash menu's Return, ⌘⌫ and Escape, from the composer only")
-        fixture.editor.setMarkedText("あ", selectedRange: NSRange(location: 1, length: 0), replacementRange: fixture.editor.selectedRange())
-        pressedNodes = []
-        XCTAssertEqual(fixture.editor.delegate?.textView?(fixture.editor, doCommandBy: #selector(NSResponder.insertNewline(_:))), true)
-        XCTAssertEqual(pressedNodes, [], "a composition keeps Return")
-    }
-
-    func testMenuArrowsFollowTheKeyWithAnyModifierAndControlNPMoveTheCaret() {
-        let fixture = EditorFixture()
-        fixture.type("@a")
-        fixture.key("ArrowDown", node: 3); fixture.key("ArrowUp", node: 4)
-        fixture.inner.commands = []
-        fixture.down(.shift); fixture.up(.shift); fixture.down(.option); fixture.up(.command)
-        XCTAssertEqual(pressedNodes, [3, 4, 3, 4], "⇧↓, ⇧↑, ⌥↓ (two commands, one press) and ⌘↑ move the highlight")
-        XCTAssertEqual(fixture.inner.commands, [])
-        fixture.control("n"); fixture.control("p")
-        XCTAssertEqual(pressedNodes, [3, 4, 3, 4], "⌃N and ⌃P leave the highlight")
-        XCTAssertEqual(fixture.inner.commands, [#selector(NSResponder.moveDown(_:)), #selector(NSResponder.moveUp(_:))])
-        // A command with no key event behind it is read by its selector.
-        XCTAssertEqual(T3ComposerEditor.arrow(#selector(NSResponder.moveDown(_:)), nil), 1)
-        XCTAssertNil(T3ComposerEditor.arrow(#selector(NSResponder.moveDownAndModifySelection(_:)), nil))
     }
 
     func testFoldIsOwnerScopedObservedSourceUntilExplicitAcknowledgement() throws {

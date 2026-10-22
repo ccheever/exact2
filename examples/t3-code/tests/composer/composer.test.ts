@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { composerPlaceholder, threadPhase, traitsMenu, commandChords, anchorsFrom, composerView, runtimeModes } from '../../src/composer/composer-presentation';
+import { composerPlaceholder, threadPhase, traitsMenu, commandChords, controlsWidth, composerView, runtimeModes } from '../../src/composer/composer-presentation';
 import { pickerCatalog, scoreModel, favoriteKeys, pickerReady } from '../../src/composer/model-catalog';
 
 const badge = () => ({ providerBadge: '', providerBadgeColor: '' });
@@ -83,9 +83,9 @@ describe('composer controls', () => {
     expect(commandChords(config, 'composer.mode', 'x')).toBe('');
     expect(commandChords({}, 'composer.mode', 'Meta+Shift+A')).toBe('Meta+Shift+A');
   });
-  test('trigger anchors come from the module status', () => {
-    expect(anchorsFrom({ anchors: { traits: [147, 90.5], runtime: [250.5, 133], controls: [0, 393] } })).toEqual({ traits: { x: 147, width: 90.5 }, runtime: { x: 250.5, width: 133 }, controls: { x: 0, width: 393 }, implement: { x: 0, width: 0 }, meter: { x: 0, width: 0 }, actions: { x: 0, width: 0 }, more: { x: 0, width: 0 } });
-    expect(anchorsFrom({})).toEqual({ traits: { x: 0, width: 0 }, runtime: { x: 0, width: 0 }, controls: { x: 0, width: 0 }, implement: { x: 0, width: 0 }, meter: { x: 0, width: 0 }, actions: { x: 0, width: 0 }, more: { x: 0, width: 0 } });
+  test('the controls row\'s width comes from the module\'s anchor', () => {
+    expect(controlsWidth({ anchors: { traits: [147, 90.5], controls: [0, 393] } })).toBe(393);
+    expect(controlsWidth({})).toBe(0);
   });
 });
 

@@ -22,6 +22,7 @@ import {
 import { composerFileRecords, draftFiles, fileChipContexts, foldLimit, pruneFiles, takeFold } from './composer-editor-files';
 import { imageChipContexts, imageContextRecords } from './composer-editor-attach';
 import { composerDrawer, composerStackHold, NO_DRAWER, type ComposerDrawer, type StackHold } from './composer-editor-drawer';
+import { layoutFrames } from '../shell/layout-frames';
 import { WorkspaceDiscovery, workspaceValues } from './composer-workspace-snapshots';
 import { parseTerminalContext, formatTerminalContextReference, saveTerminalContext, terminalMessageRecords, terminalDraftRecords } from '../terminal/terminal-integrations';
 import { terminalOpen } from '../terminal/terminal-drawer-view'; // the real terminalOpen
@@ -226,7 +227,7 @@ export const localId = (): string => uuid();
 export async function composerEditorView(client: T3Client, native: Native | null | undefined, now = 0): Promise<ComposerEditorView> {
   preserveCitationDraft(client);
   const view = await editorView(client, native, now);
-  return { ...view, drawer: { ...composerDrawer(client.presentation), hold: composerStackHold(holds(client), client.snapshotOwner, client.presentation) } }; // composer-editor-drawer.ts
+  return { ...view, drawer: { ...composerDrawer(layoutFrames(client)), hold: composerStackHold(holds(client), client.snapshotOwner, layoutFrames(client)) } }; // composer-editor-drawer.ts
 }
 const stackHolds = new WeakMap<T3Client, StackHold>();
 function holds(client: T3Client): StackHold {

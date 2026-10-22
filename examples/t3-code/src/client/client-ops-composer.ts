@@ -10,7 +10,7 @@ import type { T3Client } from './client';
 import type { OpOut } from './client-ops';
 import { forgetDraftThreadId, launchThreadId } from '../composer/draft-thread-id';
 import { composerNow, stagesChanges, stage, rememberModel, rememberOptions, stagedFor, clearStaged, nextTurnCommands, resolveDispatchMode, followUpBehavior, withDispatchMode, planFollowUp, resolvePlanSubmission, sendQueuesBehindSetup, isCompacting } from '../composer/composer-controls';
-import { additiveGesture, fanoutSelections, fanoutSupported, sendFanout, setFanout, toggleFanout } from '../composer/composer-controls-fanout';
+import { fanoutSelections, fanoutSupported, sendFanout, setFanout, toggleFanout } from '../composer/composer-controls-fanout';
 import { acknowledgeWoke, lockedProviderReason, applyOptionChoice, backgroundStarted } from '../composer/composer-controls-commands';
 import { keepsFullHistory, resumeCompactionTokens, setKeepFullHistory } from '../composer/composer-controls-resume';
 import { contextSnapshot } from '../composer/composer-controls-view';
@@ -171,9 +171,8 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   // An edit typed while the context refreshed is the newer draft; it is not overwritten.
   if ((!submission || submission.interactionMode === 'plan') && (this.local.drafts[this.draftKey] ?? '') === promptAtSend) this.local.drafts[this.draftKey] = text;
   const draftKey = this.draftKey, attachmentsAtSend = attachmentIds(this, draftKey);
-  // A pointer press names its own modifiers (`pointer:meta+alt`, app.contract `send`); any other press reads the Return
-  // gesture the module recorded (T3ComposerIntent: a key press, or none once a click has retired it).
-  const gesture = pressGesture(pressed) ?? await this.call(native, { op: 'composerSendIntent' }).catch(() => ({}));
+  // The press names its gesture (app.contract `submit`): a pointer press's modifiers, or a send chord's from the composer.
+  const gesture = pressGesture(pressed);
   const running = !!selection.threadId && threadPhase(this.projection) === 'running';
   // An annotation's ⌘↩ sends in the foreground, "auto" (PreviewView onSendAnnotation).
   const intent = annotationSend ? 'foreground' : sendIntent(this.config, gesture, running, !selection.threadId, terminalOpen(this),
@@ -298,13 +297,11 @@ async function changeModel(this: T3Client, native: Native, storage: Files, op: s
   }
   const locked = lockedProviderReason(this, providerId);
   if (locked) throw new ClientError(locked);
-  // A draft's Shift-click (or Shift+Return) adds the model to a multi-model fan-out; a plain pick ends it. The picker says so
-  // (the press's own shiftKey); the native gesture covers a press it could not see. That press is
-  // taken on every pick, first (T3ComposerIntent hands it out once): left behind, it would toggle again the one model a
-  // removal leaves, or make the next pick within 2 s (a ⌘N jump) additive. The model a toggle leaves is a plain pick.
+  // A draft's Shift-click (or Shift+Return) adds the model to a multi-model fan-out; a plain pick ends it. The picker says
+  // so (model-picker.contract: the press's shiftKey, a row's or the search field's Shift+Return). The model a toggle
+  // leaves is a plain pick.
   if (op === 'model' && !toggled) {
-    const pressed = await additiveGesture(this, native);
-    if ((shift && fanoutSupported(this)) || pressed) { const single = toggleFanout(this, providerId, modelId); if (!single) return; return changeModel.call(this, native, storage, 'model', single.model, single.instanceId, false, true); }
+    if (shift && fanoutSupported(this)) { const single = toggleFanout(this, providerId, modelId); if (!single) return; return changeModel.call(this, native, storage, 'model', single.model, single.instanceId, false, true); }
   }
   setFanout(this, null);
   const remembered = rememberModel(this, providerId, modelId);

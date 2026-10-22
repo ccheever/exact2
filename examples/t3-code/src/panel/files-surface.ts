@@ -634,7 +634,7 @@ function codePreviewLines(client: T3Client, path: string): number {
 }
 /**
  * A Files preview comment draft on show with the focus holds ⌘↩, as the Diff's does (diff.ts
- * draftHoldsCommandEnter; composer-presentation.ts gives the Send button no chords then). The host sends no blur when a
+ * draftHoldsCommandEnter; composer-presentation.ts gives the composer no send chords then). The host sends no blur when a
  * focused view leaves the tree (LLP 1008), so it holds only on the panel it was taken on, while that panel shows the
  * draft's file as source with the draft's last line (fileCommentLines draws the card there).
  */

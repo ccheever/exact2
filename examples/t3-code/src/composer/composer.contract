@@ -57,6 +57,7 @@ fn composerPasteTakesFiles(files: string[], text: string): bool = files.length >
 
 component ComposerCard
   inject
+    frameMoved: action
     rem: number
     richComposer: ComposerRichView
     richComposerOwner: string
@@ -131,7 +132,7 @@ component ComposerCard
       preventDefault()
       attachFiles("paste", e.files, [], asText, "")
   view
-    column width="100%" border-radius="1.375rem" border-style="solid" border-width=1 border-color=(contextOver ? "light-dark(#1b4ed8b3, #346bf1b3)" : (data.look.themed ? data.look.border : "light-dark(#00000014, #ffffff0d)")) background-color=(data.look.themed ? data.look.popover : "light-dark(#fefefe, #101010)") box-shadow="0 12px 28px -18px light-dark(#00000066, #00000000), inset 0 1px 0 0 light-dark(#00000000, #ffffff08)" box-sizing="border-box" testId="composer-surface" position="relative" hatch="t3-frame" data-frame="card" id="composer-surface" data-paint=`${(contextOver ? "" : (data.look.themed ? "border" : ""))} ${(data.look.themed ? "surfaceOverlay" : "")}` data-pick=((data.look.themed ? "surfaceOverlay" : "") != "" ? (data.look.themed ? "surfaceOverlay" : "") : ((contextOver ? "" : (data.look.themed ? "border" : "")) != "" ? (contextOver ? "" : (data.look.themed ? "border" : "")) : ""))
+    column width="100%" border-radius="1.375rem" border-style="solid" border-width=1 border-color=(contextOver ? "light-dark(#1b4ed8b3, #346bf1b3)" : (data.look.themed ? data.look.border : "light-dark(#00000014, #ffffff0d)")) background-color=(data.look.themed ? data.look.popover : "light-dark(#fefefe, #101010)") box-shadow="0 12px 28px -18px light-dark(#00000066, #00000000), inset 0 1px 0 0 light-dark(#00000000, #ffffff08)" box-sizing="border-box" testId="composer-surface" position="relative" resize=frameMoved id="composer-surface" data-paint=`${(contextOver ? "" : (data.look.themed ? "border" : ""))} ${(data.look.themed ? "surfaceOverlay" : "")}` data-pick=((data.look.themed ? "surfaceOverlay" : "") != "" ? (data.look.themed ? "surfaceOverlay" : "") : ((contextOver ? "" : (data.look.themed ? "border" : "")) != "" ? (contextOver ? "" : (data.look.themed ? "border" : "")) : ""))
       // bg-accent/45 and ring-primary/70 while a thread is held over the composer.
       // ultrathink-frame, a static 2pt spectrum ring over the card's edge (index.css .ultrathink-frame::before:
       // the 120deg six-stop spectrum at 220% size shows its first 45%; saturate(.82) brightness(.92) baked into the stops). An SVG
@@ -175,11 +176,6 @@ component ComposerCard
         text composerIntentNotice role="status" padding="0.5rem 1rem" testId="composer-intent-notice"
       if editor.promptLimit != "" and not resting
         PromptLengthValidation(message=editor.promptLimit)
-      if data.composer.planVisible
-        button hatch="t3-composer-key" data-anchor="mode-plan" press=interaction("plan") disabled=(busy or not data.connected or data.running) position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true tabindex=-1 testId="composer-mode-plan-key"
-          text "composer-mode-plan-key" font-size=1
-        button hatch="t3-composer-key" data-anchor="mode-default" press=interaction("default") disabled=(busy or not data.connected or data.running) position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true tabindex=-1 testId="composer-mode-default-key"
-          text "composer-mode-default-key" font-size=1
       ComposerFooter(data=data, viewportWidth=viewportWidth, text=text, resting=resting, busy=busy, narrow=narrow, keyModels=keyModels, modelsOpen=modelsOpen, optionsOpen=optionsOpen, send=send, stop=stop, openModels=openModels, openOptions=openOptions, interaction=interaction, command=command, openProviders=openProviders)
 
 // One attachment the queued edit keeps (ChatView composerEditingQueuedAttachments):
