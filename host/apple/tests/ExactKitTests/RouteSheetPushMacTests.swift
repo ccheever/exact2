@@ -4,7 +4,7 @@ import XCTest
 @testable import ExactKit
 
 final class RouteSheetPushMacTests: XCTestCase {
-    private func make(navigate: Bool = false, closedby: String = "closerequest", detail: String = "", detailClosedby: String = "closerequest") throws -> SheetFixture {
+    private func make(navigate: Bool = false, closedby: String = "closerequest", detail: String = "", detailClosedby: String = "closerequest", bar: Bool = true, heading: Bool = true) throws -> SheetFixture {
         try SheetFixture(page: """
         routes nav
           home "/"
@@ -23,7 +23,7 @@ final class RouteSheetPushMacTests: XCTestCase {
           view
             column testId="root" navigationKey=`${top(nav).id}` navigationBack="back"\(navigate ? " navigate=follow" : "") width="100%" height="100%"
               for e in stack(nav) key=e.id
-                column navigationKey=`${e.id}` navigationPresentation=(e.name == "modal" ? "modal" : "push") closedby=(e.name == "modal" ? "\(closedby)" : "\(detailClosedby)") testId=e.name width=400
+                column navigationKey=`${e.id}` navigationPresentation=(e.name == "modal" ? "modal" : "push") closedby=(e.name == "modal" ? "\(closedby)" : "\(detailClosedby)") testId=e.name navigationBar=(e.name == "detail" ? "\(bar ? "auto" : "none")" : "auto") width=400
                   if e.name == "home"
                     button testId="open" press=open
                       text "Open"
@@ -35,8 +35,9 @@ final class RouteSheetPushMacTests: XCTestCase {
                     button testId="push" press=pushDetail
                       text "Push"
                   if e.name == "detail"
-                    header
-                      text "Detail" role="heading"
+                    if \(heading ? "true" : "false")
+                      header
+                        text "Detail" role="heading"
                     button testId="ask" commandfor="confirm" command="show-modal"
                       text "Ask"
                     \(detail)
@@ -45,6 +46,28 @@ final class RouteSheetPushMacTests: XCTestCase {
                 button commandfor="confirm" command="close" testId="answer"
                   text "OK"
         """)
+    }
+
+    func testHiddenAndHeaderlessNavigationBarsLayOutTheirBackRow() throws {
+        for heading in [false, true] {
+            for bar in [false, true] {
+                let f = try make(bar: bar, heading: heading)
+                defer { f.close() }
+                try f.press("open"); try f.press("push")
+                let chrome = try XCTUnwrap(f.front.contentView as? RouteChrome)
+                chrome.layoutSubtreeIfNeeded()
+                XCTAssertEqual(chrome.back.isHidden, !bar)
+                XCTAssertEqual(chrome.rows, bar ? RouteChrome.titleRow + 1 : 0)
+                XCTAssertEqual(chrome.content?.frame.minY, bar ? RouteChrome.titleRow + 1 : 0)
+                if bar {
+                    XCTAssertGreaterThan(chrome.back.frame.width, 0)
+                    XCTAssertGreaterThan(chrome.back.frame.minY, 0)
+                    XCTAssertLessThan(chrome.back.frame.maxY, RouteChrome.titleRow)
+                    chrome.back.performClick(nil); f.settle()
+                    XCTAssertNil(f.presenter.navigation.pushedRoute)
+                } else { XCTAssertTrue(f.presenter.navigation.goBack()) }
+            }
+        }
     }
 
     private func key(_ code: UInt16, _ characters: String, _ flags: NSEvent.ModifierFlags = [], in f: SheetFixture) {
