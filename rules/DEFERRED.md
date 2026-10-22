@@ -680,6 +680,18 @@ reading. Nothing that isn't HTML is added by it.
   an agent substitute before the OS (LLP 1069.007). Unblocks taking a photo in an
   app, on the web, iOS and macOS first. Not a built-in tag. Video recording and
   barcode or document scanning stay out until a consumer asks.
+- **Expanded (Daehyeon Mun, 2026-10-23; trade; LLP 1133.006):** the
+  clipboard's `write([new ClipboardItem(…)])` from data code, by the
+  Clipboard API's names, for `image/png` (the app converts other images
+  with `compressImage`) and `text/plain`, as the `@exact/clipboard`
+  extension on the web, macOS and iOS; `copyText` stays a command, and
+  under the agent both write a private pasteboard. Unblocks T3 Code's Copy
+  image without app Swift. Take: `QUEUE.md`'s "Chrome conformance steps for
+  Paste and Match Style and for a clipboard event with nothing focused"
+  moves to Later. Still out, each until a consumer asks: `read` and
+  `readText` outside a paste, `text/html` and RTF, custom formats, file
+  promises, several items in one write, a Contract `write`, a
+  clipboard-change event, and the Linux, Windows and Android cells.
 - ~~No gradient style rows. A gradient with anything on it is a canvas surface with
   children (LLP 1014 §5 — the take for widening `canvas`; the three rows return when a
   host earns them).~~ Moved 2026-09-26 (Seth Webster, for grnl; LLP 1066): one CSS
