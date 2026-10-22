@@ -287,12 +287,10 @@ fn round_1_themes_names_aliases_kinds_and_the_count() {
         .iter()
         .all(|w| w.ends_with("which `themes` does not declare, so it never holds")));
     // `--x` and `x` are two variables whose token names collide, said; `a` and `a.b` are two tokens.
-    assert_eq!(
-        why("x").len() + why("--x").len(),
-        1,
-        "{:?}",
-        import.unmapped
-    );
+    // (the first written keeps the name: `--x`'s value; `x` is reported as its collision)
+    assert!(why("--x").is_empty(), "{:?}", import.unmapped);
+    assert_eq!(why("x").len(), 1, "{:?}", import.unmapped);
+    assert_eq!(hex(&f.value("pen.x", 0).unwrap().css()), hex("#111111"));
     assert!(f.value("pen.a", 0).is_some() && f.value("pen.a.b", 0).is_some());
     // An alias chain resolves; one to a string, or to nothing, is reported.
     assert_eq!(hex(&f.value("pen.chain", 0).unwrap().css()), hex("#333333"));
@@ -350,4 +348,80 @@ fn round_1_more_contexts_than_a_design_takes_and_a_name_that_multiplies_are_refu
         .message
         .clone();
     assert!(why.contains("expands past what one import may do"), "{why}");
+}
+
+#[test]
+fn round_2_the_schemas_properties_dark_listed_first_and_what_no_token_can_hold() {
+    let text = fixture("schema.pen");
+    let import = import("schema.pen", &text);
+    let f = folded(&import);
+    let why = |name: &str| -> Vec<String> {
+        import
+            .unmapped
+            .iter()
+            .filter(|u| u.name == name)
+            .map(|u| u.why.clone())
+            .collect()
+    };
+    // `dark` listed first: still the scheme, `default` the light side (the host's default, whatever Pencil lists first).
+    assert!(f.design.axes.is_empty());
+    assert_eq!(
+        sides(&f.value("pen.page", 0).unwrap().css()),
+        (hex("#ffffff"), hex("#000000"))
+    );
+    // A number that differs by the scheme's side has no token (only a colour has a dark side), reported.
+    assert!(f.value("pen.pad", 0).is_none());
+    assert_eq!(why("pad").len(), 2, "{:?}", import.unmapped);
+    // The schema's pixel properties: a side of strokeWidth, a shadow's offset and blur, an effect's radius;
+    // a gradient's centre is a fraction; a shader's uniforms and a descendant's id are no property names.
+    for (name, css) in [
+        ("line", "1px"),
+        ("shadowX", "2px"),
+        ("shadowBlur", "6px"),
+        ("blurRadius", "10px"),
+        ("idWidth", "40px"),
+        ("centre", "0.5"),
+        ("knob", "3"),
+    ] {
+        assert_eq!(
+            f.value(&format!("pen.{name}"), 0)
+                .unwrap_or_else(|| panic!("{name}"))
+                .css(),
+            css,
+            "{name}"
+        );
+    }
+    assert!(
+        import
+            .notes
+            .contains(&"`knob` is a number: Pencil reads it as uniforms.width".to_string()),
+        "{:?}",
+        import.notes
+    );
+    // An alias cycle makes no token; a literal in braces is reported, not followed.
+    assert!(!why("loopA").is_empty() && !why("loopB").is_empty());
+    assert_eq!(
+        why("braced"),
+        ["a literal in braces, which the importer would read as an alias"]
+    );
+    // A name declared twice keeps its last; each entry counts on its own, one of no shape reported.
+    assert_eq!(hex(&f.value("pen.twice", 0).unwrap().css()), hex("#040404"));
+    assert_eq!(
+        why("twice"),
+        ["declared again later in `variables`, which stands"]
+    );
+    assert_eq!(why("mixedEntries"), ["an entry is no `{value, theme?}`"]);
+    assert_eq!(
+        sides(
+            &f.value("pen.mixedentries", 0)
+                .or_else(|| f.value("pen.mixedEntries", 0))
+                .unwrap()
+                .css()
+        ),
+        (hex("#020202"), hex("#030303"))
+    );
+    assert_eq!(
+        import.counted.source,
+        import.counted.mapped + import.counted.reported
+    );
 }
