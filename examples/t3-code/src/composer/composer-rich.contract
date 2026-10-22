@@ -40,6 +40,8 @@ fn composerChipInside(chips: ComposerSourceChip[], start: number, end: number): 
 // Whether a selection holds any part of a reference: the editor keeps a hidden destination through a native
 // replacement (LLP 1045 D5), so text put over a reference is the app's one range edit instead.
 fn composerChipOverlaps(chips: ComposerSourceChip[], start: number, end: number): bool = start < end and chips.filter((c) => start < c.end and end > c.start).length > 0
+// SURROUND_CLOSE's openers (composer-surround.ts): typed over a selection, the app wraps it.
+fn composerSurrounds(text: string): bool = ["(", "[", "{", "'", "\u{22}", "“", "`", "<", "«", "*", "_"].includes(text)
 // Whether Backspace (`back`) or Delete removes a reference whole: at its edge or inside it (composer-source-chips.ts composerChipDeletion).
 fn composerChipDeletes(chips: ComposerSourceChip[], start: number, end: number, back: bool): bool = composerChipInside(chips, start, end) or (start == end and chips.filter((c) => back ? start == c.end : start == c.start).length > 0)
 // Whether word deletion reaches a reference: beside the caret or past spaces (composerChipWordDeletion).

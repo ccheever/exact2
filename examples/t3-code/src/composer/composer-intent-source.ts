@@ -1,6 +1,10 @@
 import { composerSourceSession } from './composer-rich-state';
 import { composerLanguageEdit } from './composer-block-actions';
 import type { ComposerMode, ComposerSessionResult } from './composer-source-session';
+import type { T3Client } from '../client/client';
+import { adoptPastedChips } from './composer-copied-chips';
+import { reservedAttachments } from './composer-editor-attach';
+import { MAX_ATTACHMENTS } from './composer-controls-attach';
 
 export type ComposerIntent = {
   snapshotOwner: string; owner: string; value: string; serial: number;
@@ -55,6 +59,11 @@ export function composerIntentSource(client: { snapshotOwner: string }, intent: 
     ? session.key(intent.owner, intent.value, range, { name: intent.key, shift: intent.shift, command: intent.command })
     : session.input(intent.owner, intent.value, range, intent.text, intent.kind === 'paste');
   if (result.kind !== 'edit') return { ...reply, kind: result.kind };
+  // A pasted image or file chip from another draft joins this one (composer-copied-chips.ts).
+  if (intent.kind === 'paste' && 'local' in client) {
+    const app = client as T3Client;
+    adoptPastedChips(app, intent.text, MAX_ATTACHMENTS - reservedAttachments(app));
+  }
   return { ...reply, kind: 'edit', start: result.edit.start, end: result.edit.end, text: result.edit.text,
     selectionStart: result.edit.selection.start, selectionEnd: result.edit.selection.end };
 }
