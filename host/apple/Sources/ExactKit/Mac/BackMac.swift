@@ -82,8 +82,11 @@ extension NavigationHost {
     /// Whether Back goes now: a way back, and nothing modal over the page
     /// (a dialog in the top layer, a sheet on the window).
     var canGoBack: Bool {
-        back != nil && (presenter.dialogs.active == nil && presenter.viewport.window?.attachedSheet == nil
-            || pushedRoute.map { presenter.dialogs.active === $0.route && presenter.dialogs.routeActive } == true)
+        guard back != nil, presenter.alerts.modal == nil else { return false }
+        if let dialog = presenter.dialogs.active {
+            return pushedRoute?.route === dialog && presenter.dialogs.routeActive && dialog.window?.attachedSheet == nil
+        }
+        return presenter.viewport.window?.attachedSheet == nil
     }
 
     /// The platform's Back, taken: the authored control pressed, else the
