@@ -175,7 +175,7 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
   let panel = panelsOf(client).get(key);
   if (!live) return present(view, panel ?? null, selection, listEntry, input.now, client);
   native!.watch?.(PR_WAKE_TOPIC);
-  await holdPullRequestRefreshes(client, native!, 'detail', true);
+  await holdPullRequestRefreshes(client, native!, 'detail', true, input.now);
   const viewKey = `pull-request:${key}`, facts = { visible: input.visible !== false, returns: (input.returns ?? 0) + interactionResumes(client) };
   const arriving = !shown.get(client)?.startsWith(`${key}|`);
   if (!panel) {

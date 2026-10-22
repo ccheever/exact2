@@ -264,6 +264,7 @@ component T3Code
   provide
     interacted
     renameHoldsKeys
+    renameFocused
     inlineDocumentViewportWidth
     inlineDocumentViewportHeight
     inlineDocumentShortcut
@@ -726,10 +727,14 @@ component T3Code
     else if now - interactedAt >= 1000
       interactedAt = now
       send interactionNoted = activityInteraction(wallTime.epochAtZero + now)
-  // The device tab's rename field keeps every key, as its keydown's stopPropagation does in RightPanelTabs.tsx: the
-  // window's chords and Escape buttons stand aside while it edits (an `aria-keyshortcuts` button hears its chord before
-  // any field), and its own `keycapture` takes Escape (panel.contract PanelTabNameField).
-  derive renameHoldsKeys = shell.panel.open and shell.panel.tabs.filter((tab) => tab.renaming).length > 0
+  // While the device tab's rename field has the focus (panel.contract PanelTabNameField), the keys its keydown's
+  // stopPropagation keeps from the reference's bubble-phase window listeners stand aside: those keybinding chords
+  // (settings-shortcuts.contract renameHeldCommand) and the Escape buttons, since an `aria-keyshortcuts` button hears its
+  // chord before any field. The capture-phase listeners (sidebar.toggle, the chat's, the composer's and thread commands,
+  // ThreadUndoShortcut, ReopenClosedViewShortcut) still hear a key there, as in the reference.
+  state renameHoldsKeys = false
+  action renameFocused(on: bool)
+    renameHoldsKeys = on
   mutation timelineDisclosureChanged as shape Change refreshes data then dispatchTimelineReads
   mutation timelineReadsRefreshed as shape TimelineReadsResult refreshes data
   mutation timelineReadsRefreshedNext as shape TimelineReadsResult refreshes data

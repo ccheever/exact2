@@ -556,7 +556,15 @@ Differences that belong to the app:
   window root's `pointermove`, `pointerdown`, `wheel` and `keycapture`, to the second
   (app.contract `interacted`). Keys and scrolls the terminal's and the Browser's web views take
   never reach the root: typing in the terminal alone does not keep the reader recent, where the
-  reference's terminal is in its page (until the terminal is a bundled page, task A5).
+  reference's terminal is in its page (until the terminal is a bundled page, task A5). The root
+  hears a hovering pointer only while the window is key (ExactKit's hover tracking), where
+  Chromium's window listeners also hear one over a background window.
+- While the device tab's rename field has the focus, the keybinding chords of the reference's
+  bubble-phase window listeners stay in the menu bar disabled, and the composer's send chords and
+  the Escape buttons beside the tab strip drop theirs (app.contract `renameHoldsKeys`): an
+  `aria-keyshortcuts` button hears its chord before any field, where the reference's input stops
+  the key's propagation. A held chord that is a text field's editing chord (⌘Z, ⌘C, ⌘A…) drops out
+  of the menu instead, so the field edits with it.
 - Under the agent driver, a clock step that has a timer due first waits for every answer in flight,
   up to 20 s. Answers send their own requests, so that wait ends when the server replies, not after
   20 s; the app itself runs its timers on the wall clock. Under the agent the transport's

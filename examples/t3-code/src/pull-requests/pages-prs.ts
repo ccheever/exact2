@@ -423,7 +423,7 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   if (!view.hasProjects) { view.empty = 'No projects in this workspace'; view.emptyDetail = 'Add a project, and the pull requests from its repository appear here.'; view.emptyAction = 'add-project'; return view; }
   const payload = listPayload(prefs, query);
   // The server's announcements read the list again (its refreshTrigger), the rows staying meanwhile.
-  await holdPullRequestRefreshes(client, native, 'list', true);
+  await holdPullRequestRefreshes(client, native, 'list', true, input.now);
   // A due live read stays due until a read lands: a later run (a tick, a revision) overtakes this one's answer.
   const ask = listLiveAsk(client, input), live = listLives.get(client)!;
   if (ask !== null && liveRefreshDue(client, LIST_VIEW, ask)) live.due = true;
