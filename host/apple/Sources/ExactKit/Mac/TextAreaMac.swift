@@ -559,11 +559,19 @@ final class Field: NSTextField {
         guard let node = delegate as? NodeView, node.props["type"]?.lowercased() == "number" else { return nil }
         return node
     }
-    /// Once overridden, this is the role another process (VoiceOver) is
-    /// served, and `super`'s is `NSView`'s `AXUnknown`: an `NSTextField`'s
-    /// role is its cell's (`AXTextField`), so that is the answer for any
-    /// field but a number's.
-    override func accessibilityRole() -> NSAccessibility.Role? { numberOwner != nil ? .incrementor : cell?.accessibilityRole() ?? super.accessibilityRole() }
+    var comboOwner: NodeView? {
+        guard let node = delegate as? NodeView, node.props["accessibilityRole"] == "combobox" else { return nil }
+        return node
+    }
+    /// AppKit serves the field's protocol role and its cell's legacy attributes.
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        if comboOwner != nil { return .comboBox }
+        return numberOwner != nil ? .incrementor : cell?.accessibilityRole() ?? super.accessibilityRole()
+    }
+    override func isAccessibilityExpanded() -> Bool {
+        guard let node = comboOwner else { return super.isAccessibilityExpanded() }
+        return node.props["accessibilityExpanded"] == "true"
+    }
     override func accessibilityMinValue() -> Any? {
         guard let owner = numberOwner else { return super.accessibilityMinValue() }
         return NumberStepping(owner.props).min.map { NSDecimalNumber(decimal: $0) }
