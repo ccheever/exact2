@@ -50,6 +50,45 @@ final class PointerMannersMacTests: XCTestCase {
         return p
     }
 
+    func testAnUpRoutedToNoViewEndsTheHoldBeforeTheNextClick() throws {
+        let page = """
+        component App
+          state count = 0
+          action heard
+            count = count + 1
+          view
+            column
+              column testId="ancestor"
+                box testId="pressed" width=200 height=40 pointerdown=heard pointerup=heard
+              box testId="next" width=200 height=40 pointerdown=heard pointerup=heard
+
+        """
+        let f = try SheetFixture(page: page)
+        defer { f.close() }
+        let source = try f.node("pressed"), ancestor = try f.node("ancestor"), next = try f.node("next")
+        let p = f.presenter
+        var heard: [String] = []
+        p.onPointer = { id, phase, _ in heard.append("\(id):\(phase)") }
+        func event(_ type: NSEvent.EventType, _ view: NSView) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.mouseEvent(with: type, location: view.convert(NSPoint(x: 10, y: 10), to: nil),
+                modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: f.window.windowNumber,
+                context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+        }
+        let up = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseUp, location: NSPoint(x: -100, y: -100),
+            modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: f.window.windowNumber,
+            context: nil, eventNumber: 1, clickCount: 1, pressure: 0))
+        source.mouseDown(with: try event(.leftMouseDown, source))
+        XCTAssertTrue(p.pointerHolds)
+        ancestor.removeFromSuperview()
+        XCTAssertNil(source.window)
+        NSApp.sendEvent(up)
+        XCTAssertFalse(p.pointerHolds, "AppKit has no held view to send this up to")
+        XCTAssertEqual(heard, ["\(source.id):down", "\(source.id):up"])
+        next.mouseDown(with: try event(.leftMouseDown, next))
+        next.mouseUp(with: try event(.leftMouseUp, next))
+        XCTAssertEqual(heard, ["\(source.id):down", "\(source.id):up", "\(next.id):down", "\(next.id):up"])
+    }
+
     func testTheClickThatActivatesAWindowPressesAControlAndNothingElse() throws {
         try XCTSkipIf(ExactEnv.agentMode, "the agent's window is never key: its every click counts")
         let p = fixture()
