@@ -1059,7 +1059,8 @@ A data module imports pure-JavaScript packages installed in `node_modules`
   package code to learn about the module: `appId`, `grants` and the export
   names are read from app.ts's syntax (`staticFacts`), so each of `appId`
   and `grants` is a constant (a string, a template or `+` of constants, an
-  array of them `.join(…)`, or a top-level `const` holding one), and every
+  array of them `.join(…)`, `a === b ? x : y` or `!==` over constants, or a
+  top-level `const` holding one), and every
   producer refuses another by name and place. (The web build had imported
   `app.ts` into Bun, whose resolver takes a package's Node entry; a `node:vm`
   realm is no boundary either: on Bun 1.4.2 its global's constructor reaches

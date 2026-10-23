@@ -468,6 +468,26 @@ const other = 'http://127.0.0.1:4400';`;
   expect(backendOrigin('.', {EXACT_BACKEND_ORIGIN: 'https://backend.example/'})).toBe('https://backend.example');
 });
 
+test('backend selection moves the socket at the origin\'s host, and grants may choose by the origin', async () => {
+  const {injectBackendOrigin, staticFacts} = await import('../js/bake/src/typescript.mjs');
+  const {parseSync} = await import('rolldown/utils');
+  const code = `export const origin = 'http://127.0.0.1:4790';
+const live = 'https://chat.example';
+export const grants = origin === live
+  ? 'net.fetch https://chat.example\\nnet.websocket wss://gateway.chat.example'
+  : [\`net.fetch \${origin}\`, 'net.websocket ws://127.0.0.1:4790', 'net.websocket ws://127.0.0.1:9999'].join('\\n');`;
+  const grants = (to) => staticFacts(injectBackendOrigin(code, to, parseSync), parseSync).grants.split('\n');
+  expect(staticFacts(code, parseSync).grants.split('\n')).toEqual(['net.fetch http://127.0.0.1:4790', 'net.websocket ws://127.0.0.1:4790', 'net.websocket ws://127.0.0.1:9999']);
+  expect(grants('http://127.0.0.1:5000')).toEqual(['net.fetch http://127.0.0.1:5000', 'net.websocket ws://127.0.0.1:5000', 'net.websocket ws://127.0.0.1:9999']);
+  expect(grants('https://staging.example')).toEqual(['net.fetch https://staging.example', 'net.websocket wss://staging.example', 'net.websocket ws://127.0.0.1:9999']);
+  expect(grants('https://chat.example')).toEqual(['net.fetch https://chat.example', 'net.websocket wss://gateway.chat.example']);
+  const negated = "export const origin = 'http://a.example'; export const grants = origin !== 'http://a.example' ? 'net.fetch http://b.example' : 'net.fetch http://a.example';";
+  expect(staticFacts(negated, parseSync).grants).toBe('net.fetch http://a.example');
+  expect(() => staticFacts("export const grants = 1 < 2 ? 'a' : 'b';", parseSync)).toThrow(/must be a constant/);
+  expect(() => injectBackendOrigin("const origin = 'http://a.example'; export const grants = `net.fetch ${origin}\\nnet.websocket ws://a.example`;", 'http://b.example', parseSync))
+    .toThrow(/net.websocket line at its host as a string of its own/);
+});
+
 test('interactive faults resolve backend, warn on impossible prefixes, and reload keeps storage and live faults', async () => {
   const {faultRequest, reloadWeb, driverCapabilities} = await import('./agent-test.mjs');
   const warnings=[];
