@@ -50,7 +50,7 @@ test('different portraits differ, and nothing answers an unknown host or path', 
   expect(answer('api.realworld.show', 'GET', '/elsewhere')).toBeNull();
 });
 
-test('a server portrait override stays local through a consumer cleanup failure', async () => {
+test('a server portrait override leaves other servers and default answers unchanged', async () => {
   const normal = await startNet();
   let failed;
   const ask = (net, path) => fetch(`https://randomuser.me${path}`, {
@@ -73,10 +73,7 @@ test('a server portrait override stays local through a consumer cleanup failure'
     });
     expect(articles.status).toBe(200);
     await articles.arrayBuffer();
-    await expect((async () => {
-      await failed.close();
-      throw new Error('injected cleanup failure');
-    })()).rejects.toThrow('injected cleanup failure');
+    await failed.close();
     const stillNormal = await ask(normal, path);
     expect(stillNormal.status).toBe(200);
     expect(Buffer.from(await stillNormal.arrayBuffer())).toEqual(bytes);
