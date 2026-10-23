@@ -50,6 +50,7 @@ component Excord
   state since = ""
   state away = false
   state endGap = 0
+  state settling = false
   state topKey = ""
   state topOffset = 0
   state places: Place[] = []
@@ -59,6 +60,9 @@ component Excord
   state editing = ""
   state editError = ""
   state stash = ""
+  state savingChannel = ""
+  state savingId = ""
+  state savingStash = ""
   state dividerAt = 0
   state unreadCount = 0
   state unreadBar = false
@@ -103,8 +107,11 @@ component Excord
   derive keys = rows.map(r => r.key)
   derive lastKey = match rows.at(-1) { case some(r) => r.key, case none => "" }
   derive dividerKey = match first(rows.filter(r => r.isNew)) { case some(r) => r.key, case none => "" }
-  // The window answers the reader's present request (a page or a jump has landed).
-  derive current = win.channel == open and win.anchor == anchor
+  // The window answers the reader's present request (a page or a jump has
+  // landed). A window's pin asks for the same rows, so pinning it keeps it current.
+  derive current = win.channel == open and (win.anchor == anchor or win.pin == anchor)
+  // The transcript is on screen, not the channel list.
+  derive reading = top(nav).name == "channel"
   derive draft = draftOf(drafts, open)
   derive editFailure = match edited { case some(r) => (r.ok ? "" : r.error), case none => "" }
   derive clock = time.epochAtZero + now
@@ -131,8 +138,9 @@ component Excord
   task follow when current and anchor == "" and not away and chan.arrived > followed key=chan.arrived
     after(1, followEnd)
   // What the reader has seen at the end is acknowledged a second after it shows,
-  // while the app is in front: at most one ack a second.
-  task ack when open != "" and current and anchor == "" and not away and chan.unread > 0 and page.visibilityState == "visible"
+  // while the transcript is in front: at most one ack a second. Leaving the end
+  // or the channel acknowledges at once what was on screen (`scrolled`, `back`).
+  task ack when reading and current and anchor == "" and not away and chan.unread > 0 and page.visibilityState == "visible"
     after(1000, ackNow)
   task pumping when slow
     every(150, pumpNow)
@@ -153,7 +161,7 @@ component Excord
   action followEnd
     followed = chan.arrived
     if not away and endGap > 0.5
-      scrollIntoView("transcript", lastKey, block="end", behavior="smooth")
+      scrollIntoView("transcript", lastKey, offset=1000000, behavior="smooth")
 
   // Opening a channel: at its newest (§3.1), at its first unread with the bar
   // (§3.2), or where this session left it (§3.3).
@@ -167,7 +175,9 @@ component Excord
     editError = ""
     highlight = ""
     away = false
-    since = c.lastRead
+    // A New divider only for what was unread on opening: what arrives while the
+    // reader watches is not new to them.
+    since = c.firstUnread != "" ? c.lastRead : ""
     dividerAt = c.firstUnreadAt
     unreadCount = c.unread
     unreadBar = c.firstUnread != ""
@@ -182,16 +192,23 @@ component Excord
       anchor = ""
       target = ""
     nav = push(nav, path("channel", id))
+  // Leaving keeps the reader's place, puts an unsaved edit away and acknowledges
+  // what was on screen at the end.
   action leave(url: string)
-    places = places.filter(p => p.channel != open).concat([Place(channel=open, anchor=anchor, key=topKey, offset=topOffset, atEnd=not away)])
-    if editing != ""
-      drafts = withDraft(drafts, open, stash)
+    leaving()
     nav = go(nav, url)
   action back
+    leaving()
+    nav = back(nav)
+  action leaving
     places = places.filter(p => p.channel != open).concat([Place(channel=open, anchor=anchor, key=topKey, offset=topOffset, atEnd=not away)])
     if editing != ""
       drafts = withDraft(drafts, open, stash)
-    nav = back(nav)
+      editing = ""
+      editError = ""
+      stash = ""
+    if not away and anchor == "" and chan.unread > 0
+      send changed = markRead(open)
 
   // The window: the reader's place decides which run of history it holds.
   // The reader is at the end within the last row's height of it (§3.7). The
@@ -208,11 +225,15 @@ component Excord
     // Rows arriving below grow the gap without the reader moving (and the live
     // window shedding its oldest row moves the offset): only a reader whose first
     // visible row or its offset moved changes whether they are at the end.
+    // While a send's return to the end is owed or still settling, a fling's remaining
+    // reports do not decide it (`scrollEnded` puts the list back at its end).
     let moved = k != topKey or max(e.firstVisibleOffset - topOffset, topOffset - e.firstVisibleOffset) > 0.5
-    if isAway != away and moved
+    if isAway != away and moved and target == "" and not settling
       away = isAway
       if isAway
         baseArrived = chan.arrived
+        if anchor == "" and chan.unread > 0 and reading
+          send changed = markRead(open)
         if anchor == ""
           anchor = win.pin
       else
@@ -225,9 +246,17 @@ component Excord
       else
         if at > keys.length - 50 and win.hasAfter
           anchor = win.lastId
-    endGap = round(gap)
+    endGap = gap < 1 ? 0 : round(gap)
     topKey = k
     topOffset = e.firstVisibleOffset
+  // A send's return to the end settles at a scrollend that finds the list there;
+  // momentum that carried it off is undone once the live window is in.
+  action scrollEnded
+    if settling and target == ""
+      if endGap > 0.5
+        scrollIntoView("transcript", lastKey, offset=1000000, behavior="instant")
+      else
+        settling = false
   action older
     if win.hasBefore and current and target == ""
       anchor = win.firstId
@@ -235,6 +264,8 @@ component Excord
     if win.hasAfter and current and target == ""
       anchor = win.lastId
 
+  // "The end" is the last row with an offset past it, which the list clamps to the
+  // end of its range: the bottom inset (the typing line) included.
   // A jump: in the window it scrolls; outside it the window is replaced around
   // the target, which is placed in the same commit when the window is already
   // there and by `land` when it arrives (§3.6). While a jump is owed (`target`)
@@ -263,17 +294,18 @@ component Excord
         target = "new"
   action dismissUnread
     unreadBar = false
+    send changed = markRead(open)
   action toPresent
     away = false
     if anchor == ""
-      scrollIntoView("transcript", lastKey, block="end", behavior="smooth")
+      scrollIntoView("transcript", lastKey, offset=1000000, behavior="smooth")
     else
       anchor = ""
       target = "end"
   action landJump
     let key = keyOf(rows, target)
     if target == "end"
-      scrollIntoView("transcript", lastKey, block="end", behavior="instant")
+      scrollIntoView("transcript", lastKey, offset=1000000, behavior="instant")
       target = ""
     else
       if target == "new"
@@ -310,6 +342,9 @@ component Excord
   action post
     if draft.trim() != ""
       if editing != ""
+        savingChannel = open
+        savingId = editing
+        savingStash = stash
         send edited = editMessage(open, editing, draft.trim())
       else
         send sent = sendMessage(open, draft.trim(), replyTo, time.epochAtZero + performanceNow())
@@ -319,15 +354,19 @@ component Excord
           away = false
           anchor = ""
           target = "end"
+          settling = true
     focus("composer")
+  // An edit's reply settles the edit it answers, in its own channel: one the
+  // reader has since left or cancelled is not reopened or overwritten.
   action afterEdit
-    if editFailure == ""
-      editing = ""
-      editError = ""
-      drafts = withDraft(drafts, open, stash)
-      stash = ""
-    else
-      editError = editFailure
+    if open == savingChannel and editing == savingId
+      if editFailure == ""
+        editing = ""
+        editError = ""
+        drafts = withDraft(drafts, savingChannel, savingStash)
+        stash = ""
+      else
+        editError = editFailure
   action cancelReply
     replyTo = ""
   action cancelEdit
@@ -448,7 +487,7 @@ component Excord
             column flex=1 min-height=0 position="relative"
               list id="transcript" testId="transcript" appearance="none" virtualized=true estimated-item-height=72
                 scroll-start="end" scrollFollowEnd=true scroll-behavior="smooth"
-                reachstart=older reachend=newer scroll=scrolled
+                reachstart=older reachend=newer scroll=scrolled scrollend=scrollEnded
                 flex=1 min-height=0 padding-top=8 padding-bottom=22
                 for m in rows key=m.key
                   MessageRow(m=m, clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, swipeX=(m.key == swipeKey ? swipeX : 0), dragging=(dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd)

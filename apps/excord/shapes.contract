@@ -83,8 +83,8 @@ shape ReplyRef
 // its row. `grouped` says it continues the previous message's group (same
 // author within seven minutes, Discord's rule); the view also breaks a group
 // at a day change, which it decides from `prevAt` in the reader's time zone.
-// `prevAt` is 0 for a channel's first message and -1 when the store does not
-// hold the message before. `state` is "sent", "pending" or "failed". `source` is
+// `prevAt` is 0 for a channel's first message: every other row comes with the message
+// before it (`render.ts`, `windowOf`). `state` is "sent", "pending" or "failed". `source` is
 // the Markdown as sent, for Edit and Copy Text. `isNew` marks the first message
 // after the read position the window was asked with.
 shape Message
