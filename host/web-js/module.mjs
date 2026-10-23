@@ -1,5 +1,5 @@
 // An app's Rust data source as a standalone logic module (LLP 1029.000,
-// ABI 3) for the JS runtime, when the app declares none of its own: a
+// ABI 4) for the JS runtime, when the app declares none of its own: a
 // generated crate exporting the same DataSource the web build bakes with
 // (`apps/<app>/web/build.rs`'s `contract::bake(plan, <expr>)`).
 // usage: bun host/web-js/module.mjs <app> [--out <dir>] → <dir>/app.module.wasm

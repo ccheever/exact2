@@ -417,7 +417,7 @@ function send(t, land) {
     if (t.stream || t.req?.stream) {
       t.ctl = new AbortController(); t.ctl.active = () => t.held() && !t.r?.gone; t.ctl.resource = !!t.r; t.messages = t.coalesced = 0; Open.add(t); // `resource`: a socket it owns takes its mapper's replies (ts-stream.js)
       t.ctl.replied = () => { if (t.waiting) { t.waiting = false; counted(t, inflight); } longPollReplied(t); }; // a long poll's reply of any kind (LLP 1016.000 D8 on D9): out of the clocks' count, held, a reply for `clock held`
-      (t.stream ? t.stream(o => done(o, true), t.ctl) : data.fetch(t.req, m => m.event === 'exact:reply' || done({ streamed: m }, true), t.ctl)).then(done, failed);
+      (t.stream ? t.stream(o => done(o, true), t.ctl) : data.fetch(t.req, m => (t.req.longPoll && m.event === 'exact:reply') || done({ streamed: m }, true), t.ctl)).then(done, failed);
     } else if (t.req) data.fetch(t.req).then(done, failed);
     else t.promise.then(v => done({ v }), e => done({ error: String(e?.message ?? e), code: failureCode(e), reason: failureReason(e) }));
   });
@@ -478,7 +478,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
   // A stream's message (`o.more`) is a settlement that keeps the ticket (LLP 1016.000 D1); a message
   // that re-asks (a cursor across a gap) is a new ticket, the old one closed with the commit (`Open`).
   const land = t => reply(t, name, source, () => r.ticket === t, (p, o) => {
-    if (p.req) { if (o.more) { const n = { id: ++Ticket, args: t.args, req: p.req, r, origin: t.origin }; r.ticket = n; send(n, land(n)); } else { t.req = p.req; t.id = ++Ticket; send(t, land(t)); } return; }
+    if (p.req) { if (o.more) { const n = { id: ++Ticket, name, owner: r, args: t.args, req: p.req, r, origin: t.origin }; r.ticket = n; send(n, land(n)); } else { t.req = p.req; t.id = ++Ticket; send(t, land(t)); } return; }
     if (t.baked) say(revalidated(name, eq(p.v, r.value))); t.baked = false; take(p.v, t.args, t.origin); r.failed = null; r.error = r.code = r.reason = undefined; if (!o.more) r.ticket = null; again(t);
     W(pend, false); W(fail, null); W(ver, ver.n.v + 1);
   }, "it keeps its last value", (error, code, reason) => { r.ticket = null; r.failed = t.args; r.error = error; r.code = code; r.reason = reason; write(pend.n, false); write(fail.n, failure()); });

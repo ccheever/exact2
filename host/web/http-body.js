@@ -157,6 +157,7 @@ export function retryAfter(value, now = Date.now()) {
 // Why a long poll is refused before anything is sent (the runner's `long_poll_refusal`), if it is.
 export function longPollRefusal(op, method, body) {
   const { cursor, from, sameCursorEvent } = op.longPoll ?? {};
+  if (!op.stream) return "exactLongPoll asks again for an answer that keeps coming: it is a stream's";
   const named = v => typeof v === 'string' && [...v].length >= 1 && [...v].length <= 256;
   if (!/^https?:/i.test(op.url)) return 'exactLongPoll: a long poll is HTTP, not a WebSocket';
   if (!/^GET$/i.test(method) || op.bodyFrom != null || body) return 'exactLongPoll: a long poll is a GET with no body';
@@ -181,7 +182,8 @@ export async function readLongPoll(op, init, limit, message, controller, admits)
   const cursorOf = (text) => {
     let at; try { at = JSON.parse(text); } catch { return undefined; }
     for (const part of from.split('.', 2)) { if (at == null || typeof at !== 'object' || !Object.hasOwn(at, part)) return undefined; at = at[part]; }
-    if (typeof at === 'string') return encoder.encode(at).length > 4096 || /[\u0000-\u001f\u007f-\u009f]/.test(at) ? Error("a long poll's cursor is at most 4096 bytes, with no control characters") : at;
+    // (a lone surrogate would not survive the URL or a native host's JSON: no host could carry it)
+    if (typeof at === 'string') return encoder.encode(at).length > 4096 || /[\u0000-\u001f\u007f-\u009f]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(at) ? Error("a long poll's cursor is at most 4096 bytes, with no control characters") : at;
     if (typeof at === 'number') return Number.isSafeInteger(at) ? String(at) : Error("a long poll's numeric cursor is a whole number within 2^53: send a larger one as a string");
     return undefined;
   };
@@ -197,7 +199,7 @@ export async function readLongPoll(op, init, limit, message, controller, admits)
     try {
       const response = await fetch(url.href, { ...init, signal });
       const drop = () => response.body?.cancel().catch(() => {});
-      if (response.url && !admits(response.url)) { drop(); return failed(2, `outside the app's grants (net.fetch): redirected to ${new URL(response.url).origin}`); }
+      if (response.url && !admits(response.url)) { drop(); replied(); return failed(2, `outside the app's grants (net.fetch): redirected to ${new URL(response.url).origin}`); }
       const status = response.status, type = response.headers.get('content-type') ?? '';
       // Judged by status and headers first: a reply that asks again, or an event stream, is never read.
       if (status === 204 || status === 304) { drop(); failures = 0; noEvent(); wait = floor(); }
@@ -236,7 +238,7 @@ export async function readLongPoll(op, init, limit, message, controller, admits)
       error = deadline?.aborted ? `the request timed out after ${op.timeoutMs} ms` : String(e?.message ?? e) || 'a network error';
       const base = Math.min(1000 * 2 ** Math.min(failures, 5), 30000);
       failures++;
-      wait = Math.round(base * (0.8 + 0.4 * Math.random()));
+      wait = Math.max(Math.round(base * (0.8 + 0.4 * Math.random())), floor());
     }
     if (error) controller.retrying = { attempt: failures, at: performance.now() + wait, error };
     await pause(wait);
@@ -380,7 +382,7 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
     catch (error) { return failed(2, error); }
   }
   // A long poll asks again and again on its own (D8): an HTTP GET, no body, JSON replies; checked before a socket opens.
-  if (op.stream && op.longPoll) {
+  if (op.longPoll) {
     const refusal = longPollRefusal(op, method, body);
     if (refusal) return failed(2, refusal);
     const accept = headers.some(([k]) => k.toLowerCase() === 'accept') ? headers : [...headers, ['accept', 'application/json']];
