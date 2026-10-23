@@ -334,7 +334,9 @@ final class PopoverMacTests: XCTestCase {
         let p = fixture(), pop = p.views[3]!, window = p.viewport.window!
         p.press(2)
         let editor = window.firstResponder
-        XCTAssertEqual(pop.frame.origin, NSPoint(x: 260, y: 250))
+        // Its invoker at the bottom-right: the web's default flips above and
+        // leftward rather than holding the popover over its invoker.
+        XCTAssertEqual(pop.frame.origin, NSPoint(x: 240, y: 190))
         p.apply(wireBatch([
             ["op": "children", "id": 1, "ids": [2, 3, 6]],
             ["op": "frame", "id": 3, "x": 0, "y": 0, "w": 260, "h": 160],
