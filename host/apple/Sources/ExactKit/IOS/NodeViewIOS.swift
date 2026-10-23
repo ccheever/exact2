@@ -1163,7 +1163,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         }
         updateEmbedded()
         video?.update()
-        setNeedsDisplay()
+        // Paragraph ops publish the new ink separately. A change of words
+        // leaves the box's paint alone; bitmap text still needs its draw.
+        let wordsOnly = isParagraph && set.keys.allSatisfy { $0 == "text" } && clear.allSatisfy { $0 == "text" }
+        if !wordsOnly || !canRasterText { setNeedsDisplay() }
     }
 
     /// CSS `filter` (LLP 1055.000 D14): the box shows through a filtered
