@@ -62,7 +62,7 @@ final class TextSelectionHost {
         var document: SelectionDocument?
         if let owner = SelectionDocument.container(of: node) {
             let paragraphs = SelectionDocument.paragraphs(in: owner, host: self)
-            if paragraphs.count > 1, paragraphs.allSatisfy({ $0.contextMenuSource == nil }) {
+            if paragraphs.count > 1, paragraphs.allSatisfy({ $0.contextMenuSource == nil && !$0.hasInlineContextMenu }) {
                 document = SelectionDocument(owner: owner, paragraphs: paragraphs, host: self)
             }
         }
