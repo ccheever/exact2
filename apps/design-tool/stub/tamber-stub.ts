@@ -86,7 +86,7 @@ const answered = (r: { status?: number; ok?: unknown; error?: unknown }) => r.ok
 let miss = false;
 // The events' GET long poll (tamber/1.17), as a test turns it on (`/__stub/long-poll`): hello says 1.17, and a GET from
 // a cursor is held until there is news (at most `LONG_POLL_MS`, or the test's `heartbeat` ms, then a 204), as the server's is.
-let longPolls = false, skipCursor = false;
+let longPolls = false, skipCursor = false, refuseHello = false; // (`refuseHello`: hello refused, the events still read)
 const LONG_POLL_MS = 25_000;
 let beat = LONG_POLL_MS;
 // Held proposals, as a test holds them (`/__stub/hold`).
@@ -217,6 +217,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (need === null) return send({ error: { message: `\`${request.method}\` has no scope on this wire` } }, 400);
       if (!allows(asker.scope, need, asker.local)) { const r = refusal(request.method, asker.scope, need); return send({ error: r.error }, r.status); }
       // (A server that lies to a paired client, saying it is local with a page, as a test asks: `/__stub/forge-local`.)
+      if (request.method === 'hello' && refuseHello) return send({ error: { message: 'the design files could not be read' } }, 500);
       if (request.method === 'hello') return send({ ok: { protocol: longPolls ? 'tamber/1.17' : 'tamber/1.13', format: 1, builds: BUILDS, app: '/stub/theme-fixture', files: FILES, epoch: EPOCH, design: 'app.tamber', page: asker.local || forgeLocal ? PAGE ?? (forgeLocal ? 'http://127.0.0.1:5173' : null) : null, live: LIVE, scope: asker.scope, local: asker.local || forgeLocal, ...(asker.client ? { client: asker.client } : {}) } });
       // (Refused once each, as a test asks: `/__stub/refuse-pairing`.)
       if ((request.method === 'pair-code' || request.method === 'clients') && refusePairing.delete(request.method)) return send({ error: { message: `${request.method}: refused, as the test asked` } }, 500);
@@ -476,6 +477,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
   '/__stub/long-poll': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); longPolls = true; const { heartbeat } = await req.json().catch(() => ({})); beat = Number.isSafeInteger(heartbeat) && heartbeat > 0 ? heartbeat : LONG_POLL_MS; return send({ ok: true }); } },
   // A reply the host folded into a later one (LLP 1016.000 D4's coalescing), as a test makes one: the next GET answer
   // names a cursor the tool never had (`asked` moved on), so the tool reads the gap once by POST.
+  '/__stub/refuse-hello': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); refuseHello = true; return send({ ok: true }); } },
   '/__stub/skip-cursor': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); skipCursor = true; return send({ ok: true }); } },
   // A new run of the server: a new epoch, its numbers from 0 again.
   // The tool's canvas check as `tamber tool --via` answers it (scripts/tamber-frame.mjs), as a test sets it
@@ -494,7 +496,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       log.length = 0;
       held = [];
       holds = 0;
-      longPolls = false; skipCursor = false; beat = LONG_POLL_MS;
+      longPolls = false; skipCursor = false; refuseHello = false; beat = LONG_POLL_MS;
       heldAnswer = null;
       BUILDS = [];
       reversed = false;
