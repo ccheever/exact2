@@ -1392,8 +1392,51 @@ fn derive_binders_protect_calls_from_a_prop_named_like_an_app_fn() {
     }
 }
 
+fn derive_call_source(body: &str, declarations: &str, view: &str) -> String {
+    format!(
+        "fn pick(n: number): number = n + 1\nfn other(n: number): number = n + 100\ncomponent App\n  view\n    Seg()\ncomponent Seg\n  derive pick = {body}\n{declarations}  view\n{view}\ncomponent Frame\n  slot\n  view\n    children\ncomponent Label\n  props\n    value: string\n  view\n    text value testId=\"result\"\n"
+    )
+}
+
 #[test]
 fn a_derive_named_like_an_app_fn_is_not_a_dependency_of_its_call() {
-    let src = "fn pick(n: number): number = n + 1\ncomponent App\n  view\n    Seg()\ncomponent Seg\n  derive pick = pick(1)\n  view\n    text `${pick}` testId=\"result\"\n";
-    assert_eq!(text_of(&boot(src), "result"), "2");
+    for (body, expected) in [("pick(1)", "2 6"), ("other(1)", "101 6")] {
+        for view in [
+            "    text `${pick} ${pick(5)}` testId=\"result\"",
+            "    Frame()\n      text `${pick} ${pick(5)}` testId=\"result\"",
+            "    Label(value=`${pick} ${pick(5)}`)",
+        ] {
+            let src = derive_call_source(body, "", view);
+            assert_eq!(text_of(&boot(&src), "result"), expected);
+        }
+    }
+}
+
+#[test]
+fn a_derive_named_like_an_app_fn_leaves_state_initializer_calls_alone() {
+    for (body, expected) in [("pick(1)", "2 6"), ("other(1)", "101 6")] {
+        let src = derive_call_source(
+            body,
+            "  state shown = pick(5)\n",
+            "    text `${pick} ${shown}` testId=\"result\"",
+        );
+        assert_eq!(text_of(&boot(&src), "result"), expected);
+    }
+}
+
+#[test]
+fn a_derive_named_like_an_app_fn_leaves_action_body_calls_alone() {
+    for (body, value) in [("pick(1)", "2"), ("other(1)", "101")] {
+        let src = derive_call_source(
+            body,
+            "  state shown = 0\n  action update(n: number)\n    shown = pick(n)\n  action relay()\n    update(5)\n",
+            "    column\n      text `${pick} ${shown}` testId=\"result\"\n      button \"Update\" press=update(5) testId=\"update\"\n      button \"Reset\" press=update(0) testId=\"reset\"\n      button \"Relay\" press=relay testId=\"relay\"",
+        );
+        let mut r = boot(&src);
+        assert_eq!(text_of(&r, "result"), format!("{value} 0"));
+        for (button, expected) in [("update", 6), ("reset", 1), ("relay", 6)] {
+            press(&mut r, button);
+            assert_eq!(text_of(&r, "result"), format!("{value} {expected}"));
+        }
+    }
 }
