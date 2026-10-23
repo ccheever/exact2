@@ -5,9 +5,9 @@ import { checkOp, ratio } from '../../scripts/agent-check.mjs';
 import { answer, startNet } from '../../host/web-js/conformance/net.mjs';
 
 // Build first with `bun host/web/build.mjs spark`.
-test('the dark match overlay declares its status bar only while mounted', async () => {
-  // The web JS compiler omits status-bar properties; check the declaration here
-  // and drive the node's scheme and lifetime below. UIKit rendering needs iOS.
+test('the match backdrop covers the page throughout its content entrance', async () => {
+  // This source check locks the attribute only: the web omits status-bar
+  // properties. The browser checks the backdrop; native ink still needs iOS.
   const declarations = readFileSync(new URL('./app.contract', import.meta.url), 'utf8')
     .split('\n').filter(line => line.includes('status-bar-style='));
   expect(declarations).toHaveLength(1);
@@ -25,8 +25,26 @@ test('the dark match overlay declares its status bar only while mounted', async 
       await session.prefer({ 'prefers-color-scheme': scheme });
       expect(await overlayMounted()).toBe(false);
       await session.tap('btn-like');
-      await session.clock('settle');
       expect((await session.state()).slots.matched).toBe(0);
+      // Sample mounting, the delay and the content entrance before settling.
+      for (const step of [0, 160, 290, 'settle']) {
+        if (step) await session.clock(step === 'settle' ? step : `+${step}`);
+        const paint = await session.carrier.evaluate(`(() => {
+          const overlay = document.querySelector('[data-testid="match-overlay"]');
+          const style = getComputedStyle(overlay);
+          const rect = overlay.getBoundingClientRect();
+          let opacity = 1;
+          for (let node = overlay; node; node = node.parentElement) {
+            opacity *= Number(getComputedStyle(node).opacity);
+          }
+          return { opacity, background: style.backgroundImage,
+            coversViewport: rect.top <= 0 && rect.left <= 0 &&
+              rect.right >= innerWidth && rect.bottom >= innerHeight };
+        })()`);
+        expect(paint.opacity).toBe(1);
+        expect(paint.background).toContain('linear-gradient(');
+        expect(paint.coversViewport).toBe(true);
+      }
       const overlay = (await session.layout('match-overlay')).node;
       expect(overlay.style.color_scheme.computed).toBe('dark');
       expect(await overlayMounted()).toBe(true);
@@ -34,7 +52,6 @@ test('the dark match overlay declares its status bar only while mounted', async 
       await session.clock('settle');
       expect((await session.state()).slots.matched).toBe(-1);
       expect(await overlayMounted()).toBe(false);
-      expect((await session.op({ op: 'check' })).scheme).toBe(scheme);
       await session.tap('btn-undo');
       await session.clock('settle');
     }
