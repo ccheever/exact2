@@ -21,7 +21,7 @@
 //! the sheet asks for (`groupedRowSeparator`) and each host draws
 //! (`Kernel::grouped_separator`, the web's page sheet).
 
-mod actions;
+pub(crate) mod actions;
 mod inputs;
 mod lines;
 mod messages;
@@ -225,7 +225,7 @@ pub(crate) fn split(attrs: &[Attr]) -> (Vec<Attr>, Option<Vec<Attr>>) {
         .partition(|a| a.name.starts_with(MARK));
     let sheet = sheet
         .into_iter()
-        .filter(|a| a.name != BUTTON_CONTEXT && a.name != SEPARATED)
+        .filter(|a| ![BUTTON_CONTEXT, SEPARATED, actions::ACTION_MARK].contains(&a.name.as_str()))
         .map(|a| Attr {
             name: a.name[MARK.len()..].to_owned(),
             ..a
@@ -849,7 +849,8 @@ fn styled(node: &Node, separated: bool, swiped: bool) -> Node {
     // reads the same shape (`GroupedRow::action`). A row that says whether
     // it is selected is a choice, whose mark comes and goes: never one.
     let choice = attrs.iter().any(|a| a.name == "aria-selected");
-    let ink = if tag == "button" && !choice && action_cell(children) {
+    let acting = tag == "button" && !choice && action_cell(children);
+    let ink = if acting {
         mv("action-color", span)
     } else {
         label()
@@ -1030,6 +1031,7 @@ fn styled(node: &Node, separated: bool, swiped: bool) -> Node {
     }
     // A card-less section's rows draw no separator (§6.2).
     sheet.extend(separator(separated, span));
+    sheet.extend(actions::mark(tag == "button", acting, span));
     // The title grows to push a value to the far edge; a push button's is
     // as wide as its words.
     let title_grow = || {
