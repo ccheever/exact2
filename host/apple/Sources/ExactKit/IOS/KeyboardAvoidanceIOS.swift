@@ -77,8 +77,10 @@ extension Presenter {
     /// route's backdrop), never a row's own. Nil where nothing is painted.
     func bottomEdgeColor() -> UIColor? {
         let b = viewport.bounds.inset(by: pageMargins) // the page's area, not the band under it
-        guard b.height > 1, let hit = viewport.hitTest(CGPoint(x: b.midX, y: b.maxY - 1), with: nil) else { return nil }
-        let chain = Array(sequence(first: hit, next: { $0 === self.viewport ? nil : $0.superview }))
+        // The mount beside the viewport shares its space and has no ground of its own.
+        let port = documentPort
+        guard b.height > 1, let hit = port.hitTest(CGPoint(x: b.midX, y: b.maxY - 1), with: nil) else { return nil }
+        let chain = Array(sequence(first: hit, next: { $0 === port ? nil : $0.superview })) + (port === viewport ? [] : [viewport as UIView])
         let from = chain.firstIndex { $0 is UIScrollView } ?? 0
         return chain[from...].lazy.compactMap { v in
             v.backgroundColor.flatMap { $0.resolvedColor(with: v.traitCollection).cgColor.alpha > 0.99 ? $0 : nil }

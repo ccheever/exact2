@@ -50,7 +50,7 @@ struct PressPath {
 extension Presenter {
     /// Whether `view` is mounted in this session's document or a presentation beside it.
     func mounts(_ view: UIView) -> Bool {
-        view.isDescendant(of: root) || view.isDescendant(of: viewport) || surface(containing: view).map { $0.kind != .document } == true
+        view.isDescendant(of: viewport) || view.isDescendant(of: documentMount) || surface(containing: view).map { $0.kind != .document } == true
     }
 
     /// Where a finger reaches `view`, in viewport points (the viewport's
@@ -76,7 +76,7 @@ extension Presenter {
     /// Ends editing wherever the session is mounted; whether any editor resigned.
     @discardableResult
     package func endEditing() -> Bool {
-        presentations(includingRetiring: true).reduce(root.endEditing(true) || viewport.endEditing(true)) { $1.endEditing(true) || $0 }
+        presentations(includingRetiring: true).reduce(documentMount.endEditing(true) || viewport.endEditing(true)) { $1.endEditing(true) || $0 }
     }
 
     /// The next view reached by a touch or its listeners: the superview,

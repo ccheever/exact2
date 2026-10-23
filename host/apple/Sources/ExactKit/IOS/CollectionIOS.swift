@@ -379,12 +379,13 @@ extension CollectionHost {
         })?.id
     }
     func startTracking() {
-        guard let viewport = presenter?.viewport else { return }
-        let recognizer = watchContacts(in: viewport)
+        guard let presenter else { return }
+        // The document's two places (`mountDocument`)
+        let recognizers = ([presenter.viewport, presenter.documentMount] as [UIView]).map { ($0, watchContacts(in: $0)) }
         let observer = NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification,
             object: nil, queue: .main) { [weak self] _ in self?.releaseInteractionLater() }
-        stopTracking = { [weak viewport] in
-            viewport?.removeGestureRecognizer(recognizer)
+        stopTracking = {
+            for (port, recognizer) in recognizers { port.removeGestureRecognizer(recognizer) }
             NotificationCenter.default.removeObserver(observer)
         }
     }
