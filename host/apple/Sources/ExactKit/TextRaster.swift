@@ -59,7 +59,7 @@ struct TextRasterExtent {
 }
 
 struct TextRasterJob {
-    let source: NSAttributedString
+    var source: NSAttributedString
     let ranges: [CFRange]
     let baselines: [CGFloat]
     let flush: CGFloat
@@ -88,6 +88,8 @@ struct TextRasterJob {
     /// as it composites (`TextRasterImage.tint`): a quarter of the bytes,
     /// and Core Graphics' cheaper glyph path, as a `UILabel`'s backing store.
     var tints = false
+    var measuredGlyphs: MeasuredGlyphs? = nil
+    var measuredColor: CGColor? = nil
 
     static let maxInkOverflow: CGFloat = 256
     /// `input` within `limit` (the box and its ink allowance) and `clip`, out
@@ -157,6 +159,10 @@ struct TextRasterJob {
         return CGRect(x: -32 - reach.left, y: max(-32, port.minY - (height - port.height) / 2), width: wide, height: height)
     }
     func render(lines reused: [CTLine]? = nil) -> TextRasterImage? {
+        if let measuredGlyphs, let measuredColor, !ellipsis, clamped == nil, !justifies, shadow == nil,
+           ColorRange.headroom(measuredColor) <= 1 && !ColorRange.needsExtendedComponents(measuredColor) {
+            return render(measuredGlyphs, color: measuredColor)
+        }
         var lines: [CTLine]
         if let reused {
             precondition(Thread.isMainThread, "cached lines stay on their owning thread")
@@ -281,6 +287,58 @@ struct TextRasterJob {
             })?.pixels
             out.castHeadroom = castHeadroom
         }
+        return out
+    }
+
+    /// Paint the owner's glyph values without constructing another typesetter.
+    private func render(_ glyphs: MeasuredGlyphs, color: CGColor) -> TextRasterImage? {
+        guard glyphs.lines.count == baselines.count else { return nil }
+        let bounds = CGRect(origin: .zero, size: size)
+        let positions = zip(glyphs.lines, baselines).map {
+            CGPoint(x: box.minX + $0.origin, y: box.minY + TextEngine.paintedBaseline($1, scale: scale))
+        }
+        var painted = CGRect.null
+        for (line, position) in zip(glyphs.lines, positions) {
+            let ink = line.ink
+            if !ink.isNull, !ink.isEmpty {
+                painted = painted.union(CGRect(x: position.x + ink.minX, y: position.y - ink.maxY,
+                    width: ink.width, height: ink.height).insetBy(dx: -1 / scale, dy: -1 / scale))
+            }
+            if crop, line.box.width > 0 { painted = painted.union(line.box.offsetBy(dx: position.x, dy: position.y)) }
+        }
+        let covered = Self.alignedExtent(painted.isNull ? bounds : bounds.union(painted), bounds: bounds, clip: clip, scale: scale)
+        var extent = covered
+        if crop, !painted.isNull {
+            let ink = Self.alignedExtent(painted, bounds: bounds, clip: clip, scale: scale)
+            if !ink.rect.isNull, !ink.rect.isEmpty { extent = ink }
+        }
+        let frame = extent.rect
+        let w = extent.pixels?.width ?? (frame.width * scale).rounded(.up)
+        let h = extent.pixels?.height ?? (frame.height * scale).rounded(.up)
+        guard w.isFinite, h.isFinite, w > 0, h > 0, w < CGFloat(Int.max), h < CGFloat(Int.max) else { return nil }
+        let width = Int(w), height = Int(h)
+        // The fast path admits sRGB ink; wide/HDR colors retain the full paint path.
+        guard let pixels = bitmap(width: width, height: height, space: Self.srgb, headroom: 0, deep: false, alphaOnly: tints, paint: { ctx in
+            ctx.translateBy(x: 0, y: CGFloat(height))
+            ctx.scaleBy(x: scale, y: -scale)
+            ctx.translateBy(x: -frame.minX, y: -frame.minY)
+            ctx.setShouldSmoothFonts(true)
+            ctx.setFillColor(color)
+            for (line, position) in zip(glyphs.lines, positions) {
+                ctx.saveGState()
+                ctx.translateBy(x: position.x, y: position.y)
+                ctx.scaleBy(x: 1, y: -1)
+                ctx.textMatrix = .identity
+                ctx.textPosition = .zero
+                for run in line.runs where !run.glyphs.isEmpty {
+                    CTFontDrawGlyphs(run.font, run.glyphs, run.positions, run.glyphs.count, ctx)
+                }
+                ctx.restoreGState()
+            }
+            ctx.flush()
+        }) else { return nil }
+        var out = TextRasterImage(pixels.pixels, frame: frame, covered: covered.rect, headroom: 0)
+        if tints { out.tint = color.copy(alpha: 1) }
         return out
     }
 

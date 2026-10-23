@@ -2,7 +2,7 @@
 // engines read it (LLP 1072 §8.1): the measurer, on the owner thread, answers
 // a paragraph it has answered before without typesetting it again, and the
 // painter, on main, takes the line breaks its pixels are made from. Plain
-// values under one lock; no CoreText object is kept or crosses a thread.
+// values under one lock; no CoreText layout object is kept or crosses a thread.
 import Foundation
 import CoreText
 import CExact
@@ -125,6 +125,7 @@ package final class TextAnswers: @unchecked Sendable {
         let metrics: ExactMetrics
         /// A definite width's line breaks; an intrinsic offer has none.
         let lines: LineGeometry?
+        var glyphs: MeasuredGlyphs?
     }
     private final class Entry {
         let hash: Int
@@ -194,7 +195,7 @@ package final class TextAnswers: @unchecked Sendable {
     /// A definite offer's two arrays; its place in the entry's array is
     /// counted with that array's capacity.
     private static func cost(_ offer: Offer) -> Int {
-        offer.lines.map { 64 + (($0.ranges.count * (MemoryLayout<CFRange>.stride + MemoryLayout<CGFloat>.stride)) + 31) & ~31 } ?? 0
+        (offer.glyphs?.bytes ?? 0) + (offer.lines.map { 64 + (($0.ranges.count * (MemoryLayout<CFRange>.stride + MemoryLayout<CGFloat>.stride)) + 31) & ~31 } ?? 0)
     }
 
     /// What measuring the paragraph keyed `key` at `offer` answered.
@@ -212,8 +213,35 @@ package final class TextAnswers: @unchecked Sendable {
         touch(e)
         return hit.lines
     }
+    /// Transfer the optional glyph copy to one raster job, retaining scalar answers.
+    package func takeGlyphs(hash: Int, key: [UInt8], width: CGFloat) -> MeasuredGlyphs? {
+        let offer = TextAnswerKey.offer(width: width)
+        lock.lock(); defer { lock.unlock() }
+        guard let e = find(hash, key), let i = e.offers.firstIndex(where: { $0.bits == offer }),
+              let glyphs = e.offers[i].glyphs else { return nil }
+        e.offers[i].glyphs = nil
+        e.bytes -= glyphs.bytes; stats.bytes -= glyphs.bytes
+        touch(e)
+        return glyphs
+    }
+    package func discardGlyphs() {
+        lock.lock(); defer { lock.unlock() }
+        dropGlyphs()
+    }
+    private func dropGlyphs() {
+        var entry = oldest
+        while let e = entry {
+            for i in e.offers.indices {
+                if let glyphs = e.offers[i].glyphs {
+                    e.bytes -= glyphs.bytes; stats.bytes -= glyphs.bytes
+                    e.offers[i].glyphs = nil
+                }
+            }
+            entry = e.newer
+        }
+    }
     /// The measurer's answer, published once per offer.
-    package func put(hash: Int, key: [UInt8], offer: UInt64, metrics: ExactMetrics, lines: LineGeometry?) {
+    package func put(hash: Int, key: [UInt8], offer: UInt64, metrics: ExactMetrics, lines: LineGeometry?, glyphs: MeasuredGlyphs? = nil) {
         guard limit > 0 else { return }
         lock.lock(); defer { lock.unlock() }
         let e: Entry
@@ -230,7 +258,7 @@ package final class TextAnswers: @unchecked Sendable {
             append(e)
             stats.paragraphs += 1; stats.bytes += e.bytes
         }
-        let value = Offer(bits: offer, metrics: metrics, lines: lines)
+        let value = Offer(bits: offer, metrics: metrics, lines: lines, glyphs: glyphs)
         var cost = Self.cost(value)
         if e.offers.count < Self.offersPerParagraph {
             let held = e.offers.capacity
@@ -243,6 +271,8 @@ package final class TextAnswers: @unchecked Sendable {
             e.next = (e.next + 1) % Self.offersPerParagraph
         }
         e.bytes += cost; stats.bytes += cost
+        // Glyph copies save one paint; answers save every later measurement.
+        if stats.bytes > limit { dropGlyphs() }
         while stats.bytes > limit, let victim = oldest, victim !== e { remove(victim) }
     }
     package func clear() {
