@@ -51,6 +51,7 @@ const content = `<style>#exact-root#exact-root { & .sized { width: 44px; height:
   ${stack('headless', symbol(), 'header', '', '')}${stack('two', symbol(), 'header', '', heading('Updates') + heading('Today'))}
   ${hiddenControls.map(([id, control]) => stack(id, control, 'header', '', heading('Updates') + heading('Today'))).join('')}
   ${stack('held-visible', symbol())}${stack('held-hidden', symbol())}
+  ${['visible', 'hidden'].map(kind => stack(`held-ancestor-${kind}`, `<div id="back" data-exact-on="press">${symbol().replace('id="back"', 'id="inner"')}</div>`)).join('')}
   ${stack('row', symbol(), 'header', '', '<div role="heading" aria-level="1"><span data-exact-text>Updates</span></div>')}
   ${stack('authored', symbol(), 'header', '', heading('Updates'), 'data-exact-said="appearance"')}${stack('authored-content', symbol(), 'content', '', heading('Updates'), 'data-exact-said="appearance"')}
   ${stack('authored-alone', '', 'content', '', heading('Updates'), 'data-exact-said="appearance"')}${stack('alone', '', 'content')}
@@ -114,6 +115,18 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a pushe
       const control = document.querySelector(`#${id} #back`);
       return [control.hasAttribute('data-exact-bar-back'), control.checkVisibility({ visibilityProperty: true })];
     }))).toEqual([[false, true], [false, false]]);
+    // A different Back control can be inside the item the previous projection hid.
+    expect(await page.evaluate(() => ['visible', 'hidden'].map(kind => document.querySelector(`#held-ancestor-${kind} #back`).hasAttribute('data-exact-bar-back')))).toEqual([true, true]);
+    expect(await page.evaluate(() => ['visible', 'hidden'].map(kind => {
+      const route = document.getElementById(`held-ancestor-${kind}`), header = route.querySelector('header');
+      route.parentElement.setAttribute('navigationBack', 'inner');
+      header.append(header.querySelector('h2').cloneNode(true));
+      if (kind === 'hidden') route.querySelector('#back').style.display = 'none';
+      project();
+      return [kind, route.querySelectorAll('[data-exact-bar-back]').length,
+        route.querySelector('#inner').checkVisibility({ visibilityProperty: true }),
+        header.shadowRoot.querySelector('button[part="back"]').checkVisibility({ visibilityProperty: true })];
+    }))).toEqual([['visible', 0, true, false], ['hidden', 0, false, true]]);
     const backIds = [...hiddenIds, 'held-hidden'];
     expect(await page.evaluate((ids) => ids.map(id => {
       const back = document.querySelector(`#${id} > header`).shadowRoot?.querySelector('button[part="back"]');
@@ -212,7 +225,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a pushe
 }, 30000);
 
 // Compiled, through each runtime and the agent: a tap that names the control the bar stands for presses the bar's
-// Back, which presses the control. A header iOS makes no bar of draws Back only when its control is hidden.
+// Back, which presses the control. A header iOS makes no bar of draws Back when it shows no visible Back control.
 // Build the wasm fixture first: EXACT_WEB_LINK=all EXACT_WEB_DIST=<dist> bun host/web/build.mjs caltrain-web --wasm.
 // Run this file with EXACT_WEB_DIST=<dist> to exercise both runtimes.
 const SOURCE = `routes nav
@@ -227,6 +240,9 @@ const SOURCE = `routes nav
     wraps "/wraps"
     kept "/kept"
     hidden "/hidden"
+    hiddenNone "/hidden-none"
+    contentHidden "/content-hidden"
+    contentNone "/content-none"
 
 component App
   state added = 0
@@ -250,6 +266,12 @@ component App
     nav = push(nav, path("wraps"))
   action openHidden
     nav = push(nav, path("hidden"))
+  action openHiddenNone
+    nav = push(nav, path("hiddenNone"))
+  action openContentHidden
+    nav = push(nav, path("contentHidden"))
+  action openContentNone
+    nav = push(nav, path("contentNone"))
   action openKept
     nav = push(nav, path("kept"))
   action back
@@ -257,7 +279,7 @@ component App
   action noop
     nav = nav
   view
-    main navigationKey=\`\${top(nav).id}\` navigationBack="back" width="100%" height="100%"
+    main navigationKey=\`\${top(nav).id}\` navigationBack="back" testId="nav" width="100%" height="100%"
       for e in stack(nav) key=e.id
         column navigationKey=\`\${e.id}\` navigationBar=(e.name == "full" ? "none" : "auto") position="absolute" inset=0 background-color="Canvas"
           if e.name == "wraps"
@@ -287,10 +309,10 @@ component App
                   image "symbol:add" font-size=13
             else
               header display="flex" align-items="center"
-                if e.name != "home"
-                  button id="back" press=back testId="back" aria-label="Back" width=44 height=44 visibility=(e.name == "hidden" ? "hidden" : "visible")
+                if e.name != "home" and e.name != "contentHidden" and e.name != "contentNone"
+                  button id="back" press=back testId="back" aria-label="Back" width=44 height=44 visibility=(e.name == "hidden" ? "hidden" : "visible") display=(e.name == "hiddenNone" ? "none" : "flex") aria-keyshortcuts="Alt+B"
                     image "symbol:back" font-size=17 width=20 height=20
-                if e.name == "hidden"
+                if e.name == "hidden" or e.name == "hiddenNone"
                   text "Today" role="heading" aria-level=2
                 if e.name == "row"
                   row role="heading" aria-level=1
@@ -311,6 +333,9 @@ component App
                 if e.name != "home"
                   button press=add testId="add" aria-label="Add"
                     image "symbol:add" font-size=13
+          if e.name == "contentHidden" or e.name == "contentNone"
+            button id="back" press=back testId="back" aria-label="Back" width=44 height=44 visibility=(e.name == "contentHidden" ? "hidden" : "visible") display=(e.name == "contentNone" ? "none" : "flex") aria-keyshortcuts="Alt+B"
+              image "symbol:back" font-size=17 width=20 height=20
           if e.name == "commanded"
             dialog id="sheet"
               text "Sheet"
@@ -333,6 +358,12 @@ component App
               text "Wraps"
             button press=openHidden testId="open-hidden"
               text "Hidden"
+            button press=openHiddenNone testId="open-hidden-none"
+              text "Hidden without a box"
+            button press=openContentHidden testId="open-content-hidden"
+              text "Hidden in content"
+            button press=openContentNone testId="open-content-none"
+              text "Content without a box"
             button press=openKept testId="open-kept"
               text "Kept"
 `;
@@ -370,15 +401,24 @@ for (const [runtime, webDist] of Object.entries({ wasm: process.env.EXACT_WEB_DI
           await s.tap('back');
           await s.clock('settle');
           expect([browser, (await shown())[0]]).toEqual([browser, 1]);
-          await s.tap('open-hidden');
-          await s.clock('settle');
-          expect([browser, await s.carrier.evaluate(`(() => {
-            const control = document.querySelector('[data-testid=back]'), back = control.closest('header').shadowRoot?.querySelector('button[part="back"]');
-            return [control.checkVisibility({ visibilityProperty: true }), back?.checkVisibility({ visibilityProperty: true }) ?? false];
-          })()`)]).toEqual([browser, [false, true]]);
-          await s.carrier.evaluate(`document.querySelector('[data-testid=back]').closest('header').shadowRoot.querySelector('button[part="back"]').click()`);
-          await s.clock('settle');
-          expect([browser, (await shown())[0]]).toEqual([browser, 1]);
+          const hiddenRoutes = ['open-hidden', 'open-hidden-none', 'open-content-hidden', 'open-content-none'], results = [];
+          for (const route of hiddenRoutes) for (const input of ['tap', 'shortcut']) {
+            await s.tap(route);
+            await s.clock('settle');
+            expect([browser, route, await s.carrier.evaluate(`(() => {
+              const control = document.querySelector('[data-testid=back]'), back = control.closest('[navigationkey]').querySelector(':scope > header').shadowRoot?.querySelector('button[part="back"]');
+              return [control.checkVisibility({ visibilityProperty: true }), control.hasAttribute('data-exact-bar-back'), back?.checkVisibility({ visibilityProperty: true }) ?? false, back?.getAttribute('aria-keyshortcuts')];
+            })()`)]).toEqual([browser, route, [false, false, true, 'Alt+B']]);
+            let error = null;
+            try { if (input === 'tap') await s.tap('back'); else await s.type('nav', { key: 'Alt+b' }); }
+            catch (e) { error = e.message; }
+            await s.clock('settle');
+            const count = (await shown())[0];
+            results.push([route, input, count, error]);
+            // Recover a failed input through the platform's Back so every case reports its result.
+            if (count > 1) { await s.back(); await s.clock('settle'); }
+          }
+          expect([browser, results]).toEqual([browser, hiddenRoutes.flatMap(route => ['tap', 'shortcut'].map(input => [route, input, 1, null]))]);
           // A route with no bar, one whose header's heading is a row and one whose header says `appearance: none`
           // (holding the control or not), which iOS makes no bar of: the control shows, no Back is drawn, and the
           // control goes back. A header that hears `press`, a title in a button that shows a dialog, and a popover
