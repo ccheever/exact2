@@ -3,7 +3,7 @@ import AppKit
 
 /// Authored toolbar ink uses a native button in the item's public view slot.
 final class ToolbarInkMac {
-    func button(_ item: NSToolbarItem, node: NodeView, face: ButtonFace?, target: AnyObject, action: Selector) {
+    func button(_ item: NSToolbarItem, node: NodeView, face: ButtonFace?, enabled: Bool, target: AnyObject, action: Selector) {
         let title = face?.rows.title["text_color"] ?? (node.wrote("text_color") ? node.style["text_color"] : nil)
         let symbol = face?.rows.symbol["tint_color"]
         let titleInk = title?.cgColor(dark: node.drawsDark).flatMap(NSColor.init(cgColor:))
@@ -25,7 +25,7 @@ final class ToolbarInkMac {
         button.contentTintColor = titleInk
         button.attributedTitle = NSAttributedString(string: button.title,
             attributes: titleInk.map { [.foregroundColor: $0] } ?? [:])
-        button.isEnabled = !node.disabled && !node.inert
+        button.isEnabled = enabled
         button.setAccessibilityLabel(item.label)
         button.sizeToFit()
         item.view = button

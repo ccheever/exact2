@@ -622,8 +622,8 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             // Text-bearing authored buttons remain labeled in icon-only mode.
             let title = BadgeFace(node) != nil ? "" : face.map { $0.title ?? "" } ?? text(node)
             if item.title != title { item.title = title }
-            authoredInk.button(item, node: node, face: face, target: self, action: #selector(performInkButton(_:)))
             let enabled = !node.disabled && !node.inert && window.attachedSheet == nil
+            authoredInk.button(item, node: node, face: face, enabled: enabled, target: self, action: #selector(performInkButton(_:)))
             if item.isEnabled != enabled { item.isEnabled = enabled }
         }
         // A header's, in the order SwiftUI's own toolbar keeps (measured on
