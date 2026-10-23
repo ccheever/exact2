@@ -185,7 +185,9 @@ extension MenuHost {
         let screen = (window.screen ?? NSScreen.main)?.visibleFrame.size ?? window.frame.size
         let maximum = CGSize(width: max(1, screen.width - 2 * Self.popoverMargin), height: max(1, screen.height - 2 * Self.popoverMargin))
         let margins = PositionArea.margins(of: pop), edge = Self.edge(PositionArea.of(pop))
-        presenter.blocks.show(pop, in: native.content, block: .atMost(maximum)) { [weak native] size in
+        presenter.blocks.show(pop, in: native.content, block: .atMost(maximum)) { [weak native, weak pop] size in
+            // Its margins as they are now: a change while open resizes it too.
+            let margins = pop.map(PositionArea.margins(of:)) ?? margins
             native?.fit(CGSize(width: size.width - margins.left - margins.right, height: size.height - margins.top - margins.bottom))
         }
         // A presenter with no session lays nothing out again: the popover keeps the page's box.
