@@ -889,6 +889,9 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
                 return Err("__exact_build.tsbuildinfo is reserved for the producer".into());
             }
             if matches!(&*name, ".git" | "node_modules" | "target" | "dist")
+                // The Windows package (`host/windows/build.mjs`) is the bake's
+                // output: captured, its compat.json made every build stale.
+                || (at == root && name == "dist-windows")
                 || name.starts_with(".exact-js-bake-")
                 // The app's dot directories hold what no build reads: `.exact/`
                 // keeps an agent's diary, evidence, logs and runtime files
