@@ -38,9 +38,13 @@ final class NodeLayer: CALayer {
 /// Image geometry uses the same animation context as its owning UIView.
 private final class NodeImageLayer: CALayer {
     override func action(forKey event: String) -> CAAction? {
-        guard ["bounds", "position", "contentsRect"].contains(event),
-              let view = superlayer?.delegate as? UIView else { return NSNull() }
-        return view.action(for: self, forKey: event) ?? NSNull()
+        guard ["bounds", "position"].contains(event) else { return NSNull() }
+        var ancestor = superlayer
+        while let layer = ancestor {
+            if let view = layer.delegate as? UIView { return view.action(for: self, forKey: event) ?? NSNull() }
+            ancestor = layer.superlayer
+        }
+        return NSNull()
     }
 }
 
@@ -54,16 +58,10 @@ extension NodeView {
         return isParagraph && !canRasterText
     }
 
-    /// An image's pixels onto a sublayer, or none, and `draw(_:)` paints
-    /// them. `draw(_:)`'s geometry: object-fit over the content box, clipped
-    /// by it and by the border box's radius. The sublayer is the visible part
-    /// of the fitted image, `contentsRect` selecting it, except for `cover`,
-    /// whose crop is usually the layer's `resizeAspectFill` gravity (centred, as
-    /// `object-position`'s default is): Core Animation crops each frame of a
-    /// UIKit resize animation, so the picture keeps its aspect throughout,
-    /// which a crop interpolated beside the bounds does not. It can carry the
-    /// radius only when it is the whole content box and that is the border
-    /// box, or when no corner is rounded.
+    /// The whole fitted bitmap sits inside a clip layer. UIKit animates both
+    /// rectangles together, preserving the natural aspect even when decoding
+    /// rounded the bitmap’s pixel dimensions. The clip carries a radius only
+    /// when it is the whole content and border box, or no corner is rounded.
     ///
     /// A `-exact-tint-color` draws (LLP 1011 §4): a mask layer would say it, but a
     /// canvas's capture (`render(in:)`) drops masks and would show the tint's
@@ -79,6 +77,7 @@ extension NodeView {
             defer { CATransaction.commit() }
             let l = imageLayer ?? NodeImageLayer()
             if l.superlayer !== layer { imageLayer = l; insertBoxSublayer(l) }
+            l.sublayers?.forEach { $0.removeFromSuperlayer() }
             l.frame = look.image
             l.contentsRect = CGRect(x: 0, y: 0, width: 1, height: 1)
             l.contentsGravity = .resize
@@ -92,13 +91,6 @@ extension NodeView {
         let fit = style["object_fit"]?.string ?? "fill"
         let rect = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: fit)
         let pixels = AnimatedRasters.shared.frame(for: self) ?? bitmap.image
-        // Gravity fits the bitmap's own aspect, which a decode's rounded pixel
-        // sizes can move off the natural one; where that moves the picture by
-        // half a point or more, the crop stays `contentsRect`'s.
-        let natural = bitmap.naturalSize
-        let skew = natural.width > 0 && pixels.height > 0
-            ? abs(CGFloat(pixels.width) * natural.height / (CGFloat(pixels.height) * natural.width) - 1) : 1
-        let cover = fit == "cover" && skew * max(rect.width, rect.height) < 0.5
         let shown = rect.intersection(content)
         let radii = cornerRadii(in: bounds)
         let radius = radii.max() ?? 0
@@ -114,9 +106,6 @@ extension NodeView {
         var corners: CACornerMask = []
         let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
         for (r, mask) in zip(radii, masks) where r > 0 { corners.insert(mask) }
-        let unit = cover ? CGRect(x: 0, y: 0, width: 1, height: 1)
-            : CGRect(x: (shown.minX - rect.minX) / rect.width, y: (shown.minY - rect.minY) / rect.height,
-                     width: shown.width / rect.width, height: shown.height / rect.height)
         let l = imageLayer ?? NodeImageLayer()
         let mounted = l.superlayer === layer
         CATransaction.begin()
@@ -128,17 +117,23 @@ extension NodeView {
             insertBoxSublayer(l)
         }
         if l.frame != shown { l.frame = shown }
-        if l.contentsRect != unit { l.contentsRect = unit }
+        let whole = l.sublayers?.first as? NodeImageLayer ?? NodeImageLayer()
+        if whole.superlayer !== l {
+            l.addSublayer(whole)
+            CATransaction.setDisableActions(true)
+        }
+        let fitted = rect.offsetBy(dx: -shown.minX, dy: -shown.minY)
+        if whole.frame != fitted { whole.frame = fitted }
         CATransaction.setDisableActions(true)
-        let gravity: CALayerContentsGravity = cover ? .resizeAspectFill : .resize
-        if l.contentsGravity != gravity { l.contentsGravity = gravity }
-        if (l.contents as AnyObject?) !== pixels { l.contents = pixels }
-        l.applyDynamicRange(hdr: bitmap.isHDR, headroom: bitmap.headroom, limit: style["dynamic_range_limit"]?.string)
+        l.contents = nil
+        l.contentsRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+        whole.contentsGravity = .resize
+        if (whole.contents as AnyObject?) !== pixels { whole.contents = pixels }
+        whole.applyDynamicRange(hdr: bitmap.isHDR, headroom: bitmap.headroom, limit: style["dynamic_range_limit"]?.string)
         if l.cornerRadius != radius { l.cornerRadius = radius }
         if l.cornerCurve != layer.cornerCurve { l.cornerCurve = layer.cornerCurve }
         if radius > 0, l.maskedCorners != corners { l.maskedCorners = corners }
-        let clips = radius > 0 || cover
-        if l.masksToBounds != clips { l.masksToBounds = clips }
+        if !l.masksToBounds { l.masksToBounds = true }
     }
 
     /// A `background-image` gradient (LLP 1066) as a sublayer under
