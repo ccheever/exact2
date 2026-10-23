@@ -8,6 +8,21 @@ final class RoundedBubbleIOSTests: XCTestCase {
         "border_radius_top_left": 18, "border_radius_top_right": 18,
         "border_radius_bottom_right": 4, "border_radius_bottom_left": 18]
 
+    func testAnHDRFillTakesTheInitialAndChangedDynamicRangeLimit() throws {
+        guard #available(iOS 26, *) else { throw XCTSkip("preferredDynamicRange needs iOS 26") }
+        let p = Presenter(), bubble = NodeView(id: 1, kind: "view", presenter: p)
+        bubble.frame = CGRect(x: 0, y: 0, width: 280, height: 70)
+        var look = style
+        look["background_color"] = ["cs": [["s": "srgb-linear", "v": [4, 4, 4, 1]]], "c": [255, 255, 255, 255]]
+        for (limit, range) in [("standard", CALayer.DynamicRange.standard), ("constrained", .constrainedHigh), ("no-limit", .high), ("standard", .standard)] {
+            look["dynamic_range_limit"] = .string(limit)
+            bubble.applyStyle(look); bubble.layer.displayIfNeeded()
+            let fill = try XCTUnwrap(bubble.boxFill)
+            XCTAssertEqual(fill.preferredDynamicRange, range, limit)
+            XCTAssertNil(bubble.layer.contents)
+        }
+    }
+
     func testAChatTranscriptKeepsNoCPUBubbleBackingStores() {
         let p = Presenter()
         let before = footprint()
