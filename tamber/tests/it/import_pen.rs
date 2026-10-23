@@ -13,6 +13,7 @@ use serde_json::Value;
 const EMPTY: &str = "tamber app\n";
 /// A fresh import's budget, as `crate::budget::IMPORT` has it.
 const IMPORT: u64 = 3 << 24;
+const EMPTY_PEN: &str = r#"{"version":"2.21"}"#;
 
 fn fixture(name: &str) -> String {
     std::fs::read_to_string(format!(
@@ -701,13 +702,39 @@ fn round_3_recheck_3_descendants_positions_and_prefix() {
         folded(&go(text).unwrap()).value("pen.n", 0).unwrap().css(),
         "8"
     );
-    // Each name made is charged with the prefix it carries: a long prefix over many variables is refused.
-    let prefix = "p".repeat(256 * 1024);
+    // A prefix is bounded as a name is, and each name made is charged with the prefix it carries.
+    let refused = pen::import_with("x.pen", EMPTY_PEN, &"p".repeat(129), &design, &vocab());
+    assert!(refused.unwrap_err()[0]
+        .message
+        .contains("a prefix is at most 128"));
+    // A descendant whose id is `descendants` is a node too: its own `theme` binds nothing.
+    let text = r#"{"version":"2.21","themes":{"opacity":["a"]},"variables":{"n":{"type":"number","value":8}},
+      "children":[{"type":"frame","gap":"$n"},{"type":"ref","ref":"a","descendants":{"descendants":{"theme":{"opacity":"$n"}}}}]}"#;
+    assert_eq!(
+        folded(&go(text).unwrap()).value("pen.n", 0).unwrap().css(),
+        "8px"
+    );
+    let prefix = "p".repeat(128);
     let vars: Vec<String> = (0..2500)
         .map(|i| format!(r##""c{i}":{{"type":"color","value":"#000000"}}"##))
         .collect();
     let text = format!(r#"{{"version":"2.21","variables":{{{}}}}}"#, vars.join(","));
-    assert!(pen::import_within("x.pen", &text, "pen", &design, &vocab(), IMPORT).is_ok());
-    let refused = pen::import_within("x.pen", &text, &prefix, &design, &vocab(), IMPORT);
-    assert!(refused.is_err(), "a long prefix over 2500 names is charged");
+    let within = |prefix: &str, limit: u64| {
+        pen::import_within("x.pen", &text, prefix, &design, &vocab(), limit).is_ok()
+    };
+    // (the least budget the short prefix takes, found by halving)
+    let (mut low, mut high) = (0, IMPORT);
+    while high - low > 1000 {
+        let mid = (low + high) / 2;
+        if within("pen", mid) {
+            high = mid;
+        } else {
+            low = mid;
+        }
+    }
+    assert!(within("pen", high));
+    assert!(
+        !within(&prefix, high + 200_000),
+        "2500 names' prefixes are charged"
+    );
 }
