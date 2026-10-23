@@ -454,6 +454,8 @@ uint32_t exact_location_beneath(ExactRuntime rt, uint64_t id);
  * authored Back control under a root with no `navigate` handler: the
  * router's `back` as a commit of its own. A batch. */
 uint32_t exact_host_back(ExactRuntime rt, uint64_t id, double now_ms);
+/* The runner's own go to the UTF-8 location in exact_in, a batch. */
+uint32_t exact_host_go(ExactRuntime rt, size_t len, double now_ms);
 /* kind: 0 = press, 1 = change, 2 = hover in, 3 = hover out, 4 = focus,
  * 5 = blur, 6 = key, 7 = submit, 8 = iframe load, 9 = iframe message,
  * 10 = contextmenu, 11 = dblclick, 12 = swiperight, 13 = scroll (UTF-8 scrollLeft,scrollTop),

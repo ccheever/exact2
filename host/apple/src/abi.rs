@@ -14,6 +14,7 @@
 //! batch instead of trapping. [`host!`] exports one app's source and baked plan;
 //! each process links one app archive because the C names are fixed.
 mod control_text;
+mod navigation;
 use crate::host::{Host, PlanBytes};
 use crate::measure::{install_fonts, CallbackMeasurer, FontsFn, MeasureFn};
 use exact_kernel::{MonospaceMeasurer, TextMeasurer};
@@ -1068,16 +1069,6 @@ impl<D: DataSource> Bridge<D> {
         };
         let out = match self.host.as_mut() {
             Some(h) => h.dispatch_at(view, event, now_ms),
-            None => not_booted(),
-        };
-        self.emit(out)
-    }
-
-    /// `exact_host_back`: the platform's own Back from visit `id` (LLP 1115
-    /// D5), a batch.
-    pub fn host_back(&mut self, id: u64, now_ms: f64) -> u32 {
-        let out = match self.host.as_mut() {
-            Some(h) => h.host_back(id, now_ms),
             None => not_booted(),
         };
         self.emit(out)
