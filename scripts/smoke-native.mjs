@@ -565,6 +565,10 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
   if (host === 'ios' && !device) {
     const d = await open({ host, chrome: 'platform', touch: 'drag' });
     try {
+      const segment = await d.tap('segment-missed');
+      check(segment.native === 'segmented-control' && (await d.state()).slots.segment === 'missed',
+        `${host} native: a platform-chrome header segment activates its route projection`);
+
       const stacks = async () => {
         const st = await d.state(), router = st.slots.nav.tabs.find((t) => t.name === st.slots.nav.tab).stack.map((e) => String(e.id));
         return { router, native: st.navigation?.stack ?? [], presentation: st.navigation?.presentation };
