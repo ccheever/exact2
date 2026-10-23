@@ -1199,7 +1199,10 @@ fn clock_within<D: DataSource>(
         if !settle_to_end {
             // A jump does not wait for what is still in flight on real time
             // (a store's, a worker's, the network's): the reply names how
-            // much, as the web hosts' do (calendar F10, workout F6).
+            // much, as the web hosts' do (calendar F10, workout F6). A polled
+            // module source's ask it made lands first (LLP 1133.009 D10
+            // item 7).
+            wait_for_polls(p, deadline);
             let mut r = response(None, false);
             let inflight = p.host().runner().in_flight().len();
             if inflight > 0 {
@@ -1300,6 +1303,22 @@ fn clock_stepped<D: DataSource>(
         wait_for_replies(p, deadline);
     }
     p.clock(to)
+}
+
+/// Pump the executor until no polled module source's ask is in flight, or
+/// until the call's deadline.
+fn wait_for_polls<D: DataSource>(p: &mut Presenter<D>, deadline: std::time::Instant) {
+    let asking = |p: &Presenter<D>| {
+        p.host()
+            .agent("{\"op\":\"polls\"}")
+            .contains("\"asking\":true")
+    };
+    while asking(p) && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        if let Some(e) = p.pump(p.host().now()) {
+            eprintln!("exact: {e}");
+        }
+    }
 }
 
 /// Pump the executor until no request is in flight, or until the call's
