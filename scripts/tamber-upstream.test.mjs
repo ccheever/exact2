@@ -41,6 +41,17 @@ test('a request sent on goes on a connection of its own, so none meets a server 
   } finally { loop.close(); }
 });
 
+test("a client's `connection: keep-alive` passed on leaves no socket in the pool for a later request to meet closed", async () => {
+  const loop = await closesReused();
+  try {
+    const sent = await upstream(`${loop.origin}/__tamber`, { method: 'POST', headers: { connection: 'keep-alive', 'content-type': 'application/json' }, body: '{}' });
+    expect(await sent.text()).toBe('{"ok":true}');
+    // A plain fetch after it, as the tool tests make beside their proxy: a connection of its own, not that one.
+    expect(await (await fetch(`${loop.origin}/__tamber`, { method: 'POST', body: '{}' })).text()).toBe('{"ok":true}');
+    expect(loop.connections()).toBe(2);
+  } finally { loop.close(); }
+});
+
 test("--via's proxy sends each request on to the dev loop on a connection of its own: a second is answered, not 502", async () => {
   const loop = await closesReused();
   const proxy = createServer((req, res) => forward(req, res, new URL(req.url, 'http://x'), { local: true }, loop.origin));

@@ -58,7 +58,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { allows as pairingAllows, limiter as pairingLimiter } from './tamber-pairing.mjs';
 import { openRemote } from './tamber-remote.mjs';
-import { refuseBody, viaDoor } from './tamber-request.mjs';
+import { refuseBody, upstream, viaDoor } from './tamber-request.mjs';
 
 export const CANVAS_COOKIE = '__Host-exact-canvas';
 export const GRANT_MS = 30_000;
@@ -538,7 +538,7 @@ export function canvasGateway({ loop = null, pairing, origin = null, toolOrigin 
         body = read.body;
       }
       if (signal.aborted) throw new Error('ended');
-      const answer = await fetch(`${loopOrigin}${target.path}${target.query}`, { method: req.method, headers, body, redirect: 'manual', signal });
+      const answer = await upstream(`${loopOrigin}${target.path}${target.query}`, { method: req.method, headers, body, redirect: 'manual', signal });
       const out = {};
       const dropNamed = new Set(String(answer.headers.get('connection') ?? '').toLowerCase().split(',').map(s => s.trim()));
       for (const [k, v] of answer.headers) {
