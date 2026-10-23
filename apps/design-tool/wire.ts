@@ -8,6 +8,8 @@
 // never in storage, a URL, a log or an error. Revoked or expired (401), it
 // is dropped and nothing more is sent.
 
+import type { StreamEvent } from './app.contract.d.ts';
+
 type Diagnostic = { file?: string; line?: number; id?: string; message?: string } | string;
 export type Reply = { ok?: any; error?: { message?: string; diagnostics?: Diagnostic[]; hint?: string } };
 /** A refusal's words: its message, and each diagnostic's file, line, id
@@ -158,5 +160,21 @@ export function wire(api: string, ownerOf: (id: string) => string | null = () =>
   }
 
   // (The server checks every scope; the tool's own reading of it only words and greys.)
-  return { call, RESTARTED, pairWith, remote: () => (paired ? base : ''), scope: () => scope };
+  /** The changes' long poll (tamber/1.17's GET, `exactLongPoll`): its stream, made at once with the token in hand
+   * (the web build takes a stream's fetch only before an answer's first await), each event mapped with that token's
+   * handle; null when no token is in hand, or this client was revoked: the caller reads once instead, which asks. */
+  function longPoll<T>(query: string, map: (event: StreamEvent, used: string) => T): Promise<T> | null {
+    if (!token || (paired && (gone || token !== pairedToken))) return null;
+    const used = handleOf(token), at = session, sent = token;
+    // (Its end on a token the server no longer knows, it restarted, drops that token, so the next ask, a read, asks
+    // again; a paired client's 401 ends it, as a request's does.)
+    const ended = (event: StreamEvent) => {
+      const status = (event as { status?: number }).status;
+      if (event.type !== 'error' || at !== session || token !== sent) return;
+      if (status === 401 && paired) { gone = true; token = null; } else if (status === 404 && !paired) token = null;
+    };
+    return fetch(`${base}/__tamber/events?${query}`, { exactStream: (event: StreamEvent) => (ended(event), map(event, used)), exactLongPoll: { cursor: 'after', from: 'cursor' }, redirect: 'error', headers: { 'x-exact-tamber-token': token } });
+  }
+
+  return { call, longPoll, RESTARTED, pairWith, remote: () => (paired ? base : ''), scope: () => scope };
 }

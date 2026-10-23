@@ -69,3 +69,26 @@ test("--via's proxy sends each request on to the dev loop on a connection of its
     loop.close();
   }
 });
+
+test("--via's proxy sends a GET on with its query (the events' long poll by cursor, tamber/1.17), and a 204 as a 204", async () => {
+  const seen = [];
+  const loop = createServer((req, res) => {
+    seen.push(`${req.method} ${req.url}`);
+    if (req.url.includes('after=')) { res.writeHead(204); res.end(); return; }
+    res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"cursor":"3.0"}');
+  });
+  await new Promise(ok => loop.listen(0, '127.0.0.1', ok));
+  const proxy = createServer((req, res) => forward(req, res, new URL(req.url, 'http://x'), { local: true }, `http://127.0.0.1:${loop.address().port}`));
+  await new Promise(ok => proxy.listen(0, '127.0.0.1', ok));
+  try {
+    const at = `http://127.0.0.1:${proxy.address().port}/__tamber/events`;
+    const first = await fetch(`${at}?epoch=e&client=c`);
+    expect([first.status, await first.text()]).toEqual([200, '{"cursor":"3.0"}']);
+    const quiet = await fetch(`${at}?epoch=e&client=c&after=3.0`);
+    expect([quiet.status, await quiet.text()]).toEqual([204, '']);
+    expect(seen).toEqual(['GET /__tamber/events?epoch=e&client=c', 'GET /__tamber/events?epoch=e&client=c&after=3.0']);
+  } finally {
+    proxy.close();
+    loop.close();
+  }
+});
