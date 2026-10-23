@@ -14,10 +14,11 @@
 #if os(iOS)
 import UIKit
 
-final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
+final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditMenuInteractionDelegate {
     private weak var presenter: Presenter?
     private weak var menus: MenuHost?
     private var interactions: [UInt32: UIContextMenuInteraction] = [:]
+    private lazy var keyboardInteraction = UIEditMenuInteraction(delegate: self)
     /// A sheet's mount's interaction, while a logical ancestor of its route
     /// names a menu (LLP 1123 D2): UIKit gives a long press to the
     /// interactions of the views it falls in, and the ancestor's own is on a
@@ -42,6 +43,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
         var toggled = false
         weak var configuration: UIContextMenuConfiguration?
         weak var interaction: UIContextMenuInteraction?
+        var keyboardConfiguration: UIEditMenuConfiguration?
         /// The lifted row; the popover it is a row of, the container it
         /// belongs in (its popover's, or another's a children op moved it
         /// to), its index there and its frame there (`home`, the last frame
@@ -71,6 +73,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
         open = nil
         restore(owner)
         owner.interaction?.dismissMenu()
+        if owner.keyboardConfiguration != nil { keyboardInteraction.dismissMenu() }
     }
 
     init(presenter: Presenter, menus: MenuHost) {
@@ -92,10 +95,13 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
         // A source gone, or naming another popover, ends its menu: the row
         // goes back now, as `willEnd` may never come for it. A commit's
         // animation still holds the row; its `willEnd` returns it.
-        if let owner = open, !owner.committed, !(owner.source.map { live($0) && contextName(owner) == owner.name } ?? false) {
-            owner.interaction?.dismissMenu()
-            restore(owner)
+        if let owner = open, !owner.committed,
+           !(owner.source.map { live($0) && contextName(owner) == owner.name } ?? false)
+            || owner.keyboardConfiguration != nil && current(owner) == nil {
             open = nil
+            owner.interaction?.dismissMenu()
+            if owner.keyboardConfiguration != nil { keyboardInteraction.dismissMenu() }
+            restore(owner)
         }
         var wanted: [UInt32: NodeView] = [:]
         if !ExactEnv.agentMode {
@@ -301,6 +307,52 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
         return configuration
     }
 
+
+    /// UIKit's public programmatic menu API. It presents the same authored
+    /// actions as a long press, without lifting a preview for keyboard input.
+    func showKeyboard(_ source: NodeView, at point: CGPoint) -> Bool {
+        guard !ExactEnv.agentMode, source.window != nil, let menus,
+              menus.eligible(source, contextMenu: true), let name = source.props["contextPopover"],
+              let pop = popover(named: name), !menus.isConfirmation(pop) else { return false }
+        if let previous = open {
+            open = nil
+            previous.interaction?.dismissMenu()
+            keyboardInteraction.dismissMenu()
+            restore(previous)
+        }
+        let owner = Open(source: source, popover: pop, name: name, point: point)
+        owner.fired = true // The keyboard dispatcher has already delivered contextmenu.
+        guard menu(owner) != nil else { return false }
+        let configuration = UIEditMenuConfiguration(identifier: NSNumber(value: source.id), sourcePoint: point)
+        owner.keyboardConfiguration = configuration
+        open = owner
+        source.addInteraction(keyboardInteraction)
+        menus.focus.setAside()
+        keyboardInteraction.presentEditMenu(with: configuration)
+        return true
+    }
+
+    func editMenuInteraction(_ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration,
+                             suggestedActions: [UIMenuElement]) -> UIMenu? {
+        guard let owner = open, owner.keyboardConfiguration === configuration else { return UIMenu(children: []) }
+        return menu(owner) ?? UIMenu(children: [])
+    }
+    func editMenuInteraction(_ interaction: UIEditMenuInteraction, willPresentMenuFor configuration: UIEditMenuConfiguration,
+                             animator: UIEditMenuInteractionAnimating) {
+        guard let owner = open, owner.keyboardConfiguration === configuration, let pop = current(owner) else { return }
+        owner.toggled = true
+        presenter?.popoverEvents.changed(pop, open: true)
+    }
+    func editMenuInteraction(_ interaction: UIEditMenuInteraction, willDismissMenuFor configuration: UIEditMenuConfiguration,
+                             animator: UIEditMenuInteractionAnimating) {
+        guard let owner = open, owner.keyboardConfiguration === configuration else { return }
+        animator.addCompletion { [weak self, weak owner] in
+            guard let self, let owner, self.open === owner else { return }
+            self.open = nil
+            self.restore(owner)
+        }
+    }
+
     /// The popover's menu rows as the UIMenu, titled by its `aria-label`.
     func menu(_ owner: Open) -> UIMenu? {
         fire(owner)
@@ -338,6 +390,10 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
     private func restore(_ owner: Open) {
         menus?.coverClosed()
         if let pop = owner.popover, owner.toggled { owner.toggled = false; presenter?.popoverEvents.changed(pop, open: false) }
+        if owner.keyboardConfiguration != nil {
+            keyboardInteraction.view?.removeInteraction(keyboardInteraction)
+            menus?.focus.restore()
+        }
         guard let row = owner.preview else { return }
         owner.preview = nil
         row.removeFromSuperview()
@@ -462,6 +518,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
     }
 
     func reset() {
+        keyboardInteraction.dismissMenu()
         for interaction in interactions.values {
             interaction.dismissMenu()
             if let view = interaction.view { detach(interaction, from: view); (view as? NodeView)?.contextRecognizer?.isEnabled = true }
