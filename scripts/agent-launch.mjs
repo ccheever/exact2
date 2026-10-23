@@ -489,6 +489,7 @@ export function parseFlags(argv) {
   }
   if ((flags.widget || flags.activity) && !argv.some(arg => arg === '--help' || arg === '-h')) validateWidget(flags, rest);
   if (flags.keepStorage && flags.resetStorage) throw new Error('--keep-storage and --reset-storage are mutually exclusive');
+  if (['ios', 'host-ios'].includes(rest[0]) && flags.phone !== undefined && !flags.device) throw new Error('--phone needs --device; for a simulator use --sim <udid|name> (or EXACT_SIM)');
   // A native drive's store is `default` when it names none (`defaultStore`); an authored test's is its own.
   if ((flags.keepStorage || flags.resetStorage) && (flags.test ? flags.storage : defaultStore(rest[0], flags)) === undefined) throw new Error('--keep-storage and --reset-storage need --storage <name>');
   return { flags, rest };

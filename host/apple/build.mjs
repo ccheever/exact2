@@ -614,7 +614,6 @@ export function copyAppleGpuProducts(capture, destination, artifacts, archive = 
 }
 
 // ---------------------------------------------------------------- the build
-
 async function main(args, lockHeld = false) {
   let launchEnv;
   try { launchEnv = developmentLaunchEnvironment(args); }
@@ -1465,6 +1464,7 @@ async function test(args) {
 }
 if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
   const args = guardFlags(['--ios', '--device', '--tvos', '--watchos'].some((flag) => process.argv.includes(flag)) ? 'ios' : 'mac', process.argv.slice(2));
+  if (args.includes('--phone') && !args.includes('--device')) throw new Error('--phone needs --device; for a simulator use --sim <udid|name> (or EXACT_SIM)');
   useXcode(); if (args.includes('--release')) process.env.EXACT_UPDATE_TRUST = 'production'; // the build that ships: Cargo's release profile, no development trust
   (args.includes('--test') ? test(args) : main(args)).catch((error) => { console.error(error.rebuild ? `${error.message}: ${rebuildArgs(args)}` : error.message); process.exitCode = 1; });
 }

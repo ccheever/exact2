@@ -12,6 +12,12 @@ import { iosAssets, entitlements, infoPlist, macInfoPlist, documentTypes, import
 import { useXcode } from '../host/apple/devices.mjs';
 import { macReleaseEntitlements, launchImageInventory } from '../host/apple/assets.mjs';
 
+test('the Apple build rejects --phone before selecting a simulator or resolving an app', () => {
+  const result = spawnSync(process.execPath, ['host/apple/build.mjs', '--ios', '--phone', 'other-lane', 'no-such-app'], { encoding: 'utf8' });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /--phone needs --device; for a simulator use --sim/);
+});
+
 // These cases run cargo (the filesystem tool, bakes, locks). A shell whose PATH
 // omits rustup's bin directory still finds it there; without cargo, say so.
 const cargoBin = resolve(process.env.CARGO_HOME ?? resolve(homedir(), '.cargo'), 'bin');
