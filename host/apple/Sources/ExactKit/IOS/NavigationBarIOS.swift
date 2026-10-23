@@ -706,11 +706,6 @@ extension NavigationHost {
             // where the route says so or has nothing to go back to.
             c.pushed = index > 0
             let transparent = Self.transparentBar(c.node)
-            // The item keeps a copy, equal and not the same object.
-            if (c.navigationItem.scrollEdgeAppearance == Self.clearScrollEdge) != transparent {
-                c.navigationItem.scrollEdgeAppearance = transparent ? Self.clearScrollEdge : nil
-                c.navigationItem.compactScrollEdgeAppearance = transparent ? Self.clearScrollEdge : nil
-            }
             let shape = stackShows ? HeaderShape.bar(of: c.node, back: back, backIsUIKits: index > 0) : nil
             let bar = stackShows ? self.bar(of: c.node, pushed: index > 0) : .hidden
             let shows = bar != .hidden
@@ -738,7 +733,7 @@ extension NavigationHost {
             searchField(shows ? shape?.search : nil, in: c)
             segmentedTitle(shows ? shape?.segments : nil, in: c)
             richTitle(shows ? shape : nil, in: c)
-            c.titleInk.update(shows ? shape?.heading?.ownUIColor("text_color") : nil, item: c.navigationItem, bar: nav?.navigationBar)
+            c.titleInk.update(shows ? shape?.heading?.ownUIColor("text_color") : nil, item: c.navigationItem, bar: nav?.navigationBar, transparent: transparent)
             c.titleView?.title.textColor = shows ? shape?.heading?.ownUIColor("text_color") : nil
             guard c.projected != signature || !c.hatched else { continue }
             c.projected = signature
