@@ -1150,7 +1150,7 @@ target), with one difference: on the web build the stream's `fetch` must be
 made while the answer is asked, before its first `await` (a later one is
 refused, saying so); on Hermes it may follow an `await`.
 
-On the **web JS target and on macOS, iOS and Linux, TypeScript sources**
+On the **web JS target and on macOS, iOS, Linux and Windows, TypeScript sources**
 receive `(event, socket)` for a WebSocket (LLP 1016.000 D7). Keep the handle by your resource's identity in
 module state. Its events are `open`, ordered `message` (string or ArrayBuffer
 `data`), and `close` (`code`, `reason`, `wasClean`); a refusal is still `error`.
