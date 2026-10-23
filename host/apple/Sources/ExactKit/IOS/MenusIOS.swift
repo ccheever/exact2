@@ -10,7 +10,6 @@
 // .uncached), after the invoker's own press has gone to the runner — both
 // fire, D1 — so a menu that refreshes its rows on that press shows the
 // refreshed rows.
-
 #if os(iOS) || os(tvOS)
 import UIKit
 
