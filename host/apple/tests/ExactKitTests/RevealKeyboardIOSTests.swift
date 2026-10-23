@@ -59,6 +59,22 @@ final class RevealKeyboardIOSTests: XCTestCase {
         return v.convert(CGPoint(x: v.bounds.midX, y: v.bounds.midY), to: nil).y
     }
 
+    func testARevealDoesNotLoseAOnePixelCorrectionAfterRounding() throws {
+        let (session, window) = session("reveal-one-pixel", widget: "overlays-content", scroller: true)
+        defer { window.isHidden = true; session.destroy() }
+        let p = session.presenter, scroll = try XCTUnwrap(p.views[2]?.scroll)
+        scroll.traitOverrides.displayScale = 2
+        scroll.updateTraitsIfNeeded()
+        XCTAssertEqual(scroll.traitCollection.displayScale, 2)
+        // The field ends at 740; its eight-point clearance ends at 748.
+        // A port ending at 747.4 therefore asks for 0.6 points, one pixel rounded.
+        scroll.contentInset.bottom = 52.6
+        scroll.contentOffset = .zero
+        let field = try XCTUnwrap(p.views[3])
+        p.reveal(field, rect: field.bounds)
+        XCTAssertEqual(scroll.contentOffset.y, 0.5, accuracy: 1e-6)
+    }
+
     func testRevealScrollsAnActionUnderTheKeyboardAboveItUnderResizesVisual() throws {
         let (session, window) = session("reveal-keyboard-visual", widget: "resizes-visual", scroller: false)
         defer { window.isHidden = true; session.destroy() }
