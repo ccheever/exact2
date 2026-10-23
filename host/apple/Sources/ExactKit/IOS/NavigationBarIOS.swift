@@ -977,7 +977,10 @@ extension NavigationHost {
     /// scroller under the status bar the same way (LLP 1130 D3).
     private func collapse(_ c: RouteController, shape: HeaderShape?, shows: Bool, scroller: NodeView?) {
         let kids = c.node.container.subviews.compactMap { $0 as? NodeView }
-        let flowing = { (v: NodeView) in !v.isHidden && Self.inFlow(v) }
+        // In flow by layout: a popover a context preview lays out is hidden
+        // here while it pushes the scroller down (`MenusIOS`), and a title
+        // must not collapse with a scroller that is no longer the route's top.
+        let flowing = { (v: NodeView) in (!v.isHidden || v.presenter?.menus.isLaidOut(v) == true) && Self.inFlow(v) }
         let whole = wantsWholeView && presenter.viewportFit != "cover"
         let node = shape.map { shape in kids.firstIndex { $0 === shape.header }.flatMap { kids[($0 + 1)...].first(where: flowing) } }
             ?? (shows || whole ? kids.first(where: flowing) : nil)
