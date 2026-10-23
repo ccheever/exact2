@@ -59,7 +59,7 @@ component PostCard
                 height="cards.context-icon"
                 flex-shrink=0
                 aria-hidden=true
-                -exact-tint-color="param.meta"
+                color="param.meta"
               text contextText font-size="cards.small-size"
                 font-weight=500
                 line-height="cards.small-line"
@@ -119,7 +119,7 @@ component PostCard
                   height="cards.reply-icon"
                   flex-shrink=0
                   aria-hidden=true
-                  -exact-tint-color="param.meta"
+                  color="param.meta"
               text replyTo font-size="cards.small-size"
                 line-height="cards.small-line"
                 white-space="nowrap"

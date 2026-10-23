@@ -481,6 +481,39 @@ final class IconShapeMacTests: XCTestCase {
         }
     }
 
+    /// A path icon is coloured by its computed `color`, alpha and all
+    /// (docs/agent-pitfalls.md: a `symbol:` image ignores `-exact-tint-color`):
+    /// `color="-exact-secondary-label"` gives the leaf's alpha and the drawn
+    /// pixels' alpha NSColor.secondaryLabelColor's in light and in dark, each
+    /// resolved here; a tint with no colour draws the text colour.
+    @MainActor func testAPathIconTakesItsColourNotItsTint() throws {
+        let square: Icon = [Self.rect(0, 0, 24, 24)]
+        let frame = CGRect(x: 12, y: 12, width: 24, height: 24)
+        func resolved(_ color: NSColor, _ name: NSAppearance.Name) throws -> CGColor {
+            var out: CGColor?
+            try XCTUnwrap(NSAppearance(named: name)).performAsCurrentDrawingAppearance { out = color.cgColor }
+            return try XCTUnwrap(out)
+        }
+        let secondary: [String: Any] = ["sys": "secondaryLabelColor", "c": [[60, 60, 67, 153], [235, 235, 245, 153]]]
+        let teal: [Any] = [[48, 176, 199, 255], [64, 200, 224, 255]]
+        for (name, style, color) in [("color secondary label", ["text_color": secondary] as [String: Any], NSColor.secondaryLabelColor),
+                                     ("tint only", ["text_color": NSNull(), "tint_color": teal] as [String: Any], NSColor.textColor)] {
+            let p = presenter(square, frame: frame, style: style)
+            let node = try XCTUnwrap(p.views[2]), leaf = try XCTUnwrap(node.symbolShape), page = try XCTUnwrap(p.views[1])
+            for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+                window.appearance = NSAppearance(named: appearance)
+                node.viewDidChangeEffectiveAppearance()
+                let want = try resolved(color, appearance)
+                let drawn = alpha(render(page, scale: 1), 24, 24)
+                print("C1 colour \(name) \(appearance.rawValue): expected alpha \(want.alpha), leaf \(leaf.alphaValue), pixel \(drawn), fill \(rgb(leaf.shapes.first?.fillColor)) vs \(rgb(want))")
+                XCTAssertEqual(leaf.alphaValue, want.alpha, accuracy: 0.002, "\(name) \(appearance.rawValue): the leaf's alpha")
+                XCTAssertEqual(drawn, Int((want.alpha * 255).rounded()), accuracy: 1, "\(name) \(appearance.rawValue): the pixels' alpha")
+                XCTAssertEqual(rgb(leaf.shapes.first?.fillColor), rgb(want.copy(alpha: 1)), "\(name) \(appearance.rawValue): its colour, not its tint")
+            }
+            p.reset()
+        }
+    }
+
     /// A window whose backing scale changes: the shape layers' contentsScale
     /// follows (AppKit's `viewDidChangeBackingProperties`, sent here by hand,
     /// since a test can't move a window to another screen).

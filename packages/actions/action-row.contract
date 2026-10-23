@@ -78,7 +78,7 @@ component ActionRow
               height=(big ? "actions.icon-big" : "actions.icon")
               flex-shrink=0
               aria-hidden=true
-              -exact-tint-color="param.tint"
+              color="param.tint"
             if replies != ""
               text replies class=ActionCount
                 font-size=(big ? "actions.count-size-big" : "actions.count-size")
@@ -100,7 +100,7 @@ component ActionRow
               height=(big ? "actions.icon-big" : "actions.icon")
               flex-shrink=0
               aria-hidden=true
-              -exact-tint-color=(reposted ? "actions.row-reposted" : "param.tint")
+              color=(reposted ? "actions.row-reposted" : "param.tint")
             if reposts != ""
               text reposts class=ActionCount
                 font-size=(big ? "actions.count-size-big" : "actions.count-size")
@@ -124,7 +124,7 @@ component ActionRow
               height=(big ? "actions.icon-big" : "actions.icon")
               flex-shrink=0
               aria-hidden=true
-              -exact-tint-color=(liked ? "actions.row-liked" : "param.tint")
+              color=(liked ? "actions.row-liked" : "param.tint")
             if likes != ""
               text likes class=ActionCount
                 font-size=(big ? "actions.count-size-big" : "actions.count-size")
@@ -144,7 +144,7 @@ component ActionRow
             height=(big ? "actions.icon-big" : "actions.icon")
             flex-shrink=0
             aria-hidden=true
-            -exact-tint-color=(saved ? "actions.row-saved" : "param.tint")
+            color=(saved ? "actions.row-saved" : "param.tint")
         // The share menu; a long press shares at once.
         button part="share" class=ActionButton
           testId=`share-${id}`
@@ -159,7 +159,7 @@ component ActionRow
             height=(big ? "actions.icon-big" : "actions.icon")
             flex-shrink=0
             aria-hidden=true
-            -exact-tint-color="param.tint"
+            color="param.tint"
         button part="more" class=ActionButton
           testId=`more-${id}`
           aria-label="Open post options menu"
@@ -172,4 +172,4 @@ component ActionRow
             height=(big ? "actions.icon-big" : "actions.icon")
             flex-shrink=0
             aria-hidden=true
-            -exact-tint-color="param.tint"
+            color="param.tint"
