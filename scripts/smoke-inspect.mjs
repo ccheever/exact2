@@ -3,6 +3,7 @@
 // host sections (D2, D3); 7a, `layout agree` (LLP 1080.001 D5) at the drive's
 // settled points; and the pooling drive on Carousel's virtualized feed.
 import { render } from './agent-inspect.mjs';
+import { pollUntil } from './agent-launch.mjs';
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -37,7 +38,8 @@ export async function formControlsSmoke({ host, open, check }) {
     if (host === 'ios') for (const target of ['fruit', 'day']) {
       s = await open({ host, plan, touch: 'platform' });
       const before = await s.screenshot(resolve(dir, `${target}-closed.png`), true);
-      const tap = await s.tap(target), after = await s.screenshot(resolve(dir, `${target}-open.png`), true);
+      const tap = await s.tap(target);
+      const after = await pollUntil(() => s.screenshot(resolve(dir, `${target}-open.png`), true), r => !!r.presented, { bound: 5000 });
       check(tap.delivery === 'platform' && !before.presented && !!after.presented, `ios ${target}: a real tap presents its UIKit chooser: ${JSON.stringify({ delivery: tap.delivery, before: before.presented, after: after.presented })}`);
       await s.close(); s = null;
     }
