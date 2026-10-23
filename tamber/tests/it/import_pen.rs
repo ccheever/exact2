@@ -639,7 +639,19 @@ fn round_3_recheck_2_collisions_more_bindings_and_themes() {
 #[test]
 fn round_3_recheck_2_every_schema_binding_counts() {
     let design = parse(EMPTY).unwrap();
-    for prop in ["startAngle", "sweepAngle", "polygonCount", "weight"] {
+    for prop in [
+        "startAngle",
+        "sweepAngle",
+        "polygonCount",
+        "weight",
+        "flipX",
+        "flipY",
+        "clip",
+        "underline",
+        "strikethrough",
+        "stroke",
+        "colors",
+    ] {
         let text = format!(
             r#"{{"version":"2.21","variables":{{"n":{{"type":"number","value":8}}}},"children":[{{"type":"frame","gap":"$n","{prop}":"$n"}}]}}"#
         );
@@ -676,7 +688,8 @@ fn round_3_recheck_3_descendants_positions_and_prefix() {
     );
     // A position outside a gradient's stops binds nothing: `n` is read as a gap alone.
     let text = r#"{"version":"2.21","variables":{"n":{"type":"number","value":8}},
-      "children":[{"type":"frame","gap":"$n","position":"$n","layout":{"position":"$n"}}]}"#;
+      "children":[{"type":"frame","gap":"$n","position":"$n","layout":{"position":"$n"},
+                   "fill":{"type":"mesh_gradient","points":[{"position":"$n"}]}}]}"#;
     assert_eq!(
         folded(&go(text).unwrap()).value("pen.n", 0).unwrap().css(),
         "8px"
