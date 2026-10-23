@@ -289,7 +289,8 @@ package struct SourceMap: Hashable {
     }
 }
 
-/// CSS line boxes use the web host's metrics and Chrome's rounding at scale 1.
+/// CSS line heights use the web host's metrics and Chrome's rounding at scale 1.
+/// UIKit positions glyphs at its face's ascent within that height.
 /// On iOS PresentedText.measure returns nil; FieldChromeIOS keeps UIFont.lineHeight
 /// for native editors. Reader line boxes do not change those control metrics.
 package enum CSSLineBox {
@@ -317,7 +318,15 @@ package enum CSSLineBox {
         let (ascent, descent) = content(font)
         guard let height else {
             let gap = CTFontGetLeading(font).rounded()
+            #if canImport(UIKit)
+            // Keep the web's line advance and UIKit's unsaid glyph placement.
+            // Rounding this ascent to points moves SFUI ink by up to two pixels
+            // at 3x; the painter and selection snap it to device pixels instead.
+            let nativeAscent = CTFontGetAscent(font)
+            return (nativeAscent, ascent + descent + gap - nativeAscent)
+            #else
             return (ascent + floor(gap / 2), descent + ceil(gap / 2))
+            #endif
         }
         guard height.isFinite else { return (ascent, descent) }
         let above = ascent + floor((height - ascent - descent) / 2)
