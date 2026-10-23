@@ -467,6 +467,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         raster = lease; AnimatedRasters.shared.attach(self); applyImageLayer()
         self.needsDisplay = true
         if let c = canvasAbove { c.needsCapture = true; canvases?.scheduleCapture() }
+        presenter.boxFilters.changed(self)
         return lease.image.naturalSize
     }
 
