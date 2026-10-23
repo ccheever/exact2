@@ -91,21 +91,29 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
  *  every process on the Mac shares (the general pasteboard, the active app,
  *  the mouse, a capture of the screen) share one process beside them, one
  *  class after another. A window's key status and first responder belong
- *  to its own process. The Canvas 2D GPU module (`canvasGpu`) is loaded only
- *  in its own tests' process: loaded, every canvas draws on the GPU. */
+ *  to its own process. A class that tracks a menu (`popUp(positioning:)`)
+ *  runs after all of them, alone, in a process of its own: an open menu
+ *  closes when its app stops being the active one, as another test process
+ *  brought forward makes it, and in the shared process it read the menu
+ *  items other classes left. The Canvas 2D GPU module (`canvasGpu`) is
+ *  loaded only in its own tests' process: loaded, every canvas draws on the
+ *  GPU. */
 export async function macTests(pkg, scratch, env, canvasGpu) {
   const listed = read('swift', ['test', '--skip-build', '--list-tests', '--scratch-path', scratch], { cwd: pkg, env });
   if (listed.status !== 0) throw new Error(`swift test --list-tests failed: ${listed.stderr}`);
   const classes = [...new Set(listed.stdout.match(/^ExactKitTests\.\w+(?=\/)/gm) ?? [])];
   const macWide = /NSPasteboard\.general|\bactivate\(|NSEvent\.mouseLocation|CGWindowListCreateImage/;
-  const shared = new Set();
+  const tracksMenu = /\.popUp\(positioning:/;
+  const shared = new Set(), solo = new Set();
   for (const file of readdirSync(resolve(pkg, 'tests/ExactKitTests')).filter(f => f.endsWith('.swift'))) {
     const source = readFileSync(resolve(pkg, 'tests/ExactKitTests', file), 'utf8');
-    if (macWide.test(source)) for (const [, name] of source.matchAll(/class (\w+)\s*:\s*XCTestCase/g)) shared.add(`ExactKitTests.${name}`);
+    const named = [...source.matchAll(/class (\w+)\s*:\s*XCTestCase/g)].map(([, name]) => `ExactKitTests.${name}`);
+    for (const name of named) if (tracksMenu.test(source)) solo.add(name); else if (macWide.test(source)) shared.add(name);
   }
   const gpuClass = 'ExactKitTests.Canvas2DGpuStressTests';
   shared.delete(gpuClass);
-  const groups = [classes.filter(c => shared.has(c)), ...classes.filter(c => !shared.has(c)).map(c => [c])].filter(g => g.length);
+  const groups = [classes.filter(c => shared.has(c)), ...classes.filter(c => !shared.has(c) && !solo.has(c)).map(c => [c])].filter(g => g.length);
+  const alone = classes.filter(c => solo.has(c)).map(c => [c]);
   // SwiftPM names the test bundle after the test target up to Swift 6.2 and after the package from 6.3 on.
   const bin = read('swift', ['build', '--show-bin-path', '--scratch-path', scratch], { cwd: pkg, env }).stdout.trim();
   const bundle = ['ExactKitTests.xctest', 'ExactPackageTests.xctest'].map(name => resolve(bin, name)).find(existsSync) ?? resolve(bin, 'ExactKitTests.xctest');
@@ -127,7 +135,8 @@ export async function macTests(pkg, scratch, env, canvasGpu) {
   let next = 0;
   const taker = async () => { while (next < groups.length) await one(groups[next++]); };
   await Promise.all(Array.from({ length: Math.min(groups.length, availableParallelism()) }, taker));
-  console.log(`host/apple: ${classes.length} test classes in ${groups.length} processes, ${failed.length} failed`);
+  for (const group of alone) await one(group);
+  console.log(`host/apple: ${classes.length} test classes in ${groups.length + alone.length} processes (${alone.length} alone after the rest), ${failed.length} failed`);
   if (failed.length) throw new Error(`swift tests failed:\n  ${failed.join('\n  ')}`);
 }
 
