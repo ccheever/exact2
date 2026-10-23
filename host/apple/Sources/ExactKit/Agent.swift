@@ -680,7 +680,23 @@ public final class Agent {
         return ["tapped": Int(v.id), "into": into]
     }
 
+    /// `clock`, its reply naming the requests the server holds, which no
+    /// clock waited on (LLP 1016.000 D9): `held` and `heldTargets`, as the
+    /// web hosts' do. An error reply is left as it is.
     func clock(_ req: [String: Any]) -> [String: Any] {
+        var out = clockStep(req)
+        guard out["error"] == nil,
+              let d = session.agent("{\"op\":\"state\"}").data(using: .utf8),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return out }
+        let held = (o["pending"] as? [[String: Any]])?.filter { $0["held"] as? Bool == true } ?? []
+        if !held.isEmpty {
+            out["held"] = held.count
+            out["heldTargets"] = held.compactMap { $0["name"] as? String }
+        }
+        return out
+    }
+
+    private func clockStep(_ req: [String: Any]) -> [String: Any] {
         session.natives.hatchClock.beginCommand()
         // @ref LLP 1080.000 §12 — platform timing, before any `clock`: the
         // host has run on the wall's time (motion and holds included) while
@@ -1037,7 +1053,8 @@ public final class Agent {
         #else
         let pictures = 0
         #endif
-        return pendingRequests().count + session.presenter.canvas2d.loadingCount + pictures
+        // A reply the server holds is no I/O a clock waits on (LLP 1016.000 D9).
+        return pendingRequests().filter { $0["held"] == nil }.count + session.presenter.canvas2d.loadingCount + pictures
     }
 
     /// `clock settle`'s bound on requests in flight: a network's worth.

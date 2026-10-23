@@ -628,6 +628,10 @@ impl Batch {
         if let Some(ms) = r.request.timeout_ms {
             push_text!(&mut s, ",\"timeoutMs\":{}", ms);
         }
+        // `exactHeld` (LLP 1016.000 D9): the page lists it, and no clock waits on it.
+        if r.request.is_held() {
+            s.push_str(",\"held\":true");
+        }
         s.push_str(",\"method\":");
         quote(&r.request.method, &mut s);
         s.push_str(",\"url\":");
