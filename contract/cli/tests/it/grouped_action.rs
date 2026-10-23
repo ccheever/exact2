@@ -251,3 +251,43 @@ fn a_row_that_says_it_is_selected_is_a_choice_not_an_action() {
     );
     assert_eq!(colour(&r, "off-title"), label);
 }
+
+/// A leading symbol and the title after it follow UIKit's list cell as the
+/// text size changes: the symbol grows with the text through the standard
+/// sizes and returns to its smallest at the accessibility sizes, and the
+/// title starts where UIKit's `textLayoutGuide` does (iOS 27.1).
+#[test]
+fn a_leading_symbols_slot_and_the_title_after_it_follow_the_text_size() {
+    let mut r = boot(SYMBOLS);
+    let place = |r: &Runner<NoData>, t: &str| {
+        let k = r.kernel();
+        let (f, row) = (
+            k.node(id(r, t)).unwrap().frame,
+            k.node(id(r, "written")).unwrap().frame,
+        );
+        ((f.x - row.x) * 100.0).round() / 100.0
+    };
+    let width = |r: &Runner<NoData>| {
+        (r.kernel().node(id(r, "written-icon")).unwrap().frame.width * 100.0).round() / 100.0
+    };
+    for (body, title, symbol) in [
+        (17.0, 56.0, 24.0),
+        (23.0, 63.67, 32.11),
+        (14.0, 52.67, 20.28),
+        (53.0, 56.0, 24.0),
+    ] {
+        r.set_root_font_size(body).unwrap();
+        layout(&mut r);
+        assert_eq!(
+            place(&r, "written-icon"),
+            16.0,
+            "{body}: the symbol at the margin"
+        );
+        assert_eq!(width(&r), symbol, "{body}: the symbol's slot");
+        assert_eq!(
+            place(&r, "written-title"),
+            title,
+            "{body}: the title's inset"
+        );
+    }
+}
