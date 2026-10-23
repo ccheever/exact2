@@ -891,15 +891,52 @@ package final class TextSelection {
             paint.runs[i].underlineColor = opaque(run.underlineColor)
             paint.runs[i].strikeColor = opaque(run.strikeColor)
         }
-        // CoreText includes the ink's alpha in decorations. Repaint those
-        // with solid role ink before applying the selected-text colour.
-        let painted = changed ? node.text?.paragraph(paint, width: paragraph.width) ?? paragraph : paragraph
+        let indices = Set(lines.map(\.line))
+        var repainted: [Int: CTLine] = [:]
+        if changed, let engine = node.text {
+            // Change paint over the measured ranges. Rewrapping loses the
+            // exclusion intervals and column fragments that own these lines.
+            let ordered = indices.sorted()
+            let ranges = ordered.map { index -> CFRange in
+                if index == paragraph.lines.count - 1, let clamped = paragraph.clampedRange { return clamped }
+                if !paragraph.fragments.isEmpty {
+                    let fragment = paragraph.fragments[index]
+                    return CFRange(location: fragment.paint_start, length: fragment.paint_end - fragment.paint_start)
+                }
+                return CTLineGetStringRange(paragraph.lines[index])
+            }
+            let source: NSAttributedString, rebuilt: [CTLine]
+            if !paragraph.fragments.isEmpty, let flow = engine.paragraph(paint, width: .infinity).shape?.preparedFlow() {
+                source = flow.attributed
+                rebuilt = zip(ordered, ranges).map { index, range in
+                    let line = range.length > 0 ? CTTypesetterCreateLine(flow.typesetter, range)
+                        : CTLineCreateWithAttributedString(NSAttributedString(string: ""))
+                    return paragraph.fragments[index].hyphenated != 0
+                        ? TextEngine.inkedSoftHyphen(line, source: source, range: range) : line
+                }
+            } else {
+                (source, rebuilt) = engine.rasterLines(paint, ranges: ranges, width: box.width)
+            }
+            for (offset, index) in ordered.enumerated() where ranges[offset].length > 0 {
+                var line = rebuilt[offset]
+                let range = NSRange(location: ranges[offset].location, length: ranges[offset].length)
+                let fragment = paragraph.fragments.isEmpty ? nil : paragraph.fragments[index]
+                let width = fragment.map { Double($0.available) } ?? Double(box.width)
+                let flowClamped = fragment.map { $0.end < source.string.utf8.count && paint.lineClamp > 0 } ?? false
+                if index == paragraph.lines.count - 1, paragraph.clampedRange != nil || flowClamped {
+                    line = TextEngine.clampedLine(source, range: range, width: width) ?? line
+                } else if spec.ellipsis, CTLineGetTypographicBounds(line, nil, nil, nil) - CTLineGetTrailingWhitespaceWidth(line) > box.width + 0.5 {
+                    line = TextEngine.ellipsis(line, range: range, width: Double(box.width), source: source) ?? line
+                }
+                repainted[index] = line
+            }
+        }
         ctx.saveGState()
         ctx.clip(to: lines.map(\.rect))
         ctx.setFillColor(Self.fill(focused: focused).cgColor)
         ctx.fill(lines.map(\.rect))
-        for index in Set(lines.map(\.line)) {
-            let line = spec.ellipsis ? painted.ellipsized(index, spec: paint, width: box.width) : painted.lines[index]
+        for index in indices {
+            let line = repainted[index] ?? (spec.ellipsis ? paragraph.ellipsized(index, spec: spec, width: box.width) : paragraph.lines[index])
             let origin = CGPoint(x: box.minX + paragraph.origin(index, align: spec.align, width: box.width),
                                  y: box.minY + paragraph.baselines[index].rounded())
             TextLinePaint.draw(line, at: origin, in: ctx, ink: ink, keepsFixed: keepsFixed, transparentInk: node.backgroundClip == "text")
