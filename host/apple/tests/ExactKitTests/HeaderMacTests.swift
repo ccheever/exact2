@@ -85,6 +85,26 @@ final class HeaderMacTests: XCTestCase {
         XCTAssertEqual(window.titleVisibility, .visible)
     }
 
+    func testToolbarTitleAndSymbolKeepTheirOwnAuthoredColours() throws {
+        let p = fixture()
+        var face = ButtonFace()
+        face.title = "Add"
+        face.symbol = "plus"
+        face.rows = ButtonFaceRows(["title": ["text_color": [0, 0, 0, 0]], "symbol": ["tint_color": [0, 0, 255, 255]]])
+        p.buttonFace = { _ in face }
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        let button = try XCTUnwrap(p.toolbar.items[14]?.view as? NSButton)
+        let titleInk = try XCTUnwrap(button.attributedTitle.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor)
+        XCTAssertEqual(titleInk.alphaComponent, 0)
+        XCTAssertEqual(button.contentTintColor?.alphaComponent, 0)
+        XCTAssertEqual(button.image?.isTemplate, false, "the symbol carries its own blue")
+        face.rows = ButtonFaceRows(["symbol": ["tint_color": [0, 0, 255, 255]]])
+        p.toolbar.sync()
+        XCTAssertNil(button.contentTintColor, "unsaid title ink remains AppKit's")
+        XCTAssertNil(button.attributedTitle.attribute(.foregroundColor, at: 0, effectiveRange: nil))
+        XCTAssertEqual(button.image?.isTemplate, false)
+    }
+
     func testARIAUnavailableToolbarViewerRemainsPressable() throws {
         let p = fixture(extra: [["op": "props", "id": 13, "set": ["accessibilityDisabled": "true"]]])
         XCTAssertTrue(p.toolbar.attach(to: window))
