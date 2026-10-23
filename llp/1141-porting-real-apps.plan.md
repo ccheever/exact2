@@ -1,7 +1,7 @@
 # LLP 1141: Porting real apps — the euxy loop, as a method for many apps
 
 **Type:** Plan
-**Status:** Accepted, 2026-10-23, as r2 with Charlie's rulings (§10). Draft r2, 2026-10-22. r1 was reviewed blind by GPT-6 Astra (xhigh) and Grok 4.7 (xhigh), direction and method only (`llp/reviews/plan-2026-10-22-1141-r1.{astra,grok}.md`); both READY WITH CHANGES, and r2 folds them in (§R). Muse was not run: its login had lapsed. The pilot (§6, §10.6) starts next, and each app gets a sub-LLP.
+**Status:** Accepted, 2026-10-23, as r3: r2 with Charlie's rulings (§10) and Muse's review of r2 folded in (§R3). Draft r2, 2026-10-22. r1 was reviewed blind by GPT-6 Astra (xhigh) and Grok 4.7 (xhigh), direction and method only (`llp/reviews/plan-2026-10-22-1141-r1.{astra,grok}.md`); both READY WITH CHANGES, and r2 folds them in (§R). Muse was not run: its login had lapsed. The pilot (§6, §10.6) starts next, and each app gets a sub-LLP.
 **Systems:** Nothing in exact2 directly. Each app's sub-LLP decides changes to whatever its port shows wanting, and adds `QUEUE.md` entries, `docs/agent-pitfalls.md` entries and recipes. The ports, the originals and their measurements live outside the repository (§7).
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-22
@@ -39,6 +39,26 @@ adopted where the record supports it.
 
 Not adopted: relaxing the memory bar to 1.3× for the first wave (Grok). Astra argued against
 relaxing it to pass euxy, and a miss is better kept visible as a named limit (§4.7).
+
+### R3. Muse's review of r2, and what r3 changed
+
+Muse Wonder 1.0 (xhigh) reviewed r2 with the rulings, blind to the other reviews' text
+(`llp/reviews/plan-2026-10-23-1141-r2.muse.md`): READY WITH CHANGES. r3 takes:
+
+| Change | Where |
+|---|---|
+| A pass needs one fresh port graded against calibration pairs with known differences, so the grader's sensitivity is measured, not only its regrade spread (Muse's BLOCKING) | §4.3, §4.7 |
+| Model family is a matrix axis; before the program scales, one pilot app is ported again by a second family on the same frozen brief (Muse's BLOCKING) | §6 |
+| Memory and size bars apply to Exact's marginal cost (the app minus its bare template, against the native app minus a bare native app); the absolute numbers are reported and may close as named limits | §2 |
+| A timing bar passes on a paired, interleaved interval of the median ratio, not on non-overlapping bands | §2 |
+| Recognition by the grader is tested against chance, and scores are split when it is above chance | §4.3 |
+| Every flow adapter and every step diagnosed as not counted is logged and reported | §4.0 |
+| A class fix may name a plausible consumer not yet built, flagged as such, with the probe deferred to the next app on that row | §4.5 |
+| The journey must complete by accessibility labels as far as the reference's does | §2 |
+| The held-back app is quarantined; Charlie's time is counted in the pilot's costs; ports take at most half the lanes, so the bake-off keeps running | §6, §9 |
+
+Not adopted: two independent fresh ports for every pass. The calibration pairs answer the same
+doubt (is a closeness difference real?) for a grading run rather than a second build.
 
 ## Summary
 
@@ -118,11 +138,15 @@ Otherwise it is whichever of the original and the native port is better on that 
 | **Faithful** | (a) The differences from the original a user would notice, per screen, listed by a blind grader driving the original and both ports (§4.3). (b) Tells (LLP 1115), on a build with no development affordances, in dark mode and at the largest Dynamic Type. (c) Numbers the original defines: a total, a clock, the rows after a relaunch. (d) `screenshot … compare` against the original's pictures, which locates differences and does not judge them | No tell Exact caused. The grader rates the Exact port at least as close to the original as the native port, by more than its measured noise. Every number the original defines matches |
 | **Fast start** | From process start, Release: first frame; **content shown** (the first screen's named content element is drawn); **usable** (a named control answers a tap). Layer counts are kept for diagnosis. Web: FCP, LCP and bytes transferred on a throttled mobile profile | Content shown and usable ≤ the runtime reference's × 1.1 |
 | **Fast while running** | Over the journey (§4.0), from each input's timestamp: time to first feedback, and time to the settled frame, kept apart from the length of any animation. While scrolling the longest list: the hitch ratio (ms of hitches per s). Web: INP per step | Each step ≤ the reference's + one frame + the probe's quantum; hitch ratio ≤ the reference's, or under 5 ms/s |
-| **Light** | Footprint 10 s after launch, its peak over the journey, and its growth over ten repeated journeys. CPU over 20 s at rest, and over 20 s of the app's steady activity (euxy playing). Installed size. Web: JS and CSS bytes | Footprint at rest and peak ≤ the reference's × 1.2; no growth across repeated journeys. At rest, no recurring work the bare template does not do. Steady activity ≤ the reference's CPU. Size ≤ the bare template's plus the reference's own size |
+| **Light** | Footprint 10 s after launch, its peak over the journey, and its growth over ten repeated journeys. CPU over 20 s at rest, and over 20 s of the app's steady activity (euxy playing). Installed size. Web: JS and CSS bytes | Marginal footprint at rest and at peak (the app's minus its bare template's) ≤ the reference's marginal (its app's minus a bare app of its stack) × 1.2, the absolute footprints reported beside them; no growth across repeated journeys. At rest, no recurring work the bare template does not do. Steady activity ≤ the reference's CPU. Marginal size likewise ≤ the reference's |
+| **Accessible** | The journey run by accessibility labels alone (Maestro, §4.0) | It completes as far as the reference's does |
 | **Quick and cheap to build** | Gross wall clock and wall clock less service pauses; output tokens, fresh input, cache reads, calls, the largest context, and the dollar cost billed, all to *verified completion*, failed attempts included | None for graduation: recorded on every port, and claimed only as §4.8 allows |
 
-A timing or memory bar passes when the medians clear it and the p10–p90 bands do not overlap.
-When the bands overlap, more runs are taken. Energy has no bar until device runs exist (§5).
+A timing or memory bar passes when a 90% interval of the paired ratio clears it. Launches and
+journeys are interleaved arm by arm (§5), so each Exact run is paired with the reference run
+beside it. When the interval straddles the bar, more runs are taken, up to a budget declared
+before the app's first port; past it, the measure is inconclusive. Energy has no bar until
+device runs exist (§5).
 
 `rules/RULES.md` budgets "cold start to interactive first frame" at 100 ms p50. That budget is
 Exact's own phases, which `SIMCTL_CHILD_EXACT_SMOKE=1` prints. This plan measures from process
@@ -184,8 +208,9 @@ in prose, with each step's semantic action and assertion, and once as a
 the accessibility tree whatever the stack, so one flow drives every arm; an arm may need a
 small adapter. When Maestro can find a step in the native port but not in the Exact port, the
 failure is diagnosed before it is counted as an accessibility difference. The journey is then
-finished with `scripts/agent.mjs`. Maestro only drives the journey; the bench's probes (§5)
-take the timings.
+finished with `scripts/agent.mjs`. Every adapter, and every step diagnosed as not counted, is
+logged in the app's `RESULTS.md` and reported beside the results, so the exemption is visible.
+Maestro only drives the journey; the bench's probes (§5) take the timings.
 
 ### 4.1 The brief
 
@@ -249,14 +274,22 @@ the model's (LLP 1116 §R).
 
   It drives each port through the journey and the screens, and lists each difference from the
   original a user would notice, each tell and each bug. It scores closeness to the original
-  and platform feel (LLP 1116's rubric). After scoring, it says which arm it took to be Exact,
-  so that recognition can be checked against the scores.
+  and platform feel (LLP 1116's rubric). After scoring, it says which arm it took to be Exact.
+  Over an app's gradings, that guess rate is tested against chance. When it is above chance,
+  scores are reported split by recognised and unrecognised pairs, and a closeness win on a
+  recognised pair is not counted.
+- **Calibration pairs** are graded in every round beside the real pair: the original against
+  itself, and the original against a copy with one deliberate difference a user would notice
+  (a wrong label, a missing control, a platform tell). A grader that misses the planted
+  difference, or finds one between identical builds, sets the sensitivity floor for that
+  round.
 - **The grader's noise** is measured continuously:
   - 10–20% of pairs, chosen at random, are regraded in reversed order;
   - the double grade is repeated whenever the rubric changes;
   - a second, independent grader confirms any graduation and any disputed finding.
 
-  A closeness difference counts only when it exceeds the measured regrade spread.
+  A closeness difference counts only when it exceeds both the measured regrade spread and the
+  round's calibration floor.
 
 ### 4.4 Give every loss an owner
 
@@ -277,10 +310,11 @@ unreproduced, and is retried on the next port. It is not dropped.
 The app's sub-LLP decides what to change, in LLP 1116's shape: decisions in order of expected
 effect, each landing as its own commit. The rules:
 
-- **Fix the class, and show it.** Each change names a second consumer that already exists: an
-  app under `apps/`, a bake-off spec, or another port in this corpus. The change is probed
-  there before the next new app starts. A change with no such consumer stays in the port's
-  own module or in `QUEUE.md`. LLP 1125 is the model: it shaped a sequencer's scheduler so
+- **Fix the class, and show it.** Each change names a second consumer: an app under `apps/`,
+  a bake-off spec, or another port in this corpus. The change is probed there before the next
+  new app starts. A plausible consumer not yet built may stand in, flagged as unbuilt, and the
+  probe then waits for the next app on that matrix row. A change with no consumer at all
+  stays in the port's own module or in `QUEUE.md`. LLP 1125 is the model: it shaped a sequencer's scheduler so
   that "a drum machine, a metronome, a rhythm game, an interval timer" use it unchanged.
 - **Name what each fix should move.** Each fix states the measure it should change (a §2 row,
   or a bake-off failure class). A runtime win is never reported as an authoring win.
@@ -306,8 +340,8 @@ There are two kinds of re-run, each numbered (port N) and added to the app's res
 
 The stopping rules are declared before an app's first port:
 
-- **Passed.** Every bar in §2 is met on one fresh port and confirmed by a replay, with the
-  second grader agreeing.
+- **Passed.** Every bar in §2 is met on one fresh port and confirmed by a replay. Its grading
+  passed its calibration pairs (§4.3), and the second grader agrees.
 - **Closed with named limits.** After at most four fresh ports, each bar still missed is named
   in the sub-LLP with its owner and reason (a platform limit, a decision not to support
   something, work queued), and Charlie accepts the list. Memory may close this way only within
@@ -402,9 +436,16 @@ The pilot includes:
 - one Expo or React Native original;
 - one deep app, if the other two are small.
 
-One candidate is held back, unseen by anyone tuning Exact, as a transfer check after the
-pilot's fixes. The pilot measures its own costs: baseline preparation, grading, fixes and
-maintenance, separately.
+One candidate is held back as a transfer check after the pilot's fixes. It is quarantined:
+no one tuning Exact, writing its docs or classifying another app reads or runs it until the
+check. If it is touched, the check is void and another candidate takes its place.
+
+Before the program scales past the pilot, one pilot app is ported again by a second model
+family on the same frozen brief, both arms, so that coverage is not one family's. From then on
+the family is a matrix axis like the platform and the original's stack.
+
+The pilot measures its own costs, separately: baseline preparation, grading, fixes,
+maintenance, and the time Charlie spends on rulings (named limits, classification disputes).
 
 ## 7. Records
 
@@ -467,8 +508,13 @@ was 735 k tokens. Each run records its billed dollars, and the pilot sets the pe
 from what its three apps cost.
 
 The pace: two lanes in flight, alternating a new app with a re-port, so the fixes from one
-app are measured before the next starts. After the pilot, a lane pauses when two successive
-fix batches move no measure in any app.
+app are measured before the next starts. Ports take at most half the lanes measuring Exact;
+the bake-off keeps the rest, since only its paired intervals support authoring-cost claims
+(§4.8). After the pilot, a lane pauses when two successive fix batches move no measure in any
+app.
+
+An original that stops building with current toolchains is re-pinned to a newer commit. Its
+baseline is then taken again, and results before and after the re-pin are not compared.
 
 ## 10. Rulings (Charlie, 2026-10-23)
 
