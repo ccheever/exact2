@@ -166,7 +166,11 @@ its time counts too.
 - **Measure with a pruned `target/`.** Cargo never deletes old object files
   from `target/debug/deps`, and on macOS a test that touches the main bundle
   lists that directory, so hundreds of thousands of files there cost seconds
-  of system time per test process.
+  of system time per test process. For URLSession startup stalls in
+  `CFBundleCopyBundleLocalizations`, changing the working directory is
+  insufficient: Foundation inspects the executable's directory. Copy the
+  test executable into an empty temporary directory and run that copy with
+  the same filters and deadlines to isolate directory accumulation.
 - **Gatekeeper scans each newly built binary when it first runs.** After a
   kernel edit, the scans added about 95–130% to the wall time of rebuilding
   and running ten packages' Rust tests. Adding the program that starts the
