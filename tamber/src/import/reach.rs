@@ -72,11 +72,13 @@ pub(super) fn reaching(edges: &[Vec<usize>], seeds: impl IntoIterator<Item = usi
     on
 }
 
-/// The names that reach one `holds` says yes to: a name's node is the
-/// import's token of that name, else the design's token it names (by
-/// [`Index`]), and it names the words of the import token's value, else
-/// the design token's default. Every name the import or the design holds,
-/// and every word of the design's values, is a node.
+/// The names that reach one `holds` says yes to: a name is the import's
+/// token of that name, else the design's token it names (by [`Index`]), and
+/// that token names the words of the import token's value, else the design
+/// token's default. Every name the import or the design holds, and every
+/// word of the design's values, is a node; so is each token a name resolves
+/// to, once, so that its words are read once however many spellings name it
+/// (Astra's round 3 re-check).
 pub(super) fn names_reaching<'a>(
     design: &'a Design,
     roles: &'a [(String, bool)],
@@ -84,20 +86,23 @@ pub(super) fn names_reaching<'a>(
     holds: &dyn Fn(Option<&Mapped>, Option<&Token>) -> bool,
 ) -> HashSet<&'a str> {
     let index = Index::new(design, roles);
-    let mut mapped: HashMap<&str, &Mapped> = HashMap::new();
-    for m in tokens {
-        mapped.entry(m.name.as_str()).or_insert(m);
+    let mut mapped: HashMap<&'a str, usize> = HashMap::new();
+    for (i, m) in tokens.iter().enumerate() {
+        mapped.entry(m.name.as_str()).or_insert(i);
     }
+    // Nodes: names (`names`, by `ids`), then each resolved pair of the
+    // import's token and the design's (`defs`), by `edges`' index.
+    let mut edges: Vec<Vec<usize>> = Vec::new();
     let mut ids: HashMap<&'a str, usize> = HashMap::new();
-    let mut names: Vec<&'a str> = Vec::new();
-    let mut intern = |n: &'a str, names: &mut Vec<&'a str>| {
-        let next = names.len();
-        let id = *ids.entry(n).or_insert(next);
-        if id == next {
-            names.push(n);
-        }
-        id
-    };
+    let mut names: Vec<(&'a str, usize)> = Vec::new();
+    let mut intern =
+        |n: &'a str, names: &mut Vec<(&'a str, usize)>, edges: &mut Vec<Vec<usize>>| {
+            *ids.entry(n).or_insert_with(|| {
+                edges.push(Vec::new());
+                names.push((n, edges.len() - 1));
+                edges.len() - 1
+            })
+        };
     let roots = tokens
         .iter()
         .map(|m| m.name.as_str())
@@ -109,28 +114,46 @@ pub(super) fn names_reaching<'a>(
             )
         }));
     for n in roots {
-        intern(n, &mut names);
+        intern(n, &mut names, &mut edges);
     }
-    let (mut edges, mut seeds) = (Vec::new(), Vec::new());
+    let mut defs: HashMap<(Option<usize>, Option<usize>), usize> = HashMap::new();
+    let mut seeds = Vec::new();
     let mut k = 0;
     while k < names.len() {
-        let m = mapped.get(names[k]).copied();
-        let have = index.get(names[k]).map(|i| &design.tokens[i]);
-        if holds(m, have) {
-            seeds.push(k);
-        }
-        let value: &'a str = match (m, have) {
-            (Some(m), _) => &m.value,
-            (None, Some(t)) => &t.value.value,
-            (None, None) => "",
-        };
-        edges.push(words(value).map(|w| intern(w, &mut names)).collect());
+        let (n, node) = names[k];
         k += 1;
+        let key = (mapped.get(n).copied(), index.get(n));
+        if key == (None, None) {
+            continue;
+        }
+        let def = match defs.get(&key) {
+            Some(&d) => d,
+            None => {
+                edges.push(Vec::new());
+                let d = edges.len() - 1;
+                defs.insert(key, d);
+                let m = key.0.map(|i| &tokens[i]);
+                let have = key.1.map(|i| &design.tokens[i]);
+                if holds(m, have) {
+                    seeds.push(d);
+                }
+                let value: &'a str = match (m, have) {
+                    (Some(m), _) => &m.value,
+                    (None, Some(t)) => &t.value.value,
+                    (None, None) => "",
+                };
+                for w in words(value) {
+                    let to = intern(w, &mut names, &mut edges);
+                    edges[d].push(to);
+                }
+                d
+            }
+        };
+        edges[node].push(def);
     }
     let on = reaching(&edges, seeds);
     names
         .into_iter()
-        .zip(on)
-        .filter_map(|(n, on)| on.then_some(n))
+        .filter_map(|(n, node)| on[node].then_some(n))
         .collect()
 }
