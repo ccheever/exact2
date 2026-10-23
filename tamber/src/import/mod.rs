@@ -575,9 +575,11 @@ fn body(
                     let value = value.trim();
                     if name.len() > NAME || value.len() > VALUE {
                         let at = from + (segment.len() - segment.trim_start().len());
-                        let why = match name.len() > NAME {
-                            true => "a custom property's name past 256 bytes",
-                            false => LONG_VALUE,
+                        // (the value first: one past the checker's bound
+                        // refuses the import, however long its name)
+                        let why = match value.len() > VALUE {
+                            true => LONG_VALUE,
+                            false => "a custom property's name past 256 bytes",
                         };
                         read.deep.push((name.chars().take(80).collect(), at, why));
                         return;
@@ -767,11 +769,9 @@ pub(crate) fn bounded(import: Result<Import, Vec<Diagnostic>>) -> Result<Import,
             vec![Diagnostic::new(id, format!("`{name}`: {why}"), 1, 1)]
         })
     };
-    for u in &import.unmapped {
-        if let Some(no) = over(&u.name, &u.value) {
-            return Err(no);
-        }
-    }
+    // (an unmapped value is a report's text, which an importer may join
+    // from two source values each within the bound: the source values are
+    // checked where they are read, `source_bound`)
     let ops = import
         .ops
         .iter()
@@ -841,4 +841,35 @@ pub(crate) fn source_read(blocks: &[Block], deep: &[Deep]) -> Result<(), Vec<Dia
             .iter()
             .flat_map(|b| b.decls.iter().map(|(n, v)| (n.as_str(), v.as_str()))),
     )
+}
+
+/// Every `$value` string a DTCG document holds, with the token's path
+/// (`color.accent`), for [`source_bound`]: a reimport's source.
+pub(crate) fn dtcg_values<'a>(
+    v: &'a serde_json::Value,
+    path: &mut Vec<&'a str>,
+    out: &mut Vec<(String, &'a str)>,
+) {
+    let serde_json::Value::Object(o) = v else {
+        return;
+    };
+    for (k, child) in o {
+        if k == "$value" {
+            let mut strings = Vec::new();
+            json_strings(child, &mut strings);
+            out.extend(strings.into_iter().map(|s| (path.join("."), s)));
+        } else if !k.starts_with('$') {
+            path.push(k);
+            dtcg_values(child, path, out);
+            path.pop();
+        }
+    }
+}
+
+/// A DTCG document's `$value`s against the checker's bound
+/// ([`source_bound`]): a reimport's source.
+pub(crate) fn dtcg_bound(doc: &serde_json::Value) -> Result<(), Vec<Diagnostic>> {
+    let mut values = Vec::new();
+    dtcg_values(doc, &mut Vec::new(), &mut values);
+    source_bound(values.iter().map(|(name, v)| (name.as_str(), *v)))
 }
