@@ -563,13 +563,13 @@ extension Agent {
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
-           let reply = presenter.groupedLists?.activate(node) {
+           let reply = presenter.groupedLists?.activate(node, before: { nativePointer(node, request: req, at: $0) }) {
             return delivered(reply, node)
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
            tapHitsControl(node, request: req),
-           let activated = presenter.controls.activate(node) {
+           let activated = presenter.controls.activate(node, before: { nativePointer(node, request: req, at: $0) }) {
             if var unsupported = presenter.controls.unopened(node) {
                 unsupported["reason"] = (unsupported["reason"] as? String ?? "") + "; an iOS simulator can use --touch platform for a real touch"
                 return unsupported
@@ -584,13 +584,13 @@ extension Agent {
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
-           let activated = presenter.segments.activate(node) {
+           let activated = presenter.segments.activate(node, before: { nativePointer(node, request: req, at: $0) }) {
             return activated ? delivered(["tapped": id, "delivery": "host-activation", "native": "segmented-control"], node)
                 : ["error": "native segment #\(id) is unavailable"]
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
-           let reply = presenter.navigation.activateChrome(node) {
+           let reply = presenter.navigation.activateChrome(node, before: { nativePointer(node, request: req, at: $0) }) {
             return delivered(reply, node)
         }
         if let id = req["id"] as? Int, presenter.swipeActions.ownsAction(UInt32(id)),
@@ -600,7 +600,10 @@ extension Agent {
                 // Not revealed: the action as assistive technology performs
                 // it, as the web's tap scrolls the row to it (splitter rough
                 // 12). A real swipe is `tap <row> drag …` (`--touch platform`).
-                if presenter.views[UInt32(id)]?.disabled == false, presenter.swipeActions.perform(UInt32(id)) == true {
+                if presenter.views[UInt32(id)]?.disabled == false, presenter.swipeActions.perform(UInt32(id), before: {
+                    guard let source = presenter.views[UInt32(id)] else { return false }
+                    return nativePointer(source, request: req)
+                }) == true {
                     return delivered(["tapped": id, "pressed": id, "delivery": "host-activation", "native": "swipe-action", "revealed": false], presenter.views[UInt32(id)])
                 }
                 return ["error": "native swipe action #\(id) is not offered: disabled, hidden or inert, or its name is not unique"]
@@ -608,6 +611,7 @@ extension Agent {
             let b = box(button), point = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: window)
             guard let hit = window.hitTest(point, with: nil), hit === button || hit.isDescendant(of: button) else { return ["error": "native swipe action #\(id) is occluded"] }
             let event: UIControl.Event = button.allControlEvents.contains(.primaryActionTriggered) ? .primaryActionTriggered : .touchUpInside
+            guard nativePointer(source, request: req, at: point) else { return ["error": "swipe action #\(id) changed during pointer handlers"] }
             button.sendActions(for: event)
             return delivered(["tapped": id, "at": [Agent.r2(b.midX), Agent.r2(b.midY)], "delivery": "host-activation", "native": "swipe-action"], source)
         }
