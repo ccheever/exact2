@@ -519,3 +519,15 @@ test('an initial stationary checkpoint waits for view delivery even when a later
     path: [{ dx: 0, dy: 100, over: 100, hold: 0 }] })).rejects.toThrow('did not reach the view');
   expect(ran).toEqual([]);
 });
+
+test('a missed reversal endpoint reports the net displacement asked', async () => {
+  const aim = { orientation: 'portrait', session: 'main', generation: 1, screen: { x: 0, y: 0, w: 400, h: 800 }, point: [30, 20], fixed: [30, 20], fixedAxes: [[1, 0], [0, 1]], display: [400, 800], viewport: [400, 800], at: [30, 20], window: [30, 20], seq: 4, hit: 7 };
+  const began = { seq: 5, touch: 1, phase: 'began', t: 1, at: [30, 20], view: 'Control', node: 7, session: 'main', generation: 1 };
+  await expect(realTap({ id: 7,
+    drag: { dx: 0, dy: 40, press: 0, over: 100, hold: 0, path: [{ dx: 0, dy: -40, over: 100, hold: 0 }] },
+    ask: async (req) => req.aim ? { aim } : { log: [began,
+      { ...began, seq: 6, phase: 'moved', t: 1.1, at: [30, 60] },
+      { ...began, seq: 7, phase: 'ended', t: 1.2, at: [30, 22] }], truncated: false },
+    touches: { async ask(req) { return req.op === 'foreground' ? { state: 'runningForeground' } : { injected: {} }; } },
+  })).rejects.toThrow('not the asked (0, 0)');
+});
