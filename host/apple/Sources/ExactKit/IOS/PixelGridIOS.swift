@@ -92,6 +92,19 @@ package enum PixelGrid {
         let scale = scale(s)
         return CGFloat(pixel(v, scale: scale)) / CGFloat(scale)
     }
+
+}
+
+extension PixelGrid {
+    /// Programmatic offsets use the scroller's display. During a pan or
+    /// fling, preserve UIKit's rubber band by rounding without clamping.
+    package static func offset(_ point: CGPoint, in scroll: UIScrollView, clamped: Bool = true) -> CGPoint {
+        let s = max(1, scroll.traitCollection.displayScale)
+        if !clamped { return CGPoint(x: round(point.x, scale: s), y: round(point.y, scale: s)) }
+        let i = scroll.adjustedContentInset
+        return CGPoint(x: clamp(point.x, -i.left, scroll.contentSize.width + i.right - scroll.bounds.width, scale: s),
+                       y: clamp(point.y, -i.top, scroll.contentSize.height + i.bottom - scroll.bounds.height, scale: s))
+    }
 }
 
 extension Presenter {
@@ -196,7 +209,7 @@ extension Presenter {
         regridSlots()
         let s = gridScale
         for id in scrollers {
-            guard let v = views[id], let sv = v.scroll, !flying(v) else { continue }
+            guard let v = views[id], let sv = v.scrollView, !flying(v) else { continue }
             v.fitScroll()
             let i = sv.adjustedContentInset
             let offset = CGPoint(x: PixelGrid.clamp(sv.contentOffset.x, -i.left, sv.contentSize.width + i.right - sv.bounds.width, scale: s),

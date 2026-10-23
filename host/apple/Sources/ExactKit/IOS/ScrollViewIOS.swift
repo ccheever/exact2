@@ -312,7 +312,7 @@ extension NodeView {
                     let y = sv.isTracking || sv.isDecelerating ? top : min(max(top, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height))
                     // An element reveal heads for where its target now is instead (`IntoView.swift`).
                     if presenter?.elementScrolls.revealing(sv) != nil { presenter?.elementScrolls.retarget(sv) }
-                    else if y != sv.contentOffset.y { sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: y), animated: false) }
+                    else if y != sv.contentOffset.y { sv.setContentOffset(PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: y), in: sv, clamped: !(sv.isTracking || sv.isDecelerating)), animated: false) }
                 } else if !groupedOwner { restoreScrollAnchor(sv) }
             }
             return
@@ -345,9 +345,9 @@ extension NodeView {
             if prior.end { followsEndAfterInteraction = true }
             else if top != prior.top {
                 if groupedOwner {
-                    if sv.contentOffset.y != top { sv.contentOffset.y = top }
+                    if sv.contentOffset.y != top { sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: top), in: sv, clamped: false) }
                 }
-                else { sv.contentOffset.y += top - prior.top }
+                else { sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: sv.contentOffset.y + top - prior.top), in: sv, clamped: false) }
             }
             anchoredScrollTop = sv.contentOffset.y
             return
@@ -361,7 +361,7 @@ extension NodeView {
             // smooth `scrollTop` write is; a shrink or a jump up lands at once.
             let animate = prior.end && y > sv.contentOffset.y && style["scroll_behavior"]?.string == "smooth" && !ExactEnv.agentFreezes && window != nil
             followingEndAnimated = animate
-            sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: y), animated: animate)
+            sv.setContentOffset(PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: y), in: sv), animated: animate)
         }
         // UIKit quantizes the assigned offset. Compare its actual stored value
         // next time so that rounding cannot masquerade as a reader's scroll.
