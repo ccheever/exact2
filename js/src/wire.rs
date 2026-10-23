@@ -19,7 +19,7 @@ pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
             }
         }
     }
-    Ok(Request {
+    let request = Request {
         http: match j.get("max_response_bytes") {
             None => exact_runner::HttpScheduling::Ordered,
             Some(value) => exact_runner::HttpScheduling::Independent {
@@ -86,7 +86,12 @@ pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
         },
         redirect: Redirect::parse(j.get("redirect").and_then(Json::as_str))?,
         held: j.get("held").and_then(Json::as_bool).unwrap_or(false),
-    })
+    };
+    // A long poll's terms, checked as every host checks them (LLP 1016.000 D8).
+    match request.long_poll_refusal() {
+        Some(why) => Err(why.into()),
+        None => Ok(request),
+    }
 }
 
 /// A stream's outcome for its mapper, as [`outcome_to_json`] spells it but

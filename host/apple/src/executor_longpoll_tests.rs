@@ -124,11 +124,28 @@ fn poll(ticket: u64, same_cursor_event: bool, ceiling: u32) -> RequestOut {
     }
 }
 
+thread_local! {
+    /// The replies that were no event this test's `next` passed over.
+    static REPLIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The next outcome that is no reply marker (`LONG_POLL_REPLY`), each marker counted in `REPLIES`.
 fn next(core: &Core, woke: &Receiver<()>) -> (u64, Outcome) {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         core.begin_pump();
-        if let Some(done) = core.drain().pop() {
+        let mut done = core.drain();
+        let replies = done
+            .iter()
+            .filter(
+                |d| matches!(&d.1, Outcome::Message(m) if m.event == exact_runner::LONG_POLL_REPLY),
+            )
+            .count();
+        REPLIES.with(|r| r.set(r.get() + replies));
+        done.retain(
+            |d| !matches!(&d.1, Outcome::Message(m) if m.event == exact_runner::LONG_POLL_REPLY),
+        );
+        if let Some(done) = done.pop() {
             return (done.0, done.1);
         }
         woke.recv_timeout(deadline.saturating_duration_since(Instant::now()))
@@ -219,7 +236,9 @@ fn each_reply_is_a_message_its_cursor_asked_with_next_and_heartbeats_are_asked_a
         started.elapsed()
     );
     let events: u32 = got.iter().map(|(_, c)| 1 + c).sum();
-    assert_eq!(events, 3, "the heartbeats delivered nothing: {got:?}");
+    assert_eq!(events, 3, "the heartbeats delivered no event: {got:?}");
+    // Each heartbeat was a reply the runner counts, though some may have folded into one waiting.
+    assert!(REPLIES.with(|r| r.get()) >= 1);
     until_asked(&script, 8);
     assert_eq!(
         asked(&script),
@@ -430,5 +449,55 @@ fn a_long_poll_that_is_not_a_bodiless_http_get_is_refused() {
             "{end:?}"
         );
         assert!(script.asked.lock().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn a_retry_asks_no_sooner_than_the_floor_and_its_body_is_never_read() {
+    let big: &'static str = Box::leak("x".repeat(100_000).into_boxed_str());
+    let (core, script, woke) = setup(vec![
+        Reply::Is(503, vec![("retry-after", "0")], big),
+        Reply::Is(
+            429,
+            vec![("retry-after", "Sun, 06 Nov 1994 08:49:37 GMT")],
+            "",
+        ),
+        Reply::Is(200, vec![JSON], r#"{"seq":9}"#),
+    ]);
+    let started = Instant::now();
+    core.run_owned(poll(1, false, 4096), None).unwrap();
+    assert_eq!(
+        id(&next(&core, &woke).1).0,
+        "9",
+        "a 503 past the ceiling still asks again"
+    );
+    assert!(
+        started.elapsed() >= super::HEARTBEAT_FLOOR * 2,
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(REPLIES.with(|r| r.get()) >= 1, "each busy reply is a reply");
+    core.forget(|_| false);
+    until_settled(&core);
+    assert_eq!(script.asked.lock().unwrap().len(), 4);
+}
+
+#[test]
+fn a_cursor_no_host_can_carry_ends_the_stream() {
+    for body in [r#"{"seq":9007199254740993}"#, r#"{"seq":"a\nb"}"#] {
+        let (core, _script, woke) = setup(vec![Reply::Is(200, vec![JSON], body)]);
+        core.run_owned(poll(1, false, 4096), None).unwrap();
+        let (_, end) = next(&core, &woke);
+        assert!(
+            matches!(
+                &end,
+                Outcome::Failed {
+                    kind: FailureKind::Refused,
+                    ..
+                }
+            ),
+            "{body}: {end:?}"
+        );
+        until_settled(&core);
     }
 }

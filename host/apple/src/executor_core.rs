@@ -1324,7 +1324,7 @@ fn execute(
         Ok(b) => b,
         Err(unbound) => return failed(FailureKind::Refused, unbound),
     };
-    if let Some(why) = request.timeout_refusal() {
+    if let Some(why) = request.timeout_refusal().or(request.long_poll_refusal()) {
         return failed(FailureKind::Refused, why);
     }
     let limit = match request.http {

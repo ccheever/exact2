@@ -33,7 +33,7 @@ pub(crate) fn request_refusal(request: &exact_runner::Request) -> Option<&'stati
             return Some("independent HTTP response limit must be 1..=64 MiB");
         }
     }
-    request.timeout_refusal().or(request.body_from_refusal())
+    (request.timeout_refusal().or(request.body_from_refusal())).or(request.long_poll_refusal())
 }
 
 pub(crate) fn quote(s: &str, out: &mut String) {

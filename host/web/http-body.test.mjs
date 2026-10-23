@@ -311,7 +311,9 @@ function standIn(answers) {
 }
 function longPoll(s, controller, sent, poll = {}, extra = {}) {
   const op = { method: 'GET', url: `${s.origin}/changes?since=0&wait=25`, headers: [], body: '', stream: true, maxResponseBytes: 64, longPoll: { cursor: 'since', from: 'seq', sameCursorEvent: false, ...poll }, ...extra };
-  return request(op, { grantSet: normalized(`net.fetch ${s.origin}`), controllers: new Set(), controller, message: (m) => sent.push(m) });
+  // Each reply is counted (`replied`); one that is no event (`exact:reply`) is no message here.
+  controller.replies = 0; controller.replied = () => controller.replies++;
+  return request(op, { grantSet: normalized(`net.fetch ${s.origin}`), controllers: new Set(), controller, message: (m) => { if (m.event === 'exact:reply') controller.markers = (controller.markers ?? 0) + 1; else sent.push(m); } });
 }
 const until = async (ok) => { const end = performance.now() + 5000; while (!ok()) { if (performance.now() > end) throw new Error('timed out'); await new Promise((r) => setTimeout(r, 5)); } };
 
@@ -331,6 +333,8 @@ test('a long poll delivers each reply with its cursor, asks again with it, and h
   assert.equal(sent[0].data, '{"seq":1,"c":["a"]}');
   assert.deepEqual(s.asked, ['?since=0&wait=25', ...Array(5).fill('?since=1&wait=25'), '?since=2&wait=25', '?since=x3&wait=25']);
   assert.equal(s.most(), 1, 'one request at a time');
+  assert.equal(controller.markers, 4, 'each heartbeat a reply that is no event');
+  assert.equal(controller.replies, 7, 'every reply counted');
   controller.abort();
   const end = await done;
   assert.equal(end.kind, 4);
@@ -351,7 +355,7 @@ test('a long poll waits out Retry-After, shows retrying, and a drop ends the wai
   const s = standIn([{ status: 503, headers: { 'retry-after': '0' } }, { body: '{"seq":5}' }, { status: 429, headers: { 'retry-after': '30' } }]);
   const controller = new AbortController(), sent = [];
   const done = longPoll(s, controller, sent);
-  await until(() => controller.retrying);
+  await until(() => controller.retrying?.error === 'HTTP 429');
   assert.deepEqual(sent.map((m) => m.id), ['5']);
   assert.equal(controller.retrying.attempt, 1, 'the 2xx reset the count');
   assert.equal(controller.retrying.error, 'HTTP 429');
@@ -385,4 +389,31 @@ test('what is not a poll reply ends a long poll, and only a bodiless GET is one'
   assert.match(new TextDecoder().decode(post.body), /a GET with no body/);
   assert.equal(s.asked.length, 0);
   s.server.stop(true);
+});
+
+test('a retry asks no sooner than the floor, a busy body is never read, and a cursor no host carries ends the poll', async () => {
+  longPollTiming.heartbeatMs = 40;
+  try {
+    const s = standIn([{ status: 503, headers: { 'retry-after': '0' }, body: 'x'.repeat(100000) }, { status: 429, headers: { 'retry-after': 'Sun, 06 Nov 1994 08:49:37 GMT' } }, { body: '{"seq":9}' }]);
+    const controller = new AbortController(), sent = [], started = performance.now();
+    const done = longPoll(s, controller, sent);
+    await until(() => sent.length === 1);
+    assert.ok(performance.now() - started >= 80);
+    assert.equal(controller.markers, 2);
+    controller.abort(); await done; s.server.stop(true);
+    for (const body of ['{"seq":9007199254740993}', '{"seq":"a\\nb"}', '{"seq":1.5}']) {
+      const t = standIn([{ body }]);
+      const end = await longPoll(t, new AbortController(), []);
+      assert.equal(end.kind, 2, body);
+      t.server.stop(true);
+    }
+    // A long poll refused before anything is sent: a socket's URL, a bad `from`.
+    const r = standIn([]);
+    const ws = await request({ method: 'GET', url: r.origin.replace('http', 'ws'), headers: [], body: '', stream: true, longPoll: { cursor: 'since', from: 'seq', sameCursorEvent: false } }, { grantSet: normalized(`net.fetch ${r.origin}\nnet.websocket ${r.origin.replace('http', 'ws')}`), controllers: new Set(), controller: new AbortController() });
+    assert.match(new TextDecoder().decode(ws.body), /HTTP, not a WebSocket/);
+    const deep = await longPoll(r, new AbortController(), [], { from: 'a.b.c' });
+    assert.match(new TextDecoder().decode(deep.body), /exactLongPoll.from/);
+    assert.equal(r.asked.length, 0);
+    r.server.stop(true);
+  } finally { longPollTiming.heartbeatMs = 1000; }
 });

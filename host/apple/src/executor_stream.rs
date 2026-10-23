@@ -201,7 +201,18 @@ fn message(shared: &Shared, ticket: u64, mut message: Message) -> bool {
     let waiting = state.completed[lane]
         .iter_mut()
         .find(|done| done.ticket == ticket && done.message);
+    let reply = message.event == exact_runner::LONG_POLL_REPLY;
     match waiting {
+        // A long poll's reply that is no event (LLP 1016.000 D8) never takes
+        // an event's place, nor counts as one dropped.
+        Some(done) if reply => {
+            done.elapsed_ms = elapsed_ms;
+        }
+        Some(done) if matches!(&done.outcome, Outcome::Message(m) if m.event == exact_runner::LONG_POLL_REPLY) =>
+        {
+            done.outcome = Outcome::Message(message);
+            done.elapsed_ms = elapsed_ms;
+        }
         Some(done) => {
             if let Outcome::Message(older) = &done.outcome {
                 message.coalesced = message

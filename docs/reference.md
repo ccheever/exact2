@@ -1183,12 +1183,17 @@ exactLongPoll: { cursor: 'since', from: 'seq' } })`. The host asks with GET
 (`Accept: application/json` unless named), one request at a time. Each 2xx
 JSON reply is one `message`: `data` its text, `lastEventId` its cursor, the
 reply's field `from` (`seq`, or `meta.seq` one level down; a string, or a
-number as JSON writes it); the next request carries that cursor in the query
-parameter `cursor`. A heartbeat asks again with no event: a 204, a 304, an
+whole number within 2^53; a string cursor is at most 4096 bytes with no control
+characters, and one past either rule ends the stream, `Refused`); the next
+request carries that cursor in the query parameter `cursor`. A heartbeat asks
+again with no event: a 204, a 304, an
 empty body, or a reply with the cursor it was asked with (`sameCursor:
 "event"` delivers that one instead, for an endpoint that sends news under an
-unchanged cursor); a heartbeat asks again no sooner than a second after it was
-asked, so a server that answers at once is not hammered. The network, a timeout, a 408, 429, 502, 503 or 504 asks
+unchanged cursor); a heartbeat, or a reply that asks again, asks again no
+sooner than a second after it was asked, so a server that answers at once is
+not hammered. From its first reply of any kind no clock waits on it:
+`state.pending` names it `held: true`, `clock held <name>` waits for its next
+reply, and each reply raises `state.heldReplies` (LLP 1016.000 D9). The network, a timeout, a 408, 429, 502, 503 or 504 asks
 again after `Retry-After` (at most 60 s) or a backoff of 1, 2, 4, 8, 16, then
 30 s, each within a fifth, reset by any 2xx; no event is delivered, and
 `state.streams` shows the stream's `retrying: {attempt, inMs, error}`. Anything
