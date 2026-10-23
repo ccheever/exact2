@@ -1,5 +1,6 @@
 //! The reader's extensions' calls into the host (LLP 1133.001 D5): what
-//! `canvas_jni!` defines beside its own, over the same `HOST`. An
+//! `canvas_jni!` defines beside its own, over the same `HOST`, and the
+//! session's clock and agent flag they read. An
 //! extension's call itself comes the other way, as a request (kind 11,
 //! `presenter/requests.rs`), and its reply as that request's answer.
 
@@ -17,6 +18,38 @@ pub(crate) fn take_bound() -> Option<String> {
     PENDING.lock().unwrap_or_else(|e| e.into_inner()).take()
 }
 
+/// The session's clock as of the host's last turn, and the wall instant it
+/// was read at: what an extension's `ExtensionContext.now()` reads from the
+/// main thread without waiting for exact2's (LLP 1133.009 D10 item 2).
+static CLOCK: std::sync::Mutex<Option<(f64, std::time::Instant)>> = std::sync::Mutex::new(None);
+
+/// The host's turn ended at session time `now_ms`.
+pub(crate) fn stamp(now_ms: f64) {
+    *CLOCK.lock().unwrap_or_else(|e| e.into_inner()) = Some((now_ms, std::time::Instant::now()));
+}
+
+/// Whether this process runs under the agent (`EXACT_AGENT=1`).
+pub fn agent() -> bool {
+    std::env::var("EXACT_AGENT").is_ok_and(|v| v == "1")
+}
+
+/// The session's clock, ms: under the agent, as its last turn left it (the
+/// agent moves it); else that, plus the wall time since.
+pub fn now() -> f64 {
+    match *CLOCK.lock().unwrap_or_else(|e| e.into_inner()) {
+        Some((ms, _)) if agent() => ms,
+        Some((ms, at)) => ms + at.elapsed().as_secs_f64() * 1000.0,
+        None => 0.0,
+    }
+}
+
+/// Whether extension `name` runs told it is under the agent: under the
+/// agent, unless the drive binds it as in production (`--bind`).
+pub fn under_agent(name: &str) -> bool {
+    let bound = std::env::var("EXACT_AGENT_BIND").unwrap_or_default();
+    agent() && !bound.split(',').any(|b| b == name)
+}
+
 /// `Native.changed` and `Native.bindExtensions`, expanded inside
 /// `canvas_jni!`'s module, whose `with` and `string` they use.
 #[macro_export]
@@ -32,6 +65,27 @@ macro_rules! canvas_jni_extensions {
         ) {
             let topic = string(env, topic);
             with(|h| h.extension_changed(&topic));
+        }
+
+        /// The session's clock, ms (`ExtensionContext.now`).
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_now(
+            _env: *mut JNIEnv,
+            _class: jclass,
+        ) -> jdouble {
+            $crate::canvas::jni::jni_extensions::now()
+        }
+
+        /// Whether extension `name` is told it runs under the agent.
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_underAgent(
+            env: *mut JNIEnv,
+            _class: jclass,
+            name: jstring,
+        ) -> jboolean {
+            flag($crate::canvas::jni::jni_extensions::under_agent(&string(
+                env, name,
+            )))
         }
 
         /// The extensions the APK carries, one a line, bound at the host's next turn.

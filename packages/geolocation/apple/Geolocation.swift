@@ -1,7 +1,8 @@
 // @exact/geolocation on Apple (LLP 1133.002 D3, D5, D10, D15): CoreLocation
 // through one `CLLocationManager`, answered in the interface's shapes. The
-// app's composed module calls it outside the agent; under the agent the
-// runner's substitute answers and no manager is created.
+// app's composed module calls it outside the agent, through `ExactPackage`'s
+// shape; under the agent the runner's substitute answers and no manager is
+// created, unless the drive binds it (`--bind geolocation`).
 //
 // - An option the call omits stays CoreLocation's (D2): `desiredAccuracy`
 //   is set only from `apple.desiredAccuracy` or a written
@@ -23,9 +24,10 @@
 //   delegate and, while a reader runs, the options it writes; a development
 //   build names a change to them (`log`).
 import CoreLocation
+import ExactPackage
 import Foundation
 
-public final class GeolocationModule: NSObject, CLLocationManagerDelegate {
+public final class GeolocationModule: NSObject, CLLocationManagerDelegate, ExactPackage {
     /// The app's access hatch (D4): given the manager once, before its first
     /// request; a delegate returned hears every delegate call after the module.
     public static var hatch: ((CLLocationManager) -> CLLocationManagerDelegate?)?
@@ -61,9 +63,9 @@ public final class GeolocationModule: NSObject, CLLocationManagerDelegate {
     /// Whether the build carries the approximate line (D7); macOS has no such key.
     private let approximate = Bundle.main.object(forInfoDictionaryKey: "NSLocationDefaultAccuracyReduced") as? Bool == true
 
-    public init(changed: @escaping (String) -> Void, agent: Bool, log: @escaping (String) -> Void) {
-        self.changed = changed
-        self.log = log
+    public init(context: ExactPackageContext) {
+        changed = context.changed
+        log = context.log
         super.init()
     }
 
@@ -86,7 +88,7 @@ public final class GeolocationModule: NSObject, CLLocationManagerDelegate {
         }
     }
 
-    public func later(_ name: String, _ args: [String: Any], reply: @escaping ([String: Any]) -> Void) {
+    public func later(_ name: String, _ args: [String: Any], preferred: Any?, reply: @escaping ([String: Any]) -> Void) {
         DispatchQueue.main.async { [self] in
             checkOwned()
             switch name {

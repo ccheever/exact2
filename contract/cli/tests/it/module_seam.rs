@@ -253,6 +253,14 @@ fn a_bound_call_is_admitted_before_its_implementation_answers() {
     r.act("start", Vec::new()).unwrap();
     pump(&mut r, &mut parked);
     assert_eq!(sent(&calls, "open"), 1, "nothing starts in the background");
+    let told = |shown: bool| {
+        (calls.lock().unwrap().iter())
+            .any(|c| *c == json!({ "extension": "sensor", "foreground": shown }))
+    };
+    assert!(
+        told(false),
+        "the implementation is told it left the foreground"
+    );
     assert!(
         logs(&r).contains("refused, not in the foreground"),
         "{}",
@@ -264,6 +272,7 @@ fn a_bound_call_is_admitted_before_its_implementation_answers() {
     );
     assert_eq!(refused, json!({ "error": "NotAllowedError" }));
     r.set_page(page).unwrap();
+    assert!(told(true));
     let answered = data_call(
         &mut r,
         json!({ "extension": "sensor", "send": "open", "args": { "audio": true } }),
