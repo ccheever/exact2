@@ -1,0 +1,139 @@
+{
+  "kind": "interface",
+  "name": "@exact/media-capture",
+  "version": "1.0.0",
+  "grants": [
+    "device.microphone"
+  ],
+  "substitute": "implementation",
+  "permission": {
+    "name": "microphone",
+    "status": "microphoneStatus",
+    "field": "state",
+    "denied": "NotAllowedError"
+  },
+  "shapes": {
+    "MediaStream": {
+      "id": "string",
+      "active": "bool",
+      "tracks": "MediaStreamTrack[]"
+    },
+    "MediaStreamTrack": {
+      "id": "string",
+      "kind": "enum<audio|video>",
+      "label": "string",
+      "enabled": "bool",
+      "muted": "bool",
+      "muteReason": "option<enum<idle|interrupted|background|silenced|in-use|multitasking|system-pressure>>",
+      "readyState": "enum<live|ended>",
+      "settings": "MediaTrackSettings",
+      "apple": "option<AppleTrack>",
+      "android": "option<AndroidTrack>"
+    },
+    "MediaTrackSettings": {
+      "deviceId": "option<string>",
+      "groupId": "option<string>",
+      "sampleRate": "option<number>",
+      "sampleSize": "option<number>",
+      "channelCount": "option<number>",
+      "echoCancellation": "option<bool>",
+      "autoGainControl": "option<bool>",
+      "noiseSuppression": "option<bool>",
+      "latency": "option<number>"
+    },
+    "MediaTrackConstraints": {
+      "deviceId": "option<string>",
+      "groupId": "option<string>",
+      "sampleRate": "option<number>",
+      "sampleSize": "option<number>",
+      "channelCount": "option<number>",
+      "echoCancellation": "option<bool>",
+      "autoGainControl": "option<bool>",
+      "noiseSuppression": "option<bool>",
+      "latency": "option<number>"
+    },
+    "MediaDeviceInfo": {
+      "deviceId": "string",
+      "kind": "enum<audioinput|videoinput|audiooutput>",
+      "label": "string",
+      "groupId": "string"
+    },
+    "MediaDeviceList": {
+      "devices": "MediaDeviceInfo[]"
+    },
+    "MicrophoneStatus": {
+      "available": "bool",
+      "state": "enum<granted|prompt|denied|unknown>",
+      "apple": "option<AppleMicrophoneStatus>",
+      "android": "option<AndroidMicrophoneStatus>"
+    }
+  },
+  "names": [
+    {
+      "send": "getUserMedia",
+      "request": true,
+      "origin": "app",
+      "foreground": true,
+      "grants": {
+        "audio": "device.microphone",
+        "audioConstraints": "device.microphone"
+      },
+      "options": {
+        "audio": "option<bool>",
+        "audioConstraints": "option<MediaTrackConstraints>"
+      },
+      "answers": "MediaStream",
+      "handles": {
+        "id": "stream",
+        "tracks[].id": "track"
+      }
+    },
+    {
+      "send": "stopTrack",
+      "options": {
+        "track": "handle<track>"
+      },
+      "answers": "MediaStreamTrack"
+    },
+    {
+      "send": "setTrackEnabled",
+      "origin": "app",
+      "foreground": true,
+      "when": {
+        "enabled": true
+      },
+      "options": {
+        "track": "handle<track>",
+        "enabled": "bool"
+      },
+      "answers": "MediaStreamTrack"
+    },
+    {
+      "source": "mediaStreamTrack",
+      "live": true,
+      "options": {
+        "track": "handle<track>"
+      },
+      "answers": "MediaStreamTrack"
+    },
+    {
+      "source": "enumerateDevices",
+      "live": true,
+      "answers": "MediaDeviceList"
+    },
+    {
+      "source": "microphoneStatus",
+      "live": true,
+      "answers": "MicrophoneStatus",
+      "sync": {
+        "name": "microphoneStatusSync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "available": true
+        }
+      }
+    }
+  ]
+}
