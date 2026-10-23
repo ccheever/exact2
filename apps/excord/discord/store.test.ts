@@ -217,7 +217,7 @@ describe('contiguous history runs', () => {
   test('a short latest page, including an empty channel, proves both endpoints', () => {
     for (const messages of [page(99, 100), []]) {
       const s = createStore();
-      applyHistoryPage(s, cid, { limit: 5 }, messages);
+      applyHistoryPage(s, cid, { limit: 5 }, messages, { since: storeSeq(s) });
       expect(latestWindow(s, cid)).toMatchObject({ reachesStart: true, reachesNewest: true, moreBefore: false, moreAfter: false });
     }
   });
@@ -351,7 +351,7 @@ describe('bounded windows', () => {
     expect(latestWindow(s, cid)).toMatchObject({ fetchBefore: null, fetchAfter: null, fetchLatest: true });
     removePending(s, cid, 'mine');
     expect(latestWindow(s, cid)).toMatchObject({ rows: [], fetchBefore: null, fetchLatest: true });
-    applyHistoryPage(s, cid, { limit: 5 }, []);
+    applyHistoryPage(s, cid, { limit: 5 }, [], { since: storeSeq(s) });
     expect(latestWindow(s, cid)).toMatchObject({ rows: [], fetchBefore: null, fetchAfter: null, fetchLatest: false });
   });
   test('around, before and after select only their requested rows with boundary flags', () => {
@@ -693,6 +693,140 @@ test('a thousand real-shaped MESSAGE_CREATEs append within 500 ms', () => {
 });
 
 describe('review regressions', () => {
+  for (const dispatch of ['reaction', 'embed', 'reaction after READY']) {
+    test(`a newer page edit survives an in-flight ${dispatch}`, () => {
+      const s = seeded();
+      applyHistoryPage(s, cid, { limit: 1 }, [msg(100, { content: 'original', edited_timestamp: null, reactions: [] })]);
+      if (dispatch === 'reaction after READY') {
+        readyAgain(s, '100');
+        expect(latestWindow(s, cid).stale).toBe(true);
+      }
+      const since = storeSeq(s);
+      const emoji = { id: null, name: '👍' };
+      if (dispatch === 'embed') event(s, 'MESSAGE_UPDATE', { id: '100', embeds: [{ title: 'in flight' }] });
+      else event(s, 'MESSAGE_REACTION_ADD', { message_id: '100', user_id: me.id, emoji });
+      const edited = msg(100, { content: 'edited', edited_timestamp: '2026-10-22T12:02:00Z',
+        embeds: [{ title: 'edited embed' }], reactions: [] });
+      applyHistoryPage(s, cid, { limit: 1 }, [edited], { since });
+      expect(latestWindow(s, cid).rows[0]).toMatchObject({ content: 'edited', edited_timestamp: edited.edited_timestamp,
+        embeds: edited.embeds, reactions: dispatch === 'embed' ? [] : [{ emoji, count: 1, me: true }] });
+      expect(latestWindow(s, cid).stale).toBe(false);
+    });
+  }
+
+  for (const timestamp of [null, '2026-10-22T12:02:00.000002Z']) {
+    for (const dispatch of ['reaction', 'embed']) test(`equal edit timestamps ${timestamp} protect only the ${dispatch} group`, () => {
+      const s = seeded();
+      const emoji = { id: null, name: '👍' };
+      applyHistoryPage(s, cid, { limit: 1 }, [msg(100, { content: 'cached', edited_timestamp: timestamp,
+        embeds: [{ title: 'cached' }], reactions: [], pinned: false })]);
+      const since = storeSeq(s);
+      if (dispatch === 'embed') event(s, 'MESSAGE_UPDATE', { id: '100', embeds: [{ title: 'in flight' }] });
+      else event(s, 'MESSAGE_REACTION_ADD', { message_id: '100', user_id: me.id, emoji });
+      const snapshot = msg(100, { content: 'snapshot', edited_timestamp: timestamp?.replace('Z', '+00:00') ?? null,
+        embeds: [{ title: 'snapshot' }], reactions: [{ emoji, count: 3, me: false }], pinned: true });
+      applyHistoryPage(s, cid, { limit: 1 }, [snapshot], { since });
+      expect(latestWindow(s, cid).rows[0]).toMatchObject({
+        content: dispatch === 'embed' ? 'cached' : 'snapshot',
+        embeds: [{ title: dispatch === 'embed' ? 'in flight' : 'snapshot' }], pinned: true,
+        reactions: [{ emoji, count: dispatch === 'reaction' ? 1 : 3, me: dispatch === 'reaction' }],
+      });
+      applyHistoryPage(s, cid, { limit: 1 }, [snapshot], { since: storeSeq(s) });
+      expect(latestWindow(s, cid).rows[0]).toMatchObject(snapshot);
+    });
+  }
+
+  test('a newer cached edit protects every content field from an older page', () => {
+    const s = seeded();
+    const edited = msg(100, { content: 'edited', edited_timestamp: '2026-10-22T12:02:00.000002Z',
+      embeds: [{ title: 'edited' }], attachments: [{ id: '4' }], mentions: [me], mention_roles: ['5'],
+      mention_everyone: true, flags: 4, pinned: false });
+    applyHistoryPage(s, cid, { limit: 1 }, [edited]);
+    applyHistoryPage(s, cid, { limit: 1 }, [msg(100, { edited_timestamp: '2026-10-22T12:02:00.000001Z',
+      mention_roles: [], mention_everyone: false, flags: 0, pinned: true })]);
+    expect(latestWindow(s, cid).rows[0]).toMatchObject({ ...edited, pinned: true });
+  });
+
+  test('a latest page replaces a deleted head before updating last_message_id and unread', () => {
+    const s = seeded();
+    applyHistoryPage(s, cid, { limit: 5 }, page(96, 100));
+    const since = storeSeq(s), side = sidebarVersion(s);
+    applyHistoryPage(s, cid, { limit: 5 }, [...page(96, 99), msg(101)], { since });
+    expect(ids(latestWindow(s, cid))).toEqual(['96', '97', '98', '99', '101']);
+    expect(channel(s, cid)?.last_message_id).toBe('101');
+    expect(unread(s, cid)).toMatchObject({ unread: true, lastReadId: '100' });
+    expect(sidebarVersion(s)).toBe(side + 1);
+    event(s, 'MESSAGE_ACK', { message_id: '99' });
+    expect(unread(s, cid).unread).toBe(true);
+  });
+
+  test('deleting the advertised head retains a newer cached head', () => {
+    const s = seeded();
+    applyHistoryPage(s, cid, { limit: 3 }, page(100, 102));
+    event(s, 'MESSAGE_DELETE', { id: '100' });
+    expect(channel(s, cid)?.last_message_id).toBe('102');
+    expect(unread(s, cid)).toMatchObject({ unread: true, lastReadId: '100' });
+    expect(ids(latestWindow(s, cid))).toEqual(['101', '102']);
+  });
+
+  test('deleting an uncached head keeps its id and the known unread messages', () => {
+    const s = createStore();
+    applyDispatch(s, 'READY', { user: me, guilds: [{ id: '10', channels: [{ id: cid, last_message_id: '100' }] }],
+      read_state: [{ id: cid, last_message_id: '90' }] }, 0);
+    applyHistoryPage(s, cid, { around: '95', limit: 3 }, page(94, 96));
+    event(s, 'MESSAGE_DELETE', { id: '100' });
+    expect(channel(s, cid)?.last_message_id).toBe('100');
+    expect(unread(s, cid)).toMatchObject({ unread: true, lastReadId: '90' });
+    expect(ids(windowAround(s, cid, '95'))).toEqual(['94', '95', '96']);
+  });
+
+  test('server channel heads and cached confirmed ids only advance the head', () => {
+    const s = seeded();
+    applyHistoryPage(s, cid, { limit: 3 }, page(100, 102));
+    expect(channel(s, cid)?.last_message_id).toBe('102');
+    readyAgain(s, '100');
+    expect(channel(s, cid)?.last_message_id).toBe('102');
+    event(s, 'CHANNEL_UPDATE', { id: cid, last_message_id: '101' });
+    expect(channel(s, cid)?.last_message_id).toBe('102');
+    for (const v of [1, 2]) applyDispatch(s, `PASSIVE_UPDATE_V${v}`, { guild_id: '10',
+      [v === 1 ? 'channels' : 'updated_channels']: [{ id: cid, last_message_id: '101' }] }, 0);
+    expect(channel(s, cid)?.last_message_id).toBe('102');
+    send(s, '103');
+    event(s, 'CHANNEL_UPDATE', { id: cid, last_message_id: '101' });
+    expect(channel(s, cid)?.last_message_id).toBe('103');
+    addPending(s, cid, { nonce: 'mine', content: 'hello', nowMs: 0 });
+    expect(channel(s, cid)?.last_message_id).toBe('103');
+  });
+
+  test('a CREATE that supplies channel metadata keeps the newest cached confirmed id', () => {
+    const s = createStore();
+    applyHistoryPage(s, cid, { limit: 3 }, page(100, 102));
+    send(s, '99');
+    expect(channel(s, cid)?.last_message_id).toBe('102');
+    expect(ids(latestWindow(s, cid))).toEqual(['100', '101', '102']);
+  });
+
+  for (const pending of [false, true]) test(`an empty unscoped latest page does not seal a ${pending ? 'pending-only' : 'missing'} tail`, () => {
+    const s = createStore();
+    if (pending) addPending(s, cid, { nonce: 'mine', content: 'hello', nowMs: 0 });
+    applyHistoryPage(s, cid, { limit: 5 }, []);
+    expect(latestWindow(s, cid)).toMatchObject({ reachesStart: false, fetchLatest: true });
+    expect(keys(s)).toEqual(pending ? ['mine'] : []);
+    applyHistoryPage(s, cid, { limit: 5 }, [], { since: storeSeq(s) });
+    expect(latestWindow(s, cid)).toMatchObject({ reachesStart: true, fetchLatest: false, stale: false });
+    expect(keys(s)).toEqual(pending ? ['mine'] : []);
+  });
+
+  test('an empty latest page without since retains its cached tail as stale and fetchable', () => {
+    const s = seeded();
+    applyHistoryPage(s, cid, { limit: 5 }, page(96, 100));
+    applyHistoryPage(s, cid, { limit: 5 }, []);
+    expect(ids(latestWindow(s, cid))).toEqual(['96', '97', '98', '99', '100']);
+    expect(latestWindow(s, cid)).toMatchObject({ stale: true, reachesStart: false, reachesNewest: true });
+    applyHistoryPage(s, cid, { limit: 5 }, page(96, 100), { since: storeSeq(s) });
+    expect(latestWindow(s, cid).stale).toBe(false);
+  });
+
   test('CREATE does not connect a before page through an uncached previous last id', () => {
     const s = seeded();
     send(s, '101');
@@ -849,7 +983,7 @@ describe('review regressions', () => {
     expect(latestWindow(s, cid).stale).toBe(false);
     applyHistoryPage(s, cid, { limit: 5 }, [], { since: storeSeq(s) });
     expect(latestWindow(s, cid)).toMatchObject({ rows: [], reachesStart: true, reachesNewest: true, stale: false });
-    expect(channel(s, cid)?.last_message_id).toBeNull();
+    expect(channel(s, cid)?.last_message_id).toBe('99');
     send(s, '100');
     expect(latestWindow(s, cid).rows).toEqual([]);
   });
@@ -892,12 +1026,12 @@ describe('review regressions', () => {
     expect(channel(s, cid)?.last_message_id).toBe('99');
     expect(unread(s, cid).unread).toBe(false);
     event(s, 'MESSAGE_DELETE_BULK', { ids: ['90', '99'] });
-    expect(channel(s, cid)?.last_message_id).toBeNull();
-    expect(dms(s).map(row => row.id)).toEqual(['2001', cid]);
+    expect(channel(s, cid)?.last_message_id).toBe('99');
+    expect(dms(s).map(row => row.id)).toEqual([cid, '2001']);
     const gap = seeded();
     applyHistoryPage(gap, cid, { around: '50', limit: 3 }, page(49, 51));
     event(gap, 'MESSAGE_DELETE', { id: '100' });
-    expect(channel(gap, cid)?.last_message_id).toBeNull();
+    expect(channel(gap, cid)?.last_message_id).toBe('100');
   });
 
   test('a pending-only tail cannot answer a jump to an old message', () => {
