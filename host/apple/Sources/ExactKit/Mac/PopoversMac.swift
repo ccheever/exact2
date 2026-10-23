@@ -192,7 +192,11 @@ extension MenuHost {
             }
             (at, rect) = (content, content.convert(rect, from: view))
         }
-        native.popover.show(relativeTo: rect, of: at, preferredEdge: at.isFlipped ? edge : Self.unflipped(edge))
+        if let item = presenter.toolbar.items[source.id], window.toolbar?.items.contains(where: { $0 === item }) == true {
+            native.popover.show(relativeTo: item)
+        } else {
+            native.popover.show(relativeTo: rect, of: at, preferredEdge: at.isFlipped ? edge : Self.unflipped(edge))
+        }
         guard native.popover.isShown else {
             // AppKit showed none (its invoker is hidden or scrolled out of
             // sight): the page paints it, as it would have. Its subtree goes

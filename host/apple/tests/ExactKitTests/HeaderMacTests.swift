@@ -552,11 +552,8 @@ final class HeaderMacTests: XCTestCase {
     }
 
     /// What a header button invokes, as HTML resolves it, decides whether
-    /// the window's bar can hold it: a button whose `commandfor` hides a form
-    /// popover is a command, though its `popovertarget` names that form; one
-    /// whose invocation opens the form keeps the header painted, as the form
-    /// is placed against the button's box; a command-only `toggle-popover`
-    /// of a menu is the bar's menu item.
+    /// the window's bar can hold it: a form opens from its item, a hiding
+    /// command closes it, and a menu uses AppKit's menu toolbar item.
     func testWhatAHeaderButtonInvokesDecidesItsPlaceInTheBar() throws {
         /// Whether the header is the window's bar (titled by its heading), and the bar's items.
         func attach(_ props: [String: String]) -> (inBar: Bool, identifiers: [String]) {
@@ -571,15 +568,14 @@ final class HeaderMacTests: XCTestCase {
             return (window.title == "Library", identifiers())
         }
         XCTAssertTrue(attach(["popovertarget": "form", "commandfor": "form", "command": "hide-popover"]).inBar, "its commandfor governs: a command")
-        XCTAssertFalse(attach(["popovertarget": "form"]).inBar, "it opens the form, which needs the button's box")
+        XCTAssertTrue(attach(["popovertarget": "form"]).inBar, "AppKit anchors the form to its toolbar item")
         XCTAssertTrue(attach(["commandfor": "more", "command": "toggle-popover"]).identifiers.contains("exact.menu.16"), "a command-only menu item")
     }
 
     /// A header's button that opens a menu is AppKit's menu item: the menu
     /// is the item's own to pop up, filled from the popover's rows as it
     /// opens, after the button's own press; a chosen row presses its
-    /// authored row. A popover that is no menu needs the button's box, so
-    /// its header stays painted.
+    /// authored row. A form opens as a native popover from its toolbar item.
     func testAButtonThatOpensAMenuIsAMenuItem() throws {
         // More (16) opens a menu (40) of two rows; it also hears `press`.
         let menu = symbolButton(16, "More", "ellipsis.circle", ["popovertarget": "more", "testId": "more"])
@@ -626,15 +622,23 @@ final class HeaderMacTests: XCTestCase {
         p.toolbar.detach()
         window.close()
 
-        // A popover that is no menu (it holds a field) is placed against its button's box: the header keeps it.
+        // A form popover anchors to its toolbar item.
         let form = symbolButton(16, "Rename", "pencil", ["popovertarget": "rename"])
             + view(40, "view", ["popover": "auto", "id": "rename"]) + view(41, "input", ["type": "text"])
             + [children(40, [41]), children(10, [11, 12, 13, 14, 16]), children(2, [10, 15, 40])]
         let q = fixture(extra: form)
         XCTAssertTrue(q.toolbar.attach(to: window))
-        XCTAssertEqual(window.title, "Shelf")
-        XCTAssertFalse(try node(q, 10).isHidden)
-        XCTAssertTrue((q.toolbar.summary["headerKept"] as? String)?.contains("neither a menu nor an alert") == true)
+        XCTAssertEqual(window.title, "Library")
+        XCTAssertTrue(try node(q, 10).isHidden)
+        let formItem = try XCTUnwrap(q.toolbar.items[16])
+        XCTAssertFalse(formItem is NSMenuToolbarItem)
+        window.orderFrontRegardless()
+        window.layoutIfNeeded()
+        q.menus.show(try node(q, 40), from: try node(q, 16))
+        let native = try XCTUnwrap(q.menus.windowed.first)
+        XCTAssertTrue(native.popover.isShown)
+        XCTAssertFalse(native.window === window)
+        q.menus.reset()
         q.toolbar.detach()
         window.close()
 
