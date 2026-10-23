@@ -117,6 +117,29 @@ extension NodeView {
 }
 
 extension NSView {
+    /// Native containers move independently of the runner's transform rows.
+    /// Read their presentation layers only while a native ancestor animates;
+    /// an idle presentation copy may still hold the previous transaction.
+    func convertNativePresentation(_ rect: NSRect, from view: NSView) -> NSRect {
+        func moving(_ view: NSView) -> CALayer? {
+            guard !(view is NodeView), let layer = view.layer, layer.animationKeys()?.isEmpty == false else { return nil }
+            return layer.presentation()
+        }
+        func toWindow(_ rect: NSRect, from view: NSView) -> NSRect {
+            guard let parent = view.superview else { return view.convert(rect, to: nil) }
+            let box = moving(view).map { $0.convert(rect, to: $0.superlayer) } ?? parent.convert(rect, from: view)
+            return toWindow(box, from: parent)
+        }
+        func fromWindow(_ rect: NSRect, to view: NSView) -> NSRect {
+            guard let parent = view.superview else { return view.convert(rect, from: nil) }
+            let box = fromWindow(rect, to: parent)
+            return moving(view).map { $0.convert(box, from: $0.superlayer) } ?? view.convert(box, from: parent)
+        }
+        var box = toWindow(rect, from: view)
+        if let theirs = view.window, let mine = window, theirs !== mine { box = mine.convertFromScreen(theirs.convertToScreen(box)) }
+        return fromWindow(box, to: self)
+    }
+
     /// `rect` of `view` in this view's space, where a person sees it:
     /// through the screen when the two are in two windows (a sheet's or a
     /// popover's, and the page's).
@@ -176,7 +199,7 @@ extension Presenter {
         func shown(_ view: NodeView) -> CGRect {
             guard blocks.owns(view), let container = view.superview else { return clip.convertAcross(view.bounds, from: view) }
             let size = blocks.used[view.id] ?? container.bounds.size
-            return clip.convertAcross(CGRect(origin: .zero, size: size), from: container)
+            return clip.convertNativePresentation(CGRect(origin: .zero, size: size), from: container)
         }
         let ordered = (popovers + sheets).sorted { depth($0) < depth($1) }
         let painted: [TopLayerFrame] = ordered.map {
