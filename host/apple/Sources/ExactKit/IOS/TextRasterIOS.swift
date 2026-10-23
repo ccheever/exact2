@@ -341,6 +341,7 @@ final class TintInk: UIView {
     private let coverage = InkLayer()
     override init(frame: CGRect) {
         super.init(frame: frame)
+        isUserInteractionEnabled = false
         // The outer layer casts the composited glyph's shadow. Masking it
         // would clip the shadow to the coverage too.
         layer.addSublayer(pigment)
