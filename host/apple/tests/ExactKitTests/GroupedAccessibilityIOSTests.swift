@@ -52,8 +52,14 @@ final class GroupedAccessibilityIOSTests: GroupedListFixture {
         XCTAssertTrue(row.accessibilityTraits.contains(.selected))
         _ = button.accessibilityLabel
         _ = button.accessibilityTraits
+        button.isHighlighted = true
         row.updateConfiguration(using: row.configurationState)
+        row.setNeedsLayout()
+        row.layoutIfNeeded()
         XCTAssertTrue(list.accessory(12) === button)
+        XCTAssertNotNil(button.window, "the contact's button remains in the window through the refresh")
+        XCTAssertTrue(button.isHighlighted)
+        button.isHighlighted = false
 
         detail.title = "Updated information"
         p.apply(wireBatch([["op": "props", "id": 12, "set": ["accessibilitySelected": "false"],
