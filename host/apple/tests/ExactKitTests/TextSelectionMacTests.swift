@@ -1166,6 +1166,59 @@ final class TextSelectionMacTests: XCTestCase {
         XCTAssertEqual(menus.count, 4, "and no text menu opens over it")
     }
 
+    func testReaderSelectionPublishesWorkerRectanglesAndClearsThem() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "reader-selection-rects")
+        self.session = session
+        let p = session.presenter
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        let node = NodeView(id: 12345, kind: "text", presenter: p)
+        p.views[node.id] = node
+        node.handlers = ["selectionchange"]
+        node.applyStyle(["font_size": 16.0, "line_height": "24px"])
+        node.applyProps(set: ["text": String(repeating: "Alpha beta gamma delta ", count: 4000)], clear: [])
+        node.frame = NSRect(x: 0, y: 0, width: 600, height: 100000)
+        node.prepareToMount()
+        scroll.documentView = node; p.root.addSubview(scroll)
+        var request = ExactMeasureRequest()
+        request.view = node.id; request.strut.font_size = 16
+        request.strut.has_line_height = 1; request.strut.line_height = 24
+        let reader = RegionReaderParagraph(request, bytes: 100000)
+        session.text.readerParagraphs[node.id] = reader
+        reader.update(node)
+        func until(_ done: () -> Bool) {
+            let limit = Date(timeIntervalSinceNow: 30)
+            while !done() && Date() < limit { RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001)) }
+            XCTAssertTrue(done())
+        }
+        until { reader.raster != nil }
+        var boxes: [[CGRect]] = []
+        var expectedText = "Alpha"
+        p.onSelectionChange = { _, text, start, end, rects in
+            XCTAssertEqual(text, start == end ? "" : expectedText)
+            boxes.append(rects)
+        }
+        p.selection.set(node, FieldSelection(start: 0, end: 5))
+        until { !boxes.isEmpty }
+        XCTAssertEqual(boxes.count, 1)
+        let rect = try XCTUnwrap(boxes.first?.first)
+        XCTAssertGreaterThan(rect.width, 0)
+        XCTAssertGreaterThan(rect.height, 0)
+        XCTAssertFalse(try XCTUnwrap(reader.accepted).metadata.shapedOnMainThread)
+        XCTAssertNil(node.paragraphLayout(), "the UI never constructs the reader's paragraph")
+        expectedText = "delta"
+        let length = (node.paragraphText as NSString).length
+        p.selection.set(node, FieldSelection(start: length - 6, end: length - 1))
+        until { boxes.count == 2 }
+        XCTAssertGreaterThan(try XCTUnwrap(boxes.last?.first).minY, 400, "offscreen fragments also belong to the event snapshot")
+        p.selection.clear()
+        XCTAssertEqual(boxes.last, [])
+    }
+
     /// X76 on a reader paragraph whose caret cache misses the point (here a
     /// line outside the band its worker rastered; in use, a line too long
     /// for that cache): the click opens no menu itself, the raster worker

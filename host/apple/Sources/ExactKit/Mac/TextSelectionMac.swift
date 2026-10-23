@@ -167,6 +167,16 @@ package final class TextSelection {
         report(next)
     }
 
+    /// The event parts whose exact geometry the reader worker must snapshot.
+    func rectangleRanges(_ node: NodeView) -> [NSRange] {
+        guard let selected = range(node), selected.length > 0 else { return [] }
+        var extents: [NSRange] = node.handlers.contains("selectionchange")
+            ? [NSRange(location: 0, length: (node.paragraphText as NSString).length)] : []
+        extents += node.inlineText.filter { $0.handlers.contains("selectionchange") }.map(\.range)
+        return extents.map { NSIntersectionRange(selected, $0) }.filter { $0.length > 0 }
+    }
+    func readerGeometryReady() { report(painted) }
+
     /// The web's `selectionchange` on a `text` (the reader diary): its part
     /// of the selection, in its source text's UTF-16 offsets, when that part
     /// changes; nothing selected there is "" at 0, 0, as on the web.
@@ -191,19 +201,33 @@ package final class TextSelection {
                 let part = NSIntersectionRange(source, extent)
                 let local = part.length > 0 ? NSRange(location: part.location - extent.location, length: part.length) : NSRange(location: 0, length: 0)
                 guard reported[id] ?? NSRange(location: 0, length: 0) != local else { continue }
-                reported[id] = local
                 let lo = node.readerParagraph == nil ? node.shapedOffset(part.location) : part.location
                 let hi = node.readerParagraph == nil ? node.shapedOffset(NSMaxRange(part)) : NSMaxRange(part)
-                let rects = part.length > 0 ? rectangles(node, range: NSRange(location: lo, length: hi - lo)) : []
+                let rects: [CGRect]
+                if part.length > 0 {
+                    guard let snapshot = rectangles(node, range: NSRange(location: lo, length: hi - lo)) else {
+                        node.readerParagraph?.update(node)
+                        continue
+                    }
+                    rects = snapshot
+                } else { rects = [] }
+                reported[id] = local
                 presenter.selectionChange(id, part.length > 0 ? text.substring(with: part) : "", local.location, NSMaxRange(local), rects: rects)
             }
         }
         reported = reported.filter { seen.contains($0.key) }
     }
 
-    private func rectangles(_ node: NodeView, range: NSRange?) -> [CGRect] {
-        guard let range, let presenter, let paragraph = node.paragraphLayout() else { return [] }
+    private func rectangles(_ node: NodeView, range: NSRange?) -> [CGRect]? {
+        guard let range, let presenter else { return [] }
         let clip = presenter.viewport.contentView
+        if let reader = node.readerParagraph {
+            guard let rects = reader.selectionRects(range) else { return nil }
+            let origin = node.contentBox().origin
+            return rects.map { node.drawnRect($0.offsetBy(dx: origin.x, dy: origin.y), in: clip)
+                .offsetBy(dx: -clip.bounds.minX, dy: -clip.bounds.minY) }
+        }
+        guard let paragraph = node.paragraphLayout() else { return [] }
         let selected = paragraph.selectedLines(range, align: node.paragraphSpec().align, in: node.paragraphBox(), dirty: .infinite)
         let local: [CGRect]
         if let fragments = node.columnRecord?.fragments, !fragments.isEmpty {

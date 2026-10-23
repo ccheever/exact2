@@ -65,6 +65,35 @@ final class RegionWorkerLayout {
         if viewportLines.count < 512 { viewportLines[index] = value }
         return value
     }
+    /// Immutable event geometry; CoreText stays on this worker.
+    func selectionRects(_ selection: NSRange, in box: CGRect) -> [CGRect] {
+        precondition(!Thread.isMainThread)
+        guard selection.location >= 0, selection.length > 0,
+              selection.location <= source.utf16Count,
+              selection.length <= source.utf16Count - selection.location else { return [] }
+        var rects: [CGRect] = []
+        var low = 0, high = lineCount
+        while low < high {
+            let mid = low + (high - low) / 2
+            if NSMaxRange(metadata.lines[mid].range) <= selection.location { low = mid + 1 } else { high = mid }
+        }
+        for i in low..<lineCount {
+            let range = metadata.lines[i].range
+            if range.location >= NSMaxRange(selection) { break }
+            let lo = max(selection.location, range.location), hi = min(NSMaxRange(selection), NSMaxRange(range))
+            guard hi > lo else { continue }
+            let line = line(at: i)
+            let flush: CGFloat = source.align == 1 ? 0.5 : source.align == 2 ? 1 : 0
+            let x = box.minX + TextEngine.penOffset(line, flush: flush, room: Double(box.width), rtl: source.direction == 1)
+            let x0 = CTLineGetOffsetForStringIndex(line, lo, nil), x1 = CTLineGetOffsetForStringIndex(line, hi, nil)
+            var above: CGFloat = 0, below: CGFloat = 0
+            _ = CTLineGetTypographicBounds(line, &above, &below, nil)
+            rects.append(CGRect(x: x + min(x0, x1), y: box.minY + baselines[i].rounded() - above,
+                                width: max(1, abs(x1 - x0)), height: above + below))
+        }
+        return rects
+    }
+
     private init(source: RegionTextSource, lines: [CTLine], baselines: [CGFloat], metadata: RegionParagraph,
                  preparation: RegionPreparedSource) {
         self.source = source; self.lines = lines; self.baselines = baselines; self.metadata = metadata
