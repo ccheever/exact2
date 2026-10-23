@@ -579,9 +579,10 @@ impl Parser {
                         self.next();
                         w
                     }
-                    // `clock held [<resource>…]`: real time passes, the clock
-                    // frozen, until each held request (LLP 1016.000 D9), or each
-                    // named, has had a reply (the driver's `clock held`).
+                    // `clock held [<resource>…] [<n>s|<n>ms]`: real time passes, the
+                    // clock frozen, until each held request (LLP 1016.000 D9), or
+                    // each named, has had a reply, within the bound (the driver's
+                    // `clock held`, 20 s unless given).
                     TokenKind::Ident(w) if w == "held" => {
                         self.next();
                         let mut arg = w;
@@ -589,6 +590,24 @@ impl Parser {
                             self.next();
                             arg.push(' ');
                             arg.push_str(&name);
+                        }
+                        if let TokenKind::Number(n) = self.peek_kind().clone() {
+                            self.next();
+                            match self.peek_kind().clone() {
+                                TokenKind::Ident(unit) if unit == "s" || unit == "ms" => {
+                                    self.next();
+                                    arg.push_str(&format!(" {n}{unit}"));
+                                }
+                                other => {
+                                    return self.err(
+                                        "syntax-expected-step",
+                                        format!(
+                                            "expected `s` or `ms` after `clock held`'s bound {n}, found {}",
+                                            describe(&other)
+                                        ),
+                                    )
+                                }
+                            }
                         }
                         arg
                     }
