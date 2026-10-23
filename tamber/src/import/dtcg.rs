@@ -951,6 +951,7 @@ impl Resolve<'_> {
         let Some(&i) = self.w.get(path) else {
             return Err(format!("`{{{path}}}` is no token in this mode"));
         };
+        crate::budget::spend(1)?;
         let d = &self.defs[i];
         let found = if let Some(why) = &d.refused {
             Err(why.clone())
@@ -1293,6 +1294,8 @@ fn planned(
             }
         }
     }
+    // (a walk the budget ran out in is the import's refusal, not a value's)
+    crate::budget::spend(1).map_err(|m| refuse("tamber-import-source", m))?;
     // A reference to a token not made is written as its colour; one round a
     // cycle of tokens too.
     let made: BTreeSet<&str> = values.keys().copied().collect();
