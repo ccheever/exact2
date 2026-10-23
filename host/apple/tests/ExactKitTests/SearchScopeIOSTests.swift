@@ -69,6 +69,12 @@ final class SearchScopeIOSTests: XCTestCase {
         // D4: each segment carries its tab's test id; the agent aims at it.
         until("the segments carry the tabs' test ids") { search.scopeControl?.segmentViews.map(\.accessibilityIdentifier) == ["filter-all", "filter-mine", "filter-done"] }
         XCTAssertNotNil(p.segments.drawn(try node(session, "filter-done")), "a tap aims at the scope segment")
+        let tab = try node(session, "filter-done"), agent = Agent(session: session)
+        let row = try XCTUnwrap((agent.layout()["nodes"] as? [[String: Any]])?.first { $0["id"] as? Int == Int(tab.id) })
+        XCTAssertNil(row["radii"], "a native segment has no authored corner geometry")
+        let target = try XCTUnwrap(agent.layout(["id": Int(tab.id)])["node"] as? [String: Any])
+        XCTAssertNil(target["radii"], "list and targeted layout omit the same native corners")
+
 
         // D3: a person's choice presses the tab, once.
         bar.selectedScopeButtonIndex = 2
