@@ -210,6 +210,39 @@ test('the real wire on the remote door: the local token works nowhere there, nor
   } finally { await remote.close(); await wire.close(); }
 });
 
+// The events' GET long poll (tamber/1.17, LLP 1122 stage 14 D) through the TLS door: a paired token of the POST read's
+// scope gets it, with its cursor; the local token, another origin and plaintext do not (theme2's condition (a)).
+test('the events GET long poll through the TLS door: a paired read token gets it, the local token, another origin and plaintext do not', async () => {
+  const wire = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {} });
+  const doors = await openRemote(wire, { remote: { host: '127.0.0.1', port: 0 } }, { say: () => {} });
+  try {
+    const port = Number(new URL(doors.info().origin).port);
+    let token = null, text = '';
+    await wire.handle({ method: 'GET', headers: {} }, { writeHead() {}, setHeader() {}, end(t) { token = JSON.parse(t).token; } }, new URL('http://127.0.0.1/__tamber/token'), { allowed: true, local: true });
+    const req = Object.assign(new PassThrough(), { method: 'POST', headers: { 'x-exact-tamber-token': token }, socket: { remoteAddress: '127.0.0.1' } });
+    queueMicrotask(() => req.end(JSON.stringify({ method: 'pair-code', scope: 'read', name: 'laptop' })));
+    await wire.handle(req, { writeHead() {}, setHeader() {}, write(t) { text += t; }, end(t) { text += t ?? ''; } }, new URL('http://127.0.0.1/__tamber'), { allowed: true, local: true });
+    const pairing = JSON.parse((await send(true, port, { method: 'POST', path: '/__tamber/pair', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: JSON.parse(text).ok.code, name: 'laptop' }) })).text).ok, paired = pairing.token;
+    const first = await send(true, port, { path: '/__tamber/events?client=laptop', headers: { 'x-exact-tamber-token': paired } });
+    expect(first.status).toBe(200);
+    const body = JSON.parse(first.text);
+    expect(body.cursor).toBe(`${body.seq}.${body.held}`);
+    expect(first.headers['retry-after']).toBeUndefined();
+    // The local token is no token here; another page's origin is refused; plaintext is nothing.
+    expect((await send(true, port, { path: '/__tamber/events', headers: { 'x-exact-tamber-token': token } })).status).toBe(404);
+    expect((await send(true, port, { path: '/__tamber/events', headers: { 'x-exact-tamber-token': paired, origin: 'https://evil.example' } })).status).toBe(403);
+    // (Plain HTTP from another machine, a --lan bind's peer: no door.)
+    const lan = { status: 0, writeHead(s) { this.status = s; }, setHeader() {}, end() {} };
+    await wire.handle(Object.assign(new PassThrough(), { method: 'GET', headers: { 'x-exact-tamber-token': paired }, socket: { remoteAddress: '192.168.1.20' } }), lan, new URL('http://192.168.1.2/__tamber/events'), { allowed: true, local: false });
+    expect(lan.status).toBe(404);
+    // Revoked: told so (401), as the POST form is, not a token unknown (404).
+    const out = Object.assign(new PassThrough(), { method: 'POST', headers: { 'x-exact-tamber-token': token }, socket: { remoteAddress: '127.0.0.1' } });
+    queueMicrotask(() => out.end(JSON.stringify({ method: 'revoke', client: pairing.client })));
+    await wire.handle(out, { writeHead() {}, setHeader() {}, write() {}, end() {} }, new URL('http://127.0.0.1/__tamber'), { allowed: true, local: true });
+    expect((await send(true, port, { path: '/__tamber/events?client=laptop', headers: { 'x-exact-tamber-token': paired } })).status).toBe(401);
+  } finally { await doors.close(); await wire.close(); }
+}, 30_000);
+
 // The ghost builds' follow-up (review2's condition 1): under Bun a request on a socket handed to the HTTP server, as
 // every TLS door request is, never fires req 'close'. A paired client's subscription there still ends when the client
 // goes, on res 'close': it is present while the stream is open and not after.
