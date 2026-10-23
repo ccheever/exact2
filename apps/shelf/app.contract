@@ -648,7 +648,9 @@ component WorkRow
     added: bool
     add: action
   view
-    row align-items="center" gap=12 testId=`work-${work.key}`
+    // The cover inside the row's margins, as a list cell's image is, so
+    // neighbouring covers do not meet.
+    row align-items="center" gap=12 padding-top=10 padding-bottom=10 testId=`work-${work.key}`
       if work.coverUrl != ""
         image work.coverUrl alt=""
           width=44
@@ -663,7 +665,6 @@ component WorkRow
         min-width=0
         align-items="center"
         gap=12
-        padding="10px 0"
         column flex=1 min-width=0 gap=2
           text work.title font="-exact-headline" line-clamp=2
           text work.author font="-exact-subheadline" color="-exact-secondary-label" line-clamp=1
