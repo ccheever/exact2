@@ -139,6 +139,13 @@ final class SplitHost {
     /// Whether `route` is in the detail's pane: out of its tabpanel's
     /// views, so what hides and inerts the panel must reach it by name.
     func holds(_ route: NodeView) -> Bool { held[route.id]?.route === route }
+    /// The ancestor's exit ended; its pane route can now leave the window.
+    func retire(_ route: NodeView) {
+        guard holds(route) else { return }
+        held[route.id] = nil
+        presenter.blocks.release(route)
+        schedule()
+    }
     /// Where in its stack the selected route's Back stops: the pane's first
     /// route, which has none (BackMac.swift). Zero for a stack that pushes.
     var base: Int { active ? shown?.base ?? 0 : 0 }
@@ -241,7 +248,7 @@ final class SplitHost {
     /// and laid out at its size, and the list's selected row.
     private func present() {
         queued = false
-        for (id, entry) in held where presenter.views[id] !== entry.route {
+        for (id, entry) in held where presenter.views[id] !== entry.route && !presenter.isLeaving(entry.route) {
             held[id] = nil
             presenter.blocks.release(entry.route)
         }
@@ -255,7 +262,7 @@ final class SplitHost {
         release { ended.contains($0) }
         ended.removeAll()
         guard let shown else {
-            controller.split(false, width: nil, empty: false)
+            if !held.values.contains(where: { presenter.isLeaving($0.route) }) { controller.split(false, width: nil, empty: false) }
             lastDetail = nil
             return
         }
@@ -265,7 +272,7 @@ final class SplitHost {
         pane.positionChanged = { [weak self, weak pane] in
             if let pane { self?.resized(pane.bounds.size) }
         }
-        for route in shown.routes where held[route.id]?.route !== route {
+        for route in shown.routes where held[route.id]?.route !== route && presenter.views[route.id] === route {
             held[route.id] = (route, shown.list.id)
             presenter.blocks.show(route, in: pane, block: .size(pane.bounds.size), placement: placement(of: route, in: pane))
             presenter.keyViewLoopStale = true
@@ -275,7 +282,7 @@ final class SplitHost {
     }
 
     private func release(where gone: (UInt32) -> Bool) {
-        for (id, entry) in held where gone(entry.list) {
+        for (id, entry) in held where gone(entry.list) && !presenter.isLeaving(entry.route) {
             held[id] = nil
             presenter.blocks.release(entry.route)
             presenter.keyViewLoopStale = true
