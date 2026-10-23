@@ -30,6 +30,11 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         XCTAssertFalse(image.accessibilityTraits.contains(.image))
         image.applyProps(set: ["accessibilityLabel": ""], clear: [])
         XCTAssertFalse(image.isAccessibilityElement)
+        image.applyProps(set: ["accessibilityLabel": "Station map"], clear: [])
+        p.apply(wireBatch([["op": "style", "id": 20, "style": ["visibility": "hidden"]]]))
+        image.applyProps(set: [:], clear: ["accessibilityLabel"])
+        p.apply(wireBatch([["op": "style", "id": 20, "style": ["visibility": "visible"]]]))
+        XCTAssertFalse(image.isAccessibilityElement, "clearing a label while hidden also clears its stored exposure")
     }
 
     func testAnImagesExplicitRangeRoleKeepsItsSpokenValue() throws {
