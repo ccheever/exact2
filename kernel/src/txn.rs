@@ -424,9 +424,8 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                         });
                     }
                     let child_type = staged.require(op_index, *child)?;
-                    if node_type == NodeType::Text
-                        && !matches!(child_type, NodeType::Text | NodeType::Image)
-                    {
+                    let text_child = matches!(child_type, NodeType::Text | NodeType::Image);
+                    if node_type == NodeType::Text && !text_child {
                         return Err(ApplyError::InlineRunNotText {
                             op_index,
                             parent: *id,
