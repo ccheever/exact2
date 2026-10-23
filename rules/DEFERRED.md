@@ -810,6 +810,45 @@ reading. Nothing that isn't HTML is added by it.
   in the background, Android's background recording, constraint
   dictionaries, two inputs at once, `getDisplayMedia`, and the Windows,
   Linux, tvOS, visionOS and watchOS cells.
+- **Expanded (Charlie, 2026-10-23, "Expand both, no take", on LLP 1133.012
+  §14 question 7):** speech synthesis and recognition by the Web Speech
+  API's names (`speak`, `cancelSpeech`, `speechSynthesisState` and the rest
+  from `@exact/speech-synthesis`; `startSpeechRecognition` and the rest
+  from `@exact/speech-recognition`), on the web, iOS, macOS and Android.
+  Spoken audio is a claim on the host's one audio session (LLP 1096 D8);
+  recognition takes a track from `@exact/media-capture`, the microphone
+  held exclusively where the recognizer must own it, or a file.
+  Consumers: the recorder's transcript of each take and the Markdown
+  reader's Listen. Unblocks reading a document aloud and transcribing a
+  recording without app Swift. Take: none named. Still out, each until a
+  consumer asks (LLP 1133.012 §12): synthesis to a file or buffers and
+  SSML as tier 1 names, Now Playing for a `playback` queue, an Android
+  `playback` queue in the background, recognising while the app speaks
+  without hearing itself, turn-taking for a voice assistant, recognition
+  in the background and keyword spotting while idle, file transcription
+  on the web, speaker identification, diarization and translation,
+  `boost` on Apple and grammars, and the tvOS, visionOS, watchOS, Windows
+  and Linux cells. The LLP 1096 entry's "synthesis" is sound synthesis,
+  and it stays out.
+- **Expanded (Charlie, 2026-10-23, "Expand both, no take", on LLP 1133.013
+  §14 question 7):** the device's motion by W3C Device Orientation and
+  Motion's and the Generic Sensor API's names (`deviceMotion`,
+  `deviceOrientation`, `accelerometer`, `gravitySensor` and the rest,
+  imported from `@exact/motion`), on the web, iOS and Android: each a
+  polled source whose answer carries the samples since the reader's last,
+  under a cursor the runner holds; and samples at frame rate into a
+  canvas's input below the runner (`startSensorInput`, the engine's
+  `input.sensor`). Consumer: Beacons' tilt to move. Unblocks tilt
+  steering in a game without app Swift or a commit per sample. Take: none
+  named. Still out, each until a consumer asks (LLP 1133.013 §12): motion
+  in the background or while the app is closed, and wake-up sensors;
+  steps, activity, floors, altitude, pressure, light and proximity as
+  tier 1; fall detection, water submersion and movement disorder; a
+  Contract reader faster than the poll's floor, and a package view that
+  draws from samples below the runner; `populateMatrix` and other
+  conversions as names; `deviceOrientation` and the sensor sources on
+  macOS; and the Windows, visionOS and watchOS cells, and Linux through
+  IIO.
 - **Expanded (Daehyeon Mun, 2026-10-23; trade; LLP 1133.006):** the
   clipboard's `write([new ClipboardItem(…)])` from data code, by the
   Clipboard API's names, for `image/png` (the app converts other images
