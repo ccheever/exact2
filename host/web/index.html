@@ -56,8 +56,9 @@
      with a `press` that declares no feedback shows 65% of its opacity, the iOS
      host's dim (PressFeedback.swift), while the browser holds it `:active` (a
      mouse button, Space on a button) or the input glue holds it
-     `data-pressed` (a finger, Space on a box it presses by key). It goes at once on release: iOS's fades back, and a transition here
-     would stay dimmed under the agent's clock until the clock moved.
+     `data-pressed` (a finger, Space on a box it presses by key). It goes at
+     once on release, where iOS holds it at least 0.1 s and fades it back over
+     0.2 s (PressFeedback.swift `dimHold`, `dimFade`; QUEUE.md).
      Only the innermost pressable shows it (the last line). Not dimmed, in the
      selector's order: a disabled button; a native control, which keeps its own
      feedback, and a game's action button, which is held; an authored press,

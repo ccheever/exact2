@@ -299,8 +299,25 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     paint(el, state, EASE.duration);
     if (!down && (now || !el.isConnected)) endPaint(el, state);
   };
+  // Keep the release style only until its transitions end. Immediate cancellation and the agent's clock skip it.
+  const releases = new WeakMap(), RELEASED = new Set(["opacity", "background-color", "--exact-wash"]);
   const showPress = (el, down, now = false) => {
+    const native = el.matches("button[data-button-style]");
+    const eased = native && !down && !now && !agentMode && el.hasAttribute("data-pressed");
+    const running = eased ? new Set(el.getAnimations({ subtree: true })) : null;
     el.toggleAttribute("data-pressed", down);
+    if (native && down) {
+      // Flush the pressed style so a tap released before the next frame still shows its highlight (LLP 1061 D2)
+      el.removeAttribute("data-exact-released");
+      getComputedStyle(el).opacity;
+    } else if (eased) {
+      el.setAttribute("data-exact-released", "");
+      // Leave an author's running transitions independent of the release marker
+      const ease = el.getAnimations({ subtree: true }).filter(a => !running.has(a) && RELEASED.has(a.transitionProperty) && (a.effect.target === el || a.effect.target.parentElement === el));
+      const ends = Promise.allSettled(ease.map(a => a.finished));
+      releases.set(el, ends);
+      ends.then(() => { if (releases.get(el) === ends) el.removeAttribute("data-exact-released"); });
+    }
     showPaint(el, down, now);
     // A design token's scale is its property's `var()`: the computed value
     // is the token's (LLP 1121 D7).
