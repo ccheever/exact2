@@ -241,3 +241,96 @@ extension TextGeometryTests {
         XCTAssertLessThanOrEqual(cache.stats.identityEntries, TextResidency.maxIdentities)
     }
 }
+
+
+extension TextGeometryTests {
+    func testMeasuredGlyphsCrossTheOwnerBoundaryAndPaintWithoutReshaping() throws {
+        let painter = TextEngine(resolve: { _ in nil }), measurer = TextEngine(resolve: { _ in nil })
+        painter.connect(measurer: measurer, answerBytes: TextAnswers.defaultLimit)
+        var before: [Double] = [], after: [Double] = []
+        for text in ["office affine e\u{301} wrapped words ", "אבג Latin 日本語 "] {
+            for align in 0...2 {
+                var value = spec(String(repeating: text, count: 5))
+                value.align = align
+                value.runs[0].letterSpacing = 0.25
+                value.strut = value.runs[0]
+                withBorrowedRequest(value, width: 180) { request in
+                    Owner.shared.sync { _ = measurer.measure(request) }
+                }
+                value.color = [200, 20, 70, 128]
+                let geometry = try XCTUnwrap(painter.measuredBreaks(value, width: 180))
+                let bytes = try XCTUnwrap(painter.answers).observation.bytes
+                let glyphs = try XCTUnwrap(painter.measuredGlyphs(value, width: 180))
+                XCTAssertLessThan(painter.answers!.observation.bytes, bytes, "taking the glyph copy releases its cache charge")
+                XCTAssertNil(painter.measuredGlyphs(value, width: 180), "one raster owns the copy")
+                XCTAssertNotNil(painter.measuredBreaks(value, width: 180), "scalar and break answers remain")
+                let size = CGSize(width: 190, height: (geometry.baselines.last ?? 0) + 30)
+                let box = CGRect(x: 5, y: 5, width: 180, height: size.height - 10)
+                for crop in [false, true] {
+                    var job = TextRasterJob(source: painter.attributed(value), ranges: geometry.ranges,
+                        baselines: geometry.baselines, flush: align == 1 ? 0.5 : align == 2 ? 1 : 0,
+                        box: box, size: size, scale: 2, crop: crop)
+                    let start = ProcessInfo.processInfo.systemUptime
+                    let expected = try XCTUnwrap(job.render())
+                    before.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
+                    job.measuredGlyphs = glyphs
+                    job.measuredColor = TextEngine.color(value.color).cgColor
+                    // Empty source makes accidental typesetting unable to reproduce the image.
+                    job.source = NSAttributedString(string: "")
+                    let next = ProcessInfo.processInfo.systemUptime
+                    let actual = try XCTUnwrap(job.render())
+                    after.append((ProcessInfo.processInfo.systemUptime - next) * 1000)
+                    XCTAssertEqual(actual.frame, expected.frame)
+                    XCTAssertEqual(actual.covered, expected.covered)
+                    XCTAssertEqual(glyphPixels(actual), glyphPixels(expected), "glyph positions and translucent ink: \(text), align \(align)")
+                }
+            }
+        }
+        before.sort(); after.sort()
+        print("W822 raster p50 before=\(before[before.count / 2]) after=\(after[after.count / 2]) ms; cases=\(before.count)")
+    }
+
+    func testMeasuredGlyphsDeclinePaintThatNeedsCoreTextAndExpireWithAnswers() throws {
+        let painter = TextEngine(resolve: { _ in nil }), measurer = TextEngine(resolve: { _ in nil })
+        painter.connect(measurer: measurer, answerBytes: TextAnswers.defaultLimit)
+        var plain = spec("ordinary words")
+        plain.strut = plain.runs[0]
+        withBorrowedRequest(plain) { _ = measurer.measure($0) }
+        var decorated = plain
+        decorated.runs[0].underlineColor = [255, 0, 0, 255]
+        XCTAssertNil(painter.measuredGlyphs(decorated, width: 160))
+        decorated = plain; decorated.ellipsis = true
+        XCTAssertNil(painter.measuredGlyphs(decorated, width: 160))
+        XCTAssertNotNil(painter.measuredGlyphs(plain, width: 160), "declines do not consume the plain glyph copy")
+        var emoji = spec("colour 👩🏽‍💻")
+        emoji.strut = emoji.runs[0]
+        withBorrowedRequest(emoji) { _ = measurer.measure($0) }
+        XCTAssertNil(painter.measuredGlyphs(emoji, width: 160))
+        var arabic = spec("مرحبا، سنلتقي في المحطة غداً.")
+        arabic.strut = arabic.runs[0]
+        withBorrowedRequest(arabic) { _ = measurer.measure($0) }
+        XCTAssertNil(painter.measuredGlyphs(arabic, width: 160), "vertical cursive attachment retains CoreText's paint")
+        withBorrowedRequest(plain, width: 150) { _ = measurer.measure($0) }
+        painter.dropColdShaped()
+        XCTAssertNil(painter.measuredGlyphs(plain, width: 150))
+        XCTAssertNotNil(painter.measuredBreaks(plain, width: 150), "rest drops glyph storage but keeps scalar answers")
+    }
+
+    private func glyphPixels(_ raster: TextRasterImage) -> Data {
+        #if os(macOS)
+        let surface = raster.surface
+        surface.lock(options: .readOnly, seed: nil)
+        defer { surface.unlock(options: .readOnly, seed: nil) }
+        let width = surface.width * surface.bytesPerElement, height = surface.height, row = surface.bytesPerRow
+        let base = surface.baseAddress
+        #else
+        let image = raster.image
+        let data = image.dataProvider!.data!
+        let width = image.width * image.bitsPerPixel / 8, height = image.height, row = image.bytesPerRow
+        let base = UnsafeRawPointer(CFDataGetBytePtr(data))!
+        #endif
+        var out = Data()
+        for y in 0..<height { out.append(base.advanced(by: y * row).assumingMemoryBound(to: UInt8.self), count: width) }
+        return out
+    }
+}
