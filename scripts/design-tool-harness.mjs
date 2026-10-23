@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { checkoutPort, claimPort, takePort } from './port-lock.mjs';
 import { spawnOwned, stopAll } from './test-children.mjs';
+import { upstream } from './tamber-request.mjs';
 
 export const ROOT = resolve(new URL('..', import.meta.url).pathname);
 // The tool's port for this run: one of its own, held for the whole run (`claimPort`, from this checkout's own on,
@@ -101,7 +102,7 @@ export async function proxied(app, before = () => {}) {
     await before(request);
     const headers = new Headers(req.headers);
     headers.delete('host'); headers.delete('content-length');
-    const res = await fetch(`${origin}${url.pathname}${url.search}`, { method: req.method, headers, body, redirect: 'manual' });
+    const res = await upstream(`${origin}${url.pathname}${url.search}`, { method: req.method, headers, body, redirect: 'manual' });
     const bytes = await res.arrayBuffer();
     if (request.method === 'transaction' || request.method === 'undo' || request.method === 'accept') {
       const reply = JSON.parse(new TextDecoder().decode(bytes));
