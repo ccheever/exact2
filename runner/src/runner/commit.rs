@@ -784,6 +784,7 @@ impl<D: DataSource> Runner<D> {
         let name = self.target_name(target);
         self.log(super::lines::enqueued(ticket, &name, &request));
         self.note_asked(target, ticket);
+        self.note_handles(ticket, &source);
         self.pending.push(PendingReq {
             refusal: None,
             refused: false,
@@ -1068,8 +1069,14 @@ impl<D: DataSource> Runner<D> {
         if let Some(ms) = elapsed_ms {
             exact_num::push_text!(&mut summary, "; wall {} ms", ms);
         }
+        // A module's reply carrying handles that is not delivered disposes
+        // of them (LLP 1133.009 D6).
+        let handles = self.reply_handles(ticket, &outcome);
         let Some(pos) = self.pending.iter().position(|p| p.ticket == ticket) else {
             self.log(super::lines::dropped(ticket, &summary));
+            if let Some(handles) = handles {
+                self.dispose(handles, "its reply was dropped");
+            }
             return Ok(None);
         };
         if let (Some(_), Outcome::Message(_)) = (self.pending[pos].stream, &outcome) {
@@ -1091,6 +1098,9 @@ impl<D: DataSource> Runner<D> {
         self.arm_then(result.is_ok());
         self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
+        if let (Some(handles), Err(_)) = (handles, &result) {
+            self.dispose(handles, "its commit was refused");
+        }
         if let Err(e) = &result {
             // A mutation's reply is spent whatever refused its commit: left
             // in flight, its write would show forever.

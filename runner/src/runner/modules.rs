@@ -38,6 +38,7 @@ use std::collections::{BTreeMap, BTreeSet};
 mod admit;
 mod agent;
 mod bound;
+mod handles;
 pub use admit::CallOrigin;
 use admit::{Origins, Route};
 use std::sync::{Arc, Mutex};
@@ -76,6 +77,9 @@ pub(super) struct Extensions {
     groups: BTreeMap<String, BTreeSet<String>>,
     /// Who each call comes from (`admit.rs`).
     origins: Origins,
+    /// Requests whose reply carries handles, by ticket, with their source
+    /// (`handles.rs`).
+    provisional: BTreeMap<u64, String>,
 }
 
 /// A held request's outcome once the agent answered it.
