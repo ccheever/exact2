@@ -348,6 +348,17 @@ impl Shapes {
             .find(|(_, (n, _))| n == name)
             .map(|(i, (_, ty))| (i, ty))
     }
+
+    /// `obj.name`'s position and type, `obj` a value typed `obj`: a field of
+    /// its record, as `expr::compile` reads `Expr::Member` and the design
+    /// server's write check types it; `None` for a non-record or a missing
+    /// field.
+    pub fn member(&self, obj: &Ty, name: &str) -> Option<(usize, &Ty)> {
+        match obj {
+            Ty::Record(shape) => self.field(shape, name),
+            _ => None,
+        }
+    }
 }
 
 /// What a name refers to.
