@@ -7,6 +7,7 @@
 //! token of its kind, then each `params` line in place of its default.
 
 use crate::{At, Design, Token};
+use std::collections::{HashMap, HashSet};
 
 /// A param as the design's folds take it: its token name, full name, kind
 /// and default (another param named by its token name).
@@ -97,6 +98,59 @@ pub fn called<'a>(params: &'a Params, name: &str) -> Vec<&'a str> {
     out
 }
 
+/// [`named`] for many names at once: the params by full name and by short
+/// name (each the first), and how many components share each component
+/// name, made once (the checker's work in param counts: a scan per name
+/// was a square, a scan per param a cube).
+pub(crate) struct Index<'a> {
+    params: &'a Params,
+    full: HashMap<&'a str, usize>,
+    short: HashMap<&'a str, usize>,
+    sharing: HashMap<&'a str, usize>,
+}
+
+impl<'a> Index<'a> {
+    pub(crate) fn new(params: &'a Params) -> Self {
+        let (mut full, mut short) = (HashMap::new(), HashMap::new());
+        for (i, p) in params.list.iter().enumerate() {
+            full.entry(p.full.as_str()).or_insert(i);
+            short.entry(p.short()).or_insert(i);
+        }
+        let identities: std::collections::BTreeSet<&str> = params
+            .list
+            .iter()
+            .filter_map(|p| p.full.rsplit_once('.').map(|(identity, _)| identity))
+            .chain(params.components.iter().map(String::as_str))
+            .collect();
+        let mut sharing = HashMap::new();
+        for identity in identities {
+            *sharing.entry(component(identity)).or_insert(0) += 1;
+        }
+        Index {
+            params,
+            full,
+            short,
+            sharing,
+        }
+    }
+
+    /// As [`named`] answers.
+    pub(crate) fn named(&self, name: &str) -> Result<&'a Param, Unnamed> {
+        if let Some(&i) = self.full.get(name) {
+            return Ok(&self.params.list[i]);
+        }
+        let Some(&i) = self.short.get(name) else {
+            return Err(Unnamed::Unknown);
+        };
+        let p = &self.params.list[i];
+        let owner = p.short().rsplit_once('.').map_or("", |(c, _)| c);
+        match self.sharing.get(owner) {
+            Some(1) => Ok(p),
+            _ => Err(Unnamed::Ambiguous),
+        }
+    }
+}
+
 /// The param `name` names: its full name, or its short one where one
 /// component of the app has that component name.
 pub fn named<'a>(params: &'a Params, name: &str) -> Result<&'a Param, Unnamed> {
@@ -124,20 +178,34 @@ pub fn named<'a>(params: &'a Params, name: &str) -> Result<&'a Param, Unnamed> {
 /// design out this way.
 pub fn laid(design: &Design, params: &Params) -> Design {
     let mut out = design.clone();
+    let own: HashSet<&str> = design
+        .tokens
+        .iter()
+        .map(|t| t.name.value.as_str())
+        .collect();
     out.tokens.extend(
         params
             .joined
             .iter()
-            .filter(|j| !design.tokens.iter().any(|t| t.name.value == j.name.value))
+            .filter(|j| !own.contains(j.name.value.as_str()))
             .cloned(),
     );
+    let own: HashSet<&str> = design.icons.iter().map(|t| t.name.value.as_str()).collect();
     out.icons.extend(
         params
             .joined_icons
             .iter()
-            .filter(|j| !design.icons.iter().any(|t| t.name.value == j.name.value))
+            .filter(|j| !own.contains(j.name.value.as_str()))
             .cloned(),
     );
+    // Each param's first `params` line, by its token, found in one pass.
+    let index = Index::new(params);
+    let mut first: HashMap<&str, &Token> = HashMap::new();
+    for e in &design.params {
+        if let Ok(q) = index.named(&e.name.value) {
+            first.entry(q.token.as_str()).or_insert(e);
+        }
+    }
     for (i, p) in params.list.iter().enumerate() {
         let at = |value: &str| At {
             value: value.to_string(),
@@ -152,11 +220,7 @@ pub fn laid(design: &Design, params: &Params) -> Design {
             whens: Vec::new(),
             meta: Vec::new(),
         };
-        if let Some(entry) = design
-            .params
-            .iter()
-            .find(|e| named(params, &e.name.value).is_ok_and(|q| q.token == p.token))
-        {
+        if let Some(entry) = first.get(p.token.as_str()) {
             token.name.line = entry.name.line;
             token.name.col = entry.name.col;
             token.value = entry.value.clone();

@@ -1053,7 +1053,27 @@ impl<'a> Checker<'a> {
         let design = self.design;
         let baseline = self.memo.clone();
         let errors = self.errors.len();
+        // Only a token that reads a dial, or names one that does, can move
+        // with it (the names each fold read): refolded alone, each probe
+        // (the checker's work in dial counts: every token at every dial
+        // was dials x tokens).
+        let n = design.tokens.len();
+        let mut named_by = vec![Vec::new(); n];
+        let mut readers = vec![Vec::new(); design.dials.len()];
+        for i in 0..n {
+            self.refs[i].iter().for_each(|&j| named_by[j].push(i));
+            self.reads[i].iter().for_each(|&d| readers[d].push(i));
+        }
         for (d, dial) in design.dials.iter().enumerate() {
+            let mut moving = vec![false; n];
+            let mut todo = readers[d].clone();
+            let mut reach = Vec::new();
+            while let Some(i) = todo.pop() {
+                if !std::mem::replace(&mut moving[i], true) {
+                    reach.push(i);
+                    todo.extend(&named_by[i]);
+                }
+            }
             let Some((_, value)) = self.dials.get(dial.name.value.as_str()).cloned() else {
                 continue;
             };
@@ -1094,8 +1114,12 @@ impl<'a> Checker<'a> {
                     continue;
                 }
                 self.dials.insert(dial.name.value.as_str(), (d, other));
-                self.memo.clear();
-                for i in 0..design.tokens.len() {
+                for &i in &reach {
+                    for tuple in 0..tuples {
+                        self.memo.remove(&(i, tuple));
+                    }
+                }
+                for &i in &reach {
                     if self.refused[i] {
                         continue;
                     }
@@ -1109,6 +1133,14 @@ impl<'a> Checker<'a> {
                 }
             }
             self.dials.insert(dial.name.value.as_str(), (d, value));
+            for &i in &reach {
+                for tuple in 0..tuples {
+                    match baseline.get(&(i, tuple)) {
+                        Some(v) => drop(self.memo.insert((i, tuple), v.clone())),
+                        None => drop(self.memo.remove(&(i, tuple))),
+                    }
+                }
+            }
         }
         self.memo = baseline;
         self.errors.truncate(errors);
