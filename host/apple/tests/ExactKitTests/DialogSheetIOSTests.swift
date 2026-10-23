@@ -135,6 +135,28 @@ final class DialogSheetIOSTests: XCTestCase {
         XCTAssertEqual(cancelled, [2])
     }
 
+    func testFractionalSheetPortsDoNotScrollSidewaysOrClipThePlacedBottom() throws {
+        let (p, controller, scene) = page()
+        p.dialogCommand("showModal", "form")
+        let sheet = try sheet(controller), dialog = try XCTUnwrap(p.views[2])
+        if scene { settle { !p.menus.inTransition } }
+        for scale in [2, 3] as [CGFloat] {
+            sheet.view.traitOverrides.displayScale = scale
+            sheet.view.updateTraitsIfNeeded()
+            let scroll = sheet.scroller
+            scroll.contentInsetAdjustmentBehavior = .never
+            sheet.view.frame.size = CGSize(width: 400, height: 200)
+            scroll.frame = sheet.view.bounds
+            scroll.contentInset = UIEdgeInsets(top: 0, left: 20.1, bottom: 0, right: 20.1)
+            // A placed box can straddle the authored height by a pixel.
+            dialog.bounds.size = CGSize(width: 300, height: 180.5)
+            sheet.fit(CGSize(width: 300, height: 180.2))
+            let port = scroll.bounds.width - scroll.adjustedContentInset.left - scroll.adjustedContentInset.right
+            XCTAssertLessThanOrEqual(scroll.contentSize.width, port + 1e-6, "a fitting dialog has no sideways range")
+            XCTAssertGreaterThanOrEqual(scroll.contentSize.height, dialog.frame.maxY, "the placed bottom is reachable")
+        }
+    }
+
     func testAnExitRetiresTheDialogsSheetSubtree() throws {
         let (p, controller, scene) = page()
         p.dialogCommand("showModal", "form")
