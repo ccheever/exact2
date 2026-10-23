@@ -181,7 +181,7 @@ export async function readLongPoll(op, init, limit, message, controller, admits)
   // The cursor at `from`: a string, or a whole number within 2^53; `undefined` for none, an Error for one no host carries.
   const cursorOf = (text) => {
     let at; try { at = JSON.parse(text); } catch { return undefined; }
-    for (const part of from.split('.', 2)) { if (at == null || typeof at !== 'object' || !Object.hasOwn(at, part)) return undefined; at = at[part]; }
+    for (const part of from.split('.', 2)) { if (at == null || typeof at !== 'object' || Array.isArray(at) || !Object.hasOwn(at, part)) return undefined; at = at[part]; }
     // (a lone surrogate would not survive the URL or a native host's JSON: no host could carry it)
     if (typeof at === 'string') return encoder.encode(at).length > 4096 || /[\u0000-\u001f\u007f-\u009f]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(at) ? Error("a long poll's cursor is at most 4096 bytes, with no control characters") : at;
     if (typeof at === 'number') return Number.isSafeInteger(at) ? String(at) : Error("a long poll's numeric cursor is a whole number within 2^53: send a larger one as a string");
@@ -190,7 +190,7 @@ export async function readLongPoll(op, init, limit, message, controller, admits)
   let url = new URL(op.url), failures = 0;
   for (;;) {
     if (controller.signal.aborted) return aborted();
-    if (!admits(url.href)) return failed(2, "outside the app's grants (net.fetch)");
+    if (!admits(url.href)) { replied(); return failed(2, "outside the app's grants (net.fetch)"); }
     const asked = url.searchParams.get(cursor), askedAt = performance.now();
     const floor = () => Math.max(0, Math.ceil(longPollTiming.heartbeatMs - (performance.now() - askedAt)));
     const deadline = op.timeoutMs === undefined ? null : AbortSignal.timeout(op.timeoutMs);

@@ -374,6 +374,7 @@ test('what is not a poll reply ends a long poll, and only a bodiless GET is one'
     [{ status: 404, body: 'gone', headers: {} }, (e) => e.kind === 0 && e.status === 404],
     [{ body: 'not json', headers: {} }, (e) => e.kind === 0 && e.status === 200],
     [{ body: '{"other":1}' }, (e) => e.kind === 0 && e.status === 200],
+    [{ body: '[1,2]' }, (e) => e.kind === 0 && e.status === 200],
     [{ body: 'data: 1\n\n', headers: { 'content-type': 'text/event-stream' } }, (e) => e.kind === 2 && /event stream/.test(new TextDecoder().decode(e.body))],
     [{ body: `{"seq":1,"pad":"${'.'.repeat(80)}"}` }, (e) => e.kind === 2],
   ];
