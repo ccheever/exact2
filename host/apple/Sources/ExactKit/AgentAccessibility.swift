@@ -147,7 +147,7 @@ extension Presenter {
         #if os(iOS) || os(tvOS)
         markModalLeaks(&w)
         let platform = "iOS \(UIDevice.current.systemVersion)", source = "uikit", order = "containment"
-        var known = ["alpha", "reading-order"]
+        var known = ["reading-order"]
         #else
         let platform = "macOS \(ProcessInfo.processInfo.operatingSystemVersionString)", source = "appkit", order = "navigation"
         var known: [String] = []
@@ -205,6 +205,9 @@ extension Presenter {
         if let v = obj as? UIView {
             if v.isHidden { exclusion.append("hidden") }
             if v.accessibilityElementsHidden { exclusion.append("elementsHidden") }
+            let geometry = v.bounds.isEmpty ? "emptyBounds" : v.convert(v.bounds, to: nil).isEmpty ? "emptyFrame" : nil
+            if let geometry, !exclusion.contains(geometry) { exclusion.append(geometry) }
+            if v.alpha == 0, !exclusion.contains("transparent") { exclusion.append("transparent") }
         }
         if !exclusion.isEmpty && !w.excluded { return }
         let o = obj as! NSObject
