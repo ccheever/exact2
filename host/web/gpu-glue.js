@@ -921,8 +921,8 @@ const api = {
         const since = request.all ? 0 : entry.logCursor;
         const journal = agent(canvas, { op: "logs", since });
         if (!journal || journal.error || !Array.isArray(journal.lines)) continue;
-        const { from, next, lines } = journal;
-        world.push({ canvas, from, next, lines, dropped: Math.max(0, from - since) });
+        const { tick, from, next, lines } = journal;
+        world.push({ canvas, tick, from, next, lines, dropped: Math.max(0, from - since) });
         entry.logCursor = next;
       }
       for (const {canvas, error} of restoreJournal.splice(0)) world.push({canvas, lines:[error]});
