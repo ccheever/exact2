@@ -164,6 +164,23 @@ for (const timing of ['agent', 'platform']) {
       check(false, `grouped: ${error.message}`);
     } finally { await s?.close(); }
   }
+  // A command-only invoker remains activatable when UIKit hides its authored grouped row.
+  if (c.status === 0) for (const touch of ['agent', 'platform']) {
+    const s = await open({ host: 'ios', app: 'caltrain', plan, touch });
+    try {
+      await s.clock('settle');
+      const tap = await s.tap('delete-item');
+      await s.clock('settle');
+      const shown = (await s.state()).navigation?.popover;
+      check(shown?.kind === 'confirmation' && shown.phase === 'open', `grouped modal (${touch}): the command opened a confirmation: ${JSON.stringify(shown)}`);
+      await s.tap('remove-confirm');
+      await s.clock('settle');
+      const state = await s.state();
+      check(state.slots.removes === 1 && state.navigation.popover == null, `grouped modal (${touch}): confirm removes once and closes`);
+      console.log(`grouped modal (${touch}): ${tap.delivery}, removes ${state.slots.removes}`);
+    } catch (error) { check(false, `grouped modal (${touch}): ${error.message}`); }
+    finally { await s.close(); }
+  }
 }
 
 // No foreground drive follows the archive: only this phase needs the gallery build.
