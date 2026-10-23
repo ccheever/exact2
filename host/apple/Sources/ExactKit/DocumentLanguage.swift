@@ -29,6 +29,8 @@ extension Presenter {
             let direction = node.style["direction"]?.string ?? documentDirection
             #if os(macOS)
             node.userInterfaceLayoutDirection = direction == "rtl" ? .rightToLeft : .leftToRight
+            node.scroll?.tile()
+            node.fitScroll()
             #else
             node.semanticContentAttribute = direction == "rtl" ? .forceRightToLeft : .forceLeftToRight
             #endif

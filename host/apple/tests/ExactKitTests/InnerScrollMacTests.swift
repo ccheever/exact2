@@ -27,6 +27,8 @@ final class InnerScrollMacTests: XCTestCase {
                 view width="100%" height=600 testId="vertical-child"
               view width=300 height=200 overflow="auto" testId="horizontal"
                 view width=600 height="100%" testId="horizontal-child"
+              view width=300 height=200 overflow="auto" direction="rtl" testId="rtl"
+                view width="100%" height=600 testId="rtl-child"
               view width=300 height=200 overflow="auto" scrollbar-width="none" testId="hidden"
                 view width="100%" height=600 testId="hidden-child"
 
@@ -44,16 +46,22 @@ final class InnerScrollMacTests: XCTestCase {
         for style in [NSScroller.Style.overlay, .legacy, .overlay, .legacy] {
             Self.preferredStyle = style
             NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
-            for name in ["vertical", "horizontal", "hidden"] {
+            for name in ["vertical", "horizontal", "hidden", "rtl"] {
                 let parent = try node(name), child = try node(name + "-child")
                 let scroll = try XCTUnwrap(parent.scroll)
                 XCTAssertEqual(scroll.scrollerStyle, ExactEnv.agentMode ? .overlay : style)
+                XCTAssertEqual(scroll.userInterfaceLayoutDirection, name == "rtl" ? .rightToLeft : .leftToRight)
+                if name == "rtl" {
+                    let drawn = child.convert(child.bounds, to: parent)
+                    XCTAssertEqual(drawn.minX, scroll.contentView.frame.minX, accuracy: 0.001)
+                    XCTAssertEqual(drawn.maxX, scroll.contentView.frame.maxX, accuracy: 0.001)
+                }
                 if name == "horizontal" {
                     XCTAssertEqual(child.frame.height, scroll.contentView.bounds.height, accuracy: 0.001)
                     XCTAssertTrue(scroll.verticalScroller!.isHidden, "a horizontal gutter must not create vertical overflow")
                 } else {
                     XCTAssertEqual(child.frame.width, scroll.contentView.bounds.width, accuracy: 0.001)
-                    XCTAssertTrue(scroll.horizontalScroller!.isHidden, "a vertical gutter must not create horizontal overflow")
+                    XCTAssertTrue(scroll.horizontalScroller!.isHidden, "\(name): a vertical gutter must not create horizontal overflow; content \(parent.content), document \(scroll.documentView!.frame), clip \(scroll.contentView.frame), bounds \(scroll.contentView.bounds)")
                     XCTAssertEqual(child.frame.width < 300, style == .legacy && name != "hidden" && !ExactEnv.agentMode)
                 }
             }
