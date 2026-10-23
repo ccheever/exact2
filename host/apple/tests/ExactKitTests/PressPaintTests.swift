@@ -472,5 +472,36 @@ final class PressPaintTests: XCTestCase {
         XCTAssertTrue(own.showsOwnTextColor, "its own press's colour is its own")
         XCTAssertEqual(rgba(own.fieldInk.cgColor), green)
     }
+    func testAPresslessLinkTracksActivationWithoutShowingActivePaintOrPlatformFeedback() throws {
+        let (p, _) = try fixture([:])
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "button", "props": ["href": "/destination"]],
+            ["op": "frame", "id": 4, "x": 50, "y": 200, "w": 120, "h": 40],
+            ["op": "roots", "ids": [1, 4]]
+        ]))
+        let link = try XCTUnwrap(p.views[4])
+        for authored in [false, true] {
+            link.applyStyle(authored ? ["press_scale": .number(0.9), "press_background_color": ink(navy)] : [:])
+            link.pressed = true
+            XCTAssertEqual(link.defaultLink, "/destination")
+            XCTAssertEqual(link.press.to, 1)
+            XCTAssertFalse(link.pressPaint.down)
+            #if os(iOS)
+            XCTAssertFalse(link.platformPressDims)
+            XCTAssertNil(link.press.dimmedAt)
+            #else
+            XCTAssertFalse(link.pressTinted)
+            #endif
+            link.pressFollows(inside: true)
+            XCTAssertEqual(link.press.to, 1)
+            XCTAssertFalse(link.pressPaint.down)
+            link.pressed = false
+        }
+        link.handlers = ["press"]
+        link.pressed = true
+        XCTAssertEqual(link.press.to, 0.9, "a declared handler gets its active feedback")
+        XCTAssertTrue(link.pressPaint.down)
+    }
+
 }
 #endif
