@@ -5,12 +5,15 @@ component App
     contentHeight = 300
   state hit = "unread"
   state hits = "unread"
+  state rect = "unread"
   state seen = false
   state observations = 0
   action intersected(e: IntersectionObserverEntry)
     seen = e.isIntersecting
     observations = observations + 1
   action read(e: PointerEvent)
+    let f = frame("content")
+    rect = `${f.x},${f.y},${f.width},${f.height}`
     hit = match elementFromPoint(e.clientX, e.clientY) { case some(id) => id, case none => "none" }
     hits = elementsFromPoint(e.clientX, e.clientY).join(",")
   view
