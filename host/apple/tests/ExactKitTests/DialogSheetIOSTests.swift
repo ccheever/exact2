@@ -1253,6 +1253,24 @@ final class DialogSheetIOSTests: XCTestCase {
         XCTAssertEqual(sheet.box.height, 300, accuracy: 0.01)
     }
 
+    /// A popover over a dialog's sheet is outside the sheet's scroller: it
+    /// moves with its button as the sheet scrolls, not at the next batch.
+    func testAPopoverOverASheetFollowsItsButtonAsTheSheetScrolls() throws {
+        guard Self.scene else { throw missing("scene", "a sheet's scroll and its popovers") }
+        let session = try boot(planKey: "EXACT_DIALOG_SHEET_READS_PLAN"), p = session.presenter
+        p.dialogCommand("showModal", "tall")
+        settle { !p.menus.inTransition }
+        let sheet = try sheet(XCTUnwrap(window?.rootViewController))
+        let scroller = sheet.scroller
+        p.menus.action("showPopover", ["tall-tip", "tall-tip-button"])
+        let tip = try XCTUnwrap(p.views.values.first { $0.props["id"] == "tall-tip" })
+        let button = try XCTUnwrap(p.views.values.first { $0.props["id"] == "tall-tip-button" })
+        let gap = { tip.convert(tip.bounds, to: nil).minY - button.convert(button.bounds, to: nil).minY }
+        let before = gap()
+        scroller.contentOffset.y += 40
+        XCTAssertEqual(gap(), before, accuracy: 0.5, "the popover keeps its place by its button")
+    }
+
     func testAPercentageSheetKeepsThePresentationContainersHeightBasis() throws {
         guard Self.scene else { throw missing("scene", "percentage height is independent of the detent") }
         let session = try boot(planKey: "EXACT_DIALOG_SHEET_READS_PLAN"), p = session.presenter
