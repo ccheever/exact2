@@ -39,6 +39,22 @@ const APP: &str = r##"component App
         text "Go"
       button appearance="auto" width=84 height=24 testId="sized"
         text "Go"
+      button appearance="auto" buttonStyle="plain" padding=0 testId="flush"
+        text "Go"
+      button appearance="auto" buttonStyle="plain" padding-top=0 testId="one-side"
+        text "Go"
+      button appearance="auto" padding=0 testId="outline"
+        text "Go"
+      row role="radiogroup" align-items="flex-start"
+        button role=(taps % 2 == 0 ? "radio" : "button") buttonStyle="plain" padding=0 press=go testId="segment-padded"
+          text "Go"
+        button role="radio" buttonStyle="plain" testId="segment-unsaid"
+          text "Go"
+      column role=(taps % 2 == 0 ? "menu" : "group") align-items="flex-start"
+        button buttonStyle="plain" padding=0 testId="menu-padded"
+          text "Go"
+        button buttonStyle="plain" testId="menu-unsaid"
+          text "Go"
       input type="checkbox" testId="check"
       input type="checkbox" checked=true testId="checked"
       input type="radio" testId="radio"
@@ -235,6 +251,18 @@ fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
     // A size the author wrote is the box: the look's floor and padding step
     // aside.
     assert_eq!(size(&mut p, "sized"), (84.0, 24.0));
+    assert_eq!(size(&mut p, "flush").1, 20.0);
+    assert_eq!(size(&mut p, "one-side").1, 27.0);
+    assert_eq!(size(&mut p, "outline").1, 22.0);
+    for role in ["segment", "menu"] {
+        assert_eq!(size(&mut p, &format!("{role}-padded")), (36.0, 36.0));
+        assert_eq!(size(&mut p, &format!("{role}-unsaid")).1, 36.0);
+    }
+    for expected in [20.0, 36.0] {
+        p.tap(id(&p, "segment-padded")).unwrap();
+        assert_eq!(size(&mut p, "segment-padded").1, expected);
+        assert_eq!(size(&mut p, "menu-padded").1, expected);
+    }
     // The look's lengths are of the control's font size, which a control
     // inherits as it does on a page.
     assert_eq!(size(&mut p, "large").1, 45.0);
