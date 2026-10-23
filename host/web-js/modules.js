@@ -189,12 +189,24 @@ export function modules(rows, bound = {}) {
     }
   });
   const reserved = (data.reserved ??= {});
+  // Handles (LLP 1133.009 D6, D10 item 10): a reply naming the objects a call made is the call's until delivered. A
+  // reply to a call its reader or mutation asked again before it landed is dropped, and its implementation told to
+  // dispose of them. (The runner also disposes of a refused commit's; here no commit refuses a module's answer.)
+  const asked = new Map();
+  const disposeDropped = (row, json, name, n) => {
+    if (asked.get(name) === n || !row.sub.handles || errorCode(json)) return;
+    const ids = Object.keys(row.sub.handles).flatMap(path => handlesAt(json, path));
+    if (!ids.length) return;
+    say(`dispose ${extensionOf(row)} ${ids.join(", ")}: its reply was dropped`);
+    implementation(row)?.then(impl => impl?.dispose?.(ids));
+  };
   for (const row of byKey.values()) {
     reserved[row.source] = (_, args, name) => {
       const given = args?.[0] !== undefined ? object(args[0], row.options) : {};
       const timeout = row.send ? timeoutOf(row, args) : null, d = admitted(row, given, "app", row.send, timeout);
-      const reader = row.send ? null : name;
-      if (d.forward) return viaImplementation(row, given, reader).then(json => answer(row, json));
+      const reader = row.send ? null : name, n = (asked.get(name) ?? 0) + 1;
+      asked.set(name, n);
+      if (d.forward) return viaImplementation(row, given, reader).then(json => { disposeDropped(row, json, name, n); return answer(row, json); });
       if (d.hold) return hold(row, d.hold, name, false, timeout, route(row) === "agent" ? () => viaImplementation(row, given, reader) : null);
       return answer(row, d.now);
     };
@@ -374,6 +386,13 @@ function complete(json, type) {
   const out = { ...json };
   for (const [f, t] of Object.entries(type)) out[f] = out[f] === undefined ? (Array.isArray(t) && t[0] === "?" ? null : out[f]) : complete(out[f], t);
   return out;
+}
+
+/** The strings at `path` in `v`: `a.b`, and `a[].b` for each element of the list `a`. */
+function handlesAt(v, path) {
+  const [head, ...rest] = path.split("."), each = head.endsWith("[]"), at = v?.[each ? head.slice(0, -2) : head];
+  const items = each ? (Array.isArray(at) ? at : []) : [at];
+  return items.flatMap(x => rest.length ? handlesAt(x, rest.join(".")) : typeof x === "string" ? [x] : []);
 }
 
 /** `over`'s fields laid over `v`'s, record by record. */
