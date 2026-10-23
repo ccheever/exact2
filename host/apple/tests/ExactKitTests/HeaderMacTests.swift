@@ -240,17 +240,35 @@ final class HeaderMacTests: XCTestCase {
         XCTAssertEqual(window.title, "Shelf")
     }
 
-    func testStatusReadoutAfterTheHeadingKeepsTheHeaderPainted() throws {
-        let p = fixture(extra: view(16, "text", ["text": "Syncing", "accessibilityRole": "status"])
+    func testStatusReadoutProjectsAnUnpressableToolbarView() throws {
+        let p = fixture(extra: view(16, "text", ["text": "Syncing", "accessibilityRole": "status", "testId": "sync-status"])
             + [children(10, [11, 12, 16, 13, 14])])
         XCTAssertTrue(p.toolbar.attach(to: window))
-        XCTAssertEqual(window.title, "Shelf")
-        XCTAssertEqual(window.subtitle, "")
-        XCTAssertFalse(try node(p, 10).isHidden)
-        XCTAssertNil(p.toolbar.items[16])
-        XCTAssertEqual(identifiers(), [back])
-        XCTAssertTrue((p.toolbar.summary["headerKept"] as? String)?.contains("readout") == true)
+        XCTAssertEqual(window.title, "Library")
+        XCTAssertTrue(try node(p, 10).isHidden)
+        let readout = try XCTUnwrap(p.toolbar.items[16]?.view as? NSImageView)
+        XCTAssertNotNil(readout.image)
+        XCTAssertEqual(readout.accessibilityIdentifier(), "sync-status")
+        XCTAssertNil(p.toolbar.items[16]?.action)
         p.toolbar.detach()
+    }
+
+    func testAuthoredDotAndFontKeepTheirToolbarFace() throws {
+        let p = fixture(extra: view(130) + view(131, "text", ["text": "Clock"])
+            + [["op": "style", "id": 130, "style": ["width": 8, "height": 8, "background_color": [20, 200, 40, 255]]],
+               ["op": "style", "id": 131, "style": ["font_size": 12, "font_family": 2, "written": ["font_family", "font_size"]]],
+               children(13, [130, 131])])
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        XCTAssertTrue(try node(p, 10).isHidden)
+        let item = try XCTUnwrap(p.toolbar.items[13])
+        let image = try XCTUnwrap(item.image)
+        XCTAssertFalse(image.isTemplate)
+        XCTAssertGreaterThan(image.size.width, 8)
+        XCTAssertEqual(item.title, "")
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        XCTAssertEqual(p.toolbar.activate(try node(p, 13)), true)
+        XCTAssertEqual(pressed, [13])
     }
 
     func testSubtitleAndAvatarProjectAndFollowTheRoute() throws {

@@ -580,10 +580,24 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         let live = Set(buttons.map(\.id))
         for id in Array(items.keys) where !live.contains(id) { items.removeValue(forKey: id); symbols.removeValue(forKey: id) }
         for node in buttons {
+            if node.props["accessibilityRole"] == "status", let face = MacBarFace(node, readout: true) {
+                let item = items[node.id] ?? NSToolbarItem(itemIdentifier: .init("exact.readout.\(node.id)"))
+                let view = (item.view as? NSImageView) ?? NSImageView()
+                view.image = face.image
+                view.imageScaling = .scaleNone
+                view.setFrameSize(view.image!.size)
+                view.setAccessibilityIdentifier(node.props["testId"])
+                view.setAccessibilityLabel(node.authoredLabel ?? text(node))
+                item.label = node.authoredLabel ?? text(node)
+                item.view = view; item.target = nil; item.action = nil; item.autovalidates = false
+                items[node.id] = item
+                continue
+            }
             // A header's button that opens a menu is AppKit's menu item
             // (LLP 1115.002 D2): it pops the menu up itself, so it has no
             // action.
             let menu = declared == nil && presenter.menus.toolbarPopover(of: node) != nil
+            if items[node.id]?.view is NSImageView { items.removeValue(forKey: node.id) }
             if let old = items[node.id], (old is NSMenuToolbarItem) != menu { items.removeValue(forKey: node.id); symbols.removeValue(forKey: node.id) }
             let item = items[node.id] ?? (menu ? NSMenuToolbarItem(itemIdentifier: .init("exact.menu.\(node.id)")) : NSToolbarItem(itemIdentifier: .init("exact.command.\(node.id)")))
             items[node.id] = item
@@ -604,7 +618,11 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             // Standard toolbar items own their image sizing, tint and glass.
             // An svg-only icon's path is a template image too (stage 9 A2).
             let symbol = face?.symbol ?? image?.faceSymbol ?? ""
-            if let badge = BadgeFace(node) {
+            let painted = BadgeFace(node) == nil ? MacBarFace(node) : nil
+            if let painted {
+                item.image = painted.image
+                symbols.removeValue(forKey: node.id)
+            } else if let badge = BadgeFace(node) {
                 item.image = badge.image
                 symbols.removeValue(forKey: node.id)
             } else if symbol.isEmpty {
@@ -620,10 +638,10 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             if item.isNavigational != navigational { item.isNavigational = navigational }
             prominence(item, node, face)
             // Text-bearing authored buttons remain labeled in icon-only mode.
-            let title = BadgeFace(node) != nil ? "" : face.map { $0.title ?? "" } ?? text(node)
+            let title = painted != nil || BadgeFace(node) != nil ? "" : face.map { $0.title ?? "" } ?? text(node)
             if item.title != title { item.title = title }
             let enabled = !node.disabled && !node.inert && window.attachedSheet == nil
-            authoredInk.button(item, node: node, face: face, enabled: enabled, target: self, action: #selector(performInkButton(_:)))
+            authoredInk.button(item, node: node, face: face, painted: painted != nil, enabled: enabled, target: self, action: #selector(performInkButton(_:)))
             if item.isEnabled != enabled { item.isEnabled = enabled }
         }
         // A header's, in the order SwiftUI's own toolbar keeps (measured on

@@ -23,8 +23,8 @@
 // `input`, `change`, `submit`, `focus` and `blur`, its test id and what a
 // driver types are the authored input's, and its look and place AppKit's.
 //
-// **Whole, or not at all.** The toolbar shows a heading, buttons whose face
-// is a symbol and a title, and nothing else. A header holding anything the
+// **Whole, or not at all.** The toolbar shows a heading, buttons and
+// bounded text, symbol and dot readouts. A header holding anything the
 // bar has no place for (a picture, a pressable
 // title, a field) stays painted in the page as written, and the session's
 // log says what it was: a header is never half projected. While the bar
@@ -97,8 +97,10 @@ struct WindowHeader {
                 if passedHeading, subtitle == nil, child.isParagraph, !items.contains(ObjectIdentifier(child)),
                    !rule.readouts.contains(where: { $0 === child }) { subtitle = child; continue }
                 if child === rule.tap { return "its heading is inside a pressable (#\(child.id)), and a window's title is not pressed" }
-                // LLP 1075.003 §9.15: iOS's custom-view item; the toolbar makes none.
-                if rule.readouts.contains(where: { $0 === child }) { return "it holds a readout (#\(child.id), `role=\"status\"`), which the toolbar has no item for" }
+                if rule.readouts.contains(where: { $0 === child }) {
+                    if MacBarFace(child, readout: true) == nil { return "its readout #\(child.id) has no text, symbol or sized dot face" }
+                    continue
+                }
                 if child === rule.search {
                     // A search input the author draws is theirs to draw: the bar's field is AppKit's.
                     if !child.lendsFieldToBar { return "its search field (#\(child.id)) is drawn by the app (`appearance: none`), and a toolbar's is AppKit's own" }
@@ -123,7 +125,7 @@ struct WindowHeader {
                     if child.presenter?.invocation(of: child)?.opensPopover == true, !opensFromTheBar(child) {
                         return "button #\(child.id) opens a popover that is neither a menu nor an alert, which is placed against the button's own box"
                     }
-                    if !showable(child) { return "button #\(child.id) shows more than one symbol and its title, which is all a toolbar item shows" }
+                    if !showable(child) { return "button #\(child.id) has no supported text, symbol, avatar or dot face" }
                     continue
                 }
                 // A box that only groups is no part of the bar; what it holds decides.
@@ -170,9 +172,9 @@ struct WindowHeader {
 
     /// Whether a toolbar item can show all of a button's face: a native
     /// button's symbol and title, or a custom button holding text and at most
-    /// one image, or a filled avatar box drawn as a `BadgeFace`.
+    /// one image, a filled avatar, or a bounded painted face.
     static func showable(_ button: NodeView) -> Bool {
-        if BadgeFace(button) != nil { return true }
+        if BadgeFace(button) != nil || MacBarFace(button) != nil { return true }
         if button.isNativeButton { return button.face?.raster != true }
         let children = { (node: NodeView) in node.container.subviews.compactMap { $0 as? NodeView } }
         let content = children(button)
