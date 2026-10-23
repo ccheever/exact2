@@ -1112,7 +1112,7 @@ list is unchanged: it keeps its own.
     variable of its own `type`; one to another type, or to none, is reported.
   - **Names** are flat, as Pencil's are: `a` and `a.b` are two tokens. A token's name drops what an
     identifier can't hold (a leading `--`), so `--x` and `x` collide, and the second is reported.
-  - **Kinds.** A `color` is a colour. A `number` is a length (px) when every node reading it, or
+  - **Kinds.** A `color` is a colour. A `number`, whose value must be a JSON number (a string is reported), is a length (px) when every node reading it, or
     any number it aliases or that aliases it, reads it as a pixel property (`cornerRadius`, `gap`,
     `padding`, `fontSize`, `letterSpacing`, `strokeWidth`, `width`, `height`, an effect's `radius`
     and `blur`, a side or corner of one, a shadow's `offset`), else a number (`lineHeight` is a
