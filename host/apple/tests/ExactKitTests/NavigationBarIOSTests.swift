@@ -933,6 +933,18 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertEqual(presenter.navigation.barItems(plain, route).count, 4)
     }
 
+    func testActionsFocusAndBlurTheProjectedSearchField() throws {
+        let session = try fixture("action-search", module: false)
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let search = try XCTUnwrap(nav.topViewController?.navigationItem.searchController)
+        let source = try node(session, "header-search")
+        source.props["id"] = "action-search"
+        session.presenter.focusElement(["action-search"])
+        XCTAssertTrue(search.searchBar.searchTextField.isFirstResponder)
+        session.presenter.blurElement(["action-search"])
+        XCTAssertFalse(search.searchBar.searchTextField.isFirstResponder)
+    }
+
 }
 
 /// An app's delegate: a cross-fade, interactive when asked.
