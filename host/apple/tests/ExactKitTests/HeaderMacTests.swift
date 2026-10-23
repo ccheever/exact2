@@ -105,6 +105,23 @@ final class HeaderMacTests: XCTestCase {
         XCTAssertEqual(button.image?.isTemplate, false)
     }
 
+    func testAuthoredToolbarButtonIsDisabledWhileASheetIsAttached() throws {
+        let p = fixture(extra: [["op": "style", "id": 13, "style": ["text_color": [0, 0, 0, 0], "written": ["text_color"]]]])
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        let button = try XCTUnwrap(p.toolbar.items[13]?.view as? NSButton)
+        let sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        sheet.isReleasedWhenClosed = false
+        defer { window.endSheet(sheet); sheet.close() }
+        window.beginSheet(sheet)
+        p.toolbar.sync()
+        XCTAssertNotNil(window.attachedSheet)
+        XCTAssertFalse(try XCTUnwrap(p.toolbar.items[13]).isEnabled)
+        XCTAssertFalse(button.isEnabled)
+        window.endSheet(sheet)
+        p.toolbar.sync()
+        XCTAssertTrue(button.isEnabled)
+    }
+
     func testARIAUnavailableToolbarViewerRemainsPressable() throws {
         let p = fixture(extra: [["op": "props", "id": 13, "set": ["accessibilityDisabled": "true"]]])
         XCTAssertTrue(p.toolbar.attach(to: window))
