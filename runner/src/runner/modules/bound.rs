@@ -134,6 +134,7 @@ impl<D: DataSource> Runner<D> {
             }
         }
         if row.live && !row.send {
+            self.note_poll(row);
             if let Some(i) = reader {
                 let group = body["args"].to_string();
                 let readers = self.extensions.readers.entry(key.clone()).or_default();
@@ -238,7 +239,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Whether a request of `key` is in flight.
-    fn asking(&self, key: &str) -> bool {
+    pub(super) fn asking(&self, key: &str) -> bool {
         (self.pending.iter()).any(|p| {
             (p.keepable.as_ref())
                 .and_then(|r| self.module_topic(&r.body))

@@ -423,3 +423,47 @@ fn a_dropped_reply_s_handles_are_disposed_of() {
         "the second reply is delivered"
     );
 }
+
+/// LLP 1133.009 D10 item 7: a polled source is asked again once after an
+/// advance that crossed its period, however many periods it crossed; never
+/// before its period, never while its last ask is in flight, and its poll
+/// is no timer that would stop the agent's jump. The agent's `polls` says
+/// when its ask is in flight.
+#[test]
+fn a_polled_source_is_asked_once_after_an_advance_that_crossed_its_period() {
+    let (_app, mut r, calls) = boot("poll");
+    r.bind_extensions(&["sensor"], &[]);
+    let mut parked = Vec::new();
+    pump(&mut r, &mut parked);
+    let levels = |calls: &Calls| {
+        (calls.lock().unwrap().iter())
+            .filter(|c| c["source"] == "level")
+            .count()
+    };
+    assert_eq!(levels(&calls), 1);
+    assert_eq!(
+        r.timer_due_ms(),
+        None,
+        "a poll is no timer under the agent's clock"
+    );
+    r.advance(30.0).unwrap();
+    pump(&mut r, &mut parked);
+    assert_eq!(levels(&calls), 1, "its period is 50 ms");
+    r.advance(3000.0).unwrap();
+    assert!(r.polls_asking());
+    assert_eq!(
+        exact_runner::agent::handle(&r, r#"{"op":"polls"}"#),
+        r#"{"asking":true}"#
+    );
+    // A second advance while the ask is in flight asks nothing more.
+    r.advance(3100.0).unwrap();
+    pump(&mut r, &mut parked);
+    assert_eq!(levels(&calls), 2, "{}", logs(&r));
+    assert!(!r.polls_asking());
+    assert_eq!(
+        logs(&r).matches("poll sensor.level").count(),
+        1,
+        "{}",
+        logs(&r)
+    );
+}

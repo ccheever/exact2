@@ -796,8 +796,10 @@ public final class Agent {
             world = session.canvases.clock(settle: settle)
             // A jump does not wait for what is still in flight on real time
             // (a store's, a worker's, the network's): the reply names how much,
-            // as the web hosts' do (calendar F10, workout F6).
+            // as the web hosts' do (calendar F10, workout F6). A polled module
+            // source's ask it made lands first (LLP 1133.009 D10 item 7).
             guard settle else {
+                waitForPolls(until: deadline)
                 #if os(iOS) || os(tvOS)
                 // The app's own native motion on the wall clock has as long as
                 // the whole jump (`jump`: the driver's seek in steps), up to
@@ -1077,6 +1079,14 @@ public final class Agent {
     /// queue is drained here directly, the run loop turning in between for
     /// the executor's thread to make progress.
     @discardableResult
+    /// Run until no polled module source's ask is in flight, or the deadline.
+    func waitForPolls(until deadline: Date) {
+        while session.agent("{\"op\":\"polls\"}").contains("\"asking\":true"), Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.005))
+            session.apply(session.runtime.pump(now: session.now()))
+        }
+    }
+
     func waitForReplies(until deadline: Date) -> Bool {
         while pendingCount() > 0 {
             if Date() >= deadline { return false }
