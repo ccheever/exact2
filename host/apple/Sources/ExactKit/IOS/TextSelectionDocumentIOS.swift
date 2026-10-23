@@ -15,6 +15,7 @@ final class SelectionDocument {
     private var reported: [UInt32: NSRange] = [:]
 
     static func container(of node: NodeView) -> NodeView? {
+        if let outer = node.selectAllElement, outer !== node { return outer }
         var at = node.superview
         while let view = at {
             if let parent = view as? NodeView {
@@ -108,6 +109,13 @@ final class SelectionDocument {
         for part in parts {
             let overlap = NSIntersectionRange(range, part.range)
             guard overlap.length > 0 else { continue }
+            if let outer = part.node.selectAllElement {
+                let members = parts.filter { $0.node === outer || $0.node.isDescendant(of: outer) }
+                if let first = members.first, let last = members.last {
+                    lo = min(lo, first.start); hi = max(hi, NSMaxRange(last.range))
+                }
+                continue
+            }
             let whole = part.input.atomic(NSRange(location: overlap.location - part.start, length: overlap.length))
             if whole.length > 0 { lo = min(lo, part.start + whole.location); hi = max(hi, part.start + NSMaxRange(whole)) }
         }
