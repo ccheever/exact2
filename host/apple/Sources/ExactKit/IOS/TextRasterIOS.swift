@@ -289,9 +289,9 @@ extension NodeView {
         }
         textRaster = result.image; textRasterFrame = result.covered; textRasterScale = key.scale; textRasterSpec = key.spec
         textRasterReady = true; textRasterFailed = false
-        // One colour's coverage shows through a template image in that
-        // colour; any other ink is its own pixels. Each its own layer.
-        let tint = result.tint.map { UIColor(cgColor: $0) }
+        // One colour's coverage masks that colour; other ink carries its
+        // own colours. Each has its own layer.
+        let tint = result.tint
         if (tint != nil) != (textRasterTint != nil), let old = textRasterLayer {
             old.dropTextCast(); old.removeFromSuperlayer(); textRasterLayer = nil; textRasterTint = nil
         }
@@ -302,11 +302,7 @@ extension NodeView {
         if let tint {
             let view = textRasterTint ?? TintInk()
             textRasterTint = view
-            // Its size first: the image view fits its contents to its bounds
-            // only in a layout pass, which none runs for it outside a commit.
-            view.layer.frame = result.frame
-            view.image = UIImage(cgImage: result.image, scale: key.scale, orientation: .up).withRenderingMode(.alwaysTemplate)
-            view.tintColor = tint
+            view.show(result.image, tint: tint, frame: result.frame, scale: key.scale)
             ink = view.layer
         } else {
             ink = textRasterLayer ?? InkLayer()
@@ -337,10 +333,24 @@ final class InkLayer: CALayer {
 }
 
 /// A one-colour paragraph's ink (`TextRasterImage.tint`): its coverage as a
-/// template image, which UIKit shows in `tintColor` as Core Animation
-/// composites it, as a `UILabel` shows its text. Only its layer is in the
-/// tree, where `InkLayer` would be; like that, it never animates.
-final class TintInk: UIImageView {
+/// mask over its colour. Updating coverage does not ask UIImageView to
+/// resolve another template image. Only its layer is in the tree, where
+/// `InkLayer` would be; like that, it never animates.
+final class TintInk: UIView {
+    private let coverage = InkLayer()
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        layer.mask = coverage
+    }
+    convenience init() { self.init(frame: .zero) }
+    required init?(coder: NSCoder) { nil }
+    func show(_ image: CGImage, tint: CGColor, frame: CGRect, scale: CGFloat) {
+        layer.frame = frame
+        layer.backgroundColor = tint
+        coverage.frame = bounds
+        coverage.contentsScale = scale
+        coverage.contents = image
+    }
     override func action(for layer: CALayer, forKey event: String) -> (any CAAction)? { NSNull() }
 }
 
