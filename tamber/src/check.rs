@@ -1027,12 +1027,12 @@ impl<'a> Checker<'a> {
         }
         // Each name followed recurses: a chain past the bound is refused
         // where it passes, before the stack would run out.
-        if self.stack.len() >= MAX_REFERENCE_DEPTH {
+        let Some(_level) = crate::bound::deeper() else {
             let (id, why) = crate::bound::too_deep();
             self.at(&t.name, id, why);
             self.memo.insert((i, tuple), None);
             return None;
-        }
+        };
         self.stack.push(i);
         self.at.push(self.traced.then_some(tuple));
         let digits = self.digits(tuple);

@@ -78,11 +78,28 @@ impl Diagnostic {
     ) -> Diagnostic {
         Diagnostic {
             id,
-            message: message.into(),
+            message: bounded_words(message.into()),
             line,
             col,
         }
     }
+}
+
+/// The most a diagnostic's words may be, in bytes: a refusal quotes what it
+/// refuses, and a design may hold text of any length a parser or a check
+/// names before the checker's bounds see it (a malformed range, an unknown
+/// kind), so past this the words keep their start and say their length.
+const MAX_WORDS: usize = 1024;
+
+fn bounded_words(words: String) -> String {
+    if words.len() <= MAX_WORDS {
+        return words;
+    }
+    let mut cut = MAX_WORDS - 64;
+    while !words.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{}… ({} bytes in all)", &words[..cut], words.len())
 }
 
 impl std::fmt::Display for Diagnostic {
