@@ -18,6 +18,26 @@ private extension NSView {
 final class AccessibilityTreeMacTests: XCTestCase {
     private var window: NSWindow!
 
+    func testToggleButtonsReportFalseTrueAndMixedFromThePlatform() throws {
+        let p = try fixture()
+        for value in ["false", "true", "mixed"] {
+            p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityPressed": value]]]))
+            p.syncAccessibility()
+            let ax = p.axElements(roots: [p.viewport])
+            let button = try XCTUnwrap(elements(ax).first { $0["testId"] as? String == "named" })
+            XCTAssertEqual(button["role"] as? String, "button")
+            let states = try XCTUnwrap(button["states"] as? [String: Any])
+            if value == "mixed" { XCTAssertEqual(states["pressed"] as? String, "mixed") }
+            else { XCTAssertEqual(states["pressed"] as? Bool, value == "true") }
+            XCTAssertNil(states["checked"])
+            XCTAssertTrue((ax["observes"] as? [String] ?? []).contains("pressed"))
+        }
+        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["accessibilityPressed"]]]))
+        let ax = p.axElements(roots: [p.viewport])
+        let button = try XCTUnwrap(elements(ax).first { $0["testId"] as? String == "named" })
+        XCTAssertNil((button["states"] as? [String: Any])?["pressed"])
+    }
+
     /// `painted`: a dialog and a popover in the page's top layer, the
     /// driver's own chrome, which is what the page's own projection of a
     /// modal is about; the last case here holds a dialog in AppKit's sheet.
