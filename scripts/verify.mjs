@@ -760,11 +760,13 @@ export function relaunchStore(results, fresh) {
  * texts its first screen shows that a fresh one does not, what it says of them, and its problems (a line each, counted
  * as findings). What the test stored is lost when the test wrote storage (more operations than a fresh launch, or a
  * `reload` step) and ended holding resources a fresh launch does not, and the relaunch holds a fresh launch's. */
-export function judgeRelaunch(test, fresh, after, { busy = [], failed = {} } = {}) {
+export function judgeRelaunch(test, fresh, after, { busy = [], failed = {}, heldBy = [] } = {}) {
   const problems = [];
+  // Requests the server holds (`exactHeld`, LLP 1016.000 D9): named, never waited on, no finding.
+  const notes = heldBy.length ? { notes: [`  held     ${heldBy.join(', ')}: the server holds ${heldBy.length === 1 ? 'it' : 'them'} (exactHeld); no clock waited on ${heldBy.length === 1 ? 'it' : 'them'}`] } : {};
   if (busy.length) problems.push(`  loading  still in flight after ${secs(REAL_MS)} of real time: ${busy.join(', ')}; a store or the network that slow leaves the first screen empty`);
   for (const [name, why] of Object.entries(failed ?? {})) problems.push(`  failed   resource ${name}: ${why}; the screen shows its placeholder or last value`);
-  if (!fresh) return { shows: [], problems, said: 'it relaunched' };
+  if (!fresh) return { shows: [], problems, ...notes, said: 'it relaunched' };
   const shows = [...after.texts].filter((t) => !fresh.texts.has(t)), wrote = test.end.reload || test.end.ops > fresh.ops;
   const held = !same(after.resources, fresh.resources), kept = held || !same(after.slots, fresh.slots);
   if (!shows.length && !busy.length && wrote && !same(test.end.resources, fresh.resources) && !held)
@@ -772,7 +774,7 @@ export function judgeRelaunch(test, fresh, after, { busy = [], failed = {} } = {
   const said = shows.length ? `the first screen shows what it stored: ${shows.slice(0, 3).map((t) => quoted(t, 24)).join(', ')}`
     : kept ? 'its state holds what the test left, though the first screen\'s text is a fresh launch\'s'
     : wrote ? 'the first screen is a fresh launch\'s, as the test left it' : 'the first screen is a fresh launch\'s; that test wrote no storage';
-  return { shows, problems, said };
+  return { shows, problems, ...notes, said };
 }
 
 /** The facts a launch is made under that a test may pin (agent-launch.mjs `launchFacts`): the date at the clock's zero, the
@@ -819,7 +821,7 @@ async function relaunch(host, app, test, fresh, shots) {
   const s = await open({ host, app: app.name, storage: test.store, ...launchOf(relaunchFacts(test)), ...(host === 'web' ? { size: WEB_SIZES[0], ...(test.end.port ? { port: test.end.port } : {}) } : { chrome: 'platform' }) });
   try {
     const started = performance.now(), b = (st) => (st.background?.queued ?? 0) + (st.background?.inFlight ?? 0);
-    const waiting = (st) => [...(st.pending ?? []).filter((p) => !p.device).map((p) => p.name), ...(b(st) ? ['storage'] : [])];
+    const waiting = (st) => [...(st.pending ?? []).filter((p) => !p.device && !p.held).map((p) => p.name), ...(b(st) ? ['storage'] : [])];
     let state, busy;
     do { await s.clock(`+${REAL_STEP} real`); state = await s.state().catch(() => ({})); busy = waiting(state); } while (busy.length && performance.now() - started < REAL_MS);
     const ms = performance.now() - started;
@@ -828,7 +830,7 @@ async function relaunch(host, app, test, fresh, shots) {
     const path = resolve(shots, `${host}-relaunch.png`);
     const runs = await checkHere(s, { screen: RELAUNCH, sizes: host === 'web' ? [null, WEB_SIZES[1]] : [null], shot: (vp, scheme) => (scheme === 'light' && (host !== 'web' || vp.w === WEB_SIZES[0][0]) ? path : undefined) });
     const refusals = await refusalsIn(s), large = await largestText(s, RELAUNCH);
-    return { test: test.name, ms, shot: path, runs, refusals, large, ...judgeRelaunch(test, fresh, after, { busy, failed: state.failed }) };
+    return { test: test.name, ms, shot: path, runs, refusals, large, ...judgeRelaunch(test, fresh, after, { busy, failed: state.failed, heldBy: (state.pending ?? []).filter((p) => p.held).map((p) => p.name) }) };
   } finally {
     await s.close();
     if (host === 'web') await removeBrowserProfile(driveStore(app, test.store).profile).catch(() => {});
@@ -1014,7 +1016,7 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
   // The relaunch on a test's store (LLP 1116.005 D7): what came back, or each problem, counted as findings.
   if (relaunched?.error) { broken++; out.push(`relaunch: could not drive: ${firstLine(relaunched.error)}`); }
   else if (relaunched) {
-    out.push(`relaunch on ${quoted(relaunched.test)}'s store (${secs(relaunched.ms)} of real time): ${relaunched.problems.length ? plural(relaunched.problems.length, 'problem') : relaunched.said}`, ...relaunched.problems);
+    out.push(`relaunch on ${quoted(relaunched.test)}'s store (${secs(relaunched.ms)} of real time): ${relaunched.problems.length ? plural(relaunched.problems.length, 'problem') : relaunched.said}`, ...relaunched.problems, ...(relaunched.notes ?? []));
     findings += relaunched.problems.length;
   }
   if (shots.length) {

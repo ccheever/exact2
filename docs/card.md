@@ -105,7 +105,7 @@ ops: a target is a testId, else a view's exact text or label
   state [<name>] [--full]  a state, resource or field, dotted: groceries.0.done; >8 KB: sizes
   tap <target> [contextmenu|hover|drag <dx> <dy>|…] · held: "tap <t> down" "screenshot <png>" "tap up"
   type <target> <text>|key <Name>   (a select, date or checkbox: its value)
-  clock data|settle|+<ms> [real]    land in-flight work · end transitions
+  clock data|settle|held|+<ms> [real]    land in-flight work · end transitions · wait for a held reply
   check [dark|both]  what is wrong · screenshot <png> [over <ms> every <ms>] [window]  window: bars
   screenshot <png> compare <ref> · prefer <feature> <value> · fail|pass fetch <prefix>
 
@@ -178,7 +178,7 @@ a dated record: The write reads the clock, not a ticked `now`, and stores `at`, 
   action log
     let at = time.epochAtZero + performanceNow()
     days = days.concat([formatDate(at, time.utcOffset, "iso")])
-a test, and verify: By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert; `reload` relaunches on its storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` last, for iPhone; `--shots <dir>` keeps screenshots.
+a test, and verify: By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert, `clock held` after an action whose long-poll (`exactHeld`) reply you read; `reload` relaunches on its storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` last, for iPhone; `--shots <dir>` keeps screenshots.
   test "a pick survives a relaunch"
     tap "pick"
     clock data
