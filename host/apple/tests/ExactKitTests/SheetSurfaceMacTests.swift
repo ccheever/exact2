@@ -92,17 +92,49 @@ final class SheetSurfaceMacTests: XCTestCase {
         f.window.orderFront(nil)
         try f.press("open")
         let actualSheet = try XCTUnwrap(f.window.attachedSheet)
+        let ground = try f.node("ground")
+        let material = try XCTUnwrap(ground.materialView as? NSVisualEffectView)
+        XCTAssertEqual(material.material, .sheet)
+        XCTAssertEqual(material.blendingMode, .behindWindow)
+        XCTAssertNil(try f.node("modal").materialView)
         let picture = try capture(actualSheet)
         let actual = try measuredColours(picture)
         let top = try XCTUnwrap(picture.colorAt(x: picture.pixelsWide / 2, y: 30)?.usingColorSpace(.sRGB))
         let topRGB = [top.redComponent, top.greenComponent, top.blueComponent].map { Int(($0 * 255).rounded()) }
         print("SwiftUI sheet colours: \(expected); Exact: \(actual); authored ground: \(topRGB)")
-        XCTExpectFailure("QUEUE 1569: authored system backgrounds and grouped cards use the window surface in a sheet") {
-            XCTAssertTrue(zip(topRGB, expected[0]).allSatisfy { abs($0 - $1) <= 3 }, "authored ground \(topRGB) differs from sheet \(expected[0])")
-            for colour in expected.prefix(2) {
-                XCTAssertTrue(actual.contains { zip($0, colour).allSatisfy { abs($0 - $1) <= 3 } }, "SwiftUI's surface \(colour) absent from \(actual)")
-            }
+        XCTAssertTrue(zip(topRGB, expected[0]).allSatisfy { abs($0 - $1) <= 3 }, "authored ground \(topRGB) differs from sheet \(expected[0])")
+        for colour in expected.prefix(2) {
+            XCTAssertTrue(actual.contains { zip($0, colour).allSatisfy { abs($0 - $1) <= 3 } }, "SwiftUI's surface \(colour) absent from \(actual)")
         }
+    }
+
+    func testAnAuthoredLiteralReplacesTheSheetMaterial() throws {
+        let f = try SheetFixture(page: """
+        component Proof
+          state showing = false
+          state literal = false
+          action open
+            showing = true
+          action recolour
+            literal = true
+          view
+            column navigationKey=(showing ? "modal" : "home") navigationBack="back" width="100%" height="100%"
+              column navigationKey="home"
+                button testId="open" press=open
+                  text "Open"
+              if showing
+                column navigationKey="modal" navigationPresentation="modal" width=400 height=300
+                  box background-color=(literal ? "#123456" : "-exact-background") testId="ground"
+                    button testId="recolour" press=recolour
+                      text "Use a literal colour"
+        """)
+        defer { f.close() }
+        try f.press("open")
+        let ground = try f.node("ground")
+        XCTAssertEqual((ground.materialView as? NSVisualEffectView)?.material, .sheet)
+        try f.press("recolour")
+        XCTAssertNil(ground.materialView)
+        XCTAssertEqual(ground.channels("background_color", dark: true), [18, 52, 86, 255])
     }
 }
 #endif
