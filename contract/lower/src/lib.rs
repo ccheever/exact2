@@ -995,7 +995,7 @@ impl<'a> Lowerer<'a> {
                     self.b
                         .region(RegionKind::When, parent, arm, order, subject, unit, 2);
                 let mut inner = scope.clone();
-                inner.push_region(None);
+                inner.push_none();
                 self.arm_scopes.insert((*tag, 0), (arms[0], inner.clone()));
                 self.arm_scopes.insert((*tag, 1), (arms[1], inner.clone()));
                 self.nodes(then, None, Some(arms[0]), &inner, locals, parent_tag)?;
