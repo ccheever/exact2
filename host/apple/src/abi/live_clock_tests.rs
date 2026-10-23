@@ -83,3 +83,36 @@ fn the_agents_clock_boots_at_zero() {
         Some(1000.0)
     );
 }
+
+#[test]
+fn an_idle_viewport_resize_samples_the_presenters_clock_before_layout() {
+    static OBSERVED: AtomicU64 = AtomicU64::new(0);
+    extern "C" fn observed() -> f64 {
+        f64::from_bits(OBSERVED.load(Ordering::SeqCst))
+    }
+    let plan = contract::compile(
+        r#"component App
+  state wide = false
+  state width = 0
+  task grow mount
+    after(100, grow)
+  action grow
+    wide = true
+  action resized(w: number, h: number, r: DOMRectReadOnly)
+    width = w
+  view
+    view width=(wide ? 300 : 100) height=20 resize=resized
+"#,
+    )
+    .unwrap()
+    .encode();
+    OBSERVED.store(500f64.to_bits(), Ordering::SeqCst);
+    let mut bridge = Bridge::<NoData>::new();
+    bridge.set_live_clock(Some(observed));
+    bridge.boot(&plan, NoData, Hooks::none(), 100., 100.);
+    OBSERVED.store(750f64.to_bits(), Ordering::SeqCst);
+    bridge.resize(200., 100.);
+    let host = bridge.host.as_ref().unwrap();
+    assert_eq!(host.runner().slot("width"), Some(&Value::Number(300.)));
+    assert_eq!(host.runner().now_ms(), 750.);
+}
