@@ -424,6 +424,8 @@ const VALUE: usize = crate::css::MAX_VALUE_BYTES;
 /// The report of a value past [`VALUE`], which a CSS importer refuses as
 /// the checker's bound (`source_read`).
 const LONG_VALUE: &str = "a custom property's value past 4 KiB";
+/// A long name's value nested past the checker's bound, likewise refused.
+const DEEP_VALUE: &str = "a custom property's value nested past 32 functions";
 
 /// How many bytes of enclosing preludes the blocks may copy, all told: each
 /// block keeps its context, so 64 long preludes around many small rules
@@ -577,9 +579,10 @@ fn body(
                         let at = from + (segment.len() - segment.trim_start().len());
                         // (the value first: one past the checker's bound
                         // refuses the import, however long its name)
-                        let why = match value.len() > VALUE {
-                            true => LONG_VALUE,
-                            false => "a custom property's name past 256 bytes",
+                        let why = match (value.len() > VALUE, crate::css::over_limit(value)) {
+                            (true, _) => LONG_VALUE,
+                            (false, Some(_)) => DEEP_VALUE,
+                            (false, None) => "a custom property's name past 256 bytes",
                         };
                         read.deep.push((name.chars().take(80).collect(), at, why));
                         return;
@@ -827,11 +830,27 @@ pub(crate) fn json_strings<'a>(v: &'a serde_json::Value, out: &mut Vec<&'a str>)
 /// bound, which the reader reports rather than copies, or one it copied,
 /// refuses the import with `tamber-value-size` ([`source_bound`]).
 pub(crate) fn source_read(blocks: &[Block], deep: &[Deep]) -> Result<(), Vec<Diagnostic>> {
-    if let Some(d) = deep.iter().find(|d| d.why == LONG_VALUE) {
+    if let Some(d) = deep
+        .iter()
+        .find(|d| d.why == LONG_VALUE || d.why == DEEP_VALUE)
+    {
         let name: String = d.prelude.chars().take(80).collect();
+        let (id, why) = match d.why == LONG_VALUE {
+            true => (
+                "tamber-value-size",
+                format!("a value is at most {VALUE} bytes"),
+            ),
+            false => (
+                "tamber-value-depth",
+                format!(
+                    "a value nests at most {} functions deep",
+                    crate::css::MAX_VALUE_DEPTH
+                ),
+            ),
+        };
         return Err(vec![Diagnostic::new(
-            "tamber-value-size",
-            format!("`{name}`: a value is at most {VALUE} bytes"),
+            id,
+            format!("`{name}`: {why}"),
             d.line as u32,
             1,
         )]);
@@ -851,10 +870,26 @@ pub(crate) fn dtcg_doc(
     refuse: &dyn Fn(String) -> Vec<Diagnostic>,
 ) -> Result<serde_json::Value, Vec<Diagnostic>> {
     let doc = serde_json::from_str(text).map_err(|e| refuse(format!("not JSON: {e}")))?;
-    // Every string it holds: an export keeps a mode's values in its
-    // `$extensions`, beside each `$value`.
+    // Every string it holds (an export keeps a mode's values in its
+    // `$extensions`, beside each `$value`), and every key, which a refusal
+    // may name (a context's).
     let mut strings = Vec::new();
     json_strings(&doc, &mut strings);
     source_bound(strings.into_iter().map(|v| ("the reimported file", v)))?;
+    if let Some((id, why)) = json_keys(&doc).find_map(|k| crate::css::over_bytes("a name", k)) {
+        return Err(vec![Diagnostic::new(id, why, 1, 1)]);
+    }
     Ok(doc)
+}
+
+/// Every key a JSON value's objects hold, depth first.
+fn json_keys(v: &serde_json::Value) -> Box<dyn Iterator<Item = &str> + '_> {
+    match v {
+        serde_json::Value::Object(o) => Box::new(
+            o.iter()
+                .flat_map(|(k, v)| std::iter::once(k.as_str()).chain(json_keys(v))),
+        ),
+        serde_json::Value::Array(a) => Box::new(a.iter().flat_map(json_keys)),
+        _ => Box::new(std::iter::empty()),
+    }
 }

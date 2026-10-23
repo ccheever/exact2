@@ -34,6 +34,21 @@ pub const MAX_VALUE_BYTES: usize = 4096;
 /// overflow the stack.
 pub const MAX_VALUE_DEPTH: usize = 32;
 
+/// `what` (a name, a kind, a metadata word: text no reader nests) past
+/// [`MAX_VALUE_BYTES`]: the bound's id and words, never the text. The wire
+/// (`edit::valid`) and a design on disk (`bound::preflight`) say it alike.
+pub(crate) fn over_bytes(what: &str, text: &str) -> Option<(&'static str, String)> {
+    (text.len() > MAX_VALUE_BYTES).then(|| {
+        (
+            "tamber-value-size",
+            format!(
+                "{what} is at most {MAX_VALUE_BYTES} bytes; this one is {}",
+                text.len()
+            ),
+        )
+    })
+}
+
 /// A value past [`MAX_VALUE_BYTES`] or [`MAX_VALUE_DEPTH`]: its id and
 /// words, which never echo the value (it may be a megabyte).
 pub(crate) fn over_limit(text: &str) -> Option<(&'static str, String)> {
@@ -47,16 +62,19 @@ pub(crate) fn over_limit(text: &str) -> Option<(&'static str, String)> {
         ));
     }
     // As the reader nests: a quoted string's text is no function.
-    let (mut depth, mut deepest, mut quoted) = (0usize, 0usize, false);
+    // (a single-quoted family's text is no function either: the reader
+    // counts the levels it recurses whatever this scan saw)
+    let (mut depth, mut deepest, mut quoted) = (0usize, 0usize, None);
     for b in text.bytes() {
-        match b {
-            b'"' => quoted = !quoted,
-            _ if quoted => {}
-            b'(' => {
+        match (b, quoted) {
+            (b'"' | b'\'', None) => quoted = Some(b),
+            (q, Some(open)) if q == open => quoted = None,
+            (_, Some(_)) => {}
+            (b'(', None) => {
                 depth += 1;
                 deepest = deepest.max(depth);
             }
-            b')' => depth = depth.saturating_sub(1),
+            (b')', None) => depth = depth.saturating_sub(1),
             _ => {}
         }
     }

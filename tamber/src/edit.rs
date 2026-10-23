@@ -301,13 +301,7 @@ pub(crate) fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
     // A name, an axis or a param past a value's bound is no name: refused
     // without echoing it.
     let long = |v: &str| {
-        (v.len() > crate::css::MAX_VALUE_BYTES).then(|| {
-            refuse(format!(
-                "a name is at most {} bytes; this one is {}",
-                crate::css::MAX_VALUE_BYTES,
-                v.len()
-            ))
-        })
+        crate::css::over_bytes("a name", v).map(|(id, why)| vec![Diagnostic::new(id, why, 1, 1)])
     };
     let name_of = |v: &str| match lex::is_name(v) || crate::syntax::role_spelling(v).is_some() {
         true => Ok(()),
@@ -381,12 +375,14 @@ pub(crate) fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
             comment(c)?;
             // One metadata word each: `name=value`, a quoted value whole.
             for m in meta {
-                if m.len() > crate::css::MAX_VALUE_BYTES {
-                    return Err(refuse(format!(
-                        "a metadata word is at most {} bytes; this one is {}",
-                        crate::css::MAX_VALUE_BYTES,
-                        m.len()
-                    )));
+                // Measured as a design on disk measures it: its name, `=`
+                // and its value unquoted (`bound::preflight`).
+                let (k, v) = m.split_once('=').unwrap_or((m.as_str(), ""));
+                let v = lex::unquote(v).unwrap_or_else(|_| v.to_string());
+                if let Some((id, why)) =
+                    crate::css::over_bytes("a metadata word", &format!("{k}={v}"))
+                {
+                    return Err(vec![Diagnostic::new(id, why, 1, 1)]);
                 }
                 one_line("meta", m)?;
                 let one = lex::words(m).len() == 1;
