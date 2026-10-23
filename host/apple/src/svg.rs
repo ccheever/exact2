@@ -103,8 +103,8 @@ pub(crate) struct SvgState {
     /// Whether boxes' transforms and background colours are lowered
     /// ([`BOX_LOWERED`]): iOS.
     pub(crate) box_motion: bool,
-    /// Whether Core Animation plays boxes' opacity and background-colour
-    /// transitions (`svg_lower::hand_over_transitions`): iOS.
+    /// Whether Core Animation plays boxes' eligible transforms, opacity and
+    /// background-colour transitions (`svg_lower::hand_over_transitions`): iOS.
     pub(crate) play_transitions: bool,
 }
 
