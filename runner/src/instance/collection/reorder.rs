@@ -376,12 +376,33 @@ impl Offsets {
 
 pub(super) struct DropAnchor {
     source: String,
+    before: Option<String>,
     anchor: index::Anchor,
 }
 
 impl Collection {
+    pub(crate) fn cancel_drop_anchor(&mut self, token: ReorderToken) {
+        if let Some(p) = self
+            .preview
+            .as_mut()
+            .filter(|p| p.token == token && !p.holding)
+        {
+            p.dropped = false;
+        }
+    }
+
+    /// A same-slot drop can finish without changing the collection's data.
+    pub(crate) fn settle_drop_anchor(&mut self, refused: bool) {
+        if let Some(p) = self.preview.as_mut().filter(|p| p.dropped) {
+            let at = self.index.position(&p.source);
+            if refused || at.is_none_or(|i| self.index.key(i + 1) == p.before.as_deref()) {
+                p.dropped = false;
+            }
+        }
+    }
+
     pub(super) fn drop_anchor(&self) -> Result<Option<DropAnchor>, InstanceError> {
-        let Some(p) = self.preview.as_ref().filter(|p| p.dropped || p.holding) else {
+        let Some(p) = self.preview.as_ref().filter(|p| p.dropped) else {
             return Ok(None);
         };
         let Some(g) = &self.geometry else {
@@ -389,6 +410,7 @@ impl Collection {
         };
         Ok(Some(DropAnchor {
             source: p.source.clone(),
+            before: p.before.clone(),
             anchor: self
                 .index
                 .capture_anchor_excluding(
@@ -409,13 +431,15 @@ impl Collection {
         let Some(drop) = drop else {
             return ordinary;
         };
+        let at = self.index.position(&drop.source);
+        if at.is_some_and(|i| self.index.key(i + 1) != drop.before.as_deref()) {
+            return ordinary;
+        }
+        self.settle_drop_anchor(false);
         if self.index.moved_since(&drop.anchor, &drop.source) {
-            if let Some(p) = &mut self.preview {
-                p.dropped = false;
-            }
             Some(drop.anchor)
         } else {
-            // A source that left the list keeps the ordinary deletion fallback.
+            // An update that does not move a surviving source keeps the ordinary anchor.
             ordinary
         }
     }

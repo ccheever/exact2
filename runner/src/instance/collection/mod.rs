@@ -753,7 +753,7 @@ impl Collection {
                 // moved it). One not yet acknowledged by a report is still
                 // the host's to apply: this one moves on from where it began.
                 let from = match self.correction {
-                    _ if !self.index.kept_row(&anchor, g.port_main, corrected) => None,
+                    _ if !self.index.kept_row(&anchor, g.port_main) => None,
                     Some(c) if c.scroll_sequence == g.scroll_sequence => c.from,
                     Some(_) => None,
                     None => Some(g.offset),

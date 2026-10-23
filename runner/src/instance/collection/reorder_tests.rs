@@ -5,6 +5,12 @@ use exact_plan::Value;
 struct Rows(Vec<String>);
 impl DataSource for Rows {
     fn query(&mut self, name: &str, args: &[Value]) -> Result<Value, DataError> {
+        if name == "refuse" {
+            return Err(DataError::BadArguments("refused drop".into()));
+        }
+        if name == "trim" {
+            self.0.drain(..10);
+        }
         if name == "empty" {
             return Ok(Value::list(vec![]));
         }
@@ -236,4 +242,126 @@ fn outgoing_group_drop_keeps_the_deleted_source_neighbour_fallback() {
         r.reorder_frame(token).unwrap().ending,
         Some(crate::ReorderEnding::Gone)
     );
+}
+
+#[test]
+fn deleting_rows_above_the_anchor_keeps_unreported_scroll_travel() {
+    let source = SOURCE.replace(
+        "  view",
+        "  action trim()\n    send changed = trim()\n  view",
+    );
+    let (mut r, _) = fixture_with(&source, 200., 10);
+    r.act("trim", vec![]).unwrap();
+    let correction = r.collections()[0].correction.unwrap();
+    assert_eq!(correction.offset, 0.);
+    assert_eq!(correction.from, Some(200.));
+}
+
+#[test]
+fn same_slot_drop_does_not_anchor_a_later_move() {
+    for grouped in [false, true] {
+        let source = SOURCE.replace(
+            "virtualized=true",
+            if grouped {
+                "virtualized=true reorderGroup=\"cards\""
+            } else {
+                "virtualized=true"
+            },
+        );
+        let (mut r, grip) = fixture_with(&source, 200., 10);
+        let b = r.reorder_binding(grip).unwrap();
+        let g = r.reorder_geometry(b.list).unwrap();
+        let token = if grouped {
+            r.begin_group_reorder(b, g.clone(), false)
+        } else {
+            r.begin_reorder(b, g.clone())
+        }
+        .unwrap()
+        .unwrap()
+        .token;
+        r.preview_reorder(token, g.clone(), 200.).unwrap();
+        r.drop_reorder(token, g).unwrap().unwrap();
+        r.act(
+            "receive",
+            vec![Value::str("10"), Value::some(Value::str("12"))],
+        )
+        .unwrap();
+        assert_eq!(
+            r.reorder_geometry(b.list).unwrap().scroll_top,
+            220.,
+            "grouped={grouped}"
+        );
+    }
+}
+
+#[test]
+fn refused_or_cancelled_drop_does_not_anchor_a_later_move() {
+    for (cancel, grouped, refused) in [
+        (false, false, true),
+        (true, false, true),
+        (false, true, true),
+        (true, false, false),
+    ] {
+        let source = SOURCE.replace("send changed = move(item, before)", if refused { "send changed = refuse(item, before)" } else { "send changed = unchanged()" })
+            .replace("  view", "  action move_now(item: string, before: option<string>)\n    send changed = move(item, before)\n  view");
+        let source = source.replace(
+            "virtualized=true",
+            if grouped {
+                "virtualized=true reorderGroup=\"cards\""
+            } else {
+                "virtualized=true"
+            },
+        );
+        let (mut r, grip) = fixture_with(&source, 200., 10);
+        let b = r.reorder_binding(grip).unwrap();
+        let g = r.reorder_geometry(b.list).unwrap();
+        let token = if grouped {
+            r.begin_group_reorder(b, g.clone(), false)
+        } else {
+            r.begin_reorder(b, g.clone())
+        }
+        .unwrap()
+        .unwrap()
+        .token;
+        r.preview_reorder(token, g.clone(), 300.).unwrap();
+        assert_eq!(r.drop_reorder(token, g).is_err(), refused);
+        if cancel {
+            r.cancel_reorder(token).unwrap();
+        }
+        r.act(
+            "move_now",
+            vec![Value::str("10"), Value::some(Value::str("15"))],
+        )
+        .unwrap();
+        assert_eq!(
+            r.reorder_geometry(b.list).unwrap().scroll_top,
+            280.,
+            "cancel={cancel}, grouped={grouped}, refused={refused}"
+        );
+    }
+}
+
+#[test]
+fn pending_drop_anchors_only_the_dispatched_destination() {
+    let source = SOURCE.replace("send changed = move(item, before)", "send changed = unchanged()")
+        .replace("  view", "  action move_now(item: string, before: option<string>)\n    send changed = move(item, before)\n  view");
+    let (mut r, grip) = fixture_with(&source, 200., 10);
+    let b = r.reorder_binding(grip).unwrap();
+    let g = r.reorder_geometry(b.list).unwrap();
+    let token = r.begin_reorder(b, g.clone()).unwrap().unwrap().token;
+    r.preview_reorder(token, g.clone(), 300.).unwrap();
+    r.drop_reorder(token, g).unwrap().unwrap();
+    r.act(
+        "move_now",
+        vec![Value::str("10"), Value::some(Value::str("12"))],
+    )
+    .unwrap();
+    assert_eq!(r.reorder_geometry(b.list).unwrap().scroll_top, 220.);
+    report(&mut r, 220., Some(grip));
+    r.act(
+        "move_now",
+        vec![Value::str("10"), Value::some(Value::str("15"))],
+    )
+    .unwrap();
+    assert_eq!(r.reorder_geometry(b.list).unwrap().scroll_top, 200.);
 }
