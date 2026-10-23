@@ -284,10 +284,8 @@ package final class Presenter {
     }
     /// A drag is moving the keyboard: on the scroller that shows, a grouped list's collection view included.
     var interactiveKeyboardDrag: Bool {
-        views.values.contains { node in
-            guard let sv = node.scrollView else { return false }
-            return sv.keyboardDismissMode == .interactive && (sv.isTracking || sv.isDragging)
-        }
+        let drags = { (sv: UIScrollView) in sv.keyboardDismissMode == .interactive && (sv.isTracking || sv.isDragging) }
+        return drags(viewport) || views.values.contains { node in node.scrollView.map(drags) ?? false }
     }
 
     /// The keyboard's top edge (nil: hidden) takes effect: the viewport is

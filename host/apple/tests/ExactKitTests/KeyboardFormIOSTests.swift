@@ -92,6 +92,15 @@ final class KeyboardFormIOSTests: XCTestCase {
         XCTAssertTrue(hit?.isDescendant(of: v) == true, "\(testId) takes a touch at its middle, not \(String(describing: hit))", file: file, line: line)
     }
 
+    /// The page's own scroller takes the keyboard down with a drag that
+    /// reaches it, as a scroller's unsaid dismissal does (LLP 1115.000 D9.1),
+    /// and its drag counts as the keyboard's interactive drag.
+    func testThePagesOwnScrollerPutsTheKeyboardAwayOnADrag() throws {
+        let session = try fixture()
+        XCTAssertEqual(session.presenter.viewport.keyboardDismissMode, .interactive)
+        XCTAssertFalse(session.presenter.interactiveKeyboardDrag, "no drag yet")
+    }
+
     func testAFocusedFieldAndItsAddButtonStayAboveTheKeyboardInATabsGroupedList() throws {
         let session = try fixture()
         let p = session.presenter
