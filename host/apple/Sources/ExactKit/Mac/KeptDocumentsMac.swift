@@ -152,8 +152,9 @@ public enum KeptDocuments {
         toNote = nil
         waiting.urls.forEach(controller.noteNewRecentDocumentURL)
         guard tries == 0 else { return }
-        late = (Array(waiting.urls.suffix(controller.maximumRecentDocumentCount)), generation)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { watchLate() }
+        let started = generation
+        late = (Array(waiting.urls.suffix(controller.maximumRecentDocumentCount)), started)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { watchLate(of: started) }
     }
 
     /// A clear that landed after the fallback took what it noted: whenever
