@@ -89,8 +89,9 @@ extension MenuHost {
     func paint(_ entry: Entry, in window: NSWindow) {
         guard let presenter else { return }
         entry.layer.autoresizingMask = [.width, .height]
-        // The invoker's page or sheet owns the painted layer.
-        (window === presenter.viewport.window ? presenter.viewport : window.contentView ?? presenter.viewport).addSubview(entry.layer)
+        // The invoker's page, split pane or sheet owns the painted layer.
+        let page = window === presenter.viewport.window ? presenter.viewport : window.contentView ?? presenter.viewport
+        (presenter.navigation.split.pane(holding: entry.source) ?? page).addSubview(entry.layer)
         entry.layer.setPaintForeground()
         entry.layer.addSubview(entry.popover)
         entry.popover.isHidden = false
