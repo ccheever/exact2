@@ -79,8 +79,10 @@ package final class ChainingScrollView: NSScrollView {
     package override func tile() {
         super.tile()
         guard let owner = pointerOwner else { return }
-        let right = max(0, bounds.width - contentView.frame.width)
-        let bottom = max(0, bounds.height - contentView.frame.height)
+        // Clip geometry can differ through rounding or insets even without
+        // a scrollbar. Only a visible legacy scroller occupies a gutter.
+        let right = scrollerStyle == .legacy && verticalScroller?.isHidden == false ? verticalScroller?.frame.width ?? 0 : 0
+        let bottom = scrollerStyle == .legacy && horizontalScroller?.isHidden == false ? horizontalScroller?.frame.height ?? 0 : 0
         owner.presenter?.covers.report("scroller-\(owner.id)", [owner.id: .gutter(right: right, bottom: bottom)])
     }
 
