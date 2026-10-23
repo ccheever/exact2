@@ -186,10 +186,23 @@ extension NodeView {
     /// changed, and an `alert` as it appears, as a browser's alert event has
     /// it (Core-AAM); one there at launch is read with the screen.
     func liveSpeaks(_ text: String, launching: Bool) -> Bool {
+        #if os(macOS)
+        guard liveAnnouncementView != nil, !text.isEmpty else { return false }
+        #else
         guard accessibilityVisible, !text.isEmpty else { return false }
+        #endif
         if let previous = liveText { return previous != text }
         return liveRole == "alert" && !launching
     }
+    #if os(macOS)
+    var liveAnnouncementView: NSView? {
+        if accessibilityVisible { return paragraphOwner }
+        guard liveRole == "status", !inert, !accessibilityHiddenByProp,
+              let view = presenter?.toolbar.items[id]?.view,
+              view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return nil }
+        return view
+    }
+    #endif
     /// ARIA's range roles (LLP 1116 D8): a value is `aria-valuenow` between
     /// `aria-valuemin` and `aria-valuemax`, and the children are
     /// presentational, so the node is one element. A control's own view
@@ -620,7 +633,7 @@ extension Presenter {
                 let text = node.accessibleText
                 if node.liveSpeaks(text, launching: launchAutofocusPending) {
                     #if os(macOS)
-                    NSAccessibility.post(element: node.paragraphOwner, notification: .announcementRequested,
+                    NSAccessibility.post(element: node.liveAnnouncementView ?? node.paragraphOwner, notification: .announcementRequested,
                         userInfo: [.announcement: text, .priority: (live == "assertive" ? NSAccessibilityPriorityLevel.high : .low).rawValue])
                     #else
                     UIAccessibility.post(notification: .announcement, argument: NSAttributedString(string: text,

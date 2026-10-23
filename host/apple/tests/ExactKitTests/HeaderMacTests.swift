@@ -250,6 +250,14 @@ final class HeaderMacTests: XCTestCase {
         XCTAssertNotNil(readout.image)
         XCTAssertEqual(readout.accessibilityIdentifier(), "sync-status")
         XCTAssertNil(p.toolbar.items[16]?.action)
+        let status = try node(p, 16)
+        XCTAssertEqual(readout.accessibilityRole(), .group)
+        XCTAssertEqual(readout.accessibilitySubrole()?.rawValue, "AXApplicationStatus")
+        XCTAssertTrue(status.liveAnnouncementView === readout)
+        XCTAssertTrue(status.liveSpeaks("Saved", launching: false), "a projected status still announces changes")
+        p.apply(wireBatch([["op": "props", "id": 16, "set": ["text": "Saved"]]]))
+        XCTAssertEqual(readout.accessibilityLabel(), "Saved")
+        XCTAssertEqual(status.liveText, "Saved")
         p.toolbar.detach()
     }
 
