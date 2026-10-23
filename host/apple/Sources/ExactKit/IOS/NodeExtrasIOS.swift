@@ -375,11 +375,14 @@ extension NodeView {
     var scrollWritten: String? { get { extras?.scrollWritten } set { if newValue != nil || extras != nil { more.scrollWritten = newValue } } }
     var hatchReusable: Bool { get { extras?.hatchReusable ?? false } set { if newValue || extras != nil { more.hatchReusable = newValue } } }
     /// Where CSS's `scrollTop` 0 is in UIKit's offsets: past the scroller's
-    /// top inset when a collapsing title's bar insets it — the scrollport's
+    /// top inset when UIKit insets it — a collapsing title's bar, or the bar
+    /// over a route's bottom-edge scroller (`reachBottom`), which stays
+    /// UIKit's to inset once the title collapses another: the scrollport's
     /// top is the bar's bottom, whatever its height (UIKit keeps the offset
     /// plus that inset fixed while the title collapses), or past native content room.
     func scrollTopInset(_ sv: UIScrollView) -> CGFloat {
-        scrollOrigin > 0 ? sv.adjustedContentInset.top : (extras?.nativeScrollContentInsets.top ?? 0) + pageBand.top
+        scrollOrigin > 0 || sv.contentInsetAdjustmentBehavior != .never
+            ? sv.adjustedContentInset.top : (extras?.nativeScrollContentInsets.top ?? 0) + pageBand.top
     }
     /// Its page band (`NodeExtras.pageBand`), zero for most.
     var pageBand: UIEdgeInsets { extras?.pageBand ?? .zero }
