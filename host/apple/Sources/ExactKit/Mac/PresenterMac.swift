@@ -1174,7 +1174,7 @@ package final class Presenter {
                 }
             case .frame:
                 guard let v = views[id] else { continue }
-                let frame = NSRect(x: op.x, y: op.y, width: op.w, height: op.h)
+                let frame = v.frameInScrollDocument(NSRect(x: op.x, y: op.y, width: op.w, height: op.h))
                 if flightFrame(id, frame) { continue }
                 if !dialogs.frame(v, frame) && !menus.frame(v, frame) && !tables.frame(v, frame) { v.frame = frame }
                 v.arrangeShift = .zero
