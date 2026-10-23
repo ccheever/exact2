@@ -102,7 +102,9 @@ export function install(grants, target) {
     // The glue is in the page before any press: the popup opens in the press's own call stack.
     requestAnimationFrame(() => setTimeout(() => { Glue = import("./auth-glue.js").then(() => globalThis.exact.authHost); Glue.then(g => { Glue = g; }); }));
   }
-  globalThis.openAuthSession = (url, o = {}) => new Promise((resolve, reject) => {
+  // Counted on its answer as an ordinary fetch is (ts-fetch.js `ordinary`, LLP 1016.000 D9) until it settles, a
+  // refusal included, or is superseded, whose promise never settles (the runner drops that ticket).
+  globalThis.openAuthSession = (url, o = {}) => { let release; (globalThis.__exact_ordinary ?? (f => f()))(() => new Promise(r => { release = r; })); const session = new Promise((resolve, reject) => {
     if (typeof o.callback !== "string" || typeof o.state !== "string" || !o.state) return reject(new TypeError("openAuthSession(url, {callback, state}): callback is authCallback() and state a non-empty string"));
     const ticket = nextTicket(), name = target();
     const done = (status, body) => { if (status === 200) resolve(body); else { const e = new Error(body || "the auth session failed"); Object.defineProperty(e, "status", { value: status, enumerable: true }); reject(e); } };
@@ -121,9 +123,9 @@ export function install(grants, target) {
     if (denied) return refuse(403, denied);
     // One session per window: the same target's earlier one is superseded;
     // another target's live one refuses this (409).
-    for (let i = Live.length - 1; i >= 0; i--) if (Live[i].target === name) { say(`auth ${Live[i].ticket}: cancelled by supersession`); Live[i].close?.(); Live.splice(i, 1); }
+    for (let i = Live.length - 1; i >= 0; i--) if (Live[i].target === name) { say(`auth ${Live[i].ticket}: cancelled by supersession`); Live[i].close?.(); Live[i].release(); Live.splice(i, 1); }
     if (Live.length) return refuse(409, "already open");
-    const l = { ticket, target: name, session: s, done };
+    const l = { ticket, target: name, session: s, done, release };
     Live.push(l);
     if (clock.agent) { l.held = true; say(`device auth ${ticket} held (agent)`); return; }
     if (!Glue || typeof Glue.arm !== "function") return settle(ticket, 501, "no system browser on this host");
@@ -140,7 +142,7 @@ export function install(grants, target) {
       deliver: t => { if (report) settle(t, ...report); },
     });
     l.close = () => {};
-  });
+  }); return session.finally(() => release()); }; // (a rejection still goes unhandled where no one awaits it, as before)
 }
 
 /** Held requests for the agent's `state` (`pending`, after the network's). */
