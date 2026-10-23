@@ -178,12 +178,19 @@ function driveScreens(copy, host, dir, env) {
       const args = [join(copy, 'exact.mjs'), 'agent', wasm ? 'web' : host, '--json', '--storage', 'stage12-gate', '--reset-storage', '--epoch', EPOCH,
         ...(host === 'ios' || host === 'macos' ? [] : ['--size', SIZE]), ...(host === 'ios' && process.env.EXACT_SIM ? ['--sim', process.env.EXACT_SIM] : []),
         ...screenOps(screen, scheme, png)];
-      const r = runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), { cwd: copy, env: cloneWebEnv(env, wasm) });
+      let r = runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), { cwd: copy, env: cloneWebEnv(env, wasm) });
+      // A drive that failed before any layout (the simulator refusing a
+      // launch, say) is driven once more, and says so.
+      let retried = '';
+      if (!r.ok && !r.out.includes('"nodes"')) {
+        retried = r.out.trim().split('\n').filter(l => /rror/.test(l)).slice(0, 1).join('').slice(0, 160) || 'no layout';
+        r = runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), { cwd: copy, env: cloneWebEnv(env, wasm) });
+      }
       const refused = [...new Set(r.out.match(new RegExp(`${REFUSED} [^"\\s]+`, 'g')) ?? [])];
       const said = refused.length ? `the fixture refused: ${refused.join(', ')}` : r.ok ? '' : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300);
       const allow = r.ok ? allowOf(screen, r.out) : [];
       const shown = r.ok ? renderedIds(r.out) : null;
-      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null && shown !== null, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], shown: shown ?? [], components: r.ok ? renderedComponents(r.out) : [], said: allow === null ? `no layout for ${ALLOW[screen].target}` : shown === null ? 'no layout' : said });
+      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null && shown !== null, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], shown: shown ?? [], components: r.ok ? renderedComponents(r.out) : [], ...(retried ? { retried } : {}), said: allow === null ? `no layout for ${ALLOW[screen].target}` : shown === null ? 'no layout' : said });
     }
   }
   return rows;
@@ -492,6 +499,7 @@ export function consumerPixels(opts) {
   const p = shots.after.provenance;
   const evidence = [`before ${shots.before.provenance.copy.slice(0, 7)} (${BASELINE_TAG}, lock for the SDK), after ${p.copy.slice(0, 7)}, SDK ${p.exact2?.slice(0, 10)}: ${r.length} shots, ${r.length - bad.length} identical outside their allowlists`,
     ...bad.map(x => `  ${x.shot}: ${x.differ ?? x.said}${x.differ ? ' px' : ''}`),
+    ...['before', 'after'].flatMap(side => shots[side].shots.filter(x => x.retried).map(x => `  ${side} ${x.host} ${x.scheme} ${x.screen}: driven again after a drive that failed before any layout (${x.retried})`)),
     'the allowlist (LLP 1139 §5: at most 10% of a library component\'s box): the caret strip lies inside the composer\'s own field (compose-text, the app\'s) and the system keyboard\'s rect below the viewport (from the layout\'s keyboard inset), so neither covers a library component\'s box, by construction (allowOf)',
     `the adoption places ${ADOPTED.length} of ${ADOPTED.length} library components in its views (${ADOPTED.map(i => i.split('#')[1]).join(', ')}; the build's source map), before ${BEFORE_USES.length ? `only the earlier stage's (${BEFORE_USES.map(i => i.split('#')[1]).join(', ')})` : 'none'}`,
     `rendered on the screens shot: ${RENDERED.length - unseen.length} of ${RENDERED.length} (${RENDERED.map(([name]) => name).filter(n => !unseen.includes(n)).join(', ')})${unseen.length ? `; NOT shown: ${unseen.join(', ')}` : ''}${own.length ? `; the copy's own sources write a package's testId: ${own.join(', ')}` : ''}${shownEarly.length ? `; before already shows ${shownEarly.join(', ')}` : ''}`,
