@@ -62,6 +62,32 @@ final class PixelGridIOSTests: XCTestCase {
         }
     }
 
+    func testRestingPageBandsClampFractionalStartAndEndInward() throws {
+        for (scale, fraction) in [(CGFloat(2), CGFloat(0.4)), (3, 0.6)] {
+            let p = presenter([
+                ["op": "create", "id": 1, "kind": "list", "props": ["scrollFollowEnd": "true"], "style": ["overflow_y": "scroll"]],
+                ["op": "roots", "ids": [1]],
+                ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 100, "h": 100],
+                ["op": "content", "id": 1, "w": 100, "h": 1000],
+            ])
+            let node = try XCTUnwrap(p.views[1]), scroll = try XCTUnwrap(node.scroll)
+            scroll.traitOverrides.displayScale = scale
+            scroll.updateTraitsIfNeeded()
+            XCTAssertEqual(scroll.traitCollection.displayScale, scale)
+            scroll.contentInsetAdjustmentBehavior = .never
+            scroll.contentOffset = .zero
+            node.setPageBand(UIEdgeInsets(top: fraction, left: 0, bottom: 0, right: 0))
+            XCTAssertEqual(scroll.contentOffset.y, (-fraction * scale).rounded(.up) / scale, accuracy: 1e-6,
+                           "the resting first row stays inside the fractional inset")
+            node.setPageBand(.zero)
+            scroll.contentOffset.y = 900
+            node.setPageBand(.zero, inset: UIEdgeInsets(top: 0, left: 0, bottom: fraction, right: 0))
+            XCTAssertEqual(scroll.contentOffset.y, ((900 + fraction) * scale).rounded(.down) / scale, accuracy: 1e-6,
+                           "following the end stays on its last reachable pixel")
+            window.isHidden = true
+        }
+    }
+
     func testEachEdgeRoundsHalfUpAndTheSizeIsBetweenThem() {
         // At 3x, x = 10.1667 is 30.5 device pixels and rounds up to 31; its
         // right edge, 90.5, to 91. A 0.5 pt height from 0 is 0 to 1.5: 0 to 2.
