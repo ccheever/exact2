@@ -392,3 +392,34 @@ fn an_argument_group_with_no_reader_is_released_after_its_successor_is_asked() {
         "a reader is left: {calls:?}"
     );
 }
+
+/// LLP 1133.009 D6, D10 item 10: a reply carrying handles is provisional
+/// until delivered; the reply to a send superseded before it landed is
+/// dropped, and its implementation told to dispose of its handles, while
+/// the delivered one's stay the session's.
+#[test]
+fn a_dropped_reply_s_handles_are_disposed_of() {
+    let (_app, mut r, calls) = boot("handles");
+    r.bind_extensions(&["sensor"], &[]);
+    let mut parked = Vec::new();
+    pump(&mut r, &mut parked);
+    r.act("start", Vec::new()).unwrap();
+    r.act("start", Vec::new()).unwrap();
+    pump(&mut r, &mut parked);
+    assert_eq!(sent(&calls, "open"), 2);
+    let disposed: Vec<Json> = (calls.lock().unwrap().iter())
+        .filter(|c| c.get("dispose").is_some())
+        .cloned()
+        .collect();
+    assert_eq!(
+        disposed,
+        [json!({ "extension": "sensor", "dispose": ["t1"] })],
+        "{}",
+        logs(&r)
+    );
+    assert!(logs(&r).contains("dispose sensor t1: its reply was dropped"));
+    assert!(
+        show(&r, "opened").contains("t1"),
+        "the second reply is delivered"
+    );
+}
