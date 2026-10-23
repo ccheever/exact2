@@ -1296,7 +1296,8 @@ export async function main(argv, injected = {}) {
           // with none down those words are targets like any other.
           if (holdOf(args[0])) r = await s.tap(args[0], { choice: args[1] }); // `tap @7 cancel` is the hold, even while a contact is down
           else if (args[1] === 'drag' && !(s.contact && ['move', 'hold', 'up', 'cancel'].includes(args[0]))) {
-            const drag = parseDrag(s, line.slice(line.indexOf(' drag ') + 6));
+            const tail = named ? named[3] : trimmed.replace(/^\S+\s+\S+\s+/, '');
+            const drag = parseDrag(s, tail.replace(/^drag(?:\s+|$)/, ''));
             r = await s.tap(args[0], { drag });
           }
           // Every other form, strictly (#107): the contact's phases (LLP 1035.003 D1) read as `tap move …`, `tap hold`,
