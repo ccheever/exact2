@@ -738,3 +738,44 @@ fn round_3_recheck_3_descendants_positions_and_prefix() {
         "2500 names' prefixes are charged"
     );
 }
+
+#[test]
+fn round_3_recheck_4_a_failing_colour_chain_walked_from_every_link_is_charged() {
+    let design = parse(EMPTY).unwrap();
+    let themes = r#""themes":{"a":["x","y"],"b":["x","y"],"c":["x","y"]}"#;
+    let file = |vars: Vec<String>| {
+        format!(
+            r#"{{"version":"2.21",{themes},"variables":{{{}}}}}"#,
+            vars.join(",")
+        )
+    };
+    let n = 2000;
+    // Each colour its own literal: what the file costs without a walk.
+    let plain = file(
+        (0..n)
+            .map(|i| format!(r##""c{i:04}":{{"type":"color","value":"#000000"}}"##))
+            .collect(),
+    );
+    let within =
+        |text: &str, limit: u64| pen::import_within("x.pen", text, "pen", &design, &vocab(), limit);
+    let (mut low, mut high) = (0, IMPORT);
+    while high - low > 1000 {
+        let mid = (low + high) / 2;
+        if within(&plain, mid).is_ok() {
+            high = mid;
+        } else {
+            low = mid;
+        }
+    }
+    // A chain to nothing, longer than 256: each link walks 257 in each of 8 tuples, about 4 million steps.
+    let chain = file(
+        (0..n)
+            .map(|i| match i + 1 < n {
+                true => format!(r#""c{i:04}":{{"type":"color","value":"$c{:04}"}}"#, i + 1),
+                false => format!(r#""c{i:04}":{{"type":"color","value":"$missing"}}"#),
+            })
+            .collect(),
+    );
+    let refused = within(&chain, 2 * high + 1_000_000).unwrap_err();
+    assert!(refused[0].message.contains("expands past"), "{refused:?}");
+}
