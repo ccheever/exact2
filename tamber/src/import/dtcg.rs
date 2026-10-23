@@ -1166,18 +1166,7 @@ fn planned(
     }
     // Each tuple's winners: its layers merged in order, a later one winning
     // whatever its kind.
-    fn holds(t: &Tuple, scope: &Scope, axes: &[(String, Vec<String>)]) -> bool {
-        match scope {
-            Scope::Base => true,
-            Scope::Scheme(dark) => *dark == t.0,
-            Scope::Axis(a, v) => axes
-                .iter()
-                .position(|(n, _)| n == a)
-                .is_some_and(|i| t.1[i] == *v),
-            Scope::All(all) => all.iter().all(|s| holds(t, s, axes)),
-        }
-    }
-    let active = |t: &Tuple, scopes: &[Scope]| scopes.iter().any(|scope| holds(t, scope, &axes));
+    let active = |t: &Tuple, scopes: &[Scope]| scopes.iter().any(|scope| scope.holds(t, &axes));
     let unused: BTreeSet<usize> = read.unused.iter().map(|(i, _)| *i).collect();
     let winners: Vec<BTreeMap<&str, usize>> = tuples
         .iter()
@@ -1316,22 +1305,29 @@ fn planned(
             }
         }
     }
-    let reaches = |from: &str| {
+    // (each step charged: a long chain walked from every link is a square of it)
+    let reaches = |from: &str| -> Result<bool, String> {
         let mut stack: Vec<String> = graph
             .get(from)
             .map_or(Vec::new(), |s| s.iter().cloned().collect());
         let mut visited = BTreeSet::new();
         while let Some(n) = stack.pop() {
+            crate::budget::spend(1)?;
             if n == from {
-                return true;
+                return Ok(true);
             }
             if visited.insert(n.clone()) {
                 stack.extend(graph.get(n.as_str()).into_iter().flatten().cloned());
             }
         }
-        false
+        Ok(false)
     };
-    let cyclic: BTreeSet<&str> = graph.keys().copied().filter(|p| reaches(p)).collect();
+    let mut cyclic: BTreeSet<&str> = BTreeSet::new();
+    for p in graph.keys().copied() {
+        if reaches(p).map_err(|m| refuse("tamber-import-source", m))? {
+            cyclic.insert(p);
+        }
+    }
     for (path, per) in values.iter_mut() {
         if cyclic.contains(path) {
             for v in per.iter_mut() {

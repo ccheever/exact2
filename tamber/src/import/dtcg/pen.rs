@@ -65,19 +65,24 @@ const SIDES: [&str; 8] = [
 /// a script's `inputs`, any `metadata`): no key in one is a property, so
 /// nothing in one decides a kind.
 const OPAQUE: [&str; 3] = ["uniforms", "inputs", "metadata"];
-/// Properties whose `$…` text is a name or a reference of Pencil's own (an
-/// id, a component's `ref`, a URL), never a variable bound.
-const NOT_BINDINGS: [&str; 9] = [
-    "id",
-    "name",
-    "ref",
-    "geometry",
-    "url",
-    "href",
-    "scriptUri",
-    "deviceId",
-    "slot",
+/// The other properties that take a variable (Pencil's schema names them:
+/// paints, opacity, rotation, `enabled`, the type longhands, an effect's
+/// colour and spread). A `$…` under any other key (an id, a layout enum, a
+/// position, a `context`) binds nothing and decides no kind.
+const BINDABLE: [&str; 9] = [
+    "fill",
+    "color",
+    "opacity",
+    "rotation",
+    "enabled",
+    "fontWeight",
+    "lineHeight",
+    "fontFamily",
+    "spread",
 ];
+/// A variable's name, at most: Pencil's are short, and a report says one in
+/// every message about it.
+const NAME: usize = 128;
 /// An axis's or value's name, at most (a report says it in every tuple's words).
 const AXIS_NAME: usize = 64;
 /// The axes, and values of one, a file may declare.
@@ -87,6 +92,20 @@ const VALUES: usize = 64;
 const LABEL: usize = 120;
 
 impl Scope {
+    /// Whether it holds in tuple `t` (`axes` the proposed axes in order):
+    /// an `All` when every scope it holds does.
+    pub(super) fn holds(&self, t: &super::Tuple, axes: &[(String, Vec<String>)]) -> bool {
+        match self {
+            Scope::Base => true,
+            Scope::Scheme(dark) => *dark == t.0,
+            Scope::Axis(a, v) => axes
+                .iter()
+                .position(|(n, _)| n == a)
+                .is_some_and(|i| t.1[i] == *v),
+            Scope::All(all) => all.iter().all(|s| s.holds(t, axes)),
+        }
+    }
+
     /// It and the scopes it holds (an `All`'s, which a Pencil entry's theme
     /// of several axes makes), each once, flat.
     pub(super) fn flat(&self) -> Vec<&Scope> {
@@ -186,12 +205,16 @@ fn readers(v: &Value, at: At, out: &mut BTreeMap<String, Uses>) -> Result<(), St
     crate::budget::spend(1)?;
     match v {
         Value::String(s) => {
-            let key = at.key.filter(|k| !NOT_BINDINGS.contains(k));
-            if let (Some(name), Some(k)) = (s.strip_prefix('$'), key) {
+            if let (Some(name), Some(k)) = (s.strip_prefix('$'), at.key) {
                 let side = (SIDES.contains(&k) && at.parent.is_some_and(|p| PIXELS.contains(&p)))
                     || (matches!(k, "x" | "y")
                         && at.parent == Some("offset")
                         && at.outer == Some("shadow"));
+                // (a use only where Pencil binds a variable: a schema property, one's side, or a map of the
+                // author's names)
+                if !(at.opaque || side || PIXELS.contains(&k) || BINDABLE.contains(&k)) {
+                    return Ok(());
+                }
                 let pixel = !at.gradient && !at.opaque && (PIXELS.contains(&k) || side);
                 let label = match (side || at.opaque || at.gradient, at.parent) {
                     (true, Some(p)) => format!("{p}.{k}"),
@@ -439,6 +462,23 @@ fn read(file: &str, doc: &Doc) -> Result<(Read, Vec<String>), String> {
             }
             continue;
         }
+        // (a name past its bound is reported, entry by entry, and never a token another can name)
+        if name.chars().count() > NAME {
+            for _ in 0..entries_of(def).map_or(1, |e| e.len()) {
+                crate::budget::spend(name.len() as u64)?;
+                out.unused(
+                    vec![Def {
+                        file: label.clone(),
+                        path: name.clone(),
+                        ty: None,
+                        value: Value::Null,
+                        refused: None,
+                    }],
+                    &format!("a name of more than {NAME} characters"),
+                );
+            }
+            continue;
+        }
         let ty = types[name.as_str()];
         let (uses, shared) = match ty {
             "number" => {
@@ -525,6 +565,12 @@ fn read(file: &str, doc: &Doc) -> Result<(Read, Vec<String>), String> {
             // An alias names another variable, as written, of its own type; a literal that DTCG would read as one
             // (`{x}`) can't be said, nor an alias to a name DTCG can't hold (`{` or `}` in it).
             let value = match alias_of(value) {
+                Some(target) if target.chars().count() > NAME => {
+                    refused.get_or_insert(format!(
+                        "an alias to a name of more than {NAME} characters"
+                    ));
+                    Value::Null
+                }
                 Some(target) if target.contains(['{', '}']) => {
                     refused.get_or_insert(format!(
                         "an alias to `{}`, a name with a brace, which no token can follow",
