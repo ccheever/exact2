@@ -162,7 +162,14 @@ pub(crate) fn check(design: &Design, vocab: &Vocab) -> CheckResult {
     let tuples = c.axes();
     c.dials();
     c.declare();
-    c.kinds();
+    // A chain of names past the bound, met inferring kinds: refused there,
+    // and nothing folded (each fold would follow it again).
+    if let Some(i) = c.kinds() {
+        let (id, why) = crate::bound::too_deep();
+        c.at(&design.tokens[i].name, id, why);
+        let kinds = c.kinds.clone();
+        return Err((c.finish(), kinds));
+    }
     let Some(tuples) = tuples else {
         let kinds = c.kinds.clone();
         return Err((c.finish(), kinds));
@@ -730,17 +737,19 @@ impl<'a> Checker<'a> {
 
     /// Each token's kind: written, else inferred from its default value
     /// (§3), a lone name taking the kind of what it names; else a colour.
-    fn kinds(&mut self) {
+    fn kinds(&mut self) -> Option<usize> {
         let design = self.design;
         let mut walk = Walk {
             on: vec![false; design.tokens.len()],
             known: vec![None; design.tokens.len()],
-            cycles: 0,
-            steps: 0,
             depth: 0,
+            deep: None,
         };
         for i in 0..design.tokens.len() {
             self.kinds[i] = self.kind_of(i, &mut walk);
+            if walk.deep.is_some() {
+                return walk.deep;
+            }
             let t = &design.tokens[i];
             if !self.refused[i]
                 && matches!(self.kinds[i], Kind::Duration | Kind::Easing)
@@ -796,11 +805,15 @@ impl<'a> Checker<'a> {
                 );
             }
         }
+        walk.deep
     }
 
     /// Token `i`'s kind; `walk` holds the names followed to it, so a cycle
-    /// (refused when it folds) ends as a colour, and each kind found without
-    /// meeting one, so a chain is followed once however many tokens read it.
+    /// (refused when it folds) ends as a colour, and each kind found, so a
+    /// chain is followed once however many tokens read it, a cycle's too (its
+    /// design is refused, and the walk's order is the build's and the
+    /// check's alike: no 2^n over a cycle read twice a level). A chain past
+    /// [`MAX_REFERENCE_DEPTH`] stops where it passes (`Walk::deep`).
     fn kind_of(&self, i: usize, walk: &mut Walk) -> Kind {
         let t = &self.design.tokens[i];
         if let Some(k) = t.kind.as_deref().and_then(Kind::parse) {
@@ -809,22 +822,19 @@ impl<'a> Checker<'a> {
         if let Some(k) = walk.known[i] {
             return k;
         }
-        // A cycle, a walk past its budget (only cycles repeat one), or a
-        // chain past the bound: a colour, not kept (the fold refuses it).
-        if walk.on[i] || walk.steps >= walk.budget() || walk.depth >= MAX_REFERENCE_DEPTH {
-            walk.cycles += 1;
+        if walk.on[i] {
+            return Kind::Color;
+        }
+        if walk.depth >= MAX_REFERENCE_DEPTH {
+            walk.deep.get_or_insert(i);
             return Kind::Color;
         }
         walk.on[i] = true;
-        walk.steps += 1;
         walk.depth += 1;
-        let cycles = walk.cycles;
         let kind = self.inferred_kind(i, walk);
         walk.depth -= 1;
         walk.on[i] = false;
-        if walk.cycles == cycles {
-            walk.known[i] = Some(kind);
-        }
+        walk.known[i] = Some(kind);
         kind
     }
 
@@ -1018,13 +1028,8 @@ impl<'a> Checker<'a> {
         // Each name followed recurses: a chain past the bound is refused
         // where it passes, before the stack would run out.
         if self.stack.len() >= MAX_REFERENCE_DEPTH {
-            self.at(
-                &t.name,
-                "tamber-reference-depth",
-                format!(
-                    "a chain of tokens naming one another is at most {MAX_REFERENCE_DEPTH} deep"
-                ),
-            );
+            let (id, why) = crate::bound::too_deep();
+            self.at(&t.name, id, why);
             self.memo.insert((i, tuple), None);
             return None;
         }
