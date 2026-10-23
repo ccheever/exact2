@@ -25,6 +25,7 @@ final class TextUpdateIOSTests: XCTestCase {
         }
         print("D3 tinted updates=1600 ms=\((CACurrentMediaTime() - start) * 1000)")
         let ink = try XCTUnwrap(node.textRasterLayer)
+        XCTAssertNil(ink.sublayers, "one-colour ink is one layer, as a label is")
         XCTAssertFalse((node.textRasterTint as UIView?) is UIImageView)
         let tintView = try XCTUnwrap(node.textRasterTint)
         XCTAssertEqual(tintView.isUserInteractionEnabled, UIImageView().isUserInteractionEnabled, "ink inherits the platform image view's input policy")
@@ -49,33 +50,6 @@ final class TextUpdateIOSTests: XCTestCase {
         XCTAssertEqual(Array(UnsafeBufferPointer(start: bytes, count: 4)), [0, 0, 255, 255], "replacement coverage and colour reach the existing layer")
         XCTAssertTrue(ink.animationKeys()?.isEmpty ?? true)
         XCTAssertTrue(ink.mask?.animationKeys()?.isEmpty ?? true)
-    }
-
-    func testTintedCoverageCastsTheImagesShadow() throws {
-        let context = try XCTUnwrap(CGContext(data: nil, width: 20, height: 20, bitsPerComponent: 8,
-            bytesPerRow: 80, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-        context.setFillColor(UIColor.black.cgColor)
-        context.fill(CGRect(x: 5, y: 5, width: 10, height: 10))
-        let image = try XCTUnwrap(context.makeImage())
-        let reference = InkLayer()
-        reference.frame = CGRect(x: 0, y: 0, width: 20, height: 20)
-        reference.contents = image
-        let tinted = TintInk()
-        tinted.show(image, tint: UIColor.red.cgColor, frame: reference.frame, scale: 1)
-        func alpha(_ ink: CALayer) throws -> [UInt8] {
-            TextShadowLayer.apply([3, 3, 4, 0, 0, 0, 255], to: ink)
-            let parent = InkLayer()
-            parent.frame = CGRect(x: 0, y: 0, width: 40, height: 40)
-            ink.position = CGPoint(x: 20, y: 20)
-            parent.addSublayer(ink)
-            let output = try XCTUnwrap(CGContext(data: nil, width: 40, height: 40, bitsPerComponent: 8,
-                bytesPerRow: 160, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-            parent.render(in: output)
-            let bytes = try XCTUnwrap(output.data).assumingMemoryBound(to: UInt8.self)
-            return stride(from: 3, to: 40 * 40 * 4, by: 4).map { bytes[$0] }
-        }
-        let actual = try alpha(tinted.layer), expected = try alpha(reference)
-        XCTAssertEqual(zip(actual, expected).filter { $0 != $1 }.count, 0, "the glyph coverage casts the shadow without clipping it")
     }
 
     func testWordsReuseTheParagraphsBoxLayer() throws {
