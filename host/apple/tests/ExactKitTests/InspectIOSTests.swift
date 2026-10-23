@@ -221,12 +221,18 @@ final class InspectIOSTests: XCTestCase {
         XCTAssertNil(Inspect.selectUp(session, ask([[-1]])), "nothing of its levels above it")
         XCTAssertNil(Inspect.selectUp(session, ask([level], plan: "another plan")), "asked of another plan's selection")
         XCTAssertNil(Inspect.selectUp(session, ask([level], instance: [["key": "elsewhere"]])), "asked of another copy")
+        var moved = ask([level]); moved["from"] = -1
+        XCTAssertNil(Inspect.selectUp(session, moved), "asked of a selection at another site")
         XCTAssertEqual(Inspect.selected?.id, node.id, "a stale ask leaves the selection")
         let body = try XCTUnwrap(Inspect.selectUp(session, ask([[-1], level])))
         let outermost = try XCTUnwrap(ancestors.last { level.contains($0.site) })
         XCTAssertEqual((body["selected"] as? [String: Any])?["node"] as? Int, outermost.view, "\(ancestors)")
-        XCTAssertNotNil(body["click"] as? String, "selected as a tap selects it")
+        XCTAssertNil(body["click"], "a move is no press: its outline scrolls the copy into view")
         XCTAssertEqual(Inspect.selected?.id, UInt32(outermost.view))
+        // A nearer level with a node above wins over a later one that reaches higher.
+        _ = Inspect.select(session, id: node.id, clicked: true)
+        let nearer = try XCTUnwrap(Inspect.selectUp(session, ask([[ancestors[0].site], level])))
+        XCTAssertEqual((nearer["selected"] as? [String: Any])?["node"] as? Int, ancestors.last { $0.site == ancestors[0].site }?.view, "\(ancestors)")
     }
 }
 #endif
