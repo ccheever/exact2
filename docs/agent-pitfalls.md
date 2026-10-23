@@ -111,6 +111,10 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `font-size` if it must differ; a native button refuses its symbol's `width` and
   `height`). A symbol you do size by its box needs `object-fit="contain"`. (Signal
   Clone, 2026-10-02.)
+- **`color-scheme="light dark"` is refused.** Contract accepts only `light` or
+  `dark` to fix a subtree's scheme. Leave it unsaid to follow the surrounding
+  scheme; put `color-scheme="dark"` on a media viewer itself, not its shared
+  page wrapper.
 - **In dark mode the navigation title and status bar turn white on a light page.**
   Cause: the app paints a fixed light background (`background-color="#FAF7F2"`)
   while the system is dark, so UIKit's bars and the platform's colours go dark
