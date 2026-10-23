@@ -27,7 +27,7 @@ final class KeyboardToolbars {
     /// Transfer an existing keyboard inset after replacement geometry settles.
     func backendChanged() {
         guard presenter.interactiveWidget == "overlays-content",
-              presenter.keyboardInset > 0 || !insets.isEmpty, !rideQueued else { return }
+              presenter.keyboardTop != nil || !insets.isEmpty, !rideQueued else { return }
         rideQueued = true
         presenter.afterBatch { [weak self] in
             guard let self else { return }
@@ -63,7 +63,8 @@ final class KeyboardToolbars {
             // The bar's own bottom padding already clears the home indicator;
             // it rises only by what the keyboard covers above that.
             let viewportBottom = presenter.viewport.convert(presenter.viewport.bounds.inset(by: presenter.pageMargins), to: window).maxY
-            let lift = max(0, overlap - max(0, viewportBottom - box.maxY) - bar.padding("bottom"))
+            let keyboardTop = presenter.keyboardTop ?? (viewportBottom - overlap)
+            let lift = presenter.keyboardTop == nil && overlap == 0 ? 0 : max(0, box.maxY - keyboardTop - bar.padding("bottom"))
             if bar.keyboardLift != lift { bar.keyboardLift = lift; bar.applyTransform() }
             if lift > 0 { still.insert(bar.id) }
             // The scrollers whose bottom is the bar's top, across its width.
