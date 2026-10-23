@@ -431,6 +431,64 @@ fn a_stream_answer_maps_each_event_and_its_end() {
         .is_err());
 }
 
+/// LLP 1016.000 D8: `exactLongPoll` makes the stream a long poll, its terms
+/// on the request (and no byte stream); each reply is an event whose id is
+/// the cursor.
+#[test]
+fn a_long_poll_carries_its_terms_and_maps_each_reply() {
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  resource live = changes(\"0\", \"\") as shape string\n  resource same = changes(\"0\", \"event\") as shape string\n  view\n    column\n      text live\n      text same\n").unwrap());
+    let mut s = store();
+    let args = [Value::str("0"), Value::str("")];
+    let request = later(m.answer(&mut s, "changes", &args).unwrap());
+    assert!(request.stream && !request.bytes && !request.socket);
+    assert_eq!(
+        request.url,
+        "https://api.castle.xyz/changes?since=0&wait=25"
+    );
+    assert_eq!(
+        request.long_poll,
+        Some(Box::new(exact_runner::LongPoll {
+            cursor: "since".into(),
+            from: "seq".into(),
+            same_cursor_event: false,
+        }))
+    );
+    assert_eq!(
+        now(m
+            .parse(&mut s, "changes", &args, event("7", "{\"seq\":7}", 0))
+            .unwrap()),
+        Value::str("7:{\"seq\":7}")
+    );
+    let args = [Value::str("0"), Value::str("event")];
+    let request = later(m.answer(&mut s, "changes", &args).unwrap());
+    assert!(request.long_poll.unwrap().same_cursor_event);
+}
+
+/// Each refusal of `exactLongPoll`, before anything is sent.
+#[test]
+fn a_long_poll_refuses_what_it_cannot_ask() {
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  resource r = pollRefused(\"stream\") as shape string\n  view\n    text r\n").unwrap());
+    let mut s = store();
+    for (case, said) in [
+        ("stream", "give exactStream too"),
+        ("socket", "HTTP, not a WebSocket"),
+        ("post", "asks with GET"),
+        ("shape", "exactLongPoll is { cursor, from }"),
+        ("cursor", "exactLongPoll.cursor is"),
+        ("from", "exactLongPoll.from is"),
+        ("same", "exactLongPoll.sameCursor is"),
+    ] {
+        let answer = m
+            .answer(&mut s, "pollRefused", &[Value::str(case)])
+            .unwrap();
+        let message = now(answer);
+        let message = message.as_str().unwrap_or_else(|| panic!("{case}"));
+        assert!(message.contains(said), "{case}: {message}");
+    }
+}
+
 /// LLP 1016.000's byte stream: a binary message reaches the mapper as an
 /// `ArrayBuffer` of its bytes.
 #[test]

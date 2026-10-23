@@ -177,6 +177,9 @@ struct Shared {
     roots: std::sync::OnceLock<Result<ibex2::stdlib::app_fs::AppDirectories, String>>,
     /// Open two-way sockets by stream ticket (LLP 1016.000 D7; `stream.rs`).
     sockets: Mutex<std::collections::HashMap<u64, stream::Socket>>,
+    /// Long polls waiting to ask again, by stream ticket (LLP 1016.000 D8;
+    /// `executor_longpoll.rs`): the attempt, when it asks, and what failed.
+    retrying: Mutex<std::collections::HashMap<u64, (u32, std::time::Instant, String)>>,
 }
 
 impl Shared {
@@ -293,6 +296,7 @@ impl Core {
             root_paths: std::sync::OnceLock::new(),
             roots: std::sync::OnceLock::new(),
             sockets: Mutex::default(),
+            retrying: Mutex::default(),
         });
         let count = if lanes.is_some() {
             asynch::THREADS

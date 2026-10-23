@@ -128,6 +128,78 @@ async function readBytes(response, limit, message, controller) {
   } finally { reader.releaseLock?.(); }
 }
 
+// A long poll (LLP 1016.000 D8), as the native executor's executor_longpoll.rs:
+// ask, deliver each 2xx JSON reply as one message whose `id` is the cursor at
+// `from`, and ask again with it in the `cursor` query parameter, one request
+// at a time. A 204, a 304, an empty body or (unless `sameCursorEvent`) the
+// cursor asked with is a heartbeat. The network, a timeout, a 408, 429, 502,
+// 503 or 504 asks again after `Retry-After` (at most 60 s) or a backoff of 1,
+// 2, 4, 8, 16, then 30 s within a fifth either way, shown on the controller
+// as `retrying` for `state.streams`; anything else ends the stream.
+export async function readLongPoll(op, init, limit, message, controller, admits) {
+  const encoder = new TextEncoder(), { cursor, from, sameCursorEvent } = op.longPoll;
+  const failed = (kind, text) => ({ kind, status: 0, headers: '', body: encoder.encode(text) });
+  const aborted = () => failed(4, 'request aborted');
+  const pause = (ms) => new Promise(resolve => {
+    const done = () => { clearTimeout(timer); controller.signal.removeEventListener('abort', done); resolve(); };
+    const timer = setTimeout(done, ms);
+    controller.signal.addEventListener('abort', done, { once: true });
+  });
+  const cursorOf = (text) => {
+    let at; try { at = JSON.parse(text); } catch { return null; }
+    for (const part of from.split('.', 2)) { if (at == null || typeof at !== 'object' || !Object.hasOwn(at, part)) return null; at = at[part]; }
+    return typeof at === 'string' ? at : typeof at === 'number' && Number.isFinite(at) ? JSON.stringify(at) : null;
+  };
+  let url = new URL(op.url), failures = 0;
+  for (;;) {
+    if (controller.signal.aborted || !admits(url.href)) return controller.signal.aborted ? aborted() : failed(2, "outside the app's grants (net.fetch)");
+    const asked = url.searchParams.get(cursor);
+    const deadline = op.timeoutMs === undefined ? null : AbortSignal.timeout(op.timeoutMs);
+    const signal = deadline ? AbortSignal.any([controller.signal, deadline]) : controller.signal;
+    let wait = null, error = '';
+    try {
+      const response = await fetch(url.href, { ...init, signal });
+      if (response.url && !admits(response.url)) return failed(2, `outside the app's grants (net.fetch): redirected to ${new URL(response.url).origin}`);
+      const status = response.status;
+      if ([408, 429, 502, 503, 504].includes(status)) {
+        await response.body?.cancel().catch(() => {});
+        const after = response.headers.get('retry-after')?.trim();
+        const ms = after == null ? NaN : /^\d+$/.test(after) ? Number(after) * 1000 : Date.parse(after) - Date.now();
+        if (Number.isFinite(ms)) { failures++; wait = Math.min(Math.max(ms, 0), 60000); }
+        error = `HTTP ${status}`;
+      } else if (status === 204 || status === 304) { failures = 0; await response.body?.cancel().catch(() => {}); continue; }
+      else {
+        const bytes = await boundedHttpBody(response, limit);
+        const headers = [...response.headers].map(([k, v]) => `${k}: ${v}`).join('\n');
+        if (status < 200 || status > 299) return { kind: 0, status, headers, body: bytes };
+        failures = 0;
+        const text = new TextDecoder().decode(bytes);
+        if (!text.trim()) continue;
+        if (/^text\/event-stream\s*(;|$)/i.test(response.headers.get('content-type') ?? '')) return failed(2, "an event stream under exactLongPoll: a long poll's replies are JSON");
+        const next = cursorOf(text);
+        if (next == null) return { kind: 0, status, headers, body: bytes };
+        if (!sameCursorEvent && asked === next) continue;
+        if (controller.signal.aborted) return aborted();
+        message({ event: '', id: next, data: text, coalesced: 0, received: performance.now() });
+        url.searchParams.set(cursor, next);
+        continue;
+      }
+    } catch (e) {
+      if (controller.signal.aborted) return aborted();
+      if (e?.kind === 'Refused') return failed(2, String(e.message));
+      error = deadline?.aborted ? `the request timed out after ${op.timeoutMs} ms` : String(e?.message ?? e);
+    }
+    if (wait == null) {
+      const base = Math.min(1000 * 2 ** Math.min(failures, 5), 30000);
+      failures++;
+      wait = Math.round(base * (0.8 + 0.4 * Math.random()));
+    }
+    controller.retrying = { attempt: failures, at: performance.now() + wait, error };
+    await pause(wait);
+    delete controller.retrying;
+  }
+}
+
 // The transport belongs to the resource's abort controller (LLP 1016.000).
 // `protocol` opts the JS TypeScript adapter into D7: ordered frames and a
 // private transport handle; the other adapters still take snapshot delivery.
@@ -267,6 +339,16 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   // `net.websocket`, above); its method, headers and body are not sent.
   if (socket && op.bodyFrom != null) return failed(2, 'exactBodyFrom: a WebSocket sends no body');
   if (socket) return readSocket(url, op.maxResponseBytes ?? 1024 * 1024, message, controller, protocol && { ...protocol, admit: () => active() && admitsNetwork(scopedGrantSet(grantSet, op.scope), url, 'websocket') });
+  // A long poll asks again and again on its own (D8): GET, no body, JSON replies.
+  if (op.stream && op.longPoll) {
+    if (!/^GET$/i.test(method) || op.bodyFrom != null || body) return failed(2, 'exactLongPoll: a long poll is a GET with no body');
+    const accept = headers.some(([k]) => k.toLowerCase() === 'accept') ? headers : [...headers, ['accept', 'application/json']];
+    controllers.add(controller);
+    try {
+      return await readLongPoll(op, { method: 'GET', headers: accept, redirect: op.redirect ?? 'follow', cache: 'no-store' },
+        op.maxResponseBytes ?? 1024 * 1024, message, controller, (u) => active() && admitsNetwork(scopedGrantSet(grantSet, op.scope), u, 'fetch'));
+    } finally { controllers.delete(controller); delete controller.retrying; }
+  }
   let decodedBody;
   try { if (body) decodedBody = Uint8Array.from(atob(body), c => c.charCodeAt(0)); }
   catch (error) { return failed(4, `invalid request body: ${error}`); }
@@ -346,7 +428,7 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
 export function streamed(req, grantSet, message, controller, bodyFile, protocol) {
   let body = '';
   for (const b of req.raw ?? []) body += String.fromCharCode(b);
-  return request({ method: req.method ?? 'GET', url: req.url, headers: req.headers ?? [], body: body && btoa(body), bodyFrom: req.bodyFrom, redirect: req.redirect, stream: true, maxResponseBytes: req.maxResponseBytes, scope: req.scope },
+  return request({ method: req.method ?? 'GET', url: req.url, headers: req.headers ?? [], body: body && btoa(body), bodyFrom: req.bodyFrom, redirect: req.redirect, longPoll: req.longPoll, stream: true, maxResponseBytes: req.maxResponseBytes, scope: req.scope },
     { grantSet, controllers: new Set(), controller, message, bodyFile, protocol, localAssetURL: url => new URL(url, location.href).href,
       loadPageNative: () => Promise.reject(new Error('a stream is not a page-module request')) });
 }

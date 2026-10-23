@@ -21,6 +21,22 @@
   var binary = global.__exact_binary;
   delete global.__exact_binary;
   var fromBase64 = binary.fromBase64, toBase64 = binary.toBase64, utf8Length = binary.utf8Length;
+  // `exactLongPoll` (LLP 1016.000 D8), checked as the web's ts-stream.js checks it: the op's `long_poll`, nothing
+  // when there is none, or why it is refused.
+  function longPollOf(init, stream, method, url) {
+    var poll = init ? init.exactLongPoll : undefined;
+    if (poll === undefined) return undefined;
+    if (!stream) return "exactLongPoll asks again for an answer that keeps coming: give exactStream too";
+    if (/^wss?:/i.test(String(url))) return "exactLongPoll: a long poll is HTTP, not a WebSocket";
+    if (method !== "GET") return "exactLongPoll: a long poll asks with GET";
+    if (poll === null || typeof poll !== "object") return "exactLongPoll is { cursor, from }";
+    var name = function (k) { var v = poll[k]; return typeof v === "string" && v.length > 0 && v.length <= 256 ? v : null; };
+    if (!name("cursor")) return "exactLongPoll.cursor is the query parameter the cursor goes in, a name";
+    if (!name("from")) return "exactLongPoll.from is the reply's field the cursor comes from, a name";
+    if (poll.sameCursor !== undefined && poll.sameCursor !== "heartbeat" && poll.sameCursor !== "event")
+      return "exactLongPoll.sameCursor is \"heartbeat\" (the default) or \"event\"";
+    return { cursor: poll.cursor, from: poll.from, same_cursor_event: poll.sameCursor === "event" ? true : undefined };
+  }
   // LLP 1027.000: time and seeds are source arguments, so bake and cache
   // see them. This VM belongs to one module; no page/guest globals change.
   // Install before the app can capture an alias, including Date's prototype
@@ -741,6 +757,9 @@
       if (stream) return Promise.reject(new TypeError("exactTimeout: a stream has no timeout"));
     }
     if ((held !== undefined && held !== true && held !== false) || (held && stream)) return Promise.reject(new TypeError(held === true ? "exactHeld: a stream is never held; it stops counting at its first message" : "exactHeld is true or false")); // `exactHeld`: the server may hold the reply, and no clock waits on it (LLP 1016.000 D9)
+    // A long poll (LLP 1016.000 D8): the host asks again with the cursor each reply gives, one request at a time.
+    var poll = longPollOf(init, stream, method, url);
+    if (typeof poll === "string") return Promise.reject(new TypeError(poll));
     // `redirect` (Fetch §5.4, the Request constructor): read and checked once,
     // before the signal, and a throw rejects. Rust follows redirects, checking
     // each hop's grant, so "manual" answers with the 3xx and its Location.
@@ -760,7 +779,7 @@
     var ticket = nextTicket++;
     // A WebSocket stream owns a two-way socket (LLP 1016.000 D7); an HTTP one's body that is not events is bytes.
     var socket = stream && /^wss?:/i.test(String(url));
-    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, bytes: stream && !socket ? true : undefined, timeout_ms: timeout, body_from: bodyFrom, redirect: redirect, held: held ? true : undefined }));
+    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, bytes: stream && !socket && !poll ? true : undefined, long_poll: poll, timeout_ms: timeout, body_from: bodyFrom, redirect: redirect, held: held ? true : undefined }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;

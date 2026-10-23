@@ -763,12 +763,13 @@ impl<D: DataSource> Host<D> {
         self.runner.listen(wake);
     }
 
-    /// [`Host::listen`] to `io`, and read sockets' buffered bytes from it
-    /// (D7); watch the documents the answers watch, as `owner`'s (LLP 1069.010.000 D1).
+    /// [`Host::listen`] to `io`, and read sockets' buffered bytes (D7) and
+    /// long polls' backoff waits (D8) from it; watch the documents the answers watch, as `owner`'s (LLP 1069.010.000 D1).
     pub fn listen_io(&mut self, io: &dyn crate::executor::Io, owner: u64) {
         self.doc_watch = Some(crate::doc_watch::DocWatch::new(owner, &mut self.runner));
         self.listen(io.waker());
         self.runner.set_socket_reader(io.socket_reader());
+        self.runner.set_retry_reader(io.retry_reader());
     }
     /// The source's native slot, where the host installs the app module.
     pub fn native_slot(&self) -> exact_runner::Native {
