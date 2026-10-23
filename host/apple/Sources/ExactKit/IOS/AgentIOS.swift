@@ -8,9 +8,8 @@
 // synthesis, the one declared deviation from LLP 1012's contract — or
 // applies a wheel to the first scroll container up the chain that can take
 // it (the web's chaining rule); `type` puts text through the field's own
-// `insertText`; `screenshot` draws the viewport's hierarchy to a PNG (Metal
-// layers included), or the window's (`window: true`, and whenever UIKit has an
-// alert, action sheet, popover or sheet up, which the viewport's picture leaves out).
+// `insertText`; `screenshot` draws the viewport's hierarchy to PNG, including Metal.
+// `window: true` or a UIKit presentation captures the window, including its alert, action sheet, popover or sheet.
 #if os(iOS) || os(tvOS)
 import UIKit
 
