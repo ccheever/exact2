@@ -10,7 +10,6 @@ final class T3Module: ExactModule {
     let composer: T3Composer
     /// Weak view registry for the shared Settings prompt sample.
     let promptPreview = T3ComposerPreview()
-    let attach: T3ComposerAttach // A staged video's first frame and typed link (T3ComposerAttach.swift).
     private let media: T3MediaPreview // Attachment PDF and HTML bodies (T3MediaPreview.swift).
     private let mediaFocus = T3MediaFocus() // A press elsewhere takes the focus off a media node (T3MediaActions.swift).
     let devices: T3DeviceStreams // Device screens, input and screenshots (T3DeviceStream.swift).
@@ -36,8 +35,8 @@ final class T3Module: ExactModule {
         sidebar = T3Sidebar(agent: context.agent, changed: changed)
         snapShot = T3SnapShot(directory: context.data, agent: context.agent, changed: changed)
         composer = T3Composer(changed: changed)
-        attach = T3ComposerAttach(dataRoot: context.data)
-        media = T3MediaPreview(agent: context.agent, stagedFile: attach.stagedFile) // a draft file's preview reads its staged copy
+        let staged = context.data.appendingPathComponent("composer-files", isDirectory: true)
+        media = T3MediaPreview(agent: context.agent, stagedFile: { T3MediaPreview.stagedCopy($0, in: staged) }) // a draft file's preview reads its staged copy
         devices = T3DeviceStreams(access: { [links] done in links.deviceHubAccess(done) }, changed: changed)
         ssh = T3Ssh(agent: context.agent, promptsAvailable: true, changed: changed) // the window shows the SSH password dialog
         latinChords = T3LatinChords(agent: context.agent)
@@ -48,7 +47,7 @@ final class T3Module: ExactModule {
         browserAutomation = T3BrowserAutomation(sessions: browser) // wired in attachBrowserAutomation (T3Module+Browser.swift)
         exportsRoot = context.agent ? context.data.appendingPathComponent("exports", isDirectory: true) : nil
         super.init(context: context)
-        textMenu.richEditors = { [weak self] in [self?.composer.editor.textView, self?.promptPreview.textView].compactMap { $0 } } // contenteditables in the reference: Select All stays enabled when empty
+        textMenu.richEditors = { [weak self] in [self?.composer.textView, self?.promptPreview.textView].compactMap { $0 } } // contenteditables in the reference: Select All stays enabled when empty
         DispatchQueue.main.async { [textMenu] in textMenu.install() }
         attachLocalBackend(context) // the embedded server (T3Module+Local.swift)
         attachAppControl(context) // `t3 app <dir>`: the control socket follows the embedded server (T3Module+Activation.swift)

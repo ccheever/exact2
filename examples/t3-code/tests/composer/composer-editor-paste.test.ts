@@ -1,13 +1,13 @@
 // A drop, a paste and Attach files (ChatComposer.tsx addDroppedFiles, onComposerPaste, the hidden file input → addComposerAttachments)
-// stage their files in TypeScript (composer-attach-stage.ts) over the app's storage, held in memory here; the editor's sync
-// prunes emptied drafts' files without dropping one attached while that sync was in flight. Run over the client fixture,
-// with the native editor's replies stubbed (T3ComposerEditor.swift and T3ComposerAttach.swift answer them on macOS).
+// stage their files in TypeScript (composer-attach-stage.ts) over the app's storage, held in memory here; the editor view
+// prunes emptied drafts' files without dropping one attached while the view was in flight. Run over the client fixture,
+// with the shared field's edits answered here.
 import { afterEach, describe, expect, test } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { Backend, storage } from '../support/client-fixture';
 import { composerEditorView } from '../../src/composer/composer-editor';
 import { acceptAttachedFile, imageChipLink } from '../../src/composer/composer-editor-attach';
-import { draftFiles, fileChipContexts } from '../../src/composer/composer-editor-files';
+import { draftFiles, fileChipContexts, foldPaste } from '../../src/composer/composer-editor-files';
 import { obj, str, type Obj } from '../../src/client/domain';
 import { acceptComposerEdit, observeComposer } from '../support/composer-field-fixture';
 import { fileChipLink } from '../../src/composer/composer-editor-files';
@@ -18,21 +18,22 @@ import { composerFieldOwner } from '../../src/composer/auto-balance-owner';
 import { composerFieldAcknowledged, composerFieldNative, composerFieldResource } from '../../src/composer/composer-field-bridge';
 import { primary, type PrimaryTarget } from '../../src/connections/local-primary';
 import { gif, jpeg, memoryFiles, png, text, webp } from '../support/app-files-fixture';
+import { readFileSync } from 'node:fs';
+import { appPath } from '../support/app-files';
 
 const uuid = (n: number) => `1b4e28ba-2fa1-11d2-883f-0016d3cca42${n}`;
 
-/** The client fixture's server, with the native editor's sync and insert, and the module's staged-copy ops, answered here. */
+/** The client fixture's server, with the shared field's insert and edit answered here. */
 class EditorBackend extends Backend {
   client: T3Client | null = null;
-  state: Obj = { empty: false };
-  /** Runs as the native editor reads its state for a sync (before the reply reaches TypeScript). */
+  /** Edit › Paste as Text chosen with the pointer (T3Menus.swift), until a paste reads it. */
+  menuArmed = false;
+  /** Runs while the editor view awaits its one read, the file metadata (before the reply reaches TypeScript). */
   onSync: () => void | Promise<void> = () => {};
   override async later(input: unknown): Promise<unknown> {
     const request = obj(input);
-    if (request.op === 'editorSync') { this.calls.push(request); await this.onSync(); return this.good({ snapshotOwner: request.snapshotOwner, fieldOwner: request.fieldOwner, ...this.state }); }
     if (request.op === 'editorInsert' || request.op === 'editorEdit') { this.calls.push(request); return this.good({ applied: this.client && acceptComposerEdit(this.client, request) }); }
-    if (request.op === 'composerAttachMedia') { this.calls.push(request); return this.good(request.video ? { videoWidth: 640, videoHeight: 360 } : {}); }
-    if (request.op === 'editorForgetFold') { this.calls.push(request); return this.good({}); }
+    if (request.op === 'composerPasteAsText') { const armed = this.menuArmed; this.menuArmed = false; return this.good({ armed }); }
     return super.later(input);
   }
 }
@@ -44,7 +45,13 @@ async function opened() {
   await client.refresh(native, disk.files);
   native.client = client;
   observeComposer(client, client.draft);
-  return { client, native, disk };
+  // Each editor view reads one new path's metadata (a message mentions it), where native.onSync runs.
+  if (!client.scopes.includes('filesystem:read')) client.scopes = [...client.scopes, 'filesystem:read'];
+  let reads = 0;
+  client.restAccess = (() => ({ request: async (_method: string, payload: { paths: string[] }) => { await native.onSync(); return { entries: payload.paths.map(() => null) }; } })) as unknown as T3Client['restAccess'];
+  const view = client.projection as Obj;
+  const mention = () => { view.messages = [{ id: 'm-read', role: 'user', text: `@/tmp/read-${++reads}.ts` }]; };
+  return { client, native, disk, view: (target: Native) => { mention(); return composerEditorView(client, target); } };
 }
 const ops = (native: EditorBackend, op: string) => native.calls.filter(call => call.op === op);
 const under = (store: Map<string, Uint8Array>, folder: string) => [...store.keys()].filter(path => path.startsWith(`${folder}/`));
@@ -164,21 +171,36 @@ describe('a drop, a paste and Attach files (addComposerAttachments)', () => {
     expect(ops(native, 'editorInsert').map(call => call.text).at(-1)).toContain(str(second.id));
   });
 
-  test('a video is staged with its typed link and first frame from the module', async () => {
+  test('Paste as Text chosen from the menu gives a pasted image no chip, as its key does', async () => {
     const { client, native } = await opened();
-    memoryFiles({ 'doc:/1/clip.mov': text('moov') });
-    await attachIncoming(client, native, 'drop', incoming(['doc:/1/clip.mov']));
-    const clip = draftFiles(client.local)[0]!;
-    expect(clip).toMatchObject({ name: 'clip.mov', mimeType: 'video/quicktime' });
-    expect(ops(native, 'composerAttachMedia')).toMatchObject([{ id: clip.id, ext: 'mov', video: true }]);
+    client.local.drafts[client.draftKey] = 'look at this';
+    observeComposer(client, client.draft, true);
+    memoryFiles({ 'doc:/1/image.png': png(4, 3) });
+    native.menuArmed = true;
+    await attachIncoming(client, native, 'paste', incoming(['doc:/1/image.png']));
+    expect(ops(native, 'editorInsert')).toEqual([]);
+    expect((client.local.snapshotDrafts[client.draftKey] ?? []).map(image => str(image.name))).toEqual(['image.png']);
+    expect(native.menuArmed).toBe(false);
   });
 
-  test('a file pasted into an empty draft keeps its record through the sync that read the editor as empty', async () => {
+  test('a video or audio file is staged under its typed name; a video\'s display size comes from its header', async () => {
     const { client, native } = await opened();
-    native.state = { empty: true };
+    const movie = new Uint8Array(readFileSync(appPath('../../apps/video-player/assets/motion.mp4')));
+    const { store } = memoryFiles({ 'doc:/1/clip.MP4': movie, 'doc:/2/memo.m4a': text('ID3'), 'doc:/3/notes.txt': text('notes') });
+    await attachIncoming(client, native, 'drop', incoming(['doc:/1/clip.MP4', 'doc:/2/memo.m4a', 'doc:/3/notes.txt']));
+    const [clip, memo, notes] = draftFiles(client.local);
+    expect(clip).toMatchObject({ name: 'clip.MP4', mimeType: 'video/mp4', videoWidth: 404, videoHeight: 720 });
+    expect(memo!.videoWidth).toBeUndefined();
+    expect(under(store, STAGED).sort()).toEqual([`${STAGED}/${clip!.id}.mp4`, `${STAGED}/${memo!.id}.m4a`, `${STAGED}/${notes!.id}`].sort());
+    expect(store.get(`${STAGED}/${clip!.id}.mp4`)).toEqual(movie);
+    expect(native.calls.map(call => String(call.op)).filter(op => op.startsWith('composer'))).toEqual([]); // no module op
+  });
+
+  test('a file pasted into an empty draft keeps its record through the view that read the editor as empty', async () => {
+    const { client, native, view } = await opened();
     const { released } = memoryFiles({ 'doc:/1/sample.py': text('print("sample")\n') });
     await attachIncoming(client, native, 'paste', incoming(['doc:/1/sample.py']));
-    await composerEditorView(client, native);
+    await view(native);
     expect(draftFiles(client.local).map(file => file.name)).toEqual(['sample.py']);
     expect(released()).toEqual([]);
   });
@@ -226,8 +248,8 @@ describe('a drop, a paste and Attach files (addComposerAttachments)', () => {
 });
 
 describe('an emptied draft\'s files', () => {
-  test.each([{ label: 'file only', withImage: false }, { label: 'file and image', withImage: true }])('keeps staged files through queued insertion and an older empty sync: $label', async ({ withImage }) => {
-    const { client, native } = await opened();
+  test.each([{ label: 'file only', withImage: false }, { label: 'file and image', withImage: true }])('keeps staged files through queued insertion and an older empty view: $label', async ({ withImage }) => {
+    const { client, native, view } = await opened();
     const { released } = memoryFiles({ [`${STAGED}/${uuid(1)}`]: text('twenty-six bytes of notes\n') });
     const owner = composerFieldOwner(client), empty = observeComposer(client, '');
     const fieldNative = composerFieldNative(client, native, () => composerFieldOwner(client));
@@ -236,14 +258,14 @@ describe('an emptied draft\'s files', () => {
     await addAttachedFiles(client, fieldNative, files);
     const link = `[notes.txt](t3-context://v1/file/file_${uuid(1)})`;
     expect(client.draft).toBe('');
-    await composerEditorView(client, fieldNative);
+    await view(fieldNative);
     expect(draftFiles(client.local)).toMatchObject([{ id: uuid(1), status: 'staged' }]);
     expect(fileChipContexts(client, link)).toEqual({ [`file/file_${uuid(1)}`]: 'file\t1 KB' });
     expect(released()).toEqual([]);
 
     const read = Promise.withResolvers<void>(), resumed = Promise.withResolvers<void>();
     native.onSync = () => { read.resolve(); return resumed.promise; };
-    const syncing = composerEditorView(client, fieldNative);
+    const syncing = view(fieldNative);
     await read.promise;
     const edit = composerFieldResource(client, [empty, 0], owner);
     expect(edit.ready).toBe(true);
@@ -259,38 +281,51 @@ describe('an emptied draft\'s files', () => {
 
     native.onSync = () => {};
     observeComposer(client, '', true);
-    await composerEditorView(client, fieldNative);
+    await view(fieldNative);
     expect(draftFiles(client.local)).toEqual([]);
     expect(released()).toEqual([uuid(1)]);
   });
+  test('a large paste folded into an empty draft keeps its file through a view before its chip lands', async () => {
+    const { client, native, view } = await opened();
+    memoryFiles({});
+    const owner = composerFieldOwner(client), empty = observeComposer(client, '');
+    const fieldNative = composerFieldNative(client, native, () => composerFieldOwner(client));
+    await foldPaste(client, fieldNative, 'fold', { id: 1, snapshotOwner: empty.snapshotOwner, fieldOwner: owner, value: '', start: 0, end: 0, text: 'x'.repeat(40_000) }, uuid(7));
+    await view(fieldNative);
+    expect(draftFiles(client.local).map(file => file.name)).toEqual(['pasted-text.txt']);
+    const edit = composerFieldResource(client, [empty, 0], owner);
+    const inserted = observeComposer(client, edit.text, true);
+    expect((await composerFieldAcknowledged(client, [inserted, edit.seq, true], owner, native)).applied).toBe(true);
+    expect(toasts(client).map(toast => toast.title)).toEqual(['Large paste attached as pasted-text.txt']);
+    await view(fieldNative);
+    expect(fileChipContexts(client, edit.text)).toEqual({ [`file/file_${uuid(7)}`]: 'file\t40 KB' });
+  });
   test('a refused queued insertion releases files when its original empty draft is abandoned', async () => {
-    const { client, native } = await opened();
+    const { client, native, view } = await opened();
     const { released } = memoryFiles({ [`${STAGED}/${uuid(1)}`]: text('notes') });
     const fieldNative = composerFieldNative(client, native, () => composerFieldOwner(client));
     await addAttachedFiles(client, fieldNative, [{ kind: 'file', id: uuid(1), name: 'notes.txt', sizeBytes: 26 }]);
     client.threadId = 't2';
     observeComposer(client, '');
-    await composerEditorView(client, composerFieldNative(client, native, () => composerFieldOwner(client)));
+    await view(composerFieldNative(client, native, () => composerFieldOwner(client)));
     expect(draftFiles(client.local)).toEqual([]);
     expect(released()).toEqual([uuid(1)]);
   });
-  test('a file attached while the sync was in flight survives that sync\'s empty editor; one from before goes', async () => {
-    const { client, native } = await opened();
+  test('a file attached while the view was in flight survives its empty editor; one from before goes', async () => {
+    const { client, native, view } = await opened();
     const { released } = memoryFiles({ [`${STAGED}/${uuid(5)}`]: text('old'), [`${STAGED}/${uuid(6)}`]: text('sample') });
     const old = acceptAttachedFile(client, { kind: 'file', id: uuid(5), name: 'old.txt', sizeBytes: 3 }).file!;
-    // The editor reads as empty when asked; Attach files' pick lands (its chip on its way into the editor) before the
-    // reply comes back, as the panel's completion did on the first file attached to an empty draft.
-    native.state = { empty: true };
+    // The editor reads as empty; Attach files' pick lands (its chip on its way into the editor) while the view awaits,
+    // as the panel's completion did on the first file attached to an empty draft.
     let added = null as ReturnType<typeof acceptAttachedFile>['file'];
     native.onSync = () => { added = acceptAttachedFile(client, { kind: 'file', id: uuid(6), name: 'sample.py', mimeType: 'text/x-python', sizeBytes: 67 }).file; };
-    await composerEditorView(client, native);
+    await view(native);
     expect(draftFiles(client.local)).toEqual([added!]);
     expect(released()).toEqual([old.id]);
-    // The next sync sees the chip in the editor's text, so the file keeps its record (and its chip its name and size).
-    native.state = { empty: false };
+    // The next view sees the chip in the editor's text, so the file keeps its record (and its chip its name and size).
     observeComposer(client, fileChipLink(added!) + ' ', true);
     native.onSync = () => {};
-    await composerEditorView(client, native);
+    await view(native);
     expect(draftFiles(client.local)).toEqual([added!]);
   });
 });

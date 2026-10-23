@@ -4,7 +4,8 @@ import UniformTypeIdentifiers
 
 /// The reference desktop menu (apps/desktop/src/window/DesktopApplicationMenu.ts, 74541bab17) over the
 /// host's: Edit gains Paste as Text (⇧⌘V), the responder chain's `pasteAsPlainText:` as the reference's
-/// pasteAndMatchStyle is: a field's `paste`, which the composer arms as Paste as Text by its key. An
+/// pasteAndMatchStyle is: a field's `paste`, which the composer arms as Paste as Text by its key; chosen with the
+/// pointer, the item arms it here first (`pasteAsTextArmed`, the reference's DESKTOP_PASTE_AS_TEXT_EVENT). An
 /// `-exact-menu` button's item is a press, not a responder-chain action, so this item stays native; the
 /// root's `-exact-menu-remove="paste-and-match-style"` takes the host's ⌥⇧⌘V, which names that action, so this
 /// item sends it from its own selector. The rest of the bar is Contract's: Check for Updates… (settings-shortcuts
@@ -39,7 +40,18 @@ final class T3Menus: NSObject, NSMenuItemValidation {
         }
     }
 
-    @objc func pasteAsText(_ sender: Any?) { NSApp.sendAction(#selector(NSTextView.pasteAsPlainText(_:)), to: nil, from: sender) }
+    @objc func pasteAsText(_ sender: Any?) {
+        armedUntil = ProcessInfo.processInfo.systemUptime + 1
+        NSApp.sendAction(#selector(NSTextView.pasteAsPlainText(_:)), to: nil, from: sender)
+    }
+
+    /// Paste as Text armed by the menu item for one second (armPasteAsTextShortcut's deadline): TypeScript reads it for
+    /// the paste it holds or the files it attaches (`composerPasteAsText`), once (consumePasteAsTextShortcut).
+    private var armedUntil: TimeInterval = 0
+    func takePasteAsText(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
+        defer { armedUntil = 0 }
+        return now <= armedUntil
+    }
 
     // MARK: Check for Updates…
 

@@ -8,7 +8,7 @@ import { composerEditorView } from '../../src/composer/composer-editor';
 import { composerFieldObserved } from '../../src/composer/composer-field-bridge';
 import { Backend, storage } from '../support/client-fixture';
 
-type Boundary = 'editorSync' | 'editorPoke' | 'projects.searchEntries';
+type Boundary = 'editorPoke' | 'projects.searchEntries';
 const path = 'src/__name__/file.ts', query = `@${path}`;
 const aborted = () => Object.assign(new Error('The answer was let go before this reply.'), { name: 'FetchError', kind: 'Aborted' });
 async function opened() {
@@ -27,7 +27,6 @@ async function opened() {
       const boundary = value.op === 'request' ? value.method : value.op;
       if (failure && boundary === failure.boundary) throw failure.error;
       if (value.op === 'request' && value.method === 'projects.searchEntries') return backend.good({ entries, truncated: false });
-      if (value.op === 'editorSync') return backend.good({ snapshotOwner: value.snapshotOwner, fieldOwner: value.fieldOwner });
       return backend.later(request);
     } };
     return composerEditorView(client, letGoAware(native));
@@ -37,7 +36,7 @@ async function opened() {
 }
 
 describe('composer path search cancellation', () => {
-  for (const boundary of ['editorSync', 'editorPoke', 'projects.searchEntries'] satisfies Boundary[]) {
+  for (const boundary of ['editorPoke', 'projects.searchEntries'] satisfies Boundary[]) {
     test(`a let-go at ${boundary} rejects without poisoning the next answer`, async () => {
       const { view, searches } = await opened();
       if (boundary !== 'editorPoke') expect((await view()).menu.loading).toBe(true);
@@ -58,7 +57,7 @@ describe('composer path search cancellation', () => {
     expect((await view()).menu.rows.map(row => row.id)).toEqual([`path:file:${path}`]);
     expect(searches().length).toBe(2);
   });
-  for (const boundary of ['editorSync', 'editorPoke'] satisfies Boundary[]) {
+  for (const boundary of ['editorPoke'] satisfies Boundary[]) {
     test(`an ordinary ${boundary} error retains its existing fallback`, async () => {
       const { view, searches } = await opened();
       expect((await view({ boundary, error: new Error('Editor unavailable') })).menu.loading).toBe(true);

@@ -54,6 +54,16 @@ component CmpIcon
 // carries text beside a file (a Finder copy carries the file's name) pastes the text.
 fn composerPasteImage(path: string): bool = ["png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "svg", "ico", "avif", "jxl"].includes(path.toLowerCase().split(".").slice(-1).join(""))
 fn composerPasteTakesFiles(files: string[], text: string): bool = files.length > 0 and (files.filter((path) => composerPasteImage(path)).length > 0 or text == "")
+// foldPastedText over pastedTextDisposition and wouldTextPasteExceedLimit (ChatComposer.tsx, client-runtime textPaste.ts):
+// a text paste folds into a pasted-text.txt file at 32 KB, in UTF-16 units or UTF-8 bytes, or when it would take the
+// prompt past 120,000 units; it is refused with the reference's toasts when it cannot be staged ("too-large-message")
+// or is over the server's limit ("too-large-attach"); else it is the field's ("inline"). A unit is 1 to 3 bytes, so
+// lengths alone decide most pastes; where only the byte count can, the paste is held and "measure" lets
+// composer-editor-files.ts pasteDisposition decide. `limit` is the staging limit: 0 when the paste cannot be staged, -1
+// for a literal answer, which keeps every paste inline (composer-editor-files.ts foldLimit).
+fn composerPasteExceeds(text: string, valueLength: number, start: number, end: number): bool = valueLength - (max(min(start, valueLength), min(end, valueLength)) - min(start, valueLength)) + text.length > 120000
+fn composerPasteOver(text: string, exceeds: bool, limit: number): string = limit == 0 ? (exceeds ? "too-large-message" : "inline") : (text.length * 3 <= limit ? "fold" : (text.length > limit ? (exceeds ? "too-large-attach" : "inline") : "measure"))
+fn composerPasteDisposition(text: string, valueLength: number, start: number, end: number, limit: number): string = text == "" or limit < 0 ? "inline" : (composerPasteExceeds(text, valueLength, start, end) ? composerPasteOver(text, true, limit) : (text.length * 3 < 32768 or limit == 0 ? "inline" : (text.length < 32768 ? "measure" : composerPasteOver(text, false, limit))))
 
 component ComposerCard
   inject
@@ -101,9 +111,20 @@ component ComposerCard
     urls: AttachmentUrl[]
   derive sendable = data.canSend and (text != "" or data.snapshotDrafts.length > 0)
   derive restingChip = data.composer.compactTokens != "" and not (data.composer.canResume and not sendable) and data.composer.queueEditing == ""
+  // The field's value and selection as its events last reported them, where a held paste goes. Focused but not yet
+  // edited or moved in, the field reports none: its caret is at the end of its value.
+  state pasteValue = ""
+  state pasteStart = 0
+  state pasteEnd = 0
   action richMoved(e: InputEvent)
+    pasteValue = e.value
+    pasteStart = e.selectionStart
+    pasteEnd = e.selectionEnd
     composerMoved(e)
   action richBeforeInput(e: InputEvent)
+    pasteValue = e.value
+    pasteStart = e.selectionStart
+    pasteEnd = e.selectionEnd
     composerBeforeInput(e)
   // isPasteAsTextShortcut (⇧⌘V, no ⌥ or ⌃) arms the paste its menu item brings as Paste as Text for one second
   // (armPasteAsTextShortcut's deadline).
@@ -121,16 +142,27 @@ component ComposerCard
     pasteAsTextUntil = 0
     onBlur()
   // onComposerPaste: with a thread open, the paste's files attach (preventDefault keeps their names out of the
-  // prompt). Armed by its key (richKey), the paste is Paste as Text (consumePasteAsTextShortcut, one paste only): its
-  // images get no inline chip. Edit › Paste as Text chosen with the pointer has no key before it, so it is a Paste.
+  // prompt); a large text paste is held (preventDefault) and folds into a file (composer-editor-files.ts foldPaste,
+  // through attachFiles' queue: the field's value and selection let it put the chip where the paste would have gone,
+  // and its id, microseconds on the runner's clock, rises with each paste). Armed by its key (richKey), the paste is Paste as Text
+  // (consumePasteAsTextShortcut, one paste only): its images get no inline chip and its text stays inline however large
+  // (bypassAutoAttachment). Edit › Paste as Text chosen with the pointer arms it in the module (T3Menus.swift, the
+  // reference's DESKTOP_PASTE_AS_TEXT_EVENT), which TypeScript reads for the paste it held or the files it attaches.
   // Leaving the composer disarms it, as the reference's window blur does.
   state pasteAsTextUntil = 0
   action pasted(e: ClipboardEvent)
     let asText = performanceNow() <= pasteAsTextUntil
+    let current = pasteValue == text
+    let start = current ? pasteStart : text.length
+    let end = current ? pasteEnd : text.length
+    let fold = asText ? "inline" : composerPasteDisposition(e.text, text.length, start, end, editor.foldLimit)
     pasteAsTextUntil = 0
     if data.projectId != "" and composerPasteTakesFiles(e.files, e.text)
       preventDefault()
       attachFiles("paste", e.files, [], asText, "")
+    else if fold != "inline"
+      preventDefault()
+      attachFiles("fold", [`${fold}\t${data.snapshotOwner}\t${richComposerOwner}\t${start}\t${end}\t${round(performanceNow() * 1000)}`, text, e.text], [], false, "")
   view
     column width="100%" border-radius="1.375rem" border-style="solid" border-width=1 border-color=(contextOver ? "light-dark(#1b4ed8b3, #346bf1b3)" : (data.look.themed ? data.look.border : "light-dark(#00000014, #ffffff0d)")) background-color=(data.look.themed ? data.look.popover : "light-dark(#fefefe, #101010)") box-shadow="0 12px 28px -18px light-dark(#00000066, #00000000), inset 0 1px 0 0 light-dark(#00000000, #ffffff08)" box-sizing="border-box" testId="composer-surface" position="relative" resize=frameMoved id="composer-surface" data-paint=`${(contextOver ? "" : (data.look.themed ? "border" : ""))} ${(data.look.themed ? "surfaceOverlay" : "")}` data-pick=((data.look.themed ? "surfaceOverlay" : "") != "" ? (data.look.themed ? "surfaceOverlay" : "") : ((contextOver ? "" : (data.look.themed ? "border" : "")) != "" ? (contextOver ? "" : (data.look.themed ? "border" : "")) : ""))
       // bg-accent/45 and ring-primary/70 while a thread is held over the composer.

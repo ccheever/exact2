@@ -1,20 +1,21 @@
 import { requestComposerField } from './composer-field-request';
 // Large pastes fold into a `pasted-text.txt` file attachment (ChatComposer
-// foldPastedText, client-runtime textPaste.ts): the native editor holds the
-// paste back and reports it; this stages the file and puts its inline file
-// chip where the paste would have gone. The send uploads it (as SnapShot
+// foldPastedText, client-runtime textPaste.ts): the composer's `paste` holds
+// the paste back (composer.contract pasted); this stages the file and
+// puts its inline file chip where the paste would have gone. The send uploads it (as SnapShot
 // images upload) and binds it as a `file` attachment plus its
 // FileContextRecord. The upload's id persists with the device's drafts; the
 // staged bytes live in memory until then.
 import { readStaged, removeStaged } from './composer-staged-copies';
 import type { T3Client } from '../client/client';
-import { bridgeReply, ClientError, type Native } from '../client/protocol';
+import { ClientError, bridgeReply, type Native } from '../client/protocol';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { pushToast } from '../shell/toast';
-import { pendingRequests } from './requests';
+import { composerInput, pendingRequests, requestPresentation } from './requests';
+import { composerIntentSource } from './composer-intent-source';
 import { contextId, contextLink, contextReferences } from './composer-editor-menu';
 import { videoMimeType } from './composer-video';
-import { claimComposerOSRecord, composerOSRecord } from './composer-os-record';
+import { claimComposerOSRecord, composerOSRecord, type ComposerOSRecord } from './composer-os-record';
 import { composerFieldCurrent } from './composer-field-bridge';
 import { composerFieldReplacement } from './composer-field-edit';
 import { composerSourceSession } from './composer-rich-state';
@@ -161,13 +162,58 @@ export function base64Utf8(text: string): string {
 
 // ── Staging, upload and send (ChatComposer addComposerAttachments) ─────────
 
-/** The native editor's limit for folding a paste here (0: keep it inline). */
+/**
+ * The byte limit a folded paste may have here (the composer's `paste` reads it: composer-editor.ts
+ * ComposerEditorView.foldLimit, composer.contract composerPasteDisposition). 0 when this paste cannot be staged: no
+ * project, a question that takes no attachments (foldPastedText's questionCanAttach) or a message with 100 attachments. -1 for a
+ * literal answer (isLiteralPendingAnswer), which keeps every paste inline.
+ */
 export function foldLimit(client: T3Client): number {
   const capabilities = obj(obj(client.config.environment).capabilities);
-  // Questions take no files here, and a message holds 100 attachments at most.
-  if (pendingRequests(client.projection).inputs.length > 0) return 0;
+  if (composerInput(client)?.active?.initialAnswer !== undefined) return -1;
+  if (!client.projectId) return 0; // no thread to stage for (canStageAttachment's activeThreadId)
+  if (pendingRequests(client.projection).inputs.length > 0) {
+    const question = requestPresentation(client).questions[0];
+    if (!question || capabilities.questionAttachments !== true || !question.customAllowed || question.responding) return 0;
+  }
   if (client.snapshotDrafts.length + referencedFiles(client.local, client.draftKey, client.draft).length >= MAX_ATTACHMENTS) return 0;
   return fileStagingLimit(capabilities);
+}
+
+export const PROMPT_LIMIT = 120_000; // PROVIDER_SEND_TURN_MAX_INPUT_CHARS
+export type PasteDisposition = 'inline' | 'fold' | 'too-large-message' | 'too-large-attach';
+
+/**
+ * foldPastedText's outcome for `text` pasted over [start, end) of a value `valueLength` units long, with `limit` as
+ * foldLimit gives it; bytes are UTF-8 as TextEncoder writes them (U+FFFD for an unpaired surrogate). The composer's
+ * Contract decides from lengths alone where it can (composerPasteDisposition), and holds the rest for this.
+ */
+export function pasteDisposition(text: string, valueLength: number, start: number, end: number, limit: number): PasteDisposition {
+  if (!text || limit < 0) return 'inline';
+  const from = Math.max(0, Math.min(valueLength, start)), to = Math.max(from, Math.min(valueLength, end));
+  const exceeds = valueLength - (to - from) + text.length > PROMPT_LIMIT, bytes = utf8Length(text);
+  if (!exceeds && text.length < PASTED_TEXT_THRESHOLD_BYTES && bytes < PASTED_TEXT_THRESHOLD_BYTES) return 'inline';
+  if (limit === 0 || bytes > limit) return !exceeds ? 'inline' : limit > 0 ? 'too-large-attach' : 'too-large-message';
+  return 'fold';
+}
+
+/** A paste the composer held (composer.contract pasted): its disposition, serial and the field's owners, value and selection then, and the text. */
+export type HeldPaste = { disposition: string; id: number; snapshotOwner: string; fieldOwner: string; value: string; start: number; end: number; text: string };
+
+/** attachFiles("fold", [record, value, text]): the record is `disposition\tsnapshotOwner\tfieldOwner\tstart\tend\tid`. */
+export function heldPaste(files: readonly string[]): HeldPaste | null {
+  const [record, value, text] = files;
+  const fields = typeof record === 'string' ? record.split('\t') : [];
+  if (fields.length !== 6 || typeof value !== 'string' || typeof text !== 'string') return null;
+  const [disposition, snapshotOwner, fieldOwner] = fields as [string, string, string];
+  const [start, end, id] = fields.slice(3).map(Number) as [number, number, number];
+  return { disposition, snapshotOwner, fieldOwner, value, start, end, id, text };
+}
+
+/** Whether Edit › Paste as Text chosen with the pointer armed this paste (T3Menus.swift; the reference's DESKTOP_PASTE_AS_TEXT_EVENT), consuming it. */
+export async function pasteAsTextArmed(native: Native): Promise<boolean> {
+  const reply = await bridgeReply(native, { op: 'composerPasteAsText' }).catch(() => null);
+  return reply?.ok === true && obj(reply.value).armed === true;
 }
 
 /** The staged pastes' text, by file id (the bytes live only in memory until sent). */
@@ -215,20 +261,53 @@ async function nativeCall(native: Native, request: Obj): Promise<Obj> {
 }
 
 /**
- * Consume the owner-bound OS fact and stage its attachment before one shared
- * source edit. Independent input acknowledgement settles cleanup and notices.
+ * foldPastedText for a paste the composer's `paste` held: `disposition` is composer.contract's
+ * composerPasteDisposition, "measure" deciding here by its bytes. Paste as Text armed from the menu, or a paste under
+ * the threshold, goes in as the field's own paste would. A refusal is the reference's toast; a fold stages the text
+ * and puts its chip in the paste's place with one guarded shared-field edit, whose acknowledgement settles the notice
+ * and cleanup.
  */
-export async function takeFold(client: T3Client, native: Native, fold: Obj, id: string): Promise<void> {
+export async function foldPaste(client: T3Client, native: Native, disposition: string, held: Omit<HeldPaste, 'disposition'>, id: string): Promise<void> {
+  if (await pasteAsTextArmed(native)) disposition = 'inline';
+  else if (disposition === 'measure') disposition = pasteDisposition(held.text, held.value.length, held.start, held.end, client.ready ? foldLimit(client) : 0);
+  if (disposition === 'inline') return pasteInline(client, native, held);
+  if (disposition === 'too-large-message' || disposition === 'too-large-attach') {
+    const attach = disposition === 'too-large-attach';
+    pushToast(client, { kind: 'error', title: attach ? 'Pasted text is too large to attach' : 'Pasted text is too large for this message',
+      description: attach ? 'Reduce the clipboard contents or save a smaller excerpt as a file.' : 'Remove some text or an attachment, then paste again.', hideCopy: true });
+    return;
+  }
+  if (disposition !== 'fold') return;
+  const fold = { ...held, expect: typeof held.value === 'string' ? held.value.slice(Number(held.start), Number(held.end)) : '' };
   const generation = client.generation;
   const currentOwner = () => generation === client.generation && fold.snapshotOwner === client.snapshotOwner && fold.fieldOwner === composerFieldOwner(client);
   const text = str(fold.text), claimed = claimComposerOSRecord(client, fold);
   const fact = claimed.kind === 'accepted' && text ? claimed.record : null;
-  if (Number.isSafeInteger(fold.id) && Number(fold.id) > 0) await nativeCall(native, { op: 'editorForgetFold', id: fold.id });
   if (!fact || !composerOSRecord(client, fold)) {
     if (currentOwner() && (claimed.kind === 'accepted' || claimed.kind === 'refused' && claimed.notify)) pushToast(client, { kind: 'info', title: 'Paste was not added', description: 'The prompt changed before the attachment could be inserted.', hideCopy: true });
     return;
   }
-  const key = `${client.draftKey}\u0000${Number(fold.id)}`;
+  const key = `${client.draftKey}\u0000${fold.id}`;
+  // The file belongs to the draft until its chip's edit is answered, though the editor view prunes the still empty draft.
+  const release = holdDraftFiles(client.local, client.draftKey);
+  let queued = false;
+  try { queued = await insertFold(client, native, fact, key, text, id, release); } finally { if (!queued) release(); }
+}
+
+/** The held text as the field's paste puts it (the composer's paste intent, composer-intent-source.ts), with one guarded edit. */
+async function pasteInline(client: T3Client, native: Native, held: Omit<HeldPaste, 'disposition'>): Promise<void> {
+  const session = composerSourceSession(client);
+  const reply = composerIntentSource(client, { kind: 'paste', text: held.text, snapshotOwner: held.snapshotOwner, owner: held.fieldOwner,
+    value: held.value, start: held.start, end: held.end, serial: 0, composing: false, mode: session.mode });
+  const notAdded = () => { pushToast(client, { kind: 'info', title: 'Paste was not added', description: 'The prompt changed before the paste could be inserted.', hideCopy: true }); };
+  if (reply.kind !== 'edit') { notAdded(); return; }
+  const result = await requestComposerField(native, { op: 'editorEdit', snapshotOwner: held.snapshotOwner, fieldOwner: held.fieldOwner, value: held.value,
+    start: reply.start, end: reply.end, expect: held.value.slice(reply.start, reply.end), text: reply.text, caret: reply.selectionEnd }).catch(() => ({ accepted: false }));
+  if (!result.accepted) notAdded();
+}
+
+/** Stages the fold's file and asks for its chip's edit; true when the edit waits for the field (its answer releases the file). */
+async function insertFold(client: T3Client, native: Native, fact: ComposerOSRecord, key: string, text: string, id: string, release: () => void): Promise<boolean> {
   let file = mapFor(folds, client).get(key);
   if (!file) {
     file = stageFold(client.local, client.draftKey, client.environmentId, text, id);
@@ -239,12 +318,13 @@ export async function takeFold(client: T3Client, native: Native, fold: Obj, id: 
   const request = { op: 'editorEdit', snapshotOwner: fact.snapshotOwner, fieldOwner: fact.fieldOwner, value: fact.value,
     start: fact.start, end: fact.end, expect: fact.expect, text: `${fileChipLink(file)} `, pad: true };
   const edit = snapshot && composerFieldReplacement(request, { snapshot, draftOwner: client.draftKey, mode: session.mode, chips: session.chips });
-  if (!snapshot || !edit || edit.kind === 'refused') { settleFold(client, file.id, false); return; }
+  if (!snapshot || !edit || edit.kind === 'refused') { settleFold(client, file.id, false); return false; }
   const expected = edit.edit.value.slice(0, edit.edit.start) + edit.edit.text + edit.edit.value.slice(edit.edit.end);
   const completion = prepareAttachmentEffect(client, snapshot, expected, { kind: 'fold', file: file.id });
-  if (!completion) { settleFold(client, file.id, false); return; }
-  const result = await requestComposerField(native, { ...request, completion }).catch(() => ({ accepted: false, queued: false, applied: false }));
+  if (!completion) { settleFold(client, file.id, false); return false; }
+  const result = await requestComposerField(native, { ...request, completion }, { applied: release, refused: release }).catch(() => ({ accepted: false, queued: false, applied: false }));
   if (!result.queued) finishAttachmentEffect(client, { ...edit.edit, completion }, result.applied, composerFieldCurrent(client, fact.fieldOwner));
+  return result.queued;
 }
 
 /** attachmentUploadQueue at send time: mint an upload URL, send the bytes (base64), keep the id. */
@@ -267,9 +347,7 @@ async function upload(client: T3Client, native: Native, file: DraftFile, base64:
 
 /** The staged bytes of a draft file, or null when they were lost (a folded paste across a restart, a staged copy removed). */
 async function stagedBytes(client: T3Client, native: Native, file: DraftFile): Promise<string | null> {
-  if (file.source === 'attached') {
-    return readStaged(file.id);
-  }
+  if (file.source === 'attached') return readStaged(file);
   const text = mapFor(texts, client).get(file.id);
   return text === undefined ? null : base64Utf8(text);
 }

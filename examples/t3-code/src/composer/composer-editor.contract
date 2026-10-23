@@ -58,6 +58,8 @@ shape ComposerEditorView
   overLimit: bool
   usageLimits: number
   stash: ComposerStash
+  // The byte limit for folding a large paste into a file, 0 when it cannot be staged (composer.contract composerPasteDisposition).
+  foldLimit: number
   drawer: ComposerDrawer
 
 // The stash badge's count lifts to the primary ink for 1.2s after a save;

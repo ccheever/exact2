@@ -4,7 +4,7 @@
 // files/AttachmentFilePreview.tsx with origin "Draft", onRemove (removeComposerFileFromDraft) and onClose.
 //
 // The preview is the sent attachment's (attachment-surface.ts) over the draft's own bytes, as the reference passes the
-// draft's Blob: a staged copy of an attached file (T3ComposerAttach.swift) or a folded paste's text, which this device
+// draft's Blob: a staged copy of an attached file (composer-attach-stage.ts) or a folded paste's text, which this device
 // holds until the send uploads them; a file the send already uploaded is read from the server as a sent one is.
 // The window draws it in composer-chip-file.contract; its controls arrive as `editorlocal:chip-file`.
 import type { T3Client } from '../client/client';
@@ -14,6 +14,7 @@ import { draftFiles, foldedText, type DraftFile } from './composer-editor-files'
 import { attachmentOp, attachmentView, emptyAttachment, forgetPreview, previewKind, type AttachmentMeta, type AttachmentView, type PreviewSource } from '../panel/attachment-surface';
 import { stagedMediaSrc, videoOp } from './composer-attachments';
 import { saveStaged, saveText, stagedText } from '../panel/attachment-files'; // a draft's staged copy, read and saved
+import { stagedName } from './composer-staged-copies';
 
 /** FILE_TEXT_PREVIEW_MAX_BYTES. */
 const PREVIEW_BYTES = 1024 * 1024;
@@ -53,15 +54,16 @@ export function draftSource(client: T3Client, native: Native, file: DraftFile): 
   if (file.status === 'ready' && file.attachmentId) return { meta, source: { id: file.id, key, origin: 'Draft', dialog: true, local: null } };
   const pasted = file.source !== 'attached';
   return { meta, source: { id: file.id, key, origin: 'Draft', dialog: true, local: {
-    // AudioPreview plays the staged copy's typed link (a Contract `audio`); a PDF or a page is the media body's, by id.
-    url: previewKind(file) === 'audio' && !pasted ? stagedMediaSrc(file.id, file.name) : `t3-staged:${file.id}`,
+    // AudioPreview plays the staged copy (a Contract `audio`); a PDF or a page is the media body's, by the copy's name
+    // (T3MediaPreview.swift reads it from composer-files/).
+    url: previewKind(file) === 'audio' && !pasted ? stagedMediaSrc(file) : `t3-staged:${stagedName(file)}`,
     text: async () => {
-      if (!pasted) return stagedText(file.id);
+      if (!pasted) return stagedText(stagedName(file));
       const text = foldedText(client, file.id);
       return text === undefined ? { ok: false, message: 'Could not load this file.' } : pastedPreview(text);
     },
     save: async () => {
-      if (!pasted) return saveStaged(client, file.id, file.name);
+      if (!pasted) return saveStaged(client, stagedName(file), file.name);
       const text = foldedText(client, file.id);
       if (text === undefined) throw new ClientError('The file could not be loaded. Try again.');
       await saveText(client, text, file.name);

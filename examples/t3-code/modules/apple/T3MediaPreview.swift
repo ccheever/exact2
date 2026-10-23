@@ -27,8 +27,8 @@ import WebKit
 ///   desktop's setWindowOpenHandler and parseSafeExternalUrl). Alerts and confirms show as
 ///   sheets; `prompt()` returns null, as in Electron. A non-persistent data store.
 ///
-/// A draft's file (`t3-staged:<id>`, the composer chip's preview) is read from its staged copy, as the reference reads the
-/// draft's Blob: a PDF the same way; an HTML page in the same wrapper and sandboxed frame as a sent one, both served
+/// A draft's file (`t3-staged:<name>`, the composer chip's preview, named by composer-staged-copies.ts stagedName) is
+/// read from its staged copy in composer-files/, as the reference reads the draft's Blob: a PDF the same way; an HTML page in the same wrapper and sandboxed frame as a sent one, both served
 /// to that web view alone by `T3DraftPages` (`t3-draft://<token>/`), so the page has the frame's opaque origin and
 /// its rules (a link navigates the frame in place, a popup opens externally, the window never navigates) and, as a
 /// Blob URL's page has, no siblings: any other path under the token is not found. Audio, sent or drafted, is a Contract
@@ -133,6 +133,15 @@ final class T3MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
 
     static let stagedScheme = "t3-staged:"
+
+    /// A staged copy's file in `directory` while it is there: `<uuid>` or `<uuid>.<ext>`, never another path.
+    static func stagedCopy(_ name: String, in directory: URL) -> URL? {
+        let parts = name.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false)
+        guard let id = parts.first, UUID(uuidString: String(id)) != nil,
+              parts.count == 1 || parts[1].allSatisfy({ $0.isASCII && ($0.isLowercase || $0.isNumber) }) && !parts[1].isEmpty else { return nil }
+        let url = directory.appendingPathComponent(name.lowercased())
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
 
     private func mountStaged(host: NSView, key: ObjectIdentifier, identity: String, kind: String, id: String, name: String) {
         guard ["pdf", "html"].contains(kind) else { return }

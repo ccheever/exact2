@@ -67,6 +67,20 @@ final class MenuTests: XCTestCase {
         XCTAssertEqual(menus.validateMenuItem(pasteText), NSApp.target(forAction: #selector(NSTextView.pasteAsPlainText(_:)), to: nil, from: pasteText) != nil)
     }
 
+    /// Chosen with the pointer, Paste as Text arms the composer's paste for one second, once (DESKTOP_PASTE_AS_TEXT_EVENT,
+    /// armPasteAsTextShortcut, consumePasteAsTextShortcut): TypeScript asks for it with `composerPasteAsText`.
+    func testPasteAsTextChosenFromTheMenuArmsOnePaste() {
+        _ = NSApplication.shared
+        let menus = T3Menus()
+        XCTAssertFalse(menus.takePasteAsText(), "not armed before the item is chosen")
+        menus.pasteAsText(nil)
+        let now = ProcessInfo.processInfo.systemUptime
+        XCTAssertTrue(menus.takePasteAsText(now: now))
+        XCTAssertFalse(menus.takePasteAsText(now: now), "one paste consumes it")
+        menus.pasteAsText(nil)
+        XCTAssertFalse(menus.takePasteAsText(now: ProcessInfo.processInfo.systemUptime + 1.5), "the deadline is one second")
+    }
+
     /// Check for Updates… is Contract's (settings-shortcuts.contract UpdateMenuItems); its press shows the
     /// reference's informational box, with no parent window.
     func testCheckForUpdatesShowsTheUnavailableBox() {
