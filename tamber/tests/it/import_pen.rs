@@ -629,3 +629,30 @@ fn round_3_recheck_2_collisions_more_bindings_and_themes() {
     // A node's theme binds nothing: `g` is read as a gap alone.
     assert_eq!(f.value("pen.g", 0).unwrap().css(), "4px");
 }
+
+#[test]
+fn round_3_recheck_2_every_schema_binding_counts() {
+    let design = parse(EMPTY).unwrap();
+    for prop in ["startAngle", "sweepAngle", "polygonCount", "weight"] {
+        let text = format!(
+            r#"{{"version":"2.21","variables":{{"n":{{"type":"number","value":8}}}},"children":[{{"type":"frame","gap":"$n","{prop}":"$n"}}]}}"#
+        );
+        let import = pen::import_with("x.pen", &text, "pen", &design, &vocab()).unwrap();
+        assert_eq!(
+            folded(&import).value("pen.n", 0).unwrap().css(),
+            "8",
+            "{prop}"
+        );
+    }
+    for prop in ["icon", "library", "model", "fontStyle"] {
+        let text = format!(
+            r#"{{"version":"2.21","variables":{{"s":{{"type":"string","value":"Inter"}}}},"children":[{{"type":"text","fontFamily":"$s","{prop}":"$s"}}]}}"#
+        );
+        let import = pen::import_with("x.pen", &text, "pen", &design, &vocab()).unwrap();
+        assert!(import.unmapped.iter().any(|u| u.name == "s"), "{prop}");
+    }
+    // A key the schema doesn't bind (`spread`) is no use: `n` is read as a gap alone.
+    let text = r#"{"version":"2.21","variables":{"n":{"type":"number","value":8}},"children":[{"type":"frame","gap":"$n","spread":"$n"}]}"#;
+    let import = pen::import_with("x.pen", text, "pen", &design, &vocab()).unwrap();
+    assert_eq!(folded(&import).value("pen.n", 0).unwrap().css(), "8px");
+}
