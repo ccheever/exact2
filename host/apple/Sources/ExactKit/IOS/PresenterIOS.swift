@@ -55,6 +55,8 @@ package final class Presenter {
     package let root = PlainView(frame: .zero)
     /// The viewport over it: the window's content, scrolling like a browser's.
     package let viewport: ScrollView = Viewport(frame: .zero)
+    /// The document's mount beside the viewport while the page stands still (`mountDocument`).
+    let documentMount = PresentationMount()
     package var views: [UInt32: NodeView] = [:]
     lazy var focusEvents = FocusEvents(self)
     /// Views leaving with their exit, by id (LLP 1063, `PresenceIOS.swift`).
@@ -335,6 +337,7 @@ package final class Presenter {
         var indicators = viewport.verticalScrollIndicatorInsets
         indicators.bottom = h
         viewport.verticalScrollIndicatorInsets = indicators
+        mountDocument() // the inset is range: the field being edited is revealed by the viewport
     }
 
     /// The viewport's size in points: what the kernel lays out under, the
@@ -412,7 +415,7 @@ package final class Presenter {
         if root.frame != frame { root.frame = frame }
         let content = CGSize(width: size.width + m.left + m.right, height: size.height + m.top + m.bottom)
         if viewport.contentSize != content { viewport.contentSize = content }
-        session?.view?.mountDocument()
+        mountDocument()
     }
     var onPress, onClose: ((UInt32) -> Void)?
     var onChange: ((UInt32, String) -> Void)?
