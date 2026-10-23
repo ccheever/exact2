@@ -7,33 +7,18 @@
 // from the paragraph's own lines (`paragraphLayout`), so a selection's rects
 // are the rects of the lines the kernel broke.
 //
-// Measured against a reference kept outside the repository (iOS 27.0, a
-// `UITextView` and a custom `UITextInput` view side by side):
-// - the interaction's recognizers take a touch only when its view is the
-//   touch's hit view, so the interaction is on the paragraph's own view and
-//   one selection is inside one paragraph (one `text`, its inline runs
-//   included). A selection across paragraphs needs one view that takes every
-//   touch on their text; that is not built.
-// - nothing is paid for until a finger lands: the interaction (15
-//   recognizers and 18 interactions of UIKit's) is added in the hit test
-//   that finds a selectable paragraph, before UIKit gathers the touch's
-//   recognizers, as a swipe row's cell is (`NodeView.hitTest`). At most
-//   `TextSelectionHost.kept` paragraphs hold one. Text nobody made
-//   selectable is never touched by any of this.
-// - the text input is a responder that is not a view: no view per
-//   paragraph, and it reports `isEditable` false, so no keyboard comes.
-// - the menu asks the interaction's view for Copy, so the node answers it
-//   (`Clipboard.swift`).
-// A tap still presses: UIKit's single taps swallow a touch, so they are off
-// until something is selected, when a tap in the text clears the selection
-// and presses nothing, as in a text view.
+// A selectable prose container shares one input and one touch surface across
+// its paragraphs (TextSelectionDocumentIOS). The surface sits below their ink.
+// A paragraph with a context menu keeps its own interaction so its row's menu
+// still wins the long press. Nothing is installed until text is touched;
+// at most TextSelectionHost.kept independent selections keep interactions.
+// A single tap with a selection up clears it without pressing.
 //
 // CSS `user-select: all` (CSS UI 4 §6.1): a selection that takes part of
 // such an element takes all of it, so a long press, a double tap or a handle
 // that reaches into one selects the element, not a word. A tap selects
 // nothing, as on a `UITextView`: a click's selection is the web's, not
-// UIKit's. One selection is inside one paragraph, so an element around the
-// paragraph selects the paragraph.
+// UIKit's. A shared input expands the selection across the element's paragraphs.
 #if os(iOS)
 import CoreText
 import UIKit
@@ -56,7 +41,7 @@ final class TextSelectionHost {
         node.isParagraph && presenter?.views[node.id] === node && !node.inert && !node.isHidden
             && (node.textSelectable || node.inlineText.contains(where: \.selectsAll))
     }
-    func text(for node: NodeView) -> SelectableText? { texts.first { $0.node === node } }
+    func text(for node: NodeView) -> SelectableText? { texts.first { $0.node === node || $0.document?.contains(node) == true } }
     /// The selection, if there is one: its paragraph, and its range in that
     /// paragraph's own text (its source, as `selectionchange` reports it).
     var selection: (node: NodeView, text: String, range: NSRange)? {
@@ -74,7 +59,14 @@ final class TextSelectionHost {
     func install(_ node: NodeView) -> SelectableText {
         if let held = text(for: node) { return held }
         while texts.count >= Self.kept, let old = texts.first(where: { !$0.busy }) { drop(old) }
-        let made = SelectableText(node: node, host: self)
+        var document: SelectionDocument?
+        if let owner = SelectionDocument.container(of: node) {
+            let paragraphs = SelectionDocument.paragraphs(in: owner, host: self)
+            if paragraphs.count > 1, paragraphs.allSatisfy({ $0.contextMenuSource == nil }) {
+                document = SelectionDocument(owner: owner, paragraphs: paragraphs, host: self)
+            }
+        }
+        let made = SelectableText(node: node, host: self, document: document)
         texts.append(made)
         return made
     }
@@ -105,7 +97,15 @@ final class TextSelectionHost {
     func selectWord(in node: NodeView, at point: CGPoint) -> (text: String, range: NSRange)? {
         guard admits(node) else { return nil }
         let held = install(node)
+        let point = held.node.map { node.convert(point, to: $0) } ?? point
         guard held.selectWord(at: point) else { return nil }
+        if let document = held.document, let part = document.parts.first(where: { $0.node === node }) {
+            let selected = NSIntersectionRange(held.selected, part.range)
+            guard selected.length > 0 else { return nil }
+            let lo = node.sourceOffset(selected.location - part.start), hi = node.sourceOffset(NSMaxRange(selected) - part.start)
+            let range = NSRange(location: lo, length: hi - lo)
+            return ((node.paragraphText as NSString).substring(with: range), range)
+        }
         return held.reportable
     }
     /// Copy: the selected text to the pasteboard. False with nothing selected.
@@ -117,18 +117,18 @@ final class TextSelectionHost {
     }
 }
 
-private final class SelectablePosition: UITextPosition {
+final class SelectablePosition: UITextPosition {
     let offset: Int
     init(_ offset: Int) { self.offset = offset }
 }
-private final class SelectableRange: UITextRange {
+final class SelectableRange: UITextRange {
     let range: NSRange
     init(_ range: NSRange) { self.range = range }
     override var start: UITextPosition { SelectablePosition(range.location) }
     override var end: UITextPosition { SelectablePosition(NSMaxRange(range)) }
     override var isEmpty: Bool { range.length == 0 }
 }
-private final class SelectableRect: UITextSelectionRect {
+final class SelectableRect: UITextSelectionRect {
     private let box: CGRect, first: Bool, last: Bool, rtl: Bool
     init(_ box: CGRect, first: Bool, last: Bool, rtl: Bool) { self.box = box; self.first = first; self.last = last; self.rtl = rtl }
     override var rect: CGRect { box }
@@ -144,7 +144,7 @@ private final class SelectableRect: UITextSelectionRect {
 final class SelectableText: UIResponder, UITextInput, UITextInteractionDelegate {
     private(set) weak var node: NodeView?
     private unowned let host: TextSelectionHost
-    let interaction = UITextInteraction(for: .nonEditable)
+    lazy var interaction = UITextInteraction(for: .nonEditable)
     /// The recognizers and the interactions UIKit added with the
     /// interaction, which it does not all take back with it.
     private var recognizers: [UIGestureRecognizer] = []
@@ -157,10 +157,16 @@ final class SelectableText: UIResponder, UITextInput, UITextInteractionDelegate 
 
     static func shaped(_ node: NodeView) -> NSString { node.paragraphSpec().runs.map(\.text).joined() as NSString }
 
-    init(node: NodeView, host: TextSelectionHost) {
+    let document: SelectionDocument?
+    var shapedText: NSString { text }
+    init(node: NodeView, host: TextSelectionHost, document: SelectionDocument? = nil, attach: Bool = true) {
         self.node = node; self.host = host
-        text = Self.shaped(node); laid = node.bounds.size
+        self.document = document
+        text = document?.text ?? Self.shaped(node); laid = node.bounds.size
         super.init()
+        guard attach else { return }
+        document?.surface.input = self
+        let node: UIView = document?.surface ?? node
         interaction.textInput = self
         interaction.delegate = self
         let before = node.gestureRecognizers ?? [], held = node.interactions
@@ -182,17 +188,20 @@ final class SelectableText: UIResponder, UITextInput, UITextInteractionDelegate 
     func detach() {
         clear()
         if isFirstResponder { _ = resignFirstResponder() }
-        guard let node else { return }
+        guard let held = node else { return }
+        let node: UIView = document?.surface ?? held
         node.removeInteraction(interaction)
         // Measured: two of UIKit's eighteen interactions stay behind.
         for left in node.interactions where companions.contains(where: { $0 === left }) { node.removeInteraction(left) }
         for left in node.gestureRecognizers ?? [] where recognizers.contains(where: { $0 === left }) { node.removeGestureRecognizer(left) }
         recognizers = []; companions = []
+        document?.surface.removeFromSuperview()
     }
     /// After a batch. False when the node no longer takes a selection.
     func settle() -> Bool {
         guard let node, host.admits(node) else { return false }
-        let now = Self.shaped(node)
+        if let document, !document.settle(host: host) { clear(); return false }
+        let now = document?.text ?? Self.shaped(node)
         if now != text {
             clear()
             text = now
@@ -214,7 +223,7 @@ final class SelectableText: UIResponder, UITextInput, UITextInteractionDelegate 
         }
     }
     private var display: UITextSelectionDisplayInteraction? {
-        node?.interactions.lazy.compactMap { $0 as? UITextSelectionDisplayInteraction }.first
+        (document?.surface ?? node)?.interactions.lazy.compactMap { $0 as? UITextSelectionDisplayInteraction }.first
     }
 
     // MARK: the selection
@@ -224,6 +233,7 @@ final class SelectableText: UIResponder, UITextInput, UITextInteractionDelegate 
     /// The selection in the node's source text, as `selectionchange` has it.
     var reportable: (text: String, range: NSRange)? {
         guard let node, selected.length > 0 else { return nil }
+        if document != nil { return (selectedText, selected) }
         let source = node.paragraphText as NSString
         let lo = min(node.sourceOffset(selected.location), source.length), hi = min(node.sourceOffset(NSMaxRange(selected)), source.length)
         guard hi > lo else { return nil }
@@ -244,6 +254,7 @@ final class SelectableText: UIResponder, UITextInput, UITextInteractionDelegate 
     /// The web's `selectionchange` on a `text`: its part of the selection
     /// when that changes; nothing selected there is "" at 0, 0.
     private func report() {
+        if let document { document.report(selected, host: host); return }
         guard let node, node.handlers.contains("selectionchange") else { return }
         let found = reportable
         let range = found?.range ?? NSRange(location: 0, length: 0)
@@ -257,11 +268,12 @@ final class SelectableText: UIResponder, UITextInput, UITextInteractionDelegate 
         inputDelegate?.selectionWillChange(self)
         set(NSRange(location: 0, length: 0))
         inputDelegate?.selectionDidChange(self)
-        node?.interactions.compactMap { $0 as? UIEditMenuInteraction }.forEach { $0.dismissMenu() }
+        textInputView.interactions.compactMap { $0 as? UIEditMenuInteraction }.forEach { $0.dismissMenu() }
     }
     /// The word at `point` (the node's space), by UIKit's own tokenizer, as
     /// its double tap takes it; shown as a gesture's selection is.
     func selectWord(at point: CGPoint) -> Bool {
+        let point = document.map { node?.convert(point, to: $0.surface) ?? point } ?? point
         let at = SelectablePosition(index(at: point))
         guard let word = (tokenizer.rangeEnclosingPosition(at, with: .word, inDirection: .storage(.forward))
             ?? tokenizer.rangeEnclosingPosition(at, with: .word, inDirection: .storage(.backward))) as? SelectableRange, word.range.length > 0 else { return false }
@@ -277,7 +289,8 @@ final class SelectableText: UIResponder, UITextInput, UITextInteractionDelegate 
     /// one that takes all of it. An empty range stays empty. In a paragraph
     /// whose own text is not selectable, only those runs are: a range that
     /// takes none of them selects nothing.
-    private func atomic(_ range: NSRange) -> NSRange {
+    func atomic(_ range: NSRange) -> NSRange {
+        if let document { return document.atomic(range) }
         guard let node, range.length > 0 else { return range }
         if node.selectAllElement != nil { return NSRange(location: 0, length: text.length) }
         let own = node.textSelectable
@@ -297,7 +310,7 @@ final class SelectableText: UIResponder, UITextInput, UITextInteractionDelegate 
 
     // MARK: the responder
 
-    override var next: UIResponder? { node }
+    override var next: UIResponder? { document?.surface ?? node }
     override var canBecomeFirstResponder: Bool { node?.window != nil }
     override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
@@ -337,6 +350,7 @@ final class SelectableText: UIResponder, UITextInput, UITextInteractionDelegate 
     }
     /// The caret nearest `point`, in the node's space.
     func index(at point: CGPoint) -> Int {
+        if let document { return document.index(at: point) }
         guard let node, let (paragraph, spec, box) = layout else { return 0 }
         let mapped = node.caretPoint(point)
         if mapped.y < box.minY { return 0 }
@@ -345,6 +359,7 @@ final class SelectableText: UIResponder, UITextInput, UITextInteractionDelegate 
         return found == kCFNotFound ? text.length : min(max(0, found), text.length)
     }
     private func rects(_ range: NSRange) -> [SelectableRect] {
+        if let document { return document.rects(range).compactMap { $0 as? SelectableRect } }
         guard let (paragraph, spec, box) = layout else { return [] }
         let everywhere = CGRect(x: -1e7, y: -1e7, width: 2e7, height: 2e7)
         let lines = paragraph.selectedLines(range, align: spec.align, in: box, dirty: everywhere)
@@ -407,13 +422,15 @@ final class SelectableText: UIResponder, UITextInput, UITextInteractionDelegate 
         return SelectableRange(back ? NSRange(location: max(0, at - 1), length: min(1, at)) : NSRange(location: at, length: min(1, text.length - at)))
     }
     func baseWritingDirection(for position: UITextPosition, in direction: UITextStorageDirection) -> NSWritingDirection {
-        node?.style["direction"]?.string == "rtl" ? .rightToLeft : .leftToRight
+        let node = (position as? SelectablePosition).flatMap { document?.part(at: $0.offset)?.node } ?? self.node
+        return node?.style["direction"]?.string == "rtl" ? .rightToLeft : .leftToRight
     }
     func setBaseWritingDirection(_ writingDirection: NSWritingDirection, for range: UITextRange) {}
     func firstRect(for range: UITextRange) -> CGRect {
         (range as? SelectableRange).flatMap { rects($0.range).first?.rect } ?? caretRect(for: range.start)
     }
     func caretRect(for position: UITextPosition) -> CGRect {
+        if let offset = (position as? SelectablePosition)?.offset, let document { return document.caret(at: offset) }
         guard let offset = (position as? SelectablePosition)?.offset, let (paragraph, spec, box) = layout else { return .zero }
         let i = line(of: offset, in: paragraph), line = paragraph.lines[i]
         var above: CGFloat = 0, below: CGFloat = 0
@@ -433,7 +450,8 @@ final class SelectableText: UIResponder, UITextInput, UITextInteractionDelegate 
         let at = index(at: point)
         return at < text.length ? SelectableRange(text.rangeOfComposedCharacterSequence(at: at)) : nil
     }
-    var textInputView: UIView { node ?? UIView() }
+    var textInputView: UIView { document?.surface ?? node ?? UIView() }
+    func copyDocument() { host.pasteboard.string = selectedText }
 }
 
 extension Presenter {
