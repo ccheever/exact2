@@ -27,6 +27,8 @@ pub fn io_grants(spec: &str) -> String {
 }
 
 /// A data source's answer: a value now, or a request for the host.
+// (most answers that leave a source are requests: boxing one would cost each an allocation)
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Answer {
     /// The value, now.
@@ -148,6 +150,14 @@ pub struct Request {
     /// last one, never dropped. Unset, such a body is the stream's one
     /// answer. Set by TypeScript's `fetch(url, {exactStream})`.
     pub bytes: bool,
+    /// An HTTP stream that is a long poll (LLP 1016.000 D8): the host asks
+    /// the URL, delivers each reply as one [`Message`] (its `id` the new
+    /// cursor), and asks again with the cursor taken from that reply, one
+    /// request at a time, a heartbeat asked again with no message, a
+    /// transient failure after `Retry-After` or a bounded backoff. Set by
+    /// TypeScript's `fetch(url, {exactStream, exactLongPoll})` and
+    /// [`Request::long_poll`].
+    pub long_poll: Option<Box<LongPoll>>,
     /// A deadline for the whole exchange, in milliseconds: headers and body.
     /// The host cancels the request when it passes and replies
     /// [`FailureKind::Timeout`]. `None` keeps the host's own limits (on Apple,
@@ -171,6 +181,36 @@ pub struct Request {
     /// Set by TypeScript's `fetch(url, {exactHeld: true})` and [`Request::held`].
     pub held: bool,
 }
+
+/// A long poll's terms (LLP 1016.000 D8).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LongPoll {
+    /// The query parameter the next request carries the cursor in.
+    pub cursor: String,
+    /// The reply's JSON field the next cursor is: a member's name, or two
+    /// joined by `.` for one level of nesting.
+    pub from: String,
+    /// A reply whose cursor is the one asked with is delivered, not a
+    /// heartbeat (`sameCursor: "event"`): for an endpoint that sends new
+    /// data under an unchanged cursor.
+    pub same_cursor_event: bool,
+}
+
+/// A long poll waiting to ask again after a transient failure (D8), as
+/// `state.streams` shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Retrying {
+    /// The failures in a row so far, from 1.
+    pub attempt: u32,
+    /// How long until it asks again, in ms.
+    pub in_ms: u64,
+    /// What failed: the network's error, or the status.
+    pub error: String,
+}
+
+/// The host's live view of its long polls' waits (D8), by stream ticket;
+/// `None` for a ticket that is not waiting.
+pub type RetryReader = std::sync::Arc<dyn Fn(u64) -> Option<Retrying> + Send + Sync>;
 
 /// The largest file [`Request::body_from`] sends: 64 MiB.
 pub const MAX_BODY_FROM_BYTES: u64 = 64 << 20;
@@ -206,6 +246,7 @@ impl Request {
             stream: false,
             socket: false,
             bytes: false,
+            long_poll: None,
             timeout_ms: None,
             body_from: None,
             redirect: Redirect::Follow,
@@ -264,6 +305,7 @@ impl Request {
             stream: false,
             socket: false,
             bytes: false,
+            long_poll: None,
             timeout_ms: None,
             body_from: None,
             redirect: Redirect::Follow,
@@ -286,6 +328,7 @@ impl Request {
             stream: false,
             socket: false,
             bytes: false,
+            long_poll: None,
             timeout_ms: None,
             body_from: None,
             redirect: Redirect::Follow,
@@ -379,6 +422,17 @@ impl Request {
     /// Storage and continuation requests with this annotation are refused.
     pub fn independent_http(mut self, max_response_bytes: u32) -> Self {
         self.http = HttpScheduling::Independent { max_response_bytes };
+        self
+    }
+
+    /// As a long poll (see [`Request::long_poll`]): `cursor` the query
+    /// parameter asked again with, `from` the reply's JSON field it comes from.
+    pub fn long_poll(mut self, cursor: &str, from: &str) -> Self {
+        self.long_poll = Some(Box::new(LongPoll {
+            cursor: cursor.into(),
+            from: from.into(),
+            same_cursor_event: false,
+        }));
         self
     }
 

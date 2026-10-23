@@ -100,10 +100,10 @@ pub use instance::collection::{
 pub use instance::{DocNode, DocTree, DocTreeError, ListLinks, SurfaceUpdate, LISTS};
 pub use page::Page;
 pub use request::{
-    io_grants, Answer, Dispatch, FailureKind, HttpScheduling, Message, Outcome, Placement,
-    Redirect, Reply, Request, RequestOut, Response, SocketOp, SocketOrigin, SocketSend,
-    SurfaceOutcome, SurfaceRequest, Work, MAX_BODY_FROM_BYTES, MAX_BODY_FROM_PATH,
-    MAX_HOST_WORK_BYTES, MAX_TIMEOUT_MS, NATIVE_URL,
+    io_grants, Answer, Dispatch, FailureKind, HttpScheduling, LongPoll, Message, Outcome,
+    Placement, Redirect, Reply, Request, RequestOut, Response, RetryReader, Retrying, SocketOp,
+    SocketOrigin, SocketSend, SurfaceOutcome, SurfaceRequest, Work, MAX_BODY_FROM_BYTES,
+    MAX_BODY_FROM_PATH, MAX_HOST_WORK_BYTES, MAX_TIMEOUT_MS, NATIVE_URL,
 };
 pub use runner::{
     canvas_engine, press_writes_router, routing, virtual_frame, Advanced, Announce, AuthLinks,

@@ -34,6 +34,16 @@ pub(super) fn state<D: DataSource>(runner: &Runner<D>, s: &mut String) {
                 socket.sent
             );
         }
+        // A long poll waiting to ask again (LLP 1016.000 D8).
+        if let Some(retry) = runner.retrying(*ticket) {
+            let _ = write!(
+                s,
+                ",\"retrying\":{{\"attempt\":{},\"inMs\":{},\"error\":",
+                retry.attempt, retry.in_ms
+            );
+            quote(&retry.error, s);
+            s.push('}');
+        }
         s.push('}');
     }
     s.push(']');

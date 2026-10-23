@@ -29,6 +29,8 @@ enum Opened {
     Events(StreamingResponse, usize),
     Bytes(StreamingResponse, usize),
     Socket(Box<dyn MessageSource>, usize),
+    /// A long poll (LLP 1016.000 D8), asked by its own loop: its first request and per-reply ceiling.
+    LongPoll(Request, usize),
 }
 pub(super) use socket::{close as close_sockets, release, Socket};
 
@@ -70,6 +72,15 @@ pub(super) fn run(
                 .map_err(|e| format!("the app's grants did not parse: {e}"))
         });
         match bindings {
+            Ok(b) if request.long_poll.is_some() => {
+                let limit = match request.http {
+                    HttpScheduling::Ordered => MAX_BODY,
+                    HttpScheduling::Independent { max_response_bytes } => {
+                        max_response_bytes as usize
+                    }
+                };
+                Ok((Opened::LongPoll(request.clone(), limit), b))
+            }
             Ok(b) if is_socket(&request.url) => open_socket(&b, request, &abort).map(|s| (s, b)),
             // A body from an app file, read as the stream opens (LLP 1108 D6 R2).
             Ok(b) => {
@@ -98,6 +109,9 @@ pub(super) fn run(
             socket::read(shared, ticket, socket, limit, abort)
         }
         Ok((Opened::Socket(socket, _), _bindings)) => read_socket(shared, ticket, socket, abort),
+        Ok((Opened::LongPoll(request, limit), bindings)) => {
+            long_poll::run(shared, ticket, request, forced, &bindings, limit, abort)
+        }
         Err(outcome) => complete(shared, ticket, outcome),
     }
 }
@@ -445,6 +459,8 @@ impl EventStream {
 
 #[path = "executor_bytes.rs"]
 mod bytes;
+#[path = "executor_longpoll.rs"]
+mod long_poll;
 #[path = "executor_socket.rs"]
 mod socket;
 

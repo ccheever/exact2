@@ -45,6 +45,29 @@ pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
         stream: j.get("stream").and_then(Json::as_bool).unwrap_or(false),
         socket: j.get("socket").and_then(Json::as_bool).unwrap_or(false),
         bytes: j.get("bytes").and_then(Json::as_bool).unwrap_or(false),
+        // `exactLongPoll` (LLP 1016.000 D8): its cursor parameter and the reply field it is taken from.
+        long_poll: match j.get("long_poll") {
+            None | Some(Json::Null) => None,
+            Some(lp) => {
+                let name = |k: &str| {
+                    lp.get(k)
+                        .and_then(Json::as_str)
+                        .filter(|s| (1..=256).contains(&s.chars().count()))
+                        .map(str::to_string)
+                        .ok_or_else(|| {
+                            format!("exactLongPoll.{k} must be a name of 1 to 256 characters")
+                        })
+                };
+                Some(Box::new(exact_runner::LongPoll {
+                    cursor: name("cursor")?,
+                    from: name("from")?,
+                    same_cursor_event: lp
+                        .get("same_cursor_event")
+                        .and_then(Json::as_bool)
+                        .unwrap_or(false),
+                }))
+            }
+        },
         timeout_ms: match j.get("timeout_ms") {
             None | Some(Json::Null) => None,
             Some(value) => Some(
