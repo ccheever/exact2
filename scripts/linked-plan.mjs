@@ -111,14 +111,16 @@ function fresh(record, dir, env, tool) {
 
 /** Bakes `app` for `platform` and `target` into its linked bake directory,
  * unless the bake there is fresh; the directory. A bake that fails throws
- * what it said, as the build script's failure ends a build. The caller holds
- * the app's build claim (host/apple/build.mjs `appleBuildLock`), the one
+ * what it said, as the build script's failure ends a build. `prepareRust`
+ * refreshes the compiled baker through Cargo before it reads new inputs.
+ * The caller holds the app's build claim (host/apple/build.mjs `appleBuildLock`), the one
  * writer of the directory. */
-export function bakeOutside(app, platform, target, env) {
+export function bakeOutside(app, platform, target, env, prepareRust) {
   const dir = linkedBakeDir(env, platform, target), at = resolve(dir, 'inputs.json');
   let executable = bakeTool.built, args = [app.dir, '--cargo', platform, target, dir], cwd = app.dir, runEnv = cargoEnvironment(env);
   const rust = existsSync(resolve(app.dir, 'data/Cargo.toml'));
   if (rust) {
+    prepareRust?.(dir);
     // Cargo registers the app's own compiled build script on its first run.
     // It also refreshes that registration and bake when Rust inputs change.
     const registry = resolve(dir, 'rust-baker.json');

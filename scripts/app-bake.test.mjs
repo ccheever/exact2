@@ -615,9 +615,14 @@ test.skipIf(!process.env.EXACT_RUST_BAKE_TEST)('a linked Rust bake changes its p
     write('data/Cargo.toml', '');
     write('src/lib.rs', 'include!(concat!(env!("OUT_DIR"), "/entry.rs"));');
     write('app.contract', 'first');
-    write('build.rs', `fn main() {
+    write('app.json', 'nextTrains');
+    write('data/src/lib.rs', `pub fn next_trains() -> &'static str { "nextTrains" }`);
+    write('build.rs', `#[path="data/src/lib.rs"] mod data;
+    fn main() {
       if exact_bake::take_linked(&["entry.rs"]).unwrap() { return; }
       println!("cargo:rerun-if-changed=app.contract");
+      println!("cargo:rerun-if-changed=app.json");
+      assert_eq!(std::fs::read_to_string("app.json").unwrap(), data::next_trains(), "unknown widget refresh");
       println!("cargo:rerun-if-env-changed=FIXTURE_BINARY");
       let out=std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
       std::fs::write(out.join("app.plan"), std::fs::read("app.contract").unwrap()).unwrap();
@@ -639,6 +644,7 @@ test.skipIf(!process.env.EXACT_RUST_BAKE_TEST)('a linked Rust bake changes its p
       assert.equal(result.status,0,result.stderr);
       return {...result.stdout.split('\n').filter(line=>line.startsWith('{')).map(line=>JSON.parse(line)).find(row=>row.reason==='compiler-artifact'&&row.target.name==='linked_rust_fixture'), diagnostic: result.stderr};
     };
+    const bake = () => bakeOutside(app,'macos',target,env,() => cargo());
     cargo(); // Compile and run the baker through the rlib first.
     const first=cargo(true), library=first.filenames.find(name=>name.endsWith('.a'));
     recordRustBake(env);
@@ -647,14 +653,21 @@ test.skipIf(!process.env.EXACT_RUST_BAKE_TEST)('a linked Rust bake changes its p
     assert.ok(Number.isFinite(watches.at));
     const initial=statSync(library,{bigint:true}).mtimeNs;
     write('app.contract','second');
-    bakeOutside(app,'macos',target,env);
+    bake();
     assert.equal(readFileSync(resolve(env.EXACT_BAKED,'app.plan'),'utf8'),'second');
     const unchanged=cargo(true);
     assert.equal(unchanged.fresh,true,unchanged.diagnostic);
     assert.equal(statSync(library,{bigint:true}).mtimeNs,initial);
     env.FIXTURE_BINARY='two';
-    bakeOutside(app,'macos',target,env);
+    bake();
     assert.equal(cargo(true).fresh,false,'a generated Rust change must still compile');
     assert.match(readFileSync(resolve(env.EXACT_BAKED,'entry.rs'),'utf8'),/two/);
+    write('app.json','upcomingTrains');
+    write('data/src/lib.rs', `pub fn next_trains() -> &'static str { "upcomingTrains" }`);
+    bake();
+    assert.equal(cargo(true).fresh,false,'the coordinated Rust edit compiles');
+    recordRustBake(env);
+    write('app.json','unknownRefresh');
+    assert.throws(bake,/unknown widget refresh/,'a refresh absent from the current Rust implementation is rejected');
   } finally { rmSync(dir,{recursive:true,force:true}); }
 },300000);
