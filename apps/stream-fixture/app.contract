@@ -1,0 +1,59 @@
+// The stream fixture (LLP 1133.003 §9): H.264 as the T3 Code device player
+// receives it, from `serve.mjs`: serve-sim's `stream.avcc` body (a byte
+// stream) and serve-emu's SEMU frames (a WebSocket). Each stream's mapper
+// parses its framing and hands every frame to the decoder, answering an
+// unchanged snapshot. The spinner keeps the presenter drawing, so a run
+// with no stream is the frame-time baseline.
+
+keyframes turn
+  to rotate="360deg"
+
+shape Feed
+  live: bool
+  failed: string
+
+component StreamFixture
+  state first = ""
+  state second = ""
+  state third = ""
+  resource a = screen(first, "a") as shape Feed else empty()
+  resource b = screen(second, "b") as shape Feed else empty()
+  resource c = screen(third, "c") as shape Feed else empty()
+  action one(mode: string)
+    first = mode
+    second = ""
+    third = ""
+  action three(mode: string)
+    first = mode
+    second = mode
+    third = mode
+  action duo
+    first = "ios"
+    second = "ios"
+    third = "android"
+  action stop
+    first = ""
+    second = ""
+    third = ""
+  view
+    column testId="fixture" width="100%" height="100%" gap=12 padding=24 box-sizing="border-box"
+      row gap=12 align-items="center"
+        column width=20 height=20 background-color="AccentColor" animation="turn 1s linear infinite" testId="spinner"
+        text "Stream Fixture" font-size=20 font-weight=600
+      text (a.live ? "a live" : a.failed) testId="a"
+      text (b.live ? "b live" : b.failed) testId="b"
+      text (c.live ? "c live" : c.failed) testId="c"
+      button press=one("ios") testId="ios"
+        text "One iOS stream"
+      button press=one("ios-split") testId="ios-split"
+        text "One iOS stream, small writes"
+      button press=one("android") testId="android"
+        text "One Android stream"
+      button press=three("ios") testId="three-ios"
+        text "Three iOS streams"
+      button press=three("android") testId="three-android"
+        text "Three Android streams"
+      button press=duo testId="duo"
+        text "Two iOS and one Android"
+      button press=stop testId="stop"
+        text "Stop"

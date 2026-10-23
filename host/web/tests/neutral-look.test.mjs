@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { withLook, appleColors } from '../look.mjs';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { glueDeclarations } from './glue-fixture.mjs';
+import { decodePng } from '../../../scripts/png.mjs';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const shell = read('../index.html'), neutral = read('../neutral.css');
@@ -75,7 +76,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'button-image-gap': ['--exact-button-column-gap', '--exact-button-row-gap'],
     'tabbar-symbol': ['width', 'height'], 'tabbar-gap': ['--exact-button-space-height'],
     'sidebar-row-height': ['min-height'], 'sidebar-symbol': ['width', 'height'], 'sidebar-gap': ['--exact-button-space-width'],
-    'back-padding-start': ['padding'], 'back-padding-end': ['padding'],
+    'back-padding-start': ['padding'], 'back-padding-end': ['padding'], 'bar-symbol-size': ['font-size'],
     'alert-width': ['width'], 'alert-margin': ['width'], 'alert-padding': ['padding'], 'alert-gap': ['gap'], 'alert-action-gap': ['gap'],
     'alert-title': ['font-size'], 'alert-message-gap': ['margin-bottom', 'margin-top'], 'alert-scroll-gutter': ['padding-inline-end'],
     'menu-min-width': ['min-width'], 'menu-max-width': ['max-width'], 'menu-margin': ['max-width'], 'menu-padding': ['padding'], 'menu-offset': ['margin'],
@@ -98,8 +99,9 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'box-shadow': ['64px'], // a hovered row's wash reaches the card's edge, past any inset a row has
     'font-size': ['1em'], // an alert's message is the body size
     'margin-block': [`${largeTitle / 16}rem`], // a bar's level-1 title takes the large title's line
-    'margin': ['.5em'], '--exact-symbol-away': ['.5em'], '--exact-symbol-toward': ['.5em'], // a button's symbol overhangs its 1em place by half its growth
+    'margin': ['.5em', '1rem', '1em'], '--exact-symbol-away': ['.5em'], '--exact-symbol-toward': ['.5em'], // a button's symbol overhangs its 1em place by half its growth (a bar item's, its 1rem place)
     'padding-block': ['.125em'], // a written height keeps room for a titled button's symbol's ink past its place
+    'width': ['1em'], 'height': ['1em'], // a bar item's symbol is its em square times its scale, as a button face's is
   };
   const lengths = (text) => [...text.matchAll(/(?<![\w.#])(\d*\.?\d+)(px|rem|em)\b/g)].map((m) => m[0]).filter((token) => parseFloat(token) !== 0);
   const declarations = (css) => [...css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/url\("[^"]*"\)/g, '').matchAll(/\{([^{}]*)\}/g)]
@@ -129,13 +131,13 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'mark-dot': `radial-gradient(circle closest-side, currentColor ${percent('mark-dot')},`,
     'mark-disabled-alpha': `:disabled { opacity: ${alpha('mark-disabled-alpha')}; }`,
     'button-tint-alpha': `{ background-color: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-tint-alpha')}, transparent); }`,
-    'button-hover-tinted': `:hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-tint-alpha')}, transparent); background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-hover-tinted')}, transparent) 0 0); }`,
+    'button-hover-tinted': `:hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-tint-alpha')}, transparent); background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-hover-tinted')}, transparent); }`,
     'button-hover-filled': `:hover { background-color: var(--exact-accent, AccentColor); background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-hover-filled')}, transparent) 0 0); }`,
-    'button-pressed-tinted': `[data-button-style="bordered-tinted"])[data-pressed]:not(:disabled) { background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-pressed-tinted')}, transparent) 0 0); }`,
+    'button-pressed-tinted': `[data-button-style="bordered-tinted"])[data-pressed]:not(:disabled) { background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-pressed-tinted')}, transparent); }`,
     'button-pressed-alpha': [`{ background-color: light-dark(color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-pressed-alpha')}, transparent),`, `& > :not(img), &::after { opacity: ${alpha('button-pressed-alpha')}; }`, `& > img { --exact-tint: color-mix(in srgb, currentColor ${percent('button-pressed-alpha')}, transparent); }`],
-    'button-pressed-lighten': [`color-mix(in srgb, var(--exact-accent, AccentColor), #fff ${percent('button-pressed-lighten')})); background-image: none; }`, `{ background-image: linear-gradient(color-mix(in srgb, #fff ${percent('button-pressed-lighten')}, transparent) 0 0); }`],
+    'button-pressed-lighten': [`color-mix(in srgb, var(--exact-accent, AccentColor), #fff ${percent('button-pressed-lighten')})); background-image: none; }`, `{ background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, #fff ${percent('button-pressed-lighten')}, transparent); }`],
     'bar-hover-alpha': `{ opacity: var(--exact-hover-dim, ${alpha('bar-hover-alpha')}); }`,
-    'select-line-height-coarse': `select:not([multiple]) { line-height: ${value.get('select-line-height-coarse')}; }`,
+    'select-line-height-coarse': `--exact-control-line-height: ${value.get('select-line-height-coarse')};`,
     'switch-thumb': `radial-gradient(circle closest-side, currentColor ${percent('switch-thumb')},`,
     'segment-shadow-alpha': `box-shadow: 0 1px 2px rgb(0 0 0 / ${alpha('segment-shadow-alpha')});`,
     'raised-shadow-alpha': `--exact-raised: 0 0 0 1px var(--exact-separator), 0 4px 12px rgb(0 0 0 / ${alpha('raised-shadow-alpha')});`,
@@ -148,13 +150,15 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
   // The one ratio the table does not hold: iOS's large-title line height, about 41 pt for 34 pt, which a bar's
   // level-1 title takes at the large title's size.
   expect(neutral.includes(`margin-block: max(0px, (${largeTitle / 16}rem * 1.2 - 1lh) / 2);`)).toBe(true);
-  expect(shell.includes(`select:not([multiple]) { appearance: none; font: inherit; letter-spacing: inherit; color: inherit; line-height: ${value.get('select-line-height')};`)).toBe(true);
+  expect(shell.includes(`line-height: var(--exact-control-line-height); --exact-control-line-height: ${value.get('select-line-height')};`)).toBe(true);
   // A control's line is one height and its title one weight, wherever the sheets write them: a select's own line
   // aside, and a menu's rows, which are regular.
   const all = (css, property) => [...new Set(declarations(css).filter(([p]) => p === property).map(([, v]) => v.trim()))];
-  expect(all(neutral, 'line-height').sort()).toEqual([String(value.get('control-line-height')), String(value.get('select-line-height-coarse'))]);
+  expect(all(neutral, 'line-height').sort()).toEqual([String(value.get('control-line-height')), 'var(--exact-control-line-height)']);
+  // Every symbol's scale is one of the two rows: a bar item's restates the image's.
+  expect(all(neutral, '--exact-symbol-scale').sort()).toEqual([String(value.get('symbol-scale')), String(value.get('button-symbol-scale'))]);
   expect(all(neutral, 'font-weight').sort()).toEqual(['400', String(value.get('control-weight'))]);
-  expect(shell.includes(`font-weight: ${value.get('control-weight')}; border-radius: var(--exact-control-radius, ${length('control-radius')});`)).toBe(true);
+  expect(shell.includes(`font-weight: ${value.get('control-weight')}; --exact-said-font-weight: ; border-radius: var(--exact-control-radius, ${length('control-radius')});`)).toBe(true);
   expect(rows.filter(([name, kind]) => kind === 'number' && !RATIO[name] && !['control-line-height', 'control-weight', 'select-line-height'].includes(name)).map(([name]) => name)).toEqual([]);
 });
 
@@ -388,6 +392,24 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       // own keeps it.
       const OWN = [[52, 199, 89, 1], '1'], [inks, heldInks] = (await highlight('translucent')).map((seen) => seen[4]);
       expect([at('symbols'), inks, heldInks]).toEqual([at('symbols'), [[inks[0][0], '1'], OWN, OWN], [[[...inks[0][0].slice(0, 3), 0.75], '1'], OWN, OWN]]);
+      // Released (the input glue marks it), a button eases out of its press over a quarter second: a filled button's
+      // fill, a face, a symbol in the button's ink, a sheet's word and a wash; a symbol in a colour of its own has
+      // nothing to ease.
+      const released = (id) => page.evaluate((id) => {
+        const b = document.getElementById(id);
+        b.setAttribute('data-pressed', '');
+        getComputedStyle(b).opacity;
+        b.removeAttribute('data-pressed');
+        b.setAttribute('data-exact-released', '');
+        // (WebKit eases an `::after` that draws nothing too.)
+        const eases = b.getAnimations({ subtree: true }).filter((a) => !a.effect.pseudoElement || getComputedStyle(a.effect.target, a.effect.pseudoElement).content !== 'none');
+        const seen = eases.map((a) => `${a.effect.target.id || a.effect.target.localName}${a.effect.pseudoElement ?? ''} ${a.transitionProperty} ${a.effect.getTiming().duration} ${a.effect.getTiming().easing}`).sort();
+        for (const a of eases) a.finish();
+        b.removeAttribute('data-exact-released');
+        return seen;
+      }, id);
+      const EASED = { translucent: ['span opacity', 'translucent background-color', 'unsaid background-color'], 'sheet-cancel': ['sheet-cancel::after opacity'], glass: ['glass --exact-wash', 'span opacity'], bordered: ['bordered --exact-wash'], gray: ['gray --exact-wash'], tinted: ['tinted --exact-wash'] };
+      for (const [id, eased] of Object.entries(EASED)) expect([at('released'), id, await released(id)]).toEqual([at('released'), id, eased.map((ease) => `${ease} 250 ease-in-out`)]);
       // A tinted button held shows its stronger wash under a pointer too.
       await page.hover('#tinted');
       expect([at('tinted hovered'), (await highlight('tinted')).map((seen) => seen[1][3])]).toEqual([at('tinted hovered'), [0.08, 0.16]]);
@@ -533,7 +555,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a sheet
 const glueApply = `(() => {
   globalThis.exact ??= {};
   const views = window.glueViews = new Map(), retiredViews = new WeakSet(), root = document.getElementById('exact-root'), log = () => {};
-  const presence = { live: null }, listSelection = null, page = null, agentMode = false, inputReady = false, inputHandlers = null;
+  const presence = { live: null }, listSelection = null, page = null, agentMode = false, agentKeepsStore = false, inputReady = false, inputHandlers = null;
   const motion = { destroy() {} }, arrange = { destroy() {} }, collections = { commit() {}, restyled() {}, jump() {} };
   const followedScrolls = new Map(), pendingScrolls = new Map(), lists = new WeakSet(), messageFrames = new WeakMap(), messageViews = new Map();
   const viewFor = (_, id) => views.get(id), prepareContexts = () => {}, forgetList = () => {}, followScroll = () => {}, settleFollow = () => {}, settleValue = () => {};
@@ -814,15 +836,85 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a bar's
 
 // What the author writes wins (LLP 1115). In CSS a minimum outranks a size and a border box is never narrower than
 // its padding, so the look's floor and padding would redraw `button width=84 height=24` as 84 by 36. The hosts name a
-// written size (`data-exact-said`, host/web/src/element.rs) and the sheet steps aside on that axis.
-test('a size the author wrote on a platform button is its box, and an unsized button keeps the look\'s floor', async () => {
-  const browser = await launch('chromium');
+// written size (`data-exact-said`, host/web/src/element.rs) and the sheet steps aside on that axis. A written padding
+// is UIKit's `contentInsets`, which no floor raises in any style, so there the button is its title's line and that
+// padding, under a mouse and on a touch device, written inline (as the wasm runtime writes it) or in a class (the JS
+// target's); an outline stays drawn around the padding.
+for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a size or a padding the author wrote on a platform button is its box, and an unsaid one keeps the look's floor`, async () => {
+  const browser = await launch(engine);
   try {
-    const page = await browser.newPage({ viewport: { width: 600, height: 400 }, colorScheme: 'light' });
-    const button = (id, style, said) => `<button type="button" data-native data-button-style="bordered" id="${id}" style="${style}"${said ? ` data-exact-said="${said}"` : ''}>Go</button>`;
-    await page.setContent(`<style>${sheet()}</style><div id="exact-root">${button('unsized', '')}${button('sized', 'width:84px;height:24px', 'width height')}${button('square', 'width:28px;height:28px', 'width height')}${button('short', 'height:24px', 'height')}${button('unsaid', 'width:28px;height:28px')}</div><script>${helpers}</script>`);
-    const got = await page.evaluate(() => ({ unsized: box('unsized')[3], sized: box('sized').slice(2), square: box('square').slice(2), short: box('short')[3], unsaid: box('unsaid').slice(2) }));
-    expect(got).toEqual({ unsized: 36, sized: [84, 24], square: [28, 28], short: 24, unsaid: [36, 36] }); // `unsaid`: the floor, were the host not to say
+    for (const touch of [false, true]) {
+      const context = await browser.newContext({ viewport: { width: 600, height: 400 }, hasTouch: touch, ...(touch && engine === 'chromium' ? { isMobile: true } : {}) });
+      const page = await context.newPage();
+      const button = (id, style, said, look = 'bordered', own = '') => `<button type="button" data-native data-button-style="${look}" id="${id}"${own && ` class="${own}"`} style="display:grid;${style}"${said ? ` data-exact-said="${said}"` : ''}><span data-exact-text>Go</span></button>`;
+      await page.setContent(`<meta name="viewport" content="width=device-width, initial-scale=1"><style>${sheet()} #exact-root#exact-root { & .flush { padding-top: 0; padding-bottom: 0; } }</style><div id="exact-root">
+        ${button('unsized', '')}${button('sized', 'width:84px;height:24px', 'width height')}${button('square', 'width:28px;height:28px', 'width height')}${button('short', 'height:24px', 'height')}${button('unsaid', 'width:28px;height:28px')}
+        ${button('plain', 'padding-top:0;padding-bottom:0', 'padding-block', 'plain')}${button('borderless', '', 'padding-block', 'borderless', 'flush')}${button('gray', '', 'padding-block', 'gray', 'flush')}${button('filled', 'padding:0', 'padding-inline padding-block', 'filled')}
+        ${button('outline', 'padding:0', 'padding-inline padding-block')}${button('inset', 'padding-top:4px;padding-bottom:4px', 'padding-block', 'plain')}${button('padding-unsaid', 'padding-top:0;padding-bottom:0', '', 'plain')}
+        ${button('one-side', 'padding-top:0', 'padding-block', 'plain')}
+        <div role="radiogroup">${button('segment', 'padding:0', 'padding-block padding-inline', 'gray').replace('type="button"', 'type="button" role="radio"')}</div>
+        <div role="menu">${button('menu-row', 'padding:0', 'padding-block padding-inline', 'plain')}</div>
+        ${button('bound', 'padding-top:0;padding-bottom:0', '', 'plain').replace('data-native', 'data-native data-exact-padding-top data-exact-padding-bottom')}
+
+      </div><script>${helpers}</script>`);
+      // A box less its title's, each way.
+      const got = await page.evaluate(() => {
+        const around = (id) => { const title = document.querySelector(`#${id} > span`).getBoundingClientRect(), b = box(id); return [b[2] - title.width, b[3] - title.height].map((v) => Math.round(v * 100) / 100); };
+        return { line: Math.round(document.querySelector('#plain > span').getBoundingClientRect().height * 100) / 100, unsized: box('unsized')[3], sized: box('sized').slice(2), square: box('square').slice(2), short: box('short')[3], unsaid: box('unsaid').slice(2), plain: around('plain')[1], borderless: around('borderless')[1], gray: around('gray')[1], filled: around('filled'), outline: around('outline'), inset: around('inset')[1], paddingUnsaid: box('padding-unsaid')[3], oneSide: around('one-side')[1], segment: box('segment')[3], menu: box('menu-row')[3], bound: around('bound')[1] };
+      });
+      const floor = touch ? 44 : 36;
+      // `unsaid` and `paddingUnsaid`: the floor, were the host not to say.
+      expect([engine, touch, got]).toEqual([engine, touch, { line: 20, unsized: floor, sized: [84, 24], square: [28, 28], short: 24, unsaid: [floor, floor], plain: 0, borderless: 0, gray: 0, filled: [0, 0], outline: [2, 2], inset: 8, paddingUnsaid: floor, oneSide: 7, segment: touch ? 38 : 30, menu: touch ? 44 : 32, bound: 0 }]);
+      await context.close();
+    }
+  } finally { await browser.close(); }
+}, 90000);
+
+// LLP 1116.020 D2: a sheet's bar says the name of a button whose face is only a symbol. A width its author wrote for
+// the symbol, inline (the wasm runtime) or in a class (the JS target), leaves the word its padding and its wash, as
+// UIKit sizes a bar item to its title: 16 px either side of the word, inside the bar, in either direction. Two long
+// names in a narrow bar both stay in it, each word ending in an ellipsis.
+for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a sheet's bar word keeps its padding whatever width its author wrote`, async () => {
+  const browser = await launch(engine);
+  try {
+    const page = await browser.newPage({ viewport: { width: 400, height: 300 }, colorScheme: 'light' });
+    const word = (id, attributes) => `<button type="button" data-native data-button-style="bordered" aria-label="Cancel" id="${id}" ${attributes}><img data-symbol-source="symbol:sf/xmark" alt=""></button>`;
+    await page.setContent(`<!doctype html><style>${sheet()} #exact-root#exact-root .sized { width: 44px; height: 44px; display: flex; }</style><div id="exact-root">
+      <div navigationKey="1" navigationPresentation="modal"><header id="bar" style="display:flex;align-items:center"><div style="flex:1;min-width:0"><h2>Last Parked</h2></div>
+      ${word('inline', 'data-exact-said="width height" style="width:44px;height:44px;display:flex"')}${word('class', 'data-exact-said="width height" class="sized"')}${word('unsized', 'style="display:grid"')}</header></div>
+    </div><script>${helpers}</script>`);
+    // Its padding, the room its box gives beyond its word, its height, and whether it is inside the bar's padding.
+    const fit = (id) => page.evaluate((id) => {
+      const [x, , width, height] = box(id), [bar, , barWidth] = box('bar');
+      return [[css(id, 'paddingInlineStart'), css(id, 'paddingInlineEnd')], Math.round(width - parseFloat(css(id, 'width', '::after'))), height, x >= bar + 16 && x + width <= bar + barWidth - 16];
+    }, id);
+    // A pixel in each of its paddings, half way down.
+    const pixels = async (id) => {
+      const { width, height, data } = decodePng(await page.locator(`#${id}`).screenshot());
+      return [4, width - 5].map((x) => [...data.subarray((Math.floor(height / 2) * width + x) * 4, (Math.floor(height / 2) * width + x) * 4 + 3)]);
+    };
+    for (const dir of ['rtl', 'ltr']) {
+      await page.evaluate((dir) => { document.documentElement.dir = dir; }, dir);
+      for (const id of ['inline', 'class', 'unsized']) {
+        const at = [engine, dir, id];
+        expect([at, await fit(id)]).toEqual([at, [['16px', '16px'], 34, id === 'unsized' ? 36 : 44, true]]);
+        // The pointer's wash fills the padding on both sides: a pixel in each matches the other and not the ground.
+        const [ground] = await pixels(id);
+        await page.hover(`#${id}`);
+        const [start, end] = await pixels(id);
+        expect([at, start, end.join() === start.join(), start.join() !== ground.join()]).toEqual([at, start, true, true]);
+        await page.mouse.move(1, 299);
+      }
+    }
+    await page.evaluate(() => { const b = document.getElementById('class'); b.removeAttribute('data-exact-said'); b.setAttribute('data-exact-width', ''); b.setAttribute('data-exact-height', ''); });
+    expect([engine, 'bound width', await fit('class')]).toEqual([engine, 'bound width', [['16px', '16px'], 34, 44, true]]);
+    await page.setViewportSize({ width: 320, height: 300 });
+    await page.evaluate(() => { for (const [id, name] of [['inline', 'Abbrechen und verwerfen'], ['class', 'Speichern und schließen']]) document.getElementById(id).setAttribute('aria-label', name); document.getElementById('unsized').remove(); document.getElementById('inline').after(document.querySelector('#bar > div')); });
+    const narrow = [await fit('inline'), await fit('class'), await page.evaluate(() => [box('inline')[0] + box('inline')[2] <= box('class')[0], css('inline', 'textOverflow', '::after')])];
+    expect([engine, 'narrow', narrow]).toEqual([engine, 'narrow', [[['16px', '16px'], 34, 44, true], [['16px', '16px'], 34, 44, true], [true, 'ellipsis']]]);
+    // A button its author made a block keeps the word a block of its own, which `text-overflow` ends.
+    await page.evaluate(() => { document.getElementById('inline').style.display = 'block'; });
+    expect([engine, 'narrow block', await fit('inline'), await page.evaluate(() => css('inline', 'display', '::after'))]).toEqual([engine, 'narrow block', [['16px', '16px'], 34, 44, true], 'block']);
   } finally { await browser.close(); }
 }, 90000);
 

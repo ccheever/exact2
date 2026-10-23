@@ -13,7 +13,7 @@
 use super::{Mapped, Unmapped};
 use crate::syntax::{At, Axis, Token, When};
 use crate::{Design, Diagnostic, Vocab};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Where a laid token's lines are said to be: past any design's own.
 const LAID: u32 = 10_000_000;
@@ -235,7 +235,34 @@ pub(super) fn landing(
         .iter()
         .map(seen)
         .collect();
+    // Each fold charged by what it checks: the design and every token laid. Once the budget is spent no fold
+    // runs, and the next charged step refuses the import.
+    // (a fold copies every token laid, values and all: charged by their bytes, a unit for 16 copied and dropped,
+    // near the budget's calibration of about 12 bytes a unit kept; not by their count)
+    let laid_bytes: usize = tokens
+        .iter()
+        .map(|t| {
+            t.name.len()
+                + t.value.len()
+                + t.whens
+                    .iter()
+                    .map(|(c, v)| {
+                        v.len() + c.iter().map(|(a, x)| a.len() + x.len() + 2).sum::<usize>()
+                    })
+                    .sum::<usize>()
+        })
+        .sum();
+    let spent = std::cell::Cell::new(false);
     let fold = |skip: &[bool]| -> Vec<Diagnostic> {
+        if spent.get()
+            || crate::budget::spend(
+                (design.tokens.len() + tokens.len() + laid_bytes / 16) as u64 + 1,
+            )
+            .is_err()
+        {
+            spent.set(true);
+            return Vec::new();
+        }
         match crate::check_design(laid(design, tokens, skip, axes, owned), vocab) {
             Ok(_) => Vec::new(),
             Err(all) => all
@@ -257,13 +284,19 @@ pub(super) fn landing(
     }
     // A name's text as laid: an import token's value and `when` lines with
     // the design's kept ones, or a design token's.
+    // (each found by name in one step: a refusal's reads walk many names; each step charged)
+    let mut design_at: HashMap<&str, usize> = HashMap::new();
+    for (i, d) in design.tokens.iter().enumerate() {
+        design_at.entry(d.name.value.as_str()).or_insert(i);
+    }
+    let mut laid_at: HashMap<&str, usize> = HashMap::new();
+    for (i, t) in tokens.iter().enumerate() {
+        laid_at.entry(t.name.as_str()).or_insert(i);
+    }
     let text = |n: &str, skip: &[bool]| -> Vec<String> {
-        let found = design.tokens.iter().find(|d| d.name.value == n);
-        match tokens
-            .iter()
-            .position(|t| t.name == n)
-            .filter(|i| !skip[*i])
-        {
+        let _ = crate::budget::spend(1);
+        let found = design_at.get(n).map(|&i| &design.tokens[i]);
+        match laid_at.get(n).copied().filter(|i| !skip[*i]) {
             Some(i) => {
                 let t = &tokens[i];
                 std::iter::once(t.value.clone())
@@ -283,10 +316,10 @@ pub(super) fn landing(
     };
     // Every name a value reads, through the tokens it names, as laid.
     let reads = |value: &str, skip: &[bool]| -> Vec<String> {
-        let mut out: Vec<String> = Vec::new();
+        let (mut out, mut seen): (Vec<String>, HashSet<String>) = (Vec::new(), HashSet::new());
         let mut stack: Vec<String> = words(value).into_iter().map(str::to_string).collect();
         while let Some(n) = stack.pop() {
-            if out.contains(&n) {
+            if !seen.insert(n.clone()) {
                 continue;
             }
             for v in text(&n, skip) {
@@ -296,46 +329,66 @@ pub(super) fn landing(
         }
         out
     };
-    for _ in 0..=tokens.len() + 1 {
-        // A token naming a refused one goes with it (the reference would read
-        // the design's token of that name instead).
-        loop {
-            let refused: Vec<&str> = tokens
-                .iter()
-                .zip(&why)
-                .filter(|(_, w)| w.is_some())
-                .map(|(t, _)| t.name.as_str())
-                .collect();
-            let named: Vec<(usize, String)> = tokens
-                .iter()
-                .enumerate()
-                .filter(|(i, _)| why[*i].is_none())
-                .filter_map(|(i, t)| {
-                    std::iter::once(t.value.as_str())
-                        .chain(t.whens.iter().map(|(_, v)| v.as_str()))
-                        .flat_map(words)
-                        .find(|w| refused.contains(w))
-                        .map(|r| (i, r.to_string()))
-                })
-                .collect();
-            if named.is_empty() {
-                break;
+    // Who names each token, once: what a refusal is carried along (each word charged).
+    let refuse = |m: String| Diagnostic::new("tamber-import-source", m, 1, 1);
+    let index: HashMap<&str, usize> = tokens
+        .iter()
+        .enumerate()
+        .map(|(i, t)| (t.name.as_str(), i))
+        .collect();
+    let mut named_by: Vec<Vec<usize>> = vec![Vec::new(); tokens.len()];
+    for (i, t) in tokens.iter().enumerate() {
+        for w in std::iter::once(t.value.as_str())
+            .chain(t.whens.iter().map(|(_, v)| v.as_str()))
+            .flat_map(words)
+        {
+            crate::budget::spend(1).map_err(refuse)?;
+            if let Some(&j) = index.get(w) {
+                named_by[j].push(i);
             }
-            for (i, r) in named {
-                why[i] = Some(format!("it names `{r}`, which this import does not set"));
+        }
+    }
+    for _ in 0..=tokens.len() + 1 {
+        crate::budget::spend(1).map_err(refuse)?;
+        // A token naming a refused one goes with it (the reference would read
+        // the design's token of that name instead): walked once from the
+        // refused, each step charged.
+        let mut queue: Vec<usize> = (0..tokens.len()).filter(|&j| why[j].is_some()).collect();
+        while let Some(j) = queue.pop() {
+            for &i in &named_by[j] {
+                crate::budget::spend(1).map_err(refuse)?;
+                if why[i].is_none() {
+                    why[i] = Some(format!(
+                        "it names `{}`, which this import does not set",
+                        tokens[j].name
+                    ));
+                    queue.push(i);
+                }
             }
         }
         let skip: Vec<bool> = why.iter().map(Option::is_some).collect();
         let errors = fold(&skip);
+        // (no fold run past the budget passes for one that folded)
+        crate::budget::spend(1).map_err(refuse)?;
         if errors.is_empty() {
             return Ok(why);
         }
         let mut charged = false;
         for d in &errors {
+            // (past the budget nothing more is narrowed: the charged step after this loop refuses)
+            if spent.get() {
+                break;
+            }
+            // (a refusal said in each token's why, bounded: one diagnostic is no multiplier of every candidate)
+            let message: String = match d.message.char_indices().nth(300) {
+                Some((at, _)) => format!("{}…", &d.message[..at]),
+                None => d.message.clone(),
+            };
+            let _ = crate::budget::spend(design.tokens.len() as u64 + 1);
             if d.line >= LAID {
                 let i = (d.line - LAID) as usize;
                 if i < tokens.len() && why[i].is_none() {
-                    why[i] = Some(d.message.clone());
+                    why[i] = Some(message.clone());
                     charged = true;
                 }
                 continue;
@@ -354,9 +407,9 @@ pub(super) fn landing(
                 }
             });
             if let Some((own, branch)) = own {
-                let laid_own = tokens
-                    .iter()
-                    .position(|t| t.name == own.name.value)
+                let laid_own = laid_at
+                    .get(own.name.value.as_str())
+                    .copied()
                     .filter(|i| !skip[*i]);
                 let mut read: Vec<String> = match branch {
                     // A `when` is compared with its default (the scheme's
@@ -369,17 +422,22 @@ pub(super) fn landing(
                 if laid_own.is_none() && branch.is_some() {
                     read.push(own.value.value.clone());
                 }
+                // (each reached name found in one step, each candidate once)
                 let mut candidates: Vec<usize> = laid_own.into_iter().collect();
+                let mut taken: HashSet<usize> = candidates.iter().copied().collect();
                 for v in &read {
                     for r in reads(v, &skip) {
-                        if let Some(i) = tokens.iter().position(|t| t.name == r) {
-                            if !skip[i] && !candidates.contains(&i) {
+                        if let Some(&i) = laid_at.get(r.as_str()) {
+                            if !skip[i] && taken.insert(i) {
                                 candidates.push(i);
                             }
                         }
                     }
                 }
                 let clears = |without: &[usize]| {
+                    if spent.get() {
+                        return false;
+                    }
                     let mut s = skip.clone();
                     for &c in without {
                         s[c] = true;
@@ -387,7 +445,8 @@ pub(super) fn landing(
                     !fold(&s).iter().any(|e| e.id == d.id && e.line == d.line)
                 };
                 // Those whose absence alone clears it; else those that keep
-                // it when they are all that is laid of them.
+                // it when they are all that is laid of them (each fold charged:
+                // past the budget the import is refused, never narrowed less).
                 let mut culprits: Vec<usize> = candidates
                     .iter()
                     .copied()
@@ -398,6 +457,9 @@ pub(super) fn landing(
                         .iter()
                         .copied()
                         .filter(|&c| {
+                            if spent.get() {
+                                return false;
+                            }
                             let others: Vec<usize> =
                                 candidates.iter().copied().filter(|&o| o != c).collect();
                             !clears(&others)
@@ -412,7 +474,7 @@ pub(super) fn landing(
                     if why[i].is_none() {
                         why[i] = Some(format!(
                             "the design's `{}` would not fold once it lands: {}",
-                            own.name.value, d.message
+                            own.name.value, message
                         ));
                     }
                 }
@@ -421,24 +483,30 @@ pub(super) fn landing(
             // A dial no token reads once the import lands: the tokens that
             // read it before and no longer do.
             if let Some(dial) = design.dials.iter().find(|x| x.name.line == d.line) {
+                // (the design's tokens that read it, once: each laid token then checked in one step)
+                let readers: HashSet<&str> = design
+                    .tokens
+                    .iter()
+                    .filter(|o| values(o).flat_map(words).any(|w| w == dial.name.value))
+                    .map(|o| o.name.value.as_str())
+                    .collect();
                 for (i, t) in tokens.iter().enumerate() {
-                    let read_it = design.tokens.iter().any(|o| {
-                        o.name.value == t.name
-                            && values(o).flat_map(words).any(|w| w == dial.name.value)
-                    });
+                    let read_it = readers.contains(t.name.as_str());
                     if why[i].is_none() && read_it {
                         why[i] = Some(format!(
                             "the design's dial `{}` would be left unused once it lands: {}",
-                            dial.name.value, d.message
+                            dial.name.value, message
                         ));
                         charged = true;
                     }
                 }
             }
         }
+        // A fold the budget ran out in refuses the import (each fold above charged it).
+        crate::budget::spend(1).map_err(refuse)?;
         // Nothing to charge a refusal to: every token laid goes with it.
         if !charged {
-            let message = errors[0].message.clone();
+            let message: String = errors[0].message.chars().take(300).collect();
             for w in why.iter_mut().filter(|w| w.is_none()) {
                 *w = Some(format!(
                     "the design would not fold once the import lands: {message}"

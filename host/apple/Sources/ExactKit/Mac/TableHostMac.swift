@@ -18,6 +18,39 @@ import AppKit
 final class TableHost {
     private weak var presenter: Presenter?
     private(set) var feeds: [UInt32: TableFeed] = [:]
+    private var pressContact: PressNode?
+    private weak var pressCell: TableRowCell?
+
+    func cancelPress() {
+        pressContact?.node?.pressed = false
+        pressContact = nil
+        pressCell?.syncSelectionPaint()
+        pressCell = nil
+    }
+
+    /// Observe AppKit's contact without replacing the table's tracking loop.
+    func pointer(_ event: NSEvent) {
+        switch event.type {
+        case .leftMouseDown:
+            cancelPress()
+            guard !event.modifierFlags.contains(.control), let content = event.window?.contentView else { return }
+            let point = content.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
+            guard let table = content.hitTest(point) as? RunnerTableView, let feed = table.feed,
+                  let row = feed.row(at: table.row(at: table.convert(event.locationInWindow, from: nil))),
+                  let node = feed.pressing(row), node.authorsPress, !node.disabled, !node.inert else { return }
+            pressContact = PressNode(node, bubbled: false)
+            node.pressed = true
+            pressCell = table.rowView(atRow: row.index, makeIfNecessary: false)?.view(atColumn: 0) as? TableRowCell
+            pressCell?.syncSelectionPaint()
+        case .leftMouseDragged:
+            guard let contact = pressContact, contact.isLive, let node = contact.node else { cancelPress(); return }
+            node.pressFollows(inside: node.pressInside(NodeView.point(event, in: node.window)))
+        case .leftMouseUp:
+            cancelPress()
+        default: break
+        }
+    }
+
     private var rowChildren: [UInt32: [UInt32]] = [:]
     private var nextRow: [UInt32: [UInt32: UInt32]] = [:]
     private var lines: [UInt32: CALayer] = [:]
@@ -247,8 +280,17 @@ final class TableHost {
         if !painted || !feeds.isEmpty, batch.ops.contains(where: { Self.deciding.contains($0.op) }) { decide() }
         for feed in feeds.values { feed.sync() }
         syncPainted()
+        if let pressContact, !pressContact.isLive { cancelPress() }
+        for op in batch.ops where op.op == .style {
+            var view: NSView? = op.nodeID.flatMap { presenter?.views[$0] }
+            while let next = view, !(next is NSTableView) {
+                if let cell = next as? TableRowCell { cell.syncSelectionPaint(); break }
+                view = next.superview
+            }
+        }
     }
     func reset() {
+        cancelPress()
         feeds.values.forEach { $0.remove() }
         feeds.removeAll()
         said.removeAll()

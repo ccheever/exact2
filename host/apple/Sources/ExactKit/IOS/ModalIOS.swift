@@ -4,6 +4,13 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
+#if os(iOS)
+/// A presented controller that paints its own surface, which a live theme
+/// edit has it paint again (`Presenter.applyThemeTint`).
+protocol PaintsSheetSurface: AnyObject { func paintSurface() }
+extension ModalController: PaintsSheetSurface {}
+#endif
+
 private final class ModalController: UIViewController, UIGestureRecognizerDelegate {
     weak var host: ModalHost?
     let routeID: UInt32
@@ -86,6 +93,8 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
             // Several: scrolling at the content's top grows the sheet, as
             // UIKit's own sheets do (LLP 1115 wave 1).
             sheet.prefersScrollingExpandsWhenScrolledToEdge = sheet.detents.count > 1
+            // In `animateChanges`, the surface moves with the sheet.
+            self.paintSurface()
         }
         if viewIfLoaded?.window != nil { sheet.animateChanges(configure) }
         else { configure() }
@@ -143,12 +152,11 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         // tvOS has neither grouped backgrounds nor a keyboard layout guide.
         view.backgroundColor = .white
         #else
-        // A sheet's surface where the author painted none: the platform's
-        // (LLP 1115 D2), which UIKit elevates in dark mode.
         ThemeRoles.adopt(view, from: host?.presenter.root)
         // Its presenter's tint, as the root's (LLP 1095 D4): a sheet sits outside it.
         if let tint = ThemeRoles.color("AccentColor", in: view) { view.tintColor = tint }
-        view.backgroundColor = ThemeRoles.color("background", in: view) ?? ThemeRoles.color("Canvas", in: view, or: .systemBackground)
+        paintSurface()
+        registerForTraitChanges([UITraitHorizontalSizeClass.self]) { (controller: ModalController, _: UITraitCollection) in controller.paintSurface() }
         let probe = UIView()
         probe.isHidden = true
         probe.translatesAutoresizingMaskIntoConstraints = false
@@ -165,6 +173,36 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         ])
         #endif
     }
+    #if os(iOS)
+    /// What shows under the route where it paints nothing (LLP 1115 D2):
+    /// the theme's ground; else, on a sheet resting below its large detent
+    /// in a compact width, nothing, so UIKit draws its glass as it does for
+    /// a hand-built sheet whose view is left clear (LLP 1141.001 D3); else
+    /// the system background, which UIKit elevates in dark mode. An authored
+    /// `transparent` is clear at any detent. The route's own paint is its
+    /// controller's (`RouteController.paintBackdrop`). While the keyboard
+    /// ends the content above the screen's bottom, the colour the content
+    /// goes on with shows behind the keys' bar (`ExactView.paintUnderKeys`).
+    func paintSurface() {
+        guard isViewLoaded else { return }
+        let presenter = host?.presenter
+        let keys = (presenter?.keyboardInset ?? 0) > 0 ? presenter?.bottomEdgeColor() : nil
+        let surface = keys ?? (transparent ? .clear
+            : ThemeRoles.color("background", in: view) ?? ThemeRoles.color("Canvas", in: view) ?? (glass ? .clear : .systemBackground))
+        if view.backgroundColor != surface { view.backgroundColor = surface }
+    }
+    private var glass: Bool {
+        // Unspecified until it is presented: an iPhone's, compact.
+        guard modalPresentationStyle == .pageSheet, traitCollection.horizontalSizeClass != .regular,
+              let sheet = sheetPresentationController else { return false }
+        return (sheet.selectedDetentIdentifier ?? sheet.detents.first?.identifier) != .large
+    }
+    /// The route's author wrote a background with no alpha.
+    private var transparent: Bool {
+        guard let route, route.wrote("background_color") else { return false }
+        return [false, true].allSatisfy { route.channels("background_color", dark: $0).map { $0.count == 4 && $0[3] == 0 } ?? false }
+    }
+    #endif
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         // The keyboard probe lays the sheet out as its keyboard layout guide
@@ -486,6 +524,9 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         for layer in layers {
             layer.controller.isModalInPresentation = refusesDismissal(of: layer.route)
             layer.controller.updateSheet(detent: layer.route.props["navigationDetent"], cornerRadius: ModalController.cornerRadius(of: layer.route), grabber: layer.route.props["navigationGrabber"])
+            #if os(iOS)
+            layer.controller.paintSurface()
+            #endif
         }
     }
 
@@ -803,6 +844,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
 extension ModalHost: UISheetPresentationControllerDelegate {
     func sheetPresentationControllerDidChangeSelectedDetentIdentifier(_ sheetPresentationController: UISheetPresentationController) {
         presenter.resolveStatusBar()
+        layers.first { $0.controller.sheetPresentationController === sheetPresentationController }?.controller.paintSurface()
     }
 }
 #endif

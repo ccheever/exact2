@@ -52,6 +52,23 @@ final class TextSelectionMacTests: XCTestCase {
         return p
     }
 
+    func testSelectableReaderTextKeepsAMouseDragFromAnAncestorPan() throws {
+        let p = fixture(measured: true)
+        let parent = try XCTUnwrap(p.views[1]), text = try XCTUnwrap(p.views[2])
+        parent.handlers.insert("pan")
+        var pans = 0
+        p.onPan = { _, _, _ in pans += 1 }
+        try select(p)
+        XCTAssertEqual(pans, 0, "the reader's declared selection owns this mouse contact")
+        text.applyStyle(["font_size": 16, "user_select": "none"])
+        let from = text.convert(NSPoint(x: 1, y: -1), to: nil), to = text.convert(NSPoint(x: 299, y: 21), to: nil)
+        text.mouseDown(with: mouse(.leftMouseDown, from))
+        text.mouseDragged(with: mouse(.leftMouseDragged, to))
+        text.mouseUp(with: mouse(.leftMouseUp, to))
+        XCTAssertGreaterThan(pans, 0, "unselectable text leaves the pan available")
+        XCTAssertTrue(p.selection.selectedText().isEmpty)
+    }
+
     func testPopoverParagraphSelectsUnderButtonOnlyAndSurfaceOnlyAncestors() throws {
         let p = fixture(measured: true), text = try XCTUnwrap(p.views[2])
         p.menus.painted = true
@@ -801,6 +818,28 @@ final class TextSelectionMacTests: XCTestCase {
         XCTAssertEqual(p.selection.selectedText(), "", "a click with no `all` anywhere is still a caret")
     }
 
+    func testSelectedRoleDecorationsKeepExclusionFragments() throws {
+        let text = String(repeating: "The  river leaves room for the light. ", count: 12)
+        let (session, node) = laidOut(text)
+        defer { session.destroy() }
+        node.frame.size = NSSize(width: 300, height: 600)
+        node.style = ["font_size": 16.0, "line_height": "24px", "line_clamp": 100, "text_decoration_line": "underline",
+                      "text_color": ["sys": "secondaryLabelColor", "c": [[60, 60, 67, 153], [235, 235, 245, 153]]]]
+        session.presenter.apply(wireBatch([
+            ["op": "flow", "id": 1, "shapes": [["kind": "Circle", "cx": 150.0, "cy": 150.0, "r": 125.0]]],
+        ]))
+        let paragraph = try XCTUnwrap(node.paragraphLayout())
+        let plain = session.text.paragraph(node.paragraphSpec(), width: node.paragraphBox().width)
+        XCTAssertGreaterThan(paragraph.lines.count, plain.lines.count)
+        XCTAssertFalse(paragraph.fragments.isEmpty)
+        let p = session.presenter
+        p.selection.begin(node, event: mouse(.leftMouseDown, node.convert(NSPoint(x: 5, y: 10), to: nil), clicks: 3))
+        let normalized = node.paragraphSpec().runs.map(\.text).joined() as NSString
+        XCTAssertEqual(p.selection.range(node), NSRange(location: 0, length: normalized.length))
+        XCTAssertNotNil(Capture.picture(of: node), "selection paints every original exclusion fragment")
+        XCTAssertTrue(node.paragraphLayout() === paragraph, "painting preserves the measured geometry")
+    }
+
     /// LLP 1115.000 D7.9: which selected glyphs take AppKit's colour for text
     /// on the selection's fill is as an `NSTextView` has it (measured on
     /// macOS 27.0, a key window and one that is not alike). Dark: every one,
@@ -827,15 +866,23 @@ final class TextSelectionMacTests: XCTestCase {
             ("a light-dark() pair", [[153, 0, 0, 255], [255, 153, 153, 255]], false, true),
             // No catalogue here: its fallback pair is what draws, and the kind is still the name's.
             ("a colour from the asset catalogue", ["sys": "named:Brand", "c": [[0, 0, 153, 255], [153, 153, 255, 255]]] as [String: Any], false, true),
-            ("a role", role, false, false),
+            ("a role", role, true, false),
             ("nothing written", nil, false, false),
+            ("an ancestor's underline", role, true, false),
+            ("an ancestor's strike", role, false, false),
         ]
         var ops: [[String: Any]] = []
         for (i, row) in rows.enumerated() {
             var style: [String: Any] = ["font_size": 16.0, "line_height": "20px"]
             if let color = row.color { style["text_color"] = color }
-            if row.underlined { style["text_decoration_line"] = "underline" }
+            if row.underlined && i < 6 { style["text_decoration_line"] = "underline" }
             ops.append(["op": "create", "id": 10 + i, "kind": "text", "props": ["text": "████ ████"], "style": style])
+            if i >= 6 {
+                ops.append(["op": "create", "id": 100 + i, "kind": "view",
+                            "style": ["text_color": role, "text_decoration_line": i == 6 ? "underline" : "line-through"]])
+                ops.append(["op": "children", "id": 100 + i, "ids": [10 + i]])
+                ops.append(["op": "frame", "id": 100 + i, "x": 0, "y": i * 30, "w": 380, "h": 20])
+            }
         }
         // One paragraph of three runs: a literal, a link in the link role, a pair.
         func run(_ id: Int, _ text: String, _ color: Any, href: String? = nil) -> [String: Any] {
@@ -846,15 +893,18 @@ final class TextSelectionMacTests: XCTestCase {
         ops.append(["op": "paragraph", "id": 20, "runs": [
             run(21, "██ ", [0, 128, 0, 255]), run(22, "██ ", link, href: "https://example.com/"), run(23, "██", [[153, 0, 0, 255], [255, 153, 153, 255]]),
         ]])
-        let ids = rows.indices.map { 10 + $0 } + [20]
+        let ids = rows.indices.map { $0 >= 6 ? 100 + $0 : 10 + $0 } + [20]
         ops.append(["op": "create", "id": 2, "kind": "view"])
         ops.append(["op": "children", "id": 2, "ids": ids])
         ops.append(["op": "roots", "ids": [2]])
         ops.append(["op": "frame", "id": 2, "x": 0, "y": 0, "w": 400, "h": 300])
-        for (i, id) in ids.enumerated() { ops.append(["op": "frame", "id": id, "x": 0, "y": Double(i * 30), "w": 380, "h": 20]) }
+        for (i, id) in ids.enumerated() {
+            ops.append(["op": "frame", "id": id, "x": 0, "y": Double(i * 30), "w": 380, "h": 20])
+            if i >= 6 && i < rows.count { ops.append(["op": "frame", "id": 10 + i, "x": 0, "y": 0, "w": 380, "h": 20]) }
+        }
         p.apply(wireBatch(ops))
         // A system colour as this kind of picture shows it, in the window's appearance.
-        let swatch = Swatch(frame: NSRect(x: 0, y: 250, width: 10, height: 10))
+        let swatch = Swatch(frame: NSRect(x: 0, y: 290, width: 10, height: 10))
         p.root.addSubview(swatch)
         func painted(_ color: NSColor) throws -> NSColor {
             swatch.color = color
@@ -885,6 +935,12 @@ final class TextSelectionMacTests: XCTestCase {
             XCTAssertEqual(ink.redComponent, dark ? 1 : 0, accuracy: 0.01, "AppKit's selected text is \(dark ? "white" : "black") in the \(dark ? "dark" : "light") appearance")
             for (i, row) in rows.enumerated() {
                 let node = try XCTUnwrap(p.views[UInt32(10 + i)]), name = "\(dark ? "dark" : "light"), \(row.name)"
+                if i >= 6 {
+                    let run = try XCTUnwrap(node.paragraphSpec().runs.first)
+                    XCTAssertFalse(run.underlined)
+                    XCTAssertTrue(run.decoration.isEmpty)
+                    XCTAssertNotNil(i == 6 ? run.underlineColor : run.strikeColor)
+                }
                 let first = try glyph(node, 1), space = try glyph(node, 4), last = try glyph(node, 6)
                 let baseline = node.paragraphBox().minY + (try XCTUnwrap(node.paragraphLayout())).baselines[0].rounded()
                 let own = try picture(node)(first, 10)
@@ -901,6 +957,10 @@ final class TextSelectionMacTests: XCTestCase {
                 XCTAssertTrue(near(shown(first, 10), wanted, by), "\(name): a selected glyph is \(shown(first, 10)), not \(wanted); its own ink is \(own)")
                 XCTAssertTrue(near(shown(space, 10), fill), "\(name): the fill between the words is \(shown(space, 10)), not \(fill)")
                 XCTAssertEqual(underline.contains { near($0, wanted, by) }, row.underlined, "\(name): the selected underline is the glyphs' colour: \(underline)")
+                if i == 7 {
+                    let strike = stride(from: baseline - 9, to: baseline - 3, by: 0.5).map { shown(space, $0) }
+                    XCTAssertTrue(strike.contains { near($0, wanted, by) }, "\(name): the selected strike is solid: \(strike)")
+                }
                 XCTAssertTrue(near(shown(last, 10), own), "\(name): a glyph outside the selection keeps its ink: \(shown(last, 10))")
                 p.selection.clear()
             }
@@ -1123,6 +1183,61 @@ final class TextSelectionMacTests: XCTestCase {
         XCTAssertEqual(menus.count, 4, "and no text menu opens over it")
     }
 
+    func testReaderSelectionPublishesWorkerRectanglesAndClearsThem() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "reader-selection-rects")
+        self.session = session
+        let p = session.presenter
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        let node = NodeView(id: 12345, kind: "text", presenter: p)
+        p.views[node.id] = node
+        node.handlers = ["selectionchange"]
+        node.applyStyle(["font_size": 16.0, "line_height": "24px"])
+        node.applyProps(set: ["text": String(repeating: "Alpha beta gamma delta ", count: 4000)], clear: [])
+        node.frame = NSRect(x: 0, y: 0, width: 600, height: 100000)
+        node.prepareToMount()
+        scroll.documentView = node; p.root.addSubview(scroll)
+        var request = ExactMeasureRequest()
+        request.view = node.id; request.strut.font_size = 16
+        request.strut.has_line_height = 1; request.strut.line_height = 24
+        let reader = RegionReaderParagraph(request, bytes: 100000)
+        session.text.readerParagraphs[node.id] = reader
+        reader.update(node)
+        func until(_ done: () -> Bool) {
+            let limit = Date(timeIntervalSinceNow: 30)
+            while !done() && Date() < limit { RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001)) }
+            XCTAssertTrue(done())
+        }
+        until { reader.raster != nil }
+        var boxes: [[CGRect]] = []
+        var expectedText = "Alpha"
+        p.onSelectionChange = { _, text, start, end, rects in
+            XCTAssertEqual(text, start == end ? "" : expectedText)
+            boxes.append(rects)
+        }
+        p.selection.set(node, FieldSelection(start: 0, end: 5))
+        until { !boxes.isEmpty }
+        XCTAssertEqual(boxes.count, 1)
+        let rect = try XCTUnwrap(boxes.first?.first)
+        XCTAssertGreaterThan(rect.width, 0)
+        XCTAssertGreaterThan(rect.height, 0)
+        XCTAssertFalse(try XCTUnwrap(reader.accepted).metadata.shapedOnMainThread)
+        XCTAssertNil(node.paragraphLayout(), "the UI never constructs the reader's paragraph")
+        scroll.frame.origin.y = 1000
+        XCTAssertTrue(p.textScrollportRect(node).isEmpty, "the entire paragraph is outside the viewport")
+        expectedText = "delta"
+        let length = (node.paragraphText as NSString).length
+        p.selection.set(node, FieldSelection(start: length - 6, end: length - 1))
+        until { boxes.count == 2 }
+        XCTAssertGreaterThan(try XCTUnwrap(boxes.last?.first).minY, 400, "offscreen fragments also belong to the event snapshot")
+        p.selection.clear()
+        XCTAssertEqual(boxes.last, [])
+    }
+
     /// X76 on a reader paragraph whose caret cache misses the point (here a
     /// line outside the band its worker rastered; in use, a line too long
     /// for that cache): the click opens no menu itself, the raster worker
@@ -1155,15 +1270,17 @@ final class TextSelectionMacTests: XCTestCase {
         // Each wait is for its event; the bound only stops one that never comes.
         func until(_ seconds: TimeInterval, _ done: () -> Bool) {
             let hang = Date(timeIntervalSinceNow: seconds)
-            while !done() && Date() < hang { RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001)) }
+            while !done() && Date() < hang { RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
         }
         until(300) { reader.raster != nil }
         let height: CGFloat = try XCTUnwrap(reader.accepted?.metadata.height)
         var menus: [String] = []
+        let opened = (1...3).map { expectation(description: "text menu \($0) began tracking") }
         let center = NotificationCenter.default
         let observer = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
             guard let menu = note.object as? NSMenu else { return }
             menus.append(menu.items.first?.title ?? "")
+            if menus.count <= opened.count { opened[menus.count - 1].fulfill() }
             RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTracking() }
         }
         defer { center.removeObserver(observer) }
@@ -1177,16 +1294,16 @@ final class TextSelectionMacTests: XCTestCase {
                                                      context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!)
         }
         XCTAssertNil(rightClick(0.5), "nothing is known yet to open a menu over")
-        until(60) { menus.count == 1 }
+        wait(for: [opened[0]], timeout: 30)
         let word = p.selection.selectedText(), first = p.selection.range(node)
         XCTAssertTrue(["reader", "scroll", "ahead", "words"].contains(word), "the word the worker placed it on, not \"\(word)\"")
         XCTAssertEqual(menus, ["Look Up “\(word)”"], "its menu opens once it is placed")
         XCTAssertNil(rightClick(0.5))
-        until(60) { menus.count == 2 }
+        wait(for: [opened[1]], timeout: 30)
         XCTAssertEqual(p.selection.range(node), first, "inside the selection it stays")
         XCTAssertEqual(menus.last, "Look Up “\(word)”")
         XCTAssertNil(rightClick(0.75), "the selection elsewhere opens no menu for itself")
-        until(60) { menus.count == 3 }
+        wait(for: [opened[2]], timeout: 30)
         let second = try XCTUnwrap(p.selection.range(node))
         XCTAssertGreaterThan(second.location, NSMaxRange(try XCTUnwrap(first)), "the word under the later point")
         XCTAssertEqual(menus.last, "Look Up “\(p.selection.selectedText())”")

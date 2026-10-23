@@ -47,6 +47,8 @@ final class SidebarMacTests: XCTestCase {
                       text "Today"
                     button press=open testId=`open-${e.name}`
                       text "Open"
+                    button press=set("renamed") testId=`rename-${e.name}`
+                      text "Rename"
                     button press=set("disabled") testId=`disabled-${e.name}`
                       text "Disable"
                     button press=set("badge") testId=`badge-${e.name}`
@@ -62,8 +64,8 @@ final class SidebarMacTests: XCTestCase {
           row role="tablist" testId="tabs" aria-label="Places" display=(mode == "hidden" ? "none" : "flex")
             appearance=(mode == "authored" ? "none" : "auto")
             button role="tab" aria-controls="panel-today" aria-selected=(nav.tab == "today") press=pick("today") testId="tab-today" flex=1
-              image "symbol:calendar"
-              text "Today"
+              image (mode == "renamed" ? "symbol:book" : "symbol:calendar")
+              text (mode == "renamed" ? "Renamed" : "Today")
             button appearance="none" role="tab" aria-controls="panel-history" aria-selected=(nav.tab == "history") press=pick("history") testId="tab-history" flex=1
               disabled=(mode == "disabled")
               image "symbol:chart"
@@ -74,14 +76,15 @@ final class SidebarMacTests: XCTestCase {
 
     """
 
-    private func boot(size: CGSize) throws -> ExactSession {
+    private func boot(size: CGSize, scrollingTabs: Bool = false) throws -> ExactSession {
         _ = NSApplication.shared
         let dir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent("../../target/sidebar-test-" + UUID().uuidString).standardizedFileURL
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let contract = dir.appendingPathComponent("app.contract"), plan = dir.appendingPathComponent("app.plan")
-        try app.write(to: contract, atomically: true, encoding: .utf8)
+        let source = scrollingTabs ? app.replacingOccurrences(of: "row role=\"tablist\"", with: "row overflow-x=\"auto\" role=\"tablist\"") : app
+        try source.write(to: contract, atomically: true, encoding: .utf8)
         let compiler = Process(), said = Pipe()
         compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"]))
         compiler.arguments = ["build", contract.path, "-o", plan.path]
@@ -130,6 +133,102 @@ final class SidebarMacTests: XCTestCase {
     private func choose(_ split: ExactSidebarController, _ row: Int) {
         // A person's choice of a row, as the table asks its delegate on the way down.
         XCTAssertEqual(split.table.delegate?.tableView?(split.table, shouldSelectRow: row), false, "the table never selects by itself")
+    }
+
+    func testAScrollingTablistLeavesLayoutWhileTheSidebarReplacesIt() throws {
+        let session = try boot(size: CGSize(width: 700, height: 500), scrollingTabs: true)
+        let view = ExactView(session: session)
+        let split = compose(view)
+        let tabs = try node("tabs"), panels = try node("panels")
+        let scroll = try XCTUnwrap(tabs.scroll)
+        for style in [NSScroller.Style.overlay, .legacy, .overlay] {
+            scroll.scrollerStyle = style
+            scroll.tile()
+            XCTAssertTrue(tabs.isHidden)
+            XCTAssertEqual(session.presenter.covers.delivered[tabs.id], .whole)
+            XCTAssertEqual(panels.frame.size, view.bounds.size)
+        }
+        try press("authored-today")
+        XCTAssertFalse(session.presenter.sidebar.installed)
+        XCTAssertFalse(tabs.isHidden)
+        XCTAssertEqual(session.presenter.covers.delivered[tabs.id], .gutter(right: 0, bottom: 0))
+        XCTAssertGreaterThan(tabs.frame.height, 0)
+        split.release()
+    }
+
+    func testDriverResizeKeepsTheRequestedPageHeightUnderSidebarChrome() throws {
+        let session = try boot(size: CGSize(width: 700, height: 500))
+        let view = ExactView(session: session)
+        let split = compose(view)
+        let reply = session.agentInstance.resizeWindow(CGSize(width: 900, height: 700))
+        XCTAssertNil(reply["error"])
+        let window = try XCTUnwrap(self.window)
+        XCTAssertEqual(window.contentLayoutRect.height, 700, accuracy: 0.01)
+        XCTAssertEqual(view.bounds.height, 700, accuracy: 0.01)
+        XCTAssertEqual(view.bounds.width, 900 - split.sidebarWidth - split.splitView.dividerThickness, accuracy: 1)
+        XCTAssertEqual(reply["viewport"] as? [Double], [Double(view.bounds.width), 700])
+    }
+
+    func testShowSidebarFollowsActualWindowFocus() throws { try checkSidebarHandoff(nativeFocus: true) }
+    func testShowSidebarFollowsWindowKeyNotifications() throws { try checkSidebarHandoff(nativeFocus: false) }
+
+    private func checkSidebarHandoff(nativeFocus: Bool) throws {
+        let session = try boot(size: CGSize(width: 700, height: 500))
+        let view = ExactView(session: session)
+        _ = compose(view)
+        let firstWindow = try XCTUnwrap(window)
+        let other = ExactApp.shared.makeSession(label: "without-sidebar")
+        let secondWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 500),
+            styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        secondWindow.isReleasedWhenClosed = false
+        secondWindow.contentView = ExactView(session: other)
+        defer { secondWindow.close(); other.destroy() }
+        let previous = (NSApp.mainMenu, NSApp.windowsMenu, NSApp.helpMenu, NSApp.servicesMenu, DevMenu.session, DevMenu.planPath)
+        defer {
+            NSApp.mainMenu = previous.0; NSApp.windowsMenu = previous.1
+            NSApp.helpMenu = previous.2; NSApp.servicesMenu = previous.3
+            DevMenu.session = previous.4; DevMenu.planPath = previous.5
+        }
+        func sidebarItem() throws -> NSMenuItem {
+            let menu = try XCTUnwrap(NSApp.mainMenu?.items.first { $0.submenu?.title == "View" }?.submenu)
+            return try XCTUnwrap(menu.items.first { $0.action == #selector(NSSplitViewController.toggleSidebar(_:)) })
+        }
+        DevMenu.install(session: session, planPath: nil)
+        XCTAssertFalse(try sidebarItem().isHidden)
+        func focus(_ window: NSWindow) throws {
+            if nativeFocus {
+                window.makeKeyAndOrderFront(nil)
+                guard window.isKeyWindow else { throw XCTSkip("AppKit did not give the window key status; the desktop may be locked") }
+            } else { NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window) }
+        }
+        try focus(secondWindow)
+        XCTAssertTrue(DevMenu.session === other)
+        XCTAssertTrue(try sidebarItem().isHidden)
+        let currentMenu = try XCTUnwrap(NSApp.mainMenu?.items.first { $0.submenu?.title == "View" }?.submenu as? ShortcutMenu)
+        let staleFile = ShortcutMenu(title: "Previous session")
+        session.presenter.shortcuts.attach(staleFile, view: currentMenu)
+        session.presenter.shortcuts.sync()
+        XCTAssertTrue(try sidebarItem().isHidden, "a previous host holding the live menu must not change its selected session")
+        try focus(firstWindow)
+        XCTAssertTrue(DevMenu.session === session)
+        XCTAssertFalse(try sidebarItem().isHidden)
+    }
+
+    func testANativeTabsChangedFaceReachesItsSidebarRow() throws {
+        let session = try boot(size: CGSize(width: 700, height: 500))
+        let view = ExactView(session: session)
+        let split = compose(view)
+        let tab = try node("tab-today")
+        XCTAssertTrue(tab.isNativeButton)
+        XCTAssertEqual(try cell(split, 0).textField?.stringValue, "Today")
+        let batch = session.runtime.press(try node("rename-today").id, now: session.now())
+        XCTAssertTrue(batch.controls, "the native face travels in controls")
+        session.apply(batch)
+        let row = try XCTUnwrap(session.presenter.sidebar.shown?.rows.first)
+        XCTAssertEqual(row.face.title, "Renamed")
+        XCTAssertEqual(row.face.base, "book")
+        XCTAssertEqual(try cell(split, 0).textField?.stringValue, "Renamed")
+        XCTAssertEqual(split.table.selectedRowIndexes, [0])
     }
 
     func testTheRootTabBarIsASourceListWhoseRowsPressTheAuthoredTabsAndFollowTheApp() throws {
@@ -301,14 +400,25 @@ final class SidebarMacTests: XCTestCase {
         view.onWindowSidebar = { changes += 1 }
         let items = { window.toolbar?.items.map(\.itemIdentifier) ?? [] }
 
+        func layoutUntil(_ condition: () -> Bool) {
+            let deadline = Date(timeIntervalSinceNow: 30)
+            repeat {
+                window.layoutIfNeeded()
+                split.view.layoutSubtreeIfNeeded()
+                if condition() { return }
+                RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            } while Date() < deadline
+            XCTAssertTrue(condition(), "the split view did not reach its requested geometry")
+        }
+
         // On a narrow window the page keeps its minimum and the window stops at the two panes' (LLP 1115.002 §1).
         window.setContentSize(NSSize(width: 300, height: 500))
-        window.layoutIfNeeded()
+        layoutUntil { abs(view.frame.width - 320) < 1 && abs((window.contentView?.frame.width ?? 0) - (320 + split.sidebarWidth)) < 2 }
         XCTAssertEqual(view.frame.width, 320, accuracy: 1)
         XCTAssertEqual(window.contentView?.frame.width ?? 0, 320 + split.sidebarWidth, accuracy: 2)
         XCTAssertFalse(split.collapsed, "AppKit hides no sidebar by itself in a window")
         window.setContentSize(NSSize(width: 700, height: 500))
-        window.layoutIfNeeded()
+        layoutUntil { abs(view.frame.width - (700 - split.sidebarWidth - split.splitView.dividerThickness)) < 1.5 }
 
         // View ▸ Show Sidebar is there for a window with a sidebar, with AppKit's chord.
         let menu = DevMenu.makeMenu(shortcuts: p.shortcuts, documents: false, develop: false)
@@ -321,14 +431,20 @@ final class SidebarMacTests: XCTestCase {
         // Its action reaches the split view controller from inside the page, up the responder chain; the
         // sidebar goes and the page takes the window, then comes back. AppKit animates both.
         func toggled(_ hidden: Bool, _ why: String) {
-            XCTAssertEqual(view.tryToPerform(#selector(NSSplitViewController.toggleSidebar(_:)), with: item), true, why)
-            let limit = Date().addingTimeInterval(10)
-            // The animation has ended when the sidebar's pane is hidden, or shown at its width.
+            let completed = expectation(description: why)
+            NSAnimationContext.runAnimationGroup { _ in
+                XCTAssertEqual(view.tryToPerform(#selector(NSSplitViewController.toggleSidebar(_:)), with: item), true, why)
+            } completionHandler: {
+                completed.fulfill()
+            }
+            wait(for: [completed], timeout: 30)
+            window.layoutIfNeeded()
+            split.view.layoutSubtreeIfNeeded()
             let settled = {
                 split.collapsed == hidden && split.splitView.arrangedSubviews.first?.isHidden == hidden
                     && abs(view.frame.width - (hidden ? 700 : 700 - split.sidebarWidth - split.splitView.dividerThickness)) < 1.5
             }
-            while !settled(), Date() < limit { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+            layoutUntil(settled)
             XCTAssertTrue(settled(), "\(why): collapsed \(split.collapsed), page \(view.frame.width)")
         }
         toggled(true, "hidden by the person")

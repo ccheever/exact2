@@ -1,7 +1,4 @@
-// @ref LLP 1121 stage 9 B (D10) — on iOS a page symbol nobody tinted whose
-// `color` its author wrote, on it or on an ancestor (the kernel's
-// `symbolColorWritten`), draws in that colour; under no written colour it
-// keeps UIKit's inherited tint, the accent, and a written tint still wins.
+// LLP 1081 stage 2: page symbols take computed color; native faces keep their control tint.
 #if os(iOS)
 import UIKit
 import XCTest
@@ -45,15 +42,80 @@ final class SymbolColorIOSTests: XCTestCase {
     func testAWrittenColourIsTheSymbolsInk() throws {
         let p = presenter([(2, true, ["text_color": tint]), (3, true, ["text_color": pink]), (4, false, ["text_color": pink]),
                            (5, true, ["text_color": pink, "tint_color": teal])])
-        XCTAssertNil(try XCTUnwrap(p.views[2]).symbolInk, "the accent is UIKit's live tint, inherited")
+        XCTAssertNotNil(try XCTUnwrap(p.views[2]).symbolInk)
         XCTAssertEqual(try ink(p, 2), red, "`color=\"AccentColor\"`: the accent")
         XCTAssertEqual(try ink(p, 3), [173, 20, 87, 255], "a token's colour")
-        XCTAssertEqual(try ink(p, 4), red, "a colour nobody wrote keeps the accent")
-        XCTAssertEqual(try ink(p, 5), [48, 176, 199, 255], "a written tint wins")
+        XCTAssertEqual(try ink(p, 4), [173, 20, 87, 255], "computed colour is inherited")
+        XCTAssertEqual(try ink(p, 5), [173, 20, 87, 255], "raster tint is ignored on a symbol")
         p.apply(wireBatch([["op": "props", "id": 4, "set": ["symbolColorWritten": "1"], "clear": []]]))
         XCTAssertEqual(try ink(p, 4), [173, 20, 87, 255], "written later")
         p.apply(wireBatch([["op": "props", "id": 4, "set": [:], "clear": ["symbolColorWritten"]]]))
-        XCTAssertEqual(try ink(p, 4), red, "and unwritten again")
+        XCTAssertEqual(try ink(p, 4), [173, 20, 87, 255], "provenance does not change computed colour")
+    }
+
+    func testComputedSymbolColorsInASnapshot() throws {
+        let label: [String: Any] = ["sys": "labelColor", "c": [[0, 0, 0, 255], [255, 255, 255, 255]]]
+        let p = presenter([(2, false, ["text_color": label]), (3, false, ["text_color": pink]),
+                           (4, false, ["text_color": teal, "symbol_rendering": "hierarchical"])])
+        window.overrideUserInterfaceStyle = .light
+        p.viewport.backgroundColor = .systemBackground
+        for (index, id) in [2, 3, 4].enumerated() {
+            p.apply(wireBatch([["op": "frame", "id": id, "x": 20 + index * 90, "y": 40, "w": 60, "h": 60]]))
+        }
+        p.viewport.layoutIfNeeded()
+        let picture = UIGraphicsImageRenderer(bounds: p.viewport.bounds).image { p.viewport.layer.render(in: $0.cgContext) }
+        let attachment = XCTAttachment(image: picture)
+        attachment.name = "Computed symbol color"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        XCTAssertEqual(try ink(p, 3), [173, 20, 87, 255])
+    }
+
+    func testChangingHierarchicalInkKeepsTheImageAndItsReplacementIdentity() throws {
+        let p = presenter([(2, false, ["text_color": pink, "symbol_rendering": "hierarchical", "symbol_effect": "replace"])])
+        let node = try XCTUnwrap(p.views[2]), leaf = try XCTUnwrap(node.symbolView)
+        let key = node.symbolKey, generation = node.loadGeneration, original = node.image
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["font_size": 17, "text_color": teal, "symbol_rendering": "hierarchical", "symbol_effect": "replace"]]]))
+        XCTAssertEqual(try ink(p, 2), [48, 176, 199, 255])
+        XCTAssertEqual(node.symbolKey, key)
+        XCTAssertEqual(node.loadGeneration, generation)
+        XCTAssertTrue(node.image === original, "paint changes do not replace the glyph")
+        let ink = UIImage.SymbolConfiguration(hierarchicalColor: try XCTUnwrap(node.symbolInk))
+        let config = try XCTUnwrap(leaf.preferredSymbolConfiguration)
+        XCTAssertTrue(config.isEqual(config.applying(ink)))
+    }
+
+    func testProjectedSegmentsRedrawPaletteAndInheritedHierarchicalTint() throws {
+        let p = presenter([])
+        defer { p.reset() }
+        var ops: [[String: Any]] = [
+            ["op": "create", "id": 100, "kind": "view", "props": ["accessibilityRole": "tablist"]],
+            ["op": "frame", "id": 100, "x": 0, "y": 0, "w": 300, "h": 40]]
+        for id in [102, 104] {
+            ops += [
+                ["op": "create", "id": id, "kind": "button", "props": ["accessibilityRole": "tab", "accessibilityLabel": "Cloud"], "handlers": ["press"]],
+                ["op": "create", "id": id + 1, "kind": "image", "props": ["imageSource": "symbol:sf/cloud.sun.fill", "symbolName": "cloud.sun.fill"],
+                 "style": ["font_size": 24, "symbol_rendering": "palette", "symbol_palette": [[255, 0, 0, 255], [0, 0, 255, 255]]]],
+                ["op": "frame", "id": id + 1, "x": 0, "y": 0, "w": 32, "h": 32],
+                ["op": "children", "id": id, "ids": [id + 1]]]
+        }
+        ops += [["op": "children", "id": 100, "ids": [102, 104]], ["op": "children", "id": 1, "ids": [100]]]
+        p.apply(wireBatch(ops))
+        let control = try XCTUnwrap(p.segments.control(of: 100)), icon = try XCTUnwrap(p.views[103])
+        let glyph = icon.image, before = try XCTUnwrap(control.imageForSegment(at: 0)?.pngData())
+        p.apply(wireBatch([["op": "style", "id": 103, "style": ["font_size": 24, "symbol_rendering": "palette",
+            "symbol_palette": [[0, 255, 0, 255], [255, 0, 255, 255]]]]]))
+        XCTAssertTrue(icon.image === glyph, "paint preserves the page glyph")
+        XCTAssertNotEqual(control.imageForSegment(at: 0)?.pngData(), before, "the projected palette changes")
+        p.apply(wireBatch([["op": "style", "id": 103, "style": ["font_size": 24, "symbol_rendering": "hierarchical"]]]))
+        let hierarchical = icon.image
+        try XCTUnwrap(p.views[100]).tintColor = .red
+        p.segments.sync()
+        let red = try XCTUnwrap(control.imageForSegment(at: 0)?.pngData())
+        try XCTUnwrap(p.views[100]).tintColor = .blue
+        p.segments.sync()
+        XCTAssertTrue(icon.image === hierarchical)
+        XCTAssertNotEqual(control.imageForSegment(at: 0)?.pngData(), red, "native inherited tint repaints hierarchical segments")
     }
 
     /// LLP 1121 D9: a symbol a native control shows as its face keeps the
@@ -90,7 +152,7 @@ final class SymbolColorIOSTests: XCTestCase {
         let green = [0.0, 200.0, 0.0, 255.0]
         for id: UInt32 in [400, 303] { XCTAssertEqual(try ink(p, id), green, "\(id): a page symbol takes its written green") }
         let written = UIImage.SymbolConfiguration(hierarchicalColor: try XCTUnwrap(p.views[400]?.symbolInk))
-        XCTAssertTrue(try XCTUnwrap(p.views[400]?.image?.symbolConfiguration).isEqual(try XCTUnwrap(p.views[400]?.image?.symbolConfiguration).applying(written)), "the page's image bakes it")
+        XCTAssertTrue(try XCTUnwrap(p.views[400]?.symbolView?.preferredSymbolConfiguration).isEqual(try XCTUnwrap(p.views[400]?.symbolView?.preferredSymbolConfiguration).applying(written)), "the image view configures hierarchical ink")
         for owner: UInt32 in [100, 200] {
             let control = try XCTUnwrap(p.views[owner]?.subviews.first { $0 is UISegmentedControl } as? UISegmentedControl, "\(owner) projects")
             XCTAssertEqual(control.numberOfSegments, 2)

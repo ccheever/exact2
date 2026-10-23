@@ -30,6 +30,8 @@ final class MouseLayoutPan {
     }
     func down(_ node: NodeView, event: NSEvent) -> Bool {
         cancel()
+        // A reader's declared selection owns its mouse drag.
+        if node.selectsText && node.textSelectable && node.handlers.contains("selectionchange") { return false }
         var at: NSView? = node
         while let current = at {
             if let view = current as? NodeView {

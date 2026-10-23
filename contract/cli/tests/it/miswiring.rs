@@ -498,7 +498,29 @@ fn a_select_after_a_push_is_named_with_the_forms_that_land_the_visit() {
         "fn push(r: Router, url: string): Router = r\ncomponent App\n",
     );
     assert_eq!(warned(&own), [], "{own}");
+    for verb in ["go", "push"] {
+        let src = app(&format!(
+            "    let n = push(nav, url)\n    nav = select({verb}(n, top(n).url), \"patterns\")\n"
+        ));
+        assert_eq!(warned(&src), [(SELECT.to_string(), 8)], "{src}");
+        let src = app(&format!(
+            "    nav = select({verb}(nav, top(back(nav)).url), \"patterns\")\n"
+        ));
+        assert_eq!(warned(&src), [(SELECT.to_string(), 7)], "{src}");
+        let src = app(&format!(
+            "    nav = select({verb}(nav, top(nav).url), \"patterns\")\n"
+        ))
+        .replace(
+            "component App\n",
+            "shape Location\n  id: number\n  url: string\nfn top(r: Router): Location = Location(id=0, url=\"/patterns/open\")\ncomponent App\n",
+        );
+        assert_eq!(warned(&src), [(SELECT.to_string(), 11)], "{src}");
+    }
     for body in [
+        "    nav = select(go(nav, top(nav).url), \"patterns\")\n",
+        "    nav = select(push(nav, top(nav).url), \"patterns\")\n",
+        "    let n = go(nav, top(nav).url)\n    nav = select(n, \"patterns\")\n",
+        "    let n = push(nav, top(nav).url)\n    nav = select(n, \"patterns\")\n",
         "    nav = go(select(nav, \"patterns\"), url)\n",
         "    nav = open(nav, url)\n",
         "    let n = back(nav)\n    nav = select(n, \"today\")\n",
@@ -549,6 +571,22 @@ fn a_template_location_names_its_path() {
             panic!("{write}: {e}");
         }
     }
+    let src = app("`/day/${k}`").replace("state k = \"a\"", "state k = true");
+    let e = contract::compile(&src).unwrap_err();
+    assert_eq!(e.id, "route-template", "{e}");
+    assert!(
+        e.message.ends_with("write `` path(\"day\", `${k}`) ``"),
+        "{e}"
+    );
+    let repaired = src.replace("`/day/${k}`", "path(\"day\", `${k}`)");
+    if let Err(e) = contract::compile(&repaired) {
+        panic!("{repaired}: {e}");
+    }
+    let unconverted = src.replace("`/day/${k}`", "path(\"day\", k)");
+    assert_eq!(
+        contract::compile(&unconverted).unwrap_err().id,
+        "type-argument"
+    );
     // No route, or text a repair could not write back as it reads: the hint alone.
     for location in [
         "`/elsewhere/${k}`",

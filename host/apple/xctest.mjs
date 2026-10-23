@@ -16,12 +16,17 @@ const read = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: 'utf8', 
  *  copy whose manifest carries the test app's identity (`appId`), as the native fixture is: a plan boots in no other app. */
 export function compileFixtures(root, run, env, dir, prefix, appId) {
   const contract = (args) => run('cargo', ['run', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml'), '--', 'build', ...args]);
-  for (const [name, key] of [['store-refresh', 'STORE_REFRESH'], ['headless', 'HEADLESS'], ['headless-markdown', 'HEADLESS_MARKDOWN'], ['headless-hidden-markdown', 'HEADLESS_HIDDEN_MARKDOWN'], ['native-navigation-scroll', 'NATIVE_SCROLL'], ['intersect', 'INTERSECT'], ['native-buttons', 'BUTTONS'], ['keyboard-form', 'KEYBOARD'], ['tab-edge', 'TAB_EDGE'], ['repaint', 'REPAINT'], ['still-title', 'STILL_TITLE'], ['navigation-bars', 'NAVIGATION_BARS'], ['large-title', 'LARGE_TITLE'], ['transparent-bar', 'TRANSPARENT_BAR'], ['bar-band', 'BAR_BAND'], ['pad-bar', 'PAD_BAR'], ['pushed-title', 'PUSHED_TITLE'], ['inline-frame', 'INLINE_FRAME'], ['fieldless', 'FIELDLESS'], ['web-documents', 'WEB_DOCUMENTS'], ['iframe-post-messages', 'IFRAME_POST_MESSAGES'], ['iframe-resident-popover', 'IFRAME_RESIDENT_POPOVER'], ['tab-owner', 'TAB_OWNER'], ['grouped-list-reveal', 'GROUPED_REVEAL'], ['due-now', 'DUE_NOW'], ['caret-reveal', 'CARET_REVEAL'], ['cover-scroll', 'COVER_SCROLL'], ['page-edges', 'PAGE_EDGES'], ['barless-route', 'BARLESS_ROUTE'], ['page-edges-grouped', 'PAGE_EDGES_GROUPED'], ['control-bars', 'CONTROL_BARS'], ['search-scope', 'SEARCH_SCOPE'], ['held-tab', 'HELD_TAB'], ['pull-refresh', 'PULL_REFRESH']]) {
+  for (const [name, key] of [['store-refresh', 'STORE_REFRESH'], ['headless', 'HEADLESS'], ['headless-markdown', 'HEADLESS_MARKDOWN'], ['headless-hidden-markdown', 'HEADLESS_HIDDEN_MARKDOWN'], ['native-navigation-scroll', 'NATIVE_SCROLL'], ['intersect', 'INTERSECT'], ['native-buttons', 'BUTTONS'], ['keyboard-form', 'KEYBOARD'], ['tab-edge', 'TAB_EDGE'], ['repaint', 'REPAINT'], ['still-title', 'STILL_TITLE'], ['navigation-bars', 'NAVIGATION_BARS'], ['large-title', 'LARGE_TITLE'], ['transparent-bar', 'TRANSPARENT_BAR'], ['bar-band', 'BAR_BAND'], ['pad-bar', 'PAD_BAR'], ['pushed-title', 'PUSHED_TITLE'], ['inline-frame', 'INLINE_FRAME'], ['fieldless', 'FIELDLESS'], ['web-documents', 'WEB_DOCUMENTS'], ['iframe-post-messages', 'IFRAME_POST_MESSAGES'], ['iframe-resident-popover', 'IFRAME_RESIDENT_POPOVER'], ['tab-owner', 'TAB_OWNER'], ['grouped-list-reveal', 'GROUPED_REVEAL'], ['due-now', 'DUE_NOW'], ['caret-reveal', 'CARET_REVEAL'], ['cover-scroll', 'COVER_SCROLL'], ['page-edges', 'PAGE_EDGES'], ['barless-route', 'BARLESS_ROUTE'], ['page-edges-grouped', 'PAGE_EDGES_GROUPED'], ['control-bars', 'CONTROL_BARS'], ['search-scope', 'SEARCH_SCOPE'], ['held-tab', 'HELD_TAB'], ['pull-refresh', 'PULL_REFRESH'], ['edge-effect', 'EDGE_EFFECT'], ['sticky-bar', 'STICKY_BAR']]) {
     contract([resolve(root, `scripts/fixtures/${name}.contract`), '-o', env[`${prefix}_${key}_PLAN`] = resolve(dir, `${name}.plan`)]);
   }
+  contract([resolve(root, 'host/apple/tests/fixtures/sticky-transition.contract'), '-o', env[`${prefix}_STICKY_TRANSITION_PLAN`] = resolve(dir, 'sticky-transition.plan')]);
   // HeldStateTests' own (a card that presses over a flat leaf), beside them.
   contract([resolve(root, 'host/apple/tests/fixtures/held-state.contract'), '-o', env[`${prefix}_HELD_STATE_PLAN`] = resolve(dir, 'held-state.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/dialog-sheet-reads.contract'), '-o', env[`${prefix}_DIALOG_SHEET_READS_PLAN`] = resolve(dir, 'dialog-sheet-reads.plan')]);
+  contract([resolve(root, 'host/apple/tests/fixtures/progress-contexts.contract'), '-o', env[`${prefix}_PROGRESS_CONTEXTS_PLAN`] = resolve(dir, 'progress-contexts.plan')]);
+  contract([resolve(root, 'host/apple/tests/fixtures/agent-unmounted.contract'), '-o', env[`${prefix}_AGENT_UNMOUNTED_PLAN`] = resolve(dir, 'agent-unmounted.plan')]);
+  contract([resolve(root, 'host/apple/tests/fixtures/fractional-borders.contract'), '-o', env[`${prefix}_FRACTIONAL_BORDERS_PLAN`] = resolve(dir, 'fractional-borders.plan')]);
+  contract([resolve(root, 'host/apple/tests/fixtures/top-layer-pins.contract'), '-o', env[`${prefix}_TOP_LAYER_PINS_PLAN`] = resolve(dir, 'top-layer-pins.plan')]);
   const question = 'host/apple/tests/ExactKitTests/SnapshotFixtures/open-question';
   const refusing = resolve(dir, 'entries/refusing');
   mkdirSync(refusing, { recursive: true });
@@ -89,21 +94,29 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
  *  every process on the Mac shares (the general pasteboard, the active app,
  *  the mouse, a capture of the screen) share one process beside them, one
  *  class after another. A window's key status and first responder belong
- *  to its own process. The Canvas 2D GPU module (`canvasGpu`) is loaded only
- *  in its own tests' process: loaded, every canvas draws on the GPU. */
+ *  to its own process. A class whose file opens a menu that tracks, by a
+ *  call of `.popUp(positioning:`, runs after all of them, alone, in a
+ *  process of its own: an open menu closes when its app stops being the
+ *  active one, as another test process brought forward makes it, and in the
+ *  shared process it read the menu items other classes left. The Canvas 2D
+ *  GPU module (`canvasGpu`) is loaded only in its own tests' process:
+ *  loaded, every canvas draws on the GPU. */
 export async function macTests(pkg, scratch, env, canvasGpu) {
   const listed = read('swift', ['test', '--skip-build', '--list-tests', '--scratch-path', scratch], { cwd: pkg, env });
   if (listed.status !== 0) throw new Error(`swift test --list-tests failed: ${listed.stderr}`);
   const classes = [...new Set(listed.stdout.match(/^ExactKitTests\.\w+(?=\/)/gm) ?? [])];
   const macWide = /NSPasteboard\.general|\bactivate\(|NSEvent\.mouseLocation|CGWindowListCreateImage/;
-  const shared = new Set();
+  const tracksMenu = /\.popUp\(positioning:/;
+  const shared = new Set(), solo = new Set();
   for (const file of readdirSync(resolve(pkg, 'tests/ExactKitTests')).filter(f => f.endsWith('.swift'))) {
     const source = readFileSync(resolve(pkg, 'tests/ExactKitTests', file), 'utf8');
-    if (macWide.test(source)) for (const [, name] of source.matchAll(/class (\w+)\s*:\s*XCTestCase/g)) shared.add(`ExactKitTests.${name}`);
+    const named = [...source.matchAll(/class (\w+)\s*:\s*XCTestCase/g)].map(([, name]) => `ExactKitTests.${name}`);
+    for (const name of named) if (tracksMenu.test(source)) solo.add(name); else if (macWide.test(source)) shared.add(name);
   }
   const gpuClass = 'ExactKitTests.Canvas2DGpuStressTests';
   shared.delete(gpuClass);
-  const groups = [classes.filter(c => shared.has(c)), ...classes.filter(c => !shared.has(c)).map(c => [c])].filter(g => g.length);
+  const groups = [classes.filter(c => shared.has(c)), ...classes.filter(c => !shared.has(c) && !solo.has(c)).map(c => [c])].filter(g => g.length);
+  const alone = classes.filter(c => solo.has(c)).map(c => [c]);
   // SwiftPM names the test bundle after the test target up to Swift 6.2 and after the package from 6.3 on.
   const bin = read('swift', ['build', '--show-bin-path', '--scratch-path', scratch], { cwd: pkg, env }).stdout.trim();
   const bundle = ['ExactKitTests.xctest', 'ExactPackageTests.xctest'].map(name => resolve(bin, name)).find(existsSync) ?? resolve(bin, 'ExactKitTests.xctest');
@@ -125,7 +138,8 @@ export async function macTests(pkg, scratch, env, canvasGpu) {
   let next = 0;
   const taker = async () => { while (next < groups.length) await one(groups[next++]); };
   await Promise.all(Array.from({ length: Math.min(groups.length, availableParallelism()) }, taker));
-  console.log(`host/apple: ${classes.length} test classes in ${groups.length} processes, ${failed.length} failed`);
+  for (const group of alone) await one(group);
+  console.log(`host/apple: ${classes.length} test classes in ${groups.length + alone.length} processes (${alone.length} alone after the rest), ${failed.length} failed`);
   if (failed.length) throw new Error(`swift tests failed:\n  ${failed.join('\n  ')}`);
 }
 

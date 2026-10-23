@@ -1,0 +1,201 @@
+// What the data module answers the transcript (Excord LLP 0001 §4.2). A
+// message's Markdown arrives parsed and flattened (`render.ts`): Contract
+// components cannot recurse, so a message is a flat list of blocks and a block
+// a flat list of runs.
+
+// One styled run of a paragraph. `kind` is "text", "code", "link", "user",
+// "channel", "role", "everyone", "emoji", "time" or "edited". A "time" run's
+// `format` is a `time` element's format and `at` its instant; an "emoji" run's
+// `href` is the custom emoji's image. `spoiler` names the spoiler the run is
+// inside ("" for none), unique within its message.
+shape Run
+  id: string
+  kind: string
+  text: string
+  bold: bool
+  italic: bool
+  underline: bool
+  strike: bool
+  spoiler: string
+  href: string
+  at: number
+  format: string
+  self: bool
+
+// A block: "paragraph", "heading" (`level` 1–3), "subtext", "code" (`text`,
+// `lang`), "item" (a list item's first paragraph: `marker`, `level` its
+// nesting from 0) or "emoji" (a jumbo message's custom emoji, one per run).
+// `quote` marks a block inside a block quote.
+shape Block
+  id: string
+  kind: string
+  level: number
+  marker: string
+  quote: bool
+  lang: string
+  text: string
+  runs: Run[]
+
+// An image: an attachment, an embed's image or thumbnail. `width` and
+// `height` are what Discord declared (0 when it declared none); `fitWidth`
+// and `fitHeight` the box the transcript reserves, scaled to fit 320 points.
+shape Media
+  id: string
+  src: string
+  width: number
+  height: number
+  fitWidth: number
+  fitHeight: number
+  alt: string
+  spoiler: bool
+
+shape Embed
+  id: string
+  color: string
+  provider: string
+  author: string
+  title: string
+  url: string
+  description: Block[]
+  image: Media[]
+  thumbnail: Media[]
+
+shape Reaction
+  id: string
+  emoji: string
+  src: string
+  name: string
+  count: number
+  me: bool
+
+// The message a reply answers. `state` is "present", "deleted" (the store saw it
+// deleted, or Discord sent the reply with a null `referenced_message`) or
+// "unknown" (the store does not hold it, so a jump has to load it).
+shape ReplyRef
+  id: string
+  author: string
+  tint: number
+  preview: string
+  state: string
+
+// One transcript row. `key` is the row's identity for its whole life: the
+// nonce of a message sent from here, else its id, so a confirmed send keeps
+// its row. `grouped` says it continues the previous message's group (same
+// author within seven minutes, Discord's rule); the view also breaks a group
+// at a day change, which it decides from `prevAt` in the reader's time zone.
+// `prevAt` is 0 for a channel's first message: every other row comes with the message
+// before it (`render.ts`, `windowOf`). `state` is "sent", "pending" or "failed". `source` is
+// the Markdown as sent, for Edit and Copy Text. `isNew` marks the first message
+// after the read position the window was asked with.
+shape Message
+  key: string
+  id: string
+  authorId: string
+  author: string
+  tint: number
+  initials: string
+  bot: bool
+  at: number
+  prevAt: number
+  grouped: bool
+  edited: bool
+  mine: bool
+  state: string
+  mentionsMe: bool
+  jumbo: bool
+  system: string
+  plain: string
+  source: string
+  isNew: bool
+  blocks: Block[]
+  media: Media[]
+  embeds: Embed[]
+  reactions: Reaction[]
+  reply: ReplyRef[]
+
+// One contiguous run of a channel's history, at most 200 rows. `hasBefore`
+// and `hasAfter` say whether older or newer history exists outside it; a
+// window without `hasAfter` ends at the channel's newest message. `pin` is
+// the anchor that answers this same window while no message arrives.
+// `unread` counts the messages after the read position the window was asked
+// with, `unreadMore` says it is a lower bound (the cache does not reach that
+// position), and `unreadAt` is the first one's time, or the read message's.
+// `need` names the one page the window lacks ("latest", "around", "before" or
+// "after" `cursor`; "" for none), which the view asks for with `loadPage`.
+shape Window
+  channel: string
+  anchor: string
+  rows: Message[]
+  hasBefore: bool
+  hasAfter: bool
+  firstId: string
+  lastId: string
+  pin: string
+  unread: number
+  unreadMore: bool
+  unreadAt: number
+  need: string
+  cursor: string
+
+// A channel or DM as the lists show it, and the open channel. `version` moves
+// whenever its history changes; `arrived` counts the messages that arrived
+// since the app started (a deletion never lowers it); `lastRead` is the read
+// position and `firstUnread` the oldest unread message the cache holds ("" when
+// read to the end or not cached); `unread` counts the unread messages the cache
+// holds, at least 1 when Discord says there are some; `typing` names who is typing.
+shape Channel
+  id: string
+  guild: string
+  name: string
+  topic: string
+  version: number
+  unread: number
+  mentions: number
+  firstUnread: string
+  firstUnreadAt: number
+  lastRead: string
+  arrived: number
+  typing: string
+
+shape Guild
+  id: string
+  name: string
+  unread: bool
+  mentions: number
+
+// The gateway's snapshot (Excord LLP 0001 §4.2), the same size for any
+// account: the connection's state ("idle", "connecting", "awaiting-hello",
+// "identifying", "resuming", "ready", "backoff", "stopped" or "signed-out"),
+// a version for the lists (`sidebar`, moved by any change outside the channel
+// on screen), and the versions of the channel on screen (`channel`): `version`
+// moves with any change to it, `history` only with a change to its messages.
+// `fixture` says the build talks to the fixture, whose traffic menu shows;
+// `retryIn` is how long a backoff waits, `attempt` counts connections.
+shape Gateway
+  state: string
+  detail: string
+  me: string
+  fixture: bool
+  sidebar: number
+  channel: string
+  version: number
+  history: number
+  retryIn: number
+  attempt: number
+
+// The kept credentials, read into the data module: `ready` once read, and
+// whether there is a token to sign in with.
+shape Session
+  ready: bool
+  signedIn: bool
+
+shape Ack
+  ok: bool
+  error: string
+
+// A local send's reply: its row's key, which the post that follows names.
+shape Sent
+  ok: bool
+  error: string
+  key: string
+  channel: string

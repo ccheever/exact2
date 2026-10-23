@@ -1,0 +1,8 @@
+{
+  "name": "excord",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "fflate": "0.8.3"
+  }
+}

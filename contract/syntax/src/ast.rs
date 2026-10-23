@@ -249,11 +249,17 @@ pub enum Step {
         /// Where.
         span: Span,
     },
-    /// `before data`: the test's first step does not wait for the app's
-    /// data. Without it the driver waits, as `clock data` does, so a store
-    /// opened at launch is open before the first step (habits, pomodoro).
-    /// What has landed without the wait is the host's: a native app runs on
-    /// real time before the driver connects, the web page on the agent's.
+    /// A media preference, before observations or between steps.
+    Prefer {
+        /// CSS media feature name.
+        name: String,
+        /// The driver's value.
+        value: String,
+        /// Where.
+        span: Span,
+    },
+    /// `before data` skips the initial `clock data` wait. A native app runs
+    /// on real time before the driver connects; the web uses the agent's.
     BeforeData {
         /// Where.
         span: Span,

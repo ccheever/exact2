@@ -21,7 +21,7 @@ pub mod shadcn;
 pub mod tailwind;
 
 /// An import, ready to propose.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Import {
     /// The transaction: the tokens (and any axis) the source maps to.
     pub ops: Vec<Op>,
@@ -37,6 +37,9 @@ pub struct Import {
     pub dials: Vec<DialChange>,
     /// A re-import's literals over lines that followed others (D14's mark).
     pub pins: Vec<Pin>,
+    /// What decided a choice the import made that the source didn't say
+    /// (a Pencil number's kind, by the properties that read it).
+    pub notes: Vec<String>,
 }
 
 /// One offered choice: what it means and its operations (none where the
@@ -143,8 +146,14 @@ pub fn reconcile(
             }
         }
     }
+    // (each design token found by name in one step: the first so named, as a scan finds)
+    let mut by_name: std::collections::HashMap<&str, &crate::syntax::Token> =
+        std::collections::HashMap::new();
+    for d in &design.tokens {
+        by_name.entry(d.name.value.as_str()).or_insert(d);
+    }
     for t in tokens {
-        let Some(have) = design.tokens.iter().find(|d| d.name.value == t.name) else {
+        let Some(&have) = by_name.get(t.name.as_str()) else {
             ops.push(Op::AddToken {
                 name: t.name.clone(),
                 kind: t.kind.map(str::to_string),

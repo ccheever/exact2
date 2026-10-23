@@ -88,6 +88,32 @@ final class PressPaintTests: XCTestCase {
         XCTAssertEqual(keeps.style["text_color"], ink(green))
     }
 
+    func testADroppedPressColourTakesTheHeldAncestorsColour() throws {
+        let (p, outer) = try fixture(["press_color": yellow])
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "view", "handlers": ["press"], "style": ["text_color": white, "press_color": green]],
+            ["op": "create", "id": 5, "kind": "text", "props": ["text": "Label"], "style": ["text_color": white]],
+            ["op": "children", "id": 4, "ids": [5]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4]],
+        ]))
+        let inner = try XCTUnwrap(p.views[4]), label = try XCTUnwrap(p.views[5])
+        outer.pressed = true
+        inner.pressed = true
+        XCTAssertEqual(inner.style["text_color"], ink(green))
+        XCTAssertEqual(label.style["text_color"], ink(green))
+        p.apply(wireBatch([["op": "style", "id": 4, "style": ["text_color": white]]]))
+        XCTAssertTrue(inner.pressed)
+        XCTAssertEqual(inner.style["text_color"], ink(yellow))
+        XCTAssertEqual(label.style["text_color"], ink(yellow))
+        outer.pressPaint.at -= 1
+        outer.pressed = false
+        XCTAssertEqual(inner.style["text_color"], ink(white))
+        XCTAssertEqual(label.style["text_color"], ink(white))
+        inner.pressPaint.at -= 1
+        inner.pressed = false
+        XCTAssertEqual(inner.style["text_color"], ink(white))
+    }
+
     /// The finger (the mouse) leaving the box lets the paint go; back inside it shows again.
     func testThePaintFollowsThePointer() throws {
         let (_, v) = try fixture(["press_background_color": navy])
@@ -113,7 +139,15 @@ final class PressPaintTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), -0.5, accuracy: 1e-6)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: PressFeedback.duration + 0.05))
         XCTAssertEqual(v.style["background_color"], ink(blue), "then let go")
-        XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), 0)
+        // The release eases back to rest: read where it settles, not the fade
+        // in flight, which a run loop slept past (a loaded machine) finds
+        // already completed and gone.
+        if let back = fade(v) { XCTAssertEqual(try XCTUnwrap(back.toValue as? Float), 0, "easing back") }
+        XCTAssertFalse(v.pressPaint.down)
+        XCTAssertEqual(v.pressPaint.ease.to, 0)
+        let rest = v.pressPaint.ease.start + PressFeedback.duration
+        while CACurrentMediaTime() < rest { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+        XCTAssertEqual(v.pressPaint.ease.factor(at: CACurrentMediaTime()), 0, accuracy: 1e-6, "settled at rest")
     }
 
     /// An ancestor's quick release (it waits out `PressFeedback.unseen`), with
@@ -472,5 +506,36 @@ final class PressPaintTests: XCTestCase {
         XCTAssertTrue(own.showsOwnTextColor, "its own press's colour is its own")
         XCTAssertEqual(rgba(own.fieldInk.cgColor), green)
     }
+    func testAPresslessLinkTracksActivationWithoutShowingActivePaintOrPlatformFeedback() throws {
+        let (p, _) = try fixture([:])
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "button", "props": ["href": "/destination"]],
+            ["op": "frame", "id": 4, "x": 50, "y": 200, "w": 120, "h": 40],
+            ["op": "roots", "ids": [1, 4]]
+        ]))
+        let link = try XCTUnwrap(p.views[4])
+        for authored in [false, true] {
+            link.applyStyle(authored ? ["press_scale": .number(0.9), "press_background_color": ink(navy)] : [:])
+            link.pressed = true
+            XCTAssertEqual(link.defaultLink, "/destination")
+            XCTAssertEqual(link.press.to, 1)
+            XCTAssertFalse(link.pressPaint.down)
+            #if os(iOS)
+            XCTAssertFalse(link.platformPressDims)
+            XCTAssertNil(link.press.dimmedAt)
+            #else
+            XCTAssertFalse(link.pressTinted)
+            #endif
+            link.pressFollows(inside: true)
+            XCTAssertEqual(link.press.to, 1)
+            XCTAssertFalse(link.pressPaint.down)
+            link.pressed = false
+        }
+        link.handlers = ["press"]
+        link.pressed = true
+        XCTAssertEqual(link.press.to, 0.9, "a declared handler gets its active feedback")
+        XCTAssertTrue(link.pressPaint.down)
+    }
+
 }
 #endif

@@ -150,8 +150,8 @@ fn custom_rows_follow_the_platforms_cards_and_cell_margins() {
     let (star, lines) = (frame(&r, "star"), frame(&r, "lines"));
     assert_eq!(
         (lines.x, star.x + star.width / 2.0 < lines.x),
-        (80.0, true),
-        "after a symbol, the text 40 past the margin, as UIKit's symbol cell sets it"
+        (79.0, true),
+        "after a symbol, the text 39 past the margin at the 16-point body, as UIKit's symbol cell sets it"
     );
     assert_eq!(
         content(&r, "swiped", "swiped"),
@@ -273,4 +273,19 @@ fn a_margin_that_is_no_length_is_refused() {
             .set_grouped_margins(list, Some(margins))
             .is_err());
     }
+}
+
+/// Two sections without headers are 35 apart, as a hand-built inset-grouped
+/// list's are on iOS 27.0: the sheet's top meets the 17.33 under the section
+/// before it as 35, so the laid-out list is as tall as UIKit draws it (a list
+/// sized to its content clipped UIKit's footer when it was not).
+#[test]
+fn sections_without_headers_are_uikits_gap_apart() {
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=drop(\"a\") testId=\"a\"\n      text \"Account\"\n  section\n    button press=drop(\"b\") testId=\"b\"\n      text \"Chats\"");
+    let (a, b) = (frame(&r, "a"), frame(&r, "b"));
+    assert!(
+        (b.y - (a.y + a.height) - 35.0).abs() < 0.01,
+        "gap {}",
+        b.y - (a.y + a.height)
+    );
 }

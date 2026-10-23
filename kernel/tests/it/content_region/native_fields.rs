@@ -403,3 +403,62 @@ fn native_button_padding_uses_the_published_region_and_shell_bases() {
         Dimension::Points(30.0)
     );
 }
+
+/// Stage 14 B: a field in a popover of the region's shell is laid out in
+/// the popover's block after the region, and its provisional chrome counts,
+/// so a host settles it as it settles the region's own.
+#[test]
+fn a_shell_popovers_cold_field_chrome_counts() {
+    use std::{cell::Cell, rc::Rc};
+    struct Cold(Rc<Cell<bool>>);
+    impl TextMeasurer for Cold {
+        fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
+            MonospaceMeasurer::default().measure(request)
+        }
+        fn field_chrome(&mut self, _: &FieldChromeRequest) -> FieldChrome {
+            FieldChrome {
+                minimum_height: if self.0.get() { 34.0 } else { 44.0 },
+                provisional: self.0.get(),
+                ..Default::default()
+            }
+        }
+    }
+    let cold = Rc::new(Cell::new(false));
+    let mut k = fixture_with(Box::new(Cold(cold.clone())));
+    register(&mut k);
+    assert!(ready(&mut k, 400.0, 1).current);
+    let before = k.provisional_layouts();
+    cold.set(true);
+    k.apply(
+        1,
+        1,
+        &[
+            Op::CreateView {
+                id: 8,
+                node_type: NodeType::View,
+            },
+            Op::CreateView {
+                id: 9,
+                node_type: NodeType::TextInput,
+            },
+            Op::SetProp {
+                id: 8,
+                prop: PropId::Popover,
+                value: "manual".into(),
+            },
+            Op::SetChildren {
+                id: 8,
+                children: vec![9],
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![2, 6, 8],
+            },
+        ],
+    )
+    .unwrap();
+    pass(&mut k, 400.0, 1);
+    assert!(k.host_block(8).is_some());
+    assert_eq!(k.node(9).unwrap().frame.height, 34.0);
+    assert_eq!(k.provisional_layouts(), before + 1);
+}

@@ -57,7 +57,9 @@ final class TextRasterizer {
                    ranges: geometry.ranges, baselines: geometry.baselines,
                    flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0, justifies: key.spec.align == 3, insets: paragraph?.insets ?? LineInsets(key.spec, source: source),
                    box: key.box, size: key.size, scale: key.scale, ellipsis: key.spec.ellipsis, clamped: geometry.clamped,
-                   shadow: key.spec.hdrShadow.map(TextRunShadow.init))
+                   shadow: key.spec.hdrShadow.map(TextRunShadow.init),
+                   measuredGlyphs: key.spec.color.count == 4 ? engine.measuredGlyphs(key.spec, width: key.box.width) : nil,
+                   measuredColor: TextEngine.color(key.spec.color).cgColor)
     }
 
     /// Only first pixels may rasterize synchronously. A replacement uses the
@@ -75,7 +77,7 @@ final class TextRasterizer {
         guard firstPixels || active < Self.maxConcurrent else { return false }
         guard let job = prepare(node, key: key) else { node.dropTextRaster(); return true }
         if firstPixels {
-            let lines = node.text?.rasterLines(key.spec, ranges: job.ranges, width: key.box.width).1
+            let lines = job.measuredGlyphs == nil ? node.text?.rasterLines(key.spec, ranges: job.ranges, width: key.box.width).1 : nil
             let image = Self.render(job, firstPixels: true, lines: lines)
             node.showTextRaster(image?.surface, for: key, frame: image?.frame, cast: image?.cast)
             return true
@@ -315,6 +317,7 @@ extension NodeView {
         }
         textRasterPending = false
         CATransaction.commit()
+        presenter?.boxFilters.changed(self)
     }
 
     func dropTextRaster() {

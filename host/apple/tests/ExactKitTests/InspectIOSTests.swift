@@ -71,7 +71,7 @@ final class InspectIOSTests: XCTestCase {
         // (One whose middle the window's hit test gives to it, or to a part of
         // it that stands for no other node.)
         let content = try XCTUnwrap(session.presenter.views.values.first { node in
-            guard node.window === window, !node.isHidden, node.bounds.width > 20, node.bounds.height > 20, !node.isDescendant(of: nav.navigationBar) else { return false }
+            guard node.window === window, !node.isHidden, node.bounds.width > 0, node.bounds.height > 0, !node.isDescendant(of: nav.navigationBar) else { return false }
             let box = node.convert(node.bounds, to: window)
             var hit = window.hitTest(CGPoint(x: box.midX, y: box.midY), with: nil)
             while let v = hit, !(v is NodeView) { hit = v.superview }
@@ -197,6 +197,48 @@ final class InspectIOSTests: XCTestCase {
         Inspect.set(false, seq: 3)
         XCTAssertFalse(Inspect.answersClick(["click": click]))
         XCTAssertNil(Inspect.select(session, id: node.id, clicked: true), "no selection outside inspect mode")
+    }
+
+    /// `select {up}` (tamber/1.16) by the runner's own tree, as the web pages': the first level with a node
+    /// above the selection, the outermost there; an ask for a selection that moved, or one with nothing of
+    /// its levels above, is nil, the selection as it is now. (The levels here are the node's own ancestors'
+    /// sites, standing in for the server's map.)
+    func testSelectUpLandsOnTheOutermostAncestorOfTheFirstLevelWithOneAndAStaleAskOnNone() throws {
+        let (session, window, _, _) = try chat()
+        Inspect.set(true, seq: 4)
+        defer { Inspect.set(false, seq: 4) }
+        func above(_ id: UInt32) -> [(view: Int, site: Int)] {
+            let o = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"ancestors\",\"id\":\(id)}").utf8))) as? [String: Any]
+            return (o?["ancestors"] as? [[Any]] ?? []).dropFirst().compactMap { p in (p[0] as? Int).flatMap { v in (p[1] as? Int).map { (v, $0) } } }
+        }
+        let node = try XCTUnwrap(session.presenter.views.values.first { $0.window === window && !$0.isHidden && $0.props["testId"] != nil && Set(above($0.id).map(\.site)).count >= 2 })
+        let ancestors = above(node.id)
+        let selected = try XCTUnwrap(Inspect.select(session, id: node.id, clicked: true)?["selected"] as? [String: Any])
+        func ask(_ levels: [[Int]], plan: Any? = nil, instance: Any? = nil) -> [String: Any] {
+            ["up": 1, "levels": levels, "plan": plan ?? selected["planDigest"] ?? NSNull(), "from": selected["site"] ?? NSNull(), "instance": instance ?? selected["instance"] ?? []]
+        }
+        let level = [ancestors[0].site, try XCTUnwrap(ancestors.first { $0.site != ancestors[0].site }).site]
+        XCTAssertNil(Inspect.selectUp(session, ask([[-1]])), "nothing of its levels above it")
+        XCTAssertNil(Inspect.selectUp(session, ask([level], plan: "another plan")), "asked of another plan's selection")
+        XCTAssertNil(Inspect.selectUp(session, ask([level], instance: [["key": "elsewhere"]])), "asked of another copy")
+        var moved = ask([level]); moved["from"] = -1
+        XCTAssertNil(Inspect.selectUp(session, moved), "asked of a selection at another site")
+        XCTAssertEqual(Inspect.selected?.id, node.id, "a stale ask leaves the selection")
+        let body = try XCTUnwrap(Inspect.selectUp(session, ask([[-1], level])))
+        let outermost = try XCTUnwrap(ancestors.last { level.contains($0.site) })
+        XCTAssertEqual((body["selected"] as? [String: Any])?["node"] as? Int, outermost.view, "\(ancestors)")
+        XCTAssertNil(body["click"], "a move is no press: its outline scrolls the copy into view")
+        XCTAssertEqual(Inspect.selected?.id, UInt32(outermost.view))
+        // A nearer level with a node above wins over a later one that reaches higher.
+        _ = Inspect.select(session, id: node.id, clicked: true)
+        let nearer = try XCTUnwrap(Inspect.selectUp(session, ask([[ancestors[0].site], level])))
+        XCTAssertEqual((nearer["selected"] as? [String: Any])?["node"] as? Int, ancestors.last { $0.site == ancestors[0].site }?.view, "\(ancestors)")
+        // A `select` that is no object (the web pages take any but null or false) is no move, and leaves inspect on.
+        let was = Inspect.selected?.id
+        ExactApp.shared.inspectCommand(["kind": "inspect", "select": "up"])
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertTrue(Inspect.on, "a select that is no object never turns inspect mode off")
+        XCTAssertEqual(Inspect.selected?.id, was)
     }
 }
 #endif

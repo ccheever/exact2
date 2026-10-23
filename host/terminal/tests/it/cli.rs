@@ -171,7 +171,19 @@ fn signal_restores(mode: &str, signal: i32, pending: bool) {
 #[cfg(unix)]
 #[test]
 fn signal_restores_raw_mode_when_output_is_blocked() {
+    blocked_output(false);
+}
+
+#[cfg(unix)]
+#[test]
+fn traced_commit_survives_blocked_stderr_and_signal_restores_raw_mode() {
+    blocked_output(true);
+}
+
+#[cfg(unix)]
+fn blocked_output(trace: bool) {
     use std::fs::File;
+    use std::io::{Read, Write};
     use std::mem::MaybeUninit;
     use std::os::fd::{AsRawFd, FromRawFd};
     use std::os::unix::process::ExitStatusExt;
@@ -190,24 +202,51 @@ fn signal_restores_raw_mode_when_output_is_blocked() {
         },
         0
     );
-    let _master = unsafe { File::from_raw_fd(master_fd) };
+    let mut master = unsafe { File::from_raw_fd(master_fd) };
     let slave = unsafe { File::from_raw_fd(slave_fd) };
-    assert_eq!(unsafe { libc::tcflow(slave.as_raw_fd(), libc::TCOOFF) }, 0);
-    let path = entry("blocked-output");
-    std::fs::write(&path, "component App\n  view\n    text \"Ready\"\n").unwrap();
-    // The test harness writes a banner before running a test, which blocks
-    // on a stopped Linux PTY before the host can enter raw mode.
-    let mut child = Command::new(env!("CARGO_BIN_EXE_exact-terminal"))
-        .arg(path)
-        .args(["--size", "200x160", "--fullscreen"])
+    let path = entry(if trace {
+        "blocked-trace"
+    } else {
+        "blocked-output"
+    });
+    let acknowledged = path.with_extension("ack");
+    if acknowledged.exists() {
+        std::fs::remove_file(&acknowledged).unwrap();
+    }
+    let mut command = if trace {
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command.args(["--exact", "cli::blocked_trace_child", "--nocapture"]);
+        command.env("EXACT_TERMINAL_TRACE_ACK", &acknowledged);
+        command.env("EXACT_TERMINAL_TRACE", "1");
+        command
+    } else {
+        assert_eq!(unsafe { libc::tcflow(slave.as_raw_fd(), libc::TCOOFF) }, 0);
+        std::fs::write(&path, "component App\n  view\n    text \"Ready\"\n").unwrap();
+        // The test harness's banner would block before entering raw mode.
+        let mut command = Command::new(env!("CARGO_BIN_EXE_exact-terminal"));
+        command
+            .arg(path)
+            .args(["--size", "200x160", "--fullscreen"]);
+        command
+    };
+    let mut child = command
         .stdin(slave.try_clone().unwrap())
         .stdout(slave.try_clone().unwrap())
         .stderr(slave.try_clone().unwrap())
         .spawn()
         .unwrap();
+    assert_eq!(
+        unsafe { libc::fcntl(master.as_raw_fd(), libc::F_SETFL, libc::O_NONBLOCK) },
+        0
+    );
+    let mut output = Vec::new();
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut stable = 0;
     loop {
+        let mut chunk = [0; 4096];
+        if let Ok(n) = master.read(&mut chunk) {
+            output.extend_from_slice(&chunk[..n]);
+        }
         let mut termios = MaybeUninit::<libc::termios>::uninit();
         assert_eq!(
             unsafe { libc::tcgetattr(slave.as_raw_fd(), termios.as_mut_ptr()) },
@@ -215,7 +254,11 @@ fn signal_restores_raw_mode_when_output_is_blocked() {
         );
         let raw = unsafe { termios.assume_init() }.c_lflag & libc::ICANON == 0;
         stable = if raw { stable + 1 } else { 0 };
-        if stable >= 5 {
+        if if trace {
+            raw && output.windows(5).any(|part| part == b"Ready")
+        } else {
+            stable >= 5
+        } {
             break;
         }
         if Instant::now() >= deadline || child.try_wait().unwrap().is_some() {
@@ -224,6 +267,31 @@ fn signal_restores_raw_mode_when_output_is_blocked() {
             panic!("child did not enter raw mode with output stopped");
         }
         std::thread::sleep(Duration::from_millis(10));
+    }
+    if trace {
+        assert_eq!(unsafe { libc::tcflow(slave.as_raw_fd(), libc::TCOOFF) }, 0);
+        // stdout and stderr share an open file description. Exhaust even
+        // single-byte room so the next diagnostic must encounter EAGAIN.
+        while unsafe { libc::write(slave.as_raw_fd(), b"X".as_ptr().cast(), 1) } == 1 {}
+        assert_eq!(
+            std::io::Error::last_os_error().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        master.write_all(b"12").unwrap();
+        // The second action acknowledges that the first commit's trace
+        // returned. Neither action changes the screen, so stdout stays idle.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !acknowledged.exists() {
+            let status = child.try_wait().unwrap();
+            if status.is_some() || Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("host did not survive the blocked commit trace: {status:?}");
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(child.try_wait().unwrap().is_none());
+        std::fs::remove_file(acknowledged).unwrap();
     }
     assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
     let deadline = Instant::now() + Duration::from_secs(3);
@@ -245,6 +313,49 @@ fn signal_restores_raw_mode_when_output_is_blocked() {
         0
     );
     assert_ne!(unsafe { termios.assume_init() }.c_lflag & libc::ICANON, 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn blocked_trace_child() {
+    use exact_plan::Value;
+    use exact_runner::{DataError, DataSource};
+    use exact_terminal::host::{Host, Mode};
+
+    let Some(acknowledged) = std::env::var_os("EXACT_TERMINAL_TRACE_ACK") else {
+        return;
+    };
+    struct Source(PathBuf);
+    impl DataSource for Source {
+        fn query(&mut self, _: &str, args: &[Value]) -> Result<Value, DataError> {
+            if args == [Value::str("second")] {
+                std::fs::write(&self.0, b"survived").unwrap();
+            }
+            Ok(Value::record(vec![Value::str("Ready")]))
+        }
+    }
+    let plan = contract::compile(
+        r#"shape Word
+  text: string
+component App
+  state step = "initial"
+  resource word = word(step) as shape Word
+  action first
+    step = "first"
+  action second
+    step = "second"
+  view
+    column
+      text word.text
+      button press=first aria-keyshortcuts="1"
+        text "First"
+      button press=second aria-keyshortcuts="2"
+        text "Second"
+"#,
+    )
+    .unwrap();
+    let mut host = Host::boot(plan, Source(acknowledged.into()), Mode::Fullscreen, 20, 6).unwrap();
+    exact_terminal::term::run(&mut host).unwrap();
 }
 
 #[cfg(unix)]

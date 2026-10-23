@@ -489,6 +489,9 @@ impl Parser {
                 TokenKind::Ident(w) if w == "test" => file.tests.push(self.test_decl()?),
                 TokenKind::Ident(w) if LAUNCH.contains(&w.as_str()) => {
                     let line = self.step()?;
+                    if !is_launch(&line) {
+                        return self.err("syntax-expected-declaration", "only media preferences may lead a test file; MIDI preferences belong inside a test");
+                    }
                     if let Some(first) = file.launch.iter().find(|s| same_launch(s, &line)) {
                         return duplicate(
                             "launch line",

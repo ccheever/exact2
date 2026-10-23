@@ -140,6 +140,26 @@ final class RasterSpoolTests: XCTestCase {
         XCTAssertEqual(info.st_mode & S_IFMT, S_IFDIR, "the root is a real directory now")
     }
 
+    func testARootSwappedAfterLockingCannotRedirectTheSweepOrCreation() throws {
+        let base = root.appendingPathComponent("exact-raster", isDirectory: true)
+        let moved = root.appendingPathComponent("moved", isDirectory: true)
+        let outside = root.appendingPathComponent("outside", isDirectory: true)
+        try fm.createDirectory(at: base, withIntermediateDirectories: true)
+        let victim = try spool("outside/victim", lock: true)
+        RasterSpool.beforeSweep = { [fm] in
+            RasterSpool.beforeSweep = nil
+            try! fm.moveItem(at: base, to: moved)
+            try! fm.createSymbolicLink(at: base, withDestinationURL: outside)
+        }
+        defer { RasterSpool.beforeSweep = nil }
+        var made: (url: URL, lock: Int32)?
+        do { made = try RasterSpool.establish(in: base) } catch { }
+        defer { if let made { close(made.lock) } }
+        XCTAssertNil(made, "a replaced root cannot yield a spool URL")
+        XCTAssertTrue(fm.fileExists(atPath: victim.appendingPathComponent("spooled").path))
+        XCTAssertEqual(try fm.contentsOfDirectory(atPath: outside.path), ["victim"], "nothing was created through the replacement link")
+    }
+
     /// A link in the root's place that cannot be unlinked (its directory is
     /// read-only) is not followed: nothing is created in its target (Grok r3
     /// finding 1).

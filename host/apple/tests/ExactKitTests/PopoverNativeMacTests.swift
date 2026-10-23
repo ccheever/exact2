@@ -47,6 +47,82 @@ final class PopoverNativeMacTests: XCTestCase {
     }
     private func onScreen(_ view: NSView) -> NSRect { view.window!.convertToScreen(view.convert(view.bounds, to: nil)) }
 
+    func testFrameReadsTheNativePopoversPresentationPosition() throws {
+        let source = SheetFixture.page
+            .replacingOccurrences(of: "  state notes", with: "  state presentedX = 0\n  action inspect\n    presentedX = frame(\"pinned-pop\").x\n  state notes")
+            .replacingOccurrences(of: "      input testId=\"page-field\"", with: "      button testId=\"read-frame\" press=inspect\n        text \"Read frame\"\n      text `${presentedX}` testId=\"read-x\"\n      input testId=\"page-field\"")
+        let f = try SheetFixture(page: source)
+        defer { f.close() }
+        f.window.setFrameOrigin(NSPoint(x: 200, y: 120))
+        f.window.orderFrontRegardless()
+        f.settle()
+        try f.press("pinned")
+        let native = try XCTUnwrap(f.presenter.menus.windowed.first)
+        native.content.wantsLayer = true
+        let layer = try XCTUnwrap(native.content.layer)
+        let box = try XCTUnwrap(f.presenter.openTopLayerFrames.first?.1)
+        let motion = CABasicAnimation(keyPath: "position.x")
+        motion.fromValue = layer.position.x - 80
+        motion.toValue = layer.position.x
+        motion.duration = 1; motion.speed = 0; motion.timeOffset = 0.5
+        motion.fillMode = .both; motion.isRemovedOnCompletion = false
+        layer.add(motion, forKey: "native-placement-test")
+        CATransaction.flush()
+        let deadline = Date(timeIntervalSinceNow: 30)
+        while layer.presentation() == nil, Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
+        let shown = try XCTUnwrap(layer.presentation())
+        XCTAssertEqual(shown.position.x, layer.position.x - 40, accuracy: 0.1)
+        try f.press("read-frame")
+        let value = try XCTUnwrap(Double(try f.node("read-x").props["text"] ?? ""))
+        XCTAssertEqual(value, box.minX - 40, accuracy: 0.1, "frame follows the held native animation between endpoints")
+        layer.removeAnimation(forKey: "native-placement-test")
+        try f.press("read-frame")
+        XCTAssertEqual(Double(try f.node("read-x").props["text"] ?? "") ?? .nan, box.minX, accuracy: 0.1)
+    }
+
+    func testNativePresentationCoordinatesAcrossFlippedAndUnflippedViews() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 120, width: 500, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let parent = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
+        parent.wantsLayer = true
+        window.contentView = parent
+        let pane = BlockView(frame: NSRect(x: 100, y: 120, width: 160, height: 80))
+        pane.wantsLayer = true
+        parent.addSubview(pane)
+        let flipped = BlockView(frame: parent.bounds)
+        parent.addSubview(flipped)
+        window.orderFrontRegardless()
+        window.displayIfNeeded()
+        CATransaction.flush()
+        XCTAssertTrue(pane.isFlipped)
+        XCTAssertFalse(parent.isFlipped)
+        let layer = try XCTUnwrap(pane.layer)
+        let end = layer.position
+        let motion = CABasicAnimation(keyPath: "position")
+        motion.fromValue = NSValue(point: NSPoint(x: end.x - 60, y: end.y - 80))
+        motion.toValue = NSValue(point: end)
+        motion.duration = 1; motion.speed = 0; motion.timeOffset = 0.5
+        motion.fillMode = .both; motion.isRemovedOnCompletion = false
+        layer.add(motion, forKey: "flipped-placement-test")
+        CATransaction.flush()
+        let deadline = Date(timeIntervalSinceNow: 30)
+        while layer.presentation() == nil, Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
+        let shown = try XCTUnwrap(layer.presentation())
+        XCTAssertEqual(shown.position.x, end.x - 30, accuracy: 0.1)
+        XCTAssertEqual(shown.position.y, end.y - 40, accuracy: 0.1)
+        for destination in [parent, flipped] {
+            let expected = destination.convert(pane.frame.offsetBy(dx: -30, dy: -40), from: parent)
+            let sampled = destination.convertNativePresentation(pane.bounds, from: pane)
+            XCTAssertEqual(sampled.minX, expected.minX, accuracy: 0.1)
+            XCTAssertEqual(sampled.minY, expected.minY, accuracy: 0.1, "destination flipped=\(destination.isFlipped)")
+            XCTAssertEqual(sampled.size, expected.size)
+        }
+        layer.removeAnimation(forKey: "flipped-placement-test")
+        XCTAssertEqual(flipped.convertNativePresentation(pane.bounds, from: pane), flipped.convert(pane.bounds, from: pane))
+    }
+
     func testDynamicFallbacksChangePresentationWithoutClosingOrLosingFocus() throws {
         let f = try SheetFixture(page: """
         component Proof

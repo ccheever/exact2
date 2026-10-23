@@ -34,8 +34,7 @@
 // (it is inside a pressable) keeps the route painted in the window as
 // before, on its ground (`ModalGround`), and the session's log says why. So
 // does the driver's own chrome (`--chrome agent`), a route with no window to
-// attach to, and a route pushed over a modal one, which is not a sheet's
-// content yet.
+// attach to, and a route whose header cannot be projected.
 //
 // **What dismisses it** is the route's `closedby`, as a dialog's: unwritten
 // or `closerequest`, Escape and Command-period; `none`, only its own buttons
@@ -124,7 +123,8 @@ final class RouteChromeLine: NSView {
 /// A sheet's own push button. It is a Tab stop as Keyboard Navigation has
 /// an `NSButton`, by the setting the session reads (a drive's or a test's
 /// stands in for the person's, KeyViewLoopMac.swift).
-final class RouteChromeButton: NSButton {
+final class RouteChromeButton: NSButton, AgentOwned {
+    var agentViewId: UInt32? { tag > 0 ? UInt32(exactly: tag) : nil }
     override var acceptsFirstResponder: Bool { KeyboardNavigation.on && isEnabled }
     override var canBecomeKeyView: Bool { acceptsFirstResponder && !isHiddenOrHasHiddenAncestor }
 }
@@ -134,11 +134,13 @@ final class RouteChromeButton: NSButton {
 final class RouteChrome: NSView {
     private(set) weak var content: BlockView?
     let title = NSTextField(labelWithString: "")
+    let back = RouteChromeButton(title: "Back", target: nil, action: nil)
+    var onBack: (() -> Void)?
     let cancel: NSButton = RouteChromeButton(title: "", target: nil, action: nil), confirm: NSButton = RouteChromeButton(title: "", target: nil, action: nil)
     /// The buttons Tab reaches after the route's own stops, with Keyboard Navigation on.
-    var stops: [NSView] { KeyboardNavigation.on ? buttons.filter(\.isEnabled) : [] }
+    var stops: [NSView] { KeyboardNavigation.on ? (buttons + (back.isHidden ? [] : [back])).filter(\.isEnabled) : [] }
     /// Whether `view` is one of the rows' own views: the sheet's, as the route in it is.
-    func owns(_ view: NSView) -> Bool { view === cancel || view === confirm || view === title }
+    func owns(_ view: NSView) -> Bool { view === back || view === cancel || view === confirm || view === title }
     private let above = RouteChromeLine(soft: true), below = RouteChromeLine(soft: false)
     /// A row's press: the authored button's id.
     var onPress: ((UInt32) -> Void)?
@@ -159,8 +161,13 @@ final class RouteChrome: NSView {
             button.target = self
             button.action = #selector(pressed(_:))
         }
+        back.bezelStyle = .accessoryBarAction
+        back.image = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: nil)
+        back.imagePosition = .imageLeading
+        back.target = self
+        back.action = #selector(wentBack)
         confirm.keyEquivalent = "\r"
-        for view in [title, above, below, cancel, confirm] as [NSView] { view.isHidden = true; addSubview(view) }
+        for view in [title, above, below, cancel, confirm, back] as [NSView] { view.isHidden = true; addSubview(view) }
     }
     required init?(coder: NSCoder) { nil }
     override var isFlipped: Bool { true }
@@ -170,7 +177,7 @@ final class RouteChrome: NSView {
         addSubview(content, positioned: .below, relativeTo: nil)
     }
 
-    private var top: CGFloat { title.isHidden ? 0 : Self.titleRow + 1 }
+    private var top: CGFloat { title.isHidden && back.isHidden ? 0 : Self.titleRow + 1 }
     private var bottom: CGFloat { cancel.isHidden && confirm.isHidden ? 0 : Self.buttonRow + 1 }
     /// The height the rows take beside the content.
     var rows: CGFloat { top + bottom }
@@ -188,10 +195,11 @@ final class RouteChrome: NSView {
     }
 
     /// What the rows show now; true when a row came or went, so the sheet's size is another.
-    func show(title words: String?, cancel: (String, UInt32, Bool)?, confirm: (String, UInt32, Bool)?, escapes: Bool) -> Bool {
+    func show(title words: String?, back offered: Bool, cancel: (String, UInt32, Bool)?, confirm: (String, UInt32, Bool)?, escapes: Bool) -> Bool {
         let before = rows
+        back.isHidden = !offered
         title.isHidden = (words ?? "").isEmpty
-        above.isHidden = title.isHidden
+        above.isHidden = top == 0
         if let words, title.stringValue != words { title.stringValue = words }
         for (button, said) in [(self.cancel, cancel), (self.confirm, confirm)] {
             button.isHidden = said == nil
@@ -211,8 +219,10 @@ final class RouteChrome: NSView {
     override func layout() {
         super.layout()
         let size = bounds.size
-        if !title.isHidden {
-            let fit = title.fittingSize, x = Self.titleStart
+        if top > 0 {
+            back.sizeToFit()
+            back.frame.origin = NSPoint(x: Self.edge, y: (Self.titleRow - back.frame.height) / 2)
+            let fit = title.fittingSize, x = back.isHidden ? Self.titleStart : back.frame.maxX + Self.gap
             title.frame = NSRect(x: x, y: (Self.titleBaseline - title.firstBaselineOffsetFromTop).rounded(), width: max(0, min(fit.width, size.width - x - Self.edge)), height: fit.height)
             // Its second row falls on the content's first, as the reference's shadow does.
             above.frame = NSRect(x: 0, y: Self.titleRow, width: size.width, height: 2)
@@ -231,10 +241,14 @@ final class RouteChrome: NSView {
         }
     }
 
+    @objc private func wentBack() { onBack?() }
+
     @objc private func pressed(_ sender: NSButton) { onPress?(UInt32(sender.tag)) }
 
     /// The route is being destroyed with its sheet still up: the sheet
     /// leaves showing what it showed, as a person watches a sheet go.
+    func thaw() { frozen?.removeFromSuperview(); frozen = nil }
+
     func freeze() {
         guard frozen == nil, let content, content.bounds.width > 0, content.bounds.height > 0,
               let pixels = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return }
@@ -257,31 +271,26 @@ extension NavigationHost {
     /// lowest one above every route that stays painted. `routes[selected]`
     /// is the route the root shows; `concerned`: the batch can have changed
     /// a header, else what was read before stands.
-    func sheetRoutes(_ routes: [NodeView], selected: Int, root: NodeView, concerned: Bool) -> [(route: NodeView, header: SheetHeader?)] {
+    func sheetRoutes(_ routes: [NodeView], selected: Int, root: NodeView, concerned: Bool) -> [(base: NodeView, route: NodeView, header: SheetHeader?)] {
         guard !presenter.dialogs.painted, presenter.viewport.window != nil, routes.indices.contains(selected) else { return [] }
-        var found: [(route: NodeView, header: SheetHeader?)] = []
+        var found: [(base: NodeView, route: NodeView, header: SheetHeader?)] = []
         let back = root.props["navigationBack"].flatMap { $0.isEmpty ? nil : $0 }
-        var index = selected
-        // A route pushed over a modal one is not a sheet's content yet: both are painted in the window, as before.
-        if routes[selected].props["navigationPresentation"] != "modal", let modal = routes[..<selected].last(where: { $0.props["navigationPresentation"] == "modal" }) {
-            let why = "route #\(routes[selected].id) is pushed over it, and a sheet holds one route"
-            if keptSheets[modal.id] != why { keptSheets[modal.id] = why; presenter.session?.log("route sheet: modal route #\(modal.id) stays painted in the window: \(why)") }
-        }
-        while index > 0, routes[index].props["navigationPresentation"] == "modal" {
-            let route = routes[index]
+        let prefix = Array(routes.prefix(selected + 1))
+        let segments = NavigationRules.segments(presentations: prefix.map { $0.props["navigationPresentation"] })
+        for segment in segments.reversed() where !segment.isEmpty {
+            let base = routes[segment.lowerBound], route = routes[segment.upperBound - 1]
+            guard segment.lowerBound > 0, base.props["navigationPresentation"] == "modal" else { break }
             if !concerned, keptSheets[route.id] != nil { return found }
             if !concerned, let known = sheets.first(where: { $0.route === route }) { found.insert(known, at: 0) } else {
                 switch SheetHeader.read(route: route, back: back) {
-                case .none: found.insert((route, nil), at: 0)
-                case .shown(let header): found.insert((route, header), at: 0)
+                case .none: found.insert((base, route, nil), at: 0)
+                case .shown(let header): found.insert((base, route, header), at: 0)
                 case .kept(let why):
-                    // Painted in the window, and so is every route beneath it.
-                    if keptSheets[route.id] != why { keptSheets[route.id] = why; presenter.session?.log("route sheet: modal route #\(route.id) stays painted in the window: \(why)") }
+                    if keptSheets[route.id] != why { keptSheets[route.id] = why; presenter.session?.log("route sheet: route #\(route.id) stays painted in the window: \(why)") }
                     return found
                 }
             }
             keptSheets[route.id] = nil
-            index -= 1
         }
         return found
     }
@@ -306,8 +315,9 @@ extension DialogHost {
             routeSync.again = false
             var left = false
             for entry in entries.reversed() where entry.route {
-                let wanted = presenter.navigation.sheets.contains { $0.route === entry.dialog }
-                if !wanted || !live(entry.dialog) { close(entry.dialog); left = true }
+                if presenter.isLeaving(entry.routeBase ?? entry.dialog) || presenter.isLeaving(entry.dialog) { continue }
+                let wanted = presenter.navigation.sheets.contains { $0.base === entry.routeBase }
+                if !wanted || !live(entry.routeBase ?? entry.dialog) { close(entry.dialog); left = true }
             }
             // The routes that left are navigation's to hide again, and those under them its to show.
             if left { presenter.navigation.resync() }
@@ -315,14 +325,42 @@ extension DialogHost {
             let read = presenter.navigation.sheetsRead
             presenter.navigation.sheetsRead = false
             for wanted in presenter.navigation.sheets {
-                if let entry = entry(ofRoute: wanted.route) { if read { project(entry, wanted.header) }; continue }
+                if let entry = entries.first(where: { $0.route && $0.routeBase === wanted.base }) {
+                    if presenter.isLeaving(entry.routeBase ?? entry.dialog) || presenter.isLeaving(entry.dialog) { continue }
+                    if entry.dialog !== wanted.route { replace(entry, with: wanted.route, header: wanted.header) }
+                    else if read { project(entry, wanted.header) }
+                    continue
+                }
                 guard live(wanted.route), let page = presenter.viewport.window else { continue }
                 let front = window ?? page
                 let entry = Entry(wanted.route, previous: focusOwner(front), route: true)
+                entry.routeBase = wanted.base
                 entry.header = wanted.header
                 present(entry, over: front)
             }
         } while routeSync.again
+    }
+
+    private func replace(_ entry: Entry, with route: NodeView, header: SheetHeader?) {
+        guard let presenter, let sheet = entry.sheet else { return }
+        sheet.window.makeFirstResponder(nil)
+        sheet.chrome?.thaw()
+        let previous = entry.dialog
+        release(entry)
+        presenter.blocks.release(previous)
+        previous.sheetGroundChanged()
+        entry.dialog = route
+        entry.frame = route.frame
+        project(entry, header, fits: false)
+        if let block = block(of: entry) {
+            presenter.blocks.show(route, in: sheet.content, block: block) { [weak sheet] in sheet?.fit($0) }
+        }
+        route.isHidden = false
+        route.sheetGroundChanged()
+        presenter.navigation.resync()
+        refreshInputGates()
+        presenter.syncKeyViewLoop()
+        enterFocus()
     }
 
     /// The sheet's window was made for `entry`: its rows press the authored buttons.
@@ -350,8 +388,13 @@ extension DialogHost {
         let name = header?.title ?? ""
         if sheet.window.title != name { sheet.window.title = name }
         let row = { (node: NodeView?) in node.map { (SheetHeader.words(of: $0), $0.id, !$0.disabled) } }
-        let changed = chrome.show(title: header?.title, cancel: row(header?.cancel), confirm: row(header?.confirm),
-                                  escapes: entry.dialog.props["closedby"] != "none")
+        chrome.onBack = { [weak presenter] in _ = presenter?.navigation.goBack() }
+        let back = entry.dialog.props["navigationBar"] != "none" && entry.routeBase !== entry.dialog && presenter.navigation.backOffered
+        chrome.back.isEnabled = presenter.navigation.back != nil
+        let changed = chrome.show(title: header?.title, back: back, cancel: back ? nil : row(header?.cancel), confirm: row(header?.confirm),
+                                  escapes: dismissalOwner(of: entry.dialog).props["closedby"] != "none")
+        chrome.cancel.setAccessibilityIdentifier(back ? nil : header?.cancel?.props["testId"])
+        chrome.confirm.setAccessibilityIdentifier(header?.confirm?.props["testId"])
         guard fits, changed else { return }
         // Its rows take another height: the content's maximum and the window's size follow.
         if let block = block(of: entry) { presenter.blocks.resize(entry.dialog, block) }
@@ -388,7 +431,7 @@ extension DialogHost {
     func activate(_ node: NodeView) -> Bool? {
         guard let entry = entries.last(where: { $0.route && ($0.header?.cancel === node || $0.header?.confirm === node) }),
               let chrome = entry.sheet?.chrome else { return nil }
-        let button = entry.header?.cancel === node ? chrome.cancel : chrome.confirm
+        let button = entry.header?.cancel === node ? (chrome.back.isHidden ? chrome.cancel : chrome.back) : chrome.confirm
         guard entry === entries.last, presenter?.alerts.presented == nil, !button.isHidden, button.isEnabled, !node.inert else { return false }
         button.performClick(nil)
         return true
@@ -408,7 +451,7 @@ extension DialogHost {
             let size = entry.sheet?.window.contentView?.frame.size ?? .zero
             return ["route": Int(entry.dialog.id), "presentation": "sheet", "title": entry.header?.title ?? NSNull(),
                     "cancel": id(entry.header?.cancel), "confirm": id(entry.header?.confirm), "header": entry.header.map { $0.whole ? "projected" : "partly" } ?? "authored",
-                    "size": [Agent.r2(size.width), Agent.r2(size.height)], "closedby": entry.dialog.props["closedby"] ?? "closerequest"]
+                    "size": [Agent.r2(size.width), Agent.r2(size.height)], "closedby": dismissalOwner(of: entry.dialog).props["closedby"] ?? "closerequest"]
         }
         guard let painted = presenter.navigation.paintedModal else { return nil }
         return ["route": Int(painted.id), "presentation": "painted", "kept": presenter.navigation.keptSheets[painted.id] ?? NSNull()]

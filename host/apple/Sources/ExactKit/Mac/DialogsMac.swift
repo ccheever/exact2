@@ -11,7 +11,7 @@ import AppKit
 final class DialogHost {
     private(set) weak var presenter: Presenter?
     final class Entry {
-        let dialog: NodeView
+        var dialog: NodeView
         weak var parent: NSView?
         weak var previous: NSView?
         let index: Int
@@ -23,6 +23,7 @@ final class DialogHost {
         /// A modal route in its sheet, not a `dialog`: what its sheet shows
         /// of its header, and the header's nodes hidden while it does.
         let route: Bool
+        var routeBase: NodeView?
         var header: SheetHeader?
         var stoodFor: [NodeView] = []
         init(_ dialog: NodeView, previous: NSView?, route: Bool = false) {
@@ -35,6 +36,7 @@ final class DialogHost {
         }
     }
     private(set) var entries: [Entry] = []
+    var onCancel: ((UInt32) -> Void)?
     /// Painted in the page, not AppKit's sheet: the driver's own chrome
     /// (`--chrome agent`), as it paints the header and the tablist. A test
     /// of the painted presentation says so.
@@ -200,6 +202,7 @@ final class DialogHost {
         presenter?.syncAccessibility()
         presenter?.shortcuts.sync()
         if notify, !entry.route { dialog.queueDialogClose() }
+        presenter?.afterBatch { [weak presenter] in presenter?.toolbar.sync() }
     }
     func reset() {
         presenter?.alerts.reset()
@@ -247,7 +250,7 @@ final class DialogHost {
         if let window, active != nil,
            ownsFocus(window), focusOwner(window).map({ blocks($0) }) ?? true { enterFocus() }
     }
-    private func refreshInputGates() {
+    func refreshInputGates() {
         guard let presenter else { return }
         accessibilityBlocker = accessibleActive.map(ObjectIdentifier.init)
         presenter.navigation.refreshInputGates(Array(presenter.views.values))
@@ -320,6 +323,9 @@ final class DialogHost {
         if entries.contains(where: { $0.sheet?.window === window }) { return true }
         return owner === viewport || owner.isDescendant(of: viewport) || owner === presenter?.session?.view
     }
+    /// Dismissal belongs to the sheet's modal segment; its title-row Back belongs to the pushed route.
+    func dismissalOwner(of dialog: NodeView) -> NodeView { entry(ofRoute: dialog)?.routeBase ?? dialog }
+
     /// Shared by real key delivery and the agent's direct NSWindow delivery.
     func key(_ event: NSEvent) -> Bool {
         guard let dialog = active, event.window === dialog.window else { return false }
@@ -330,7 +336,7 @@ final class DialogHost {
         let period = event.type == .keyDown && event.keyCode == 47
             && event.modifierFlags.intersection([.command, .control, .option, .shift]) == .command
         if event.keyCode == 53 || period {
-            if event.type == .keyDown, !event.isARepeat, dialog.props["closedby"] != "none" { dismiss(dialog) }
+            if event.type == .keyDown, !event.isARepeat, dismissalOwner(of: dialog).props["closedby"] != "none" { dismiss(dialog) }
             return true
         }
         // Return is the default button's, when the dialog has one (LLP 1115.000 D7.3).
@@ -368,13 +374,20 @@ final class DialogHost {
         return false
     }
     func outside() {
-        if let dialog = active, dialog.props["closedby"] == "any" { dismiss(dialog) }
+        if let dialog = active, dismissalOwner(of: dialog).props["closedby"] == "any" { dismiss(dialog) }
     }
     /// The platform's dismissal (Escape, Command-period, a click behind a
     /// `closedby="any"` sheet): a dialog closes; a modal route goes back as
     /// its stack goes, which the app decides (BackMac.swift).
     private func dismiss(_ dialog: NodeView) {
-        guard entry(ofRoute: dialog) != nil else { return close(dialog) }
+        guard entry(ofRoute: dialog) != nil else {
+            close(dialog)
+            if live(dialog), dialog.handlers.contains("cancel") {
+                if let onCancel { onCancel(dialog.id) }
+                else if let session = presenter?.session { session.apply(session.runtime.pickerCancel(dialog.id, now: session.now())) }
+            }
+            return
+        }
         if let refused = presenter?.navigation.dismiss(dialog) { presenter?.session?.log("modal dismissal refused: \(refused)") }
     }
     var observation: [String: Any]? {

@@ -633,24 +633,7 @@ pub(super) fn css_style<'a>(
     kernel: &Kernel,
     node: &NodeRef<'a>,
 ) -> std::borrow::Cow<'a, exact_kernel::StyleProps> {
-    css_style_named(kernel, node, true)
-}
-
-/// [`css_style`], with a platform text style's weight and leading where it
-/// is named (LLP 1115.000 D12.2), which the page's descendants inherit as
-/// CSS does: a `font` shorthand's always, a bare `font-size`'s with `bare`
-/// (the live host, whose kernel sees an ancestor's weight arrive and writes
-/// the node again; the JS target, which keeps no kernel, writes CSS's
-/// nothing for one).
-pub(super) fn css_style_named<'a>(
-    kernel: &Kernel,
-    node: &NodeRef<'a>,
-    bare: bool,
-) -> std::borrow::Cow<'a, exact_kernel::StyleProps> {
     let style = css_style_of(&|from, id| kernel.resolve_id(from, id), &node.facts());
-    if !bare && !node.names_text_style_through_font() {
-        return style;
-    }
     with_style_rows(style, node)
 }
 
@@ -1007,6 +990,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::RetainFocus => "retainFocus",
             // tvOS's focus guide; a browser's Tab order is sequential.
             PropId::FocusGuide => continue,
+            // The kernel's word from the grouped sheet; the page's sheet has the ink already.
+            PropId::GroupedAction => continue,
             // A page cannot style the phone's status bar (LLP 1105 D7).
             PropId::StatusBarStyle | PropId::StatusBarAnimation => continue,
             // Read by wakelock-glue.js (LLP 1125 D11).
@@ -1307,19 +1292,22 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             }
         }
     }
-    // A platform button's floor (neutral.css: 36 px each way, 44 on a
-    // touch device) and its padding are the look's, and a size its
-    // author wrote is the author's. In CSS a minimum outranks a size, so
-    // the sheet is told which of the two were written and steps aside on
-    // that axis.
+    // Mark authored size and padding so neutral.css can remove the platform
+    // minimum on that axis; CSS minimums otherwise outrank the author's size
     if node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("button") {
-        let sizes: Vec<&str> = [(StyleId::Width, "width"), (StyleId::Height, "height")]
-            .into_iter()
-            .filter(|(id, _)| node.style.written.has(*id))
-            .map(|(_, name)| name)
-            .collect();
-        if !sizes.is_empty() {
-            out.insert("data-exact-said".into(), sizes.join(" "));
+        use StyleId::{Height, PaddingBottom, PaddingLeft, PaddingRight, PaddingTop, Width};
+        let written = |ids: &[StyleId]| ids.iter().any(|id| node.style.written.has(*id));
+        let said: Vec<&str> = [
+            (written(&[Width]), "width"),
+            (written(&[Height]), "height"),
+            (written(&[PaddingLeft, PaddingRight]), "padding-inline"),
+            (written(&[PaddingTop, PaddingBottom]), "padding-block"),
+        ]
+        .into_iter()
+        .filter_map(|(on, word)| on.then_some(word))
+        .collect();
+        if !said.is_empty() {
+            out.insert("data-exact-said".into(), said.join(" "));
         }
     }
     // A `<button>` submits a form unless it says otherwise; a `button` never does.

@@ -119,28 +119,68 @@ final class GroupedCustomRowsIOSTests: GroupedListFixture {
         ]))
         let image = try XCTUnwrap(p.views[30])
         XCTAssertFalse(image.listSymbol, "its author's fit")
-        p.apply(wireBatch([["op": "style", "id": 30, "style": ["font_size": 17.0, "object_fit": "contain"]],
+        p.apply(wireBatch([["op": "style", "id": 30, "style": ["font_size": 17.0, "object_fit": "contain", "written": ["width", "height"]]],
                            ["op": "frame", "id": 30, "x": 16.0, "y": 14.0, "w": 32.0, "h": 32.0]]))
         XCTAssertFalse(image.listSymbol, "its author's size")
-        p.apply(wireBatch([["op": "frame", "id": 30, "x": 16.0, "y": 20.5, "w": 24.0, "h": 20.0]]))
+        // The sheet's slot, at whatever size its ramps give it.
+        p.apply(wireBatch([["op": "style", "id": 30, "style": ["font_size": 17.0, "object_fit": "contain"]],
+                           ["op": "frame", "id": 30, "x": 16.0, "y": 16.5, "w": 32.11, "h": 26.76]]))
         XCTAssertTrue(image.listSymbol, "the sheet's slot")
         // A fit its author wrote, even the sheet's own value, is theirs.
         p.apply(wireBatch([["op": "style", "id": 30, "style": ["font_size": 17.0, "object_fit": "contain", "written": ["object_fit"]]]]))
         XCTAssertFalse(image.listSymbol, "its author's contain")
         p.apply(wireBatch([["op": "style", "id": 30, "style": ["font_size": 17.0, "object_fit": "contain"]]]))
         XCTAssertTrue(image.listSymbol)
-        // At an accessibility size the slot keeps today's drawing (its
-        // medium scale, in its box) until its rows grow with Dynamic Type.
+        // At an accessibility size too, drawn at UIKit's smaller size there.
         window.traitOverrides.preferredContentSizeCategory = .accessibilityLarge
         window.layoutIfNeeded() // traits reach the views at layout
         p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "large"]]]))
-        XCTAssertFalse(image.listSymbol, "an accessibility size")
+        XCTAssertTrue(image.listSymbol, "an accessibility size")
+        let base = UIImage.SymbolConfiguration(pointSize: 33)
+        XCTAssertEqual(image.symbolShape(base), base.applying(UIImage.SymbolConfiguration(pointSize: 25.14)).applying(UIImage.SymbolConfiguration(scale: .large)))
         window.traitOverrides.preferredContentSizeCategory = .extraExtraExtraLarge
         window.layoutIfNeeded()
         p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "xxxl"]]]))
         XCTAssertTrue(image.listSymbol, "the largest size short of them")
         host(p).lists[1]?.remove()
         XCTAssertFalse(image.listSymbol, "gone with the list")
+    }
+
+    /// A cell UIKit gives to another custom row takes that row's height,
+    /// which is no resize: the layout already knows each row's height. When
+    /// it was one, two cells handed back and forth between rows of two
+    /// heights at a long list's bottom edge laid the list out again on every
+    /// turn, and Hackers' feed spun a core at rest (LLP 1141.001 D13).
+    func testACellTakingAnotherRowsHeightLaysNothingOutAgain() throws {
+        let p = presenter {
+            var m = self.model()
+            m.sections[0].header = nil
+            m.sections[0].footer = nil
+            m.sections[0].rows[0] = Row(view: 10, custom: true, pressable: true)
+            m.sections[0].rows[1] = Row(view: 11, custom: true, pressable: true)
+            return m
+        }
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 16.0, "y": 0.0, "w": 354.0, "h": 85.0],
+                           ["op": "frame", "id": 11, "x": 16.0, "y": 85.0, "w": 354.0, "h": 79.0]]))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        let l = try list(p)
+        let a = try XCTUnwrap(try cell(p, 10) as? GroupedCell), b = try XCTUnwrap(try cell(p, 11) as? GroupedCell)
+        let pathA = try XCTUnwrap(l.collection.indexPath(for: a)), pathB = try XCTUnwrap(l.collection.indexPath(for: b))
+        XCTAssertEqual([a.height, b.height], [85, 79])
+        XCTAssertFalse(l.resized, "laid out")
+        // UIKit shows each cell for the other's row, then gives them back.
+        l.collectionView(l.collection, willDisplay: a, forItemAt: pathB)
+        l.collectionView(l.collection, willDisplay: b, forItemAt: pathA)
+        XCTAssertTrue(try XCTUnwrap(p.views[11]).superview === a.contentView)
+        XCTAssertEqual(a.height, 79, "the cell takes its new row's height")
+        XCTAssertFalse(l.resized, "which the layout already has")
+        l.collectionView(l.collection, willDisplay: a, forItemAt: pathA)
+        l.collectionView(l.collection, willDisplay: b, forItemAt: pathB)
+        XCTAssertFalse(l.resized)
+        // A row whose own height changes still lays the list out again.
+        p.apply(wireBatch([["op": "frame", "id": 11, "x": 16.0, "y": 85.0, "w": 354.0, "h": 120.0]]))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(try cell(p, 11).bounds.height, 120, accuracy: 0.5, "its row grew")
     }
 }
 #endif

@@ -156,7 +156,9 @@ final class TextRasterizer {
             box: key.box, size: key.size, scale: key.scale, clip: key.clip,
             ellipsis: key.spec.ellipsis, crop: true, clamped: geometry.clamped, shadow: key.spec.hdrShadow.map(TextRunShadow.init),
             // A layer shadow and a vibrancy view each take the ink as it is.
-            tints: key.spec.shadow == nil && (node.vibrantColor == nil || node.enclosingBlur == nil))
+            tints: key.spec.shadow == nil && (node.vibrantColor == nil || node.enclosingBlur == nil),
+            measuredGlyphs: key.spec.color.count == 4 ? engine.measuredGlyphs(key.spec, width: key.box.width) : nil,
+            measuredColor: TextEngine.color(key.spec.color).cgColor)
         // A job for the paragraph's previous text or box paints nothing now.
         if let pending { _ = pending.abandon() }
         node.textRasterKey = key; node.textRasterReady = false; node.textRasterFailed = false
@@ -289,9 +291,9 @@ extension NodeView {
         }
         textRaster = result.image; textRasterFrame = result.covered; textRasterScale = key.scale; textRasterSpec = key.spec
         textRasterReady = true; textRasterFailed = false
-        // One colour's coverage shows through a template image in that
-        // colour; any other ink is its own pixels. Each its own layer.
-        let tint = result.tint.map { UIColor(cgColor: $0) }
+        // One colour's coverage masks that colour; other ink carries its
+        // own colours. Each has its own layer.
+        let tint = result.tint
         if (tint != nil) != (textRasterTint != nil), let old = textRasterLayer {
             old.dropTextCast(); old.removeFromSuperlayer(); textRasterLayer = nil; textRasterTint = nil
         }
@@ -302,11 +304,7 @@ extension NodeView {
         if let tint {
             let view = textRasterTint ?? TintInk()
             textRasterTint = view
-            // Its size first: the image view fits its contents to its bounds
-            // only in a layout pass, which none runs for it outside a commit.
-            view.layer.frame = result.frame
-            view.image = UIImage(cgImage: result.image, scale: key.scale, orientation: .up).withRenderingMode(.alwaysTemplate)
-            view.tintColor = tint
+            view.show(result.image, tint: tint, frame: result.frame, scale: key.scale)
             ink = view.layer
         } else {
             ink = textRasterLayer ?? InkLayer()
@@ -323,6 +321,7 @@ extension NodeView {
         ink.applyTextRange(headroom: result.headroom, limit: style["dynamic_range_limit"]?.string)
         ink.applyTextCast(result.cast, headroom: result.castHeadroom, limit: style["dynamic_range_limit"]?.string, rolling: roll)
         textRasterLayer = ink
+        presenter?.boxFilters.changed(self)
     }
     func dropTextRaster() {
         textRasterLayer?.dropTextCast(); textRasterLayer?.removeFromSuperlayer(); textRasterLayer = nil; textRasterTint = nil
@@ -336,11 +335,28 @@ final class InkLayer: CALayer {
     override func action(forKey event: String) -> (any CAAction)? { nil }
 }
 
-/// A one-colour paragraph's ink (`TextRasterImage.tint`): its coverage as a
-/// template image, which UIKit shows in `tintColor` as Core Animation
-/// composites it, as a `UILabel` shows its text. Only its layer is in the
-/// tree, where `InkLayer` would be; like that, it never animates.
-final class TintInk: UIImageView {
+/// A one-colour paragraph's ink (`TextRasterImage.tint`): its colour masked
+/// by its coverage, one layer as a label is. Updating coverage does not ask
+/// UIImageView to resolve another template image. Only its layer is in the
+/// tree, where `InkLayer` would be; like that, it never animates. A
+/// paragraph with a `text-shadow` is never tinted (`TextRasterizer`'s
+/// `tints`), so the mask clips no shadow.
+final class TintInk: UIView {
+    private let coverage = InkLayer()
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        layer.mask = coverage
+    }
+    convenience init() { self.init(frame: .zero) }
+    required init?(coder: NSCoder) { nil }
+    func show(_ image: CGImage, tint: CGColor, frame: CGRect, scale: CGFloat) {
+        layer.frame = frame
+        layer.backgroundColor = tint
+        coverage.frame = bounds
+        coverage.contentsScale = scale
+        coverage.contents = image
+    }
     override func action(for layer: CALayer, forKey event: String) -> (any CAAction)? { NSNull() }
 }
 

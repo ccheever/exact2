@@ -6,8 +6,8 @@
 // The web gets it from the browser; a list is the runner's (LLP 1010 §6.6).
 // Here the presenter snapshots before each batch and restores after layout
 // (LLP 1001), with the spec's selection, exclusions and suppression triggers.
-// Not here: `overflow-anchor: none` (not a Contract property), priority
-// candidates (the focused editable, find-in-page), and the inline axis.
+// Not here: `overflow-anchor: none` (not a Contract property), find-in-page
+// priority candidates, and the inline axis.
 #if os(iOS) || os(tvOS)
 import UIKit
 #else
@@ -64,11 +64,17 @@ enum ScrollAnchoring {
         /// for one anywhere in the scroller (§2.4, "becomes or stops being
         /// absolutely positioned"), not only on the anchor's chain.
         var positioned: Set<UInt32> = []
-        mutating func note(_ id: UInt32, from old: NodeStyle, to new: NodeStyle) {
+        mutating func note(_ id: UInt32, from old: NodeStyle, to new: NodeStyle, popover: Bool) {
             if ScrollAnchoring.layoutKeys.contains(where: { old[$0] != new[$0] }) { layout.insert(id) }
             // Out of flow is absolute or fixed (Chromium's `IsOutOfFlowPositioned`).
-            let outOfFlow = { (s: NodeStyle) in ["absolute", "fixed"].contains(s["position_type"]?.string ?? "") }
+            let outOfFlow = { (s: NodeStyle) in ["absolute", "fixed"].contains(NodeView.layoutPosition(s, popover: popover)) }
             if outOfFlow(old) != outOfFlow(new) { positioned.insert(id) }
+        }
+        mutating func noteProps(_ op: BatchOp, on view: NodeView) {
+            let old = view.props["popover"] != nil
+            let new = op.props["popover"] != nil || (old && !op.clear.contains("popover"))
+            let outOfFlow = { (popover: Bool) in ["absolute", "fixed"].contains(NodeView.layoutPosition(view.style, popover: popover)) }
+            if outOfFlow(old) != outOfFlow(new) { positioned.insert(view.id) }
         }
         mutating func reset() { layout.removeAll(keepingCapacity: true); positioned.removeAll(keepingCapacity: true) }
     }
@@ -77,7 +83,7 @@ enum ScrollAnchoring {
     /// and an absolute one whose containing block is outside the scroller.
     static func excluded(_ node: NodeView, scroller: NodeView) -> Bool {
         if node.style["display"]?.string == "none" { return true }
-        switch node.style["position_type"]?.string {
+        switch node.layoutPosition {
         case "fixed", "sticky": return true
         case "absolute":
             var above = node.superview
@@ -93,14 +99,14 @@ enum ScrollAnchoring {
     /// Whether a box is an absolute box's containing block: positioned, or
     /// transformed or filtered (CSS Positioned Layout §3.1, CSS Transforms).
     private static func containsAbsolute(_ n: NodeView) -> Bool {
-        if let p = n.style["position_type"]?.string, p != "static" { return true }
+        if n.layoutPosition != "static" { return true }
         return ["transform", "translate", "translate_percent", "rotate", "scale", "filter"].contains { n.style[$0] != nil }
     }
 
     /// The anchor in `scroller`'s content view `space`, whose visible part is
     /// `port`. A nested scroller is a candidate, its content is not: that
     /// moves with its own offset.
-    static func anchor(in scroller: NodeView, space: PlatformView, port: CGRect) -> (node: NodeView, y: CGFloat)? {
+    static func anchor(in scroller: NodeView, space: PlatformView, port: CGRect, focused: NodeView?) -> (node: NodeView, y: CGFloat)? {
         // A view leaving with an exit animation stays in the window but is no
         // longer the presenter's: the DOM has removed it, so it is no candidate.
         let live = { (n: NodeView) in scroller.presenter?.views[n.id] === n }
@@ -113,6 +119,33 @@ enum ScrollAnchoring {
             let scrolls = node.scroll != nil
             #endif
             return scrolls ? [] : node.container.subviews.compactMap { $0 as? NodeView }
+        }
+        // CSS Scroll Anchoring §2.1 examines a viable focused editor before
+        // tree-order candidates, including when it is only partly visible.
+        if let focused,
+           focused.props["editable"] != "false", !focused.disabled,
+           focused.field != nil || focused.textArea != nil,
+           focused.isDescendant(of: space), focused !== scroller,
+           examine(rect(focused), port: port) != .skip {
+            var above: PlatformView? = focused
+            var viable = true
+            while let view = above, view !== scroller {
+                if let node = view as? NodeView {
+                    if !live(node) || excluded(node, scroller: scroller) { viable = false; break }
+                    #if os(iOS) || os(tvOS)
+                    let scrolls = node.scrollView != nil
+                    #else
+                    let scrolls = node.scroll != nil
+                    #endif
+                    if node !== focused && scrolls { viable = false; break }
+                }
+                above = view.superview
+            }
+            if viable, above === scroller,
+               let node = select([focused], port: port, children: children,
+                                 excluded: { !live($0) || excluded($0, scroller: scroller) }, rect: rect) {
+                return (node, rect(node).minY)
+            }
         }
         guard let node = select(roots, port: port,
                                 children: children,

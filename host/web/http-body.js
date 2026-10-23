@@ -73,6 +73,61 @@ async function readEvents(response, limit, message, controller) {
   } finally { reader.releaseLock?.(); }
 }
 
+// Read a byte stream to its end (LLP 1016.000, the amendment of
+// 2026-10-23): a 2xx body that is not `text/event-stream`, for a TypeScript
+// stream. Reads join until the page's next task delivers them as one
+// message, an ArrayBuffer, so the mapper's turns follow its pace and no byte
+// is dropped or reordered. What waits is bounded by the ceiling, at most
+// 1 MiB: a read that would pass it delivers what waits
+// and ends the stream refused. `received` is the oldest read's time, as a socket
+// frame's is its arrival's, for the development page's stream timing
+// (ts-stream.js).
+async function readBytes(response, limit, message, controller) {
+  const reader = response.body.getReader(), encoder = new TextEncoder(), bound = Math.min(limit, 1048576);
+  const failed = (kind, text) => ({ kind, status: 0, headers: '', body: encoder.encode(text) });
+  let parts = [], size = 0, received = 0, timer = null;
+  const flush = () => {
+    clearTimeout(timer); timer = null;
+    if (!size) return;
+    const data = new Uint8Array(size);
+    let at = 0;
+    for (const p of parts) { data.set(p, at); at += p.length; }
+    const m = { event: '', id: '', data: data.buffer, coalesced: 0, received };
+    parts = []; size = 0;
+    message(m);
+  };
+  try {
+    for (;;) {
+      let { done, value } = await reader.read();
+      if (done) { flush(); return failed(1, 'the byte stream ended'); }
+      if (!value.length) continue;
+      // A read longer than the bound alone, which no native read is, goes
+      // to the mapper now in pieces of the bound, after what waits; the rest
+      // waits as a read of its own.
+      if (value.length > bound) {
+        const now = performance.now();
+        flush();
+        for (; value.length > bound; value = value.subarray(bound)) {
+          parts = [value.subarray(0, bound)]; size = bound; received = now;
+          flush();
+        }
+      }
+      if (size + value.length > bound) {
+        flush();
+        return failed(2, bound === 1048576 ? 'byte stream receive queue exceeds 1 MiB' : 'byte stream receive queue exceeds the response ceiling');
+      }
+      if (!size) received = performance.now();
+      parts.push(value); size += value.length;
+      timer ??= setTimeout(flush, 0);
+    }
+  } catch (error) {
+    clearTimeout(timer);
+    await reader.cancel().catch(() => {});
+    if (controller.signal.aborted) return failed(4, 'request aborted');
+    return failed(1, String(error?.message ?? error));
+  } finally { reader.releaseLock?.(); }
+}
+
 // The transport belongs to the resource's abort controller (LLP 1016.000).
 // `protocol` opts the JS TypeScript adapter into D7: ordered frames and a
 // private transport handle; the other adapters still take snapshot delivery.
@@ -80,13 +135,13 @@ export function readSocket(url, limit, message, controller, protocol) {
   const encoder = new TextEncoder(), MAX_BYTES = 1048576, MAX_FRAMES = 256;
   const failed = (kind, text) => ({ kind, status: 0, headers: '', body: encoder.encode(text) });
   return new Promise((resolve) => {
-    let socket, opened = false, ended = false, newest = null, coalesced = 0, timer = null, queue = [], bytes = 0, sent = 0;
+    let socket, opened = false, ended = false, newest = null, coalesced = 0, timer = null, queue = [], stamps = [], bytes = 0, sent = 0;
     const flush = () => {
       clearTimeout(timer); timer = null;
       if (ended) return;
       if (protocol) {
-        const frames = queue; queue = []; bytes = 0;
-        for (const data of frames) { if (ended) break; message({ event: '', id: '', data, coalesced: 0 }); }
+        const frames = queue, received = stamps; queue = []; stamps = []; bytes = 0;
+        frames.forEach((data, i) => { if (!ended) message({ event: '', id: '', data, coalesced: 0, received: received[i] }); });
       } else if (newest !== null) {
         const m = { event: '', id: '', data: newest, coalesced };
         newest = null; coalesced = 0; message(m);
@@ -139,11 +194,11 @@ export function readSocket(url, limit, message, controller, protocol) {
         return end(failed(2, 'a message exceeds the response ceiling'));
       }
       if (protocol) {
-        if (queue.length >= MAX_FRAMES || bytes + size > MAX_BYTES) {
+        if (queue.length >= MAX_FRAMES || bytes + size > MAX_BYTES + limit) {
           flush();
           return end(failed(2, 'socket receive queue exceeds 256 frames or 1 MiB'));
         }
-        queue.push(e.data); bytes += size;
+        queue.push(e.data); stamps.push(performance.now()); bytes += size;
       } else {
         if (newest !== null) coalesced++;
         newest = e.data;
@@ -269,9 +324,12 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
     if (response.url && (asset
       ? new URL(response.url).origin !== location.origin
       : !admitsNetwork(effective, response.url, 'fetch'))) return failed(2, `outside the app's grants (net.fetch): redirected to ${new URL(response.url).origin}`);
-    // A stream reads its body as events; anything else is its one answer.
+    // A stream reads its body as events, or a TypeScript stream's as bytes;
+    // anything else is its one answer.
     if (op.stream && response.ok && response.body && /^text\/event-stream\s*(;|$)/i.test(response.headers.get('content-type') ?? ''))
       return await readEvents(response, op.maxResponseBytes ?? 1024 * 1024, message, controller);
+    if (op.stream && protocol?.bytes && response.ok && response.body)
+      return await readBytes(response, op.maxResponseBytes ?? 1024 * 1024, message, controller);
     return { kind: 0, status: response.status, headers: [...response.headers].map(([k, v]) => `${k}: ${v}`).join('\n'), body: await boundedHttpBody(response, op.maxResponseBytes) };
   } catch (error) {
     // Whichever ended it first: the combined signal keeps the first reason.
@@ -283,7 +341,8 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
 
 // A stream on the JS target (host/web-js: rust-data.js, ts-data.js): `request`
 // over a source's request with the wasm host's admission and ownership.
-// Only the TypeScript adapter opts into ordered protocol frames (D7).
+// Only the TypeScript adapter opts into ordered protocol frames (D7) and
+// byte streams.
 export function streamed(req, grantSet, message, controller, bodyFile, protocol) {
   let body = '';
   for (const b of req.raw ?? []) body += String.fromCharCode(b);

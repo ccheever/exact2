@@ -28,6 +28,13 @@ struct HeaderTitle: Equatable {
     /// (a box of symbol images and texts after the heading): Signal's "🔕 Muted
     /// ⏱ 1w". Empty for a plain text subtitle.
     let glyphs: [Glyph]
+    let titleGlyphs: [TitleGlyph]
+    struct TitleGlyph: Equatable {
+        let name: String
+        let before: Bool
+        let light: [Double]?, dark: [Double]?
+        var source: String { "\(name)/\(before)/\(light ?? [])/\(dark ?? [])" }
+    }
     /// What VoiceOver reads for the subtitle: the glyph line's `aria-label`
     /// when it has one (a timer's "1w" means little alone), else its texts.
     let spoken: String
@@ -60,6 +67,23 @@ struct HeaderTitle: Equatable {
         /// keeps its own look, so it is no line of glyphs).
         func passive(_ node: NodeView) -> Bool {
             !node.isButton && !node.actsAsButton && !node.handlers.contains("press") && node.channels("background_color") == nil
+        }
+        var titleGlyphs: [TitleGlyph] = [], headingImages: [NodeView] = []
+        if let row = heading.superview as? NodeView, row.style["display"]?.string == "flex",
+           (row.style["flex_direction"]?.string ?? "row") == "row" {
+            let children = shown(row).filter { child in !apart.contains { $0 === child } }
+            if children.allSatisfy({ $0 === heading || passive($0) && $0.kind == "image" && $0.faceSymbol != nil }) {
+                var before = true
+                for child in children {
+                    if child === heading { before = false; continue }
+                    guard let name = child.faceSymbol else { continue }
+                    headingImages.append(child)
+                    let tinted = child.ownColor("tint_color") != nil
+                    titleGlyphs.append(TitleGlyph(name: name, before: before,
+                        light: tinted ? child.channels("tint_color", dark: false) : nil,
+                        dark: tinted ? child.channels("tint_color", dark: true) : nil))
+                }
+            }
         }
         /// A passive box of symbol images and texts only, one of each at
         /// least: a glyph line. A symbol with no name or an empty text adds
@@ -98,6 +122,7 @@ struct HeaderTitle: Equatable {
         func walk(_ node: NodeView) {
             for child in shown(node) {
                 if child === heading { passed = true; continue }
+                if headingImages.contains(where: { $0 === child }) { placed.append(child); continue }
                 // A bar item, a readout among them, is not the title's to read.
                 if control(child) || apart.contains(where: { $0 === child }) { continue }
                 // A box holding one is no avatar; a row of glyphs beside a
@@ -121,13 +146,14 @@ struct HeaderTitle: Equatable {
         }
         walk(group)
         // A wrapper around the heading alone adds nothing to the title.
-        guard tap != nil || avatar != nil || !subtitle.isEmpty else { return nil }
+        guard tap != nil || avatar != nil || !subtitle.isEmpty || !titleGlyphs.isEmpty else { return nil }
         id = group.id
         testId = group.props["testId"]
         self.avatar = avatar
         self.subtitle = subtitle
         self.placed = placed
         self.glyphs = glyphs
+        self.titleGlyphs = titleGlyphs
         self.spoken = spoken ?? subtitle
         self.rtl = rtl
         self.tap = tap?.id
@@ -140,11 +166,11 @@ struct HeaderTitle: Equatable {
     var drawn: Bool {
         var subtitled = false
         if #available(iOS 26.0, *) { subtitled = true }
-        return avatar != nil || tap != nil || !glyphs.isEmpty || !subtitled
+        return avatar != nil || tap != nil || !glyphs.isEmpty || !titleGlyphs.isEmpty || !subtitled
     }
 
     /// Everything the title is drawn from.
-    var source: String { "\(id):\(avatar?.source ?? ""):\(subtitle):\(spoken):\(rtl):\(glyphs.map { "\($0.symbol ?? "")/\($0.text)" }.joined(separator: "\u{1F}")):\(tap ?? 0):\(accessibilityDisabled)" }
+    var source: String { "\(id):\(avatar?.source ?? ""):\(subtitle):\(spoken):\(rtl):\(glyphs.map { "\($0.symbol ?? "")/\($0.text)" }.joined(separator: "\u{1F}")):\(tap ?? 0):\(accessibilityDisabled):\(titleGlyphs.map(\.source).joined(separator: "\u{1F}"))" }
     static func == (a: HeaderTitle, b: HeaderTitle) -> Bool { a.source == b.source }
 
     static func holdsHeading(_ node: NodeView) -> Bool {
@@ -223,6 +249,7 @@ final class HeaderTitleView: UIControl {
     init(host: NavigationHost) {
         self.host = host
         super.init(frame: CGRect(x: 0, y: 0, width: 200, height: 44))
+        title.textColor = .label
         title.font = .preferredFont(forTextStyle: .headline)
         subtitle.font = .preferredFont(forTextStyle: .footnote)
         retheme()
@@ -250,6 +277,7 @@ final class HeaderTitleView: UIControl {
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (view: HeaderTitleView, _: UITraitCollection) in
             guard let (group, text) = view.shown else { return }
             view.shown = nil
+            view.title.font = .preferredFont(forTextStyle: .headline, compatibleWith: view.traitCollection)
             view.subtitle.font = .preferredFont(forTextStyle: .footnote, compatibleWith: view.traitCollection)
             view.update(group, title: text)
         }
@@ -295,14 +323,40 @@ final class HeaderTitleView: UIControl {
         return out
     }
 
+    private static func titleLine(_ group: HeaderTitle, text: String, font: UIFont, colour: UIColor) -> NSAttributedString {
+        let out = NSMutableAttributedString()
+        func append(_ glyph: HeaderTitle.TitleGlyph) {
+            guard let image = FaceSymbol.image(glyph.name, points: font.pointSize,
+                configuration: UIImage.SymbolConfiguration(font: font))?.withRenderingMode(.alwaysTemplate) else { return }
+            let attachment = NSTextAttachment(image: image)
+            if FaceSymbol.isPath(glyph.name) {
+                attachment.bounds = CGRect(x: 0, y: (font.capHeight - image.size.height) / 2, width: image.size.width, height: image.size.height)
+            }
+            let symbol = NSMutableAttributedString(attachment: attachment)
+            symbol.addAttribute(.foregroundColor, value: colour, range: NSRange(location: 0, length: symbol.length))
+            if let light = glyph.light, let dark = glyph.dark {
+                symbol.addAttribute(.foregroundColor, value: UIColor { TextEngine.color($0.userInterfaceStyle == .dark ? dark : light) },
+                    range: NSRange(location: 0, length: symbol.length))
+            }
+            out.append(symbol)
+        }
+        for glyph in group.titleGlyphs where glyph.before { append(glyph); out.append(NSAttributedString(string: "\u{2009}", attributes: [.foregroundColor: colour])) }
+        out.append(NSAttributedString(string: text, attributes: [.foregroundColor: colour]))
+        for glyph in group.titleGlyphs where !glyph.before { out.append(NSAttributedString(string: "\u{2009}", attributes: [.foregroundColor: colour])); append(glyph) }
+        out.addAttribute(.font, value: font, range: NSRange(location: 0, length: out.length))
+        return out
+    }
+
     private var shown: (HeaderTitle, String)?
+    private var shownInk: UIColor?
 
     func update(_ group: HeaderTitle, title text: String) {
         // Every batch projects the routes again: an unchanged title is left
         // alone, since invalidating its size relaid the whole navigation
         // bar out each time (~1 ms a batch, a fling's every frame).
-        if let shown, shown.0 == group, shown.0.testId == group.testId, shown.1 == text { return }
+        if let shown, shown.0 == group, shown.0.testId == group.testId, shown.1 == text, shownInk?.isEqual(title.textColor) == true { return }
         shown = (group, text)
+        shownInk = title.textColor
         #if EXACT_INSPECT
         groupId = group.id
         #endif
@@ -311,7 +365,8 @@ final class HeaderTitleView: UIControl {
         avatar.isHidden = group.avatar == nil
         avatarWidth.constant = group.avatar?.size ?? 0
         avatarHeight.constant = group.avatar?.size ?? 0
-        title.text = text
+        title.attributedText = group.titleGlyphs.isEmpty ? nil : Self.titleLine(group, text: text, font: title.font, colour: title.textColor)
+        if group.titleGlyphs.isEmpty { title.text = text }
         subtitle.attributedText = Self.line(group, font: subtitle.font, colour: subtitle.textColor)
         subtitle.isHidden = group.subtitle.isEmpty
         texts.alignment = group.avatar == nil ? .center : .leading
@@ -445,6 +500,7 @@ extension NavigationHost {
             return
         }
         let view = c.titleView ?? HeaderTitleView(host: self)
+        view.title.textColor = shape.heading?.ownUIColor("text_color") ?? .label
         view.update(group, title: shape.title)
         if c.titleView !== view {
             c.titleView = view

@@ -25,7 +25,7 @@ impl<D: DataSource> Host<D> {
     /// never a view. A native button's title and image, or a run in its
     /// title, likewise: its face, read through `exact_press_face`
     /// (LLP 1069.011 D5).
-    fn option_part(&self, id: ViewId) -> bool {
+    pub(super) fn option_part(&self, id: ViewId) -> bool {
         let kernel = self.runner.kernel();
         let mut at = kernel.node(id);
         while let Some(node) = at {

@@ -13,7 +13,7 @@ test('idle Arrange reconciliation and reset tolerate a collection controller tha
 });
 
 const clock = { now: 0, timers: [] };
-mock.module('./rt.js', () => ({ clock, journal: [], commit: action => action(), every(ms, action) { clock.timers.push({ due: clock.now + ms, action }); } }));
+mock.module('./rt.js', () => ({ clock, journal: [], commit(action, what, finished) { const result = action(); finished?.(true); return result; }, every(ms, action) { clock.timers.push({ due: clock.now + ms, action }); } }));
 mock.module('./navigation.js', () => import('../web/navigation.js'));
 const { install } = await import('./reorder.js');
 
@@ -44,4 +44,17 @@ test('grouped hold starts at the packet release time after an idle page', () => 
     clock.timers.splice(timers);
     clock.now = previous;
   }
+});
+
+test('a pending drop with unchanged order does not scan keys', () => {
+  class Collection {}
+  install({ internals: { Collection, Lists: new Map(), Views: new Map() } }, {}, []);
+  const c = new Collection(), order = Array.from({length:10_000}, (_, i) => `s:${i}`);
+  let scans = 0;
+  order.indexOf = function (key) { scans++; return Array.prototype.indexOf.call(this, key); };
+  c.index = { order, pos:new Map(order.map((key, i) => [key, i])) };
+  c.preview = {source:'s:9990', before:'s:9991', dropped:true, holding:true};
+  const ordinary = {}, drop = {source:'s:9990', before:'s:9991', anchor:{order}};
+  expect(c.committedAnchor(ordinary, drop)).toBe(ordinary);
+  expect(scans).toBe(0);
 });

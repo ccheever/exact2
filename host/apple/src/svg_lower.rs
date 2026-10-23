@@ -139,9 +139,33 @@ fn stepped_keys(
             })
             .collect(),
     };
-    let curve = Easing::PiecewiseLinear(stops.clone());
+    // Keys visit inputs in order, including the hair before a jump.
+    let mut cursor = 0;
+    let mut progress = |x: f64| {
+        if stops.is_empty() {
+            return x;
+        }
+        while cursor + 1 < stops.len() && stops[cursor + 1].input <= x {
+            cursor += 1;
+        }
+        if stops.len() == 1 || stops[cursor].input == x {
+            return stops[cursor].output;
+        }
+        let (a, b) = if x < stops[0].input {
+            (stops[0], stops[1])
+        } else if cursor + 1 < stops.len() {
+            (stops[cursor], stops[cursor + 1])
+        } else {
+            (stops[stops.len() - 2], stops[stops.len() - 1])
+        };
+        if a.input == b.input {
+            b.output
+        } else {
+            a.output + (b.output - a.output) * (x - a.input) / (b.input - a.input)
+        }
+    };
     let span = to - from;
-    begin(t, from, value(curve.progress(0.0)));
+    begin(t, from, value(progress(0.0)));
     // Each input in (0, 1], ascending, and whether stops share it (a jump):
     // a stop's, or a colour's sixteenth.
     let mut inputs: Vec<(f64, bool)> = Vec::new();
@@ -168,9 +192,9 @@ fn stepped_keys(
     for (x, jump) in inputs {
         if jump {
             let at = x - HAIR.min((x - prev) / 2.0);
-            push(t, from + span * at, value(curve.progress(at)), LINEAR);
+            push(t, from + span * at, value(progress(at)), LINEAR);
         }
-        push(t, from + span * x, value(curve.progress(x)), LINEAR);
+        push(t, from + span * x, value(progress(x)), LINEAR);
         prev = x;
     }
 }
@@ -543,6 +567,7 @@ pub(crate) fn hand_over_paths(kernel: &Kernel, engine: &mut Engine, live: bool) 
     }
     let moving: Vec<u64> = engine
         .running_transitions()
+        .chain(engine.played_transitions())
         .filter(|(_, p)| *p == Property::D)
         .map(|(node, _)| node)
         .collect();
@@ -590,7 +615,13 @@ pub(crate) fn hand_over_paths(kernel: &Kernel, engine: &mut Engine, live: bool) 
     for (playable, nodes) in scenes.into_values() {
         if playable {
             for node in nodes {
-                engine.play_transition(node, Property::D);
+                if !engine.is_played(node, Property::D) {
+                    engine.play_transition(node, Property::D);
+                }
+            }
+        } else {
+            for node in nodes {
+                engine.reclaim_transition(node, Property::D);
             }
         }
     }
@@ -598,10 +629,16 @@ pub(crate) fn hand_over_paths(kernel: &Kernel, engine: &mut Engine, live: bool) 
 
 /// The properties whose transitions Core Animation plays for a box
 /// ([`hand_over_transitions`]).
-const BOX_PLAYED: [Property; 2] = [Property::Opacity, Property::BackgroundColor];
+const BOX_PLAYED: [Property; 5] = [
+    Property::Opacity,
+    Property::BackgroundColor,
+    Property::Translate,
+    Property::Scale,
+    Property::Rotate,
+];
 
 /// LLP 1055.001 §3 — on iOS each running opacity transition of a box, and
-/// each background-colour one its layer paints, goes to Core Animation
+/// each eligible transform or background-colour one, goes to Core Animation
 /// ([`Engine::play_transition`]) as LLP 1055.001 lowers a box's keyframes:
 /// the engine presents the target, the box's specs carry the transition
 /// ([`transition_specs`]), and nothing samples it, so a fade keeps no
@@ -616,6 +653,7 @@ pub(crate) fn hand_over_transitions(
     kernel: &Kernel,
     engine: &mut Engine,
     skip: &dyn Fn(exact_kernel::ViewId) -> bool,
+    interactive: &dyn Fn(exact_kernel::ViewId) -> bool,
     new: bool,
 ) -> Vec<exact_kernel::ViewId> {
     let played: Vec<(u64, Property)> = engine
@@ -629,14 +667,16 @@ pub(crate) fn hand_over_transitions(
     let mut views = Vec::new();
     let node = |key: u64| kernel.node_by_key(exact_kernel::motion::node_key(key));
     for (key, p) in played {
-        if (!new || !playable(kernel, engine, key, p, skip)) && engine.reclaim_transition(key, p) {
+        if (!new || !playable(kernel, engine, key, p, skip, interactive))
+            && engine.reclaim_transition(key, p)
+        {
             views.extend(node(key).map(|n| n.id));
         }
     }
     for (key, p) in moving.into_iter().filter(|_| new) {
         let waits = engine.transition_ends(key, p).is_none_or(|t| t.waits);
         if !waits
-            && playable(kernel, engine, key, p, skip)
+            && playable(kernel, engine, key, p, skip, interactive)
             && engine.play_transition(key, p).is_some()
         {
             views.extend(node(key).map(|n| n.id));
@@ -658,6 +698,7 @@ fn playable(
     key: u64,
     p: Property,
     skip: &dyn Fn(exact_kernel::ViewId) -> bool,
+    interactive: &dyn Fn(exact_kernel::ViewId) -> bool,
 ) -> bool {
     let Some(n) = kernel.node_by_key(exact_kernel::motion::node_key(key)) else {
         return false;
@@ -676,13 +717,17 @@ fn playable(
     }
     match p {
         Property::Opacity => !in_glass_group(kernel, &n),
-        _ => {
+        Property::Translate | Property::Scale | Property::Rotate => {
+            box_eligible(kernel, &n, &[p], interactive)
+        }
+        Property::BackgroundColor => {
             layer_paints_background(&n)
                 && background_on_layer(kernel, &n)
                 && engine
                     .transition_ends(key, p)
                     .is_some_and(|t| t.from.w == t.to.w)
         }
+        _ => false,
     }
 }
 
@@ -744,6 +789,13 @@ fn background_on_layer(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
         && shown
 }
 
+#[derive(Debug)]
+pub(crate) struct PlayedSpec {
+    ends: exact_motion::TransitionEnds,
+    size: (f32, f32),
+    text: String,
+}
+
 /// A box's played transitions ([`hand_over_transitions`]) as specs, one
 /// iteration of each transition's curve from when it starts moving, holding
 /// its start through a delay (a backwards fill); after it ends, the target
@@ -753,7 +805,8 @@ fn background_on_layer(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
 pub(crate) fn transition_specs(
     engine: &Engine,
     key: u64,
-    made: &mut std::collections::BTreeMap<(u64, usize), (exact_motion::TransitionEnds, String)>,
+    size: (f32, f32),
+    made: &mut std::collections::BTreeMap<(u64, usize), PlayedSpec>,
 ) -> Vec<String> {
     let mut out = Vec::new();
     for p in BOX_PLAYED {
@@ -765,14 +818,17 @@ pub(crate) fn transition_specs(
             made.remove(&slot);
             continue;
         };
-        if let Some((_, spec)) = made.get(&slot).filter(|(kept, _)| *kept == ends) {
-            out.push(spec.clone());
+        if let Some(spec) = made
+            .get(&slot)
+            .filter(|kept| kept.ends == ends && kept.size == size)
+        {
+            out.push(spec.text.clone());
             continue;
         }
         let Some((t, _)) = engine.transition(key, p) else {
             continue;
         };
-        let (duration, track) = match &t.curve {
+        let (duration, mut track) = match &t.curve {
             PlayedCurve::Easing { easing, duration } => {
                 let end = |offset: f64, v: Value| Keyframe {
                     offset,
@@ -793,17 +849,45 @@ pub(crate) fn transition_specs(
                 (*duration, track)
             }
         };
-        let path = if p == Property::Opacity {
-            "opacity"
-        } else {
-            "backgroundColor"
+        // Backwards fill holds the uneased value through a transition's delay.
+        // Keep the eased start just inside the active interval, as at a jump.
+        if track.values[0] != t.from && track.times.len() > 1 {
+            track.times[0] = HAIR * track.times[1];
+            track.values[0] = track.values[0].lerp(track.values[1], HAIR);
+            track.times.insert(0, 0.0);
+            track.values.insert(0, t.from);
+            track.curves.insert(0, LINEAR);
+        }
+        let parts: &[(usize, &str)] = match p {
+            Property::Translate => &[
+                (0, "transform.translation.x"),
+                (1, "transform.translation.y"),
+            ],
+            Property::Scale => &[(0, "transform.scale")],
+            Property::Rotate => &[(0, "transform.rotation.z")],
+            Property::Opacity => &[(0, "opacity")],
+            _ => &[(0, "backgroundColor")],
         };
-        let (times, values, curves) = track_json(&track, p, 1.0, 0, None);
-        let spec = format!(
-            "{{\"id\":\"transition#{path}\",\"k\":\"{path}\",\"s\":{},\"dl\":0,\"d\":{duration},\"n\":1,\"t\":[{times}],\"v\":[{values}],\"c\":[{curves}],\"fill\":2,\"h\":null}}",
-            t.start,
+        let scale = if p == Property::Rotate {
+            std::f64::consts::PI / 180.0
+        } else {
+            1.0
+        };
+        let specs: Vec<String> = parts.iter().map(|(axis, path)| {
+            let (times, values, curves) = track_json(&track, p, scale, *axis, Some((size.0 as f64, size.1 as f64)));
+            format!(
+                "{{\"id\":\"transition#{path}\",\"k\":\"{path}\",\"s\":{},\"dl\":0,\"d\":{duration},\"n\":1,\"t\":[{times}],\"v\":[{values}],\"c\":[{curves}],\"fill\":2,\"h\":null}}", t.start,
+            )
+        }).collect();
+        let spec = specs.join(",");
+        made.insert(
+            slot,
+            PlayedSpec {
+                ends,
+                size,
+                text: spec.clone(),
+            },
         );
-        made.insert(slot, (ends, spec.clone()));
         out.push(spec);
     }
     out
@@ -1001,9 +1085,25 @@ fn box_eligible(
         .iter()
         .any(|p| matches!(p, Property::Translate | Property::Scale | Property::Rotate));
     if turns
-        && (!s.transform_origin.centred()
+        && (n.layout_position() == exact_kernel::PositionType::Sticky
+            || !s.transform_origin.centred()
             || !s.rare.layout_transition.0.is_empty()
-            || subtree_any(kernel, n.id, interactive))
+            || subtree_any(kernel, n.id, &|id| {
+                interactive(id)
+                    || kernel.node(id).is_some_and(|node| {
+                        matches!(
+                            node.node_type,
+                            NodeType::Control
+                                | NodeType::Pressable
+                                | NodeType::TextInput
+                                | NodeType::ScrollView
+                                | NodeType::List
+                                | NodeType::WebView
+                                | NodeType::NativeView
+                                | NodeType::Video
+                        ) || node.props.link().is_some()
+                    })
+            }))
     {
         return false;
     }
@@ -1071,4 +1171,32 @@ fn subtree_any(
         || kernel
             .node(id)
             .is_some_and(|n| n.children().into_iter().any(|c| subtree_any(kernel, c, f)))
+}
+
+#[cfg(test)]
+mod stepped_cost_tests {
+    use super::*;
+
+    #[test]
+    fn the_largest_steps_curve_keeps_every_jump() {
+        let easing = Easing::Steps {
+            count: 65535,
+            position: exact_motion::StepPosition::JumpEnd,
+        };
+        let mut track = Track {
+            times: vec![0.0],
+            values: vec![Value::ZERO],
+            curves: Vec::new(),
+        };
+        let started = std::time::Instant::now();
+        stepped_keys(&mut track, 0.0, 1.0, &easing, false, Value::scalar);
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_secs(3),
+            "the largest steps curve exceeded its 3 s construction budget: {elapsed:?}"
+        );
+        assert_eq!(track.times.len(), 131071);
+        assert_eq!(track.values.last(), Some(&Value::scalar(1.0)));
+        assert!(track.times.windows(2).all(|w| w[0] < w[1]));
+    }
 }

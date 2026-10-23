@@ -11,7 +11,8 @@
 //   plain list of sixty rows (its rows are built in slices, off the main
 //   thread on iOS);
 // - `find`, a level-1 heading and a search field, which is the bar's search
-//   controller;
+//   controller, and `seek`, a level-2 one whose search field says
+//   `autofocus`, which the bar's search field takes once the push settles;
 // - `swap`, a level-1 heading whose scroller is replaced in place, and a
 //   reason that comes between the two (LLP 1116.005 D4).
 //
@@ -24,6 +25,7 @@ routes nav
     rows "/rows"
     plain "/plain"
     find "/find"
+    seek "/seek"
     swap "/swap"
   tab other "/other"
 
@@ -52,9 +54,11 @@ component PushedTitle
             for e in t.stack key=e.id
               column navigationKey=`${e.id}` testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column"
                 header testId=`header-${e.name}` display="flex" align-items="center" padding="8px 16px"
-                  text e.name role="heading" aria-level=(e.name == "inline" ? 2 : 1)
+                  text e.name role="heading" aria-level=(e.name == "inline" or e.name == "seek" ? 2 : 1)
                   if e.name == "find"
                     input type="search" value=query input=search placeholder="Search" aria-label="Search" testId="find-search"
+                  else if e.name == "seek"
+                    input type="search" value=query input=search placeholder="Search" aria-label="Search" testId="seek-search" autofocus=true
                 if e.name == "rows"
                   list appearance="auto" listStyle="inset-grouped" testId="rows-scroll" flex=1 min-height=0
                     section
@@ -89,7 +93,7 @@ component PushedTitle
                 else
                   scroll testId=`${e.name}-scroll` flex=1 min-height=0
                     text `${e.name} top` testId=`${e.name}-top`
-                    for l in ["long", "short", "inline", "rows", "plain", "find", "swap"] key=l
+                    for l in ["long", "short", "inline", "rows", "plain", "find", "seek", "swap"] key=l
                       button press=open(l) testId=`${e.name}-open-${l}`
                         text `Open ${l}`
                     button press=change("short") testId=`${e.name}-replace-short`

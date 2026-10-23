@@ -408,6 +408,61 @@ final class TextGeometryTests: XCTestCase {
         XCTAssertEqual(ellipses(engine.paragraph(narrow, width: 6).lines[0]), 0)
     }
 
+    func testClampTokenUsesTheBlockStyleBesideABoldRedRun() throws {
+        var value = spec("First\n")
+        value.strut = value.runs[0]
+        var red = value.runs[0]
+        red.text = "Second colored link with more words to hide"
+        red.color = [255, 0, 0, 255]; red.weight = 700; red.href = "example.md"
+        value.runs.append(red)
+        value.lineClamp = 2
+        let paragraph = engine.paragraph(value, width: 145)
+        let line = try XCTUnwrap(paragraph.lines.last)
+        let token = try XCTUnwrap((CTLineGetGlyphRuns(line) as! [CTRun]).first {
+            (CTRunGetAttributes($0) as NSDictionary)[NSAttributedString.Key.exactTruncation] != nil
+        })
+        let actual = CTRunGetAttributes(token) as NSDictionary
+        let block = engine.attributed(Spec(runs: [value.strut!], align: 0, lineClamp: 0, color: value.color)).attributes(at: 0, effectiveRange: nil)
+        XCTAssertTrue((actual[NSAttributedString.Key.font] as AnyObject).isEqual(block[.font]))
+        XCTAssertTrue((actual[NSAttributedString.Key.foregroundColor] as AnyObject).isEqual(block[.foregroundColor]))
+        XCTAssertLessThanOrEqual(CTLineGetTypographicBounds(line, nil, nil, nil), 145)
+    }
+
+    func testClampTokenKeepsTheBlocksShadowWithoutDoublingASharedShadow() throws {
+        let blue: [Double] = [0, 2, 3, 0, 0, 255, 255]
+        let red: [Double] = [0, 2, 3, 255, 0, 0, 255]
+        #if os(macOS)
+        _ = NSApplication.shared
+        #endif
+        let presenter = Presenter()
+        presenter.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "text", "props": ["text": "A clamped paragraph"],
+             "style": ["line_clamp": 1, "text_shadow": ["o": [0, 2], "b": 3, "c": [0, 0, 255, 255]]]],
+            ["op": "roots", "ids": [1]],
+        ]))
+        let captured = try XCTUnwrap(presenter.views[1]).paragraphSpec()
+        XCTAssertEqual(captured.strut?.shadow, blue, "the view supplies block paint, not just metrics")
+        XCTAssertEqual(captured.shadow, blue, "uniform shadow still belongs to the paragraph layer")
+        for inline in [blue, red] {
+            var value = spec("Words that need more than one line to fit")
+            var block = value.runs[0]; block.shadow = blue
+            value.strut = block; value.lineClamp = 1
+            value.runs[0].shadow = inline
+            value.gatherShadows()
+            let line = try XCTUnwrap(engine.paragraph(value, width: 145).lines.last)
+            let token = try XCTUnwrap((CTLineGetGlyphRuns(line) as! [CTRun]).first {
+                (CTRunGetAttributes($0) as NSDictionary)[NSAttributedString.Key.exactTruncation] != nil
+            })
+            if inline == blue {
+                XCTAssertEqual(value.shadow, blue, "one shadow around the paragraph")
+                XCTAssertNil(TextRunShadow.of(token), "the token does not cast that shadow a second time")
+            } else {
+                XCTAssertNil(value.shadow, "the token and inline text have different shadows")
+                XCTAssertEqual(TextRunShadow.of(token), TextRunShadow(blue), "the block styles the token")
+            }
+        }
+    }
+
     func testClampedInlineRunsKeepOriginalIndicesAndRecomputeAfterWidening() {
         var value = spec("First\nSecond colored link with more words to hide")
         let first = value.runs[0]

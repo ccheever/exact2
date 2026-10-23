@@ -23,9 +23,9 @@
 // `input`, `change`, `submit`, `focus` and `blur`, its test id and what a
 // driver types are the authored input's, and its look and place AppKit's.
 //
-// **Whole, or not at all.** The toolbar shows a heading, buttons whose face
-// is a symbol and a title, and nothing else. A header holding anything the
-// bar has no place for (a picture, a second line of text, a pressable
+// **Whole, or not at all.** The toolbar shows a heading, buttons and
+// bounded text, symbol and dot readouts. A header holding anything the
+// bar has no place for (a picture, a pressable
 // title, a field) stays painted in the page as written, and the session's
 // log says what it was: a header is never half projected. While the bar
 // shows it the header is hidden and its box is the platform's (`HostCovers`,
@@ -64,10 +64,11 @@ struct WindowHeader {
     /// The header's search input: the bar's search item, whose field is
     /// the input's own.
     var search: NodeView?
+    var subtitle: NodeView?
 
     /// Whether `node` is one of the header's nodes the bar shows or stands for.
     func places(_ node: NodeView) -> Bool {
-        node === header || node === heading || node === segments || node === search
+        node === header || node === heading || node === subtitle || node === segments || node === search
             || buttons.contains { $0 === node } || backs.contains { $0 === node } || tabs.contains { $0 === node }
     }
 
@@ -87,13 +88,19 @@ struct WindowHeader {
         let children = { (node: NodeView) in node.container.subviews.compactMap { $0 as? NodeView } }
         let items = Set(rule.items.map(ObjectIdentifier.init))
         let backs = rule.items.filter { item in !rule.leading.contains { $0 === item } && !rule.trailing.contains { $0 === item } }
+        var passedHeading = false
+        var subtitle: NodeView?
         // Everything the header shows has a place in the bar, or none of it goes.
         func refusal(in node: NodeView) -> String? {
             for child in children(node) where child.style["display"]?.string != "none" {
-                if child === rule.heading { continue }
+                if child === rule.heading { passedHeading = true; continue }
+                if passedHeading, subtitle == nil, child.isParagraph, !items.contains(ObjectIdentifier(child)),
+                   !rule.readouts.contains(where: { $0 === child }) { subtitle = child; continue }
                 if child === rule.tap { return "its heading is inside a pressable (#\(child.id)), and a window's title is not pressed" }
-                // LLP 1075.003 §9.15: iOS's custom-view item; the toolbar makes none.
-                if rule.readouts.contains(where: { $0 === child }) { return "it holds a readout (#\(child.id), `role=\"status\"`), which the toolbar has no item for" }
+                if rule.readouts.contains(where: { $0 === child }) {
+                    if MacBarFace(child, readout: true) == nil { return "its readout #\(child.id) has no text, symbol or sized dot face" }
+                    continue
+                }
                 if child === rule.search {
                     // A search input the author draws is theirs to draw: the bar's field is AppKit's.
                     if !child.lendsFieldToBar { return "its search field (#\(child.id)) is drawn by the app (`appearance: none`), and a toolbar's is AppKit's own" }
@@ -111,14 +118,12 @@ struct WindowHeader {
                     if child.wrote("appearance"), child.style["appearance"]?.string == "none" {
                         return "button #\(child.id) writes `appearance: none`, and the window's bar shows a header whole or not at all"
                     }
-                    // A button that opens a menu is the bar's menu item, and one
-                    // that asks first opens the window's alert. Any other
-                    // popover is placed against its button's box in the page,
-                    // which a bar item does not have.
+                    // Native popovers anchor to the toolbar item. Authored
+                    // fallback placement still needs the button's page box.
                     if child.presenter?.invocation(of: child)?.opensPopover == true, !opensFromTheBar(child) {
-                        return "button #\(child.id) opens a popover that is neither a menu nor an alert, which is placed against the button's own box"
+                        return "button #\(child.id) opens a popover whose authored placement needs its page box"
                     }
-                    if !showable(child) { return "button #\(child.id) shows more than one symbol and its title, which is all a toolbar item shows" }
+                    if !showable(child) { return "button #\(child.id) has no supported text, symbol, avatar or dot face" }
                     continue
                 }
                 // A box that only groups is no part of the bar; what it holds decides.
@@ -132,6 +137,7 @@ struct WindowHeader {
         if let why = refusal(in: rule.header) { return .kept(why) }
         var read = WindowHeader(route: route, header: rule.header, heading: rule.heading, title: rule.heading.accessibleText,
                                 leading: rule.leading.filter(shown), trailing: rule.trailing.filter(shown), backs: backs)
+        read.subtitle = subtitle
         if let list = rule.segments, shown(list), let tabs = titleTabs(of: list) { (read.segments, read.tabs) = (list, tabs) }
         if let input = rule.search, shown(input) { read.search = input }
         return .shown(read)
@@ -151,22 +157,21 @@ struct WindowHeader {
         return tabs.count >= 2 && tabs.allSatisfy(titled) ? tabs : nil
     }
 
-    /// Whether the popover a button opens needs no place in the page: a
-    /// button menu, which is the bar's menu item (`MenuHost.toolbarPopover`),
-    /// or a confirmation in the alert's shape, which is a sheet on the window
-    /// (AlertsMac.swift).
+    /// Whether AppKit can present the popover from a toolbar item: its menu,
+    /// an alert sheet, or a native popover using the platform's edge and gap.
     static func opensFromTheBar(_ button: NodeView) -> Bool {
         guard let presenter = button.presenter else { return false }
         if presenter.menus.toolbarPopover(of: button) != nil { return true }
         guard let invocation = presenter.invocation(of: button), invocation.opensPopover else { return false }
         return presenter.alerts.plan(of: invocation.target, popover: true) != nil
+            || presenter.menus.wantsWindow(invocation.target) && MenuHost.usesToolbarAnchor(invocation.target)
     }
 
     /// Whether a toolbar item can show all of a button's face: a native
     /// button's symbol and title, or a custom button holding text and at most
-    /// one image. A box drawn inside it (an avatar, a badge) is not an
-    /// item's to draw.
+    /// one image, a filled avatar, or a bounded painted face.
     static func showable(_ button: NodeView) -> Bool {
+        if BadgeFace(button) != nil || MacBarFace(button) != nil { return true }
         if button.isNativeButton { return button.face?.raster != true }
         let children = { (node: NodeView) in node.container.subviews.compactMap { $0 as? NodeView } }
         let content = children(button)
@@ -322,7 +327,7 @@ extension NavigationHost {
     var splitHeaderRoutes: (root: NodeView, owner: NodeView, beside: NodeView?)? {
         guard split.active, let shown = split.shown else { return nil }
         guard let detail = shown.detail else { return (shown.root, shown.list, nil) }
-        return SplitHost.listOwnsWindow ? (shown.root, shown.list, detail) : (shown.root, detail, shown.list)
+        return split.listOwnsWindow ? (shown.root, shown.list, detail) : (shown.root, detail, shown.list)
     }
 }
 #endif

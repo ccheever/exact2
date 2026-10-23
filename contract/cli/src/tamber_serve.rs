@@ -74,7 +74,7 @@ mod walk;
 use answers::{diagnostic, located, modes_of, no_token, refused, temp_name};
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.16";
+pub const PROTOCOL: &str = "tamber/1.17";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;
@@ -768,9 +768,13 @@ impl Server {
         let files = files_json(&self.read_files(true)?);
         let mut out = json!({"protocol": PROTOCOL, "format": exact_tamber::FORMAT, "builds": [], "files": files});
         let paths = request["paths"] == json!(true);
-        crate::tamber_packages::packaged(&self.app_params(), &mut out, paths);
+        let app = self.app_params();
+        crate::tamber_packages::packaged(&app, &mut out, paths);
         if paths {
-            out["watch"] = crate::tamber_packages::watched(&self.dir.join("app.contract"));
+            let at = self.dir.join("app.contract");
+            let graph = contract::source_graph(&at);
+            out["watch"] = crate::tamber_packages::watched(&at, &graph);
+            crate::tamber_packages::assets(&app, &mut out, &graph);
         }
         Ok(out)
     }

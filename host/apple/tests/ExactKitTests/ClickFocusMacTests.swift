@@ -57,6 +57,24 @@ final class ClickFocusMacTests: XCTestCase {
         return p
     }
 
+    func testATabbableMessageKeepsTheEditorWhenItsParagraphIsClicked() throws {
+        let p = fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 20, "kind": "view", "props": ["tabIndex": "0", "retainFocus": "true"],
+             "style": ["user_select": "none"], "handlers": ["contextmenu"]],
+            ["op": "create", "id": 21, "kind": "text", "props": ["text": "A message"]],
+            ["op": "frame", "id": 20, "x": 10, "y": 60, "w": 200, "h": 40],
+            ["op": "frame", "id": 21, "x": 10, "y": 10, "w": 180, "h": 20],
+            ["op": "children", "id": 20, "ids": [21]], ["op": "children", "id": 1, "ids": [2, 20]],
+        ]))
+        let editor = try edit(p), message = try XCTUnwrap(p.views[20])
+        click(try XCTUnwrap(p.views[21]))
+        XCTAssertTrue(window.firstResponder === editor, "the message's text honors its ancestor's retainFocus")
+        p.flushKeyViewLoop()
+        window.selectKeyView(following: try XCTUnwrap(p.views[2]?.field))
+        XCTAssertTrue(window.firstResponder === message, "Tab still reaches the message")
+    }
+
     /// AppKit's own rule, which the node's answers rest on: its window makes
     /// a clicked view first responder when the view accepts first responder
     /// and "needs its panel to become key", and not otherwise. If this stops
@@ -224,6 +242,19 @@ final class ClickFocusMacTests: XCTestCase {
         // The field's own blur still commits, as it did.
         XCTAssertTrue(window.makeFirstResponder(nil))
         XCTAssertEqual(heard, ["change 2 \(typed)b", "blur 2"])
+    }
+
+    func testAClickOnAFieldsPlainLabelKeepsItsEditor() throws {
+        let p = fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 14, "kind": "text", "props": ["text": "Name"]],
+            ["op": "frame", "id": 14, "x": 10, "y": 420, "w": 200, "h": 30],
+            ["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6, 7, 8, 10, 12, 13, 14]],
+        ]))
+        let editor = try edit(p)
+        click(try XCTUnwrap(p.views[14]))
+        XCTAssertTrue(window.firstResponder === editor)
+        XCTAssertTrue(p.views[2]?.field?.currentEditor() === editor)
     }
 
     func testAClickWithNothingFocusedFocusesNoButton() throws {

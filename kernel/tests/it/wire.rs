@@ -233,3 +233,92 @@ fn every_nonempty_payload_padding_width_requires_zero_bytes() {
         );
     }
 }
+
+#[test]
+fn calculated_grid_tracks_roundtrip_through_wire() {
+    for css in [
+        "repeat(auto-fill, minmax(min(100%, 200px), 1fr))",
+        "calc(50% - 10px) max(20px, 10%)",
+        "clamp(10px, 25%, 80px) calc(10px - 20px)",
+        "calc(NaN * 1px) min(1e100px, 20%)",
+    ] {
+        let mut style = StyleProps::default();
+        for id in [StyleId::GridTemplateColumns, StyleId::GridTemplateRows] {
+            style
+                .set_dynamic(id, &exact_kernel::StyleValue::Text(css.into()))
+                .unwrap();
+        }
+        let ops = [
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 1,
+                patch: Box::new(style.clone()),
+            },
+            Op::AttachRoot { id: 1 },
+        ];
+        let mut kernel = Kernel::with_monospace();
+        kernel.apply_frame(&wire::encode(0, 1, &ops)).unwrap();
+        let decoded = &kernel.node(1).unwrap().style;
+        assert_eq!(
+            decoded.rare.grid_template_columns,
+            style.rare.grid_template_columns
+        );
+        assert_eq!(
+            decoded.rare.grid_template_rows,
+            style.rare.grid_template_rows
+        );
+    }
+}
+
+#[test]
+fn calculated_grid_wire_allows_canonical_parentheses_at_the_author_limit() {
+    let nested = |inner: &str, n: usize| {
+        (0..n).fold(inner.to_string(), |e, _| format!("clamp(none, {e}, none)"))
+    };
+    let product = format!("calc(1px + 2 * {})", nested("1%", 31));
+    for css in [
+        product.clone(),
+        format!("minmax({product}, 1fr)"),
+        format!("repeat(2, minmax(0px, {product}))"),
+        format!("min({})", vec![nested("1%", 8); 32].join(", ")),
+    ] {
+        let mut style = StyleProps::default();
+        for id in [StyleId::GridTemplateColumns, StyleId::GridTemplateRows] {
+            style
+                .set_dynamic(id, &exact_kernel::StyleValue::Text(css.clone().into()))
+                .unwrap();
+        }
+        let ops = [Op::SetStyle {
+            id: 1,
+            patch: Box::new(style),
+        }];
+        let bytes = wire::encode(0, 1, &ops);
+        let decoded = wire::decode(&bytes).unwrap_or_else(|e| panic!("{css}: {e:?}"));
+        assert_eq!(decoded.ops, ops);
+    }
+}
+
+#[test]
+fn calculated_grid_wire_refuses_excessive_trees_and_unsupported_units() {
+    use exact_kernel::wire::codec::{Reader, Writer};
+    let nested = |n| (0..n).fold("1%".to_string(), |e, _| format!("clamp(none, {e}, none)"));
+    for css in [
+        nested(33),
+        nested(512),
+        format!("min({})", vec![nested(1); 33].join(", ")),
+        format!("calc({})", vec!["1px"; 4096].join(" + ")),
+        "min(1cm, 20px)".into(),
+        "calc(env(safe-area-inset-top) + 10px)".into(),
+    ] {
+        assert!(exact_kernel::GridTracks::parse(&css).is_none());
+        let mut writer = Writer::new();
+        writer.string(&css);
+        assert_eq!(
+            Reader::new(&writer.into_vec()).tracks(),
+            Err(DecodeError::InvalidGridTrack)
+        );
+    }
+}

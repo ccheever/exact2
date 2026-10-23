@@ -493,13 +493,14 @@ not yet map the role to native presentation. A red colour or action label never
 implies the flag.
 
 `menuRemove` (263, string) carries root `-exact-menu-remove`: a literal list of
-the standard AppKit item ids in LLP 1021 §5.3. AppKit suppresses those items
+the standard AppKit item ids in LLP 1021 §5.3 and §5.3.1. AppKit suppresses those items
 and their menu equivalents; all other hosts ignore this non-CSS presentation
 hint. It changes no layout or window capability.
 
 `menuPlacement` (261, string) is `-exact-menu` on a button (LLP 1021 §5.3,
-Charlie, 2026-10-12): a literal `app`, `file`, `edit`, `view`, `go`, `window`
-or `help`. AppKit adds the button to that menu even without a shortcut.
+Charlie, 2026-10-12; §5.3.1, 2026-10-22): a literal `about`, `app`, `file`,
+`edit`, `view`, `go`, `window`, `help` or `none`. AppKit adds the button to
+that menu even without a shortcut; `none` keeps its chord with no item.
 Declared deviation: HTML has no application menu; web, UIKit, Linux,
 Windows, Android and terminal hosts retain the ordinary button and ignore
 this hint. Dispatch and layout are unchanged.
@@ -753,7 +754,11 @@ Declared deviations, and beside each what is CSS's own:
 **CSS grid's supported grammar follows Chrome's.** Track templates preserve
 named lines and `repeat()` (fixed, `auto-fill` and `auto-fit`) and accept px,
 percent, fr, auto, min/max-content, `fit-content()` and flexible `minmax()`
-maxima. Placement accepts numeric and named lines and spans. Keywords and units
+maxima. `calc()`, `min()`, `max()` and `clamp()` over px and % are lengths in
+ordinary tracks, `minmax()` and valid repetitions. The dimension parser and
+resolver supply their arithmetic, narrowing and zero floor; percentages use
+the grid's content box in that axis, with CSS's intrinsic-sizing treatment
+when the basis is indefinite. Placement accepts numeric and named lines and spans. Keywords and units
 are ASCII-case-insensitive; nested `repeat()` is refused as invalid CSS.
 All six rows are parsed as CSS tokens, so escapes and comments have their CSS
 meaning; canonical output uses the CSS serializer for identifiers and retains a
@@ -761,10 +766,12 @@ shorthand's trailing placement whenever omission would change that meaning.
 The following Chrome-valid forms are the complete declared grid grammar gaps:
 
 - `subgrid`; Taffy has no subgrid layout algorithm;
-- track lengths in units other than px, and calculated/custom/environment
-  track or placement values (`calc()`, `min()`, `max()`, `clamp()`, `var()`,
-  `env()`); Taffy's portable value has no browser unit context, cascade or
-  calculation resolver;
+- track lengths in units other than px; custom/environment track values
+  (`var()`, `env()`); and calculated/custom/environment placement values;
+  these grammars have no unit context or cascade;
+- calculated `fit-content()` limits; Taffy's compact limit stores only a
+  length or percentage. `grid-auto-columns` and `grid-auto-rows` have no
+  Contract rows yet;
 - CSS-wide keywords (`inherit`, `initial`, `unset`, `revert`, `revert-layer`)
   on all six rows, plus custom/environment values on `justify-items`; kernel
   style rows store specified values without a CSS cascade;
@@ -1254,6 +1261,15 @@ Declared: **Linux has no hyphenation dictionary**, so `auto` breaks there only
 at soft hyphens, logging it once; Apple hyphenates by the document's language,
 not an element's `lang`; text flowed around exclusions and a content region
 take no `text-indent` and no `auto` points.
+
+**iOS emergency word breaks** (QUEUE 62, 2026-10-22). In paragraphs
+without text-flow exclusions, a word too wide for its own line under
+`overflow-wrap: break-word` with `hyphens: manual` takes the last language
+hyphenation point that fits with its visible hyphen, as UILabel does. Ordinary word boundaries take precedence over these
+points, which add nothing to min-content and map back to the original source.
+Without a dictionary or a fitting syllable, the break is at a letter.
+`hyphens: none` and `overflow-wrap: anywhere` retain CSS's letter breaks.
+This is an iOS presentation deviation; other hosts retain their current rules.
 
 **Multi-column layout** (LLP 1093, stage 1 built 2026-10-04). Bits 180–190:
 `column_count` (`u16`, 0 is `auto`), `column_width`, `column_fill`,

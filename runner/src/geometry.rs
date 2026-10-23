@@ -29,6 +29,8 @@ mod inline_tests;
 mod intersection;
 #[cfg(test)]
 mod modal_tests;
+#[cfg(test)]
+mod top_layer_tests;
 pub(crate) use intersection::intersection;
 
 use exact_kernel::{
@@ -560,9 +562,14 @@ pub(crate) fn shown_in(kernel: &Kernel, scrolled: &Scrolled, slot: u32, frame: F
     let arena = kernel.arena();
     let at = shift(f64::from(frame.x), f64::from(frame.y));
     if scrolled.is_open(arena.key(slot)) {
+        // With no rectangle from its host, one in the viewport's block is
+        // where its insets put it there, as a fixed box (stage 14 B).
+        let env = arena.env();
+        let viewport = (env.viewport_width, env.viewport_height);
+        let placed = || kernel.top_layer_origin(arena.local_id(slot), viewport);
         let to = match scrolled.top_frame(arena.key(slot)) {
             Some(rect) => shown_at(kernel, slot, frame, rect),
-            None => at,
+            None => placed().map_or(at, |(x, y)| shift(f64::from(x), f64::from(y))),
         };
         return Shown::Viewport(to);
     }
@@ -590,9 +597,15 @@ fn valid_rect(rect: &[f64; 4]) -> bool {
 
 /// A block's rectangle in its root's border-box coordinates, when `slot`
 /// is a block's root: the box its host shows the subtree in, which clips
-/// it, as a sheet or a pane clips what it shows.
+/// it, as a sheet or a pane clips what it shows. None for the block the
+/// kernel implies (a popover's, the viewport): its used size is the
+/// popover's margin box, which clips nothing, as the viewport is no box.
 pub(crate) fn block_clip(kernel: &Kernel, slot: u32, frame: Frame) -> Option<[f64; 4]> {
-    let (w, h) = kernel.host_block_size(kernel.arena().local_id(slot))?;
+    let view = kernel.arena().local_id(slot);
+    if kernel.host_block_implied(view) {
+        return None;
+    }
+    let (w, h) = kernel.host_block_size(view)?;
     let (x, y) = (f64::from(frame.x), f64::from(frame.y));
     Some([-x, -y, f64::from(w) - x, f64::from(h) - y])
 }

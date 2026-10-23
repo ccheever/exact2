@@ -408,6 +408,7 @@ pub fn import(
         counted,
         dials: Vec::new(),
         pins: Vec::new(),
+        notes: Vec::new(),
     })
 }
 

@@ -120,7 +120,7 @@ impl<D: DataSource> Host<D> {
                 }
                 Ok(None) => return None,
                 Err(error) => {
-                    eprintln!("terminal list #{view}: {error:?}");
+                    crate::term::diagnostic(format_args!("terminal list #{view}: {error:?}"));
                     return None;
                 }
             }

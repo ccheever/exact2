@@ -92,44 +92,46 @@ component VideoPlayer
   task seeking mount
     every(100, settle)
   view
-    column testId="player-app" interactive-widget="resizes-content" height="100%" box-sizing="border-box" padding=(tv ? 40 : 20) gap=(tv ? 24 : 16) background-color="#11151c" color="#f5f7fa"
+    column testId="player-app" color-scheme="dark" accent-color="light-dark(#245b9e, #bed6ff)" interactive-widget="resizes-content" height="100%" box-sizing="border-box" padding=(tv ? 40 : 20) gap=(tv ? 24 : 16) background-color="-exact-background" color="-exact-label"
       // Narrow (a phone), the buttons go under the title and wrap.
       view display="flex" flex-direction=(wide ? "row" : "column") justify-content="space-between" align-items=(wide ? "center" : "flex-start") gap=12 flex-shrink=0
         column gap=4
-          text "VIDEO" font-size=(tv ? 16 : 11) font-weight=700 letter-spacing=2 color="#94a3b8"
+          text "VIDEO" font-size=(tv ? 16 : 11) font-weight=700 letter-spacing=2 color="-exact-secondary-label"
           text "Room to watch." font-size=(tv ? 40 : 26) font-weight=600
         row gap=(tv ? 16 : 10) align-items="center" flex-wrap="wrap"
-          button testId="rewind" press=rewind aria-label="Rewind to the start" padding=pad background-color="#273244" border-radius=corner
+          button testId="rewind" press=rewind aria-label="Rewind to the start" padding=pad background-color="-exact-fill" border-radius=corner
             text "Rewind" font-size=label
-          button testId="back" press=back aria-label="Back 10 seconds" padding=pad background-color="#273244" border-radius=corner
+          button testId="back" press=back aria-label="Back 10 seconds" padding=pad background-color="-exact-fill" border-radius=corner
             text "Back" font-size=label
-          button testId="toggle" press=toggle aria-label="Play or pause" padding=pad background-color="#273244" border-radius=corner
+          button testId="toggle" press=toggle aria-label="Play or pause" padding=pad background-color="-exact-fill" border-radius=corner
             text (paused ? "Play" : "Pause") font-size=label
-          button testId="forward" press=forward aria-label="Forward 10 seconds" padding=pad background-color="#273244" border-radius=corner
+          button testId="forward" press=forward aria-label="Forward 10 seconds" padding=pad background-color="-exact-fill" border-radius=corner
             text "Forward" font-size=label
-          button testId="fullscreen" press=enterFullscreen aria-label="Full screen" padding=pad background-color="#273244" border-radius=corner
+          button testId="fullscreen" press=enterFullscreen aria-label="Full screen" padding=pad background-color="-exact-fill" border-radius=corner
             text "Full screen" font-size=label
       row gap=10 align-items="center" justify-content=(wide ? "flex-end" : "flex-start") flex-shrink=0
-        text "Video" font-size=label color="#94a3b8"
+        text "Video" font-size=label color="-exact-secondary-label"
         select value=source change=choose testId="source" aria-label="Video to show"
           option "Color study (built in)" value="assets/motion.mp4"
           option "Sample clip (web)" value="https://www.learningcontainer.com/wp-content/uploads/2020/05/sample-mp4-file.mp4"
+      // Letterboxing stays pure black; background roles may resolve to grey.
       video source id="video" testId="video" aria-label=described controls=true autoplay=true muted=true loop=true playsinline=true preload="auto" paused=paused currentTime=seekTo play=playing pause=stopped error=failed timeupdate=timed durationchange=measured fullscreenchange=fullscreenChanged width="100%" flex=1 min-height=0 object-fit=(fullscreen ? "cover" : "contain") overflow="hidden" background-color="#000000" border-radius=16
       // Progress: the elapsed time, the share played, the time left.
       row gap=12 align-items="center" flex-shrink=0 testId="progress"
         TimeLabel(seconds=shown, sign="", size=(tv ? 20 : 13))
-        view flex=1 height=(tv ? 10 : 6) border-radius=(tv ? 5 : 3) background-color="#273244" overflow="hidden" aria-label="Playback position"
-          view height="100%" width=`${filled}%` background-color="#bed6ff" testId="progress-fill"
+        view flex=1 height=(tv ? 10 : 6) border-radius=(tv ? 5 : 3) background-color="-exact-fill" overflow="hidden" aria-label="Playback position"
+          view height="100%" width=`${filled}%` background-color="AccentColor" testId="progress-fill"
         TimeLabel(seconds=remaining, sign="-", size=(tv ? 20 : 13))
       if failure != ""
-        text failure testId="video-error" color="#fca5a5" font-size=small flex-shrink=0
+        text failure testId="video-error" color="-exact-system-red" font-size=small flex-shrink=0
       column gap=10 flex-shrink=0
         text "Keep watching. Leave a thought." font-size=(tv ? 24 : 16) font-weight=600
         row gap=10 align-items="center"
-          input appearance="none" id="note" testId="note" aria-label="Your note" placeholder="Tap here to bring up the keyboard" value=note input=edit submit=done flex=1 min-width=0 padding=(tv ? 20 : 14) box-sizing="border-box" font-size=(tv ? 24 : 16) border-radius=corner background-color="#202938" color="#f5f7fa"
-          button id="done" testId="done" press=done padding=(tv ? 20 : 14) background-color="#bed6ff" border-radius=corner
-            text "Done" font-size=(tv ? 24 : 16) color="#102540" font-weight=600
-        text "The picture makes room while you type." font-size=small color="#94a3b8"
+          input appearance="none" id="note" testId="note" aria-label="Your note" placeholder="Tap here to bring up the keyboard" value=note input=edit submit=done flex=1 min-width=0 padding=(tv ? 20 : 14) box-sizing="border-box" font-size=(tv ? 24 : 16) border-radius=corner background-color="Field" color="FieldText"
+          button id="done" testId="done" press=done padding=(tv ? 20 : 14) background-color="AccentColor" border-radius=corner
+            // Apple's AccentColorText stays white on this pale dark-scheme accent.
+            text "Done" font-size=(tv ? 24 : 16) color="light-dark(#ffffff, #000000)" font-weight=600
+        text "The picture makes room while you type." font-size=small color="-exact-secondary-label"
 
 // Seconds as m:ss, after `sign` ("-" for the time left).
 component TimeLabel
@@ -140,4 +142,4 @@ component TimeLabel
   derive minutes = floor(seconds / 60)
   derive rest = floor(seconds) - minutes * 60
   view
-    text `${sign}${minutes}:${rest < 10 ? "0" : ""}${rest}` font-size=size color="#94a3b8"
+    text `${sign}${minutes}:${rest < 10 ? "0" : ""}${rest}` font-size=size font-variant-numeric="tabular-nums" color="-exact-secondary-label"

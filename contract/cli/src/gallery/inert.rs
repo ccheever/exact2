@@ -272,6 +272,63 @@ pub(super) fn names_symbol(c: &Component, prop: &str) -> bool {
     names
 }
 
+/// Whether `c`'s view shows string prop `prop` as an image's source:
+/// `image prop`, or `prop` passed to a component of `file` that does, at
+/// any depth (PostCard's `avatar` reaches Avatar's `image src`). A `for`
+/// or `match` binding of the same name shadows it.
+pub(super) fn shows_image(c: &Component, file: &File, prop: &str) -> bool {
+    shows(c, file, prop, &mut Vec::new())
+}
+
+fn shows(c: &Component, file: &File, prop: &str, seen: &mut Vec<(String, String)>) -> bool {
+    let key = (c.name.clone(), prop.to_string());
+    if seen.contains(&key) {
+        return false;
+    }
+    seen.push(key);
+    let mut found = false;
+    let mut used: Vec<(String, String)> = Vec::new();
+    each(&c.view, &[], &mut |node, bound| {
+        if bound.iter().any(|b| b == prop) {
+            return;
+        }
+        let is_prop = |e: &Expr| yields(e, prop);
+        match node {
+            Node::Element {
+                tag, positional, ..
+            } if tag == "image" => found |= positional.first().is_some_and(is_prop),
+            Node::Use { name, args, .. } => used.extend(
+                args.iter()
+                    .filter(|a| is_prop(&a.value))
+                    .map(|a| (name.clone(), a.name.clone())),
+            ),
+            _ => {}
+        }
+    });
+    found
+        || used.iter().any(|(name, param)| {
+            file.components
+                .iter()
+                .find(|d| d.name == *name)
+                .is_some_and(|d| shows(d, file, param, seen))
+        })
+}
+
+/// Whether `e`'s value is `prop`'s, unchanged: the name itself, a template
+/// of it alone (`` `${src}` ``), or either branch of a `?:` (a fallback
+/// beside it). A template that adds text (`symbol:${name}`) makes another
+/// string, never the prop's.
+fn yields(e: &Expr, prop: &str) -> bool {
+    match e {
+        Expr::Ident(name, _) => name == prop,
+        Expr::Template(parts, _) => {
+            matches!(parts.as_slice(), [TemplatePart::Expr(inner)] if yields(inner, prop))
+        }
+        Expr::Ternary(_, then, otherwise, _) => yields(then, prop) || yields(otherwise, prop),
+        _ => false,
+    }
+}
+
 /// A role to show for such a prop: its own name if that names one, else
 /// the schema's first.
 pub(super) fn role(prop: &str) -> &'static str {

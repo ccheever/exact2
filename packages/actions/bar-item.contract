@@ -1,0 +1,85 @@
+// A button of an app's OWN bar (the clone's bottom bar, Bluesky's icon-only
+// bar): an authored pressable, as PostButton is (LLP 1139 D9's exception;
+// theme2's 04:40 ruling). The library never wraps the platform's tabs or
+// header routes, which stay the platform's. A column over and under its
+// icon, held smaller while pressed; its icon filled when selected, which it
+// says aloud as the bar's current item (aria-current="page", the selected
+// trait on iOS); a count's pill or a dot over the icon's right half. Its one
+// slot follows the icon, for what an item shows instead (the Profile
+// button's avatar, with no icon); an item held for more (the Profile
+// button's account switcher) puts its long press on that fill, the app's.
+style BarItemLook
+  padding-top="actions.bar-item-top"
+  padding-bottom="actions.bar-item-bottom"
+  -exact-press-scale="actions.bar-item-press"
+
+component BarItem
+  params
+    tint: color = "actions.bar-tint" control = "token" group = "Color" priority = 1 label = "Icon"
+    badgeFill: color = "actions.bar-badge" control = "token" group = "Color" priority = 2 label = "Badge"
+    badgeInk: color = "actions.bar-badge-ink" control = "token" group = "Color" priority = 3 label = "Badge text"
+  props
+    // Its testId.
+    id: string
+    label: string
+    selected: bool
+    // The icon's outline and filled 24-box paths ("" for none: the slot's
+    // fill stands in), its size, and how far it sits above its place.
+    d: string
+    selectedD: string
+    iconSize: number
+    lift: number
+    // A count's pill ("" for none), or a dot.
+    badge: string
+    dot: bool
+    press: action
+  slot
+  parts
+    surface: paint shape space
+    icon: space
+    badge: paint text
+  view
+    button part="surface" class=BarItemLook
+      testId=id
+      aria-label=label
+      aria-current=(selected ? "page" : "false")
+      press=press
+      position="relative"
+      flex=1
+      display="flex"
+      flex-direction="column"
+      align-items="center"
+      if d != ""
+        column part="icon" position="relative" top=(0 - lift)
+          svg viewBox="0 0 24 24" width=iconSize height=iconSize aria-hidden=true
+            path fill="param.tint" fill-rule="evenodd" d=(selected ? selectedD : d)
+      children
+      if badge != ""
+        text badge part="badge" testId="badge"
+          aria-hidden=true
+          position="absolute"
+          left="52%"
+          top="actions.bar-badge-top"
+          padding-left="actions.bar-badge-pad"
+          padding-right="actions.bar-badge-pad"
+          padding-top="actions.bar-badge-pad-top"
+          padding-bottom="actions.bar-badge-pad-bottom"
+          border-radius="actions.bar-badge-corner"
+          z-index=1
+          font-size="actions.bar-badge-size"
+          font-weight=600
+          line-height="actions.bar-badge-line"
+          font-variant-numeric="tabular-nums"
+          color="param.badgeInk"
+          background-color="param.badgeFill"
+      else if dot
+        box aria-hidden=true
+          position="absolute"
+          left="54%"
+          top="actions.bar-dot-top"
+          margin-left="actions.bar-dot-gap"
+          width="actions.bar-dot"
+          height="actions.bar-dot"
+          border-radius="actions.bar-dot-corner"
+          z-index=1
+          background-color="param.badgeFill"

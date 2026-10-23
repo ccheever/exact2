@@ -125,9 +125,17 @@ extension TextEngine {
         return NSColor(srgbRed: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
         #endif
     }
+    static func paintedBaseline(_ baseline: CGFloat, scale: CGFloat) -> CGFloat {
+        #if os(iOS) || os(tvOS)
+        let scale = max(1, scale)
+        return (baseline * scale).rounded() / scale
+        #else
+        return baseline.rounded()
+        #endif
+    }
     /// Paint a paragraph into a y-down context (a flipped NSView's, a
-    /// UIView's): one CTLineDraw per line, baselines currently rounded to
-    /// logical points, flush by alignment.
+    /// UIView's): one CTLineDraw per line, on device-pixel baselines on UIKit
+    /// and whole-point baselines on macOS, flush by alignment.
     static func draw(_ p: Paragraph, spec: Spec, in bounds: CGRect, context ctx: CGContext, dirty: CGRect? = nil) {
         // CSS `text-shadow`: under every glyph of the paragraph at once, so
         // one line's shadow never covers another's text (LLP 1077 D3). Core
@@ -142,7 +150,7 @@ extension TextEngine {
             let line = spec.ellipsis ? p.ellipsized(index, spec: spec, width: bounds.width) : p.lines[index]
             let baseline = p.baselines[index]
             let x = p.origin(index, align: spec.align, width: bounds.width)
-            TextLinePaint.draw(line, at: CGPoint(x: bounds.minX + x, y: bounds.minY + baseline.rounded()), in: ctx)
+            TextLinePaint.draw(line, at: CGPoint(x: bounds.minX + x, y: bounds.minY + Self.paintedBaseline(baseline, scale: hypot(ctx.ctm.c, ctx.ctm.d))), in: ctx)
         }
         if let dirty {
             p.inkBounds().forEachLine(from: dirty.minY - bounds.minY,

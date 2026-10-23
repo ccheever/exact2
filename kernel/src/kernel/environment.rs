@@ -116,6 +116,27 @@ impl Kernel {
         let _ = self.replace_env(next);
     }
 
+    /// Resolve borders to whole device pixels before layout. The Apple host
+    /// enables this before boot; authored widths remain in the style rows.
+    pub fn set_pixel_borders(&mut self) {
+        let mut next = self.arena.env().clone();
+        next.border_scale = Some(self.display_scale());
+        let _ = self.replace_env(next);
+    }
+
+    /// Whether a display scale can move a hairline or a snapped border.
+    pub fn has_display_lengths(&self) -> bool {
+        self.has_hairlines()
+            || (self.arena.env().border_scale.is_some()
+                && self.arena.iter_live().any(|slot| {
+                    self.arena
+                        .effective_style(slot)
+                        .border_widths()
+                        .iter()
+                        .any(|w| *w > 0.0)
+                }))
+    }
+
     /// Lay spaces out as a terminal does: a padding, margin or gap in points
     /// is whole cells on its axis (LLP 1101 §4, LLP 1121 stage 11 (c)). The
     /// terminal host sets it beside [`Self::set_cell_borders`]; it is this
@@ -131,10 +152,10 @@ impl Kernel {
         }
         let control_changed = self.arena.env().control_text_styles != env.control_text_styles
             || self.arena.env().button_fonts != env.button_fonts;
-        // A terminal's cell rules change every box's lengths, plain px
-        // included: every node restyles.
-        let cells_changed = self.arena.env().cell_spaces != env.cell_spaces
-            || self.arena.env().cell_borders != env.cell_borders;
+        // Host border and cell rules can change plain px lengths too.
+        let box_rules_changed = self.arena.env().cell_spaces != env.cell_spaces
+            || self.arena.env().cell_borders != env.cell_borders
+            || self.arena.env().border_scale != env.border_scale;
         let before: Vec<_> = if control_changed {
             self.arena
                 .iter_live()
@@ -159,7 +180,7 @@ impl Kernel {
             .iter_live()
             // A covered box too: its top cover can hold an inset (cover.rs).
             .filter(|s| {
-                cells_changed
+                box_rules_changed
                     || uses_env(self.arena.style(*s))
                     || self.arena.cover(*s).is_some()
                     || self.arena.neutral_alert(*s)

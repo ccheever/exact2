@@ -143,9 +143,8 @@ pub enum Ids {
     Any,
 }
 
-/// The kernel's document writer for whose runtime adopts the page: the
-/// JavaScript runtime's writes no bare text style's rows, as its template
-/// writes none (LLP 1115.000 D12.2).
+/// The document writer for the runtime that adopts the page: JavaScript
+/// uses conditional CSS fills; wasm uses the kernel's resolved rows.
 fn project_for<D: DataSource>(
     ids: Ids,
 ) -> fn(&Runner<D>) -> Result<Document, exact_web::document::DocumentError> {
@@ -1114,14 +1113,28 @@ pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::proc
             println!("{line}");
             continue;
         }
-        let rendered =
-            render(&decoded, data, viewport, location, &site, deadline).and_then(|rendered| {
-                let page = shell
-                    .as_deref()
-                    .map(|shell| page(shell, &rendered))
-                    .transpose()?;
-                Ok((rendered, page))
-            });
+        let ids = if shell.as_deref().is_some_and(page::is_js) {
+            Ids::Any
+        } else {
+            Ids::Runtime
+        };
+        let rendered = render_with(
+            &decoded,
+            &data,
+            viewport,
+            location,
+            &site,
+            deadline,
+            ids,
+            Projection::Kernel,
+        )
+        .and_then(|rendered| {
+            let page = shell
+                .as_deref()
+                .map(|shell| page(shell, &rendered))
+                .transpose()?;
+            Ok((rendered, page))
+        });
         match rendered {
             Ok((rendered, page)) => {
                 let settled = rendered.settled == Settled::Complete;

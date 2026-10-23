@@ -109,13 +109,14 @@ extension NodeView {
         // press down on the node as it was held is taken over, and its
         // release shows nothing (the click is still its own).
         if holds("active") { return }
-        if pressed { pressHaptic() }
+        if pressed, defaultLink == nil { pressHaptic() }
         showPress(pressed)
     }
     /// The press shown (`down`), or taken off: the scale and the paint, or
     /// the platform's own. A held press (HeldState.swift) shows it as a
     /// real press does, with no haptic.
     func showPress(_ down: Bool) {
+        let down = down && defaultLink == nil
         // What a press shows goes at its release whatever the style says now:
         // an authored look the style dropped while held included.
         if !down { paintPress(false); aimPress(false, release: true) }
@@ -138,6 +139,7 @@ extension NodeView {
     func pressFollows(inside: Bool) {
         guard pressed else { return }
         pressPaint.outside = !inside
+        if defaultLink != nil { showPress(false); return }
         if holds("active") { return }
         if !inside { paintPress(false); aimPress(false) }
         #if os(iOS)
@@ -312,17 +314,18 @@ extension NodeView {
     /// transform: a layout transition's offset, a sticky box's scroll offset
     /// (LLP 1083), a keyboard toolbar's lift and a context preview's projection.
     var hostPlacement: CGAffineTransform {
-        CGAffineTransform(translationX: layoutOffset.x + stickyOffset.x, y: layoutOffset.y - keyboardLift + stickyOffset.y).concatenating(contextTransform)
+        CGAffineTransform(translationX: layoutOffset.x + stickyOffset.x, y: layoutOffset.y - keyboardLift + stickyOffset.y + controlRide).concatenating(contextTransform)
     }
     /// The border box in `viewport`'s visible space as an open top-layer box
     /// is told to the runner: before its own transform, which the runner
     /// applies, and after the host's placement, which the runner cannot know.
     /// UIKit transforms a view about its center.
-    func topLayerFrame(in viewport: UIScrollView) -> CGRect {
+    func topLayerFrame(in viewport: UIScrollView, containingBlock: CGRect? = nil) -> CGRect {
         guard let parent = superview else { return .zero }
-        let box = CGRect(x: -bounds.width / 2, y: -bounds.height / 2, width: bounds.width, height: bounds.height)
+        let box = (containingBlock ?? CGRect(origin: .zero, size: bounds.size))
+            .offsetBy(dx: -bounds.width / 2, dy: -bounds.height / 2)
             .applying(hostPlacement).offsetBy(dx: center.x, dy: center.y)
-        return parent.convert(box, to: viewport).offsetBy(dx: -viewport.pageOrigin.x, dy: -viewport.pageOrigin.y)
+        return NativeGeometry.convert(box, from: parent, to: viewport).offsetBy(dx: -viewport.pageOrigin.x, dy: -viewport.pageOrigin.y)
     }
     /// Whether a touch is inside the box as it stands unpressed. The pressed
     /// box is smaller, so testing against it would release a finger resting
@@ -377,7 +380,8 @@ extension NodeView {
     /// once. An untransformed box has no press in it to undo.
     func pressInside(_ windowPoint: NSPoint) -> Bool {
         let p = local(windowPoint), f = plane == nil ? 1 : pressFactor, o = transformOriginPoint
-        return bounds.contains(CGPoint(x: o.x + (p.x - o.x) * f, y: o.y + (p.y - o.y) * f))
+        let area = drawsRowBezel ? rowBezelRect ?? bounds : bounds
+        return area.contains(CGPoint(x: o.x + (p.x - o.x) * f, y: o.y + (p.y - o.y) * f))
     }
     #endif
 }
@@ -408,7 +412,8 @@ extension NodeView {
     static let dimHold: CFTimeInterval = 0.1
 
     /// Whether a press shows the platform's dim: a node the host presses
-    /// (a `press` handler or a link), with no pressed look written (a
+    /// (a `press` handler or a custom invoker's visual contact),
+    /// with no pressed look written (a
     /// `-exact-press-scale` or pressed paint, any value, 1 included, is the
     /// author's: `authorsPress`), no `pointerdown` or `pointerup` of its own
     /// (the author paints its pressed state), and not a scrim covering the
@@ -416,7 +421,7 @@ extension NodeView {
     /// native button is UIKit's own and never comes here.
     var platformPressDims: Bool {
         guard !authorsPress, !isNativeButton, !isSurfaceControl,
-              handlers.contains("press") || defaultLink != nil,
+              handlers.contains("press") || pressContact?.invokerLook == true || overlayHoldsPress,
               !handlers.contains("pointerdown"), !handlers.contains("pointerup") else { return false }
         if let w = window {
             let r = convert(bounds, to: w)

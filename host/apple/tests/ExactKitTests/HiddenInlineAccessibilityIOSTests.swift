@@ -102,6 +102,18 @@ final class HiddenInlineAccessibilityIOSTests: XCTestCase {
         XCTAssertFalse(labels.contains { $0.contains("Secret") })
     }
 
+    func testAVisibleLinkOmitsHiddenTextInsideItsRange() throws {
+        let p = presenter()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "text", "style": ["font_size": 18]],
+            ["op": "roots", "ids": [1]], ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 300, "h": 40]
+        ]))
+        p.apply(wire(#"{"ops":[{"op":"paragraph","id":1,"runs":[{"id":2,"parent":1,"paint":false,"props":{"href":"/link"},"style":{"font_size":18}},{"id":3,"parent":2,"paint":true,"props":{"text":"Shown"},"style":{"font_size":18}},{"id":4,"parent":2,"paint":true,"props":{"text":"Secret"},"style":{"font_size":18,"visibility":"hidden"}}]}]}"#))
+        let labels = (p.axElements(roots: [p.viewport])["elements"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
+        XCTAssertTrue(labels.contains("Shown"))
+        XCTAssertFalse(labels.contains { $0.contains("Secret") })
+    }
+
     func testInlineLinkARIAUnavailabilityAndAncestorState() throws {
         let p = presenter()
         p.apply(wireBatch([

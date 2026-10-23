@@ -88,6 +88,7 @@ function init(message) {
   }
   // Kept keys (LLP 1069.005 D1b): the CryptoKeyPair in this realm's IndexedDB.
   self.__exact_keys = keyStore(message.storage, self.indexedDB);
+  evaluate(message.binary);
   evaluate(message.prelude);
   self.__exact_storage = storage.capability;
   self.__exact_install_storage();
@@ -159,6 +160,14 @@ const letGoHooks = {
 let parked = [], deliveries = 0;
 async function proceed(answer, request, done) {
   for (;;) {
+    // A `scheduler.yield()`: its yields resolve in a task of their own.
+    if (answer.tag === 1 && answer.yielded) {
+      await checkpoint();
+      self.__exact_yielded(String(answer.call));
+      await checkpoint();
+      answer = JSON.parse(self.__exact_settle(String(answer.call)));
+      continue;
+    }
     if (answer.tag === 1 && answer.ticket === 0 && !answer.waiting) {
       await storage.deliver(context.owner);
       deliveries++;

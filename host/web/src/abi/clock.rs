@@ -5,6 +5,12 @@ use super::Bridge;
 use exact_runner::DataSource;
 
 impl<D: DataSource> Bridge<D> {
+    /// Requests the agent waits on, including turns parked inside a source.
+    /// Declared holds and streams after their first message keep the runner's exemptions.
+    pub fn requests_pending(&self) -> u32 {
+        u32::from(self.host.as_ref().is_some_and(|h| h.runner().has_pending()))
+    }
+
     /// The page's clock owns time (`Some`), or the agent's seekable one does
     /// (`None`): the running runner and every one booted later take it.
     pub fn set_live_clock(&mut self, now: Option<fn() -> f64>) {
@@ -41,6 +47,12 @@ impl<D: DataSource> Bridge<D> {
 #[doc(hidden)]
 macro_rules! live_clock_export {
     ($bridge:ident) => {
+        /// Whether a clock must wait for a runner request, even without host work.
+        #[no_mangle]
+        pub extern "C" fn exact_requests_pending() -> u32 {
+            $bridge.with(|b| b.borrow().requests_pending())
+        }
+
         /// Nonzero: the page's clock owns time; zero: the agent's does.
         #[no_mangle]
         pub extern "C" fn exact_live_clock(on: u32) {

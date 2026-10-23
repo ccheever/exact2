@@ -6,6 +6,19 @@
 import UIKit
 
 extension NavigationHost {
+    /// The search field a shown route projects into UIKit's search bar.
+    func drawnSearch(_ node: NodeView) -> UITextField? {
+        #if os(iOS)
+        guard !ExactEnv.authoredChrome else { return nil }
+        for c in controllers.values {
+            guard let nav = c.navigationController, nav.topViewController === c, barShows(nav),
+                  c.viewIfLoaded?.window != nil, let search = c.search, search.field === node else { continue }
+            return search.controller.searchBar.searchTextField
+        }
+        #endif
+        return nil
+    }
+
     /// Under `--chrome platform`, the navigation bar a header button's item
     /// sits in and the item's box in it: where a finger aims, and where its
     /// pull-down opens. Nil for any other node; a refusal for an item UIKit
@@ -31,6 +44,17 @@ extension NavigationHost {
 }
 
 extension Agent {
+    /// A compact control can occupy only one end of its authored box.
+    func nativeControlPoint(_ node: NodeView, box b: CGRect, in window: UIWindow) -> AddressedAim? {
+        guard let control = presenter.controls.controls[node.id], control.window === window else { return nil }
+        let cb = box(control), point = CGPoint(x: cb.midX, y: cb.midY), middle = CGPoint(x: b.midX, y: b.midY)
+        guard point != middle else { return nil }
+        let vp = presenter.viewport
+        let toWindow = { (q: CGPoint) in vp.convert(CGPoint(x: q.x + vp.pageOrigin.x, y: q.y + vp.pageOrigin.y), to: nil) }
+        guard pressReach(node, at: toWindow(point), in: window)?.isOwn(node) == true else { return nil }
+        return .at(point, pressReach(node, at: toWindow(middle), in: window) ?? .nothing)
+    }
+
     /// Under `--chrome platform`, the navigation bar a header button's item
     /// sits in and the item's box in it (r5 weather's Cities, r5 mood
     /// journal's sheet Save). Nil for any other node; a refusal for an item

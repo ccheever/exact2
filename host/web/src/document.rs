@@ -34,12 +34,14 @@ use super::{layers, Host};
 mod document_url;
 pub use document_url::{frame_navigable, navigable};
 
+#[path = "document_bars.rs"]
+mod bars;
 #[path = "page.rs"]
 mod page;
 use crate::css;
+use bars::bar_header;
 use exact_kernel::paint_order::{self, Child, Facts};
-use exact_kernel::SortedMap;
-use exact_kernel::{NodeFacts, PropId, ViewId};
+use exact_kernel::{NodeFacts, PropId, SortedMap, SortedSet, ViewId};
 use exact_plan::EventKind;
 use exact_runner::{DataSource, DocTree, Runner};
 pub use page::{
@@ -104,10 +106,8 @@ pub fn project<D: DataSource>(runner: &Runner<D>) -> Result<Document, DocumentEr
     walk(runner, None, true).map(|(document, _)| document)
 }
 
-/// [`project`], for the JavaScript runtime to adopt: a bare `font-size`
-/// style's weight and leading are not written (LLP 1115.000 D12.2), as its
-/// template writes none, so none stays inline once it sees an ancestor's
-/// weight arrive.
+/// [`project`], with the JavaScript template's conditional text-style fills
+/// (LLP 1115.000 D12.2), so its static styles can become classes at adoption.
 pub fn project_for_js<D: DataSource>(runner: &Runner<D>) -> Result<Document, DocumentError> {
     walk(runner, None, false).map(|(document, _)| document)
 }
@@ -127,6 +127,10 @@ pub(crate) fn project_keeping<D: DataSource>(
 /// holds without one ([`DocTree`], LLP 1048.004). One walk writes both, so
 /// the two documents differ only where the trees do.
 pub trait Source {
+    /// Whether CSS must resolve text-style fills after the document is adopted.
+    fn js_styles(&self) -> bool {
+        true
+    }
     /// The facts of node `id`, when it is live.
     fn facts(&self, id: ViewId) -> Option<NodeFacts<'_>>;
     /// Its children, in order.
@@ -134,8 +138,8 @@ pub trait Source {
     /// The element an SVG reference from `from` names.
     fn resolve(&self, from: ViewId, id: &str) -> Option<ViewId>;
     /// `style`, node `id`'s, with the weight and leading a text style named
-    /// on it gives (LLP 1115.000 D12.2): a kernel's tree knows them, a
-    /// render's tree has them in its facts already.
+    /// on it gives the wasm host (LLP 1115.000 D12.2). JavaScript's fills
+    /// are written from the node's facts instead.
     fn with_style_rows<'s>(
         &self,
         _id: ViewId,
@@ -145,14 +149,16 @@ pub trait Source {
     }
 }
 
-/// A kernel's tree; `bare`: a bare `font-size` style's rows are written
-/// too ([`super::element::css_style_named`]).
+/// A kernel's tree; `bare`: the live wasm host's resolved text-style fills.
 struct KernelSource<'k> {
     kernel: &'k exact_kernel::Kernel,
     bare: bool,
 }
 
 impl Source for KernelSource<'_> {
+    fn js_styles(&self) -> bool {
+        !self.bare
+    }
     fn facts(&self, id: ViewId) -> Option<NodeFacts<'_>> {
         self.kernel.node(id).map(|n| n.facts())
     }
@@ -173,9 +179,7 @@ impl Source for KernelSource<'_> {
         style: Cow<'s, exact_kernel::StyleProps>,
     ) -> Cow<'s, exact_kernel::StyleProps> {
         match self.kernel.node(id) {
-            Some(node) if self.bare || node.names_text_style_through_font() => {
-                super::element::with_style_rows(style, &node)
-            }
+            Some(node) if self.bare => super::element::with_style_rows(style, &node),
             _ => style,
         }
     }
@@ -340,6 +344,7 @@ fn write<S: Source>(
         handlers,
         presses,
         routes: SortedMap::new(),
+        bars: SortedSet::new(),
         keyframes: SortedMap::new(),
         out: String::new(),
         links: 0,
@@ -551,6 +556,8 @@ struct Walk<'r, 'w, S: Source> {
     handlers: SortedMap<ViewId, Vec<EventKind>>,
     presses: SortedMap<ViewId, bool>,
     routes: SortedMap<ViewId, Route>,
+    /// The headers marked as their route's bar ([`bar_header`]).
+    bars: SortedSet<ViewId>,
     keyframes: SortedMap<String, String>,
     out: String,
     /// Open `a` and `button` elements: the parser closes an open one when a
@@ -615,16 +622,26 @@ impl<S: Source> Walk<'_, '_, S> {
         self.scroll_document |= props
             .get("data-scrolldocument")
             .is_some_and(|v| v == "true");
-        let text = match src.with_style_rows(id, css_style_of(&resolve, &node)) {
+        let mut text = match src.with_style_rows(id, css_style_of(&resolve, &node)) {
             Cow::Borrowed(style) => {
                 let fonts = &self.fonts;
                 self.css
                     .entry(style as *const exact_kernel::StyleProps as usize)
-                    .or_insert_with(|| css::css_text(style, fonts).0)
+                    .or_insert_with(|| {
+                        if src.js_styles() {
+                            css::css_text_relative(style, fonts).0
+                        } else {
+                            css::css_text(style, fonts).0
+                        }
+                    })
                     .clone()
             }
+            Cow::Owned(style) if src.js_styles() => css::css_text_relative(&style, &self.fonts).0,
             Cow::Owned(style) => css::css_text(&style, &self.fonts).0,
         };
+        if src.js_styles() {
+            css::text_style::fills(&node, &mut text);
+        }
         animations(node.style, &mut self.keyframes);
         let children = src.children(id);
         let paint = self.isolation.get(&id).copied().unwrap_or_default();
@@ -781,6 +798,9 @@ impl<S: Source> Walk<'_, '_, S> {
                 attrs.push(("inert".into(), None));
             }
         }
+        if self.bars.contains(&id) {
+            attrs.push(("data-exact-bar".into(), None));
+        }
         // `attach`: the view id, and a tab stop for an element that hears
         // focus, blur or keys and is not one already.
         attrs.push(("data-view".into(), Some(id.to_string())));
@@ -935,6 +955,9 @@ impl<S: Source> Walk<'_, '_, S> {
         if let Some(tabs) = crate::link::linked().tabs {
             for (id, hidden, inert) in tabs(src, children, key) {
                 self.routes.insert(id, Route { hidden, inert });
+                if let Some(header) = bar_header(src, &self.handlers, id) {
+                    self.bars.insert(header);
+                }
             }
             return;
         }
@@ -952,6 +975,9 @@ impl<S: Source> Walk<'_, '_, S> {
         };
         let modal = routes[selected].props.str(PropId::NavigationPresentation) == Some("modal");
         for (index, route) in routes.iter().enumerate() {
+            if let Some(header) = bar_header(src, &self.handlers, route.id) {
+                self.bars.insert(header);
+            }
             let active = index == selected;
             let shown = active || (modal && index + 1 == selected);
             self.routes.insert(

@@ -94,7 +94,10 @@ extension Agent {
         func shown(_ v: UIView) -> CGRect {
             var r = port, at = v.superview
             while let cur = at {
-                if let sv = cur as? UIScrollView, sv.clipsToBounds { r = r.intersection(sv.convert(sv.bounds, to: nil)) }
+                if let sv = cur as? UIScrollView, sv.clipsToBounds {
+                    let port = sv.pageBounds.inset(by: sv.adjustedContentInset)
+                    r = r.intersection(sv.convert(port, to: nil))
+                }
                 at = cur.superview
             }
             return r
@@ -228,7 +231,7 @@ extension Agent {
             guard ["view", "scroll"].contains(n.kind), ["view", "scroll"].contains(p.kind),
                   written.contains("padding_left") || written.contains("padding_right"),
                   n.style["box_sizing"]?.string != "border-box",
-                  !["absolute", "fixed"].contains(n.style["position_type"]?.string ?? ""),
+                  !["absolute", "fixed"].contains(n.layoutPosition),
                   !(["scroll", "auto"].contains(p.style["overflow_x"]?.string ?? "") && (p.style["written"]?.array?.contains(.string("overflow_x")) ?? false)) else { return nil }
             let pad = n.padding("left") + n.padding("right"), room = p.contentBox().width, past = n.bounds.width - room
             guard pad > 0.5, past > 1.5, n.bounds.width - pad <= room + 1.5 else { return nil }
@@ -241,7 +244,7 @@ extension Agent {
         func spill(_ n: NodeView, _ b: CGRect, in p: NodeView) -> [String: Any]? {
             guard ["flex", "inline-flex", "grid", "inline-grid"].contains(p.style["display"]?.string ?? ""),
                   !p.clipsToBounds, p.clipBox == nil, !(p.scroll?.scrollsX == true && p.style["written"]?.array?.contains(.string("overflow_x")) == true),
-                  !["absolute", "fixed"].contains(n.style["position_type"]?.string ?? ""),
+                  !["absolute", "fixed"].contains(n.layoutPosition),
                   n.transform.isIdentity, CATransform3DIsIdentity(n.layer.transform), !pinned(n, upTo: scope) else { return nil }
             let pb = p.convert(p.bounds, to: nil), uniform = p.number("border_width")
             let left = pb.minX + p.number("border_width_left", uniform), right = pb.maxX - p.number("border_width_right", uniform)

@@ -189,9 +189,9 @@ final class SidebarHost {
         }
         decide("the root tablist #\(host.tablist.id) is the window's sidebar (\(host.tabs.count) tabs)")
         let hidden = host.tablist.style["display"]?.string == "none"
-        // A tab's face is read from the kernel for a native button: only
-        // when a batch touched the tablist's subtree.
-        let touched = batch.map { $0.ops.contains { op in op.op != .frame && op.op != .present && op.nodeID.map(watched.contains) == true } } ?? true
+        // Native button faces are viewless. Rebuild rows for every controls batch,
+        // including unrelated buttons, and for changes in the tablist subtree.
+        let touched = batch.map { $0.controls || $0.ops.contains { op in op.op != .frame && op.op != .present && op.nodeID.map(watched.contains) == true } } ?? true
         if let now = shown, now.tablist === host.tablist, now.rows.map(\.tab) == host.tabs.map(\.id), !watched.isEmpty, !touched {
             shown?.selected = root.at
             shown?.hidden = hidden

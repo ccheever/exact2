@@ -97,6 +97,71 @@ final class NavigationBasicsIOSTests: XCTestCase {
         (try? node(session, testId))?.accessibleText
     }
 
+    func testStationaryNavigationKeepsItsBarsOutsideThePageScroller() throws {
+        let session = try fixture("stationary-navigation")
+        let presenter = session.presenter
+        let owner = try XCTUnwrap(presenter.navigation.primaryOwner?.view)
+        var ancestor = owner.superview
+        while let view = ancestor {
+            XCTAssertFalse(view is UIScrollView, "Duo's native Back must not sit inside a page scroller")
+            ancestor = view.superview
+        }
+        XCTAssertTrue(presenter.mounts(owner))
+        XCTAssertFalse(presenter.viewport.isScrollEnabled)
+    }
+
+    func testNavigationDocumentsKeepScrollingWhenTheirContentGrows() throws {
+        let session = try fixture("scrolling-navigation-document")
+        let presenter = session.presenter
+        let root = try XCTUnwrap(presenter.root.subviews.first)
+        let original = root.frame
+        root.frame.size.height = presenter.viewportSize.height + 300
+        presenter.fitDocument()
+        XCTAssertTrue(root.isDescendant(of: presenter.viewport))
+        XCTAssertTrue(presenter.viewport.isScrollEnabled)
+        let before = root.convert(CGPoint.zero, to: session.view)
+        presenter.viewport.setContentOffset(CGPoint(x: 0, y: 100), animated: false)
+        XCTAssertEqual(root.convert(CGPoint.zero, to: session.view).y, before.y - 100, accuracy: 0.5)
+        presenter.viewport.setContentOffset(.zero, animated: false)
+        root.frame = original
+        presenter.fitDocument()
+        XCTAssertFalse(root.isDescendant(of: presenter.viewport))
+        XCTAssertTrue(presenter.mounts(root))
+    }
+
+    /// A popover over a stationary document is in the document's mount, above
+    /// the document, and follows it into the viewport and back with its field's focus.
+    func testAPopoverFollowsTheDocumentBetweenItsMounts() throws {
+        let session = try fixture("stationary-popover")
+        let presenter = session.presenter
+        XCTAssertTrue(presenter.root.superview === presenter.documentMount)
+        try tapNode(session, "open-native-popover")
+        spin(0.5)
+        let layer = try XCTUnwrap(PopoverLayer.containing(try node(session, "native-popover")))
+        func above() throws -> Bool {
+            let order = presenter.documentPort.subviews
+            return try XCTUnwrap(order.firstIndex(of: layer)) > XCTUnwrap(order.firstIndex(of: presenter.root))
+        }
+        XCTAssertTrue(layer.superview === presenter.documentMount)
+        XCTAssertTrue(try above())
+        let field = try XCTUnwrap(try node(session, "popover-search").field)
+        XCTAssertTrue(field.isFirstResponder, "the popover's autofocus field")
+        let content = try XCTUnwrap(presenter.root.subviews.first), original = content.frame
+        content.frame.size.height = presenter.viewportSize.height + 300
+        presenter.fitDocument()
+        XCTAssertTrue(layer.superview === presenter.viewport)
+        XCTAssertTrue(try above())
+        XCTAssertTrue(field.isFirstResponder, "the move into the viewport keeps the focus")
+        content.frame = original
+        presenter.fitDocument()
+        XCTAssertTrue(layer.superview === presenter.documentMount)
+        XCTAssertTrue(try above())
+        XCTAssertTrue(field.isFirstResponder, "the move out of the viewport keeps the focus")
+        XCTAssertTrue(presenter.mounts(field))
+        XCTAssertTrue(presenter.endEditing())
+        XCTAssertFalse(field.isFirstResponder, "the session's blur reaches the mount")
+    }
+
     func testDeclaredProtocolCarriesColdAndWarmURLsThroughTheRouter() throws {
         let session = try fixture("protocol", plan: "EXACT_NAVIGATION_BARS_PLAN", launch: "exacttest://auth/start#cold")
         func state() -> String { session.agent(#"{"op":"state"}"#) }
@@ -812,17 +877,77 @@ final class NavigationBasicsIOSTests: XCTestCase {
                       "and the stack beneath is as it was")
     }
 
-    /// LLP 1116.020 D2: a presented stack's title is inline at any level, as
-    /// UIKit's sheets and Apple's are; a level-1 heading pushed in the stack
-    /// beneath is large.
-    func testASheetsLevelOneTitleIsInline() throws {
+    /// LLP 1141.001 D7: a sheet whose heading says level 1 has a large title,
+    /// as its author asked (a Settings sheet's).
+    func testASheetsLevelOneTitleIsLarge() throws {
         let (session, _, _) = try bars("bars-titled-sheet")
         let navigation = session.presenter.navigation
         try tapNode(session, "start-open-titled")
         until("the sheet has its own stack") { navigation.modalNavigation?.viewControllers.count == 1 }
         let route = try XCTUnwrap(navigation.modalNavigation?.topViewController as? RouteController)
         XCTAssertEqual(route.navigationItem.title, "Titled")
+        XCTAssertEqual(route.navigationItem.largeTitleDisplayMode, .always, "the author's level 1 is a large title")
+    }
+
+    /// LLP 1116.020 D2: a sheet's heading of no level is an inline title, as
+    /// UIKit's sheets and Apple's are.
+    func testASheetsHeadingOfNoLevelIsInline() throws {
+        let (session, _, _) = try bars("bars-glass-title")
+        let navigation = session.presenter.navigation
+        try tapNode(session, "start-open-glass")
+        until("the sheet has its own stack") { navigation.modalNavigation?.viewControllers.count == 1 }
+        let route = try XCTUnwrap(navigation.modalNavigation?.topViewController as? RouteController)
+        XCTAssertEqual(route.navigationItem.title, "Glass")
         XCTAssertEqual(route.navigationItem.largeTitleDisplayMode, .never, "a sheet's title is inline")
+    }
+
+    /// The presented sheet holding `name`'s route, opened from `start`, at
+    /// its first detent: its controller and the route's.
+    private func openSheet(_ session: ExactSession, _ name: String) throws -> (UIViewController, RouteController, UISheetPresentationController) {
+        let navigation = session.presenter.navigation
+        try tapNode(session, "start-open-\(name)")
+        until("the sheet has its own stack") { navigation.modalNavigation?.viewControllers.count == 1 }
+        let sheet = try XCTUnwrap(navigation.modalNavigation?.parent)
+        let route = try XCTUnwrap(navigation.modalNavigation?.topViewController as? RouteController)
+        XCTAssertEqual(route.node.props["testId"], "route-\(name)")
+        let presentation = try XCTUnwrap(sheet.sheetPresentationController)
+        XCTAssertEqual(presentation.selectedDetentIdentifier, .medium)
+        return (sheet, route, presentation)
+    }
+
+    /// A person's drag to `detent`, as UIKit reports it.
+    private func drag(_ presentation: UISheetPresentationController, to detent: UISheetPresentationController.Detent.Identifier) {
+        presentation.selectedDetentIdentifier = detent
+        presentation.delegate?.sheetPresentationControllerDidChangeSelectedDetentIdentifier?(presentation)
+    }
+
+    private func alpha(_ view: UIView) -> CGFloat? { view.backgroundColor?.resolvedColor(with: view.traitCollection).cgColor.alpha }
+
+    /// LLP 1141.001 D3: a sheet whose route paints nothing leaves its views
+    /// clear below its large detent, so UIKit draws its glass as for a
+    /// hand-built sheet; at the large detent it is the system background
+    /// (LLP 1116.021 D7).
+    func testAnUnpaintedSheetIsGlassBelowItsLargeDetent() throws {
+        let (session, _, _) = try bars("bars-glass")
+        let (sheet, route, presentation) = try openSheet(session, "glass")
+        XCTAssertEqual(sheet.view.backgroundColor, .clear, "UIKit's glass shows at the medium detent")
+        XCTAssertEqual(alpha(route.view), 0, "and the route paints none over it")
+        drag(presentation, to: .large)
+        XCTAssertEqual(sheet.view.backgroundColor, .systemBackground, "the system background at the large detent")
+        XCTAssertEqual(alpha(route.view), 0)
+        drag(presentation, to: .medium)
+        XCTAssertEqual(sheet.view.backgroundColor, .clear, "glass again")
+    }
+
+    /// LLP 1141.001 D3: an authored `transparent` is clear at every detent.
+    func testATransparentSheetStaysClearAtEveryDetent() throws {
+        let (session, _, _) = try bars("bars-clear")
+        let (sheet, route, presentation) = try openSheet(session, "clear")
+        XCTAssertEqual(sheet.view.backgroundColor, .clear)
+        XCTAssertEqual(alpha(route.view), 0)
+        drag(presentation, to: .large)
+        XCTAssertEqual(sheet.view.backgroundColor, .clear, "the author's transparent at the large detent too")
+        XCTAssertEqual(alpha(route.view), 0)
     }
 
 

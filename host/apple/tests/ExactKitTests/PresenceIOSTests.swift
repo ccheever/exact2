@@ -88,6 +88,23 @@ final class PresenceIOSTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(control.segmentViews.first).accessibilityTraits.contains(.notEnabled))
     }
 
+    func testAnUnstyledTabSymbolLeavesTheBarsNativeTint() throws {
+        let p = tabBarFixture()
+        defer { p.reset(); window.isHidden = true }
+        p.apply(wireBatch([["op": "props", "id": 11, "set": ["accessibilitySelected": "true"]]]))
+        let bar = try XCTUnwrap(p.views[10]?.subviews.first { $0 is UITabBar } as? UITabBar)
+        let native = UITabBar()
+        window.addSubview(native)
+        XCTAssertEqual(bar.tintColor, native.tintColor)
+        let pink: [Double] = [240, 40, 120, 255]
+        p.apply(wireBatch([["op": "style", "id": 13, "style": ["text_color": pink]]]))
+        XCTAssertEqual(bar.tintColor, native.tintColor, "inherited page ink leaves UIKit's accent")
+        p.apply(wireBatch([["op": "style", "id": 13, "style": ["text_color": pink, "written": ["text_color"]]]]))
+        XCTAssertEqual(bar.tintColor?.cgColor.components, TextEngine.color(pink).cgColor.components)
+        p.apply(wireBatch([["op": "style", "id": 13, "style": ["text_color": pink]]]))
+        XCTAssertEqual(bar.tintColor, native.tintColor, "removing authored ink restores UIKit's accent")
+    }
+
     func testTabBarReportsItsHeightAndAlwaysFillsTheKernelBox() throws {
         let p = tabBarFixture()
         var reports: [CGSize?] = []
@@ -155,7 +172,7 @@ final class PresenceIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "props", "id": 11, "set": ["accessibilitySelected": "true"]]]))
         let bar = try XCTUnwrap(p.views[10]?.subviews.first { $0 is UITabBar } as? UITabBar)
         window.layoutIfNeeded()
-        XCTAssertEqual(bar.safeAreaInsets.bottom, 34, "laid out inside the inset")
+        XCTAssertEqual(bar.safeAreaInsets.bottom, host.view.safeAreaInsets.bottom, "laid out inside the inset, including the device's own safe area")
         let height = bar.sizeThatFits(CGSize(width: 400, height: 0)).height
         p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 400 - Double(height), "w": 400.0, "h": Double(height)]]))
         window.layoutIfNeeded()
@@ -430,6 +447,23 @@ final class PresenceIOSTests: XCTestCase {
         XCTAssertEqual(surface.bounds.size, .zero)
         XCTAssertEqual(surface.frame.origin, .zero)
         XCTAssertEqual(v.bounds.size, CGSize(width: 100, height: 50))
+    }
+
+    func testAnExitRetiresAPopoverInItsLiftLayer() throws {
+        let p = fixture()
+        defer { p.menus.reset(); window.isHidden = true }
+        let leaving = try XCTUnwrap(p.views[2]), pop = try XCTUnwrap(p.views[3])
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["popover": "auto", "id": "lifted"]]]))
+        p.menus.agentShow(pop, named: "lifted", from: 4)
+        XCTAssertFalse(pop.isDescendant(of: leaving))
+        XCTAssertTrue(p.menus.isOpen(pop))
+        p.apply(wireBatch([["op": "exit", "id": 2], ["op": "children", "id": 1, "ids": [4]]]))
+        XCTAssertNil(p.views[3], "the lifted descendant retires with its authored parent")
+        XCTAssertFalse(p.menus.isOpen(pop))
+        XCTAssertNil(pop.superview)
+        XCTAssertEqual(Set(try XCTUnwrap(p.leaving[2]).members.map(\.id)), [2, 3])
+        p.apply(wireBatch([["op": "destroy", "id": 2]]))
+        XCTAssertNil(pop.presenter)
     }
 
     func testAnExitKeepsTheViewWhereItWasInertAndUnnamedUntilItsDestroy() throws {

@@ -37,12 +37,13 @@ package protocol GroupedLists: AnyObject {
     /// Where a real finger aimed at `node` lands, for a row a list draws.
     func shown(_ node: NodeView) -> GroupedAim?
     /// The agent's `tap` on a row UIKit draws.
-    func activate(_ node: NodeView) -> [String: Any]?
+    func activate(_ node: NodeView, before: (CGPoint?) -> Bool) -> [String: Any]?
     /// `layout <id>`'s native fields for a list or a row it draws.
     func observation(_ node: NodeView) -> [String: Any]?
     // LLP 1080.001 D3: what the inspection walk accounts for.
     func inspectionOwns(_ view: UIView) -> Bool
     func hides(_ node: NodeView) -> Bool
+    func hidSection(_ node: NodeView) -> Bool
     func projects(_ view: UIView) -> Bool
     /// The authored parent of a row carried into a cell.
     func logicalParent(of view: UIView) -> UIView?
@@ -62,5 +63,17 @@ package enum GroupedListsLink {
     package static var make: ((Presenter) -> GroupedLists)?
     /// The row and part of a grouped list's cell that a view is in.
     package static var part: ((UIView?) -> [String: Any]?)?
+}
+#endif
+
+#if os(iOS)
+package protocol GroupedMenuSurface: AnyObject {
+    var menuSource: NodeView? { get }
+}
+
+extension Presenter {
+    package func syncGroupedMenu(on view: UIView & GroupedMenuSurface) {
+        menus.context.syncProjected(view)
+    }
 }
 #endif

@@ -1,0 +1,18 @@
+// TopLayerBlock tests (stage 14 B), Harmony's Pins popover as a fixture: a
+// popover with no width, written in a header 100 points wide that is
+// positioned, holding cards that wrap. In the viewport, its block, it is as
+// wide as its cards on one line, as on the web: 4 x 80 + 3 x 8 + 2 x 12 =
+// 368 by 40 + 2 x 12 = 64 (Chrome on this contract). In the header it was
+// trimmed to a card a line.
+component App
+  view
+    column testId="page" width="100%" height="100%"
+      box testId="header" position="relative" width=100 height=40
+        button testId="open" popovertarget="pins"
+          text "Pins"
+        column id="pins" testId="pins" popover="auto" padding=12
+          row testId="cards" flex-wrap="wrap" gap=8
+            box width=80 height=40
+            box width=80 height=40
+            box width=80 height=40
+            box width=80 height=40

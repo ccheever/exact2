@@ -145,7 +145,7 @@ enum TouchLog {
         let oldest = entries.first.map { $0["seq"] as! Int } ?? seq + 1
         let after = entries.filter { ($0["seq"] as! Int) > s }
         // `lost`: entries after `s` fell out of the ring before this read.
-        return ["log": Array(after.prefix(32)), "next": seq, "dropped": dropped, "reached": reached.sorted(),
+        return ["now": CACurrentMediaTime(), "log": Array(after.prefix(32)), "next": seq, "dropped": dropped, "reached": reached.sorted(),
                 "lost": s + 1 < oldest, "truncated": after.count > 32]
     }
 }
@@ -279,7 +279,13 @@ extension Agent {
         // the touch (r5 weather). A header button UIKit's bar draws under
         // `--chrome platform`: its bar item (r5 weather, mood journal).
         if target === v, let (control, segment) = presenter.segments.drawn(v) { target = control; region = segment }
-        var barred = false
+        var barred = presenter.navigation.barSegment(v) != nil
+        if target === v, let field = presenter.navigation.drawnSearch(v) {
+            guard field.window === win, !field.isHidden, field.bounds.width > 0, field.bounds.height > 0 else {
+                return ["error": "tap #\(v.id): UIKit's search field is not shown; scroll to the top and `clock settle` first"]
+            }
+            target = field; barred = true
+        }
         if target === v, let item = barItem(v) {
             guard case .success(let (bar, frame)) = item else { return ["error": "tap #\(v.id): its bar item is not placed in the navigation bar; `clock settle` first waits out a push or sheet still moving"] }
             target = bar; region = frame; barred = true

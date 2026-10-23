@@ -104,21 +104,34 @@ extension NodeView {
 
 /// One list's separators: a shape over its rows, in the list's content, in
 /// UIKit's separator colour for the appearance it is shown in.
+/// A list's separators' appearance: an empty view in the list that hears
+/// its appearance change and draws its rows' lines again in the new colour.
 final class RowLinesView: UIView {
-    override class var layerClass: AnyClass { CAShapeLayer.self }
-    var shape: CAShapeLayer { layer as! CAShapeLayer } // swiftlint:disable:this force_cast
+    var retint: (() -> Void)?
     override init(frame: CGRect) {
         super.init(frame: frame)
         isUserInteractionEnabled = false
         isAccessibilityElement = false
-        layer.zPosition = 1
-        tint()
-        registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) { (view: RowLinesView, _: UITraitCollection) in view.tint() }
+        isHidden = true
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) { (view: RowLinesView, _: UITraitCollection) in view.retint?() }
     }
     required init?(coder: NSCoder) { nil }
-    private func tint() { shape.fillColor = RowCells.separator.resolvedColor(with: traitCollection).cgColor }
+    var color: CGColor { RowCells.separator.resolvedColor(with: traitCollection).cgColor }
     /// Never a hit: a touch on a separator is the row's.
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
+}
+
+/// A row's separators, in its own layer, so a row that moves between
+/// batches (a layout transition, an exit, a reorder drag) carries its line,
+/// as a UIKit cell carries its separator view.
+final class RowLineLayer: CAShapeLayer {
+    override init() {
+        super.init()
+        zPosition = 1
+    }
+    override init(layer: Any) { super.init(layer: layer) }
+    required init?(coder: NSCoder) { nil }
+    override func action(forKey event: String) -> (any CAAction)? { NSNull() }
 }
 
 /// The ground of the row that is pressed or selected, under the list's rows.
@@ -158,6 +171,9 @@ final class RowCells {
 
     private weak var presenter: Presenter?
     private var lines: [UInt32: RowLinesView] = [:]
+    /// Each row's line layer, by the row, while it draws one.
+    private var rowLines: [ObjectIdentifier: (row: Weak<NodeView>, layer: RowLineLayer)] = [:]
+    final class Weak<T: AnyObject> { weak var value: T?; init(_ value: T) { self.value = value } }
     /// The margins each list's rows were last sampled at (LLP 1138), which
     /// its separators follow, and those the kernel was last sent.
     private var told: [UInt32: [CGFloat]] = [:]
@@ -172,6 +188,8 @@ final class RowCells {
     func reset() {
         for view in lines.values { view.removeFromSuperview() }
         lines.removeAll()
+        for entry in rowLines.values { entry.layer.removeFromSuperlayer() }
+        rowLines.removeAll()
         told.removeAll()
         sent.removeAll()
         shown?.ground.removeFromSuperview()
@@ -189,7 +207,16 @@ final class RowCells {
             view.removeFromSuperview()
             lines[id] = nil
         }
-        if let held = shown, presenter.views[held.row.id] !== held.row || held.row.window == nil { drop() } else if let held = shown { held.ground.frame = held.row.frame }
+        // A row gone, or no longer a list's, takes its line with it. One out
+        // of the window keeps it: the line is on the row's own layer, and a
+        // screen a push covered comes back with its rows unchanged.
+        for (key, entry) in rowLines where entry.row.value?.rowCell == nil {
+            entry.layer.removeFromSuperlayer()
+            rowLines[key] = nil
+        }
+        // The selected row stays so under the screen it pushed, out of the
+        // window, for its fade as that screen pops (`appearing`).
+        if let held = shown, presenter.views[held.row.id] !== held.row { drop() } else if let held = shown { held.ground.frame = held.row.frame }
         // The margins first, so a list's separators end at the one it now has.
         let moved = tell()
         for (id, list) in presenter.listViews where list.hasRowCells && (changed?.contains(id) != false || lines[id] == nil || moved.contains(id)) { draw(list) }
@@ -263,33 +290,42 @@ final class RowCells {
         let content = list.container
         let view = lines[list.id] ?? RowLinesView(frame: .zero)
         if view.superview !== content { content.addSubview(view) }
+        if view.retint == nil { view.retint = { [weak self, weak list] in if let list { self?.draw(list) } } }
         lines[list.id] = view
         let rows = rows(of: list)
         let lit = shown.flatMap { $0.list == list.id && !fading ? $0.row : nil }
-        let path = CGMutablePath()
         let inset = told[list.id] ?? margins(list)
-        /// A line at a height of `row`'s box, from where its text starts.
-        func line(_ row: NodeView, at y: CGFloat) {
-            let frame = row.frame
+        let color = view.color
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for (index, row) in rows.enumerated() {
+            let next = index + 1 < rows.count ? rows[index + 1] : nil
+            let bounds = row.bounds, path = CGMutablePath()
             // From the row's text, as a cell's separator is from its label's
             // leading edge and not under a leading image: where the text's
             // glyphs start, inside any padding of its own (a row that is
             // itself a padded text). A row with no text, from the cell's margin.
             let lead = row.firstText.map { row.convert(CGPoint(x: $0.contentBox().minX, y: 0), from: $0).x } ?? inset[0]
-            let from = frame.minX + max(0, min(lead, frame.width)), to = frame.maxX - inset[1]
-            if to > from { path.addRect(CGRect(x: from, y: y, width: to - from, height: Self.thickness)) }
-        }
-        for (index, row) in rows.enumerated() {
-            let next = index + 1 < rows.count ? rows[index + 1] : nil
+            let from = max(0, min(lead, bounds.width)), to = bounds.width - inset[1]
+            func line(at y: CGFloat) { if to > from { path.addRect(CGRect(x: from, y: y, width: to - from, height: Self.thickness)) } }
             // The first row has one above it too, in its own top point: the
             // first of the list, so not after a windowed list's spacer.
-            if index == 0, !isSpacer(row), !wroteTop(row), row !== lit { line(row, at: row.frame.minY) }
+            if index == 0, !isSpacer(row), !wroteTop(row), row !== lit { line(at: 0) }
             // A highlighted or selected row hides the one above it and its own.
-            if separated(row, next: next), row !== lit, next == nil || next !== lit { line(row, at: row.frame.maxY - Self.thickness) }
+            if separated(row, next: next), row !== lit, next == nil || next !== lit { line(at: bounds.height - Self.thickness) }
+            let key = ObjectIdentifier(row)
+            if path.isEmpty {
+                rowLines[key]?.layer.removeFromSuperlayer()
+                rowLines[key] = nil
+                continue
+            }
+            let layer = rowLines[key]?.layer ?? RowLineLayer()
+            if layer.superlayer !== row.layer { row.layer.addSublayer(layer) }
+            rowLines[key] = (Weak(row), layer)
+            layer.frame = bounds
+            layer.path = path
+            layer.fillColor = color
         }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        view.shape.path = path
         CATransaction.commit()
     }
     private func redraw(_ list: UInt32) { if let view = presenter?.listViews[list], view.hasRowCells { draw(view) } }
@@ -390,7 +426,7 @@ final class RowCells {
 
     /// What a list or one of its rows shows as a cell: `layout <node>`.
     func observation(_ node: NodeView) -> [String: Any]? {
-        if node.hasRowCells { return ["rows": "cells", "separators": lines[node.id].map { $0.shape.path?.boundingBoxOfPath.isNull == false } ?? false] }
+        if node.hasRowCells { return ["rows": "cells", "separators": rows(of: node).contains { rowLines[ObjectIdentifier($0)] != nil }] }
         guard let (row, list) = node.rowCell.map({ ($0.row, $0.list) }), row === node else { return nil }
         let rows = rows(of: list)
         let at = rows.firstIndex { $0 === row }

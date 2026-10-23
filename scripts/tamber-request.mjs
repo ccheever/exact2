@@ -30,7 +30,9 @@ export const readBody = (req, limit, res = null, raw = false) => new Promise(don
   const over = () => (res ? refuseBody(req, res) : req.destroy?.());
   if (Number(req.headers['content-length']) > limit) { over(); return done(null); }
   const chunks = []; let size = 0, settled = false;
-  const finish = v => { if (!settled) { settled = true; done(v); } };
+  // (its connection's close, below, let go of once settled: a keep-alive connection's requests add none for good)
+  const gone = () => finish(undefined);
+  const finish = v => { if (!settled) { settled = true; req.socket?.off?.('close', gone); done(v); } };
   req.on('data', chunk => {
     if (settled) return;
     size += chunk.length;
@@ -38,7 +40,13 @@ export const readBody = (req, limit, res = null, raw = false) => new Promise(don
   });
   req.on('end', () => finish(raw ? Buffer.concat(chunks) : Buffer.concat(chunks).toString('utf8')));
   req.on('error', () => finish(undefined));
+  // The client left: settled here, or on its connection's close below. One that stays and only trickles is
+  // cut by its door's connection deadline (10 s, `timeoutMs` in tamber-remote.mjs's guard), which runs while
+  // a body arrives; a loopback request has the dev loop's.
   req.on('close', () => finish(undefined));
+  // (and when its connection closes: Bun loses `req`'s close on a socket a TLS door hands to the HTTP
+  // server, so a client that left mid-body would hold this, and its chunks, for good)
+  req.socket?.once?.('close', gone);
 });
 
 /** A remote door's body, read while the server may still be starting (`ready`):
@@ -74,3 +82,18 @@ export const parseRequest = text => {
  * bind's peer) never may (LLP 1122 D12): the wire and the canvas both ask
  * this, so the rule lives here once. */
 export const viaDoor = access => access?.local === true || access?.remote === true || access?.tunnel === true;
+
+/** A request sent on to a design server or dev loop on this machine (`tamber tool --via`'s proxy, the canvas gateway,
+ * their probes, the tool tests' proxy), on a connection of its own. A pooled one can be one the server has just
+ * closed as idle (Bun's node:http closes a kept-alive socket after 5 s and a second's grace): sent on it, the request
+ * meets a reset (ECONNRESET, "the socket connection was closed unexpectedly"). That is the likely cause of the
+ * design-tool test split's one ECONNRESET under load (QUEUE 2026-10-22), where the time before this side sees the
+ * close is long enough to land in; tamber-upstream.test.mjs makes the reuse certain. A loopback connect costs next
+ * to nothing. (`keepalive: false` turns pooling off in Bun's fetch, which runs these; Node's and a browser's read it
+ * otherwise.) */
+export const upstream = (url, init = {}) => {
+  // (A `connection: keep-alive` passed on from the client would put the socket back in the pool all the same.)
+  const headers = new Headers(init.headers);
+  headers.delete('connection'); headers.delete('keep-alive');
+  return fetch(url, { ...init, headers, keepalive: false });
+};

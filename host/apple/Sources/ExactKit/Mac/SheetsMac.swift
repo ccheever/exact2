@@ -55,6 +55,7 @@ final class SheetWindow: NSWindow {}
 /// its own title row and buttons round that view (`RouteChrome`, D7.4).
 final class DialogSheet {
     let window: SheetWindow
+    let rootEdits = RootEdits()
     let content = BlockView(frame: .zero)
     /// A modal route's sheet: its rows round the content. Nil for a dialog's.
     let chrome: RouteChrome?
@@ -90,32 +91,58 @@ final class DialogSheet {
 }
 
 extension NodeView {
-    /// Whether its ground is the window's background and no author wrote
-    /// it: the ground the compiler gives a modal route (LLP 1116.009 D3) and
-    /// the Mac's grouped form (LLP 1115.002 D6).
     private var groundIsTheWindows: Bool {
-        guard case .object(let role)? = style["background_color"], role["sys"]?.string == "windowBackgroundColor" else { return false }
-        return !wrote("background_color")
+        guard case .object(let role)? = style["background_color"] else { return false }
+        return role["sys"]?.string == "windowBackgroundColor"
     }
 
-    /// @ref LLP 1095 D3 — the window's background, as a role, names the
-    /// surface a box stands on. In a sheet that surface is the sheet's own
-    /// ground: AppKit's, lighter than a window's in Dark Mode (`#2c2828`
-    /// over `#1e1e1e`, measured) and no colour a box can paint. So a box in
-    /// a sheet that was given that ground and whose author wrote none
-    /// paints none, and the sheet's shows; a ground an author wrote is
-    /// painted as written.
-    var standsOnSheetGround: Bool { window is SheetWindow && groundIsTheWindows }
+    /// @ref LLP 1095 D3 — the background role names the box's surface.
+    /// A sheet supplies its root's ground. Nested authored grounds need
+    /// their own material to cover content behind them; neither paints
+    /// NSColor.windowBackgroundColor over AppKit's sheet material. An
+    /// explicit material keeps its authored colour overlay.
+    var standsOnSheetGround: Bool {
+        window is SheetWindow && groundIsTheWindows && (!wrote("background_color") || props["backgroundMaterial"] == nil)
+    }
+    var needsSheetMaterial: Bool { standsOnSheetGround && wrote("background_color") && !(superview is BlockView) }
+
+    private var hasGroupedCardFill: Bool {
+        guard case .object(let colour)? = style["background_color"] else { return false }
+        return colour["sys"]?.string == "exactGroupedCardColor"
+    }
 
     /// The subtree moved into a sheet's window, or out of it: its boxes on
     /// the window's ground are painted again, on the ground they now have.
     func sheetGroundChanged() {
-        if groundIsTheWindows { applyBoxLayer(); needsDisplay = true }
+        if groundIsTheWindows || hasGroupedCardFill { updateMaterial(); applyBoxLayer(); materialContent?.needsDisplay = true; needsDisplay = true }
         for case let child as NodeView in container.subviews { child.sheetGroundChanged() }
     }
 }
 
 extension NSView {
+    /// Native containers move independently of the runner's transform rows.
+    /// Read their presentation layers only while a native ancestor animates;
+    /// an idle presentation copy may still hold the previous transaction.
+    func convertNativePresentation(_ rect: NSRect, from view: NSView) -> NSRect {
+        func moving(_ view: NSView) -> CALayer? {
+            guard !(view is NodeView), let layer = view.layer, layer.animationKeys()?.isEmpty == false else { return nil }
+            return layer.presentation()
+        }
+        func toWindow(_ rect: NSRect, from view: NSView) -> NSRect {
+            guard let parent = view.superview else { return view.convert(rect, to: nil) }
+            let box = moving(view).map { $0.convert(rect, to: $0.superlayer) } ?? parent.convert(rect, from: view)
+            return toWindow(box, from: parent)
+        }
+        func fromWindow(_ rect: NSRect, to view: NSView) -> NSRect {
+            guard let parent = view.superview else { return view.convert(rect, from: nil) }
+            let box = fromWindow(rect, to: parent)
+            return moving(view).map { $0.convert(box, from: $0.superlayer) } ?? view.convert(box, from: parent)
+        }
+        var box = toWindow(rect, from: view)
+        if let theirs = view.window, let mine = window, theirs !== mine { box = mine.convertFromScreen(theirs.convertToScreen(box)) }
+        return fromWindow(box, to: self)
+    }
+
     /// `rect` of `view` in this view's space, where a person sees it:
     /// through the screen when the two are in two windows (a sheet's or a
     /// popover's, and the page's).
@@ -158,6 +185,7 @@ extension Presenter {
     /// presentation the runner keeps live with what is above it, and the
     /// rest inert (LLP 1123 D2).
     package var openTopLayer: (frames: [TopLayerFrame], modal: Int?) {
+        navigation.split.samplePlacement()
         let sheets = dialogs.presented, popovers = menus.presented
         func depth(_ view: NodeView) -> Int {
             if view.window !== viewport.window {
@@ -171,11 +199,12 @@ extension Presenter {
         let clip = viewport.contentView
         // A dialog or popover in a window of its own is its block's root
         // (BlockHostMac.swift): reported by its block, which the root sits
-        // in by its own frame (LLP 1123 D2); one in the page by its border box
+        // in by its own frame (LLP 1123 D2); one in the page by its block
+        // too, the viewport's (stage 14 B), or else its border box
         func shown(_ view: NodeView) -> CGRect {
-            guard blocks.owns(view), let container = view.superview else { return clip.convertAcross(view.bounds, from: view) }
+            guard blocks.owns(view), let container = view.superview else { return clip.convertAcross(blocks.rects[view.id] ?? view.bounds, from: view) }
             let size = blocks.used[view.id] ?? container.bounds.size
-            return clip.convertAcross(CGRect(origin: .zero, size: size), from: container)
+            return clip.convertNativePresentation(CGRect(origin: .zero, size: size), from: container)
         }
         let ordered = (popovers + sheets).sorted { depth($0) < depth($1) }
         let painted: [TopLayerFrame] = ordered.map {
@@ -208,6 +237,8 @@ extension DialogHost {
         var over = front
         while let top = over.attachedSheet { over = top }
         let sheet = DialogSheet(over: over, size: entry.frame.size, chrome: entry.route ? RouteChrome() : nil)
+        sheet.rootEdits.presenter = presenter
+        sheet.rootEdits.join(sheet.window)
         sheet.content.pointerTracking = { [weak presenter] in presenter?.trackPointer($0) }
         entry.sheet = sheet
         if entry.route { adopt(entry, sheet) }
@@ -239,6 +270,7 @@ extension DialogHost {
     func end(_ entry: Entry, _ sheet: DialogSheet) {
         let dialog = entry.dialog, over = sheet.over
         let key = sheet.window.isKeyWindow
+        sheet.rootEdits.leave(sheet.window)
         if let over, over.sheets.contains(sheet.window) { over.endSheet(sheet.window) }
         sheet.window.orderOut(nil)
         if entry.route { release(entry) }
@@ -272,7 +304,7 @@ extension DialogHost {
         // the dialog opened is in front of it, and no click there is outside.
         guard let entry = entries.last, entry.sheet != nil, event.type == .leftMouseDown || event.type == .leftMouseUp,
               let window = event.window, window === presenter?.viewport.window || entries.dropLast().contains(where: { $0.sheet?.window === window }),
-              entry.dialog.props["closedby"] == "any" else { downBehind = false; return false }
+              dismissalOwner(of: entry.dialog).props["closedby"] == "any" else { downBehind = false; return false }
         if event.type == .leftMouseDown { downBehind = true; return true }
         let closes = downBehind
         downBehind = false

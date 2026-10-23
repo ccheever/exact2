@@ -105,8 +105,16 @@ pub fn paint(scene: &Scene<'_>, roots: &[ViewId], cols: usize, rows: usize, top:
 }
 
 /// Where an open layer paints: where it was laid out, or centred in the
-/// grid when it names no inset (as the Mac host centres a dialog).
-fn placement(scene: &Scene<'_>, layer: ViewId, cols: usize, rows: usize, dy: f32) -> (f32, f32) {
+/// grid when it names no inset (as the Mac host centres a dialog). A
+/// popover laid out in the viewport's block (stage 14 B) is placed by its
+/// insets in the grid, which stays put as the document scrolls.
+pub(crate) fn placement(
+    scene: &Scene<'_>,
+    layer: ViewId,
+    cols: usize,
+    rows: usize,
+    dy: f32,
+) -> (f32, f32) {
     let Some(n) = scene.kernel.node(layer) else {
         return (0.0, dy);
     };
@@ -124,7 +132,12 @@ fn placement(scene: &Scene<'_>, layer: ViewId, cols: usize, rows: usize, dy: f32
         .iter()
         .all(|d| *d == Dimension::Auto);
     if !auto {
-        return (0.0, dy);
+        // In the viewport's block: by its insets in the grid.
+        let grid = (cols as f32 * COLUMN, rows as f32 * ROW);
+        return match scene.kernel.top_layer_origin(layer, grid) {
+            Some((x, y)) => (f.x - x, f.y - y),
+            None => (0.0, dy),
+        };
     }
     let w = (f.width / COLUMN).round();
     let gx = ((cols as f32 - w) / 2.0).floor().max(0.0);

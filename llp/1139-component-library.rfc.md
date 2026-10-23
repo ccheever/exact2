@@ -1,7 +1,7 @@
 # LLP 1139: A component library over Tamber
 
 **Type:** RFC
-**Status:** **Accepted (2026-10-20); stage 12 closed 2026-10-21 with its gate met (§10).** Charlie ruled §9, "Go with recs for now" (LEAD-DECISIONS 14:50Z); each answer is for now and revisitable. r6 with r6.1–r6.3's wording. Stage 12 C (anatomy), D2 and D4 are built and signed off, landing in this order: C1–C3, D2 and D4, the packages with `apps/library-gate` and the clone's adoption, D3 after B2-levels, the design tool's half, then the gate. Reviews: four blind full rounds and a narrow re-check by GPT-6 Astra (max) and Grok 4.7 (xhigh), every verdict RIGHT WITH CHANGES and every finding taken (`llp/reviews/rfc-2026-10-19-1139-component-library-r{1..5}.{astra,grok}.md`). This is LLP 1121 §5 stage
+**Status:** **Accepted (2026-10-20); stage 12 closed 2026-10-21 and the second wave (LLP 1121 stage 13 C) on 2026-10-23, each with its gate met (§10).** Charlie ruled §9, "Go with recs for now" (LEAD-DECISIONS 14:50Z); each answer is for now and revisitable. r6 with r6.1–r6.3's wording. Stage 12 C (anatomy), D2 and D4 are built and signed off, landing in this order: C1–C3, D2 and D4, the packages with `apps/library-gate` and the clone's adoption, D3 after B2-levels, the design tool's half, then the gate. Reviews: four blind full rounds and a narrow re-check by GPT-6 Astra (max) and Grok 4.7 (xhigh), every verdict RIGHT WITH CHANGES and every finding taken (`llp/reviews/rfc-2026-10-19-1139-component-library-r{1..5}.{astra,grok}.md`). This is LLP 1121 §5 stage
 12, which §5 makes its own RFC. The lead accepted its brief (`~/x2theme/stage12-brief.md`) with answers 1–7 on
 2026-10-19; those answers are fixed here, not reopened. §9 holds the questions for Charlie.
 r6.3 (2026-10-20, theme2, wording only, from stage 12 C's build): a control's label requirement is `aria-label` or
@@ -636,3 +636,30 @@ tab-width race; a server that wrote a library param short; a nameless package ou
 (§9 Q5); apps restyling parts (§9 Q6).
 
 **Stage 12 is closed.**
+
+### The second wave (LLP 1121 stage 13 C): built, and its gate met (2026-10-23; run `~/x2theme/s13c-gate-run.txt`)
+
+iosfix built it with x2-perf4, and theme2 signed off each piece:
+- **`@exact/lists`**, a new private package: ListRow and SwitchRow, for the settings and profile rows
+  (`21a1a836b3`).
+- **ProfileHeader** in `@exact/cards`, with 8 library-gate cells (`b821a5f4d0`..`9aa14743f2`).
+- **ComposeFrame** in `@exact/actions` (`f926a60524`..`304de7b893`).
+- **BarItem and HeaderButton** in `@exact/actions`, under D9's exception for an app's own bar, with
+  lower-library-control's button rules: every library button is named, and a look that reads a state says it
+  (`ba2d017788`..`4f29a65443`).
+
+The clone adopts all six on its signed-out, synthetic copy. Package icon tokens followed (LLP 1121 D11's 2026-10-22
+amendment). Moving the packages' own path icons to them is in review.
+
+| Gate line | Result |
+|---|---|
+| The consumer: the clone's settings rows, profile header, composer frame, bar items and header buttons from the packages with no visual change | **Met**: 100 shots on web (JS and wasm), iOS, macOS and Linux, light and dark, identical to the baseline on the same SDK. All 10 library components placed and shown on the shot screens on every host; the six new ones on none before. The signed-in home is signed in through the copy's fixture form only. |
+| One app value restyles the library | **Met** on 7 hosts: stage 12's three cases unchanged, with web-wasm on library-gate's own artifact. Ten new cases, per component for its tokens and for its params, read all 104 new tokens and 23 params exactly on their nodes and restore each on removal. A swapped token is caught by name. |
+| Anatomy is checked | **Met**: 51 compiler tests, `library_rules::` with the button rules among them. |
+| The slot renders | **Met**: library-gate's 28 slotted cells show both marker glyphs on every required host. |
+| No per-OS forks | **Met**: `lower-library-platform` clean over all three packages. |
+| No regressions | **Met**: conform 0 failures over 114 targets. Release identity: 195 of 203 comparisons identical; 4 are library-gate's own, and 4 are `apps/expose` failing alike. `@exact/reading`'s users are unchanged. |
+
+**QUEUE:** web semantics for a selected bar item (`role="tab"` needs a tablist); the pressed look of a custom popover
+invoker; even-odd and two-colour package icons; the Android slot-marker flake. §9 Q5 (per-instance variant pins)
+and Q6 (apps restyling parts) stay "for now": the design tool's second pass showed no need.

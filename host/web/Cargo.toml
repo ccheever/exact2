@@ -34,6 +34,7 @@ exact-bake = { path = "../../bake" }
 sha2 = "0.10"
 
 [dev-dependencies]
+exact-data = { path = "../../data" }
 caltrain = { path = "../../apps/caltrain" }
 # The data-* words Contract reserves for this host's own attributes.
 contract-lower = { path = "../../contract/lower" }

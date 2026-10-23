@@ -24,6 +24,30 @@ final class BarFaceIOSTests: XCTestCase {
          "style": ["text_color": [142, 142, 147, 255], "font_size": 12].merging(style) { $1 }]
     }
 
+    func testABadgeIsDrawnForThePagesSchemeAtTheSamePointSize() throws {
+        let p = Presenter()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "button", "props": ["testId": "badge"]],
+            ["op": "create", "id": 2, "kind": "view", "style": ["background_color": [[255, 0, 0, 255], [0, 0, 255, 255]]]],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "A"]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [3]],
+            ["op": "roots", "ids": [1]],
+        ]))
+        let box = try XCTUnwrap(p.views[2])
+        box.traitOverrides.userInterfaceStyle = .light
+        box.updateTraitsIfNeeded()
+        let light = try XCTUnwrap(BadgeFace(box: box))
+        box.traitOverrides.userInterfaceStyle = .dark
+        box.updateTraitsIfNeeded()
+        let dark = try XCTUnwrap(BadgeFace(box: box))
+        XCTAssertNotEqual(light.source, dark.source, "a scheme change redraws the bar item's face")
+        XCTAssertEqual(light.image.size, CGSize(width: 36, height: 36))
+        XCTAssertEqual(dark.image.size, light.image.size)
+        let pixel = try XCTUnwrap(SharePictureCase.rgba(try XCTUnwrap(dark.image.cgImage), x: 4, y: 4))
+        XCTAssertGreaterThan(pixel.2, 240, "the installed image itself is blue in dark mode")
+        XCTAssertLessThan(pixel.0, 15)
+    }
+
     func testADotBesideALabelIsDrawnAsPainted() throws {
         let (p, node) = button([dot, label(["written": ["text_color"]])])
         let face = try XCTUnwrap(ChipFace(node, engine: TextEngine(resolve: { _ in nil })))
@@ -48,6 +72,26 @@ final class BarFaceIOSTests: XCTestCase {
         withExtendedLifetime(p) {}
         guard case .text(_, _, let color) = face.parts[1] else { return XCTFail("\(face.parts)") }
         XCTAssertNil(color, "inherited: unsaid")
+    }
+
+    func testASymbolOnlyUsesColourWrittenInsideTheBarButton() throws {
+        let symbol: [String: Any] = ["op": "create", "id": 5, "kind": "image",
+            "props": ["imageSource": "symbol:sf/star", "symbolName": "star"],
+            "style": ["text_color": [240, 40, 120, 255]]]
+        let (p, node) = button([dot, symbol])
+        defer { p.reset() }
+        let engine = TextEngine(resolve: { _ in nil })
+        func colour() throws -> [[Double]]? {
+            let face = try XCTUnwrap(ChipFace(node, engine: engine))
+            guard case .symbol(_, _, let ink) = face.parts[1] else { XCTFail(); return nil }
+            return ink
+        }
+        XCTAssertNil(try colour(), "computed page ink leaves the bar's ink")
+        p.apply(wireBatch([["op": "style", "id": 5, "style": ["text_color": [240, 40, 120, 255], "written": ["text_color"]]]]))
+        XCTAssertEqual(try colour()?[0], [240, 40, 120, 255])
+        p.apply(wireBatch([["op": "style", "id": 5, "style": ["text_color": [240, 40, 120, 255]]],
+                           ["op": "style", "id": 1, "style": ["text_color": [240, 40, 120, 255], "written": ["text_color"]]]]))
+        XCTAssertEqual(try colour()?[0], [240, 40, 120, 255], "the enclosing button's authored colour applies")
     }
 
     /// Bold Text weights the system font, an authored weight included (LLP

@@ -5,10 +5,10 @@ pub(crate) use cssparser::{Parser, ParserInput, Token};
 use std::borrow::Cow;
 
 /// Error type for parsing a type from `cssparser::Parser`
-pub(crate) type CssParseError<'i> = cssparser::ParseError<'i, Cow<'i, str>>;
+pub type CssParseError<'i> = cssparser::ParseError<'i, Cow<'i, str>>;
 
 /// Result type for parsing a type from `cssparser::Parser`
-pub(crate) type CssParseResult<'i, T> = Result<T, CssParseError<'i>>;
+pub type CssParseResult<'i, T> = Result<T, CssParseError<'i>>;
 
 /// Error type for parsing a type from string
 #[derive(Clone, Debug)]
@@ -36,7 +36,7 @@ impl std::error::Error for ParseError {}
 pub type ParseResult<T> = Result<T, ParseError>;
 
 /// Trait for parsing a type from a `cssparser::Parser` input
-pub(crate) trait FromCss: Sized {
+pub trait FromCss: Sized {
     /// Parse type from a `cssparser::Parser` input
     fn from_css<'i>(parser: &mut Parser<'i, '_>) -> CssParseResult<'i, Self>;
 }

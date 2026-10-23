@@ -23,6 +23,8 @@ exact-color = { path = "../color" }
 exact-kernel = { path = "../kernel" }
 exact-plan = { path = "../plan" }
 exact-runner = { path = "../runner" }
+# The app's SVG images, read for the island module a fixed build carries.
+exact-svg-file = { path = "../host/svg-file" }
 serde_json = "1.0"
 sha2 = "0.10"
 # The shaders' interface digests for the compatibility id (LLP 1030 D8).

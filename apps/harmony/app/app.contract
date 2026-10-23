@@ -740,7 +740,7 @@ component RoomScreen
         EmptyState(symbol=(isDm ? "symbol:messages" : "symbol:hashtag"), title=(isDm ? `This is the beginning of your conversation with ${thread.title}.` : `Welcome to #${thread.title}`), message=(thread.topic != "" ? thread.topic : "Say something to get it started."))
       else
         list id=`transcript-${routeKey}` appearance="none" virtualized=true scroll-start="end" scrollFollowEnd=true flex=1 min-height=0
-          keyboardDismissMode="on-drag" padding-bottom=8
+          keyboardDismissMode="none" padding-bottom=8
           for m in thread.messages key=m.id
             MessageRow(m=m, now=now, offset=offset, hovered=(hovered == m.id), aim=aim, react=react, pickFor=pickFor, hover=hover, reply=reply)
       column padding="6px 12px 10px" gap=6 flex-shrink=0

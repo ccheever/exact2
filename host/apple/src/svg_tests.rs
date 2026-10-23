@@ -318,3 +318,217 @@ fn a_morph_retargeted_midway_starts_from_the_path_it_shows() {
         &[0., 0., 50., 2., 33.33, 16.67, 66.67, 16.67, 100., 50., 3.],
     );
 }
+
+#[test]
+fn a_prefetched_rows_lowered_animations_resume_when_it_enters_the_port() {
+    let source = r#"
+keyframes fade
+  from opacity=0.2
+  to opacity=1
+component App
+  view
+    list appearance="none" virtualized=true estimated-item-height=80 height=200 width=300
+      for i in range(50) key=i
+        view height=80 width=300
+          view width=60 height=40 testId=`fade-${i}` animation="fade 1000ms linear both" -exact-animation-trigger="view"
+          svg width=30 height=20 testId=`svg-${i}`
+            circle cx=10 cy=10 r=8 animation="fade 1000ms linear both" -exact-animation-trigger="view"
+"#;
+    let plan = contract::compile(source).unwrap().encode();
+    let (mut host, boot) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        400.0,
+        600.0,
+    )
+    .unwrap();
+    let id = |name: &str| {
+        let kernel = host.runner().kernel();
+        kernel
+            .node_by_key(kernel.find_by_test_id(name)[0])
+            .unwrap()
+            .id
+    };
+    let box_id = id("fade-5");
+    let svg_id = id("svg-5");
+    let ops = |batch: &str| {
+        serde_json::from_str::<serde_json::Value>(batch).unwrap()["ops"]
+            .as_array()
+            .unwrap()
+            .clone()
+    };
+    let box_spec = |ops: &[serde_json::Value]| {
+        ops.iter()
+            .find(|op| op["op"] == "animations" && op["id"] == box_id)
+            .map(|op| op["specs"][0].clone())
+    };
+    let svg_spec = |ops: &[serde_json::Value]| {
+        ops.iter()
+            .find(|op| op["op"] == "svg" && op["id"] == svg_id)
+            .map(|op| op["scene"]["els"][0]["a"][0].clone())
+    };
+    let initial = ops(&boot);
+    assert_eq!(box_spec(&initial).unwrap()["h"], 0.0);
+    assert_eq!(svg_spec(&initial).unwrap()["h"], 0.0);
+    host.tick(2000.0);
+    let snapshot = host.runner().collections().remove(0);
+    let feedback = exact_runner::CollectionFeedback {
+        view: snapshot.view,
+        revision: snapshot.revision,
+        scroll_sequence: snapshot.scroll_sequence + 1,
+        offset: 400.0,
+        port_cross: 300.0,
+        port_main: 200.0,
+        cross: 300.0,
+        padding: [0.0; 2],
+        measurements: Vec::new(),
+        focus_view: None,
+        interaction_view: None,
+    };
+    let batch = host.collection_feedback(&feedback.encode().unwrap(), 2000.0);
+    let shown = ops(&batch);
+    for spec in [box_spec(&shown), svg_spec(&shown)] {
+        let spec = spec.expect("a revealed prefetched play must resend its Core Animation spec");
+        assert!(spec["h"].is_null(), "the play is no longer held: {spec}");
+        assert_eq!(spec["s"], 2.0, "the play starts at reveal, not mount");
+    }
+}
+
+#[test]
+fn a_played_morph_is_sampled_again_when_its_scene_gains_markers_or_paint_servers() {
+    let source = r##"component App
+  state up = false
+  state decorated = false
+  action go
+    up = true
+  action decorate
+    decorated = true
+  view
+    column
+      button press=go testId="go"
+        text "Go"
+      button press=decorate testId="decorate"
+        text "Decorate"
+      svg width=100 height=100
+        defs
+          linearGradient id="g"
+            stop offset=0 stop-color="#000"
+            stop offset=1 stop-color="#fff"
+          marker id="m" markerWidth=4 markerHeight=4 refX=2 refY=2
+            circle cx=2 cy=2 r=2
+        path testId="a" d=(up ? "M0 0 L100 0" : "M0 50 L100 50") stroke=(decorated ? "url(#g)" : "#000") transition="d 1000ms linear"
+        path testId="b" d=(up ? "M0 10 L100 10" : "M0 60 L100 60") stroke="#000" transition="d 1000ms linear"
+"##;
+    for source in [
+        source.to_owned(),
+        source.replace(
+            "stroke=(decorated ? \"url(#g)\" : \"#000\")",
+            "stroke=\"#000\" marker-end=(decorated ? \"url(#m)\" : \"none\")",
+        ),
+    ] {
+        let plan = contract::compile(&source).unwrap().encode();
+        let (mut host, _) = Host::boot(
+            &plan,
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            390.,
+            844.,
+        )
+        .unwrap();
+        let id = |host: &Host<NoData>, name: &str| {
+            let k = host.runner.kernel();
+            k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
+        };
+        let keys: Vec<_> = ["a", "b"]
+            .into_iter()
+            .map(|name| {
+                exact_kernel::motion::motion_node(host.runner.kernel().find_by_test_id(name)[0])
+            })
+            .collect();
+        let go = id(&host, "go");
+        host.dispatch_at(go, exact_runner::Event::Press, 0.);
+        for key in &keys {
+            assert!(host.engine.played_path(*key).is_some());
+        }
+        let decorate = id(&host, "decorate");
+        let batch = host.dispatch_at(decorate, exact_runner::Event::Press, 500.);
+        for key in &keys {
+            assert!(
+                host.engine.played_path(*key).is_none(),
+                "the whole scene must be sampled: {batch}"
+            );
+            assert!(host.engine.presented_path(*key).is_some());
+        }
+        let sampled = host.engine.presented_path(keys[0]).unwrap();
+        assert_eq!(sampled.0[0].args[1], 25.);
+        assert_eq!(sampled.0[1].args[1], 25.);
+        assert!(
+            !scene(&batch).to_string().contains("\"k\":\"path\""),
+            "{batch}"
+        );
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&batch).unwrap()["motion"],
+            true
+        );
+    }
+}
+
+#[test]
+fn an_unrelated_commit_does_not_rebuild_a_played_morphs_scene() {
+    let plan = contract::compile(r##"component App
+  state up = false
+  state count = 0
+  action go
+    up = true
+  action unrelated
+    count = count + 1
+  view
+    column
+      button press=go testId="go"
+        text "Go"
+      button press=unrelated testId="unrelated"
+        text `${count}` testId="count"
+      svg width=100 height=100
+        path testId="path" d=(up ? "M0 0 L100 0" : "M0 50 L100 50") stroke="#000" transition="d 10000ms linear"
+"##).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.,
+        844.,
+    )
+    .unwrap();
+    let id = |host: &Host<NoData>, name: &str| {
+        let k = host.runner.kernel();
+        k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
+    };
+    let go = id(&host, "go");
+    host.dispatch_at(go, exact_runner::Event::Press, 0.);
+    let key = exact_kernel::motion::motion_node(host.runner.kernel().find_by_test_id("path")[0]);
+    let played = host
+        .engine
+        .played_path(key)
+        .expect("the render server plays the morph");
+    let builds = host.svg.scene_builds;
+    let unrelated = id(&host, "unrelated");
+    let batch = host.dispatch_at(unrelated, exact_runner::Event::Press, 500.);
+    let k = host.runner.kernel();
+    assert_eq!(
+        k.node_by_key(k.find_by_test_id("count")[0])
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text),
+        Some("1")
+    );
+    assert_eq!(
+        host.svg.scene_builds, builds,
+        "the unchanged scene stays clean: {batch}"
+    );
+    assert_eq!(
+        host.engine.played_path(key).unwrap(),
+        played,
+        "the original morph continues"
+    );
+}

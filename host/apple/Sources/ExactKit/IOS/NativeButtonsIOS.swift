@@ -28,6 +28,7 @@ final class NativeButtonIOS: UIButton {
     /// What was last written, so a batch that changes nothing writes nothing.
     struct Written: Equatable {
         var face: ButtonFace
+        var raster: UInt64
         var accent: UIColor?
         var destructive: Bool
         var enabled: Bool
@@ -245,6 +246,7 @@ extension ControlHost {
     /// restart UIKit's own animations).
     func configureNative(_ button: NativeButtonIOS, _ owner: NodeView, accent: UIColor?) {
         let face = self.face(owner.id)
+        syncRaster(face, owner)
         // A destructive button draws in the platform's destructive red, as a hand-built screen's does (SwiftUI's
         // `Button(role: .destructive)`, UIKit's red tint): red ink, or a red fill under white ink on a filled
         // style (LLP 1116.008, team-kanban: "Delete is not styled as destructive"). The accent it only inherits
@@ -253,10 +255,12 @@ extension ControlHost {
         let destructive = owner.props["destructive"] == "true" && !owner.wrote("accent_color")
         let accent = destructive ? UIColor.systemRed : Self.platformAccent(owner, accent, in: button.traitCollection)
         let written = NativeButtonIOS.Written(
-            face: face, accent: accent, destructive: destructive, enabled: !owner.disabled,
+            face: face, raster: owner.raster?.id ?? 0, accent: accent, destructive: destructive, enabled: !owner.disabled,
             label: owner.authoredLabel ?? face.title, testId: owner.props["testId"],
             // A checked radio is selected, as Safari's VoiceOver reads one (`setAccessibilityChecked`).
-            selected: owner.props["accessibilitySelected"] == "true" || owner.checkedRole.map { $0.role == "radio" && $0.checked } == true,
+            // `aria-current` (not `false`) too: UIKit has no current (theme2 2026-10-22 06:40).
+            selected: owner.props["accessibilitySelected"] == "true" || owner.props["accessibilityCurrent"].map { !["", "false"].contains($0) } == true
+                || owner.checkedRole.map { $0.role == "radio" && $0.checked } == true,
             expanded: owner.props["accessibilityExpanded"],
             pressed: owner.pressedState, traits: .init(button.traitCollection),
             interactive: owner.style["pointer_events"]?.string != "none",
@@ -270,7 +274,7 @@ extension ControlHost {
         button.isEnabled = written.enabled
         button.isUserInteractionEnabled = written.interactive
         ButtonConfigurationIOS.apply(face, to: button, traits: button.traitCollection, accent: accent, destructive: destructive,
-                                     padding: written.padding)
+                                     padding: written.padding, raster: ButtonRasterIOS.image(face, lease: owner.raster))
         button.accessibilityLabel = written.label
         button.accessibilityIdentifier = written.testId
         if written.selected { button.accessibilityTraits.insert(.selected) } else { button.accessibilityTraits.remove(.selected) }

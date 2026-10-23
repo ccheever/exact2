@@ -36,6 +36,7 @@ export const HOSTS = {
 };
 
 /** Start the proxy and the HTTPS server behind it. `close()` stops both.
+ *  `overrides` replaces named host handlers for this server only; other hosts keep their defaults.
  *  Every HTTPS host is tunnelled to the local server, so a request is seen whole and judged by
  *  who sent it, not by its host. `unanswered` fails a run: an app's request (a page's, Bun's,
  *  native code's) nothing here answers, a CONNECT to a port other than 443, or a handshake a
@@ -44,11 +45,12 @@ export const HOSTS = {
  *  sign-in and updates, answered 404; see `browserOwn`), and `aborted` (a request its client gave
  *  up on, as a page navigating away does, or a browser's abandoned handshake: the browsers here
  *  accept any certificate, so theirs is a preconnect or a shutdown, not a refusal). */
-export async function startNet(directory) {
+export async function startNet(directory, overrides = {}) {
+  const hosts = { ...HOSTS, ...overrides };
   // Its trust files go in `directory`, or in a scratch one `close()` removes
   const scratch = directory ? null : mkdtempSync(resolve(tmpdir(), 'exact-conform-net-'));
   directory ??= scratch;
-  const { key, chain, cert, spki } = certificate(Object.keys(HOSTS));
+  const { key, chain, cert, spki } = certificate(Object.keys(hosts));
   // Native code (rustls's native roots, OpenSSL) reads `SSL_CERT_FILE` in place of the system's roots:
   // the authority joins the usual public roots there, so a toolchain's own downloads still verify
   const authority = resolve(directory, 'net-authority.pem'), trust = resolve(directory, 'net-trust.pem');
@@ -62,7 +64,7 @@ export async function startNet(directory) {
     res.on('close', () => { if (!res.writableFinished) aborted.push(request); });
     req.on('data', c => chunks.push(c));
     req.on('end', () => {
-      const reply = answer(host, req.method, req.url, req.headers, Buffer.concat(chunks));
+      const reply = answerFrom(hosts, host, req.method, req.url, req.headers, Buffer.concat(chunks));
       (reply ? answered : browserOwn(req) ? browser : unanswered).push(request);
       const { status, headers, body } = reply ?? { status: 404, headers: { 'content-type': 'text/plain' }, body: 'conformance net: no generated answer\n' };
       res.writeHead(status, { ...cors(req), ...headers });
@@ -152,7 +154,11 @@ const BROWSER = /^Mozilla\/5\.0 /;
 
 /** The reply for one request, or null when nothing here answers it. */
 export function answer(host, method, url, headers = {}, body = Buffer.alloc(0)) {
-  const handler = HOSTS[host];
+  return answerFrom(HOSTS, host, method, url, headers, body);
+}
+
+function answerFrom(hosts, host, method, url, headers, body) {
+  const handler = hosts[host];
   if (!handler) return null;
   if (method === 'OPTIONS') return { status: 204, headers: {}, body: '' };
   return handler(method, new URL(url, `https://${host}`), headers, body);

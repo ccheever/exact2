@@ -18,6 +18,11 @@
 //! resolved into rows at a commit while a block never touches a row.
 //! Authored rows never change, and a host that gives no block lays out
 //! exactly as before.
+//!
+//! The kernel implies one block itself: the viewport, for each box in
+//! HTML's top layer (a popover; `Kernel::imply_blocks`), fitting its
+//! content as the UA sheet's `fit-content` does. A host's block for the
+//! same box wins, and taking it back leaves the viewport.
 
 use super::{engine, Kernel};
 use crate::arena::NodeArena;
@@ -58,26 +63,41 @@ pub struct HostBlock {
     pub height: BlockAxis,
 }
 
-/// The blocks hosts gave: a few routes at most, so a list by slot, as the
-/// covers are. Each holds its used size and whether an ancestor hid it when
-/// it was last published.
+/// The blocks: a few routes and open popovers at most, so a list by slot,
+/// as the covers are.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct Blocks(Vec<(u32, HostBlock, (f32, f32), bool)>);
+pub(crate) struct Blocks(Vec<Held>);
+
+/// One node's block: the one in force, the host's or else the one the
+/// kernel implies (a top-layer box's, the viewport: HTML's top layer), its
+/// used size, and whether an ancestor hid it when it was last published.
+#[derive(Clone, Debug)]
+pub(crate) struct Held {
+    slot: u32,
+    block: HostBlock,
+    used: (f32, f32),
+    hidden: bool,
+    given: Option<HostBlock>,
+    implied: Option<HostBlock>,
+    /// Whether a box above it was replaced whole when it was last styled
+    /// (`apply` makes it `display: none` then).
+    buried: bool,
+}
 
 impl Blocks {
-    /// The block `slot` has, when a host gave it one.
+    /// The block `slot` has, its host's or the kernel's.
     pub(crate) fn get(&self, slot: u32) -> Option<HostBlock> {
-        self.0.iter().find(|b| b.0 == slot).map(|b| b.1)
+        self.held(slot).map(|b| b.block)
     }
 
     /// Whether `slot` is the root of a layout of its own.
     pub(crate) fn holds(&self, slot: u32) -> bool {
-        !self.0.is_empty() && self.0.iter().any(|b| b.0 == slot)
+        !self.0.is_empty() && self.held(slot).is_some()
     }
 
     /// The roots of the blocks.
     pub(crate) fn roots(&self) -> impl Iterator<Item = u32> + '_ {
-        self.0.iter().map(|b| b.0)
+        self.0.iter().map(|b| b.slot)
     }
 
     /// Whether any node has one.
@@ -85,11 +105,63 @@ impl Blocks {
         !self.0.is_empty()
     }
 
+    /// Whether a host gave any block.
+    pub(crate) fn any_given(&self) -> bool {
+        self.0.iter().any(|b| b.given.is_some())
+    }
+
+    /// The block a host gives `slot` (`None`: takes it back, leaving the
+    /// implied one, if any).
     pub(crate) fn set(&mut self, slot: u32, block: Option<HostBlock>) {
-        match (self.0.iter_mut().find(|b| b.0 == slot), block) {
-            (Some(held), Some(block)) => held.1 = block,
-            (Some(_), None) => self.0.retain(|b| b.0 != slot),
-            (None, Some(block)) => self.0.push((slot, block, (0.0, 0.0), false)),
+        let implied = self.held(slot).and_then(|b| b.implied);
+        self.put(slot, block, implied);
+    }
+
+    /// The block the kernel implies for `slot` (`None`: none).
+    pub(crate) fn imply(&mut self, slot: u32, block: Option<HostBlock>) {
+        let given = self.held(slot).and_then(|b| b.given);
+        self.put(slot, given, block);
+    }
+
+    /// The block the kernel implies for `slot`.
+    pub(crate) fn implied(&self, slot: u32) -> Option<HostBlock> {
+        self.held(slot).and_then(|b| b.implied)
+    }
+
+    /// Every implied block: the slots that hold one.
+    pub(crate) fn implied_slots(&self) -> Vec<u32> {
+        let implied = self.0.iter().filter(|b| b.implied.is_some());
+        implied.map(|b| b.slot).collect()
+    }
+
+    /// `slot` gone: neither block stands.
+    pub(crate) fn remove(&mut self, slot: u32) {
+        self.0.retain(|b| b.slot != slot);
+    }
+
+    fn held(&self, slot: u32) -> Option<&Held> {
+        self.0.iter().find(|b| b.slot == slot)
+    }
+
+    fn held_mut(&mut self, slot: u32) -> Option<&mut Held> {
+        self.0.iter_mut().find(|b| b.slot == slot)
+    }
+
+    fn put(&mut self, slot: u32, given: Option<HostBlock>, implied: Option<HostBlock>) {
+        match (self.held_mut(slot), given.or(implied)) {
+            (Some(held), Some(block)) => {
+                (held.block, held.given, held.implied) = (block, given, implied)
+            }
+            (Some(_), None) => self.remove(slot),
+            (None, Some(block)) => self.0.push(Held {
+                slot,
+                block,
+                used: (0.0, 0.0),
+                hidden: false,
+                given,
+                implied,
+                buried: false,
+            }),
             (None, None) => {}
         }
     }
@@ -133,8 +205,8 @@ pub(crate) fn publication_start(arena: &mut NodeArena, root: u32) -> (bool, bool
     }
     let hidden = hidden_above(arena, root) || replaced_whole(arena, root);
     let whole = arena.flags(root).has(NodeFlags::ATTACHED);
-    let held = arena.blocks.0.iter_mut().find(|b| b.0 == root);
-    let was = held.map(|b| std::mem::replace(&mut b.3, hidden));
+    let held = arena.blocks.held_mut(root);
+    let was = held.map(|b| std::mem::replace(&mut b.hidden, hidden));
     (hidden, whole || was != Some(hidden))
 }
 
@@ -204,7 +276,8 @@ pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
 
 impl Kernel {
     /// Give `view` a containing block, or take it back (`None`): at the next
-    /// layout its subtree is laid out in the block, or in its parent again.
+    /// layout its subtree is laid out in the block, or in its parent again
+    /// (in the viewport for a top-layer box, the block the kernel implies).
     /// Nonfinite or negative lengths are refused, as is a block for a root
     /// (the offer is its), for an inline run, and while a content region
     /// is registered.
@@ -236,16 +309,90 @@ impl Kernel {
             }
         }
         let before = self.arena.blocks.get(slot);
-        if before == block {
-            return Ok(());
-        }
         self.arena.blocks.set(slot, block);
+        self.block_changed(slot, before);
+        Ok(())
+    }
+
+    /// Each top-layer box's block made the viewport, and a box that left the
+    /// top layer (or became a root or an inline run, or its host replaced
+    /// it whole) its own again: HTML's
+    /// top layer, where `width: 50%` is half the viewport whatever box the
+    /// popover was written in. Before each layout, after the viewport is
+    /// the offer's; until a definite offer has given a viewport there is
+    /// none, and a top-layer box stays in its positioned ancestor. One
+    /// exception: under a registered content region a top-layer box stays
+    /// in the region's trial (QUEUE, "A popover under a registered content
+    /// region").
+    pub(super) fn imply_blocks(&mut self) {
+        let arena = &self.arena;
+        if arena.top_layer_slots.is_empty() && !arena.blocks.any() {
+            return;
+        }
+        let (env, lifted) = (arena.env(), &arena.top_layer_slots);
+        let (width, height) = (env.viewport_width, env.viewport_height);
+        let viewport = (width > 0.0 && height > 0.0).then_some(HostBlock {
+            width: BlockAxis::Fit(width),
+            height: BlockAxis::Fit(height),
+        });
+        let mut slots = arena.blocks.implied_slots();
+        slots.extend(lifted.iter().filter(|s| arena.blocks.implied(*s).is_none()));
+        let region = self.region.as_ref().map(|r| r.binding.owner.index);
+        let wants: Vec<_> = slots
+            .into_iter()
+            .map(|slot| {
+                // One its host replaced whole (a closed popover, a Linux
+                // shell's menu) has no layout to lay out in it. One under a
+                // registered content region stays in the region's trial
+                // (theme2 09:54; the native region captures it: QUEUE).
+                let boxed = !arena.is_root(slot)
+                    && !arena.is_inline_run(slot)
+                    && arena.cover(slot) != Some(super::HostCover::Whole)
+                    && region.is_none_or(|owner| !arena.is_ancestor(owner, slot));
+                (slot, viewport.filter(|_| lifted.contains(slot) && boxed))
+            })
+            .filter(|&(slot, want)| arena.blocks.implied(slot) != want)
+            .collect();
+        for (slot, want) in wants {
+            let before = self.arena.blocks.get(slot);
+            self.arena.blocks.imply(slot, want);
+            self.block_changed(slot, before);
+        }
+        // A block moved under a box replaced whole, or out from under one
+        // (its ancestors reparented), is styled again: `apply` reads that.
+        let arena = &self.arena;
+        let moved: Vec<u32> = (arena.blocks.0.iter())
+            .filter(|b| b.buried != replaced_above(arena, b.slot))
+            .map(|b| b.slot)
+            .collect();
+        for slot in moved {
+            self.restyle_block(slot);
+        }
+    }
+
+    /// `slot`'s block root styled again, as its block or what is above it
+    /// now says.
+    fn restyle_block(&mut self, slot: u32) {
+        let buried = replaced_above(&self.arena, slot);
+        if let Some(held) = self.arena.blocks.held_mut(slot) {
+            held.buried = buried;
+        }
         if let (Some(node), Some(layout)) = (self.arena.taffy(slot), self.layout.as_deref_mut()) {
             layout.restyle(&self.arena, slot, node);
             layout.mark_dirty(node);
         }
+    }
+
+    /// `slot`'s block was `before`: restyled for the one it has now, and if
+    /// it gained or lost one, moved out of its parent's layout or into it.
+    fn block_changed(&mut self, slot: u32, before: Option<HostBlock>) {
+        let block = self.arena.blocks.get(slot);
+        if before == block {
+            return;
+        }
+        self.restyle_block(slot);
         if before.is_some() == block.is_some() {
-            return Ok(());
+            return;
         }
         // It leaves its parent's layout, or returns to it: published whole
         // in the space it is now in, and its parent's children again.
@@ -261,12 +408,127 @@ impl Kernel {
                 layout.mark_dirty(node);
             }
         }
-        Ok(())
     }
 
-    /// The containing block a host gave `view`.
+    /// The containing block `view` is laid out in: its host's, or for a
+    /// top-layer box the viewport, as of the last layout.
     pub fn host_block(&self, view: ViewId) -> Option<HostBlock> {
         self.arena.blocks.get(self.arena.slot_of(view)?)
+    }
+
+    /// Where a top-layer box laid out in the viewport's block sits in a
+    /// viewport `width` by `height`, as a fixed box does by its authored
+    /// insets (the block unset them, so its frame is at its margins): a
+    /// side's inset from that side, its margin past it; with both insets an
+    /// `auto` margin takes the room left, two sharing it; no inset on an
+    /// axis, at its margin. Its border box's origin; `None` when the kernel implies
+    /// no block for `view`. What a host that draws the top layer itself
+    /// places it by (the terminal), and where the runner reads one no host
+    /// has said it shows.
+    pub fn top_layer_origin(
+        &self,
+        view: ViewId,
+        (width, height): (f32, f32),
+    ) -> Option<(f32, f32)> {
+        if !self.host_block_implied(view) {
+            return None;
+        }
+        let node = self.node(view)?;
+        let (s, f, env) = (node.style, node.frame, self.arena.env());
+        let used = self.host_block_size(view)?;
+        // The end margins as laid out: the used size clamps a negative one.
+        let tree = self.layout.as_deref().and_then(LayoutMirror::tree_ref);
+        let laid = self.arena.taffy(node.key.index).zip(tree);
+        let ends = laid.map_or(
+            (used.0 - f.x - f.width, used.1 - f.y - f.height),
+            |(n, t)| {
+                let margin = t.layout(n).margin;
+                (margin.right, margin.bottom)
+            },
+        );
+        let length = |d: crate::Dimension, basis: f32| {
+            (d.resolve(env) != crate::Dimension::Auto).then(|| d.at_basis(env, basis))
+        };
+        let auto = |m: crate::Dimension| m == crate::Dimension::Auto;
+        // The containing block's direction, the root's: which inset wins
+        // when both are written and neither margin is `auto`, and which
+        // margin is zero when two `auto` ones would be negative.
+        let mut root = node.key.index;
+        while let Some(up) = self.arena.parent(root) {
+            root = up;
+        }
+        let rtl = self
+            .arena
+            .computed_source(root, crate::StyleId::Direction)
+            .direction
+            == crate::generated::Direction::Rtl;
+        // CSS 2 §10.3.7 and §10.6.4: with both insets, an `auto` margin
+        // takes the room left and two share it; across, a negative share
+        // leaves the start margin zero (the end one in RTL), down it stays.
+        let axis = |inset: [crate::Dimension; 2],
+                    margin: [crate::Dimension; 2],
+                    at: f32,
+                    size: f32,
+                    end_margin: f32,
+                    room: f32,
+                    across: bool| {
+            let from_end = |end: f32| room - end - end_margin - size;
+            match (length(inset[0], room), length(inset[1], room)) {
+                (Some(start), Some(end)) => match (auto(margin[0]), auto(margin[1])) {
+                    (true, true) => {
+                        let share = (room - start - end - size) / 2.0;
+                        match (across && share < 0.0, rtl) {
+                            (true, false) => start,
+                            (true, true) => room - end - size,
+                            (false, _) => start + share,
+                        }
+                    }
+                    (true, false) => from_end(end),
+                    (false, true) => start + at,
+                    (false, false) if across && rtl => from_end(end),
+                    (false, false) => start + at,
+                },
+                (Some(start), None) => start + at,
+                (None, Some(end)) => from_end(end),
+                (None, None) => at,
+            }
+        };
+        let x = axis(
+            [s.left, s.right],
+            [s.margin_left, s.margin_right],
+            f.x,
+            f.width,
+            ends.0,
+            width,
+            true,
+        );
+        let y = axis(
+            [s.top, s.bottom],
+            [s.margin_top, s.margin_bottom],
+            f.y,
+            f.height,
+            ends.1,
+            height,
+            false,
+        );
+        Some((x, y))
+    }
+
+    /// `view`'s node, unless it is laid out in a block of its own (a
+    /// host's, or a popover's viewport): its frame is in that block's space,
+    /// not its parent's.
+    pub fn node_unblocked(&self, view: ViewId) -> Option<crate::NodeRef<'_>> {
+        self.node(view).filter(|_| self.host_block(view).is_none())
+    }
+
+    /// Whether `view`'s block is the one the kernel implies (a top-layer
+    /// box's, the viewport), no host having given it one.
+    pub fn host_block_implied(&self, view: ViewId) -> bool {
+        let Some(slot) = self.arena.slot_of(view) else {
+            return false;
+        };
+        let held = self.arena.blocks.held(slot);
+        held.is_some_and(|b| b.given.is_none())
     }
 
     /// The used size of `view`'s block as last laid out: the given length
@@ -275,12 +537,7 @@ impl Kernel {
     /// hidden; `None` when `view` has no block.
     pub fn host_block_size(&self, view: ViewId) -> Option<(f32, f32)> {
         let slot = self.arena.slot_of(view)?;
-        self.arena
-            .blocks
-            .0
-            .iter()
-            .find(|b| b.0 == slot)
-            .map(|b| b.2)
+        self.arena.blocks.held(slot).map(|b| b.used)
     }
 
     /// The blocks under `root`, each with its offer: the lengths the host
@@ -289,8 +546,8 @@ impl Kernel {
         let arena = &self.arena;
         let under = |slot: u32| slot != root && arena.is_ancestor(root, slot);
         let offer = |b: HostBlock| Offer::definite(b.width.length(), b.height.length());
-        let held = arena.blocks.0.iter().filter(|b| under(b.0));
-        held.map(|b| (b.0, offer(b.1))).collect()
+        let held = arena.blocks.0.iter().filter(|b| under(b.slot));
+        held.map(|b| (b.slot, offer(b.block))).collect()
     }
 
     /// Lay `root` out under `offer`, then each subtree with a block under
@@ -308,8 +565,20 @@ impl Kernel {
             root,
             offer,
         )?;
+        self.lay_out_blocks(root, &mut receipt)?;
+        Ok(receipt)
+    }
+
+    /// Lay each subtree with a block under `root` out in its block and
+    /// publish it, into `receipt`: after the page's nodes, or a content
+    /// region's (a top-layer box leaves the region's trial).
+    pub(super) fn lay_out_blocks(
+        &mut self,
+        root: u32,
+        receipt: &mut LayoutReceipt,
+    ) -> Result<(), LayoutError> {
         if !self.arena.blocks.any() {
-            return Ok(receipt);
+            return Ok(());
         }
         for (slot, offer) in self.blocks_under(root) {
             let tree = engine(&mut self.layout);
@@ -319,8 +588,8 @@ impl Kernel {
             tree.keep_provisional_chrome(provisional);
             let part = part?;
             let used = self.used_size(slot);
-            let held = self.arena.blocks.0.iter_mut().find(|b| b.0 == slot);
-            let moved = held.is_some_and(|b| std::mem::replace(&mut b.2, used) != used);
+            let held = self.arena.blocks.held_mut(slot);
+            let moved = held.is_some_and(|b| std::mem::replace(&mut b.used, used) != used);
             receipt.changed.extend(part.changed);
             receipt.updated.extend(part.updated);
             let key = self.arena.key(slot);
@@ -333,7 +602,7 @@ impl Kernel {
             receipt.flow_passes += part.flow_passes;
             receipt.flow_comparisons += part.flow_comparisons;
         }
-        Ok(receipt)
+        Ok(())
     }
 
     /// Lay each subtree with a block under `root` out in the engine alone,

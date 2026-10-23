@@ -17,12 +17,22 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
-final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate {
+final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate, UIScrollViewDelegate {
     fileprivate weak var host: DialogSheets?
-    let scroller = UIScrollView()
+    let scroller = ScrollView()
     /// The dialog's box as the kernel laid it out: the sheet's height.
     private(set) var box = CGSize.zero
     private var backdropTap: UITapGestureRecognizer?
+    #if !os(tvOS)
+    private var maximumDetentHeight: CGFloat?
+    #endif
+    /// The presentation's height offer stays independent of the chosen detent.
+    var availableHeight: CGFloat? {
+        #if !os(tvOS)
+        if let maximumDetentHeight { return maximumDetentHeight }
+        #endif
+        return presentationController?.containerView?.safeAreaLayoutGuide.layoutFrame.height
+    }
     #if os(iOS)
     /// What the dialog's authored ancestors listen for: the sheet is out of
     /// the page their recognizers see (`MountRelay`).
@@ -40,8 +50,10 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
         // One resting height, the content's: overscroll and dismissal stay
         // UIKit's, and there is no grabber, as for a route's single detent.
         sheetPresentationController?.detents = [.custom(identifier: .init("exact.dialog")) { [weak self] context in
-            guard let height = self?.box.height, height > 0 else { return context.maximumDetentValue }
-            return min(height.rounded(.up), context.maximumDetentValue)
+            guard let self else { return context.maximumDetentValue }
+            maximumDetentHeight = context.maximumDetentValue
+            let height = box.height
+            return height > 0 ? min(height.rounded(.up), context.maximumDetentValue) : context.maximumDetentValue
         }]
         #endif
     }
@@ -60,6 +72,7 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
         view.backgroundColor = ThemeRoles.color("background", in: view) ?? ThemeRoles.color("Canvas", in: view, or: .systemBackground)
         scroller.keyboardDismissMode = .interactive
         #endif
+        scroller.delegate = self
         scroller.frame = view.bounds
         scroller.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         scroller.contentInsetAdjustmentBehavior = .always
@@ -69,7 +82,18 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         place()
+        host?.containingBlockChanged()
+        host?.geometryChanged()
     }
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        host?.geometryChanged()
+        host?.contentMoved()
+    }
+    override var keyCommands: [UIKeyCommand]? {
+        [UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(escape))]
+    }
+    @objc private func escape() { host?.closeRequest(self) }
+    override func accessibilityPerformEscape() -> Bool { host?.closeRequest(self) ?? false }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         host?.appeared(self)
@@ -118,7 +142,7 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
     /// wide, not the sheet's whole width: UIKit adds the side insets around
     /// it (`.always`), so content as wide as the sheet would scroll sideways
     /// by them (a phone in landscape, the iPhone Duo's status column).
-    private func place() {
+    fileprivate func place() {
         guard isViewLoaded, let dialog = scroller.subviews.lazy.compactMap({ $0 as? NodeView }).first else { return }
         let inset = scroller.adjustedContentInset
         let width = max(box.width, scroller.bounds.width - inset.left - inset.right)
@@ -128,7 +152,13 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
                              y: PixelGrid.round((box.height - size.height) / 2, scale: s))
         let center = CGPoint(x: origin.x + size.width / 2, y: origin.y + size.height / 2)
         if dialog.center != center { dialog.center = center }
-        let content = CGSize(width: width, height: box.height)
+        // A dialog its sheet's height caps (`HostBlock.Axis.fit`) overflows
+        // its box, and the sheet scrolls the overflow, as the web's modal
+        // dialog (`overflow: auto` under its `max-height`) scrolls itself.
+        let overflow = dialog.scrollView != nil ? 0 : dialog.container.subviews.lazy.compactMap { $0 as? NodeView }.map(\.laidOutFrame.maxY).max() ?? 0
+        let port = max(0, scroller.bounds.width - inset.left - inset.right)
+        let content = CGSize(width: max(port, origin.x + size.width),
+                             height: max(box.height, origin.y + max(size.height, overflow)))
         if scroller.contentSize != content { scroller.contentSize = content }
     }
 }
@@ -147,6 +177,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         var index: Int
         /// The kernel's frame for the dialog, in its authored parent.
         var frame: CGRect
+        var usedBlock: CGSize?
         weak var source: NodeView?
         /// What held the keyboard's focus when it opened.
         weak var previous: UIView?
@@ -181,11 +212,13 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
     var onCancel: ((UInt32) -> Void)?
 
     init(presenter: Presenter) { self.presenter = presenter }
+    fileprivate func geometryChanged() { presenter?.nativeGeometry.changed() }
 
     /// Shown, or still on screen while its sheet leaves.
     func owns(_ node: NodeView) -> Bool { (entries + resuming).contains { $0.dialog === node } }
     /// A dialog's authored parent while it is in its sheet; nil for any other node.
     func authoredParent(of node: NodeView) -> UIView? { (entries + resuming).first { $0.dialog === node }?.parent }
+    func preservesFocus(_ id: UInt32) -> Bool { resuming.contains { $0.focused?.id == id && $0.focused === presenter?.views[id] } }
     func isOpen(_ node: NodeView) -> Bool {
         entries.contains { $0.dialog === node && !$0.closing } || resuming.contains { $0.dialog === node }
     }
@@ -211,6 +244,24 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         return entries.filter { entry in !entry.closing && !entry.leaving && ancestors.contains { $0 === entry.dialog } }.map(\.controller)
     }
     var topDialog: NodeView? { entries.last { !$0.closing }?.dialog }
+    var containingBlocks: [(UInt32, HostBlock)] {
+        entries.compactMap { entry in
+            let scroller = entry.controller.scroller
+            guard scroller.window != nil, !scroller.bounds.isEmpty,
+                  let height = entry.controller.availableHeight, height > 0 else { return nil }
+            let inset = scroller.adjustedContentInset
+            let size = CGSize(width: max(0, scroller.bounds.width - inset.left - inset.right), height: height)
+            return (entry.dialog.id, HostBlock(width: .size(size.width), height: .fit(size.height)))
+        }
+    }
+    fileprivate func containingBlockChanged() { presenter?.owners.publish(); contentMoved() }
+    /// A popover over a sheet is in its presentation container, outside
+    /// the scroller: it follows its opener as the sheet's content moves.
+    fileprivate func contentMoved() {
+        presenter?.menus.rehostPopovers()
+        // A sticky box in a dialog sticks to the sheet's port (`Sticky.swift`).
+        for entry in entries { presenter?.stickies.scrolled(entry.dialog.id) }
+    }
     var inTransition: Bool {
         !resuming.isEmpty || entries.contains { $0.closing || $0.controller.isBeingPresented || $0.controller.isBeingDismissed }
     }
@@ -240,10 +291,11 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
             guard !entry.closing, !controller.isBeingDismissed,
                   let view = controller.viewIfLoaded, view.window != nil else { return nil }
             let scroller = controller.scroller
-            let clip = scroller.convert(scroller.bounds, to: presenter.viewport)
-                .intersection(view.convert(view.bounds, to: presenter.viewport))
+            let clip = NativeGeometry.bounds(of: scroller, in: presenter.viewport)
+                .intersection(NativeGeometry.bounds(of: view, in: presenter.viewport))
+            let block = entry.usedBlock.map { CGRect(origin: CGPoint(x: -entry.frame.minX, y: -entry.frame.minY), size: $0) }
             return TopLayerBox(view: entry.dialog,
-                               frame: (entry.dialog.id, entry.dialog.topLayerFrame(in: presenter.viewport), presenter.viewportPoints(clip)),
+                               frame: (entry.dialog.id, entry.dialog.topLayerFrame(in: presenter.viewport, containingBlock: block), presenter.viewportPoints(clip)),
                                modal: controller)
         }
     }
@@ -287,7 +339,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         entries.append(entry)
         if let old { presenter.menus.replacePopoverHost(old.controller, with: controller) }
         presenter.controls.syncShown()
-        previous?.resignFirstResponder()
+        if old == nil { previous?.resignFirstResponder() }
         controller.loadViewIfNeeded()
         #if os(iOS)
         controller.relay = MountRelay(presenter, mount: controller.view)
@@ -357,6 +409,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         }
         entry.dialog.endEditing(true)
         let controller = entry.controller
+        let owner = controller.presentingViewController
         // UIKit drops a dismissal asked for while it presents: that one waits.
         func leave(_ work: @escaping () -> Void) { if controller.isBeingPresented { entry.afterPresenting = work } else { work() } }
         // Only the sheet's own window makes its dismissal observable. Its
@@ -365,11 +418,11 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         guard animated, controller.viewIfLoaded?.window?.windowScene != nil, controller.presentingViewController != nil else {
             ended(entry, cancelled: cancelled)
             if controller.presentingViewController != nil {
-                leave { controller.dismiss(animated: false) { [weak self] in self?.presenter?.menus.resumeAfterRouteDismissal() } }
+                leave { owner?.dismiss(animated: false) { [weak self] in self?.presenter?.menus.resumeAfterRouteDismissal() } }
             }
             return
         }
-        leave { controller.dismiss(animated: animated) { [weak self] in self?.ended(entry, cancelled: cancelled) } }
+        leave { owner?.dismiss(animated: animated) { [weak self] in self?.ended(entry, cancelled: cancelled) } }
     }
     /// The sheet has gone: the dialog goes back under its authored parent,
     /// hidden, at its kernel frame, and the focus goes back where it was.
@@ -388,7 +441,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         dialog.accessibilityViewIsModal = false
         entry.under?.accessibilityElementsHidden = entry.underHidden
         // A focus or scroll still waiting for the sheet's window has nowhere to go.
-        if presenter?.pendingFocusNode?.isDescendant(of: dialog) == true { presenter?.cancelPendingFocus() }
+        if !resuming.contains(where: { $0 === entry }), presenter?.pendingFocusNode?.isDescendant(of: dialog) == true { presenter?.cancelPendingFocus() }
         presenter?.elementScrolls.cancel(inside: dialog)
         dialog.isHidden = true
         if live(dialog), let parent = entry.parent {
@@ -398,6 +451,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         } else {
             dialog.removeFromSuperview()
         }
+        presenter?.owners.publish()
         // After the dialog is home: a popover anchored in it is placed from there.
         presenter?.menus.rehostPopovers()
         presenter?.menus.coverClosed()
@@ -425,9 +479,10 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         return entry.dialog.props["closedby"] == "any"
     }
     /// A close request the person made outside UIKit's own gesture.
-    func closeRequest(_ controller: DialogSheetController) {
-        guard let entry = entries.first(where: { $0.controller === controller }), !entry.closing, !refuses(entry.dialog) else { return }
+    @discardableResult func closeRequest(_ controller: DialogSheetController) -> Bool {
+        guard let entry = entries.first(where: { $0.controller === controller }), !entry.closing, !refuses(entry.dialog) else { return false }
         dismiss(entry, animated: !ExactEnv.agentFreezes, cancelled: true)
+        return true
     }
 
     // UIKit's own dismissal: the swipe down, and whatever else it gives a sheet.
@@ -484,7 +539,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         }
         for entry in affected where !entry.closing {
             if presenter?.authored(entry.dialog, inside: route) == false {
-                entry.focused = presenter?.focusedNode.flatMap { presenter?.authored($0, inside: entry.dialog) == true ? $0 : nil }
+                entry.focused = (presenter?.pendingFocusNode ?? presenter?.focusedNode).flatMap { presenter?.authored($0, inside: entry.dialog) == true ? $0 : nil }
                 resuming.append(entry)
             }
             entry.retiring = true
@@ -503,7 +558,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
 
     /// One at a time: UIKit must finish presenting a sheet before it can present another.
     func resumeAfterRouteDismissal() -> Bool {
-        guard let presenter, !presenter.modals.inTransition,
+        guard let presenter, !presenter.modals.inTransition, !presenter.navigation.inTransition,
               !entries.contains(where: { $0.closing || $0.controller.isBeingPresented || $0.controller.isBeingDismissed }) else { return false }
         while let entry = resuming.first {
             let dialog = entry.dialog
@@ -537,6 +592,8 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
                 dismiss(entry, animated: false, cancelled: false)
             } else {
                 assign(entry.controller, \.isModalInPresentation, refuses(dialog))
+                // Its children's frames came after its own: the overflow the sheet scrolls.
+                entry.controller.place()
             }
         }
         // A destroyed dialog leaves a closing sheet at once: its view may be reused.
@@ -544,6 +601,15 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
             entry.dialog.removeFromSuperview()
         }
     }
+    /// The runner maps a block's viewport rectangle through its used size,
+    /// which can exceed the authored dialog's border box.
+    func applied(_ op: BatchOp) {
+        guard op.payload["op"] as? String == "block",
+              let entry = entries.first(where: { $0.dialog.id == op.id && live($0.dialog) }),
+              let w = op.payload["w"] as? NSNumber, let h = op.payload["h"] as? NSNumber else { return }
+        entry.usedBlock = CGSize(width: w.doubleValue, height: h.doubleValue)
+    }
+
     /// A frame op on an open dialog: the box is the sheet's content, its
     /// origin the sheet's to choose.
     func framed(_ node: NodeView) {

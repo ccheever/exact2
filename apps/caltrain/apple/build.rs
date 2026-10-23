@@ -1,9 +1,12 @@
-//! Compile and bake `app.contract` into `OUT_DIR/app.plan` at build time, so
-//! the library carries its plan and the app links exactly one archive.
+//! Bake Caltrain through its Rust data source. Apple app builds link the
+//! plan separately; direct Cargo and embedded builds carry it in the archive.
 
 use contract::DataSource;
 
 fn main() {
+    if exact_bake::take_linked(&["entry.rs"]).unwrap_or_else(|e| panic!("linked bake: {e}")) {
+        return;
+    }
     contract::rerun_if_changed(std::path::Path::new("../app.contract"));
     println!("cargo:rerun-if-changed=build.rs");
     let plan = match contract::compile_path(std::path::Path::new("../app.contract")) {
@@ -50,18 +53,25 @@ fn main() {
     // What the archive links, as its compatibility inputs name it (LLP 1047.001 D2).
     let linked = exact_bake::apple_link(&compat, host);
     std::fs::write(out_dir.join("compat.json"), compat.to_json()).unwrap();
-    std::fs::write(
-        out_dir.join("entry.rs"),
-        format!(
-            "{}\n{}{host}::host!(AppData, PLAN, COMPAT; linked = EXACT_LINKED);\n",
-            contract::rust_entry(
-                "caltrain_data::Caltrain",
-                "caltrain_data::Caltrain",
-                compat.inputs["rustMode"].as_str().unwrap()
-            )
-            .unwrap(),
-            linked
-        ),
-    )
-    .unwrap();
+    let pair = if std::env::var_os("EXACT_BAKED").is_some() {
+        std::fs::write(out_dir.join("app.hbc"), []).unwrap();
+        "fn exact_plan() -> &'static [u8] { exact_apple::baked::plan() }\n\
+         fn exact_compat() -> &'static str { exact_apple::baked::compat() }"
+    } else {
+        "fn exact_plan() -> &'static [u8] { include_bytes!(concat!(env!(\"OUT_DIR\"), \"/app.plan\")) }\n\
+         fn exact_compat() -> &'static str { include_str!(concat!(env!(\"OUT_DIR\"), \"/compat.json\")) }"
+    };
+    let entry = format!(
+        "{pair}\n{}\n{}{host}::host!(AppData, exact_plan(), exact_compat(); linked = EXACT_LINKED);\n",
+        contract::rust_entry(
+            "caltrain_data::Caltrain",
+            "caltrain_data::Caltrain",
+            compat.inputs["rustMode"].as_str().unwrap()
+        ).unwrap(),
+        linked
+    );
+    let path = out_dir.join("entry.rs");
+    if std::fs::read(&path).ok().as_deref() != Some(entry.as_bytes()) {
+        std::fs::write(path, entry).unwrap();
+    }
 }

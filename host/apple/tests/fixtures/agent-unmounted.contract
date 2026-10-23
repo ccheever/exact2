@@ -1,0 +1,12 @@
+// AgentUnmountedTests: a native button whose face draws its svg, so the
+// svg's nodes get no view of their own, beside a box that does.
+component App
+  state n = 0
+  action go
+    n = n + 1
+  view
+    main testId="root" width=400 height=400 background-color="#ffffff"
+      button testId="glyph" press=go aria-label="Back"
+        svg viewBox="0 0 24 24" width=24 height=24
+          path fill="#ff0000" d="M3 12l6-6v4h12v4H9v4z"
+      box testId="plain" width=20 height=20 background-color="#00ff00"

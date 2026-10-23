@@ -25,7 +25,7 @@ final class SystemColorMacTests: XCTestCase {
         NotificationCenter.default.post(name: NSColor.systemColorsDidChangeNotification, object: nil)
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         XCTAssertGreaterThan(SystemColor.generation, before, "the accent's cached channels are gone")
-        XCTAssertNotEqual(n.symbolLookKey, key, "a palette resolved with the old accent is made again")
+        XCTAssertEqual(n.symbolLookKey, key, "invalidating paint does not replace a symbol")
     }
 }
 #endif

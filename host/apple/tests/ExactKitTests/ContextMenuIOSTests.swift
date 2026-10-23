@@ -108,6 +108,8 @@ final class ContextMenuIOSTests: XCTestCase {
         let session = try boot()
         let view = try XCTUnwrap(session.view)
         let focus = session.presenter.menus.focus
+        let shortcut = try node(session, "peek")
+        session.presenter.apply(wireBatch([["op": "props", "id": shortcut.id, "set": ["accessibilityKeyShortcuts": "Meta+k"]]]))
         if !view.isFirstResponder { XCTAssertTrue(view.becomeFirstResponder()) }
         focus.setAside(untilTouch: true)
         XCTAssertFalse(view.isFirstResponder)

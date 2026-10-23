@@ -490,6 +490,55 @@ component App
     );
 }
 
+// LLP 1115.000 D4.15 — a route's header iOS makes its bar of is marked as
+// navigation.js marks it (`appBarBack`), by the kernel's rule
+// (`exact_kernel::bars::header_bar`): its first child, holding one heading
+// text, on a route that does not say `navigationBar="none"`, unless its
+// author wrote `appearance: none`. A row whose role is `heading` is no
+// heading text. So a page built ahead of time sizes its bar's symbols as
+// the glue will.
+#[test]
+fn a_header_that_is_its_routes_bar_is_marked() {
+    let src = r#"
+routes nav
+  tab home "/"
+    full "/full"
+    bare "/bare"
+    row "/row"
+    own "/own"
+component App
+  action back
+    nav = back(nav)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationBar=(e.name == "full" ? "none" : "auto")
+          header testId=`header-${e.name}` appearance=(e.name == "own" ? "none" : "auto")
+            if e.name == "row"
+              row role="heading" aria-level=1
+                text "Row"
+            else
+              if e.name != "bare"
+                text e.name role="heading" aria-level=1
+"#;
+    let tag = |launch: &str, test_id: &str| {
+        let doc = host(src, Says(""), launch).document().unwrap().root;
+        let at = doc.find(&format!("data-testid=\"{test_id}\"")).unwrap();
+        let start = doc[..at].rfind('<').unwrap();
+        doc[start..at + doc[at..].find('>').unwrap() + 1].to_owned()
+    };
+    for (launch, header, bar) in [
+        ("/", "header-home", true),
+        ("/full", "header-full", false),
+        ("/bare", "header-bare", false),
+        ("/row", "header-row", false),
+        ("/own", "header-own", false),
+    ] {
+        let tag = tag(launch, header);
+        assert_eq!(tag.contains("data-exact-bar"), bar, "{tag}");
+    }
+}
+
 // @ref LLP 1075.003 §3.3, §3.7 — with tabs, each tab's panel holds its own
 // stack, built when the tab is first selected: the unselected panel is
 // hidden and inert; an app's data-* words are attributes of their own. Both are linked
@@ -736,14 +785,26 @@ component App
     }
 }
 
-/// LLP 1115.000 D12.2: the document the wasm runtime adopts writes a bare
-/// `font-size` style's weight where it fills one, as the live host does;
-/// the one the JavaScript runtime adopts does not, as its template does
-/// not, and a shorthand's it writes in both.
+/// A JS document uses the same conditional fills as its template, so an
+/// ancestor's bound row can arrive or disappear after adoption.
 #[test]
-fn a_bare_text_styles_weight_is_written_for_the_runtime_that_writes_it() {
+fn bare_text_styles_fill_unsaid_rows_in_the_js_document() {
     let h = host(
-        "component App\n  view\n    column\n      text font-size=\"-exact-headline\" \"Bare\"\n      text font=\"-exact-headline\" \"Shorthand\"\n",
+        r#"component App
+  view
+    column
+      text font-size="-exact-headline" "Bare"
+      text font="-exact-headline" "Shorthand"
+      text font-size="-exact-headline" font-weight="unset" line-height="unset" "Clear"
+      column font-weight=700 line-height="40px"
+        text font-size="-exact-headline" "Inherited"
+      column font-size="-exact-headline"
+        text font-size="-exact-body" "Nested"
+      text role="heading" aria-level=1
+        text font-size="-exact-headline" "Heading"
+      button
+        text font-size="-exact-headline" "Control"
+"#,
         Says(""),
         "/",
     );
@@ -757,8 +818,37 @@ fn a_bare_text_styles_weight_is_written_for_the_runtime_that_writes_it() {
         .unwrap()
         .root;
     assert!(style(&wasm, "Bare").contains("font-weight:600"), "{wasm}");
-    assert!(!style(&js, "Bare").contains("font-weight"), "{js}");
-    for doc in [&wasm, &js] {
-        assert!(style(doc, "Shorthand").contains("font-weight:600"), "{doc}");
+    for text in ["Bare", "Inherited", "Heading", "Control"] {
+        let tag = style(&js, text);
+        assert!(
+            tag.contains("font-weight:var(--exact-said-font-weight,600)"),
+            "{tag}"
+        );
+        assert!(
+            tag.contains("line-height:var(--exact-said-line-height,normal)"),
+            "{tag}"
+        );
     }
+    assert!(
+        style(&js, "Nested").contains("font-weight:var(--exact-said-font-weight,400)"),
+        "{js}"
+    );
+    let clear = style(&js, "Clear");
+    assert!(
+        clear.contains("font-weight:unset") && clear.contains("line-height:unset"),
+        "{clear}"
+    );
+    assert!(!clear.contains("var(--exact-said-"), "{clear}");
+    let shorthand = style(&js, "Shorthand");
+    assert!(shorthand.contains("font-weight:600"), "{shorthand}");
+    assert!(
+        shorthand.contains("--exact-said-font-weight: ;"),
+        "{shorthand}"
+    );
+    assert!(
+        shorthand.contains("--exact-said-line-height: ;"),
+        "{shorthand}"
+    );
+    assert!(js.contains("font-weight:700"), "{js}");
+    assert!(js.contains("line-height:40px"), "{js}");
 }

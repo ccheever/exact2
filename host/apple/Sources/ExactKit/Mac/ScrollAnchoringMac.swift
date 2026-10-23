@@ -7,7 +7,7 @@
 import AppKit
 
 extension NodeView {
-    func captureScrollPosition() {
+    func captureScrollPosition(focused: NodeView?) {
         beforeLayoutScroll = scroll?.contentView.bounds.origin
         followedScroll = nil
         scrollAnchor = nil
@@ -22,7 +22,7 @@ extension NodeView {
         }
         // No anchor at the start (spec §2.2): content inserted on top shows.
         guard top > 0 else { return }
-        scrollAnchor = ScrollAnchoring.anchor(in: self, space: doc, port: doc.convert(sv.contentView.bounds, from: sv.contentView))
+        scrollAnchor = ScrollAnchoring.anchor(in: self, space: doc, port: doc.convert(sv.contentView.bounds, from: sv.contentView), focused: focused)
     }
 
     func restoreScrollPosition() {

@@ -108,6 +108,8 @@ struct CollectionSnapshot {
         let epoch: UInt64
         /// Logical position; -1 when a snapshot omits it.
         let index: Int
+        let size: Double?
+        let measured: Bool
     }
     struct Correction {
         let sequence: UInt64
@@ -143,7 +145,8 @@ struct CollectionSnapshot {
         for item in rawRows {
             guard let id = Self.viewID(item["view"]), let root = Self.viewID(item["root"]),
                   let epoch = Self.uint(item["epoch"]), seen.insert(id).inserted else { return nil }
-            rows.append(Row(view: id, root: root, epoch: epoch, index: Self.uint(item["index"]).map { Int(clamping: $0) } ?? -1))
+            rows.append(Row(view: id, root: root, epoch: epoch, index: Self.uint(item["index"]).map { Int(clamping: $0) } ?? -1,
+                            size: Self.number(item["size"]), measured: item["measured"] as? Bool ?? false))
         }
         var correction: Correction?
         if let raw = value["correction"], !(raw is NSNull) {
@@ -679,8 +682,8 @@ package final class CollectionHost {
                 // and rescue what shows. At rest a report is unlimited.
                 let velocity = motion?(id)
                 let limit: UInt32? = retireLimit ?? sliceLimits.removeValue(forKey: id)
-                    ?? (motion != nil && (velocity != nil || entry.snapshot.pending) ? 0 : nil)
-                let further = limit.map { $0 > 0 && $0 > (entry.lastLimit ?? .max) } ?? (entry.lastLimit != nil)
+                    ?? (motion != nil && (entry.lastFacts == nil || velocity != nil || entry.snapshot.pending) ? 0 : nil)
+                let further = limit.map { $0 > 0 && $0 > (entry.lastLimit ?? .max) } ?? false
                 // Off main only when the report keeps the port, the width and
                 // the pins: a report that changes them may retire (§5).
                 let same = entry.lastFacts.map { ($0.portMain, $0.portCross, $0.cross, $0.focus, $0.interaction)
@@ -688,6 +691,17 @@ package final class CollectionHost {
                 let offMain = building?.view == id && same && retireLimit == nil ? building : nil
                 if entry.lastFacts != facts || entry.lastSequence != entry.cursor.sequence
                     || (entry.snapshot.pending && limit != 0) || further || retireLimit != nil {
+                    var report = facts
+                    // A sent report may be rejected atomically. Only the
+                    // runner's measured snapshot acknowledges a height;
+                    // invalidated or unacknowledged sizes are sent again.
+                    if let previous = entry.lastFacts, previous.cross == facts.cross {
+                        let known = Dictionary(uniqueKeysWithValues: entry.snapshot.rows.compactMap { row -> (UInt32, CollectionMeasurement)? in
+                            guard row.measured, let size = row.size else { return nil }
+                            return (row.view, CollectionMeasurement(view: row.view, epoch: row.epoch, size: size))
+                        })
+                        report.measurements.removeAll { known[$0.view] == $0 }
+                    }
                     entry.lastFacts = facts
                     entry.lastSequence = entry.cursor.sequence
                     entry.lastLimit = limit
@@ -699,12 +713,12 @@ package final class CollectionHost {
                     if let offMain, let onFill {
                         fillLimits[id] = offMain.limit
                         fillSent[id] = ProcessInfo.processInfo.systemUptime
-                        onFill(id, facts.encode(view: id, revision: entry.snapshot.revision, sequence: entry.cursor.sequence,
+                        onFill(id, report.encode(view: id, revision: entry.snapshot.revision, sequence: entry.cursor.sequence,
                             velocity: velocity ?? 0, limit: limit, ancestorMoving: ancestorMoving, createOnly: true))
                         budget.end()
                         return
                     }
-                    onFeedback(facts.encode(view: id, revision: entry.snapshot.revision, sequence: entry.cursor.sequence,
+                    onFeedback(report.encode(view: id, revision: entry.snapshot.revision, sequence: entry.cursor.sequence,
                         velocity: velocity ?? 0, limit: limit, ancestorMoving: ancestorMoving, noBuild: retireLimit != nil))
                 }
             }

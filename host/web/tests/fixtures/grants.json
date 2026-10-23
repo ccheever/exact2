@@ -63,7 +63,155 @@
   },
   {
     "spec": "net.websocket wss://*.example.com",
-    "ok": false
+    "ok": true,
+    "websocket": [
+      ["wss://a.example.com/socket?q=1", true],
+      ["wss://A.B.Example.COM:443/socket", true],
+      ["wss://example.com", false],
+      ["wss://evilexample.com", false],
+      ["wss://a.evilexample.com", false],
+      ["wss://a.example.com.evil.com", false],
+      ["ws://a.example.com:443", false],
+      ["wss://a.example.com:444", false],
+      ["https://a.example.com:443", false]
+    ],
+    "fetch": [
+      ["wss://a.example.com", false]
+    ]
+  },
+  {
+    "spec": "net.websocket wss://*.example.com:8443",
+    "ok": true,
+    "websocket": [
+      ["wss://a.example.com:8443/socket?q=1", true],
+      ["wss://A.B.Example.COM:8443/socket", true],
+      ["wss://example.com:8443", false],
+      ["wss://evilexample.com:8443", false],
+      ["wss://a.evilexample.com:8443", false],
+      ["wss://a.example.com.evil.com:8443", false],
+      ["ws://a.example.com:8443", false],
+      ["wss://a.example.com:8444", false],
+      ["https://a.example.com:8443", false]
+    ],
+    "fetch": [
+      ["wss://a.example.com:8443", false]
+    ]
+  },
+  {
+    "spec": "net.websocket wss://*.example.com:0",
+    "ok": true,
+    "websocket": [
+      ["wss://a.example.com:0/socket?q=1", true],
+      ["wss://A.B.Example.COM:0/socket", true],
+      ["wss://example.com:0", false],
+      ["wss://evilexample.com:0", false],
+      ["wss://a.evilexample.com:0", false],
+      ["wss://a.example.com.evil.com:0", false],
+      ["ws://a.example.com:0", false],
+      ["wss://a.example.com:1", false],
+      ["https://a.example.com:0", false]
+    ],
+    "fetch": [
+      ["wss://a.example.com:0", false]
+    ]
+  },
+  {"spec": "net.websocket wss://*.com", "ok": false},
+  {"spec": "net.websocket wss://a.*.example.com", "ok": false},
+  {"spec": "net.websocket wss://*.*.example.com", "ok": false},
+  {"spec": "net.websocket wss://*.127.0.0.1", "ok": false},
+  {"spec": "net.websocket wss://*.[::1]", "ok": false},
+  {"spec": "net.websocket wss://*.example.com/path", "ok": false},
+  {"spec": "net.websocket wss://*.example.com?", "ok": false},
+  {"spec": "net.websocket wss://*.example.com#", "ok": false},
+  {"spec": "net.websocket wss://*example.com", "ok": false},
+  {"spec": "net.websocket wss://*", "ok": false},
+  {"spec": "net.websocket wss://*.example.com@evil.com", "ok": false},
+  {"spec": "net.websocket wss://*.example.com:pw@evil.com", "ok": false},
+  {"spec": "net.websocket wss://user@*.example.com", "ok": false},
+  {"spec": "net.websocket wss://*.example.com.", "ok": false},
+  {"spec": "net.websocket wss://*.example.com:65536", "ok": false},
+  {"spec": "net.websocket wss://*.example.com:*", "ok": false},
+  {
+    "spec": "net.websocket ws://*.example.com",
+    "ok": true,
+    "websocket": [
+      ["ws://a.example.com/socket?q=1", true],
+      ["ws://A.B.Example.COM:80/socket", true],
+      ["ws://example.com", false],
+      ["ws://evilexample.com", false],
+      ["ws://a.evilexample.com", false],
+      ["ws://a.example.com.evil.com", false],
+      ["wss://a.example.com:80", false],
+      ["ws://a.example.com:81", false],
+      ["https://a.example.com:80", false]
+    ],
+    "fetch": [
+      ["ws://a.example.com", false]
+    ]
+  },
+  {
+    "spec": "net.websocket ws://*.example.com:8443",
+    "ok": true,
+    "websocket": [
+      ["ws://a.example.com:8443/socket?q=1", true],
+      ["ws://A.B.Example.COM:8443/socket", true],
+      ["ws://example.com:8443", false],
+      ["ws://evilexample.com:8443", false],
+      ["ws://a.evilexample.com:8443", false],
+      ["ws://a.example.com.evil.com:8443", false],
+      ["wss://a.example.com:8443", false],
+      ["ws://a.example.com:8444", false],
+      ["https://a.example.com:8443", false]
+    ],
+    "fetch": [
+      ["ws://a.example.com:8443", false]
+    ]
+  },
+  {
+    "spec": "net.websocket ws://*.example.com:0",
+    "ok": true,
+    "websocket": [
+      ["ws://a.example.com:0/socket?q=1", true],
+      ["ws://A.B.Example.COM:0/socket", true],
+      ["ws://example.com:0", false],
+      ["ws://evilexample.com:0", false],
+      ["ws://a.evilexample.com:0", false],
+      ["ws://a.example.com.evil.com:0", false],
+      ["wss://a.example.com:0", false],
+      ["ws://a.example.com:1", false],
+      ["https://a.example.com:0", false]
+    ],
+    "fetch": [
+      ["ws://a.example.com:0", false]
+    ]
+  },
+  {"spec": "net.websocket ws://*.com", "ok": false},
+  {"spec": "net.websocket ws://a.*.example.com", "ok": false},
+  {"spec": "net.websocket ws://*.*.example.com", "ok": false},
+  {"spec": "net.websocket ws://*.127.0.0.1", "ok": false},
+  {"spec": "net.websocket ws://*.[::1]", "ok": false},
+  {"spec": "net.websocket ws://*.example.com/path", "ok": false},
+  {"spec": "net.websocket ws://*.example.com?", "ok": false},
+  {"spec": "net.websocket ws://*.example.com#", "ok": false},
+  {"spec": "net.websocket ws://*example.com", "ok": false},
+  {"spec": "net.websocket ws://*", "ok": false},
+  {"spec": "net.websocket ws://*.example.com@evil.com", "ok": false},
+  {"spec": "net.websocket ws://*.example.com:pw@evil.com", "ok": false},
+  {"spec": "net.websocket ws://user@*.example.com", "ok": false},
+  {"spec": "net.websocket ws://*.example.com.", "ok": false},
+  {"spec": "net.websocket ws://*.example.com:65536", "ok": false},
+  {"spec": "net.websocket ws://*.example.com:*", "ok": false},
+  {"spec": "net.websocket https://*.example.com:8443", "ok": false},
+  {"spec": "net.websocket http://*.example.com:8443", "ok": false},
+  {"spec": "net.websocket ftp://*.example.com:8443", "ok": false},
+  {"spec": "net.websocket custom://*.example.com:8443", "ok": false},
+  {
+    "spec": "net.websocket WSS://*.Example.COM:443/",
+    "ok": true,
+    "websocket": [
+      ["wss://a.example.com/socket", true],
+      ["ws://a.example.com:443", false]
+    ]
   },
   {
     "spec": "net.fetch https://a.*.example.com",

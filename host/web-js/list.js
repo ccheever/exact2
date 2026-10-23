@@ -161,24 +161,39 @@ class SizeIndex {
     for (const r of ranges) { const last = segments.at(-1); if (last && r[0] <= last[1]) last[1] = Math.max(last[1], r[1]); else segments.push(r.slice()); }
     return { offset, visible, overscan, segments };
   }
-  anchor(offset, port, follow) {
+  anchor(offset, port, follow, excluded = null) {
     // The end is judged where the port is, the padding before the rows included (index.rs).
     const max = this.maxOffset(port), at = Math.max(-this.leading, Math.min(offset, max));
     offset = Math.max(0, at);
     const follows = follow && port > 0 && max - at < END_SLACK;
     // At the start, no anchor unless it follows the end (index.rs
     // `capture_anchor`): CSS scroll anchoring selects none at a zero offset.
-    const row = offset <= 0 && !follows ? null : find(this.t, offset, false);
-    return { order: this.order, row, within: row === null ? 0 : Math.max(0, offset - this.prefix(row)), follows };
+    let row = offset <= 0 && !follows ? null : find(this.t, offset, false);
+    let within = row === null ? 0 : Math.max(0, offset - this.prefix(row));
+    if (!follows && row !== null && this.order[row] === excluded) {
+      row = find(this.t, this.prefix(row + 1), false);
+      if (row !== null && this.prefix(row) >= offset + port) row = null;
+      within = row === null ? offset : offset - this.prefix(row);
+    }
+    return { order: this.order, row, within, follows };
   }
   anchorAt(key, within) { const i = this.pos.get(key); return i === undefined ? null : { order: this.order, row: i, within, follows: false }; }
+  anchorPosition(a) {
+    if (a.row === null) return null;
+    let i = this.pos.get(a.order[a.row]);
+    if (i === undefined) for (const k of [...a.order.slice(a.row + 1), ...a.order.slice(0, a.row).reverse()]) if ((i = this.pos.get(k)) !== undefined) break;
+    return i === undefined ? null : this.prefix(i) + a.within;
+  }
+  keptRow(a, port) {
+    const offset = this.anchorPosition(a);
+    return !a.follows && offset !== null && offset >= -this.leading && offset <= this.maxOffset(port);
+  }
   restoreAnchor(a, port) {
     const max = this.maxOffset(port);
     if (a.follows) return max;
-    if (a.row === null) return 0;
-    let i = this.pos.get(a.order[a.row]);
-    if (i === undefined) for (const k of [...a.order.slice(a.row + 1), ...a.order.slice(0, a.row).reverse()]) if ((i = this.pos.get(k)) !== undefined) break;
-    return i === undefined ? 0 : Math.min(this.prefix(i) + a.within, max);
+    if (a.row === null) return this.clamp(a.within, port);
+    const offset = this.anchorPosition(a);
+    return offset === null ? 0 : Math.min(Math.max(offset, -this.leading), max);
   }
 }
 
@@ -241,12 +256,14 @@ class Collection {
   }
   // ------------------------------------------------ data (mod.rs update_data)
   update(items, [idents, dups], fresh) {
-    const anchor = this.anchor(), last = this.index.order.at(-1), count = this.index.len;
+    let anchor = this.anchor();
+    const dropAnchor = this.dropAnchor?.(), last = this.index.order.at(-1), count = this.index.len;
     const compare = !fresh && items.length === this.items.length;
     const rekeyed = !compare || idents.some((k, i) => k !== this.idents[i]);
     let inPlace = null;
     if (compare && !rekeyed) { inPlace = []; items.forEach((it, p) => { if (!same(it, this.items[p])) inPlace.push(p); }); }
     if (rekeyed) { this.index.replace(idents); this.idents = idents; this.dups = dups; }
+    anchor = this.committedAnchor?.(anchor, dropAnchor) ?? anchor;
     const moved = rekeyed || !inPlace || inPlace.length;
     // A grouped session's offsets move with its rows, at once (LLP 1094 D8).
     const instant = !!(moved && (this.incoming || this.preview?.grouped));
@@ -288,7 +305,7 @@ class Collection {
   }
   anchor() { const g = this.geometry; return g && this.index.anchor(this.anchorOffset(g.offset), g.port_main, this.follows()); }
   // ------------------------------------------------ scroll-start: end (start.rs)
-  follows() { return this.followEnd || this.atEnd; }
+  follows() { return (this.followEnd || this.atEnd) && !this.preview; }
   anchorOffset(offset) { return this.atEnd ? this.index.extent : offset; }
   /** Before any report: the last rows, and the host told to start at the end. */
   startAtEnd() {
@@ -320,7 +337,7 @@ class Collection {
       // (mod.rs `restore`): from where the anchor was taken, or from where
       // an unacknowledged one began.
       const was = this.correction;
-      const kept = !a.follows && a.row !== null && c < this.index.maxOffset(g.port_main) - 0.01;
+      const kept = this.index.keptRow(a, g.port_main);
       const from = !kept ? undefined : was ? (was.scrollSequence === g.scroll_sequence ? was.from : undefined) : g.offset;
       this.correction = from === undefined ? { scrollSequence: g.scroll_sequence, offset: c }
         : { scrollSequence: g.scroll_sequence, offset: c, from };

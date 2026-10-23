@@ -47,6 +47,33 @@ fn bare(rows: &[&Attr]) -> bool {
     matches!(last(rows, "appearance"), Some(Attr { value: Expr::Str(v, _), .. }) if v == "none")
 }
 
+fn auto_width(value: &str) -> bool {
+    value
+        .trim_matches(['\t', '\n', '\u{c}', '\r', ' '])
+        .eq_ignore_ascii_case("auto")
+        || exact_kernel::StyleValue::text_unsets(value, exact_kernel::StyleId::ColumnWidth)
+}
+
+fn multicol(rows: &[&Attr]) -> bool {
+    let (mut width, mut count) = (false, false);
+    for row in rows {
+        match row.name.as_str() {
+            "columns" => {
+                // The shorthand resets both halves; its projected count uses 0 for auto.
+                // Values not known to be auto keep the multicol exemption.
+                width = !matches!(crate::shorthands::component(&row.value, "columns", 0),
+                    Ok(Expr::Str(v, _)) if auto_width(&v));
+                count = !matches!(crate::shorthands::component(&row.value, "columns", 1),
+                    Ok(Expr::Number(n, _)) if n == 0.0);
+            }
+            "column-width" => width = !matches!(&row.value, Expr::Str(v, _) if auto_width(v)),
+            "column-count" => count = !matches!(&row.value, Expr::Str(v, _) if v.trim() == "auto"),
+            _ => {}
+        }
+    }
+    width || count
+}
+
 /// The tags that are a block box unless they say otherwise: the plain
 /// boxes, `scroll`, and the pressables (`tags.rs`'s `button`).
 fn block_tag(tag: &str) -> bool {
@@ -117,9 +144,7 @@ fn check(
     if !matches!(display, None | Some("block")) {
         return;
     }
-    let columns = rows
-        .iter()
-        .any(|a| matches!(a.name.as_str(), "columns" | "column-count" | "column-width"));
+    let columns = multicol(rows);
     let mut named: Vec<&str> = Vec::new();
     for a in rows.iter().filter(|a| a.written) {
         let name = a.name.as_str();

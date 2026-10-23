@@ -224,8 +224,14 @@ final class AgentScrollRangeIOSTests: XCTestCase {
         XCTAssertEqual(row["rx"] as? Double, 0, "\(row)")
         XCTAssertEqual(row["ry"] as? Double, 0, "\(row)")
         XCTAssertNil(row["port"], "and no port: \(row)")
+        let action = try node(agent.layout(), 4)
+        XCTAssertEqual(action["w"] as? Double, 0, "the closed native action has no box")
+        XCTAssertNil(action["radii"], "the authored fallback is not the native action's geometry")
         XCTAssertTrue(owner.scrollDormant, "reading the range made no scroll view")
         XCTAssertNil(owner.scroll)
+        p.swipeActions.touch(owner)
+        XCTAssertNotNil(p.swipeActions.cell(of: owner))
+        XCTAssertNil(try node(agent.layout(), 4)["radii"], "projection still owns the action's corners")
     }
 }
 #endif

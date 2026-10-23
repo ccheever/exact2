@@ -9,6 +9,51 @@ import AppKit
 
 @MainActor
 final class StoreRefreshTests: XCTestCase {
+    #if os(iOS)
+    func testPersistedSlotsReadAndWriteTheAppsDefaultsAtBoot() throws {
+        let receipt = try XCTUnwrap(try JSONSerialization.jsonObject(with: Runtime.bakedCompat()) as? [String: Any])
+        let appID = try XCTUnwrap((receipt["inputs"] as? [String: Any])?["app"] as? String)
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: appID))
+        let keys = ["exact.state.favourite", "exact.state.marker", "exact.state.delay"]
+        let previous = keys.map { ($0, defaults.object(forKey: $0)) }
+        let variables = ["EXACT_AGENT", "EXACT_STORE", "EXACT_APP_GROUP_ROOT", "EXACT_APP_GROUP_APP"]
+        let environment = variables.map { ($0, getenv($0).map { String(cString: $0) }) }
+        for key in variables { unsetenv(key) }
+        setenv("EXACT_STORE", "real", 1)
+        defer {
+            for (key, value) in previous { defaults.set(value, forKey: key) }
+            defaults.synchronize()
+            for (key, value) in environment { if let value { setenv(key, value, 1) } else { unsetenv(key) } }
+        }
+        defaults.set("true", forKey: keys[0])
+        defaults.set("\"not a boolean\"", forKey: keys[1])
+        defaults.set("10000", forKey: keys[2])
+        XCTAssertTrue(defaults.synchronize())
+        let plan = try fixturePlan("STORE_REFRESH")
+        func boot() throws -> ExactSession {
+            let session = ExactApp.shared.makeSession(label: "defaults-boot")
+            let batch = session.boot(plan: plan, size: CGSize(width: 300, height: 400))
+            XCTAssertNil(batch.error)
+            return session
+        }
+        func slots(_ session: ExactSession) throws -> [String: Any] {
+            let state = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"state\"}").utf8)) as? [String: Any])
+            return try XCTUnwrap(state["slots"] as? [String: Any])
+        }
+        let first = try boot()
+        defer { first.destroy() }
+        XCTAssertEqual(try slots(first)["favourite"] as? Bool, true, "a preference is present before data activation")
+        XCTAssertEqual(try slots(first)["marker"] as? Bool, false, "an incompatible saved value uses the initializer")
+        let button = try XCTUnwrap(first.presenter.views.values.first { $0.props["testId"] == "favourite" })
+        first.apply(first.runtime.press(button.id, now: 0))
+        XCTAssertEqual(defaults.string(forKey: keys[0]), "false", "the commit writes the preference immediately")
+        first.destroy()
+        let second = try boot()
+        defer { second.destroy() }
+        XCTAssertEqual(try slots(second)["favourite"] as? Bool, false, "a fresh runner reads the committed value")
+    }
+    #endif
+
     func testProductionObserverRefreshesEverySessionAndRecoversAtActivation() throws {
         #if os(macOS)
         _ = NSApplication.shared

@@ -87,18 +87,30 @@ pub fn launch_place(
             locale: env("EXACT_AGENT_LOCALE").unwrap_or_else(|| "en-US".into()),
             time_zone: env("EXACT_AGENT_TIME_ZONE").unwrap_or_else(|| "UTC".into()),
             seed: agent_seed(env("EXACT_AGENT_SEED"))?,
+            format_locale: env("EXACT_AGENT_FORMAT_LOCALE").unwrap_or_default(),
         }
     } else {
         // Below 2^32 (LLP 1116.005 D5): four bytes of entropy.
         let mut bytes = [0; 4];
         getrandom::fill(&mut bytes).map_err(|e| format!("launch seed: {e}"))?;
         exact_runner::time::Place {
-            locale: locale(&env),
+            locale: locale(&env, "LC_MESSAGES"),
             time_zone: env("TZ")
                 .and_then(|zone| zone_name(&zone))
                 .or_else(|| iana_time_zone::get_timezone().ok())
                 .unwrap_or_else(|| "UTC".into()),
             seed: f64::from(u32::from_ne_bytes(bytes)),
+            // POSIX's category for dates and times (`LC_TIME`) beside the
+            // messages' language; none of its variables set, none apart
+            // from the locale.
+            format_locale: if ["LC_ALL", "LC_TIME", "LANG"]
+                .iter()
+                .any(|key| env(key).is_some_and(|s| !s.is_empty()))
+            {
+                locale(&env, "LC_TIME")
+            } else {
+                Default::default()
+            },
         }
     };
     place
@@ -118,8 +130,9 @@ fn agent_seed(value: Option<String>) -> Result<f64, String> {
     })
 }
 
-fn locale(env: impl Fn(&str) -> Option<String>) -> String {
-    let value = ["LC_ALL", "LC_MESSAGES", "LANG"]
+/// `category`'s locale as BCP 47: `LC_ALL`, else the category, else `LANG`.
+fn locale(env: impl Fn(&str) -> Option<String>, category: &str) -> String {
+    let value = ["LC_ALL", category, "LANG"]
         .into_iter()
         .find_map(|key| env(key).filter(|s| !s.is_empty()))
         .unwrap_or_default();
@@ -180,18 +193,54 @@ mod tests {
             ("", "", "", "en-US"),
         ] {
             assert_eq!(
-                locale(|key| Some(
-                    match key {
-                        "LC_ALL" => all,
-                        "LC_MESSAGES" => messages,
-                        "LANG" => lang,
-                        _ => unreachable!(),
-                    }
-                    .into()
-                )),
+                locale(
+                    |key| Some(
+                        match key {
+                            "LC_ALL" => all,
+                            "LC_MESSAGES" => messages,
+                            "LANG" => lang,
+                            _ => unreachable!(),
+                        }
+                        .into()
+                    ),
+                    "LC_MESSAGES"
+                ),
                 expected
             );
         }
+    }
+
+    #[test]
+    fn the_format_locale_is_lc_time() {
+        let place = launch_place(|key| match key {
+            "LC_MESSAGES" | "LANG" => Some("en_US.UTF-8".into()),
+            "LC_TIME" => Some("ko_KR.UTF-8".into()),
+            "TZ" => Some("Asia/Seoul".into()),
+            _ => None,
+        })
+        .unwrap();
+        assert_eq!(
+            (place.locale.as_str(), place.format_locale.as_str()),
+            ("en-US", "ko-KR")
+        );
+        // With no LC_ALL, LC_TIME or LANG (an Android process), none apart
+        // from the locale, which the runner then answers.
+        let bare = launch_place(|key| (key == "LC_MESSAGES").then(|| "ko_KR".into())).unwrap();
+        assert_eq!(
+            (bare.locale.as_str(), bare.format_locale.as_str()),
+            ("ko-KR", "")
+        );
+        let agent = launch_place(|key| match key {
+            "EXACT_AGENT" => Some("1".into()),
+            "EXACT_AGENT_FORMAT_LOCALE" => Some("en-KR".into()),
+            key if key.starts_with("EXACT_AGENT_") => None,
+            _ => panic!("agent read the machine's {key}"),
+        })
+        .unwrap();
+        assert_eq!(
+            (agent.locale.as_str(), agent.format_locale.as_str()),
+            ("en-US", "en-KR")
+        );
     }
 
     #[test]
@@ -216,6 +265,7 @@ mod tests {
                     "EXACT_AGENT_LOCALE" => "fr-CA",
                     "EXACT_AGENT_TIME_ZONE" => "America/Toronto",
                     "EXACT_AGENT_SEED" => "4294967295",
+                    "EXACT_AGENT_FORMAT_LOCALE" => "fr-FR",
                     _ => panic!("agent read the machine's {key}"),
                 }
                 .into(),
@@ -225,6 +275,7 @@ mod tests {
         assert_eq!(custom.locale, "fr-CA");
         assert_eq!(custom.time_zone, "America/Toronto");
         assert_eq!(custom.seed, 4_294_967_295.0);
+        assert_eq!(custom.format_locale, "fr-FR");
         // A seed past 2^32 is refused, not wrapped (LLP 1116.005 D5).
         for bad in ["4294967296", "9007199254740991", "-1", "1.5", "seven"] {
             let refused = launch_place(|key| match key {

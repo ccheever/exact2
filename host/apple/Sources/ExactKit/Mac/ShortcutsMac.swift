@@ -118,35 +118,125 @@ final class ShortcutMenu: NSMenu {
     private var removalIDs = Set<String>()
     fileprivate func removeStandardItems(_ ids: Set<String>) {
         removalIDs = ids
-        applyRemovals()
+        watchTracking()
+        applyRemovals(late: tracking)
     }
-    private var removed: [(NSMenuItem, Bool)] = []
+    /// What each removed item was: hidden (a hidden alternate's chord), and
+    /// whether its chord worked hidden.
+    private var removed: [(NSMenuItem, Bool, Bool)] = []
+    /// Items no removal holds any more, with what a write put off has yet
+    /// to give back.
+    private var unrestored: [(NSMenuItem, Bool, Bool)] = []
     override func update() {
         super.update()
-        applyRemovals()
+        applyRemovals(late: false)
     }
     override func insertItem(_ newItem: NSMenuItem, at index: Int) {
         super.insertItem(newItem, at: index)
-        applyRemovals()
+        applyRemovals(late: false)
     }
-    private func applyRemovals() {
-        guard !removalIDs.isEmpty || !removed.isEmpty else { return }
-        for (item, hiddenEquivalent) in removed {
-            item.isHidden = false
-            item.allowsKeyEquivalentWhenHidden = hiddenEquivalent
-        }
-        removed.removeAll(keepingCapacity: true)
-        for item in items where !item.isHidden && !(item.target is ShortcutHost) {
-            guard let id = Self.standardID(item), removalIDs.contains(id) else { continue }
-            removed.append((item, item.allowsKeyEquivalentWhenHidden))
-            item.allowsKeyEquivalentWhenHidden = false
-            item.isHidden = true
+    /// Records `hidden` as what `item` goes back to when its removal ends,
+    /// if a removal here holds it or its restoration is still to be
+    /// written. The host's sync sets its own items' state through this, so
+    /// it never writes a state the removal then reverses.
+    fileprivate func holdHidden(_ item: NSMenuItem, _ hidden: Bool) -> Bool {
+        var held = false
+        for index in removed.indices where removed[index].0 === item { removed[index].1 = hidden; held = true }
+        for index in unrestored.indices where unrestored[index].0 === item { unrestored[index].1 = hidden; held = true }
+        return held
+    }
+    // An open menu is a table AppKit lays out, and a plan batch can arrive
+    // inside that layout: a menu item's own view entering the menu's window
+    // can make it key (Help's search field), which posts the window facts.
+    // An item shown or hidden there inserts or deletes a row, and AppKit
+    // throws (`-[NSTableRowData insertRowsAtIndexes:withRowAnimation:]`).
+    // So a removal writes only what changes, and a batch's change while the
+    // menu is open is written on the next turn of the run loop, outside any
+    // layout.
+    private var tracking = false, writeScheduled = false
+    private var trackingObservers: [NSObjectProtocol] = []
+    private func watchTracking() {
+        guard trackingObservers.isEmpty else { return }
+        // The object is the menu bar for its menus, or a popped-up menu.
+        let center = NotificationCenter.default
+        trackingObservers = [(NSMenu.didBeginTrackingNotification, true), (NSMenu.didEndTrackingNotification, false)].map { name, begins in
+            center.addObserver(forName: name, object: nil, queue: nil) { [weak self] note in
+                guard let self, let root = note.object as? NSMenu,
+                      sequence(first: self as NSMenu, next: \.supermenu).contains(where: { $0 === root }) else { return }
+                self.tracking = begins
+            }
         }
     }
-    private static func standardID(_ item: NSMenuItem) -> String? {
-        // AutoFill has no command of its own: AppKit identifies the submenu.
+    deinit { trackingObservers.forEach(NotificationCenter.default.removeObserver) }
+    /// `late`: write on the run loop's next turn.
+    private func applyRemovals(late: Bool) {
+        guard !removalIDs.isEmpty || !removed.isEmpty || !unrestored.isEmpty else { return }
+        let previous = unrestored + removed
+        // Each item as it was before any removal: as saved for one removed
+        // or still to be restored, as it is for any other.
+        var saved: [ObjectIdentifier: (Bool, Bool)] = [:]
+        for (item, hidden, hiddenEquivalent) in previous where saved[ObjectIdentifier(item)] == nil {
+            saved[ObjectIdentifier(item)] = (hidden, hiddenEquivalent)
+        }
+        let restored = { (item: NSMenuItem) in saved[ObjectIdentifier(item)] ?? (item.isHidden, item.allowsKeyEquivalentWhenHidden) }
+        var next: [(NSMenuItem, Bool, Bool)] = []
+        // A hidden submenu's items keep their chords (AppKit), so a removed
+        // submenu's go with it; the app's own commands stay.
+        func remove(_ item: NSMenuItem) {
+            let (hidden, hiddenEquivalent) = restored(item)
+            next.append((item, hidden, hiddenEquivalent))
+            for child in item.submenu?.items ?? [] where !(child.target is ShortcutHost) { remove(child) }
+        }
+        // An item hidden on its own is left out, unless a removal already
+        // holds it: the host may hide one of its own items under a removal.
+        for item in items where !(item.target is ShortcutHost) {
+            let (hidden, hiddenEquivalent) = restored(item)
+            guard !hidden || hiddenEquivalent || removed.contains(where: { $0.0 === item }),
+                  let id = Self.standardID(item), removalIDs.contains(id) else { continue }
+            remove(item)
+        }
+        let kept = Set(next.map { ObjectIdentifier($0.0) })
+        let restores = previous.filter { item, hidden, hiddenEquivalent in
+            !kept.contains(ObjectIdentifier(item)) && (item.isHidden != hidden || item.allowsKeyEquivalentWhenHidden != hiddenEquivalent)
+        }
+        // Removed from now, though written later: `performKeyEquivalent`
+        // leaves its chord out at once.
+        removed = next
+        let hides = next.map(\.0).filter { !$0.isHidden || $0.allowsKeyEquivalentWhenHidden }
+        if late && (!restores.isEmpty || !hides.isEmpty) {
+            unrestored = restores
+            guard !writeScheduled else { return }
+            writeScheduled = true
+            RunLoop.main.perform(inModes: [.common]) { [weak self] in
+                self?.writeScheduled = false
+                self?.applyRemovals(late: false)
+            }
+            return
+        }
+        unrestored = []
+        for (item, hidden, hiddenEquivalent) in restores.reversed() {
+            if item.isHidden != hidden { item.isHidden = hidden }
+            if item.allowsKeyEquivalentWhenHidden != hiddenEquivalent { item.allowsKeyEquivalentWhenHidden = hiddenEquivalent }
+        }
+        for item in hides {
+            if item.allowsKeyEquivalentWhenHidden { item.allowsKeyEquivalentWhenHidden = false }
+            if !item.isHidden { item.isHidden = true }
+        }
+    }
+    static func standardID(_ item: NSMenuItem) -> String? {
+        // AutoFill has no command of its own: AppKit identifies the submenu,
+        // and the host its own submenus (`DevMenu.removable`).
         if item.identifier?.rawValue == "_NSMenuItemAutoFillIdentifier" { return "autofill" }
+        if let id = item.identifier, let name = DevMenu.removable.first(where: { $0.value == id })?.key { return name }
+        // Paste and Match Style is the ⌥⇧⌘V `pasteAsPlainText:`; Edit's ⇧⌘V
+        // one, when an app command stands in for it, is the app's.
+        if item.action == #selector(NSTextView.pasteAsPlainText(_:)) { return "paste-and-match-style" }
         switch item.action.map(NSStringFromSelector) {
+        case "back:": return "back"
+        case "showHelp:": return "app-help"
+        case "actualSize:": return "actual-size"
+        case "zoomIn:": return "zoom-in"
+        case "zoomOut:": return "zoom-out"
         case "closeAll:": return "close-all"
         case "toggleTabBar:": return "show-tab-bar"
         case "toggleTabOverview:": return "show-all-tabs"
@@ -163,6 +253,12 @@ final class ShortcutMenu: NSMenu {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // A removed item's chord, and its submenu's, is out of the lookup:
+        // AppKit sends a hidden item's chord whatever its
+        // `allowsKeyEquivalentWhenHidden` (measured, macOS 26.6).
+        let silenced = removed.compactMap { item, _, _ in item.keyEquivalent.isEmpty ? nil : (item, item.keyEquivalent) }
+        for (item, _) in silenced { item.keyEquivalent = "" }
+        defer { for (item, key) in silenced where item.keyEquivalent.isEmpty { item.keyEquivalent = key } }
         // AppKit compares the typed character with the item's, so a key that
         // types no Latin one (ㅠ under Korean 2-Set) misses ⌘B: the item its
         // physical key's chord names runs here instead (its action validates,
@@ -207,6 +303,9 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     /// the chord to give back (studio diary R16).
     private var replaced: [NSMenuItem] = []
     private var unbound: [(NSMenuItem, String, NSEvent.ModifierFlags)] = []
+    /// The commands in the app menu or Help: the app's, not the window's
+    /// (`enabled`).
+    private var appWide: Set<UInt32> = []
     init(presenter: Presenter) { self.presenter = presenter }
     func attach(_ file: ShortcutMenu, application: ShortcutMenu? = nil, navigation: ShortcutMenu? = nil,
                 edit: ShortcutMenu? = nil, view: ShortcutMenu? = nil, window: ShortcutMenu? = nil, help: ShortcutMenu? = nil) {
@@ -258,6 +357,8 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         return shortcut.keyEquivalent
     }
     func sync() {
+        if let selected = DevMenu.session, selected.presenter !== presenter,
+           let menu = viewMenu, menu.supermenu === NSApp.mainMenu { return }
         guard let fileMenu else { return }
         var file: [NSMenuItem] = []
         var application: [NSMenuItem] = []
@@ -267,8 +368,11 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         var viewItems: [NSMenuItem] = []
         var windowItems: [NSMenuItem] = []
         var helpItems: [NSMenuItem] = []
+        var about: [NSMenuItem] = []
+        var concealed: [NSMenuItem] = []
         var live: Set<UInt32> = []
         var chords: [(NSMenuItem, Shortcut?)] = []
+        appWide = []
         for view in nodes() {
             // A platform alternative does not create a second menu item.
             let shortcut = declarations(view).first(where: { $0.modifiers.contains(.command) })
@@ -284,12 +388,19 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             chords.append((item, shortcut))
             item.target = self
             item.representedObject = NSNumber(value: view.id)
-            item.isEnabled = !view.disabled && !view.inert && view.window?.attachedSheet == nil
+            // `none`: no item to see, the chord a hidden key equivalent.
+            item.isHidden = placement == "none"
+            item.allowsKeyEquivalentWhenHidden = placement == "none"
+            let settings = placement == nil && shortcut?.key == "," && shortcut?.modifiers == .command && applicationMenu != nil
+            if settings || ["about", "app", "help"].contains(placement ?? "") { appWide.insert(view.id) }
+            item.isEnabled = enabled(view)
             item.state = view.props["accessibilitySelected"] == "true" ? .on : .off
             // Placement follows declared semantics and standard chords, never
             // app names, test ids, or a second registry of commands.
             if let placement {
                 switch placement {
+                case "about": about.append(item)
+                case "none": concealed.append(item)
                 case "app": application.append(item)
                 case "edit":
                     if shortcut?.isPasteVariant == true { pastes.append(item) }
@@ -323,18 +434,36 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         // up before the app's take them, and get them back only once no
         // command claims them (studio diary R16).
         let claimed = chords.compactMap { $0.1.map { ($0.keyEquivalent.lowercased(), $0.modifiers) } }
+        let standing = chords.filter { !$0.0.isHidden }.compactMap { $0.1.map { ($0.keyEquivalent.lowercased(), $0.modifiers) } }
         release(keeping: claimed)
         claim(claimed)
+        stepAside(standing: standing)
+        let removals = Set((presenter?.root.subviews ?? []).compactMap { ($0 as? NodeView)?.props["menuRemove"] }
+            .flatMap { $0.split(whereSeparator: \.isWhitespace).map(String.init) })
         for (item, shortcut) in chords {
             item.keyEquivalent = shortcut?.keyEquivalent ?? ""
             item.keyEquivalentModifierMask = shortcut?.modifiers ?? []
         }
         if let windowMenu { place(windowItems, in: windowMenu, at: 0) }
         if let helpMenu { place(helpItems, in: helpMenu, at: 0) }
-        if let editMenu { placeEdit(editItems, pastes: pastes, in: editMenu) }
+        if let editMenu { placeEdit(editItems, pastes: pastes, in: editMenu, removals: removals) }
         if let viewMenu {
-            if !viewItems.isEmpty { viewItems.append(viewSeparator) } else { viewSeparator.menu?.removeItem(viewSeparator) }
-            place(viewItems, in: viewMenu, at: 0)
+            // A command standing in for Actual Size, Zoom In or Zoom Out takes
+            // its place; the rest lead View.
+            var top: [NSMenuItem] = []
+            for item in viewItems {
+                let chord = (item.keyEquivalent.lowercased(), item.keyEquivalentModifierMask)
+                guard let host = unbound.first(where: { host, key, mask in
+                    host.target is ZoomMenuTarget && host.menu === viewMenu && host.identifier != DevMenu.zoomAlternate
+                        && replaced.contains { $0 === host } && Self.answers(host, key: key, mask, to: chord)
+                })?.0 else { top.append(item); continue }
+                if item.menu !== viewMenu || viewMenu.index(of: item) != viewMenu.index(of: host) {
+                    item.menu?.removeItem(item)
+                    viewMenu.insertItem(item, at: viewMenu.index(of: host))
+                }
+            }
+            if !top.isEmpty { top.append(viewSeparator) } else { viewSeparator.menu?.removeItem(viewSeparator) }
+            place(top, in: viewMenu, at: 0)
             // Show Sidebar is a window with a sidebar's (LLP 1115.002 D3).
             for item in viewMenu.items where item.action == #selector(NSSplitViewController.toggleSidebar(_:)) {
                 item.isHidden = presenter?.sidebar.installed != true
@@ -343,11 +472,15 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         // Reconcile only our own items. In particular, Open… and Close must
         // survive the next plan batch. Existing command objects stay stable.
         if !file.isEmpty { file.append(fileSeparator) } else { fileSeparator.menu?.removeItem(fileSeparator) }
-        place(file, in: fileMenu, at: 0)
+        // Concealed commands first: hidden, they leave File as it looks.
+        place(concealed + file, in: fileMenu, at: 0)
         if let applicationMenu {
+            // Directly under About, as Check for Updates… is in apps that
+            // update themselves; the rest after its separator, with Settings….
+            place(about, in: applicationMenu, at: min(1, applicationMenu.numberOfItems))
             if !application.isEmpty { application.append(settingsSeparator) }
             else { settingsSeparator.menu?.removeItem(settingsSeparator) }
-            place(application, in: applicationMenu, at: min(2, applicationMenu.numberOfItems))
+            place(application, in: applicationMenu, at: min(2 + about.count, applicationMenu.numberOfItems))
         }
         if let navigationMenu {
             // The host's own Back (LLP 1115.000 D5.1) leads the menu while
@@ -355,20 +488,30 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             // ⌘[ and stands in for it (`claim`).
             let own = navigationMenu.items.filter { !($0.target is ShortcutHost) }
             let routed = presenter?.carrying("navigationBack").isEmpty == false
-            for item in own { item.isHidden = !routed || replaced.contains { $0 === item } }
+            for item in own { setHidden(item, !routed || replaced.contains { $0 === item }) }
             // History commands precede destinations regardless of where the
             // toolbar sits in the authored tree; destinations keep tree order.
             let history = navigation.filter { $0.keyEquivalentModifierMask == .command && ["[", "]"].contains($0.keyEquivalent) }
             navigation = history.sorted { $0.keyEquivalent < $1.keyEquivalent }
                 + navigation.filter { item in !history.contains(where: { $0 === item }) }
             place(navigation, in: navigationMenu, at: own.count)
-            navigationMenu.supermenu?.items.first(where: { $0.submenu === navigationMenu })?.isHidden = navigation.isEmpty && own.allSatisfy(\.isHidden)
         }
-        let removals = Set((presenter?.root.subviews ?? []).compactMap { ($0 as? NodeView)?.props["menuRemove"] }
-            .flatMap { $0.split(whereSeparator: \.isWhitespace).map(String.init) })
         for menu in [fileMenu, applicationMenu, navigationMenu, editMenu, viewMenu, windowMenu, helpMenu] {
             (menu as? ShortcutMenu)?.removeStandardItems(removals)
         }
+        // Go shows while it has an item to show, Back once `back` removed it.
+        if let navigationMenu {
+            navigationMenu.supermenu?.items.first(where: { $0.submenu === navigationMenu })?.isHidden = navigationMenu.items.allSatisfy(\.isHidden)
+        }
+        // What a removal restored, a command still stands in for.
+        for item in replaced where !item.isHidden { item.isHidden = true }
+        // View's zoom group keeps its separator while it shows an item.
+        if let viewMenu, let separator = viewMenu.items.first(where: { $0.identifier == DevMenu.zoomSeparator }) {
+            let start = viewSeparator.menu === viewMenu ? viewMenu.index(of: viewSeparator) + 1 : 0, end = viewMenu.index(of: separator)
+            separator.isHidden = start >= end || !viewMenu.items[start..<end].contains { !$0.isHidden && !$0.isSeparatorItem }
+        }
+        // Develop goes from the bar; its chords stay, as a hidden menu's do.
+        fileMenu.supermenu?.items.first { $0.identifier == DevMenu.removable["develop"] }?.isHidden = removals.contains("develop")
     }
     /// Edit's commands (studio diary R16), where Apple's HIG puts them: one
     /// whose chord is a host item's own — Undo ⌘Z, Redo ⇧⌘Z, Cut, Copy,
@@ -377,12 +520,16 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     /// the focus, as its ⌘Z already is; a paste variant follows Paste, as
     /// Paste and Match Style does; the rest follow Select All, after a
     /// separator, ahead of Speech and of what AppKit appends (#141).
-    private func placeEdit(_ commands: [NSMenuItem], pastes: [NSMenuItem], in menu: NSMenu) {
+    private func placeEdit(_ commands: [NSMenuItem], pastes: [NSMenuItem], in menu: NSMenu, removals: Set<String>) {
         var extra: [NSMenuItem] = []
+        // A removed submenu (`find`) holds no command: it would not show.
+        let removedSubmenu = { (sub: NSMenu?) in
+            menu.items.first { $0.submenu === sub }.flatMap(ShortcutMenu.standardID).map(removals.contains) == true
+        }
         for item in commands {
             // In Edit or in its Find submenu, where the host's item was.
             if let host = unbound.first(where: { host, key, mask in
-                (host.menu === menu || host.menu?.supermenu === menu) && replaced.contains { $0 === host }
+                (host.menu === menu || host.menu?.supermenu === menu && !removedSubmenu(host.menu)) && replaced.contains { $0 === host }
                     && Self.same((key.lowercased(), mask), (item.keyEquivalent.lowercased(), item.keyEquivalentModifierMask))
             })?.0, let into = host.menu {
                 if item.menu !== into || into.index(of: item) != into.index(of: host) {
@@ -409,12 +556,11 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     /// The host's items whose chord no command claims any longer get it
     /// back, and come back into view.
     private func release(keeping claimed: [(String, NSEvent.ModifierFlags)]) {
-        let held = { (key: String, mask: NSEvent.ModifierFlags) in claimed.contains { Self.same($0, (key.lowercased(), mask)) } }
         unbound.removeAll { host, key, mask in
-            guard !held(key, mask) else { return false }
+            guard !claimed.contains(where: { Self.answers(host, key: key, mask, to: $0) }) else { return false }
             host.keyEquivalent = key
             host.keyEquivalentModifierMask = mask
-            host.isHidden = false
+            host.isHidden = host.identifier == DevMenu.zoomAlternate
             replaced.removeAll { $0 === host }
             return true
         }
@@ -430,16 +576,32 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         while let menu = menus.popLast() {
             for host in menu.items where !(host.target is ShortcutHost) {
                 if let sub = host.submenu { menus.append(sub) }
-                guard !host.keyEquivalent.isEmpty,
-                      claimed.contains(where: { Self.sameChord(host, key: $0.0, $0.1) }) else { continue }
-                unbound.append((host, host.keyEquivalent, host.keyEquivalentModifierMask))
-                if ((menu === editMenu || menu.supermenu === editMenu) && Self.standsIn(host)) || host.target is GoMenuTarget {
-                    host.isHidden = true
-                    replaced.append(host)
-                }
+                let (key, mask) = (host.keyEquivalent, host.keyEquivalentModifierMask)
+                guard !key.isEmpty, claimed.contains(where: { Self.answers(host, key: key, mask, to: $0) }) else { continue }
+                unbound.append((host, key, mask))
                 host.keyEquivalent = ""
             }
         }
+    }
+    /// Edit's own roles, Go ▸ Back and View's zoom step aside for a command
+    /// that stands in for them, and come back for one concealed (`none`),
+    /// which takes the chord, not the place: decided again on every sync.
+    private func stepAside(standing: [(String, NSEvent.ModifierFlags)]) {
+        for (host, key, mask) in unbound {
+            guard let menu = host.menu, ((menu === editMenu || menu.supermenu === editMenu) && Self.standsIn(host))
+                || host.target is GoMenuTarget || host.target is ZoomMenuTarget else { continue }
+            let stands = standing.contains { Self.answers(host, key: key, mask, to: $0) }
+            replaced.removeAll { $0 === host }
+            if stands { replaced.append(host) }
+            setHidden(host, stands || host.identifier == DevMenu.zoomAlternate)
+        }
+    }
+    /// Shows or hides one of the host's own items, or, while a removal
+    /// holds it, sets what the removal's end gives back.
+    private func setHidden(_ item: NSMenuItem, _ hidden: Bool) {
+        let menus = [fileMenu, applicationMenu, navigationMenu, editMenu, viewMenu, windowMenu, helpMenu].compactMap { $0 as? ShortcutMenu }
+        guard !menus.contains(where: { $0.holdHidden(item, hidden) }) else { return }
+        if item.isHidden != hidden { item.isHidden = hidden }
     }
     /// The host's Edit items an app command may stand in for.
     private static let editRoles: Set<Selector> = [Selector(("undo:")), Selector(("redo:")), #selector(NSText.cut(_:)),
@@ -456,9 +618,14 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     private static func same(_ a: (String, NSEvent.ModifierFlags), _ b: (String, NSEvent.ModifierFlags)) -> Bool {
         a.0 == b.0 && a.1.intersection(chordMask) == b.1.intersection(chordMask)
     }
-    /// Whether `item` answers `key` with `mask`.
-    private static func sameChord(_ item: NSMenuItem, key: String, _ mask: NSEvent.ModifierFlags) -> Bool {
-        !key.isEmpty && same((item.keyEquivalent.lowercased(), item.keyEquivalentModifierMask), (key.lowercased(), mask))
+    /// Whether the host's `item`, whose chord is `key` with `mask`, answers
+    /// a command's chord: the same one, or for Zoom In's ⌘+ any ⌘= or ⌘+,
+    /// which AppKit sends it with or without ⇧.
+    private static func answers(_ item: NSMenuItem, key: String, _ mask: NSEvent.ModifierFlags, to chord: (String, NSEvent.ModifierFlags)) -> Bool {
+        if item.target is ZoomMenuTarget, key == "+" {
+            return ["=", "+"].contains(chord.0) && chord.1.intersection([.command, .option, .control]) == .command
+        }
+        return !key.isEmpty && same((key.lowercased(), mask), (chord.0.lowercased(), chord.1))
     }
     private func place(_ items: [NSMenuItem], in menu: NSMenu, at start: Int) {
         for (offset, item) in items.enumerated() {
@@ -486,10 +653,20 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         if view.kind == "text" { return view.paragraphSpec().runs.map(\.text).joined() }
         return view.container.subviews.compactMap { $0 as? NodeView }.map(title).filter { !$0.isEmpty }.joined(separator: " ")
     }
+    /// A window's command is enabled while its window is key with no sheet
+    /// and no modal dialog over the button. One in the app menu or Help is
+    /// the app's (LLP 1021 §5.3): enabled whatever window is key, under a
+    /// sheet and under a modal dialog, as Settings… and Check for Updates…
+    /// are in a hand-built Mac app; `disabled` and `inert` still disable it.
+    private func enabled(_ view: NodeView, key: Bool = false) -> Bool {
+        if view.disabled { return false }
+        if appWide.contains(view.id) { return !view.authoredInert }
+        return !view.inert && (!key || view.window === NSApp.keyWindow) && view.window?.attachedSheet == nil
+    }
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         guard let id = (item.representedObject as? NSNumber)?.uint32Value,
               let view = nodes().first(where: { $0.id == id }) else { return false }
-        return !view.disabled && !view.inert && view.window === NSApp.keyWindow && view.window?.attachedSheet == nil
+        return enabled(view, key: true)
     }
     @objc private func activate(_ item: NSMenuItem) {
         guard validateMenuItem(item), let id = (item.representedObject as? NSNumber)?.uint32Value else { return }
@@ -499,7 +676,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         if let event = NSApp.currentEvent, event.type == .keyDown,
            event.isARepeat || (NSApp.keyWindow?.firstResponder as? NSTextInputClient)?.hasMarkedText() == true
             || presenter?.endedComposition(event) == true { return }
-        if let view = presenter?.views[id] { presenter?.pressShortcut(view) }
+        if let view = presenter?.views[id] { presenter?.pressShortcut(view, appWide: appWide.contains(id)) }
     }
 }
 #endif

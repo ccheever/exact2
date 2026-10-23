@@ -20,6 +20,7 @@ final class AccessibleMenuItem: NSMenuItem {
 }
 
 final class MenuHost: NSObject {
+    var invocationOwner: NodeView?
     private(set) weak var presenter: Presenter?
     final class Entry {
         let popover: NodeView
@@ -91,7 +92,11 @@ final class MenuHost: NSObject {
     /// in `source`'s window, which one bubbled from a popover's own window is
     /// not in.
     private func track(_ menu: NSMenu, positioning item: NSMenuItem? = nil, at point: NSPoint, in source: NodeView,
-                       click: NSEvent? = nil, closed: () -> Void) {
+                       click: NSEvent? = nil, entry: Entry, valid: () -> Bool, closed: () -> Void) {
+        // The release can close this presentation or change what its source invokes.
+        presenter?.pointerSource?.pointerReleased(click)
+        guard entries.contains(where: { $0 === entry }), live(entry.popover), live(source),
+              source.window != nil, source.presenter === presenter, valid() else { closed(); return }
         nativeTracking += 1
         if let click, [.rightMouseDown, .leftMouseDown].contains(click.type), let window = source.window,
            let press = NSEvent.mouseEvent(with: click.type, location: source.convert(point, to: nil), modifierFlags: click.modifierFlags,
@@ -106,13 +111,6 @@ final class MenuHost: NSObject {
             menu.popUp(positioning: item, at: point, in: source)
         }
         nativeTracking -= 1
-        // A menu that opens while the button that opened it is down takes
-        // that button's release (a right press's context menu; a click's
-        // button menu): the view it went down on never hears its up. The
-        // press's hold ends here, with `pointerup`, as a native button's does
-        // after its own tracking loop (NativeButtonsMac.swift); a hold left
-        // standing kept hover from following the pointer until a left click.
-        if let presenter, presenter.pointerHolds, NSEvent.pressedMouseButtons == 0 { source.pointerReleased(nil) }
         closed()
         if nativeTracking == 0 {
             let work = afterTracking; afterTracking.removeAll()
@@ -354,9 +352,13 @@ final class MenuHost: NSObject {
                 // Escape or a click outside chose nothing. A chosen item has
                 // only been recorded: it presses once AppKit's tracking of
                 // `source` has unwound and the menu has closed.
-                self.track(menu, positioning: entry.focusedItem, at: self.popUpPoint(menu, entry.popover, in: source), in: source) {
+                let requiresTarget = self.opens(source, entry.popover)
+                self.track(menu, positioning: entry.focusedItem, at: self.popUpPoint(menu, entry.popover, in: source), in: source, entry: entry, valid: {
+                    self.invokes(source, entry.popover, requiringTarget: requiresTarget, bubbled: entry.bubbled)
+                        && (entry.confirmation.map(self.valid) ?? true)
+                }) {
                     entry.tracking = false
-                    self.close(entry.popover, cancelling: false)
+                    if self.entries.contains(where: { $0 === entry }) { self.close(entry.popover, cancelling: false) }
                 }
                 if let owner = entry.confirmation { DispatchQueue.main.async { owner.finished = true } }
             }
@@ -391,7 +393,14 @@ final class MenuHost: NSObject {
                 presenter.session?.log("context menu \(name) refused: no popover has that id")
                 return
             }
-            while let last = self.entries.last { self.close(last.popover, restoreFocus: false) }
+            // A source in an open popover nests its menu there, as HTML's
+            // popover stack nests one shown with that source: the popovers
+            // holding it stay open, every auto popover above them closes,
+            // and a manual one stays.
+            let holder = self.entries.lastIndex { $0.value != "manual" && self.contains($0.popover, source) }
+            for entry in self.entries[(holder.map { $0 + 1 } ?? 0)...].reversed() where entry.value != "manual" {
+                self.close(entry.popover, restoreFocus: false)
+            }
             if ExactEnv.agentMode { self.show(pop, from: source, run: run, contextMenu: true); return }
             // A new presentation only if it has an item: it retires picks of the last.
             guard pop.container.subviews.contains(where: { ($0 as? NodeView).map { $0.isButton && $0.props["contextPreview"] != "true" } ?? false }) else { return }
@@ -402,7 +411,10 @@ final class MenuHost: NSObject {
             entry.menu = menu; entry.tracking = true
             self.entries.append(entry)
             presenter.popoverEvents.changed(pop, open: true)
-            self.track(menu, at: point, in: source, click: click) {
+            self.track(menu, at: point, in: source, click: click, entry: entry, valid: {
+                self.contextPopover(source, run: run) == name && !source.formDisabled && !source.inert && !self.hidden(source)
+                    && (run.map { !presenter.inlineInert($0) } ?? true)
+            }) {
                 entry.tracking = false
                 if self.entries.contains(where: { $0 === entry }) { self.close(pop, cancelling: false) }
             }
@@ -765,6 +777,8 @@ final class MenuHost: NSObject {
             if row.props["popover"] != nil { continue } // a submenu authored inside its parent
             if row.props["semanticTag"] == "hr" { menu.addItem(.separator()); continue }
             guard row.isButton else { continue }
+            // Escape and outside clicks cancel NSMenu; a hide-only row adds no action.
+            if !row.handlers.contains("press"), presenter?.buttonPressListener(above: row) == nil, closes(row, pop) { continue }
             if let sub = submenu(of: row, path: popovers) {
                 let item = menuItem(of: row, action: nil)
                 menuOpener.pops.append(Weak(pop: sub)) // a row chosen in it opens from the same opener

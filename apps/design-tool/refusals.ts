@@ -20,11 +20,16 @@ export const refusalOf = (b: any, was?: Refusing) => {
 /** The refusals the Inspector says (at most three, then a count): each as the Builds list names its build (the
  * Inspector names a grid copy by its tile, which it reads as it draws). */
 export const refusalRows = (builds: Iterable<Refusing>) => {
-  const refused = [...builds].filter(b => b.inspectRefused != null);
+  const all = [...builds], refused = all.filter(b => b.inspectRefused != null);
   return {
     refusals: refused.slice(0, 3).map(b => ({ id: b.id, host: b.host, name: `${b.host} · ${b.id}${b.page === 'gallery' ? ' · the gallery' : ''}`,
       tail: ` could not turn Inspect on${b.inspectRefused ? `: ${b.inspectRefused}` : ''}. Stop inspecting and Inspect again to retry.` })),
     refusedMore: Math.max(0, refused.length - 3),
+    // Each build's refusal events counted (each moves it, the same words again included): what a move up the chain on
+    // that build waits to see change (tamber/1.16 `select`).
+    refusalCounts: all.map(b => ({ id: b.id, count: b.refusalSeq ?? 0 })),
+    // The builds whose page answered a move up the chain that it can't step.
+    noStep: [...cantStep],
   };
 };
 
@@ -37,4 +42,26 @@ export const takeRefusals = (builds: Map<string, Refusing>) => {
 /** Not asked after all (the request failed): what was refused is said again, where nothing has moved it since. */
 export const restoreRefusals = (builds: Map<string, Refusing>, kept: ReturnType<typeof takeRefusals>) => {
   for (const [id, { r, at }] of kept) { const b = builds.get(id); if (b && (b.refusalSeq ?? 0) === at) b.inspectRefused = r; }
+};
+
+/** A move up the chain sent to a build (tamber/1.16 `select`), until its page answers: an `unsupported inspect` in
+ * that while that says the page can't step (an older build's) greys out the tool's up control for that build alone,
+ * never inspect (theme2 15:02), until it registers again. Any other (its selection gone in a new generation) is
+ * staleness: the move ends, the refusal is said as any is, and the control stays (theme2 06:05). A selection from
+ * it ends the while. */
+export const stepping = new Set<string>(), cantStep = new Set<string>();
+export const stepRefused = (id: string, detail?: unknown, b?: Refusing) => {
+  if (!stepping.delete(id)) return false;
+  // (The words an older web or Apple build answers `select` with: no shipped page says them now.)
+  // (Counted, so the move ends whether or not this tool still inspects there to say it.)
+  if (!/cannot move its selection up/.test(String(detail ?? ''))) { if (b) b.refusalSeq = (b.refusalSeq ?? 0) + 1; return false; }
+  cantStep.add(id); return true;
+};
+/** The server's list read: a build gone, or registered again (as `refusalOf` reads it: its status reset, or none and no
+ * refusal of inspect recorded), may step. */
+export const stepsAgain = (list: any[], was: Map<string, Refusing>) => {
+  for (const id of cantStep) {
+    const b = list.find(x => String(x.id) === id);
+    if (!b || (b.status == null && (was.get(id)?.status != null || b.unsupported?.what !== 'inspect'))) cantStep.delete(id);
+  }
 };

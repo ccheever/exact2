@@ -141,6 +141,10 @@ fn select_after_push(checked: &Checked<'_>) -> Vec<LowerError> {
             .iter()
             .map(|p| (p.name.as_str(), None))
             .collect();
+        // A same-top no-op needs the builtin, not an app function named `top`.
+        if fns.contains_key("top") {
+            scope.push(("top", None));
+        }
         pushed_block(&action.body, &decl.slot, &mut scope, &mut out);
     }
     out
@@ -199,11 +203,27 @@ fn pushed_block<'a>(body: &'a [Stmt], nav: &str, scope: &mut Bound<'a>, out: &mu
 /// only when every arm's is.
 fn pushes<'a>(e: &'a Expr, scope: &Bound<'a>) -> Option<&'a str> {
     match e {
-        Expr::Call(f, _, _) if f == "go" || f == "push" => Some(f),
+        Expr::Call(f, args, _) if f == "go" || f == "push" => match args.as_slice() {
+            [router, location] if current_top(router, location, scope) => pushes(router, scope),
+            _ => Some(f),
+        },
         Expr::Ident(n, _) => scope.iter().rev().find(|(p, _)| p == n)?.1,
         Expr::Ternary(_, a, b, _) => pushes(b, scope).and(pushes(a, scope)),
         _ => None,
     }
+}
+
+fn current_top(router: &Expr, location: &Expr, scope: &Bound<'_>) -> bool {
+    let (Expr::Ident(router, _), Expr::Member(base, field, _)) = (router, location) else {
+        return false;
+    };
+    let Expr::Call(f, args, _) = &**base else {
+        return false;
+    };
+    field == "url"
+        && f == "top"
+        && !scope.iter().any(|(name, _)| *name == "top")
+        && matches!(args.as_slice(), [Expr::Ident(top_router, _)] if top_router == router)
 }
 
 /// Each `select` in `e` of a router a `go` or `push` made.

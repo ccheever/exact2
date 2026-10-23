@@ -76,7 +76,7 @@ extension NodeView {
     /// the paragraph's glyphs, before the glyphs themselves paint.
     func paintBackgroundThroughText(_ ctx: CGContext, paragraph: Paragraph, spec: Spec, in box: CGRect) {
         guard backgroundClip == "text", !cssVisibilityHidden else { return }
-        let glyphs = TextEngine.glyphPath(paragraph, spec: spec, in: box)
+        let glyphs = TextEngine.glyphPath(paragraph, spec: spec, in: box, scale: hypot(ctx.ctm.c, ctx.ctm.d))
         guard !glyphs.isEmpty else { return }
         ctx.saveGState()
         ctx.addPath(glyphs)
@@ -93,12 +93,12 @@ extension NodeView {
 extension TextEngine {
     /// The outlines of a paragraph's glyphs where `draw` paints them, in
     /// the view's y-down space (LLP 1077 D6).
-    static func glyphPath(_ p: Paragraph, spec: Spec, in bounds: CGRect) -> CGPath {
+    static func glyphPath(_ p: Paragraph, spec: Spec, in bounds: CGRect, scale: CGFloat = 1) -> CGPath {
         let path = CGMutablePath()
         for index in p.lines.indices {
             let line = spec.ellipsis ? p.ellipsized(index, spec: spec, width: bounds.width) : p.lines[index]
             let origin = CGPoint(x: bounds.minX + p.origin(index, align: spec.align, width: bounds.width),
-                                 y: bounds.minY + p.baselines[index].rounded())
+                                 y: bounds.minY + paintedBaseline(p.baselines[index], scale: scale))
             for run in (CTLineGetGlyphRuns(line) as? [CTRun]) ?? [] {
                 if (CTRunGetAttributes(run) as NSDictionary)[NSAttributedString.Key.exactHidden] as? Bool == true { continue }
                 let count = CTRunGetGlyphCount(run)

@@ -1,8 +1,8 @@
 # An SVG file read as an image (LLP 1011.001 D2): the document parsed into
 # the kernel's own SVG nodes in a scratch kernel, resolved by the kernel's
 # scene resolver, for each native host to rasterize as it rasterizes an
-# island. A plain dependency of the Apple and Linux hosts and of the
-# compiler, never a loaded module: it needs the kernel whole.
+# island. A plain dependency of the Apple and Linux hosts, of the compiler
+# and of the bake, never a loaded module: it needs the kernel whole.
 [package]
 name = "exact-svg-file"
 version.workspace = true

@@ -103,6 +103,9 @@ impl DataSource for Module {
                 Dispatch::Held
             });
         }
+        if self.yielded(token) {
+            return Module::ask_again();
+        }
         match self.continuation(token) {
             Some(work) => Dispatch::Run(Work::Now(work)),
             None => Dispatch::Missing,
@@ -128,6 +131,10 @@ impl DataSource for Module {
     fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
         if token == exact_runner::BACKGROUND {
             return Some(self.storage.as_ref()?.continuation());
+        }
+        // A worker's owner thread resumes a yield at once, as a host settles `Dispatch::Again`.
+        if self.yielded(token) {
+            return Some(Box::new(Dispatch::again_outcome));
         }
         // An owner thread runs one turn to its end, so another answer's
         // work cannot land while this one waits for it (LLP 1027.002).

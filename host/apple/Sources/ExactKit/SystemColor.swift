@@ -79,6 +79,8 @@ package enum SystemColor {
                          tint resolvedTint: [Double]? = nil, tintColor: PlatformColor? = nil, fallback: [Double]?) -> [Double]? {
         let contrast = contrast ?? highContrast
         #if os(macOS)
+        // The grouped-card metric carries its identity until its window is known.
+        if name == "exactGroupedCardColor" { return dark && elevated ? [255, 255, 255, 8] : fallback }
         if selectedItem, Thread.isMainThread, let share = selectedInk[name],
            var c = rgba(.alternateSelectedControlTextColor, dark: dark, contrast: contrast) { c[3] *= share; return c }
         #endif
@@ -117,7 +119,7 @@ package enum SystemColor {
     /// The platform's own colour a row names (`{"sys": "systemTealColor"}`),
     /// which the platform resolves for each trait itself; nil for any other row.
     static func native(_ row: BatchValue?) -> PlatformColor? {
-        guard case .object(let o)? = row, let name = o["sys"]?.string, !name.hasPrefix("@") else { return nil }
+        guard case .object(let o)? = row, let name = o["sys"]?.string, !name.hasPrefix("@"), name != "exactGroupedCardColor" else { return nil }
         return lookup(name)
     }
 

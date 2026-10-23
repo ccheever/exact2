@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { DRIVEN, drive, lines, ROOT, stop, STUB_APP, TOOL_ORIGIN, toolTurns } from './design-tool-harness.mjs';
 import { spawnOwned } from './test-children.mjs';
+import { upstream } from './tamber-request.mjs';
 
 toolTurns();
 
@@ -47,7 +48,7 @@ test('T6: a tool on another machine pairs through the trusted-tunnel door with a
       // (Its Host as the browser sent it, as a tunnel passes the bytes: the door answers to loopback at any port.)
       const headers = new Headers(req.headers);
       headers.delete('content-length');
-      const res = await fetch(`http://127.0.0.1:${tunnel}${url.pathname}${url.search}`, { method: req.method, headers, body, redirect: 'manual' });
+      const res = await upstream(`http://127.0.0.1:${tunnel}${url.pathname}${url.search}`, { method: req.method, headers, body, redirect: 'manual' });
       const bytes = await res.arrayBuffer();
       let request = {};
       try { request = url.pathname === '/__tamber' && body ? JSON.parse(body) : {}; } catch { /* not the wire */ }

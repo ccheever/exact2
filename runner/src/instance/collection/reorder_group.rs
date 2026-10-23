@@ -253,6 +253,7 @@ impl Collection {
         let item = self.keys[source].as_str().unwrap().to_owned();
         let p = self.preview.as_mut().unwrap();
         p.holding = true;
+        p.dropped = true;
         p.certified = None;
         Ok(Some((item, before)))
     }
@@ -274,6 +275,7 @@ impl Collection {
     ) -> Result<(), InstanceError> {
         if let Some(p) = &mut self.preview {
             p.holding = false;
+            p.dropped = false;
             p.terminal = true;
             p.certified = None;
         }

@@ -127,9 +127,15 @@ pub(crate) fn style_json_rows(
         if matches!(id, StyleId::WrapFlow | StyleId::ShapeMargin) {
             continue;
         }
+        let size = matches!(name, "width" | "height");
         if matches!(name, "translate" | "scale" | "rotate" | "opacity")
-            || !keep.has(id) && (presenter_ignores(name) || matches!(name, "width" | "height"))
+            || !keep.has(id) && (presenter_ignores(name) || size)
         {
+            // A size is layout's; that its author wrote one is still said.
+            if size && style.written.has(id) {
+                let comma = if written.is_empty() { "" } else { "," };
+                let _ = write!(written, "{comma}\"{name}\"");
+            }
             continue;
         }
         if !style.mask.has(id) {
@@ -993,7 +999,7 @@ fn style_json_shown(
     }
     // The presenter must inset editors/images and paint the same border area
     // that the kernel laid out. Authored widths survive separately in the node.
-    let widths = computed.border_widths();
+    let widths = computed.border_widths_in(env);
     for (id, width) in [
         StyleId::BorderWidthTop,
         StyleId::BorderWidthRight,
@@ -1050,7 +1056,7 @@ fn style_json_shown(
             Some(&insets)
         } else if computed.position_area != PositionArea::None {
             Some(&placed)
-        } else if computed.position_type == exact_kernel::PositionType::Sticky {
+        } else if node.layout_position() == exact_kernel::PositionType::Sticky {
             Some(&vertical)
         } else {
             None

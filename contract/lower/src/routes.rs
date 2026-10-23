@@ -275,9 +275,10 @@ impl NavPlace {
 
     /// @ref LLP 1116.009 D3 — a sheet is never transparent: a route that
     /// `navigationPresentation="modal"` presents is on the page's own ground,
-    /// `-exact-background`, unless its author said otherwise. UIKit's sheet
-    /// has the system background under its content, and a hand-built one
-    /// never shows the screen it covers through itself; a web or Mac host
+    /// `-exact-background`, unless its author said otherwise. A hand-built
+    /// UIKit sheet is never see-through: it has the system background, or
+    /// below its large detent UIKit's glass, to which the iOS host leaves
+    /// this ground (LLP 1141.001 D3); a web or Mac host
     /// keeps the covered route in view, so a form whose author wrote no
     /// background was see-through there (the bake-off's habit-tracker, rounds
     /// 10 and 11). The row is the compiler's, set and not written (LLP

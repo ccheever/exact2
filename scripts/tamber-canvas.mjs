@@ -58,7 +58,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { allows as pairingAllows, limiter as pairingLimiter } from './tamber-pairing.mjs';
 import { openRemote } from './tamber-remote.mjs';
-import { refuseBody, viaDoor } from './tamber-request.mjs';
+import { refuseBody, upstream, viaDoor } from './tamber-request.mjs';
 
 export const CANVAS_COOKIE = '__Host-exact-canvas';
 export const GRANT_MS = 30_000;
@@ -241,13 +241,14 @@ function cookies(header, name) {
 /** A request's body up to `limit`: `{body}`, `{over}` (the caller answers
  * 413 and closes), or `{gone}` (the client went, or `signal` aborted: a
  * stalled upload ends with its revoke). */
-const readBody = (req, limit, signal) => new Promise(done => {
+export const readBody = (req, limit, signal) => new Promise(done => {
   const chunks = [];
   let size = 0, settled = false;
   const finish = v => {
     if (settled) return;
     settled = true;
     req.off('data', data); req.off('end', end); req.off('error', gone); req.off('close', gone);
+    req.socket?.off?.('close', gone);
     signal?.removeEventListener('abort', gone);
     done(v);
   };
@@ -256,6 +257,8 @@ const readBody = (req, limit, signal) => new Promise(done => {
   const gone = () => finish({ gone: true });
   if (signal?.aborted || req.destroyed) return gone();
   req.on('data', data); req.on('end', end); req.on('error', gone); req.on('close', gone);
+  // (its connection's close too: under Bun a request on the canvas port's TLS hand-off never fires its own)
+  req.socket?.once?.('close', gone);
   signal?.addEventListener('abort', gone, { once: true });
 });
 
@@ -535,7 +538,7 @@ export function canvasGateway({ loop = null, pairing, origin = null, toolOrigin 
         body = read.body;
       }
       if (signal.aborted) throw new Error('ended');
-      const answer = await fetch(`${loopOrigin}${target.path}${target.query}`, { method: req.method, headers, body, redirect: 'manual', signal });
+      const answer = await upstream(`${loopOrigin}${target.path}${target.query}`, { method: req.method, headers, body, redirect: 'manual', signal });
       const out = {};
       const dropNamed = new Set(String(answer.headers.get('connection') ?? '').toLowerCase().split(',').map(s => s.trim()));
       for (const [k, v] of answer.headers) {

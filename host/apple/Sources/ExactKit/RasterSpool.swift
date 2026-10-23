@@ -19,6 +19,9 @@ final class RasterSpool: @unchecked Sendable {
     /// another launch's repair can be put exactly there.
     nonisolated(unsafe) static var sawSymlink: (() -> Void)?
 
+    /// Tests only: runs after the namespace is locked, before sweeping.
+    nonisolated(unsafe) static var beforeSweep: (() -> Void)?
+
     let tmp: URL
     private let guarded = NSLock()
     private var established: (url: URL, lock: Int32)?
@@ -62,39 +65,88 @@ final class RasterSpool: @unchecked Sendable {
         // A link that could not be unlinked (an immutable link, a read-only
         // tmp) is not a root: nothing is opened through it.
         guard lstat(root.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { throw POSIXError(.ENOTDIR) }
-        let namespace = try lockFile(root.appendingPathComponent(".namespace.lock"), create: true, attempts: attempts)
+        let rootFD = open(root.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard rootFD >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { close(rootFD) }
+        var opened = stat()
+        guard fstat(rootFD, &opened) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        let namespace = try lockFile(rootFD, name: ".namespace.lock", create: true, attempts: attempts)
         defer { close(namespace) }
-        // Swept and made only inside a real directory, checked again under the lock.
-        guard lstat(root.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { throw POSIXError(.ENOTDIR) }
-        sweep(root)
-        let mine = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        if mkdir(mine.path, 0o700) != 0 { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        beforeSweep?()
+        sweep(rootFD)
+        let name = UUID().uuidString
+        let mine = root.appendingPathComponent(name, isDirectory: true)
+        if mkdirat(rootFD, name, 0o700) != 0 { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         do {
-            return (mine, try lockFile(mine.appendingPathComponent(".lock"), create: true, attempts: 1))
+            let mineFD = openat(rootFD, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+            guard mineFD >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            defer { close(mineFD) }
+            let lock = try lockFile(mineFD, name: ".lock", create: true, attempts: 1)
+            // Callers write by URL. Refuse a name that no longer reaches the
+            // directory under which the descriptor made this spool.
+            guard lstat(root.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
+                  info.st_dev == opened.st_dev, info.st_ino == opened.st_ino else {
+                close(lock)
+                throw POSIXError(.ESTALE)
+            }
+            return (mine, lock)
         } catch {
-            try? FileManager.default.removeItem(at: mine)
+            removeDirectory(rootFD, name: name)
             throw error
         }
     }
 
-    /// Remove the directories under `root` that no live process owns: one
-    /// whose lock file is gone, or whose lock this process can take. The
-    /// caller holds the namespace lock. Any other failure (a lock that cannot
-    /// be opened says nothing of its owner) keeps the directory.
+    /// Remove abandoned spool directories without following a replaced root.
+    /// The caller holds the namespace lock.
     static func sweep(_ root: URL) {
-        let fm = FileManager.default
-        guard let entries = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey]) else { return }
-        for dir in entries {
-            // A real directory only: a symlink is left alone, never followed.
-            guard let values = try? dir.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
-                  values.isDirectory == true, values.isSymbolicLink != true else { continue }
-            let fd = open(dir.appendingPathComponent(".lock").path, O_RDWR | O_CLOEXEC | O_NOFOLLOW)
-            if fd < 0 {
-                if errno == ENOENT { try? fm.removeItem(at: dir) }
-                continue
+        let fd = open(root.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else { return }
+        defer { close(fd) }
+        sweep(fd)
+    }
+
+    private static func sweep(_ root: Int32) {
+        for name in names(root) {
+            let dir = openat(root, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+            guard dir >= 0 else { continue }
+            let lock = openat(dir, ".lock", O_RDWR | O_CLOEXEC | O_NOFOLLOW)
+            let abandoned = lock < 0 ? errno == ENOENT : flock(lock, LOCK_EX | LOCK_NB) == 0
+            if abandoned { removeContents(dir); unlinkat(root, name, AT_REMOVEDIR) }
+            if lock >= 0 { close(lock) }
+            close(dir)
+        }
+    }
+
+    private static func names(_ fd: Int32) -> [String] {
+        // fdopendir owns its descriptor; keep the caller's descriptor open.
+        let copy = dup(fd)
+        guard copy >= 0 else { return [] }
+        guard let directory = fdopendir(copy) else { close(copy); return [] }
+        defer { closedir(directory) }
+        var names: [String] = []
+        while let entry = readdir(directory) {
+            let name = withUnsafePointer(to: &entry.pointee.d_name) {
+                $0.withMemoryRebound(to: CChar.self, capacity: Int(MAXPATHLEN)) { String(cString: $0) }
             }
-            if flock(fd, LOCK_EX | LOCK_NB) == 0 { try? fm.removeItem(at: dir) }
-            close(fd)
+            if name != ".", name != ".." { names.append(name) }
+        }
+        return names
+    }
+
+    private static func removeDirectory(_ parent: Int32, name: String) {
+        let fd = openat(parent, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else { return }
+        defer { close(fd) }
+        removeContents(fd)
+        unlinkat(parent, name, AT_REMOVEDIR)
+    }
+
+    private static func removeContents(_ fd: Int32) {
+        for name in names(fd) {
+            var info = stat()
+            guard fstatat(fd, name, &info, AT_SYMLINK_NOFOLLOW) == 0 else { continue }
+            if info.st_mode & S_IFMT == S_IFDIR { removeDirectory(fd, name: name) }
+            else { unlinkat(fd, name, 0) }
         }
     }
 
@@ -109,11 +161,11 @@ final class RasterSpool: @unchecked Sendable {
         }
     }
 
-    /// An open descriptor on `url` holding its exclusive lock, asked for up to
+    /// An open descriptor on `name` under `directory`, holding its exclusive lock, asked for up to
     /// `attempts` times (never a blocking wait: another process holding it
     /// cannot stall the image workers), or a thrown errno.
-    private static func lockFile(_ url: URL, create: Bool, attempts: Int) throws -> Int32 {
-        let fd = open(url.path, O_RDWR | O_CLOEXEC | O_NOFOLLOW | (create ? O_CREAT : 0), 0o600)
+    private static func lockFile(_ directory: Int32, name: String, create: Bool, attempts: Int) throws -> Int32 {
+        let fd = openat(directory, name, O_RDWR | O_CLOEXEC | O_NOFOLLOW | (create ? O_CREAT : 0), 0o600)
         guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         for attempt in 1...max(1, attempts) {
             if flock(fd, LOCK_EX | LOCK_NB) == 0 { return fd }

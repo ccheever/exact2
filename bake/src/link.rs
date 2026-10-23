@@ -96,6 +96,103 @@ pub fn ahead(manifest: &contract::Manifest) -> Result<Vec<Capability>, String> {
         .collect()
 }
 
+/// Take the Rust sources of an Apple bake made before Cargo. The build
+/// script calls this before baking and returns when it answers true.
+/// `files` names generated Rust inputs; a bake must preserve their times
+/// when their bytes do not change. Without EXACT_BAKED, bake normally.
+///
+/// The first Cargo run registers its compiled build-script executable and
+/// bootstraps the bake in a child. Later builds run that executable before
+/// Cargo, so a Contract edit changes only the artifacts the linker reads.
+pub fn take_linked(files: &[&str]) -> Result<bool, String> {
+    use sha2::{Digest, Sha256};
+    use std::{env, fs, path::PathBuf, process::Command};
+    println!("cargo:rerun-if-env-changed=EXACT_BAKED");
+    let Some(baked) = env::var_os("EXACT_BAKED").map(PathBuf::from) else {
+        return Ok(false);
+    };
+    if env::var_os("EXACT_RUST_BAKE").is_some() {
+        return Ok(false);
+    }
+    let out = PathBuf::from(env::var_os("OUT_DIR").ok_or("build requires OUT_DIR")?);
+    let executable = env::current_exe().map_err(|e| e.to_string())?;
+    let variables: std::collections::BTreeMap<_, _> = env::vars()
+        .filter(|(key, _)| {
+            key.starts_with("CARGO_CFG_")
+                || key.starts_with("CARGO_FEATURE_")
+                || matches!(
+                    key.as_str(),
+                    "TARGET" | "HOST" | "PROFILE" | "OPT_LEVEL" | "DEBUG" | "CARGO_MANIFEST_DIR"
+                )
+        })
+        .collect();
+    let mut registration = serde_json::json!({
+        "executable": executable, "cwd": env::current_dir().map_err(|e| e.to_string())?,
+        "env": variables, "sha256": format!("{:x}", Sha256::digest(fs::read(&executable).map_err(|e| e.to_string())?)),
+    });
+    fs::create_dir_all(&baked).map_err(|e| e.to_string())?;
+    let registry = baked.join("rust-baker.json");
+    let mut previous: serde_json::Value = fs::read(&registry)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default();
+    if let Some(object) = previous.as_object_mut() {
+        object.remove("started");
+    }
+    if previous != registration
+        || !baked.join("compat.json").exists()
+        || files.iter().any(|file| !baked.join(file).exists())
+    {
+        registration["started"] = serde_json::json!(std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_millis());
+        let result = Command::new(&executable)
+            .env("EXACT_RUST_BAKE", "1")
+            .env("OUT_DIR", &baked)
+            .output()
+            .map_err(|e| e.to_string())?;
+        eprint!("{}", String::from_utf8_lossy(&result.stderr));
+        if !result.status.success() {
+            return Err(format!("Rust bake failed: {}", result.status));
+        }
+        fs::write(baked.join("rust-output.txt"), &result.stdout).map_err(|e| e.to_string())?;
+        fs::write(&registry, registration.to_string()).map_err(|e| e.to_string())?;
+    }
+    for line in fs::read_to_string(baked.join("rust-output.txt"))
+        .map_err(|e| e.to_string())?
+        .lines()
+    {
+        if line.starts_with("cargo:warning=") || line.starts_with("cargo::warning=") {
+            println!("{line}");
+        }
+    }
+    for file in files {
+        let from = baked.join(file);
+        println!("cargo:rerun-if-changed={}", from.display());
+        let bytes = fs::read(from).map_err(|e| e.to_string())?;
+        let to = out.join(file);
+        if fs::read(&to).ok().as_deref() != Some(&bytes) {
+            fs::write(to, bytes).map_err(|e| e.to_string())?;
+        }
+    }
+    // A previous embedded bake must not be mistaken for this linked bake.
+    for file in [
+        "app.plan",
+        "compat.json",
+        "artifacts.json",
+        "app.plan.map.json",
+        "app.hbc",
+    ] {
+        match fs::remove_file(out.join(file)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.to_string()),
+            _ => {}
+        }
+    }
+    println!("cargo:rerun-if-changed=build.rs");
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::ahead;

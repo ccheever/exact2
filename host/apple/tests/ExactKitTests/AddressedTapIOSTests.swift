@@ -61,6 +61,27 @@ final class AddressedTapIOSTests: XCTestCase {
         return (session, Agent(session: session), { defer { pressed = [] }; return pressed })
     }
 
+    func testANamedDateTapAimsAtItsCompactControlInsideAWiderBox() throws {
+        let (session, agent, _) = rows(), p = session.presenter
+        p.apply(wireBatch([
+            ["op": "create", "id": 10, "kind": "control", "props": ["type": "date", "value": "2026-10-22"], "handlers": ["change"]],
+            ["op": "children", "id": 1, "ids": [10]],
+            ["op": "frame", "id": 10, "x": 10.0, "y": 200.0, "w": 380.0, "h": 44.0],
+        ]))
+        p.viewport.layoutIfNeeded()
+        let node = try XCTUnwrap(p.views[10]), control = try XCTUnwrap(p.controls.controls[10]), window = try XCTUnwrap(window)
+        let b = agent.box(node), cb = agent.box(control)
+        XCTAssertFalse(cb.contains(CGPoint(x: b.midX, y: b.midY)), "the authored box's middle is beside the compact picker")
+        switch agent.addressedPoint(node, box: b, in: window) {
+        case .refused(let refusal): XCTFail("\(refusal)")
+        case .at(let point, _):
+            XCTAssertTrue(cb.contains(point), "a named tap reaches the compact picker: \(point), picker \(cb)")
+        }
+        let unsupported = agent.tap(["id": 10])
+        XCTAssertEqual(unsupported["delivery"] as? String, "unsupported")
+        XCTAssertTrue((unsupported["reason"] as? String ?? "").contains("an iOS simulator can use --touch platform"), "\(unsupported)")
+    }
+
     func testARowWithItsOwnPressIsPressedBesideTheCardAtItsMiddle() throws {
         let (_, agent, presses) = rows()
         let reply = agent.tap(["id": 2])
@@ -329,6 +350,7 @@ final class AddressedTapIOSTests: XCTestCase {
             XCTAssertEqual(focuses, [], "down moves no focus: \(label)", file: file, line: line)
             if let property {
                 p.apply(wireBatch([["op": "props", "id": changed.id, "set": [property: "true"]]]))
+                XCTAssertFalse(target.pressed, "cancelled feedback clears before up: \(label)", file: file, line: line)
                 p.apply(wireBatch([["op": "props", "id": changed.id, "clear": [property]]]))
                 XCTAssertNil(changed.props[property], file: file, line: line)
             }
@@ -373,6 +395,49 @@ final class AddressedTapIOSTests: XCTestCase {
 
     func testAHeldInPagePressWithoutChangesPressesOnce() throws {
         try heldPressRestored(nil)
+    }
+
+    func testFocusDisablingAndRestoringThePressTargetCancelsItsActivation() throws {
+        let (p, agent) = heldPressPage()
+        let target = try XCTUnwrap(p.views[2]), keeper = try XCTUnwrap(p.views[5])
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        p.onFocus = { id in
+            if id == target.id {
+                p.apply(wireBatch([["op": "props", "id": id, "set": ["disabled": "true"]]]))
+                p.apply(wireBatch([["op": "props", "id": id, "clear": ["disabled"]]]))
+            }
+        }
+        for synthetic in [false, true] {
+            XCTAssertTrue(keeper.becomeFirstResponder())
+            let point = CGPoint(x: 10, y: 10), at = p.client(target.convert(point, to: nil))
+            if synthetic {
+                XCTAssertNil(agent.tap(["id": 2, "phase": "down", "x": Double(at.x), "y": Double(at.y)])["error"])
+                XCTAssertTrue(agent.tap(["phase": "up"])["pressed"] is NSNull)
+            } else {
+                let touch = PaddingTouch(target, at: point)
+                target.touchesBegan([touch], with: nil); target.touchesEnded([touch], with: nil)
+            }
+            XCTAssertEqual(presses, [], synthetic ? "agent" : "touch")
+        }
+    }
+
+    func testAFocusOnlyContactStaysCancelledAfterDisableAndRestore() throws {
+        let (p, agent) = heldPressPage()
+        let target = try XCTUnwrap(p.views[2]), keeper = try XCTUnwrap(p.views[5])
+        target.handlers = ["focus"]
+        for synthetic in [false, true] {
+            XCTAssertTrue(keeper.becomeFirstResponder())
+            let touch = PaddingTouch(target, at: CGPoint(x: 10, y: 10))
+            let at = p.client(touch.location(in: nil))
+            if synthetic { XCTAssertNil(agent.tap(["id": 2, "phase": "down", "x": Double(at.x), "y": Double(at.y)])["error"]) }
+            else { target.touchesBegan([touch], with: nil) }
+            p.apply(wireBatch([["op": "props", "id": 2, "set": ["disabled": "true"]]]))
+            p.apply(wireBatch([["op": "props", "id": 2, "clear": ["disabled"]]]))
+            if synthetic { XCTAssertNil(agent.tap(["phase": "up"])["error"]) }
+            else { target.touchesEnded([touch], with: nil) }
+            XCTAssertTrue(keeper.isFirstResponder, synthetic ? "agent" : "touch")
+        }
     }
 
     func testAHeldInPagePressSurvivesReparentingByItsOwnFocus() throws {

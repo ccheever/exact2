@@ -8,15 +8,14 @@
 // paints here (the kernel-painted top layer is the web's; D2's is owed).
 // Items are rebuilt every time the menu opens (UIDeferredMenuElement
 // .uncached), after the invoker's own press has gone to the runner — both
-// fire, D1 — so a menu that refreshes its rows on that press shows the
-// refreshed rows.
-
+// fire, D1 — so the menu shows rows refreshed by that press.
 #if os(iOS) || os(tvOS)
 import UIKit
 
 final class MenuHost {
     private(set) weak var presenter: Presenter?
-    private var touchObserver: PopoverTouch?
+    /// What hears a touch that dismisses a light popover (`observeTouches`).
+    var touchObserver: PopoverTouch?
     private var overlays: [UInt32: UIButton] = [:]
     /// The target and press shape each overlay's menu was built for.
     private var menuShapes: [UInt32: String] = [:]
@@ -130,12 +129,7 @@ final class MenuHost {
         // Ordinary menus retain LLP 1021 D4's existing agent presentation.
         // Confirmations use the same UIKit owner under either input carrier.
         guard let presenter else { return }
-        let surface = presenter.modals.coordinateView ?? presenter.viewport
-        if touchObserver?.view !== surface {
-            touchObserver?.view?.removeGestureRecognizer(touchObserver!)
-            let observer = PopoverTouch(host: self)
-            surface.addGestureRecognizer(observer); touchObserver = observer
-        }
+        observeTouches(on: presenter.modals.coordinateView ?? presenter.documentPort)
         if let owner = confirmation, !owner.fields.isEmpty { followPrompt(owner) }
         if let owner = confirmation, !valid(owner) { resetConfirmation() }
         sheets.sync()
@@ -181,6 +175,13 @@ final class MenuHost {
                 #endif
                 continue // Its own primary action invokes after activation (D13).
             }
+            // A custom invoker's popover that is no menu opens as itself, from
+            // the invoker, as a native button's does (LLP 1021 D3: only a menu
+            // is the platform's pull-down); its tap invokes after its press
+            // (`activating`, `invoke`). tvOS's remote has no such path: the overlay stays.
+            #if os(iOS)
+            if !pullsDown(pop) { continue }
+            #endif
             live.insert(v.id)
             if isConfirmation(pop) {
                 let button = overlays[v.id] ?? InvokerButton(type: .custom)
@@ -418,7 +419,8 @@ final class MenuHost {
             // also survives the invoker subsequently becoming inert.
             if view === inertBoundary { checksInert = false }
             if let n = view as? NodeView, (contextMenu ? n.formDisabled : n.disabled) || (checksInert && n.props["inert"] == "true") { return false }
-            if view.isHidden, !(inBar && presenter?.navigation.hiddenForBar(view) == true) {
+            let projectedSection = contextMenu && (view as? NodeView).map { presenter?.groupedLists?.hidSection($0) == true } == true
+            if view.isHidden, !projectedSection, !(inBar && presenter?.navigation.hiddenForBar(view) == true), !groupedProjectionShows(node, behind: view) {
                 guard let pop = view as? NodeView, isConfirmation(pop),
                       pop.props["popover"] != nil || isDialog(pop) else { return false }
             }
@@ -568,7 +570,7 @@ final class MenuHost {
             }
         }
         owner.finishing = true
-        owner.fields.forEach { $0.end() }
+        owner.fields.forEach { $0.end(relocating: pendingConfirmation.map { $0.popover === owner.popover } == true) }
         // The route's presenting controller dismisses the whole stack once.
         // Removing route content is not HTML dialog.close(), so sends no close.
         return { [owner] in
@@ -576,9 +578,9 @@ final class MenuHost {
             endSheets()
         }
     }
-
+    func preservesFocus(_ id: UInt32) -> Bool { sheets.preservesFocus(id) || pendingConfirmation?.fields.contains { $0.node?.id == id && $0.node === presenter?.views[id] && $0.node?.incarnation == $0.incarnation } == true }
     func resumeAfterRouteDismissal() {
-        guard let presenter, !presenter.modals.inTransition, sheets.resumeAfterRouteDismissal(),
+        guard let presenter, !presenter.modals.inTransition, !presenter.navigation.inTransition, sheets.resumeAfterRouteDismissal(),
               confirmation == nil, let pending = pendingConfirmation else { return }
         pendingConfirmation = nil
         let pop = pending.popover
@@ -589,6 +591,7 @@ final class MenuHost {
         }
     }
     func reset() {
+        focus.reset()
         resetConfirmation()
         sheets.reset()
         overlays.values.forEach {
@@ -879,17 +882,21 @@ final class MenuHost {
         presenter.controls.syncShown()
         if let field = Self.autofocus(in: pop) { presenter.focusNode(field) }
     }
-    /// Under the agent, a context menu (LLP 1021 §5.1) is its popover painted
-    /// in the top layer, anchored to `node`, as an invoker's (D4): its
-    /// preview row and menu rows are nodes the agent reads and taps. Called
-    /// after `node`'s own `contextmenu` has been delivered; any other open
-    /// popover closes, as a tap outside it would.
-    /// Whether it opened one.
+    /// Paint the context popover after its source's handler ran. Read the
+    /// live run's props because the handler may replace it.
     @discardableResult
-    func agentContext(_ node: NodeView) -> Bool {
+    func agentContext(_ node: NodeView, inline inlineID: UInt32? = nil) -> Bool {
         // Its own action may have unmounted or disabled it, or renamed its popover.
-        guard ExactEnv.agentMode, let presenter, let name = node.props["contextPopover"], eligible(node, contextMenu: true) else { return false }
-        for other in Array(agentOpen.keys) { drop(other) }
+        guard ExactEnv.agentMode, let presenter, eligible(node, contextMenu: true) else { return false }
+        let props: [String: String]
+        if let inlineID {
+            guard presenter.textHost(inlineID) === node, !presenter.inlineInert(inlineID), let run = presenter.inlineText(inlineID) else { return false }
+            props = run.props
+        } else { props = node.props }
+        guard let name = props["contextPopover"] else { return false }
+        // `agentShow` nests it in the open popovers holding `node`, as HTML's
+        // stack does, and closes every other auto popover, as a tap outside
+        // them would; a manual one stays.
         guard let pop = presenter.carrying("popover").first(where: { $0.props["id"] == name && !isConfirmation($0) }) else {
             presenter.session?.log("context menu \(name) refused: no popover has that id")
             return false
@@ -969,7 +976,7 @@ final class MenuHost {
         }
         return nil
     }
-    func unmounted() { resetConfirmation(); sheets.reset() }
+    func unmounted() { focus.reset(); resetConfirmation(); sheets.reset() }
     var inTransition: Bool {
         if sheets.inTransition || pendingConfirmation != nil { return true }
         guard let owner = confirmation else { return false }
@@ -1317,6 +1324,7 @@ final class MenuHost {
         }
         #endif
         confirmation = owner
+        owner.observeDisappearance()
         if announce { presenter?.popoverEvents.changed(pop, open: true) }
         controller.present(owner.alert, animated: !ExactEnv.agentFreezes) { [weak self, weak owner] in
             guard let self, let owner else { return }

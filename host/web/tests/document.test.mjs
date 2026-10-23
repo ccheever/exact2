@@ -700,11 +700,12 @@ browserCheck('the ink on an accent fill is chosen for contrast in each scheme', 
   }, {html});
 });
 
-// LLP 1116.003 D3.2: a symbol that names no tint is the nearest authored
-// accent, as `AccentColor` is (LLP 1116.001 D2) and UIKit's inherited tint
-// is: event-rsvp's calendar under `light-dark(#6652c5, #b5a4ff)` drew the
-// browser's blue. Both targets' symbol sheets; an authored tint still wins.
-for (const sheet of ['host/web/glue.js', 'host/web-js/symbols.js']) browserCheck(`an untinted symbol is the nearest accent (${sheet})`, async () => {
+// LLP 1081 stage 2: a symbol is drawn in its `color`, as the Apple hosts
+// draw a page symbol (130e009940), not the nearest accent (LLP 1116.003 D3.2
+// had it so): under an authored accent an unstyled symbol is still its
+// text's colour. Both targets' symbol sheets; an ink a native face or a bar
+// sets (`--exact-tint`) still wins.
+for (const sheet of ['host/web/glue.js', 'host/web-js/symbols.js']) browserCheck(`an untinted symbol is its text's colour (${sheet})`, async () => {
   const style = readFileSync(resolve(ROOT, sheet), 'utf8').match(/'(@property --exact-tint[^']*)'/)[1];
   const shell = SHIPPED;
   const img = (id, css = '') => `<img id="${id}" data-symbol-path="M0 0h16v16H0Z" style="width:16px;height:16px;${css}">`;
@@ -712,18 +713,18 @@ for (const sheet of ['host/web/glue.js', 'host/web-js/symbols.js']) browserCheck
   await withDocument('/', async tab => {
     const page = await tab(true);
     await page.until("document.readyState === 'complete'", 'symbol fixture');
-    const tint = await page(`(() => Object.fromEntries(['light', 'dark', 'authored', 'unsaid'].map(id => [id, getComputedStyle(document.getElementById(id)).backgroundColor]).concat([['system', getComputedStyle(document.getElementById('system')).color]])))()`);
-    expect(tint.light).toBe('rgb(102, 82, 197)');
-    expect(tint.dark).toBe('rgb(181, 164, 255)');
+    const read = (property) => page(`(() => Object.fromEntries(['light', 'dark', 'authored', 'unsaid'].map(id => [id, getComputedStyle(document.getElementById(id)).${property}])))()`);
+    const [tint, text] = [await read('backgroundColor'), await read('color')];
+    for (const id of ['light', 'dark', 'unsaid']) expect([id, tint[id]]).toEqual([id, text[id]]);
+    expect(tint.light).not.toBe('rgb(102, 82, 197)');
     expect(tint.authored).toBe('rgb(255, 0, 0)');
-    expect(tint.unsaid).toBe(tint.system); // with no accent authored, the page's own: the look's (the browser's hue, fitted to read)
   }, {html});
 });
 
-// LLP 1121 stage 9 B (D10): a symbol nobody tinted whose `color` its author
-// wrote (`data-symbol-color`, element.rs) draws in that colour, a
-// `light-dark()` one by its scheme and a later one at once; an authored tint
-// still wins, and an unmarked symbol stays the accent. Both targets' sheets.
+// LLP 1121 stage 9 B (D10), LLP 1081 stage 2: a symbol nobody tinted draws
+// in its `color`, written (`data-symbol-color`, element.rs) or inherited, a
+// `light-dark()` one by its scheme and a later one at once; an ink set on it
+// (`--exact-tint`) still wins. Both targets' sheets.
 for (const sheet of ['host/web/glue.js', 'host/web-js/symbols.js']) browserCheck(`a symbol draws in its written colour (${sheet})`, async () => {
   const style = readFileSync(resolve(ROOT, sheet), 'utf8').match(/'(@property --exact-tint[^']*)'/)[1];
   const img = (id, css = '', marked = true) => `<img id="${id}" data-symbol-path="M0 0h16v16H0Z"${marked ? ' data-symbol-color' : ''} style="width:16px;height:16px;${css}">`;
@@ -733,7 +734,7 @@ for (const sheet of ['host/web/glue.js', 'host/web-js/symbols.js']) browserCheck
     await page.until("document.readyState === 'complete'", 'symbol fixture');
     const read = `(() => Object.fromEntries(['written', 'authored', 'unmarked', 'light', 'dark'].map(id => [id, getComputedStyle(document.getElementById(id)).backgroundColor])))()`;
     const tint = await page(read);
-    expect(tint).toEqual({ written: 'rgb(10, 20, 30)', authored: 'rgb(255, 0, 0)', unmarked: 'rgb(102, 82, 197)', light: 'rgb(1, 2, 3)', dark: 'rgb(4, 5, 6)' });
+    expect(tint).toEqual({ written: 'rgb(10, 20, 30)', authored: 'rgb(255, 0, 0)', unmarked: 'rgb(10, 20, 30)', light: 'rgb(1, 2, 3)', dark: 'rgb(4, 5, 6)' });
     await page(`document.getElementById('ink').style.color = 'rgb(0, 128, 0)'`);
     expect((await page(read)).written).toBe('rgb(0, 128, 0)');
   }, {html});

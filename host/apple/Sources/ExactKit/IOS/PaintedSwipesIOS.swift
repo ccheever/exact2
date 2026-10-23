@@ -86,7 +86,7 @@ final class PaintedSwipes {
         // At rest at once, the slide animated over it, as a cell closes: what
         // asks next (a drag, the agent) reads the row closed.
         UIView.animate(withDuration: ExactEnv.agentFreezes ? 0 : 0.3, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
-            sv.contentOffset = CGPoint(x: x, y: sv.contentOffset.y)
+            sv.contentOffset = PixelGrid.offset(CGPoint(x: x, y: sv.contentOffset.y), in: sv, clamped: false)
         }
     }
 

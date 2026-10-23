@@ -7,6 +7,35 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
+#if os(iOS)
+private final class SelectButtonIOS: UIButton {
+    var valueAlignment = UIControl.ContentHorizontalAlignment.left {
+        didSet { if oldValue != valueAlignment { setNeedsLayout() } }
+    }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard let title = titleLabel else { return }
+        let rtl = effectiveUserInterfaceLayoutDirection == .rightToLeft
+        let insets = configuration?.contentInsets ?? .zero
+        let left = rtl ? insets.trailing : insets.leading
+        let right = bounds.width - (rtl ? insets.leading : insets.trailing)
+        // Fill pins UIKit's popup indicator to the inline end and centres the
+        // title in the space left beside it. Keep that native indicator slot.
+        let native = title.frame
+        let start = rtl ? 2 * native.midX - right : left
+        let end = rtl ? right : 2 * native.midX - left
+        var frame = native
+        switch valueAlignment {
+        case .left: frame.origin.x = start
+        case .right: frame.origin.x = end - frame.width
+        default: break
+        }
+        title.frame = frame
+        title.textAlignment = valueAlignment == .left ? .left : valueAlignment == .right ? .right : .center
+    }
+}
+#endif
+
 extension ControlHost {
     func makeValueControl(_ kind: String, _ id: UInt32) -> UIControl {
         #if os(tvOS)
@@ -23,7 +52,12 @@ extension ControlHost {
         #else
         config.contentInsets = .zero
         #endif
+        #if os(iOS)
+        let button = SelectButtonIOS(configuration: config)
+        button.contentHorizontalAlignment = .fill
+        #else
         let button = UIButton(configuration: config)
+        #endif
         button.showsMenuAsPrimaryAction = true
         button.changesSelectionAsPrimaryAction = true
         return button
@@ -42,15 +76,15 @@ extension ControlHost {
         guard let button = control as? UIButton else { return }
         assign(button, \.tintColor, accent)
         #if os(iOS)
-        if owner.props["type"] == "select" {
-            let alignment = selectAlignment(owner)
-            if button.contentHorizontalAlignment != alignment {
-                button.contentHorizontalAlignment = alignment
-                // UIKit caches this alignment in its configuration layout.
-                // Reapply only on a change; the button and its menu stay put.
-                let configuration = button.configuration
-                button.configuration = nil
-                button.configuration = configuration
+        if let select = button as? SelectButtonIOS {
+            select.valueAlignment = valueAlignment(owner)
+            let direction: UISemanticContentAttribute = owner.style["direction"]?.string == "rtl" ? .forceRightToLeft : .forceLeftToRight
+            if select.semanticContentAttribute != direction {
+                select.semanticContentAttribute = direction
+                select.traitOverrides.layoutDirection = direction == .forceRightToLeft ? .rightToLeft : .leftToRight
+                let configuration = select.configuration
+                select.configuration = nil
+                select.configuration = configuration
             }
         }
         #endif
@@ -62,12 +96,10 @@ extension ControlHost {
     }
 
     #if os(iOS)
-    /// Align the closed value and its native indicator; an unstyled select
-    /// keeps UIKit's centering. Logical edges follow the computed direction.
-    func selectAlignment(_ owner: NodeView) -> UIControl.ContentHorizontalAlignment {
+    /// Align closed select and date values; logical edges follow the computed direction.
+    func valueAlignment(_ owner: NodeView) -> UIControl.ContentHorizontalAlignment {
         let rtl = owner.style["direction"]?.string == "rtl"
-        // Unsaid, a value beside its label trails it, as a hand-built cell's and a SwiftUI `Form` picker's do;
-        // on a line of its own (a row that wraps at the larger text sizes) it leads, as theirs does there.
+        // Unwritten label/value rows trail the value; a value on its own line starts.
         if !owner.wrote("text_align"), ["left", "start", nil].contains(owner.style["text_align"]?.string), let beside = besideLabel(owner) {
             return beside == rtl ? .left : .right
         }
@@ -76,7 +108,8 @@ extension ControlHost {
         case "right": return .right
         case "start", "justify": return rtl ? .right : .left
         case "end": return rtl ? .left : .right
-        default: return .center
+        case "center": return .center
+        default: return rtl ? .right : .left
         }
     }
 

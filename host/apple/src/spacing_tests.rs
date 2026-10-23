@@ -181,3 +181,51 @@ fn an_hr_is_one_device_pixel_of_the_scale_the_presenter_reports() {
     );
     assert!(host.set_display_scale(0.0).contains("display scale"));
 }
+
+#[test]
+fn fractional_borders_use_one_width_for_layout_content_and_paint() {
+    for width in [0.5, 0.9, 1.5] {
+        let source = format!(
+            r#"component App
+  view
+    box width=40 height=20 border-width={width} border-style="solid" testId="box"
+      box width=10 height=10 testId="child"
+"#
+        );
+        let (mut host, mut ops) = boot(&source);
+        for scale in [1.0, 2.0, 3.0, 1.0] {
+            let update: serde_json::Value =
+                serde_json::from_str(&host.set_display_scale(scale)).unwrap();
+            ops.extend(update["ops"].as_array().cloned().unwrap_or_default());
+            let used = (width * scale + 0.001_f64).floor().max(1.0) / scale;
+            let k = host.runner().kernel();
+            let node = k.node(view(&host, "box")).unwrap();
+            let content = exact_kernel::svg::scene::content_box(k, &node);
+            assert!(
+                (content.0 as f64 - used).abs() < 1e-5,
+                "content: {width} at {scale}x: {content:?}"
+            );
+            assert!(
+                (frame(&host, &ops, "child")[0] - used).abs() < 1e-5,
+                "child: {width} at {scale}x"
+            );
+            assert!(
+                (frame(&host, &ops, "box")[2] - (40.0 + 2.0 * used)).abs() < 1e-5,
+                "content-box sizing"
+            );
+            assert!(
+                (style(&host, &ops, "box")["border_width_left"]
+                    .as_f64()
+                    .unwrap()
+                    - used)
+                    .abs()
+                    < 1e-5,
+                "paint: {width} at {scale}x"
+            );
+            assert_eq!(
+                node.style.border_width_left as f64, width as f32 as f64,
+                "authored width survives scale changes"
+            );
+        }
+    }
+}

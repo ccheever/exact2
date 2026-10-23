@@ -5,8 +5,8 @@
   "id": "com.exact.videoplayer",
   "start_url": "/",
   "display": "standalone",
-  "theme_color": "#11151c",
-  "background_color": "#11151c",
+  "theme_color": "#000000",
+  "background_color": "#000000",
   "app": {
     "id": "com.exact.videoplayer",
     "name": "Video Player"

@@ -90,6 +90,31 @@ final class IdleTickTests: XCTestCase {
         XCTAssertNotEqual(session.timerDue, due, "the report applied after the skip, its clock the latest (an unbooted runtime's has none)")
     }
 
+    func testWorkWaitingForAStaleSliceRunsAfterTheCommitAndDropsOldViewReports() {
+        let session = ExactApp.shared.makeSession(label: "stale-slice")
+        defer { session.destroy() }
+        var calls: [String] = []
+        session.holdFillForTests()
+        session.whenIdle { calls.append("pump") }
+        session.whenIdle(bound: true, { calls.append("old views") }, cancelled: { calls.append("cancelled") })
+        let staleGeneration = session.generation
+        session.commitForTests()
+        session.whenIdle(bound: true) { calls.append("new views") }
+        session.publishFillForTests(1, wireBatch([["op": "create", "id": 999, "kind": "view"]]), generation: staleGeneration)
+        session.drainFill()
+        XCTAssertTrue(calls.isEmpty, "the commit's tree must apply before its waiters")
+        XCTAssertNil(session.presenter.views[999], "a stale slice applies nothing")
+        let finished = expectation(description: "stale waiters released")
+        DispatchQueue.main.async { finished.fulfill() }
+        wait(for: [finished], timeout: 5)
+        XCTAssertEqual(calls, ["pump", "cancelled", "new views"])
+        session.holdFillForTests()
+        session.whenIdle { calls.append("same generation") }
+        session.publishFillForTests(1, Batch(ops: [], timers: false, motion: false, clock: nil, error: nil), generation: session.generation)
+        session.drainFill()
+        XCTAssertEqual(calls.last, "same generation")
+    }
+
     func testTheControlsFlagDecodes() throws {
         let data = Data(#"{"ops":[],"timers":false,"motion":false,"controls":true}"#.utf8)
         XCTAssertTrue(Batch.decode(data).controls)

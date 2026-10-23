@@ -18,6 +18,7 @@ import CExact
 /// (a divider, a window) gave it another size.
 final class BlockView: NSView {
     var sizeChanged: ((CGSize) -> Void)?
+    var positionChanged: (() -> Void)?
     /// The moves of a free pointer over a window of the session's own (a
     /// popover's, a sheet's), as the page's viewport reports its window's
     /// (PageScrollView.swift): an authored ancestor out in the page hears
@@ -38,6 +39,11 @@ final class BlockView: NSView {
     override func mouseEntered(with event: NSEvent) { pointerTracking?(event) }
     override func mouseMoved(with event: NSEvent) { pointerTracking?(event) }
     override func mouseExited(with event: NSEvent) { pointerTracking?(event) }
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        let old = frame.origin
+        super.setFrameOrigin(newOrigin)
+        if newOrigin != old { positionChanged?() }
+    }
     override func setFrameSize(_ newSize: NSSize) {
         let old = frame.size
         super.setFrameSize(newSize)
@@ -58,6 +64,7 @@ final class BlockHost {
         var before: [Sibling] = []
         var turn = 0
         var block: HostBlock
+        var placement: BlockPlacement?
         /// What its container does with its used size (a sheet sizes its window).
         var used: ((CGSize) -> Void)?
     }
@@ -66,6 +73,9 @@ final class BlockHost {
     private var turns = 0
     /// Each block's used size, as the last layout returned it.
     private(set) var used: [UInt32: CGSize] = [:]
+    /// Each block's rectangle in its root's coordinates (`BatchOp.blockRect`),
+    /// a popover's in the page too: what a painted popover is reported by.
+    private(set) var rects: [UInt32: CGRect] = [:]
     /// A block's used size changed: a sheet sizes its window from it.
     var onUsed: ((UInt32, CGSize) -> Void)?
     init(_ presenter: Presenter) { self.presenter = presenter }
@@ -73,6 +83,10 @@ final class BlockHost {
     /// Whether `node`'s view lives in a container's view: a `children` op of
     /// its authored parent leaves it there.
     func owns(_ node: NodeView) -> Bool { entries[node.id]?.node === node }
+
+    /// The subtrees in containers of their own, in the order they were
+    /// shown: the page a walk of the root does not reach.
+    var shown: [NodeView] { entries.values.sorted { $0.turn < $1.turn }.map(\.node) }
 
     /// Event paths keep the authored parent across a native container.
     /// A home that has disappeared ends the path.
@@ -98,7 +112,7 @@ final class BlockHost {
 
     /// Put `node`'s subtree in `container` and lay it out in `block`; `used`
     /// hears its used size, now and whenever layout gives it another.
-    func show(_ node: NodeView, in container: NSView, block: HostBlock, used: ((CGSize) -> Void)? = nil) {
+    func show(_ node: NodeView, in container: NSView, block: HostBlock, placement: BlockPlacement? = nil, used: ((CGSize) -> Void)? = nil) {
         guard let presenter, presenter.views[node.id] === node else { return }
         // Outside the root (a sheet, a popover, a split's pane), still this
         // presenter's theme (LLP 1121 stage 5).
@@ -111,31 +125,35 @@ final class BlockHost {
             let nodes = home.map { authored($0.subviews.compactMap { $0 as? NodeView }, in: $0) } ?? []
             let before = nodes.prefix { $0 !== node }.map { Sibling(node: $0) }
             turns += 1
-            entries[node.id] = Entry(node: node, home: home, next: next, before: before, turn: turns, block: block, used: used)
-        } else { entries[node.id]?.block = block; entries[node.id]?.used = used }
+            entries[node.id] = Entry(node: node, home: home, next: next, before: before, turn: turns, block: block, placement: placement, used: used)
+        } else { entries[node.id]?.block = block; entries[node.id]?.placement = placement; entries[node.id]?.used = used }
         if node.superview !== container {
             container.addSubview(node)
             presenter.topLayerChanged()
         }
-        tell([(node.id, block)])
+        tell([(node.id, block)], placements: [(node.id, placement)])
     }
 
     /// The container gave the subtree another box: a divider moved, a
     /// sheet's maximum changed with its parent window.
-    func resize(_ node: NodeView, _ block: HostBlock) {
-        guard owns(node), entries[node.id]?.block != block else { return }
+    func resize(_ node: NodeView, _ block: HostBlock, placement: BlockPlacement? = nil) {
+        guard owns(node), entries[node.id]?.block != block || entries[node.id]?.placement != placement else { return }
         entries[node.id]?.block = block
-        tell([(node.id, block)])
+        entries[node.id]?.placement = placement
+        tell([(node.id, block)], placements: [(node.id, placement)])
     }
 
     /// Give the subtree back to the page, where its authored parent has it.
     func release(_ node: NodeView) {
-        guard owns(node), let entry = entries.removeValue(forKey: node.id) else { return }
+        guard owns(node), let entry = entries[node.id] else { return }
+        let siblings = entry.home.map { authored($0.subviews.compactMap { $0 as? NodeView }, in: $0) } ?? []
+        let following = siblings.drop { $0 !== node }.dropFirst().first { $0.superview === entry.home }
+        entries[node.id] = nil
         used[node.id] = nil
         if presenter?.views[node.id] === node, let home = entry.home {
             // Before the sibling that followed it, when that is still there;
             // the authored parent's next `children` op settles any other order.
-            if let next = entry.next, next.superview === home { home.addSubview(node, positioned: .below, relativeTo: next) }
+            if let next = following ?? entry.next, next.superview === home { home.addSubview(node, positioned: .below, relativeTo: next) }
             else { home.addSubview(node) }
             presenter?.topLayerChanged()
         } else { node.removeFromSuperview() }
@@ -144,6 +162,7 @@ final class BlockHost {
 
     /// The batch's `block` op: a block's used size.
     func applied(_ op: BatchOp) {
+        if op.payload["op"] as? String == "block" { rects[op.id] = op.blockRect } // none: no block
         guard op.payload["op"] as? String == "block", entries[op.id] != nil,
               let w = op.payload["w"] as? NSNumber, let h = op.payload["h"] as? NSNumber else { return }
         let size = CGSize(width: w.doubleValue, height: h.doubleValue)
@@ -157,17 +176,20 @@ final class BlockHost {
     /// a sheet keeps what it showed while it leaves (RouteSheetMac.swift).
     var onDestroyed: ((NodeView) -> Void)?
 
+    /// The runtime is replaced: no rectangle it sent stands.
+    func forgetRects() { rects = [:] }
+
     /// The node is gone, and its block with it.
     func destroyed(_ id: UInt32) {
         if let node = entries[id]?.node { onDestroyed?(node) }
-        entries[id] = nil; used[id] = nil
+        entries[id] = nil; used[id] = nil; rects[id] = nil
     }
 
-    private func tell(_ blocks: [(UInt32, HostBlock?)]) {
+    private func tell(_ blocks: [(UInt32, HostBlock?)], placements: [(UInt32, BlockPlacement?)] = []) {
         guard let session = presenter?.session else { return }
-        session.whenIdle { [weak session] in
+        session.whenIdle(bound: true) { [weak session] in
             guard let session else { return }
-            session.apply(session.runtime.blocks(blocks))
+            session.apply(session.runtime.blocks(blocks, placements: placements))
         }
     }
 }

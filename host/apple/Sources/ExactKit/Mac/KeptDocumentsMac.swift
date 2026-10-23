@@ -70,12 +70,15 @@ public enum KeptDocuments {
         return URL(fileURLWithPath: String(cString: buffer))
     }
 
-    /// What File ▸ Open Recent holds, as paths.
-    static var recent: [String] { NSDocumentController.shared.recentDocumentURLs.map(\.path) }
+    /// What File ▸ Open Recent holds, as paths, newest first: while a clear
+    /// is on its way (`toNote`), what it will hold once noted again.
+    static var recent: [String] { (toNote.map { $0.urls.reversed() } ?? NSDocumentController.shared.recentDocumentURLs).map(\.path) }
 
     /// File ▸ Open Recent ▸ Clear Menu: the list empties, and with it what
     /// every app here keeps.
     static func clear() {
+        assert(Thread.isMainThread, "Open Recent's bookkeeping is the main thread's")
+        toNote = nil; late = nil; generation += 1
         NSDocumentController.shared.clearRecentDocuments(nil)
         listChanged()
     }
@@ -89,15 +92,85 @@ public enum KeptDocuments {
 
     /// The app forgot a document it kept (`forgetDocument`): it leaves Open
     /// Recent too. AppKit removes no single entry, so the list is noted again
-    /// without it, oldest first.
+    /// without it, oldest first (`noteWhenCleared`); one forgotten while that
+    /// is on its way leaves what is waiting to be noted.
     static func forgotten(device: UInt64, inode: UInt64) {
+        assert(Thread.isMainThread, "Open Recent's bookkeeping is the main thread's")
+        let it = { (url: URL) in identity(url.path).map { $0 == (device, inode) } ?? false }
+        if let waiting = toNote { toNote = (waiting.cleared, waiting.urls.filter { !it($0) }); return }
+        // (Watched after a late clear too: it never comes back.)
+        if let watched = late { late = (watched.urls.filter { !it($0) }, watched.generation) }
         let controller = NSDocumentController.shared
         let urls = controller.recentDocumentURLs
-        guard urls.contains(where: { identity($0.path).map { $0 == (device, inode) } ?? false }) else { return }
+        guard urls.contains(where: it) else { return }
         controller.clearRecentDocuments(nil)
-        for url in urls.reversed() where !(identity(url.path).map { $0 == (device, inode) } ?? false) {
-            controller.noteNewRecentDocumentURL(url)
+        late = nil; generation += 1
+        toNote = (Set(urls.map(file)), urls.reversed().filter { !it($0) })
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { noteWhenCleared() }
+    }
+
+    /// What waits for AppKit's clear to land, oldest first: the list noted
+    /// again, then each document the app noted meanwhile (`note`); and what
+    /// the list held before (`cleared`). Nil when nothing waits. Like `late`
+    /// and `generation`, the main thread's alone (the library's hook hops to
+    /// it; menus and opens are on it), asserted where they change.
+    nonisolated(unsafe) static var toNote: (cleared: Set<String>, urls: [URL])?
+    /// After the 2 s fallback (`noteWhenCleared`): what it noted, and the app's
+    /// notes since, oldest first, watched while a clear that lands later still
+    /// could drop them (`watchLate`); the `generation` it began in.
+    nonisolated(unsafe) static var late: (urls: [URL], generation: Int)?
+    /// Moved by Clear Menu and by each forget's own clear: a late watch begun
+    /// before either stops, so a real Clear Menu is not undone.
+    nonisolated(unsafe) static var generation = 0
+    /// A URL as compared here: AppKit lists `/private/var/…` where the app
+    /// noted `/var/…`.
+    static func file(_ url: URL) -> String { url.resolvingSymlinksInPath().path }
+
+    /// A document the app opened or saved, on Open Recent: held while a clear
+    /// is on its way (it would go with it), then noted newest.
+    static func note(_ url: URL) {
+        assert(Thread.isMainThread, "Open Recent's bookkeeping is the main thread's")
+        if let waiting = toNote { toNote = (waiting.cleared, waiting.urls.filter { file($0) != file(url) } + [url]); return }
+        NSDocumentController.shared.noteNewRecentDocumentURL(url)
+        // (No more than the list keeps: one it let go as the oldest is not missing.)
+        if let watched = late { late = (Array((watched.urls.filter { file($0) != file(url) } + [url]).suffix(NSDocumentController.shared.maximumRecentDocumentCount)), watched.generation) }
+    }
+
+    /// AppKit empties the list a turn or more after `clearRecentDocuments`,
+    /// and what is noted before then is dropped with it (measured on macOS
+    /// 27: the oldest entry, or all of them, lost under load). So what waits
+    /// is noted once none of what was cleared is listed, looked for every
+    /// 50 ms from the turn after; after 2 s it is noted all the same, and
+    /// watched 10 s more for a clear that lands later still (`watchLate`).
+    static func noteWhenCleared(tries: Int = 40) {
+        guard let waiting = toNote else { return }
+        let controller = NSDocumentController.shared
+        guard tries == 0 || !controller.recentDocumentURLs.contains(where: { waiting.cleared.contains(file($0)) }) else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { noteWhenCleared(tries: tries - 1) }
+            return
         }
+        toNote = nil
+        waiting.urls.forEach(controller.noteNewRecentDocumentURL)
+        guard tries == 0 else { return }
+        let started = generation
+        late = (Array(waiting.urls.suffix(controller.maximumRecentDocumentCount)), started)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { watchLate(of: started) }
+    }
+
+    /// A clear that landed after the fallback took what it noted: whenever
+    /// one of those (still on disk) is not listed, they are all noted again,
+    /// oldest first, so the app's latest note stays newest. Every 250 ms for
+    /// 10 s, and not past a Clear Menu or another forget's clear (`generation`).
+    static func watchLate(tries: Int = 40, of started: Int? = nil) {
+        // (A look scheduled for another watch, or past a clear since, does nothing.)
+        let started = started ?? generation
+        guard let watched = late, watched.generation == started, started == generation else { return }
+        guard tries > 0 else { late = nil; return }
+        let controller = NSDocumentController.shared, listed = Set(controller.recentDocumentURLs.map(file))
+        if watched.urls.contains(where: { !listed.contains(file($0)) && FileManager.default.fileExists(atPath: $0.path) }) {
+            watched.urls.forEach(controller.noteNewRecentDocumentURL)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { watchLate(tries: tries - 1, of: started) }
     }
 
     /// The library's hook, set once.

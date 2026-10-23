@@ -51,6 +51,44 @@ final class OverflowWrapTests: XCTestCase {
         XCTAssertEqual(lines(spec(long, wrap: 1), width: 200).first, "Look ", "break-word still prefers the opportunity")
     }
 
+    #if os(iOS)
+    func testAnOverlongWordHyphenatesOnlyWhenItCannotFitOnItsOwnLine() throws {
+        let word = "antidisestablishmentarianism"
+        var emergency = spec(word, wrap: 1)
+        emergency.language = "en"
+        emergency.hyphenateAuto()
+        XCTAssertFalse(emergency.source.inserted.isEmpty, "prepare syllable opportunities for an emergency break")
+        let room = width("antidisestabli")
+        let broken = lines(emergency, width: room)
+        XCTAssertTrue(try XCTUnwrap(broken.first).hasSuffix("\u{ad}"), "an overlong word breaks at a syllable: \(broken)")
+        for line in engine.paragraph(emergency, width: room).lines {
+            XCTAssertLessThanOrEqual(CTLineGetTypographicBounds(line, nil, nil, nil), Double(room) + 0.5, "the visible hyphen fits too")
+        }
+        XCTAssertEqual(engine.minContentWidth(emergency), engine.minContentWidth(spec(word, wrap: 0)), accuracy: 0.5,
+                       "emergency hyphens add no min-content opportunities")
+        var phrase = spec("Work " + word, wrap: 1)
+        phrase.hyphenateAuto()
+        XCTAssertEqual(lines(phrase, width: room).first, "Work ", "move the whole word to its own line before breaking it")
+        XCTAssertNotEqual(lines(spec(phrase.runs[0].text, wrap: 1), width: room).first, "Work ",
+                          "authored soft hyphens have a distinct metric identity")
+        XCTAssertEqual(phrase.source.source(phrase.runs[0].text.utf16.count), ("Work " + word).utf16.count)
+        var authored = spec("anti\u{ad}disestablishmentarianism", wrap: 1)
+        authored.hyphenateAuto()
+        XCTAssertTrue(authored.source.inserted.isEmpty, "an authored soft hyphen keeps its own opportunities")
+        var unknown = spec(word, wrap: 1)
+        unknown.language = "zz"
+        unknown.hyphenateAuto()
+        XCTAssertTrue(unknown.source.inserted.isEmpty, "without a dictionary the letter break remains")
+        for (wrap, hyphens) in [(1, 1), (2, 0), (0, 0)] {
+            var unchanged = spec(word, wrap: wrap)
+            unchanged.hyphens = hyphens
+            unchanged.hyphenateAuto()
+            XCTAssertEqual(unchanged.runs[0].text, word, "none, anywhere and normal keep their authored behavior")
+        }
+    }
+
+    #endif
+
     /// Min-content's pieces are Chrome's opportunities, not only spaces: the
     /// URL's hyphen is one (its solidi are not), so its min-content is the
     /// widest piece, not the whole URL; `anywhere` adds every grapheme,

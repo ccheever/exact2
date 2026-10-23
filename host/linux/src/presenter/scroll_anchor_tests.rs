@@ -390,3 +390,20 @@ fn excluded_boxes_are_not_selected_and_removing_the_anchor_does_not_scroll() {
 }
 
 mod review_tests;
+
+/// Stage 14 B: with no shell to cover it, a popover is laid out in the
+/// viewport's block, whose space the document doesn't scroll. Its box is
+/// no anchor: the row the page was showing keeps its place.
+#[test]
+fn a_popover_in_its_block_is_no_scroll_anchor() {
+    let source = source(true).replace(
+        "    column width=400\n",
+        "    column width=400\n      box testId=\"pop\" popover=\"manual\" width=400 height=600\n",
+    );
+    let mut p = boot_source(&source);
+    assert!(p.host.kernel().host_block(named(&p, "pop")).is_some());
+    p.scroll_to(PAGE, (0., 400.)).unwrap();
+    let before = row_y(&mut p);
+    fold(&mut p);
+    assert_eq!(row_y(&mut p), before);
+}

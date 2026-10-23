@@ -2,12 +2,23 @@
 // document, not a missing file (bsky5, b32: `/profile/jay.bsky.team` 404'd
 // on the dev server); a request that is no navigation (an asset's fetch)
 // still finds nothing, and a file that exists is still that file.
-import {test, expect} from 'bun:test';
-import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs';
+import {afterAll, afterEach, beforeAll, describe, test, expect, spyOn} from 'bun:test';
+import {mkdirSync, mkdtempSync, rmSync, readFileSync, renameSync, writeFileSync} from 'node:fs';
+import {createServer} from 'node:net';
+import {createServer as httpServer} from 'node:http';
+import * as filesystem from '../../scripts/filesystem.mjs';
+import {spawnOwned, stopAll} from '../../scripts/test-children.mjs';
+import {spawnSync} from 'node:child_process';
+import {createInterface} from 'node:readline';
+import {Readable} from 'node:stream';
+import {createApp} from '../../game/new.mjs';
+import {developmentBuildEnv} from '../../scripts/app.mjs';
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
-import {acceptsHTML, appDocumentPath} from '../../scripts/origin.mjs';
-import {buildTreeFile, readWebRequest} from './serve.mjs';
+import {acceptsHTML, appDocumentPath, DirectoryOrigin, webRootPath} from '../../scripts/origin.mjs';
+import {publishRoot} from '../../scripts/deploy.mjs';
+import {canonical, locationOf, matchPattern} from '../web-js/route-pattern.js';
+import {buildTreeFile, buildTreeFileAsync, readWebRequest, serveBuildTree} from './serve.mjs';
 
 test('a navigation to a dotted deep link is the document; a fetch of one is not', async () => {
   const dist = mkdtempSync(resolve(tmpdir(), 'exact-deep-link-'));
@@ -19,6 +30,7 @@ test('a navigation to a dotted deep link is the document; a fetch of one is not'
     expect(appDocumentPath('/profile/jay.bsky.team')).toBe(false);
     expect(appDocumentPath('/profile/jay.bsky.team', true)).toBe(true);
     expect(appDocumentPath('/.exact/x', true)).toBe(false);
+    expect(appDocumentPath('/profile/photos.zip', true)).toBe(false);
     expect((await readWebRequest(dist, '/profile/jay.bsky.team', html)).found?.route).toBe('/index.html');
     expect((await readWebRequest(dist, '/profile/jay.bsky.team')).found).toBe(null);
     expect((await readWebRequest(dist, '/assets/app.css', html)).found?.route).toBe('/assets/app.css');
@@ -44,3 +56,298 @@ test('acceptsHTML reads the media type, any case, at a quality above zero', () =
   expect(acceptsHTML('application/json;profile="a\\",text/html"')).toBe(false);
   expect(acceptsHTML('application/vnd.exact.envelope+json, text/html;q=0.9')).toBe(true);
 });
+
+// Use the compiler's wire format, so the server's route reader is checked
+// against what both web targets actually ship.
+const sourceFor = pattern => `routes nav
+  home "/"
+  profile "${pattern}"
+  literal "/café/report.pdf"
+  asset "/assets/:name"
+  notfound
+
+component App
+  view
+    text top(nav).url
+`;
+function plan(dist, pattern) {
+  const source = resolve(dist, 'routes.contract');
+  writeFileSync(source, sourceFor(pattern));
+  const built = spawnSync(resolve(process.env.CARGO_TARGET_DIR ?? 'target', 'debug/contract'),
+    ['build', source, '-o', resolve(dist, 'app.plan')], {encoding: 'utf8'});
+  if (built.error || built.status !== 0) throw new Error(`build the contract binary first: ${built.error ?? built.stderr}`);
+}
+
+test('declared routes disambiguate file extensions on both serving paths and follow rebuilt plans', async () => {
+  const dist = mkdtempSync(resolve(tmpdir(), 'exact-route-extension-'));
+  try {
+    writeFileSync(resolve(dist, 'index.html'), '<!doctype html><title>app</title>');
+    mkdirSync(resolve(dist, 'assets'));
+    writeFileSync(resolve(dist, 'assets/real.pdf'), 'real file');
+    plan(dist, '/profile/:handle');
+    const published = resolve(dist, 'origin'), origin = new DirectoryOrigin(published);
+    await publishRoot({origin, row: {}, web: dist});
+    for (const read of [async (path, accept) => (await readWebRequest(dist, path, accept)).found,
+      async (path, accept) => buildTreeFile(dist, path, accept),
+      async (path, accept) => (await readWebRequest(published, path, accept)).found]) {
+      for (const path of ['/profile/photos.zip', '/profile/photos%2Ezip', '/profile/a%2Fb.zip', '/caf%C3%A9/report.pdf']) {
+        expect((await read(path, 'text/html'))?.route, path).toBe('/index.html');
+        expect(await read(path, '*/*'), path).toBe(null);
+      }
+      for (const path of ['/deck/missing.html', '/missing.pdf', '/profile/photos.zip/', '/profile//photos.zip',
+        '/profile%2Fphotos.zip', '/caf%c3%a9/report.pdf', '/profile/a/photos.zip', '/profile/%2e%2e/photos.zip', '/profile/.hidden.zip', '/profile/a%2f.hidden.zip',
+        '/profile/%00.zip', '/profile/a%5Cb.zip', '/profile/%zz.zip']) {
+        expect(await read(path, 'text/html'), path).toBe(null);
+      }
+      expect((await read('/assets/real.pdf', 'text/html'))?.route).toBe('/assets/real.pdf');
+      expect((await read('/assets/missing.pdf', 'text/html'))?.route).toBe('/index.html');
+    }
+    expect((await readWebRequest(published, '/profile/photos.zip', 'text/html')).found?.immutable).toBe(false);
+    plan(dist, '/changed/:handle');
+    await publishRoot({origin, row: {}, web: dist});
+    for (const path of ['/profile/photos.zip', '/changed/photos.zip']) {
+      const expected = path.startsWith('/changed/') ? '/index.html' : undefined;
+      expect((await readWebRequest(dist, path, 'text/html')).found?.route).toBe(expected);
+      expect(buildTreeFile(dist, path, 'text/html')?.route).toBe(expected);
+      expect((await readWebRequest(published, path, 'text/html')).found?.route).toBe(expected);
+    }
+    writeFileSync(resolve(dist, 'app.plan'), 'invalid plan');
+    expect((await readWebRequest(dist, '/changed/photos.zip', 'text/html')).found).toBe(null);
+    expect(buildTreeFile(dist, '/changed/photos.zip', 'text/html')).toBe(null);
+  } finally { rmSync(dist, {recursive: true, force: true}); }
+});
+
+test('the shared pattern matcher retains the route corpus semantics without notfound', () => {
+  const corpus = JSON.parse(readFileSync(new URL('../../route/tests/corpus.json', import.meta.url), 'utf8'));
+  for (const {input, expected} of corpus.canonical) expect(canonical(input), input).toBe(expected);
+  for (const {input, expected} of corpus.location_of) expect(locationOf(input), input).toBe(expected);
+  for (const {table, location, expected} of corpus.matches) {
+    const routes = corpus.tables[table].routes, params = Object.fromEntries(corpus.param_names[table].map(name => [name, '']));
+    const index = matchPattern(routes, canonical(location), (name, value) => { params[name] = value; });
+    const matched = index < 0 ? null : {name: routes[index].name, params};
+    expect(matched, location).toEqual(expected?.name === 'notfound' ? null : expected);
+  }
+});
+
+afterEach(() => stopAll());
+// Hold producer replies so navigation can be tested before admission and after a host rebuild.
+const holdProducer = `
+import {ChildProcess} from 'node:child_process';
+const spawn = ChildProcess.prototype.spawn;
+ChildProcess.prototype.spawn = function(options) {
+  const result = spawn.call(this, options);
+  if (options.file.endsWith('/exact-js-bake') && options.args.includes('--serve')) {
+    const stream = this.stdout, emit = stream.emit, buffered = [];
+    let held = true;
+    stream.emit = function(event, ...args) {
+      if (held && event === 'data') { buffered.push(args); return true; }
+      return emit.call(this, event, ...args);
+    };
+    const admit = input => {
+      if (String(input).trim() !== 'admit') return;
+      held = false;
+      for (const args of buffered.splice(0)) emit.call(stream, 'data', ...args);
+    };
+    process.stdin.on('data', admit);
+    this.once('exit', () => process.stdin.off('data', admit));
+  }
+  return result;
+};
+`;
+// Fixture compilation is preparation; every wait on a running loop is bounded to 30 seconds.
+for (const wasm of [false, true]) describe(`${wasm ? 'wasm' : 'JS'} dev routes`, () => {
+  let dir, app, dist, source, env, preload;
+  const root = resolve(import.meta.dir, '../..');
+  beforeAll(async () => {
+    dir = mkdtempSync(resolve(tmpdir(), 'exact-deep-link-dev-'));
+    app = resolve(dir, 'deep-links'); dist = resolve(dir, 'dist');
+    if (wasm) {
+      preload = resolve(dir, 'hold-producer.mjs');
+      writeFileSync(preload, holdProducer);
+      createApp(app, {id: 'com.exact.deep-links', title: 'Deep links'});
+      writeFileSync(resolve(app, 'app.ts'), "export const appId = 'com.exact.deep-links';\nexport const grants = '';\nexport const answer = () => { throw new Error('no sources'); };\n");
+    } else {
+      mkdirSync(app);
+      writeFileSync(resolve(app, 'app.json'), JSON.stringify({name: 'Deep links', app: {id: 'com.exact.deep-links', name: 'Deep links'}}));
+    }
+    source = resolve(app, 'app.contract');
+    writeFileSync(source, sourceFor('/profile/:handle'));
+    env = {...developmentBuildEnv(), EXACT_APP_DIR: app, EXACT_WEB_DIST: dist,
+      EXACT_UPDATE_TRUST: 'development', EXACT_WEB_LINK: 'all', EXACT_DEV_BAKE: resolve(dist, 'bake.json')};
+    const prepare = (command, args) => new Promise((ok, no) => {
+      const child = spawnOwned(command, args, {cwd: root, env, stdio: ['ignore', 'pipe', 'pipe']});
+      let said = '';
+      const hear = data => { said = (said + data).slice(-12000); };
+      child.stdout.on('data', hear); child.stderr.on('data', hear);
+      child.once('error', no);
+      child.once('exit', code => code === 0 ? ok() : no(new Error(`fixture preparation failed: ${said}`)));
+    });
+    await prepare(process.execPath, ['host/web/build.mjs', app, '--render', 'none', ...(wasm ? ['--wasm'] : [])]);
+    if (wasm) await prepare('cargo', ['build', '-q', '--release', '-p', 'exact-js-bake']);
+  }, 600_000);
+  afterAll(async () => { await stopAll(); if (dir) rmSync(dir, {recursive: true, force: true}); });
+
+  test('serves admitted routes after an edit and reports a failed rebuild', async () => {
+    const listener = createServer();
+    await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
+    const port = listener.address().port;
+    await new Promise(ok => listener.close(ok));
+    const url = `http://127.0.0.1:${port}`;
+    const dev = spawnOwned(process.execPath, [...(wasm ? ['--preload', preload] : []), 'host/web/dev.mjs', '--app', app, '--port', String(port), ...(wasm ? ['--wasm'] : [])],
+      {cwd: root, env, stdio: ['pipe', 'pipe', 'pipe']});
+    const controller = new AbortController();
+    let streamTimer;
+    try {
+      await new Promise((ok, no) => {
+        let said = '';
+        const finish = error => {
+          clearTimeout(timer); dev.off('exit', exited);
+          dev.stdout.off('data', hear); dev.stderr.off('data', hear);
+          dev.stdout.resume(); dev.stderr.resume();
+          error ? no(error) : ok();
+        };
+        const timer = setTimeout(() => finish(new Error(`dev did not listen: ${said}`)), 30_000);
+        const exited = code => finish(new Error(`dev exited ${code}: ${said}`));
+        const hear = data => { said = (said + data).slice(-12000); if (said.includes(url + '/')) finish(); };
+        dev.stdout.on('data', hear); dev.stderr.on('data', hear); dev.once('exit', exited);
+      });
+      // Each wait on the stream gets its own 30-second bound; a loaded box
+      // takes longer than that for the whole sequence of rebuilds.
+      const bound = () => { clearTimeout(streamTimer); streamTimer = setTimeout(() => controller.abort(new Error('dev build notification did not arrive')), 30_000); };
+      bound();
+      const response = await fetch(url + (wasm ? '/__dev' : '/__dev/page'), {signal: controller.signal});
+      const lines = createInterface({input: Readable.fromWeb(response.body)})[Symbol.asyncIterator]();
+      const nextBuild = async predicate => {
+        bound();
+        for (;;) {
+          const {value: line, done} = await lines.next();
+          if (done) throw new Error('dev event stream closed');
+          if (!line.startsWith('data: ')) continue;
+          const frame = JSON.parse(line.slice(6));
+          if (frame.error) throw new Error(frame.error);
+          if (predicate(frame)) return frame;
+        }
+      };
+      const sequence = frame => wasm ? frame.seq : frame.reload;
+      const status = async (path, accept = 'text/html') => (await fetch(url + path, {headers: {accept}})).status;
+      let initial;
+      if (wasm) {
+        const hello = await nextBuild(frame => frame.hello);
+        expect(hello.ready).toBe(false);
+        const duringAdmission = async () => {
+          expect(await status('/')).toBe(200);
+          expect(await status('/exact.json')).toBe(404);
+          return status('/profile/photos.zip');
+        };
+        const startup = await duringAdmission();
+        dev.stdin.write('admit\n');
+        const first = await nextBuild(frame => sequence(frame) > 0);
+        dev.stdin.write('r\n');
+        await nextBuild(frame => frame.rebuilt);
+        const rebuilt = await duringAdmission();
+        dev.stdin.write('admit\n');
+        initial = await nextBuild(frame => sequence(frame) > sequence(first));
+        expect([startup, rebuilt]).toEqual([200, 200]);
+      } else initial = await nextBuild(frame => sequence(frame) > 0);
+      expect(await status('/profile/photos.zip')).toBe(200);
+      expect(await status('/deck/missing.html')).toBe(404);
+      expect(await status('/missing.pdf')).toBe(404);
+      expect(await status('/profile/photos.zip', '*/*')).toBe(404);
+      const before = readFileSync(resolve(dist, 'app.plan'));
+      writeFileSync(source, sourceFor('/changed/:handle'));
+      const changed = await nextBuild(frame => sequence(frame) > sequence(initial));
+      if (wasm) {
+        expect(changed.digest).not.toBe(initial.digest);
+        expect(readFileSync(resolve(dist, 'app.plan')).equals(before)).toBe(true);
+      }
+      expect(await status('/changed/photos.zip')).toBe(200);
+      expect(await status('/profile/photos.zip')).toBe(404);
+      writeFileSync(source, 'invalid contract !!!');
+      await expect(nextBuild(frame => sequence(frame) > sequence(changed))).rejects.toThrow('syntax-expected-declaration');
+      expect(dev.exitCode).toBe(null);
+      expect(await status('/changed/photos.zip')).toBe(200);
+    } finally {
+      clearTimeout(streamTimer); controller.abort();
+      await dev.stop(30_000);
+    }
+  }, 300_000);
+});
+
+test('HTTP route caches read each plan asynchronously once and refresh after edits', async () => {
+  const dist = mkdtempSync(resolve(tmpdir(), 'exact-route-cache-'));
+  const sync = spyOn(filesystem, 'filesystem'), reads = spyOn(filesystem, 'filesystemRead');
+  let server;
+  try {
+    writeFileSync(resolve(dist, 'index.html'), '<title>app</title>');
+    plan(dist, '/profile/:handle');
+    server = httpServer((req, res) => serveBuildTree(dist, req, res));
+    await new Promise(ok => server.listen(0, '127.0.0.1', ok));
+    const url = `http://127.0.0.1:${server.address().port}`;
+    const tree = async path => (await fetch(url + path, {headers: {accept: 'text/html'}})).status;
+    const staticRead = async path => (await readWebRequest(dist, path, 'text/html')).found ? 200 : 404;
+    for (const read of [tree, staticRead]) {
+      sync.mockClear(); reads.mockClear();
+      expect(await read('/profile/photos.zip')).toBe(200);
+      const planReads = () => reads.mock.calls.filter(([request]) => request.path === 'app.plan').length;
+      expect(sync.mock.calls.length).toBe(0);
+      expect(planReads()).toBe(1);
+      expect(await read('/profile/photos.zip')).toBe(200);
+      expect(await read('/deck/missing.html')).toBe(404);
+      expect(planReads()).toBe(1);
+      plan(dist, '/changed/:handle');
+      expect(await read('/changed/photos.zip')).toBe(200);
+      expect(await read('/profile/photos.zip')).toBe(404);
+      expect(planReads()).toBe(2);
+      renameSync(dist, dist + '.previous');
+      mkdirSync(dist);
+      writeFileSync(resolve(dist, 'index.html'), '<title>replacement</title>');
+      plan(dist, '/replaced/:handle');
+      expect(await read('/replaced/photos.zip')).toBe(200);
+      expect(await read('/changed/photos.zip')).toBe(404);
+      expect(planReads()).toBe(3);
+      rmSync(dist + '.previous', {recursive: true, force: true});
+      plan(dist, '/profile/:handle');
+    }
+  } finally {
+    sync.mockRestore(); reads.mockRestore();
+    if (server) { server.closeAllConnections(); await new Promise(ok => server.close(ok)); }
+    rmSync(dist + '.previous', {recursive: true, force: true});
+    rmSync(dist, {recursive: true, force: true});
+  }
+});
+
+
+for (const failure of ['published plan', 'published pointer', 'local plan', 'tree plan']) {
+  test(`route lookup retries a failed ${failure} read without a file change`, async () => {
+    const dist = mkdtempSync(resolve(tmpdir(), 'exact-route-read-failure-'));
+    const original = filesystem.filesystemRead;
+    let reads;
+    try {
+      writeFileSync(resolve(dist, 'index.html'), '<title>app</title>');
+      plan(dist, '/profile/:handle');
+      const published = failure.startsWith('published');
+      const root = published ? resolve(dist, 'origin') : dist;
+      if (published) await publishRoot({origin: new DirectoryOrigin(root), row: {}, web: dist});
+      // Local static reads retry four times inside one request; published reads fail closed immediately.
+      let remaining = failure === 'local plan' ? 4 : 1, pointers = 0;
+      reads = spyOn(filesystem, 'filesystemRead').mockImplementation(request => {
+        const selected = failure === 'published pointer'
+          ? request.path === webRootPath && ++pointers === 2
+          : request.path === 'app.plan' || request.path.endsWith('/app.plan');
+        if (remaining && selected) { remaining--; throw new Error('injected EMFILE'); }
+        return original(request);
+      });
+      const read = async path => failure === 'tree plan'
+        ? (await buildTreeFileAsync(root, path, 'text/html'))?.route
+        : (await readWebRequest(root, path, 'text/html')).found?.route;
+      expect(await read('/profile/photos.zip')).toBe(undefined);
+      expect(remaining).toBe(0);
+      expect(await read('/index.html')).toBe('/index.html');
+      expect(await read('/profile/photos.zip')).toBe('/index.html');
+      expect(await read('/deck/missing.html')).toBe(undefined);
+    } finally {
+      reads?.mockRestore();
+      rmSync(dist, {recursive: true, force: true});
+    }
+  });
+}

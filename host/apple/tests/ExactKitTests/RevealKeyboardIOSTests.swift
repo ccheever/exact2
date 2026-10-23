@@ -1,5 +1,6 @@
 #if os(iOS)
 import UIKit
+import ObjectiveC.runtime
 import XCTest
 @testable import ExactKit
 
@@ -56,6 +57,22 @@ final class RevealKeyboardIOSTests: XCTestCase {
     private func middle(_ session: ExactSession) throws -> CGFloat {
         let v = try XCTUnwrap(session.presenter.views[3])
         return v.convert(CGPoint(x: v.bounds.midX, y: v.bounds.midY), to: nil).y
+    }
+
+    func testARevealDoesNotLoseAOnePixelCorrectionAfterRounding() throws {
+        let (session, window) = session("reveal-one-pixel", widget: "overlays-content", scroller: true)
+        defer { window.isHidden = true; session.destroy() }
+        let p = session.presenter, scroll = try XCTUnwrap(p.views[2]?.scroll)
+        scroll.traitOverrides.displayScale = 2
+        scroll.updateTraitsIfNeeded()
+        XCTAssertEqual(scroll.traitCollection.displayScale, 2)
+        // The field ends at 740; its eight-point clearance ends at 748.
+        // A port ending at 747.4 therefore asks for 0.6 points, one pixel rounded.
+        scroll.contentInset.bottom = 52.6
+        scroll.contentOffset = .zero
+        let field = try XCTUnwrap(p.views[3])
+        p.reveal(field, rect: field.bounds)
+        XCTAssertEqual(scroll.contentOffset.y, 0.5, accuracy: 1e-6)
     }
 
     func testRevealScrollsAnActionUnderTheKeyboardAboveItUnderResizesVisual() throws {
@@ -208,5 +225,62 @@ final class RevealKeyboardIOSTests: XCTestCase {
         XCTAssertEqual(reply["scrolled"] as? Bool, false, "\(reply)")
         XCTAssertEqual(try middle(session), 720, accuracy: 0.5)
     }
+    func testThePageScrollerDismissesTheKeyboardInteractively() {
+        let (session, window) = session("page-dismissal", widget: nil, scroller: false)
+        defer { window.isHidden = true; session.destroy() }
+        XCTAssertEqual(session.presenter.viewport.keyboardDismissMode, .interactive)
+    }
+
+    func testAPageDragAppliesZeroDurationKeyboardFramesImmediately() throws {
+        let (session, window) = session("page-keyboard-tracking", widget: "resizes-visual", scroller: false)
+        defer { window.isHidden = true; session.destroy() }
+        let p = session.presenter
+        window.isHidden = true
+        if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene { window.windowScene = scene }
+        let host = UIViewController()
+        window.rootViewController = host
+        host.view.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        p.applyKeyboard(top: 460, duration: 0, curve: 0)
+        // UIKit creates no finger contact for a unit test. Supply its tracking
+        // answer only for this viewport, then deliver the real notification path.
+        let selector = #selector(getter: UIScrollView.isTracking)
+        let method = try XCTUnwrap(class_getInstanceMethod(UIScrollView.self, selector))
+        let original = method_getImplementation(method)
+        let getter = unsafeBitCast(original, to: (@convention(c) (AnyObject, Selector) -> Bool).self)
+        let tracking: @convention(block) (UIScrollView) -> Bool = { view in view === p.viewport || getter(view, selector) }
+        let replacement = imp_implementationWithBlock(tracking)
+        method_setImplementation(method, replacement)
+        defer { method_setImplementation(method, original); imp_removeBlock(replacement) }
+        XCTAssertTrue(p.viewport.isTracking)
+        XCTAssertTrue(p.interactiveKeyboardDrag)
+        p.keyboardChanged(Notification(name: UIResponder.keyboardWillChangeFrameNotification, userInfo: [
+            UIResponder.keyboardFrameEndUserInfoKey: window.convert(CGRect(x: 0, y: 510, width: 400, height: 290), to: window.screen.coordinateSpace),
+            UIResponder.keyboardAnimationDurationUserInfoKey: 0.0
+        ]))
+        XCTAssertEqual(p.keyboardTop, 510, "the frame follows this turn of the finger")
+        XCTAssertFalse(p.hasPendingKeyboardResize, "interactive frames do not enter the focus-change debounce")
+    }
+
+    func testAHostedNativeEditorIsRevealedWhenTheKeyboardMoves() throws {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { throw missing("scene", "UIKit's responder search needs the native editor in an app scene") }
+        let (session, window) = session("native-editor-reveal", widget: "resizes-visual", scroller: true)
+        defer { window.endEditing(true); window.isHidden = true; session.destroy() }
+        let p = session.presenter, node = try XCTUnwrap(p.views[3])
+        window.isHidden = true
+        window.windowScene = scene
+        let host = UIViewController()
+        window.rootViewController = host
+        host.view.addSubview(p.viewport)
+        let field = UITextField(frame: CGRect(x: 0, y: 0, width: 180, height: 40))
+        node.addSubview(field)
+        window.makeKeyAndVisible()
+        XCTAssertTrue(field.becomeFirstResponder())
+        XCTAssertTrue(p.hasNativeKeyboardEditor)
+        p.applyKeyboard(top: 460, duration: 0, curve: 0)
+        XCTAssertTrue(p.editor === node)
+        XCTAssertLessThanOrEqual(field.convert(field.bounds, to: window).maxY, 460)
+    }
+
 }
 #endif

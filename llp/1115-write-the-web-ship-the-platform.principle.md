@@ -121,6 +121,9 @@ the schema changes (LLP 1030 D3a). Agreed in advance: "it's ok if things break a
   > background where the route has one: a sheet whose scroll is a grouped list is on the
   > grouped background (LLP 1116.007 D5), as a hand-built grouped sheet is, so no white band
   > shows between it and a keyboard's bar. A route with none keeps `systemBackground`.
+  > **Amended by LLP 1141.001 D3 (2026-10-23).** A route with none, below its sheet's large
+  > detent, leaves the sheet clear so that UIKit draws its glass, as iOS 26 and later draw a
+  > hand-built sheet there; an authored `transparent` is clear at every detent.
 - **D3. Type is the platform's.** The root font size is the platform body size (§3). Headings
   (`role="heading"`/`h1`–`h6`) get the platform's text styles by level, overridable by any
   authored `font-size`/`font-weight`. Bold Text is honoured.

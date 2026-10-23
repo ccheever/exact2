@@ -1313,3 +1313,130 @@ fn an_action_prop_named_like_an_app_fn_is_refused_where_a_provide_calls_it() {
         "rename the action prop `pick` (as in `onPick`) or `fn pick`: in `Seg` the call `pick(…)` at line 13 cannot be both the prop and the fn"
     );
 }
+
+#[test]
+fn value_props_and_injects_named_like_an_app_fn_refuse_expression_calls() {
+    let prop = "fn pick(n: number): number = n + 1\nfn other(n: number): number = n + 100\ncomponent App\n  state other = 7\n  view\n    Seg(pick=other)\ncomponent Seg\n  props\n    pick: number\n  view\n    text `${pick(1)}` testId=\"result\"\n";
+    let inject = prop
+        .replace(
+            "  view\n    Seg(pick=other)",
+            "  provide\n    pick = other\n  view\n    Seg()",
+        )
+        .replace("  props\n", "  inject\n");
+    for (src, kind, declaration, call) in [(prop, "prop", 9, 11), (&inject, "inject", 11, 13)] {
+        let e = refused(src);
+        assert_eq!(e.id, "type-prop-hides-fn", "{e}");
+        assert_eq!(e.span.line, declaration);
+        assert_eq!(e.message, format!(
+            "rename the {kind} `pick` or `fn pick`: in `Seg` the call `pick(…)` at line {call} cannot be both the {kind} and the fn"
+        ));
+        let value = src.replace("${pick(1)}", "${pick}");
+        assert_eq!(text_of(&boot(&value), "result"), "7");
+    }
+}
+
+#[test]
+fn expression_binders_protect_calls_from_a_prop_named_like_an_app_fn() {
+    let src = "fn pick(n: number): number = n + 1\ncomponent App\n  state v = 0\n  action choose(n: number)\n    v = n\n  view\n    Seg(pick=choose)\ncomponent Seg\n  props\n    pick: action\n  view\n    text `${EXPR}` testId=\"result\"\n";
+    let same_action = src.replace("choose", "pick");
+    let extra = src
+        .replace("Seg(pick=choose)", "Seg(pick=choose, extra=pick(3))")
+        .replace(
+            "    pick: action\n",
+            "    pick: action\n    extra: number\n",
+        );
+    for source in [src, &same_action, &extra] {
+        for expr in [
+            "match some(7) { case some(pick) => pick(1), case none => 0 }",
+            "match [7].map(pick => pick(1)).at(0) { case some(n) => n, case none => 0 }",
+        ] {
+            assert_eq!(text_of(&boot(&source.replace("EXPR", expr)), "result"), "2");
+        }
+    }
+    // The binder covers only the some arm, and ends with the expression.
+    for expr in [
+        "match some(pick(1)) { case some(pick) => pick, case none => 0 }",
+        "match some(7) { case some(pick) => pick, case none => pick(1) }",
+        "[7].map(pick => pick(1)).length + pick(1)",
+    ] {
+        assert_eq!(refused(&src.replace("EXPR", expr)).id, "type-prop-hides-fn");
+    }
+}
+
+#[test]
+fn node_binders_do_not_protect_calls_from_a_prop_named_like_an_app_fn() {
+    let src = "fn pick(n: number): number = n + 1\ncomponent App\n  state v = 0\n  action choose(n: number)\n    v = n\n  view\n    Seg(pick=choose)\ncomponent Seg\n  props\n    pick: action\n  view\nBODY";
+    for body in [
+        "    for pick in [7] key=pick\n      text `${pick(1)}`\n",
+        "    for n, pick in [7] key=pick\n      text `${pick(1)}`\n",
+        "    match some(7)\n      case some(pick)\n        text `${pick(1)}`\n      case none\n        text \"none\"\n",
+    ] {
+        assert_eq!(refused(&src.replace("BODY", body)).id, "type-prop-hides-fn");
+    }
+}
+
+#[test]
+fn derive_binders_protect_calls_from_a_prop_named_like_an_app_fn() {
+    let src = "fn pick(n: number): number = n + 1\ncomponent App\n  state v = 0\n  action choose(n: number)\n    v = n\n  view\n    Seg(pick=choose)\ncomponent Seg\n  props\n    pick: action\n  derive shown = EXPR\n  view\n    text `${shown}` testId=\"result\"\n";
+    let no_props = src
+        .replace("Seg(pick=choose)", "Seg()")
+        .replace("  props\n    pick: action\n", "");
+    let same_derive = no_props.replace("shown", "pick");
+    for source in [src, &no_props, &same_derive] {
+        for expr in [
+            "match some(7) { case some(pick) => pick(1), case none => 0 }",
+            "match [7].map(pick => pick(1)).at(0) { case some(n) => n, case none => 0 }",
+        ] {
+            assert_eq!(text_of(&boot(&source.replace("EXPR", expr)), "result"), "2");
+        }
+    }
+}
+
+fn derive_call_source(body: &str, declarations: &str, view: &str) -> String {
+    format!(
+        "fn pick(n: number): number = n + 1\nfn other(n: number): number = n + 100\ncomponent App\n  view\n    Seg()\ncomponent Seg\n  derive pick = {body}\n{declarations}  view\n{view}\ncomponent Frame\n  slot\n  view\n    children\ncomponent Label\n  props\n    value: string\n  view\n    text value testId=\"result\"\n"
+    )
+}
+
+#[test]
+fn a_derive_named_like_an_app_fn_is_not_a_dependency_of_its_call() {
+    for (body, expected) in [("pick(1)", "2 6"), ("other(1)", "101 6")] {
+        for view in [
+            "    text `${pick} ${pick(5)}` testId=\"result\"",
+            "    Frame()\n      text `${pick} ${pick(5)}` testId=\"result\"",
+            "    Label(value=`${pick} ${pick(5)}`)",
+        ] {
+            let src = derive_call_source(body, "", view);
+            assert_eq!(text_of(&boot(&src), "result"), expected);
+        }
+    }
+}
+
+#[test]
+fn a_derive_named_like_an_app_fn_leaves_state_initializer_calls_alone() {
+    for (body, expected) in [("pick(1)", "2 6"), ("other(1)", "101 6")] {
+        let src = derive_call_source(
+            body,
+            "  state shown = pick(5)\n",
+            "    text `${pick} ${shown}` testId=\"result\"",
+        );
+        assert_eq!(text_of(&boot(&src), "result"), expected);
+    }
+}
+
+#[test]
+fn a_derive_named_like_an_app_fn_leaves_action_body_calls_alone() {
+    for (body, value) in [("pick(1)", "2"), ("other(1)", "101")] {
+        let src = derive_call_source(
+            body,
+            "  state shown = 0\n  action update(n: number)\n    shown = pick(n)\n  action relay()\n    update(5)\n",
+            "    column\n      text `${pick} ${shown}` testId=\"result\"\n      button \"Update\" press=update(5) testId=\"update\"\n      button \"Reset\" press=update(0) testId=\"reset\"\n      button \"Relay\" press=relay testId=\"relay\"",
+        );
+        let mut r = boot(&src);
+        assert_eq!(text_of(&r, "result"), format!("{value} 0"));
+        for (button, expected) in [("update", 6), ("reset", 1), ("relay", 6)] {
+            press(&mut r, button);
+            assert_eq!(text_of(&r, "result"), format!("{value} {expected}"));
+        }
+    }
+}

@@ -405,6 +405,22 @@ final class ChooserMacTests: XCTestCase {
         XCTAssertEqual(menu.midX, invoker.midX, accuracy: 12, "centred on it")
     }
 
+    func testAMenuRetainsARowWhosePressIsDelegatedToAnAncestor() throws {
+        let p = chooser(cancels: 0)
+        defer { p.menus.reset() }
+        let pop = try XCTUnwrap(p.views[2])
+        pop.props["accessibilityRole"] = "menu"
+        pop.handlers.insert("press")
+        try XCTUnwrap(p.views[3]).handlers.remove("press")
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let menu = p.menus.menu(of: pop)
+        let item = try XCTUnwrap(menu.items.first { $0.title == "Apple Maps" })
+        try send(item)
+        turn()
+        XCTAssertEqual(pressed, [2], "the native row dispatches the same ancestor as a button press")
+    }
+
     func testAMenuIsTitledByItsLabelAndFitsARowsBitmap() throws {
         _ = NSApplication.shared
         let p = Presenter()
@@ -423,7 +439,10 @@ final class ChooserMacTests: XCTestCase {
         XCTAssertTrue(p.menus.isMenuShaped(pop), "a row of an img and text is a menu row")
         let menu = p.menus.menu(of: pop)
         XCTAssertTrue(menu.items[0].isSectionHeader)
-        XCTAssertEqual(menu.items.map(\.title), ["Open location in", "Waze", "Cancel"])
+        XCTAssertEqual(menu.items.map(\.title), ["Open location in", "Waze"], "Escape cancels a native menu")
+        try XCTUnwrap(p.views[6]).handlers.insert("press")
+        XCTAssertEqual(p.menus.menu(of: pop).items.map(\.title), ["Open location in", "Waze", "Cancel"],
+                       "a Cancel action with a handler remains an item")
         let ctx = try XCTUnwrap(CGContext(data: nil, width: 64, height: 32, bitsPerComponent: 8, bytesPerRow: 0,
                                           space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         let image = MenuHost.rowImage(try XCTUnwrap(ctx.makeImage()))

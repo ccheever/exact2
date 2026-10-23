@@ -6,6 +6,63 @@ import XCTest
 @testable import ExactKit
 
 final class NativeFieldsMacTests: XCTestCase {
+    func testSearchAndPlainComboboxesServeTheirAuthoredExpandedState() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        for (id, type) in [(UInt32(11), "text"), (UInt32(12), "search")] {
+            p.apply(wireBatch([["op": "create", "id": id, "kind": "input",
+                "props": ["type": type, "value": "Pira", "accessibilityRole": "combobox", "accessibilityExpanded": "false"]]]))
+            let field = try XCTUnwrap(p.views[id]?.field), cell = try XCTUnwrap(field.cell)
+            XCTAssertEqual(field is NSSearchField, type == "search")
+            XCTAssertEqual(field.accessibilityRole(), .comboBox)
+            XCTAssertEqual(cell.accessibilityAttributeValue(.role) as? String, "AXComboBox")
+            XCTAssertEqual(cell.accessibilityAttributeValue(.roleDescription) as? String, NSAccessibility.Role.comboBox.description(with: nil))
+            XCTAssertTrue(cell.accessibilityAttributeNames().contains(.expanded))
+            XCTAssertFalse(field.isAccessibilityExpanded())
+            XCTAssertEqual(cell.accessibilityAttributeValue(.expanded) as? Bool, false)
+            p.apply(wireBatch([["op": "props", "id": id, "set": ["accessibilityExpanded": "true"]]]))
+            XCTAssertTrue(field.isAccessibilityExpanded())
+            XCTAssertEqual(cell.accessibilityAttributeValue(.expanded) as? Bool, true)
+            p.apply(wireBatch([["op": "props", "id": id, "clear": ["accessibilityRole", "accessibilityExpanded"]]]))
+            XCTAssertEqual(cell.accessibilityAttributeValue(.role) as? String, "AXTextField")
+        }
+    }
+
+    func testInputThemeGroundReplacesTheBezelAndRestoresIt() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "input-theme")
+        defer { session.destroy() }
+        let p = session.presenter
+        let node = NodeView(id: 1, kind: "input", presenter: p)
+        p.root.addSubview(node)
+        node.applyProps(set: ["value": "Keep this text"], clear: [])
+        node.applyStyle([:])
+        let field = try XCTUnwrap(node.field)
+        let standard = NSTextField()
+        XCTAssertEqual(field.isBezeled, standard.isBezeled)
+        node.appearance = NSAppearance(named: .aqua)
+        ThemeRoles.apply(wireBatch([["op": "roles", "roles": ["Field": [[12, 200, 40, 255], [200, 12, 40, 255]]]]]), root: p.root)
+        p.applyThemeTint()
+        XCTAssertFalse(field.isBezeled)
+        XCTAssertFalse(field.drawsBackground)
+        let ground = try XCTUnwrap(node.fieldGround)
+        let color = try XCTUnwrap(NSColor(cgColor: ground)?.usingColorSpace(.sRGB))
+        XCTAssertEqual(color.greenComponent, 200 / 255, accuracy: 0.001)
+        node.applyBoxLayer()
+        XCTAssertEqual(node.layer?.backgroundColor, ground)
+        node.appearance = NSAppearance(named: .darkAqua)
+        node.viewDidChangeEffectiveAppearance()
+        XCTAssertEqual(node.layer?.backgroundColor, node.fieldGround, "Field chrome follows appearance without an authored scheme color")
+        XCTAssertEqual(field.stringValue, "Keep this text")
+        ThemeRoles.apply(wireBatch([["op": "roles", "roles": [String: Any]()]]), root: p.root)
+        p.applyThemeTint()
+        XCTAssertNil(node.fieldGround)
+        XCTAssertEqual(field.isBezeled, standard.isBezeled)
+        XCTAssertEqual(field.drawsBackground, standard.drawsBackground)
+        node.applyBoxLayer()
+        XCTAssertNil(node.layer?.backgroundColor)
+    }
+
     private var platformTextareaInset: NSSize {
         let editor = NSTextView(usingTextLayoutManager: true)
         return NSSize(width: editor.textContainerInset.width + (editor.textContainer?.lineFragmentPadding ?? 0), height: editor.textContainerInset.height)

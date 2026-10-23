@@ -314,8 +314,12 @@ pub(super) fn shell(
             height_measured: tree.height_measured(n),
         });
         if s != cut {
+            // A popover in the shell is laid out in its block, after the
+            // region (one in the region stays in its trial: imply_blocks).
             for &c in arena.children(s).iter().rev() {
-                stack.push((c, frame.x, frame.y, hidden))
+                if !arena.blocks.holds(c) {
+                    stack.push((c, frame.x, frame.y, hidden))
+                }
             }
         }
     }

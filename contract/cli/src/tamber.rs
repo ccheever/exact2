@@ -14,7 +14,7 @@ const USAGE: &str = "usage:
   contract tamber fmt <app dir | app.contract | file.tamber> [--check]
   contract tamber serve --stdio <app dir>   (the design's one writer, tamber/1 over JSON lines)
   contract tamber gen ts|rust <app dir | app.contract | file.tamber> [-o <dir>]   (bindings, in the app's .exact/tamber/)
-  contract tamber import shadcn|tailwind <stylesheet> | dtcg <file or dir> | astryx <resolved json> [--app <app dir>] [--prefix <prefix>]   (a proposal, as JSON)
+  contract tamber import shadcn|tailwind <stylesheet> | dtcg <file or dir> | pen <file.pen> | astryx <resolved json> [--app <app dir>] [--prefix <prefix>]   (a proposal, as JSON)
   contract tamber import-plan <design file>   (one import planned alone: {request, design} on stdin, {ok} or {error} out; the wire's)
   contract tamber export dtcg <app dir | app.contract | file.tamber> [-o <file>]   (DTCG 2025.10; its baseline kept in .exact/)
   (a flag may come before the path or after it)";
@@ -188,17 +188,26 @@ pub fn run(args: &[String]) -> ExitCode {
                 .or_else(|| path.parent().map(Path::to_path_buf))
         }
     };
-    let assets = home.map(|d| d.join("assets"));
-    let mut svgs: Vec<&str> = folding
+    // Each SVG where the build reads it: under the assets of the root whose
+    // file writes it (a package's under its root, stage 13), by its path there.
+    let mut svgs: Vec<(PathBuf, &str, Option<PathBuf>)> = folding
         .icons
         .iter()
-        .filter_map(|i| i.svg.as_deref())
+        .filter_map(|i| {
+            let svg = i.svg.as_deref()?;
+            let at =
+                contract_lower::icons::Home::of(i, home.as_deref(), &app.packages, &app.tokens);
+            // A package's read as the build reads it (round 3, R3-4): one that leaves it is
+            // not copied, and is refused as the build refuses it.
+            let root = at.package.and(at.root).map(Path::to_path_buf);
+            Some((at.svg(svg)?, svg, root))
+        })
         .collect();
     svgs.sort_unstable();
     svgs.dedup();
     let refused = match admission(
         &src,
-        (assets.as_deref(), &svgs),
+        &svgs,
         (!params.is_empty() || app.failed || !app.packages.is_empty()).then_some(built),
     ) {
         Ok(refused) => refused,
@@ -273,7 +282,7 @@ pub fn run(args: &[String]) -> ExitCode {
 #[allow(clippy::type_complexity)]
 fn admission(
     src: &str,
-    (assets, svgs): (Option<&Path>, &[&str]),
+    svgs: &[(PathBuf, &str, Option<PathBuf>)],
     app: Option<PathBuf>,
 ) -> Result<Vec<(Option<PathBuf>, u32, u32, String, String)>, String> {
     if let Some(app) = app {
@@ -307,9 +316,14 @@ fn admission(
         // its build reads them: each one it names copied there (one the app
         // lacks is not, and is refused as the build refuses it).
         .and_then(|()| {
-            for svg in svgs {
-                let Some(from) = assets.map(|a| a.join(svg)).filter(|f| f.is_file()) else {
-                    continue;
+            for (from, svg, package) in svgs {
+                let bytes = match package {
+                    Some(root) => match contract_lower::icons::read_confined(from, root) {
+                        Ok(bytes) => bytes,
+                        Err(_) => continue,
+                    },
+                    None if from.is_file() => std::fs::read(from)?,
+                    None => continue,
                 };
                 let to = dir.join("assets").join(svg);
                 if let Some(parent) = to.parent() {
@@ -317,7 +331,7 @@ fn admission(
                 }
                 // Its bytes, in a file of the copy's own (a read-only
                 // source's permissions not carried over).
-                std::fs::write(to, std::fs::read(from)?)?;
+                std::fs::write(to, bytes)?;
             }
             Ok(())
         });

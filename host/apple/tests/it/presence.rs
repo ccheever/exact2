@@ -363,3 +363,43 @@ fn a_layout_springs_size_overshoot_is_clamped_to_zero() {
     let [_, _, sx, sy] = layout(&mid, box_id).unwrap();
     assert_eq!((sx, sy), (0.0, 0.0), "{mid}");
 }
+
+/// Stage 14 B: a box going into the top layer (here its author's sticky
+/// dropped, so its popover lifts it) moves into the viewport's block, a
+/// change of space, not of place: no layout motion across it, as on the
+/// Mac's painted popover, and none back.
+#[test]
+fn a_box_crossing_into_its_block_does_not_move() {
+    let mut host = boot_source(
+        "component App\n  state inflow = true\n  action lift\n    inflow = not inflow\n  view\n    column\n      button \"Lift\" press=lift testId=\"lift\"\n      view height=100\n      view testId=\"box\" popover=\"manual\" position=(inflow ? \"sticky\" : \"absolute\") height=50 -exact-layout-transition=\"1s linear\"\n",
+    );
+    let box_id = view(&host, "box").unwrap();
+    let kernel = |host: &Host<NoData>| host.runner().kernel().host_block(box_id).is_some();
+    assert!(!kernel(&host), "sticky: in flow");
+    for at in [0.0, 2000.0] {
+        let lifted = host.dispatch_at(view(&host, "lift").unwrap(), Event::Press, at);
+        assert_eq!(kernel(&host), at == 0.0, "lifted, then sticky again");
+        let mid = host.tick(at + 500.0);
+        for batch in [&lifted, &mid] {
+            assert!(
+                layout(batch, box_id).is_none_or(|v| v == [0.0, 0.0, 1.0, 1.0]),
+                "{batch}"
+            );
+        }
+    }
+    assert!(!kernel(&host), "and back");
+}
+
+/// A transition declared on a box already in its block (an open popover)
+/// plays: it crossed nothing, so its old box is where it moves from.
+#[test]
+fn a_transition_added_inside_a_block_plays() {
+    let mut host = boot_source(
+        "component App\n  state go = false\n  action start\n    go = true\n  view\n    column\n      button \"Go\" press=start testId=\"go\"\n      view testId=\"box\" popover=\"manual\" position=\"absolute\" height=50 width=(go ? 200 : 100) -exact-layout-transition=(go ? \"1s linear\" : \"none\")\n",
+    );
+    let box_id = view(&host, "box").unwrap();
+    assert!(host.runner().kernel().host_block(box_id).is_some());
+    host.dispatch_at(view(&host, "go").unwrap(), Event::Press, 0.0);
+    let mid = layout(&host.tick(500.0), box_id).expect("it moves");
+    assert_ne!(mid[2], 1.0, "its width grows over the second: {mid:?}");
+}

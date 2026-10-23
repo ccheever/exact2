@@ -36,7 +36,7 @@ final class NavigationHost {
     /// @ref LLP 1115.002 D7.4 — the modal routes that are sheets as of the
     /// last batch, bottom to top, with what each sheet shows of its header
     /// (RouteSheetMac.swift), and why a route that is not one stays painted.
-    private(set) var sheets: [(route: NodeView, header: SheetHeader?)] = []
+    private(set) var sheets: [(base: NodeView, route: NodeView, header: SheetHeader?)] = []
     var keptSheets: [UInt32: String] = [:]
     /// A batch that can have changed a header came since the sheets last showed theirs.
     var sheetsRead = false
@@ -93,7 +93,7 @@ final class NavigationHost {
         // Whether a header can have changed: what the window's bar reads again for.
         let concerned = concerned ?? presenter.toolbar.concerns(batch)
         if concerned { sheetsRead = true }
-        var sheeted: [(route: NodeView, header: SheetHeader?)] = []
+        var sheeted: [(base: NodeView, route: NodeView, header: SheetHeader?)] = []
         for op in batch.ops {
             if let id = op.nodeID {
                 if op.op == .destroy { gates.removeValue(forKey: id); refused.removeValue(forKey: id); shown.removeValue(forKey: id); keptSheets.removeValue(forKey: id) }
@@ -167,12 +167,12 @@ final class NavigationHost {
                 if nav === roots.first, routes.contains(where: { $0.props["navigationBar"] != "none" }) { barRoute = true }
                 let modal = routes.indices.contains(selected) && routes[selected].props["navigationPresentation"] == "modal"
                 // The lowest route in a sheet: it and the sheets on it are shown, and the route they stand over.
-                let lowest = stack == at && nav === roots.first ? sheeted.first.flatMap { low in routes.firstIndex { $0 === low.route } } : nil
+                let lowest = stack == at && nav === roots.first ? sheeted.first.flatMap { low in routes.firstIndex { $0 === low.base } } : nil
                 // A stack that splits (D4) shows its list and the route its pane shows, and the list stays live beside its detail.
                 let splits = stack == at && nav === roots.first && split.active, beside = splits ? split.shown?.detail : nil
                 let covered = routes.indices.contains(selected) && ["modal", "fullscreen"].contains(routes[selected].props["navigationPresentation"] ?? "")
                 for (index, route) in routes.enumerated() {
-                    let under = lowest.map { index >= $0 - 1 && index <= selected } ?? false
+                    let under = lowest.map { index == $0 - 1 || sheeted.contains { $0.route === route } } ?? false
                     // A route still in its sheet is shown until the sheet has gone (`DialogHost.syncRoutes`).
                     let leaving = presenter.dialogs.owns(route) && !sheeted.contains { $0.route === route }
                     let column = splits && (index == 0 || route === beside)

@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61 and 62 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62 and 63 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1939,13 +1939,14 @@ hits and clears) and the kernel's layout tests.
 
 ## Patch 61: transfer an intrinsic flex row's resolved width through its ratio
 
-After intrinsic main sizing resolves a flex row's width, refresh its height
-constraints, percentage basis and cross-axis definiteness through the same
-ratio resolution used for incoming dimensions. This happens before cross
-sizing and alignment, so the ratio floor sizes and places the lines as well
-as the container. The intrinsic main-axis constraints and definiteness stay
-intact. Content can exceed the automatic height floor; authored height bounds,
-explicit minima and scroll containers keep their existing ratio rules.
+After intrinsic main sizing resolves a flex row's width, repeat preliminary
+layout with that width and the input definiteness flags. The known width
+bounds the repeat to one pass. Item generation now resolves percentage heights
+and height bounds against the ratio height before flex sizing and alignment;
+refreshing only the container constants left the items' sizes unresolved.
+Pass only the width so content can exceed the automatic height floor without
+changing the ratio's percentage basis. Authored height bounds, explicit minima
+and scroll containers keep their existing ratio rules.
 See [CSS Sizing 4 §4.2](https://www.w3.org/TR/css-sizing-4/#aspect-ratio-automatic),
 [§4.3](https://www.w3.org/TR/css-sizing-4/#auto-min-size) and
 [§4.4](https://www.w3.org/TR/css-sizing-4/#aspect-ratio-size-transfers).
@@ -1960,6 +1961,16 @@ width and height, columns, grid, content exceeding the floor, centered and
 stretched lines, reverse wrapping, nowrap, ratio 2, padding and borders under
 both box-sizing modes, a zero minimum and hidden overflow.
 
+The same test holds 16 literal `Chrome 151 intrinsic ratio percentages` cases,
+measured with Chrome 151.0.7922.34 on 2026-10-23 in `width:max-content` wrappers.
+Before item generation was repeated, 18 frames in 14 cases differed. A 60×60
+ratio root's 50% item now measures 60×30 instead of 60×0 (60×10 with a 10px
+minimum); a 100% item measures 60×60. Controls cover wrapping and reverse
+wrapping, padding under both box-sizing modes, definite width, percentage
+height bounds, ratio 2, a zero minimum and hidden overflow. Taller content and
+multiple lines check that the ratio's percentage basis stays below the used
+height when content exceeds it. Intrinsic columns remain in `QUEUE.md`.
+
 ## Patch 62: allocate rare style fields only when needed
 
 `Style` keeps its grid templates, automatic tracks, names, areas, placements
@@ -1972,6 +1983,26 @@ block and flex styles no longer carry the grid vectors and placements inline:
 with Exact's features on 64-bit hosts, `Style` falls from 600 to 256 bytes
 (`RcInner<Style>`: 272). The kernel adapter keeps their rare group absent.
 Layout inputs are unchanged.
+
+## Patch 63: calculated lengths participate in automatic grid repetition
+
+`TrackSizingFunction::has_fixed_component` includes calc handles: they are
+length-percentage values, so a calculated minimum can size an `auto-fill` or
+`auto-fit` repetition. The existing resolver supplies the value against the
+container's content box. See [CSS Grid 2 §7.2.3](https://www.w3.org/TR/css-grid-2/#auto-repeat).
+
+`FromCss` and `CssParseResult` are exported so Exact can extend the generic
+`GridTemplateTracks` parser with its existing calculation parser. Taffy still
+parses line names, ordinary breadths and repetition counts; Exact owns the
+calculation representation and evaluator. Calculated `fit-content()` limits
+remain unsupported.
+
+**Held by** `style::grid::expand_tests::track_sizing_function_calc_round_trips` and
+Exact's `calculated_grid_tracks` parser, wire and layout tests. The layout
+cases were measured in Chrome 151 on Linux on 2026-10-23: automatic repetition
+at 150px and 650px, `auto-fit`, percentage arithmetic, clamped rows, negative
+results and indefinite percentage bases. The kernel retains floating-point
+coordinates; comparisons allow Chrome's 1/64px layout quantization.
 
 ## Cargo workspace boundary
 

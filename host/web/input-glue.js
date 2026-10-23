@@ -157,12 +157,13 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     for (const el of root.querySelectorAll("button[aria-keyshortcuts]")) {
       if (modal && !modal.contains(el)) continue;
       if (activates && focus !== el && (event.key === "Enter" || event.key === " ") && !(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)) continue;
-      // A Back control the bar stands for is not shown, and keeps its shortcut (navigation.js `appBarBack`).
-      if (!el.isConnected || !(el.getClientRects().length || el.hasAttribute("data-exact-bar-back")) || inertAncestor(el) || getComputedStyle(el).visibility !== "visible") continue;
+      // A hidden Back control takes its shortcut through the visible bar button, in a header or in content.
+      const target = backButton(el) ?? el;
+      if (!target.isConnected || !(target.getClientRects().length || target.hasAttribute("data-exact-bar-back")) || inertAncestor(el) || getComputedStyle(target).visibility !== "visible") continue;
       if (!(el.getAttribute("aria-keyshortcuts") ?? "").split(/\s+/).some(matches)) continue;
       event.preventDefault();
       event.stopImmediatePropagation();
-      if (!event.repeat && !el.disabled) el.click();
+      if (!event.repeat && !el.disabled) target.click();
       return;
     }
   }, true);
@@ -188,6 +189,36 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     el.click();
     if (event.key === " " && !surface(el)) keyed(el);
   });
+  // @ref LLP 1115.000 D6 — the unsaid dim (index.html) is CSS's while the
+  // press holds; on release it holds at least 0.1 s from the press and fades
+  // back over 0.2 s, ease-out, as the iOS host's does (PressFeedback.swift
+  // `dimHold`, `dimFade`), so a quick tap still flashes. The innermost
+  // pressable showing the dim's 65% is the one dimmed: a finger's
+  // `data-pressed` still holds at the release, read in capture; a mouse's
+  // `:active` has gone by then (Chrome sets it before `pointerdown`'s
+  // listeners and clears it before `pointerup`'s), so it is read at the press.
+  // The agent's clock skips it.
+  const DIM = { opacity: "0.65", hold: 100, fade: 200 };
+  const dimStarts = new WeakMap(), dimFades = new WeakMap(), dimmedAtPress = new WeakSet();
+  const pressable = at => at?.closest?.('button, a[data-view][href], [data-exact-on~="press"]');
+  const fadeDim = el => {
+    if (agentMode || !el || !root.contains(el)) return;
+    if (getComputedStyle(el).opacity !== DIM.opacity && !dimmedAtPress.has(el)) return;
+    dimmedAtPress.delete(el);
+    const hold = Math.max(0, (dimStarts.get(el) ?? 0) + DIM.hold - performance.now());
+    dimFades.get(el)?.cancel();
+    // No closing keyframe: the fade ends at whatever lies beneath the dim.
+    dimFades.set(el, el.animate([{ opacity: DIM.opacity }, { opacity: DIM.opacity, offset: hold / (hold + DIM.fade), easing: "ease-out" }], { duration: hold + DIM.fade }));
+  };
+  root.addEventListener("pointerdown", e => {
+    const el = pressable(e.target);
+    if (!el) return;
+    dimFades.get(el)?.cancel();
+    dimStarts.set(el, performance.now());
+    if (e.pointerType === "mouse" && getComputedStyle(el).opacity === DIM.opacity) dimmedAtPress.add(el);
+    else dimmedAtPress.delete(el);
+  }, true);
+  for (const type of ["pointerup", "pointercancel"]) addEventListener(type, e => fadeDim(pressable(e.target)), true);
   // @ref LLP 1115.000 D6 — a pressable covering the window is a surface (a
   // scrim that closes a sheet, a viewer that toggles its bars) and shows no
   // press, as on iOS (PressFeedback.swift `platformPressDims`). CSS cannot
@@ -208,11 +239,13 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   const keyed = el => {
     const up = (e, now = false) => {
       if (e?.type === "keyup" && e.key !== " ") return;
+      if (!now) fadeDim(el);
       showPress(el, false, now);
       removeEventListener("keyup", up, true); el.removeEventListener("blur", up);
       if (keyHold === up) keyHold = null;
     };
     keyHold?.(null, true);
+    dimStarts.set(el, performance.now());
     showPress(el, true);
     up.el = el;
     keyHold = up;
@@ -299,8 +332,25 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     paint(el, state, EASE.duration);
     if (!down && (now || !el.isConnected)) endPaint(el, state);
   };
+  // Keep the release style only until its transitions end. Immediate cancellation and the agent's clock skip it.
+  const releases = new WeakMap(), RELEASED = new Set(["opacity", "background-color", "--exact-wash"]);
   const showPress = (el, down, now = false) => {
+    const native = el.matches("button[data-button-style]");
+    const eased = native && !down && !now && !agentMode && el.hasAttribute("data-pressed");
+    const running = eased ? new Set(el.getAnimations({ subtree: true })) : null;
     el.toggleAttribute("data-pressed", down);
+    if (native && down) {
+      // Flush the pressed style so a tap released before the next frame still shows its highlight (LLP 1061 D2)
+      el.removeAttribute("data-exact-released");
+      getComputedStyle(el).opacity;
+    } else if (eased) {
+      el.setAttribute("data-exact-released", "");
+      // Leave an author's running transitions independent of the release marker
+      const ease = el.getAnimations({ subtree: true }).filter(a => !running.has(a) && RELEASED.has(a.transitionProperty) && (a.effect.target === el || a.effect.target.parentElement === el));
+      const ends = Promise.allSettled(ease.map(a => a.finished));
+      releases.set(el, ends);
+      ends.then(() => { if (releases.get(el) === ends) el.removeAttribute("data-exact-released"); });
+    }
     showPaint(el, down, now);
     // A design token's scale is its property's `var()`: the computed value
     // is the token's (LLP 1121 D7).
@@ -888,6 +938,9 @@ const guestValue = (target) => "value" in target ? (target.type === "password" &
 // Both agents supply their modal-aware inert check; standalone callers default to DOM ancestry.
 export function reveal(el, id, inert = el => el.closest("[inert]")) {
   if (!el?.isConnected) return { error: `no view ${id}` };
+  // The shadow button does not carry the route control's inert ancestry.
+  if (inert(el)) return { revealed: id, scrolled: false };
+  el = backButton(el) ?? el;
   const middle = () => { const b = viewBox(el); return [b.left + b.width / 2, b.top + b.height / 2]; };
   const [x, y] = middle();
   let seen = x >= 0 && y >= 0 && x < innerWidth && y < innerHeight;
@@ -895,7 +948,7 @@ export function reveal(el, id, inert = el => el.closest("[inert]")) {
     const cs = getComputedStyle(a), b = a.getBoundingClientRect();
     if ((cs.overflowX !== "visible" || cs.overflowY !== "visible") && !(x >= b.left && x < b.right && y >= b.top && y < b.bottom)) seen = false;
   }
-  if (seen || inert(el) || ["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // nor what its tap refuses (hidden or inert): a refusal leaves the page as it was
+  if (seen || ["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // A hidden stand-in must not scroll the page.
   (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
   return { revealed: id, scrolled: true, from: [x, y], to: middle() };
 }
@@ -904,12 +957,23 @@ export function reveal(el, id, inert = el => el.closest("[inert]")) {
 // touch. A paragraph's inline runs are not `data-exact-text`; only the paragraph is.
 const folded = el => { const d = getComputedStyle(el).display; return d === "contents" || d === "inline" && el.hasAttribute("data-exact-text"); };
 
+// The visible Back that stands for a hidden route control. The hiding mark belongs only to bar items;
+// author-hidden controls keep their styles. Input uses only the selected route; geometry can read a covered route.
+export function backButton(el, selectedOnly = true) {
+  if (!el?.id || el.checkVisibility?.({ visibilityProperty: true }) !== false) return null;
+  const route = el.closest("[navigationkey]"), nav = route?.parentElement?.closest("[navigationback]");
+  if (!nav || nav.getAttribute("navigationBack") !== el.id || (selectedOnly && nav.getAttribute("navigationKey") !== route.getAttribute("navigationKey"))
+    || route.querySelector(`[id="${CSS.escape(el.id)}"]`) !== el) return null;
+  const back = route.querySelector(":scope > header")?.shadowRoot?.querySelector('button[part="back"]:not([hidden])');
+  return back?.checkVisibility({ visibilityProperty: true }) ? back : null;
+}
+
 // A view's box as the agent reports it. A folded text has no block box of its own: its box is the anonymous block its
 // text is, as a style-less block child's was — its line boxes along the main axis, and its box's content box across
 // when the box stretches its items (a block, or a flex or grid box that stretches). A Back control its route's bar
 // stands for (index.html) is where that bar's Back is, so a tap that names it presses that Back, as a person does.
 export function viewBox(el) {
-  const back = el.hasAttribute("data-exact-bar-back") && el.closest("[navigationkey] > header")?.shadowRoot?.querySelector('button[part="back"]:not([hidden])');
+  const back = backButton(el, false);
   if (back) return back.getBoundingClientRect();
   if (!folded(el)) return el.getBoundingClientRect();
   const range = document.createRange();
@@ -1015,5 +1079,5 @@ export function typeControl(el, request, inertAncestor, settleValue) {
   el.dispatchEvent(new Event("change", { bubbles: true }));
   return { typed: id, value: el.value, delivery: "recognized", handled: true };
 }
-export const agentInput = { guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll, typeControl };
+export const agentInput = { backButton, guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll, typeControl };
 if (globalThis.exact) Object.assign(globalThis.exact, { createInputHandlers, agentInput });

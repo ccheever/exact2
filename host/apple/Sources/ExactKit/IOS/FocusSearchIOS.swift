@@ -56,14 +56,23 @@ final class Viewport: ScrollView {
     var pageMargins = UIEdgeInsets.zero
     /// The control bars over its page's scrollers, each by its edge (`ControlBars.sync`, LLP 1131).
     var controlBars: [ObjectIdentifier: ControlBars.Weak] = [:]
+    #if os(iOS)
+    // The page's own scroller takes the keyboard down with a drag that
+    // reaches it, as a scroller's unsaid `keyboardDismissMode` does
+    // (`NodeView.keyboardDismissal`, LLP 1115.000 D9.1).
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        keyboardDismissMode = .interactive
+    }
+    required init?(coder: NSCoder) { nil }
+    #endif
     // tvOS focuses exact2's own nodes (RemoteTVOS), so its search sees every view.
     #if !os(tvOS)
     override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self, in: rect) }
     #endif
 }
-/// What a presentation mounts its navigation in (`ModalHost.present`): the
-/// other way into a session's views, which answers the search as the
-/// viewport does (LLP 1123 D2).
+/// A native document's or presentation's non-scrolling mount. Both answer
+/// the session's focus search as the viewport does (LLP 1123 D2).
 final class PresentationMount: UIView {
     #if os(iOS)
     /// What the route's logical ancestors listen for (`MountRelay`).

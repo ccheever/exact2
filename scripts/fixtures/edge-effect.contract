@@ -1,0 +1,42 @@
+// LLP 1141.001 D4: content scrolled under the bar takes iOS 26's scroll edge
+// effect when the scroller's rows paint above their in-flow siblings. Each
+// tab's route has a scroller with pull to refresh whose rows hold a native
+// button, under a large title in one tab and an inline title in the other;
+// the first also has a sticky child with a `z-index`, the second
+// `position: relative` cards (EdgeEffectIOSTests).
+routes nav
+  tab large "/"
+  tab inline "/inline"
+
+component EdgeEffect
+  state pulls = 0
+  state rows = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30"]
+  action reload
+    pulls = pulls + 1
+  action pick(name: string)
+    nav = select(nav, name)
+  view
+    main navigationKey=`${top(nav).id}` testId="app" width="100%" height="100%" display="flex" flex-direction="column"
+      column flex=1 min-height=0 position="relative"
+        for t in nav.tabs key = t.name
+          column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
+            for e in t.stack key = e.id
+              column navigationKey=`${e.id}` navigationScroll=`content-${e.name}` testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column"
+                header
+                  text (e.name == "large" ? "Large" : "Inline") role="heading" aria-level=(e.name == "large" ? 1 : 2)
+                scroll id=`content-${e.name}` testId=`content-${e.name}` flex=1 min-height=0 refresh=reload refreshing=false
+                  if e.name == "large"
+                    column position="sticky" top=0 z-index=1 padding="8px 16px"
+                      text "Pinned"
+                  for r in rows key = r
+                    row padding="12px 16px" align-items="center" position=(e.name == "inline" ? "relative" : "static")
+                      text `Row ${r}` flex=1
+                      button press=reload aria-label="Mark" testId=`${e.name}-mark-${r}`
+                        image "symbol:bookmark"
+      row role="tablist"
+        button role="tab" aria-controls="panel-large" aria-selected=(nav.tab == "large") press=pick("large") testId="tab-large" flex=1
+          image "symbol:bookmark"
+          text "Large"
+        button role="tab" aria-controls="panel-inline" aria-selected=(nav.tab == "inline") press=pick("inline") testId="tab-inline" flex=1
+          image "symbol:bookmark"
+          text "Inline"

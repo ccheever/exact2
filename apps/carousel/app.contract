@@ -44,18 +44,18 @@ component Carousel
   action toggle
     eager = not eager
   view
-    main testId="carousel" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#000000" font-family="system-ui"
+    main testId="carousel" width="100%" height="100%" display="flex" flex-direction="column" background-color="-exact-background" color="-exact-label" font-family="system-ui"
       row flex-shrink=0 align-items="center" gap=8 padding=12
         text "Cards" flex=1 font-size=17 font-weight=600
-        button press=far testId="far" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="#f3f4f6"
+        button press=far testId="far" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="-exact-fill"
           text "Far" font-size=13
-        button press=showFeed testId="feed-page" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="#f3f4f6"
+        button press=showFeed testId="feed-page" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="-exact-fill"
           text (page == "feed" ? "Strip" : "Feed") font-size=13
-        button press=feedFar testId="feed-far" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="#f3f4f6"
+        button press=feedFar testId="feed-far" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="-exact-fill"
           text "Down" font-size=13
-        button press=feedTopAgain testId="feed-top" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="#f3f4f6"
+        button press=feedTopAgain testId="feed-top" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="-exact-fill"
           text "Top" font-size=13
-        button press=toggle testId="eager" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="#f3f4f6"
+        button press=toggle testId="eager" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="-exact-fill"
           text (eager ? "Virtualized" : "Eager") font-size=13
       if page == "feed"
         if eager
@@ -75,8 +75,9 @@ component Carousel
           list virtualized=true display="flex" width="100%" height=132 overflow-x="scroll" overflow-y="hidden" estimated-item-width=128 padding-top=8 padding-bottom=8 box-sizing="border-box" scrollbar-width="none" scrollLeft=jump testId="strip"
             for c in cards key=c.id
               CardView(c=c)
-        text "A strip of 25,000 cards: only those near the port are built." padding=12 font-size=13 color="#6b7280"
+        text "A strip of 25,000 cards: only those near the port are built." padding=12 font-size=13 color="-exact-secondary-label"
 
+// Card labels stay white on the fixed content hues in the data module, in either scheme.
 component CardView
   props
     c: Card
@@ -91,7 +92,7 @@ component PostView
     p: Post
     virtual: bool
   view
-    column testId=`post-${p.n}` width="100%" box-sizing="border-box" padding-top=8 padding-bottom=8 border-bottom-style="solid" border-bottom-width=1 border-color="#e5e7eb"
+    column testId=`post-${p.n}` width="100%" box-sizing="border-box" padding-top=8 padding-bottom=8 border-bottom-style="solid" border-bottom-width=1 border-color="-exact-separator"
       text `Post ${p.n}` padding-left=12 font-size=15 font-weight=600 height=24
       if p.kind == "strip"
         if virtual
@@ -112,7 +113,7 @@ component PostView
             for m in p.cards key=m.id
               Message(post=p.n, m=m)
       if p.kind == "text"
-        text "An ordinary row between the lists." padding-left=12 font-size=13 color="#6b7280" height=40
+        text "An ordinary row between the lists." padding-left=12 font-size=13 color="-exact-secondary-label" height=40
 
 component FeedCard
   props
@@ -129,5 +130,5 @@ component Message
     post: number
     m: Card
   view
-    row testId=`msg-${post}-${m.n}` width="100%" height=(m.width / 2) box-sizing="border-box" padding-left=12 align-items="center" border-bottom-style="solid" border-bottom-width=1 border-color="#f3f4f6"
+    row testId=`msg-${post}-${m.n}` width="100%" height=(m.width / 2) box-sizing="border-box" padding-left=12 align-items="center" border-bottom-style="solid" border-bottom-width=1 border-color="-exact-separator"
       text m.label font-size=13

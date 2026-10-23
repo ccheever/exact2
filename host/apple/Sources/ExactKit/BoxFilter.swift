@@ -6,8 +6,9 @@
 // itself stays in the tree, masked to nothing, so it still takes hits, is
 // still what the accessibility tree and the agent read, and still lays out.
 // The picture is drawn again after every batch while the box is filtered,
-// so a change or a sampled animation inside it shows (a lowered animation
-// under a filtered box is sampled instead: `svg_lower::eligibility`).
+// and after an image or text raster publishes pixels, so those changes
+// show without another batch. An animation under a filtered box is
+// sampled instead of lowered (`svg_lower::eligibility`).
 import CoreGraphics
 import QuartzCore
 
@@ -104,14 +105,53 @@ final class BoxFilter {
     }
 }
 
-/// A presenter's filtered boxes, drawn again after each batch.
+/// A presenter's filtered boxes. Descendants publish pixels independently
+/// of runner batches, so those publications also invalidate their pictures.
 final class BoxFilters {
-    private var views: [ObjectIdentifier: () -> Void] = [:]
+    private struct Entry {
+        weak var view: NodeView?
+        var render: () -> Void
+        var depth: Int {
+            var n = 0, parent = view?.superview
+            while let v = parent { n += 1; parent = v.superview }
+            return n
+        }
+    }
+    private var views: [ObjectIdentifier: Entry] = [:]
+    private var pending: Set<ObjectIdentifier> = []
+    private var queued = false
 
-    func add(_ view: AnyObject, render: @escaping () -> Void) { views[ObjectIdentifier(view)] = render }
-    func remove(_ view: AnyObject) { views.removeValue(forKey: ObjectIdentifier(view)) }
+    func add(_ view: NodeView, render: @escaping () -> Void) { views[ObjectIdentifier(view)] = Entry(view: view, render: render) }
+    func remove(_ view: NodeView) { let key = ObjectIdentifier(view); views.removeValue(forKey: key); pending.remove(key) }
     var isEmpty: Bool { views.isEmpty }
 
-    /// Every filtered box's picture again.
-    func render() { for r in views.values { r() } }
+    func changed(_ view: NodeView) {
+        guard !views.isEmpty else { return }
+        var parent = view.superview
+        if views[ObjectIdentifier(view)] != nil { pending.insert(ObjectIdentifier(view)) }
+        while let v = parent {
+            let key = ObjectIdentifier(v)
+            if views[key] != nil { pending.insert(key) }
+            parent = v.superview
+        }
+        guard !pending.isEmpty, !queued else { return }
+        queued = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            queued = false
+            let entries = pending.compactMap { self.views[$0] }
+            pending.removeAll(keepingCapacity: true)
+            draw(entries)
+        }
+    }
+
+    /// Inner pictures must land before their filtered ancestors copy them.
+    private func draw(_ entries: [Entry]) {
+        for entry in entries.sorted(by: { $0.depth > $1.depth }) where entry.view != nil { entry.render() }
+    }
+
+    func render() {
+        pending.removeAll(keepingCapacity: true)
+        draw(Array(views.values))
+    }
 }

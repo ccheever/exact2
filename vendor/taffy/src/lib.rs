@@ -124,7 +124,7 @@ pub use crate::tree::TaffyTree;
 pub use crate::util::print_tree;
 
 #[cfg(feature = "parse")]
-pub use parse::{ParseError, ParseResult};
+pub use parse::{CssParseResult, FromCss, ParseError, ParseResult};
 
 pub use crate::compute::*;
 pub use crate::geometry::*;

@@ -18,16 +18,18 @@ extension Agent {
             return CGPoint(x: x, y: y)
         }
         guard !points.isEmpty else { return ["malformed": true, "error": "sample needs points: sample <x> <y> [<x> <y>…], in view points"] }
-        let view = presenter.viewport
         #if os(iOS) || os(tvOS)
+        let view = presenter.viewport
         let layer = view.layer
         #else
+        let view = presenter.navigation.split.agentRoot
         guard let layer = view.layer else { return ["error": "the session's view has no layer"] }
         #endif
         #if os(iOS) || os(tvOS)
         let size = view.pageSize // the page's area, a box's space (LLP 1130)
         #else
-        let size = view.bounds.size
+        let area = presenter.navigation.split.agentCaptureArea
+        let size = area.size
         #endif
         let (w, h) = (Int(size.width.rounded(.up)), Int(size.height.rounded(.up)))
         guard w > 0, h > 0, let space = CGColorSpace(name: CGColorSpace.extendedLinearSRGB),
@@ -51,8 +53,15 @@ extension Agent {
         } else {
             ctx.translateBy(x: view.bounds.minX - view.pageBounds.minX, y: view.bounds.minY - view.pageBounds.minY)
             layer.render(in: ctx)
+            // The document standing beside the viewport, in its space (`mountDocument`)
+            if presenter.documentPort !== view { presenter.documentMount.layer.render(in: ctx) }
         }
         #else
+        ctx.translateBy(x: -area.minX, y: -area.minY)
+        if presenter.navigation.split.active, !view.isFlipped {
+            ctx.translateBy(x: 0, y: view.bounds.height)
+            ctx.scaleBy(x: 1, y: -1)
+        }
         layer.render(in: ctx)
         #endif
         let px = data.assumingMemoryBound(to: Float.self)

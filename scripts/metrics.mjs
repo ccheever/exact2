@@ -43,6 +43,7 @@ import { appleArtifacts, assertAppleIdentity } from '../host/apple/build.mjs';
 import { developmentBuildEnv, resolveApp, withAppFixture } from './app.mjs';
 import { Cdp, open } from './agent.mjs';
 import { chromium } from './agent-launch.mjs';
+import { childFailure as failure, failureSummary } from './agent-build.mjs';
 
 const t0 = Date.now();
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -302,9 +303,6 @@ if (process.argv.includes('--flow')) {
 // timeout). Every server here sends no-store, so nothing is cached.
 const profile = resolve(ROOT, 'target/exact-chrome-profile', app.id.replace(/[^a-zA-Z0-9._-]/g, '_'));
 mkdirSync(profile, { recursive: true });
-/** The last lines a failed child printed, for a row that says why. */
-// The last lines that say why: a thrown error's stack frames and Bun's banner say only where.
-const failure = (r) => `${r.stderr ?? ''}\n${r.stdout ?? ''}`.split('\n').map((l) => l.trim()).filter((l) => l && !/^at |^Bun v\d/.test(l)).slice(-3).join(' / ').slice(0, 400);
 const step = async (name, f) => { const t = Date.now(); const v = await f(); out[`_${name}_s`] = (Date.now() - t) / 1000; return v; };
 
 const NATIVE_ROWS = ['compile_ms', 'bake_ms', 'decode_ms', 'plan_bytes', 'baked_bytes', 'boot_ms', 'nodes', 'text_nodes', 'layout_ms', 'update_ms', 'inherit_ms', 'inherit_touched', 'tick_ms', 'web_boot_ms', 'web_first_batch_bytes', 'web_update_ms', 'web_update_batch_bytes'];
@@ -824,7 +822,14 @@ if (long) {
     for (const optimize of ['speed', 'size']) {
       const r = spawnSync(process.execPath, [resolve(ROOT, 'host/apple/build.mjs'), hello.crate('apple'), '--ios', '--optimize', optimize], { cwd: ROOT, env, encoding: 'utf8' });
       const binary = appleArtifacts(hello, { destination: 'ios-simulator', trust: 'production', optimize }).binary;
-      if (r.status !== 0 || !existsSync(binary)) { out[`ios_${optimize}_failed`] = `exit ${r.status}: ${failure(r)}`; continue; }
+      if (r.status !== 0 || !existsSync(binary)) {
+        const log = resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target'), `metrics-ios-${optimize}.log`);
+        const output = `${r.stdout ?? ''}\n${r.stderr ?? ''}\n${r.error?.message ?? ''}`;
+        writeFileSync(log, output);
+        out[`ios_${optimize}_failed`] = r.status !== 0 ? `exit ${r.status}: ${failure(r)}` : `missing binary ${binary}`;
+        console.error(`iOS hello (${optimize}): ${r.status !== 0 ? failureSummary(output, { host: 'ios', code: r.status, log, beforeDrive: false }) : `${out[`ios_${optimize}_failed`]}; build log: ${log}`}`);
+        continue;
+      }
       out[`ios_${optimize}_bytes`] = strippedSize(binary) - out.ios_floor_bytes;
     }
   });

@@ -769,3 +769,36 @@ fn expected_refusal_keeps_the_mutation_and_source_line() {
         serde_json::json!({"op":"expect-refusal", "target":"saved", "line":2})
     );
 }
+
+#[test]
+fn media_preferences_inherit_by_name_and_can_change_between_steps() {
+    let src = "prefer prefers-color-scheme dark\nprefer prefers-reduced-motion reduce\n\ntest \"inherits\"\n  expect tree has \"root\"\n  prefer prefers-color-scheme light\n  reload\n\ntest \"overrides\"\n  prefer prefers-color-scheme light\n  expect tree has \"root\"\n";
+    let tests = contract::tests(src).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&contract::tests_json(&tests)).unwrap();
+    assert_eq!(
+        json[0]["steps"][0],
+        serde_json::json!({"op":"prefer", "name":"prefers-color-scheme", "value":"dark", "line":1})
+    );
+    assert_eq!(json[0]["steps"][3]["value"], "light");
+    assert_eq!(json[1]["steps"][0]["name"], "prefers-reduced-motion");
+    assert_eq!(json[1]["steps"][1]["value"], "light");
+    for src in [
+        "prefer prefers-color-scheme dark\nprefer prefers-color-scheme light\n",
+        "test \"t\"\n  prefer prefers-color-scheme dark\n  prefer prefers-color-scheme light\n",
+    ] {
+        assert_eq!(
+            contract::tests(src).unwrap_err().id,
+            "syntax-duplicate-declaration"
+        );
+    }
+    assert!(contract::tests("test \"t\"\n  prefer hover none\n").is_ok());
+    assert!(contract::tests("test \"t\"\n  prefer online false\n").is_ok());
+    // The driver validates media names and values at the failing test's line.
+    assert!(contract::tests("test \"t\"\n  prefer unknown banana\n").is_ok());
+    assert!(contract::tests("test \"t\"\n  prefer prefers-color-scheme banana\n").is_ok());
+    assert!(contract::tests("prefer midi.state granted\n").is_err());
+    let midi =
+        contract::tests("test \"midi\"\n  prefer midi.state granted midi.outputs \"synth\"\n")
+            .unwrap();
+    assert!(contract::tests_json(&midi).contains("prefer-midi"));
+}

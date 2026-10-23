@@ -250,6 +250,25 @@ impl Loaded {
     pub fn svg(&self) -> u32 {
         self.document.svg
     }
+
+    /// Whether the picture can show an SVG island (LLP 1055.000 D10, D14),
+    /// by `exact_runner::svg_islands`'s rule for a plan: a `mask` or
+    /// `filter` element, or `filter` set on an SVG element.
+    pub fn islands(&self) -> bool {
+        use exact_kernel::NodeType;
+        self.document.ops.iter().any(|op| {
+            let Op::CreateView { id, .. } = op else {
+                return false;
+            };
+            self.kernel
+                .node(*id)
+                .is_some_and(|node| match node.node_type {
+                    NodeType::SvgMask | NodeType::SvgFilter => true,
+                    t if t == NodeType::Svg || t.is_svg_element() => !node.style.filter.is_none(),
+                    _ => false,
+                })
+        })
+    }
 }
 
 #[cfg(test)]
@@ -403,5 +422,34 @@ mod tests {
         }
         deep.push_str("</svg>");
         assert!(parse(&deep).unwrap_err().message.contains("nested deeper"));
+    }
+
+    #[test]
+    fn a_picture_shows_an_island_for_a_mask_or_a_filter() {
+        let islands = |body: &str| {
+            load(&format!(
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\">{body}</svg>"
+            ))
+            .unwrap()
+            .islands()
+        };
+        // React Conf's sponsor logos: the art wrapped in a luminance mask.
+        assert!(islands(
+            "<mask id=\"m\" style=\"mask-type:luminance\"><path d=\"M0 0H10V10H0Z\" fill=\"white\"/></mask>\
+             <g mask=\"url(#m)\"><path d=\"M0 0H5V5H0Z\" fill=\"red\"/></g>"
+        ));
+        assert!(islands(
+            "<filter id=\"f\"><feGaussianBlur stdDeviation=\"1\"/></filter><rect width=\"5\" height=\"5\" filter=\"url(#f)\"/>"
+        ));
+        assert!(islands(
+            "<rect width=\"5\" height=\"5\" style=\"filter: blur(1px)\"/>"
+        ));
+        assert!(!islands(
+            "<clipPath id=\"c\"><rect width=\"5\" height=\"5\"/></clipPath>\
+             <g clip-path=\"url(#c)\"><path d=\"M0 0H10V10H0Z\" fill=\"red\"/></g>"
+        ));
+        assert!(!islands(
+            "<rect width=\"5\" height=\"5\" style=\"filter: none\"/>"
+        ));
     }
 }

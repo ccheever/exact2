@@ -23,12 +23,12 @@ extension ScrollAnchoring.Changes {
 }
 
 extension NodeView {
-    func captureScrollAnchor(_ sv: UIScrollView) {
+    func captureScrollAnchor(_ sv: UIScrollView, focused: NodeView?) {
         // No anchor at the start (spec §2.2): content inserted on top shows.
         guard hasScrollLayoutBox, sv.contentOffset.y > -sv.adjustedContentInset.top else { return }
         // The scrollport: what a bar or the safe area covers is not in view.
         let i = sv.adjustedContentInset
-        scrollAnchor = ScrollAnchoring.anchor(in: self, space: sv, port: sv.bounds.inset(by: UIEdgeInsets(top: i.top, left: 0, bottom: i.bottom, right: 0)))
+        scrollAnchor = ScrollAnchoring.anchor(in: self, space: sv, port: sv.bounds.inset(by: UIEdgeInsets(top: i.top, left: 0, bottom: i.bottom, right: 0)), focused: focused)
     }
 
     func restoreScrollAnchor(_ sv: UIScrollView) {
@@ -41,7 +41,7 @@ extension NodeView {
         // While a finger or a fling moves it, move the offset by the shift
         // only, as UIKit's own content offset adjustment does; at rest, clamp.
         if sv.isTracking || sv.isDecelerating {
-            sv.contentOffset.y += shift
+            sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: sv.contentOffset.y + shift), in: sv, clamped: false)
             return
         }
         let i = sv.adjustedContentInset
@@ -49,7 +49,7 @@ extension NodeView {
         // on a content size change, and a collapsing title may have moved it.
         let y = ScrollAnchoring.adjusted(top: sv.contentOffset.y, before: 0, after: shift, minimum: -i.top,
                                          maximum: sv.contentSize.height + i.bottom - sv.bounds.height)
-        if sv.contentOffset.y != y { sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: y), animated: false) }
+        if sv.contentOffset.y != y { sv.setContentOffset(PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: y), in: sv), animated: false) }
     }
 }
 #endif

@@ -209,5 +209,98 @@ final class PageEdgesIOSTests: XCTestCase {
         let i = sv.adjustedContentInset
         XCTAssertLessThanOrEqual(sv.contentSize.height + i.top + i.bottom, sv.bounds.height + 0.5, "no range from the bands, as a table that fits")
     }
+    func testALargeTitleCollapsesOverAFixedControlBar() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the title and safe area belong to a scene window") }
+        guard #available(iOS 26.0, *) else { throw XCTSkip("control bars require iOS 26") }
+        let (session, _) = try fixture("CONTROL_BARS")
+        let p = session.presenter
+        p.press(try node(session, "pick-large").id)
+        let filter = try node(session, "filter"), list = try node(session, "list")
+        p.apply(wireBatch([["op": "props", "id": Int(filter.id), "set": ["accessibilityRole": "group"]]]))
+        let route = try XCTUnwrap(p.navigation.activeRoute)
+        until("the filter is page content and its bar has settled") { route.scoped == nil && !Agent(session: session).nativeInFlight() }
+        let nav = try XCTUnwrap(route.navigationController), sv = try XCTUnwrap(list.scrollView)
+        nav.view.layoutIfNeeded()
+        let expanded = nav.navigationBar.bounds.height
+        XCTAssertGreaterThan(expanded, 80)
+        XCTAssertTrue(route.collapseScroll === list)
+        XCTAssertGreaterThan(list.pageBand.top, 0)
+        let top = try node(session, "list-top")
+        XCTAssertEqual(top.convert(top.bounds, to: nil).minY, filter.convert(filter.bounds, to: nil).maxY + 8, accuracy: 1)
+        let beforeDrag = sv.contentOffset.y + list.scrollTopInset(sv)
+        Agent.rest(sv, at: CGPoint(x: 0, y: sv.contentOffset.y + 30), x: false, y: true)
+        nav.view.layoutIfNeeded()
+        let turn = expectation(description: "bar covers delivered")
+        DispatchQueue.main.async { turn.fulfill() }
+        wait(for: [turn], timeout: 5)
+        let shortDragHeight = nav.navigationBar.bounds.height
+        let shortDragTop = sv.contentOffset.y + list.scrollTopInset(sv)
+        XCTAssertGreaterThan(shortDragTop, beforeDrag, "the released drag must move content")
+        Agent.rest(sv, at: CGPoint(x: 0, y: 300 - sv.adjustedContentInset.top), x: false, y: true)
+        nav.view.layoutIfNeeded()
+        XCTAssertLessThan(nav.navigationBar.bounds.height, 65)
+        let collapsed = nav.navigationBar.bounds.height
+        XCTAssertEqual(min(abs(shortDragHeight - expanded), abs(shortDragHeight - collapsed)), 0, accuracy: 0.5,
+                       "the short drag rests at an exact native title height")
+        XCTAssertEqual(shortDragTop, beforeDrag + expanded - collapsed, accuracy: 0.5,
+                       "the offset follows the same native snap instead of returning to the top")
+        XCTAssertEqual(filter.convert(filter.bounds, to: route.view).minY, route.view.safeAreaInsets.top + 8, accuracy: 1)
+    }
+
+    func testLargeTitleRidersRequireBothEdgesAndTheBarsPaintOrder() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the title belongs to a scene window") }
+        guard #available(iOS 26.0, *) else { throw XCTSkip("control bars require iOS 26") }
+        let (session, _) = try fixture("CONTROL_BARS")
+        let p = session.presenter
+        p.press(try node(session, "pick-large").id)
+        let filter = try node(session, "filter"), list = try node(session, "list")
+        p.apply(wireBatch([["op": "props", "id": Int(filter.id), "set": ["accessibilityRole": "group"]]]))
+        let route = try XCTUnwrap(p.navigation.activeRoute)
+        until("the filter is page content and its bar has settled") { route.scoped == nil && !Agent(session: session).nativeInFlight() }
+        let nav = try XCTUnwrap(route.navigationController)
+        XCTAssertTrue(route.collapseScroll === list)
+        p.onCovers = nil
+        let originalStyle = list.style, originalFrame = list.frame
+        list.style["written"] = .array([.string("z_index")])
+        list.style["z_index"] = .number(100)
+        list.setRank(filter.paintRank + 100)
+        for _ in 0..<2 {
+            p.navigation.prepareRoutes([route], in: nav)
+            p.reachPageEdges()
+            XCTAssertNil(route.collapseScroll, "a scroller above its bar cannot drive collapse")
+            XCTAssertTrue(route.ridingBars.isEmpty)
+            XCTAssertEqual(list.pageBand.top, 0)
+            XCTAssertEqual(filter.controlRide, 0)
+        }
+        list.style = originalStyle
+        list.setRank(filter.paintRank - 1)
+        list.frame = CGRect(x: originalFrame.minX, y: originalFrame.minY, width: originalFrame.width, height: originalFrame.height - 40)
+        for _ in 0..<2 {
+            p.navigation.prepareRoutes([route], in: nav)
+            p.reachPageEdges()
+            XCTAssertNil(route.collapseScroll, "an open opposite edge must reach the route's edge")
+            XCTAssertTrue(route.ridingBars.isEmpty)
+            XCTAssertEqual(list.pageBand.top, 0)
+        }
+    }
+
+    func testAControlBarMayIncludeACaptionButACaptionAloneIsNotABar() {
+        let p = Presenter()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "textarea"],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Messages are saved locally"]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "create", "id": 4, "kind": "view"],
+            ["op": "create", "id": 5, "kind": "text", "props": ["text": "Signed in as Ada"]],
+            ["op": "children", "id": 4, "ids": [5]],
+            ["op": "roots", "ids": [1, 4]]
+        ]))
+        XCTAssertTrue(ControlBars(p).isBar(p.views[1]!))
+        XCTAssertFalse(ControlBars(p).isBar(p.views[4]!))
+        p.views[1]?.style["written"] = .array([.string("background_color")])
+        XCTAssertFalse(ControlBars(p).isBar(p.views[1]!))
+    }
+
 }
 #endif

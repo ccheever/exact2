@@ -15,7 +15,7 @@ import { appDigest, developmentStore } from '../../../scripts/agent-launch.mjs';
 import { standIns } from './stand-ins.mjs';
 
 const webJs = new URL('../../web-js/', import.meta.url).pathname, web = new URL('../', import.meta.url).pathname;
-const REAL = ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'persist.js'];
+const REAL = ['rt.js', 'held.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js', 'persist.js'];
 const root = mkdtempSync(resolve(tmpdir(), 'exact-js-storage-'));
 /** The runtime as a build lays it out for the app at `appDir`, or as written (a release) when it is null. */
 function runtime(name, appDir) {
@@ -77,4 +77,65 @@ test('persisted state and the durable store are the app\'s own on a shared origi
   // A release's keys are the runner's: "exact.state.<name>".
   kept.set('exact.state.goal', '1500');
   expect(release.persist.stored('goal', 2000, 'n')).toBe(1500);
+});
+
+test('committed store writes retry without new writes, coalesce by name, and exclude rollback', async () => {
+  const rt = await import(resolve(runtime('retry', null), 'rt.js'));
+  const storage = globalThis.localStorage, document = globalThis.document;
+  globalThis.document = { querySelector: () => null, getElementById: () => ({}) };
+  kept.clear();
+  let blocked = true;
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, get() {
+    if (blocked) throw new Error('disabled storage');
+    return storage;
+  } });
+  const warnings = () => rt.journal.filter(l => l.includes('store token failed:'));
+  const commit = f => expect(rt.commit(f ?? (() => {}))).toBe(true);
+  try {
+    commit(() => rt.Store.set('token', 'first')); commit(); commit();
+    const firstWarnings = warnings();
+    blocked = false; commit();
+    expect(kept.get('exact.secret.token')).toBe('first');
+    expect(firstWarnings).toHaveLength(1);
+    blocked = true; commit(() => rt.Store.set('token', 'second')); commit();
+    expect(warnings()).toHaveLength(2);
+    expect(rt.commit(() => { rt.Store.set('token', 'rollback'); rt.Store.set('uncommitted', 'never'); throw new rt.Refusal('test'); })).toBe(false);
+    blocked = false; commit();
+    expect(kept.get('exact.secret.token')).toBe('second');
+    expect(kept.has('exact.secret.uncommitted')).toBe(false);
+    blocked = true; commit(() => rt.Store.set('token', 'obsolete'));
+    commit(() => rt.Store.set('token', 'latest')); commit();
+    expect(warnings()).toHaveLength(4);
+    blocked = false; commit();
+    expect(kept.get('exact.secret.token')).toBe('latest');
+    blocked = true; commit(() => rt.Store.set('token', 'obsolete'));
+    commit(() => rt.Store.set('token', null)); commit();
+    expect(warnings()).toHaveLength(6);
+    blocked = false; commit();
+    expect(kept.has('exact.secret.token')).toBe(false);
+    blocked = true; commit(() => rt.Store.set('token', null));
+    commit(() => rt.Store.set('token', 'latest'));
+    blocked = false; commit();
+    expect(kept.get('exact.secret.token')).toBe('latest');
+  } finally {
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, writable: true, value: storage });
+    if (document === undefined) delete globalThis.document; else globalThis.document = document;
+  }
+});
+
+test('persisted state says each failed value once and retries on a later commit', async () => {
+  const at = runtime('state-retry', null), rt = await import(resolve(at, 'rt.js')), persist = await import(resolve(at, 'persist.js'));
+  const storage = globalThis.localStorage, s = { n: { v: 1 } };
+  kept.clear(); persist.keep(s, 'count', 'n');
+  let blocked = true;
+  globalThis.localStorage = { setItem(...args) { if (blocked) throw new Error('unavailable'); storage.setItem(...args); } };
+  const flush = () => { for (const f of rt.After) f(); };
+  const warnings = () => rt.journal.filter(l => l.includes('persisted state count:') && l.includes('failed:'));
+  try {
+    flush(); flush(); expect(warnings()).toHaveLength(1);
+    blocked = false; flush(); expect(kept.get('exact.state.count')).toBe('1');
+    blocked = true; s.n.v = 2; flush(); flush(); expect(warnings()).toHaveLength(2);
+    s.n.v = 3; flush(); flush(); expect(warnings()).toHaveLength(3);
+    blocked = false; flush(); expect(kept.get('exact.state.count')).toBe('3');
+  } finally { globalThis.localStorage = storage; }
 });

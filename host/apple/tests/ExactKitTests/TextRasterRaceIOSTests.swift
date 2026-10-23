@@ -1,6 +1,6 @@
 // Raster workers beside a session's two text engines (LLP 1072 §8.1): the
 // painter on main, the measurer on the owner thread. A worker's job holds
-// only plain line geometry and its own copy of the source; neither engine's
+// line geometry, optional glyph values and its own source copy; neither engine's
 // caches (shapes, paragraphs, residency) are touched off its own thread.
 // Run on both hosts (`swift test`; on iOS, `build.mjs --test --ios` picks
 // up *IOSTests); under Thread Sanitizer it is the race check for that rule.
@@ -51,9 +51,13 @@ final class TextRasterRaceIOSTests: XCTestCase {
                 // As `TextRasterizer.ensure` makes it: the shape's source, copied.
                 let source = (p.shape?.attributed ?? engine.attributed(spec)).copy() as! NSAttributedString
                 let box = CGRect(x: 0, y: 0, width: width, height: p.height)
-                let job = TextRasterJob(source: source, ranges: geometry.ranges, baselines: geometry.baselines,
+                var job = TextRasterJob(source: source, ranges: geometry.ranges, baselines: geometry.baselines,
                                         flush: i % 3 == 1 ? 0.5 : i % 3 == 2 ? 1 : 0, box: box, size: box.size,
                                         scale: 2, crop: true, clamped: geometry.clamped)
+                if clamp == 0 {
+                    job.measuredGlyphs = MeasuredGlyphs(p, spec: spec, width: width)
+                    job.measuredColor = TextEngine.color(spec.color).cgColor
+                }
                 jobs.append((job, bytes(job.render())))
             }
         }

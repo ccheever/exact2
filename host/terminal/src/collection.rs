@@ -207,12 +207,18 @@ impl<D: DataSource> Host<D> {
                             self.after_commit();
                         }
                         if let Some(error) = advanced.error {
-                            eprintln!("terminal list #{}: {error:?}", snapshot.view);
+                            crate::term::diagnostic(format_args!(
+                                "terminal list #{}: {error:?}",
+                                snapshot.view
+                            ));
                         }
                         changed |= committed || snapshot.pending;
                     }
                     Err(error) => {
-                        eprintln!("terminal list #{}: {error:?}", snapshot.view);
+                        crate::term::diagnostic(format_args!(
+                            "terminal list #{}: {error:?}",
+                            snapshot.view
+                        ));
                     }
                 }
                 if moved {

@@ -467,7 +467,8 @@ final class SnapshotDriverTests: XCTestCase {
         // CSS direction in points, so two points with one projection match
         // (the unit-square mapping would give them different colours).
         let f = frame(strips[3])
-        let p1 = try color(image, x: Int(f.midX + 5), y: Int(f.midY + 5)), p2 = try color(image, x: Int(f.midX - 5), y: Int(f.midY - 5))
+        let distance = min(5, min(f.width, f.height) / 4)
+        let p1 = try color(image, x: Int(f.midX + distance), y: Int(f.midY + distance)), p2 = try color(image, x: Int(f.midX - distance), y: Int(f.midY - distance))
         XCTAssertLessThan(abs(p1[0] - p2[0]) + abs(p1[2] - p2[2]), 24, "\(p1) \(p2)")
         let lowLeft = try sample(strips[3], x: 0.05, y: 0.9), highRight = try sample(strips[3], x: 0.95, y: 0.1)
         XCTAssertGreaterThan(lowLeft[0], highRight[0]); XCTAssertGreaterThan(highRight[2], lowLeft[2])
