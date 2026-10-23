@@ -890,6 +890,55 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(route.navigationItem.largeTitleDisplayMode, .never, "a sheet's title is inline")
     }
 
+    /// The presented sheet holding `name`'s route, opened from `start`, at
+    /// its first detent: its controller and the route's.
+    private func openSheet(_ session: ExactSession, _ name: String) throws -> (UIViewController, RouteController, UISheetPresentationController) {
+        let navigation = session.presenter.navigation
+        try tapNode(session, "start-open-\(name)")
+        until("the sheet has its own stack") { navigation.modalNavigation?.viewControllers.count == 1 }
+        let sheet = try XCTUnwrap(navigation.modalNavigation?.parent)
+        let route = try XCTUnwrap(navigation.modalNavigation?.topViewController as? RouteController)
+        XCTAssertEqual(route.node.props["testId"], "route-\(name)")
+        let presentation = try XCTUnwrap(sheet.sheetPresentationController)
+        XCTAssertEqual(presentation.selectedDetentIdentifier, .medium)
+        return (sheet, route, presentation)
+    }
+
+    /// A person's drag to `detent`, as UIKit reports it.
+    private func drag(_ presentation: UISheetPresentationController, to detent: UISheetPresentationController.Detent.Identifier) {
+        presentation.selectedDetentIdentifier = detent
+        presentation.delegate?.sheetPresentationControllerDidChangeSelectedDetentIdentifier?(presentation)
+    }
+
+    private func alpha(_ view: UIView) -> CGFloat? { view.backgroundColor?.resolvedColor(with: view.traitCollection).cgColor.alpha }
+
+    /// LLP 1141.001 D3: a sheet whose route paints nothing leaves its views
+    /// clear below its large detent, so UIKit draws its glass as for a
+    /// hand-built sheet; at the large detent it is the system background
+    /// (LLP 1116.021 D7).
+    func testAnUnpaintedSheetIsGlassBelowItsLargeDetent() throws {
+        let (session, _, _) = try bars("bars-glass")
+        let (sheet, route, presentation) = try openSheet(session, "glass")
+        XCTAssertEqual(sheet.view.backgroundColor, .clear, "UIKit's glass shows at the medium detent")
+        XCTAssertEqual(alpha(route.view), 0, "and the route paints none over it")
+        drag(presentation, to: .large)
+        XCTAssertEqual(sheet.view.backgroundColor, .systemBackground, "the system background at the large detent")
+        XCTAssertEqual(alpha(route.view), 0)
+        drag(presentation, to: .medium)
+        XCTAssertEqual(sheet.view.backgroundColor, .clear, "glass again")
+    }
+
+    /// LLP 1141.001 D3: an authored `transparent` is clear at every detent.
+    func testATransparentSheetStaysClearAtEveryDetent() throws {
+        let (session, _, _) = try bars("bars-clear")
+        let (sheet, route, presentation) = try openSheet(session, "clear")
+        XCTAssertEqual(sheet.view.backgroundColor, .clear)
+        XCTAssertEqual(alpha(route.view), 0)
+        drag(presentation, to: .large)
+        XCTAssertEqual(sheet.view.backgroundColor, .clear, "the author's transparent at the large detent too")
+        XCTAssertEqual(alpha(route.view), 0)
+    }
+
 
     /// A scroller UIKit insets lays its content out between those insets
     /// (LLP 1116.000 D1.2): Chat's column, its tall box gone, fills the port

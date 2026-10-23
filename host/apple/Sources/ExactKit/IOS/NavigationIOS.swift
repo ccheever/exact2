@@ -129,8 +129,10 @@ final class RouteController: UIViewController {
     /// background, not white. A sheet is the route's own background where it
     /// has one, as a grouped sheet's surface is the grouped background (LLP
     /// 1116.021 D7, amending LLP 1115 D2), so no white band shows where the
-    /// route stops above a keyboard's bar; else the system's. What is behind
-    /// the sheet is not, and dimming belongs to UIKit's presentation.
+    /// route stops above a keyboard's bar; else clear, over the surface its
+    /// presentation paints (`ModalController.paintSurface`: UIKit's glass at
+    /// a partial detent, LLP 1141.001 D3). What is behind the sheet is not,
+    /// and dimming belongs to UIKit's presentation.
     func paintBackdrop() {
         guard isViewLoaded else { return }
         let modal = node.props["navigationPresentation"] == "modal"
@@ -149,13 +151,14 @@ final class RouteController: UIViewController {
         view.backgroundColor = UIColor { [weak self] traits in
             let dark = traits.userInterfaceStyle == .dark
             let colour = modal ? self?.ownBackdrop(dark: dark) : self?.backdrop(dark: dark)
-            return colour.map { TextEngine.color($0) } ?? system
+            return colour.map { TextEngine.color($0) } ?? (modal ? .clear : system)
         }
     }
 
     /// The route's own background, if it paints one.
     private func ownBackdrop(dark: Bool) -> [Double]? {
-        node.channels("background_color", dark: dark).flatMap { $0.count < 4 || $0[3] > 0 ? $0 : nil }
+        if node.groundIsSheets { return nil }
+        return node.channels("background_color", dark: dark).flatMap { $0.count < 4 || $0[3] > 0 ? $0 : nil }
     }
 
     /// What shows behind the route where it paints nothing: its own

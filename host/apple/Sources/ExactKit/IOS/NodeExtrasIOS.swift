@@ -429,6 +429,20 @@ extension UIColor {
     }
 }
 extension NodeView {
+    /// Whether this is a modal route on the system background the compiler
+    /// gave it (LLP 1116.009 D3), its author having said none: on iOS that
+    /// ground is its sheet's surface, which the presentation paints
+    /// (`ModalController.paintSurface`), so that below its large detent the
+    /// sheet is UIKit's glass (LLP 1141.001 D3).
+    var groundIsSheets: Bool {
+        #if os(iOS)
+        guard props["navigationPresentation"] == "modal", !wrote("background_color"),
+              case .object(let o)? = style["background_color"] else { return false }
+        return o["sys"]?.string == "systemBackgroundColor"
+        #else
+        return false
+        #endif
+    }
     /// LLP 1115.000 D2: whether the author wrote the row `key` on this node,
     /// as an attribute or a row of its class. The style says so row by row
     /// (`written`); it is false of a value the node only inherits and of a
