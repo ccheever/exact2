@@ -392,9 +392,7 @@ extension Agent {
             reply["node"] = node
             return reply
         }
-        // A live node with no view of its own (a native button's face draws
-        // its svg): the runner's rows, and that nothing was mounted for it.
-        // A stale id the runner refuses, above.
+        // A live node with no view of its own (a button face's svg): its rows, nothing mounted.
         guard let v = presenter.textHost(UInt32(id)) else { return Self.unmounted(node, into: reply, now: session.now()) }
         if presenter.menus.ownsConfirmationNode(v) {
             node["space"] = ["unavailable": "UIAlertAction exposes no public action geometry"]
