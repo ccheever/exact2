@@ -14,7 +14,7 @@
 //! 1122 T5) come later.
 
 use crate::lex::{self, Line};
-use crate::syntax::Design;
+use crate::syntax::{same_conds, Design};
 use crate::{Diagnostic, Vocab};
 
 /// A `when` line an `add-token` writes: its conditions (`axis`, `value`),
@@ -1158,11 +1158,6 @@ pub(crate) fn role_key(roles: &[(String, bool)], n: &str) -> Option<String> {
 fn when_code(conds: &[(String, String)], value: &str) -> String {
     let conds: Vec<String> = conds.iter().map(|(a, v)| format!("{a}={v}")).collect();
     format!("when {}: {value}", conds.join(" "))
-}
-
-/// The same conditions, in any order.
-fn same_conds(a: &[(String, String)], b: &[(String, String)]) -> bool {
-    a.len() == b.len() && a.iter().all(|c| b.contains(c)) && b.iter().all(|c| a.contains(c))
 }
 
 /// A metadata word as a token line writes it, quoting a value that needs it.
