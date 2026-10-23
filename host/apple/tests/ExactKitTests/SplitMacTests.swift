@@ -829,9 +829,10 @@ final class SplitMacTests: XCTestCase {
     }
 
     /// A popover declared in a route the split shows in its detail pane opens,
-    /// painted and as AppKit's: the pane is a block's native container, and the
-    /// menus walk out of it to the route's authored home, as events do (theme2
-    /// 12:32; it had never opened there, the pane being under no page root).
+    /// painted and as AppKit's: the pane is a block's native container, and
+    /// whether the popover is in the page walks out of it to the route's
+    /// authored home (theme2 12:32; it had never opened there, the pane being
+    /// under no page root).
     func testAPopoverInTheDetailPaneOpens() throws {
         for painted in [true, false] {
             let source = app(tabs: false).replacingOccurrences(
@@ -852,7 +853,8 @@ final class SplitMacTests: XCTestCase {
             XCTAssertTrue(p.navigation.split.holds(try node("route-book-a")), "the book is in the detail pane")
             XCTAssertFalse(opener.isDescendant(of: p.root), "its invoker is under no page root")
             try press("pop-open")
-            settle()
+            let end = Date().addingTimeInterval(3)
+            while !p.menus.isOpen(pop), Date() < end { settle() }
             XCTAssertTrue(p.menus.isOpen(pop), painted ? "painted" : "AppKit's popover")
             if !painted { XCTAssertEqual(p.menus.windowed.count, 1) }
             session.destroy(); self.session = nil; window.close(); self.window = nil
