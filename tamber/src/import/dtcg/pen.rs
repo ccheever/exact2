@@ -415,12 +415,15 @@ fn read(file: &str, doc: &Doc) -> Result<(Read, Vec<String>), String> {
         crate::budget::spend(n.len() as u64)?;
         last.insert(n, i);
     }
+    // (a type as compared and said: its first 32 characters, no Pencil type being longer, so a long unknown one,
+    // reported anyway, is no multiplier where every alias of it compares it)
     let types: BTreeMap<&str, &str> = all
         .iter()
         .map(|(n, d)| {
+            let t = d.get("type").and_then(Value::as_str).unwrap_or("");
             (
                 n.as_str(),
-                d.get("type").and_then(Value::as_str).unwrap_or(""),
+                &t[..t.char_indices().nth(32).map_or(t.len(), |(i, _)| i)],
             )
         })
         .collect();
@@ -661,6 +664,12 @@ fn read(file: &str, doc: &Doc) -> Result<(Read, Vec<String>), String> {
                             .to_string(),
                     );
                     value.clone()
+                }
+                // (a Pencil number is a number: a string under one, which DTCG would read as a CSS expression
+                // for the design to fold, is none)
+                None if ty == "number" && !value.is_number() => {
+                    refused.get_or_insert("a number variable whose value is no number".to_string());
+                    Value::Null
                 }
                 None => (as_dtcg.1)(value),
             };
