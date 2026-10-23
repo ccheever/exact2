@@ -160,6 +160,14 @@ const letGoHooks = {
 let parked = [], deliveries = 0;
 async function proceed(answer, request, done) {
   for (;;) {
+    // A `scheduler.yield()`: its yields resolve in a task of their own.
+    if (answer.tag === 1 && answer.yielded) {
+      await checkpoint();
+      self.__exact_yielded(String(answer.call));
+      await checkpoint();
+      answer = JSON.parse(self.__exact_settle(String(answer.call)));
+      continue;
+    }
     if (answer.tag === 1 && answer.ticket === 0 && !answer.waiting) {
       await storage.deliver(context.owner);
       deliveries++;

@@ -177,6 +177,12 @@ Object.setPrototypeOf(DateTimeFormat, NativeFormat);
 // refuses them (host/web/module-glue.js), so no independent socket or origin
 // is reached past the grants.
 const noIo = api => function () { throw new Error(`${api} is unavailable in data sources`); };
+// `scheduler.yield()` (LLP 1141.001 D10): the browser's where it has one, else
+// a task posted on a MessageChannel, which no timer clamp delays. The page has
+// no turn budget; a yield here lets it paint and answer input mid-walk.
+const pageYield = globalThis.scheduler?.yield?.bind(globalThis.scheduler) ?? (typeof MessageChannel === 'function'
+  ? () => new Promise(resolve => { const { port1, port2 } = new MessageChannel(); port1.onmessage = () => { port1.close(); resolve(); }; port2.postMessage(null); })
+  : () => Promise.resolve());
 const guarded = {
   Date: GuardedDate, Math: GuardedMath,
   XMLHttpRequest: noIo('XMLHttpRequest'), WebSocket: noIo('WebSocket'), EventSource: noIo('EventSource'),
@@ -185,6 +191,10 @@ const guarded = {
   requestAnimationFrame: noTimers('requestAnimationFrame()'), requestIdleCallback: noTimers('requestIdleCallback()'),
   clearTimeout() {}, clearInterval() {}, cancelAnimationFrame() {}, cancelIdleCallback() {},
   performance: Object.freeze({ now: () => refuse('performance.now()') }),
+  scheduler: Object.freeze({
+    yield: () => overlaying.on ? Promise.reject(inOverlay('scheduler.yield()')) : pageYield(),
+    postTask() { throw new Error('scheduler.postTask() is unavailable in data sources: there are no timers; split long work with await scheduler.yield()'); },
+  }),
   // The page's own, but no draw while an overlay runs.
   crypto: Object.freeze({ subtle: globalThis.crypto?.subtle && new Proxy(globalThis.crypto.subtle, { get(target, name) {
       const v = target[name];
@@ -194,7 +204,7 @@ const guarded = {
     randomUUID: () => { if (overlaying.on) throw inOverlay('crypto.randomUUID()'); return globalThis.crypto.randomUUID(); } }),
 };
 export const { Date, Math, Intl, setTimeout, setInterval, requestAnimationFrame, requestIdleCallback, clearTimeout, clearInterval,
-  cancelAnimationFrame, cancelIdleCallback, performance, XMLHttpRequest, WebSocket, EventSource, crypto } = guarded;
+  cancelAnimationFrame, cancelIdleCallback, performance, scheduler, XMLHttpRequest, WebSocket, EventSource, crypto } = guarded;
 
 // The usual browser global spellings share this app-local view. Computed
 // access, aliases and destructuring therefore get the same scoped fetch.

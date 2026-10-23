@@ -228,6 +228,15 @@ export async function prepare(payload, admitted, id = nextId++) {
     // again (LLP 1097 D7).
     const proceed = async (answer, request, done) => {
       for (;;) {
+        // A `scheduler.yield()`: its yields resolve in a task of their own.
+        if (answer.tag === 1 && answer.yielded) {
+          await checkpoint();
+          if (disposed) throw new Error('module environment disposed');
+          win.__exact_yielded(String(answer.call));
+          await checkpoint();
+          answer = JSON.parse(win.__exact_settle(String(answer.call)));
+          continue;
+        }
         if (answer.tag === 1 && answer.ticket === 0 && !answer.waiting) {
           await storage.deliver(context.owner);
           deliveries++;
