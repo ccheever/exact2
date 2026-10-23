@@ -63,6 +63,39 @@ final class AudioSessionIOSTests: XCTestCase {
         XCTAssertEqual(AVAudioSession.sharedInstance().category, .ambient)
     }
 
+    /// LLP 1133.009 D7: a capture's claim takes `.playAndRecord` from the
+    /// first claim to the last, whatever the app's sound holds meanwhile,
+    /// and the session goes back to what the sound wants after.
+    func testACaptureClaimsPlayAndRecordUntilItsLastClaimEnds() throws {
+        AudioSession.category = .playback
+        final class Holder {}
+        let sound = Holder()
+        let first = AudioSession.claimCapture(mode: .default, options: [.defaultToSpeaker], background: false) { _ in }
+        XCTAssertNotEqual(first, 0)
+        XCTAssertEqual(AVAudioSession.sharedInstance().category, .playAndRecord)
+        try AudioSession.hold(ObjectIdentifier(sound))
+        XCTAssertEqual(AVAudioSession.sharedInstance().category, .playAndRecord, "the app's sound plays in the capture's category")
+        let second = AudioSession.claimCapture(mode: .measurement, options: [], background: false) { _ in }
+        AudioSession.releaseCapture(first)
+        XCTAssertEqual(AVAudioSession.sharedInstance().category, .playAndRecord, "a claim is left")
+        AudioSession.release(ObjectIdentifier(sound))
+        XCTAssertEqual(AVAudioSession.sharedInstance().category, .playAndRecord, "the sound's end leaves the capture's category")
+        try AudioSession.hold(ObjectIdentifier(sound))
+        AudioSession.releaseCapture(second)
+        XCTAssertEqual(AVAudioSession.sharedInstance().category, .playback, "the last claim gone, the sound's category")
+        AudioSession.release(ObjectIdentifier(sound))
+        XCTAssertEqual(AVAudioSession.sharedInstance().category, .ambient)
+    }
+
+    /// A claim whose activation fails (during a call) is refused, 0, and holds nothing.
+    func testARefusedClaimHoldsNothing() {
+        struct Busy: Error {}
+        AudioSession.nextHoldFailure = Busy()
+        XCTAssertEqual(AudioSession.claimCapture(mode: .default, options: [], background: true) { _ in }, 0)
+        XCTAssertFalse(AudioSession.playsInBackground, "no claim is held")
+        XCTAssertEqual(AVAudioSession.sharedInstance().category, .ambient)
+    }
+
     func testAnAmbientAppStaysAmbient() throws {
         AudioSession.category = .ambient
         final class Holder {}

@@ -76,6 +76,21 @@ macro_rules! canvas_jni_extensions {
             $crate::canvas::jni::jni_extensions::now()
         }
 
+        /// The file an `app:/` path names (`ExtensionContext.file`, LLP
+        /// 1133.009 D10 item 4), or null.
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_appFile(
+            env: *mut JNIEnv,
+            _class: jclass,
+            path: jstring,
+        ) -> jstring {
+            let path = $crate::canvas::field::text(env, path);
+            match $crate::picker::resolve(&path) {
+                Some(file) => $crate::canvas::field::java(env, &file.to_string_lossy()),
+                None => std::ptr::null_mut(),
+            }
+        }
+
         /// Whether extension `name` is told it runs under the agent.
         #[no_mangle]
         pub unsafe extern "system" fn Java_dev_exact_canvas_Native_underAgent(

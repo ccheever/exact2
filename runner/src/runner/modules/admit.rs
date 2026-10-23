@@ -203,6 +203,23 @@ impl<D: DataSource> Runner<D> {
                 .unwrap_or(Decision::Forward),
             Route::Substitute => self.decide_timed(row, send, timeout),
         };
+        // A name whose grants are per argument asks permission only for an
+        // argument it was given: `getUserMedia(audio=false)` asks for no
+        // device, and its implementation refuses it at once (LLP 1133.009
+        // D3).
+        let asks = match &self.substitute(row)["nameGrants"] {
+            Json::Object(by_argument) => {
+                (by_argument.keys()).any(|a| !args[a].is_null() && args[a] != false)
+            }
+            _ => true,
+        };
+        let decision = match decision {
+            Decision::Hold(Waits::Permission) if !asks => match self.route(row) {
+                Route::Agent => Decision::Forward,
+                _ => Decision::Now(json!({ "error": "TypeError" })),
+            },
+            decision => decision,
+        };
         match decision {
             // Only a person answers a prompt (D12).
             Decision::Hold(Waits::Permission) if origin != CallOrigin::App => {
@@ -250,6 +267,21 @@ impl<D: DataSource> Runner<D> {
                 return Err(format!("grant-missing ({})", named(line)));
             }
             _ => {}
+        }
+        // A path option is the app's own file, within the calling source's
+        // `fs.read` or `fs.write` lines (LLP 1133.009 D10 item 4).
+        for (option, path) in sub["paths"].as_object().into_iter().flatten() {
+            let Some(given) = args[option].as_str() else {
+                continue;
+            };
+            let capability = format!("fs.{}", path["access"].as_str().unwrap_or("read"));
+            if !crate::save_file::plain_app_path(given)
+                || !crate::save_file::covered(self.data.grants(), &capability, given)
+            {
+                return Err(format!(
+                    "grant-missing ({option}={given} needs {capability})"
+                ));
+            }
         }
         let applies = sub["when"]
             .as_object()
