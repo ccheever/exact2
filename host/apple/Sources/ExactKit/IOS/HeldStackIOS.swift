@@ -1,4 +1,4 @@
-// @ref LLP 1075.003 §3.7 — a root or tab stack that shows no navigation bar and has
+// @ref LLP 1075.003 §3.7 — a tab whose stack shows no navigation bar and has
 // pushed nothing holds its one route in a plain container, as a hand-built
 // UIKit app shows such a tab: on iOS 26 and 27 a `UINavigationController`
 // whose view is in a window lays out a full-screen SwiftUI host for its
@@ -12,7 +12,7 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
-/// A root or tab stack holding one route with no bar.
+/// A tab's stack while it holds one route with no bar, or none yet.
 final class HeldStack: UIViewController {
     private(set) var route: RouteController?
     /// The navigation controller built in its place, for a hatch that kept
@@ -77,11 +77,11 @@ extension NavigationHost {
 
     /// The stacks under the root, in tab order (or the one).
     var primaryStacks: [UIViewController] {
-        tabPanels.isEmpty ? [primaryOwner].compactMap { $0 } : tabPanels.compactMap(tabStack)
+        tabPanels.isEmpty ? [primaryNavigation].compactMap { $0 } : tabPanels.compactMap(tabStack)
     }
 
-    /// The selected primary stack, while it is held.
-    var primaryHeld: HeldStack? { tabPanels.isEmpty ? heldRoot : (tabPanels.indices.contains(routerTab) ? heldTabs[tabPanels[routerTab]] : nil) }
+    /// The selected tab's stack, while it is held.
+    var primaryHeld: HeldStack? { tabPanels.indices.contains(routerTab) ? heldTabs[tabPanels[routerTab]] : nil }
 
     /// The routes of each stack whose routes may show the bar: a navigation
     /// controller's unless its hatch said otherwise, and a held stack's,
@@ -138,20 +138,11 @@ extension NavigationHost {
         return nav
     }
 
-    func retireHeldRoot() {
-        guard let held = heldRoot else { return }
-        held.release()
-        held.willMove(toParent: nil)
-        held.view.removeFromSuperview()
-        held.removeFromParent()
-        heldRoot = nil
-    }
-
     /// A transition whose controllers a tab's replacement would cut into: a
     /// sheet presenting or dismissing (interactively too), a push or pop on
     /// any stack, the tab controller's own.
     var realizeWaits: Bool {
-        presenter.modals.inTransition || tabController?.transitionCoordinator != nil || heldRoot?.transitionCoordinator != nil
+        presenter.modals.inTransition || tabController?.transitionCoordinator != nil
             || (Array(tabNavigations.values) + presentedNavigations).contains { $0.transitionCoordinator != nil }
     }
 
@@ -175,14 +166,14 @@ extension NavigationHost {
                 self.sync(Batch(ops: [], timers: false, motion: false, clock: nil, error: nil))
             }
         }
-        let coordinator = tabController?.transitionCoordinator ?? heldRoot?.transitionCoordinator
+        let coordinator = tabController?.transitionCoordinator
             ?? (Array(tabNavigations.values) + presentedNavigations).lazy.compactMap(\.transitionCoordinator).first
         if coordinator?.animate(alongsideTransition: nil, completion: { _ in resync() }) == false, !realizeWaits { resync() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { resync() }
     }
 
-    /// Build a held stack’s navigation controller in its container’s place.
-    /// A nil panel names the root; otherwise it names a tab. The controller has
+    /// Build a held tab's navigation controller, holding the route the tab
+    /// showed, in the tab's place in the tab controller. The controller has
     /// its root before it is laid out in the window (`installPrimary`).
     /// While UIKit moves the route's view into it, through a wrapper it
     /// makes outside the window, the route's node waits in the window where
@@ -190,13 +181,14 @@ extension NavigationHost {
     /// focus are given back to what had them. A large title the bar now shows
     /// opens as it would have had the content been there (`restAtTop`).
     @discardableResult
-    func realize(_ panel: UInt32?, why: String) -> UINavigationController? {
-        if let nav = panel.flatMap({ tabNavigations[$0] }) ?? (panel == nil ? primaryNavigation : nil) { return nav }
-        guard let held = panel.flatMap({ heldTabs[$0] }) ?? (panel == nil ? heldRoot : nil) else { return nil }
+    func realize(_ panel: UInt32, why: String) -> UINavigationController? {
+        if let nav = tabNavigations[panel] { return nav }
+        guard let held = heldTabs[panel] else { return nil }
         let nav = made(for: held)
-        if let panel { heldTabs[panel] = nil; tabNavigations[panel] = nav }
+        heldTabs[panel] = nil
+        tabNavigations[panel] = nav
         let route = held.release()
-        let index = panel.flatMap { tabPanels.firstIndex(of: $0) } ?? -1
+        let index = tabPanels.firstIndex(of: panel) ?? -1
         // A scroller at its start stays there under a large title (`restAtTop`).
         let scroller = route.flatMap { contentScroller(of: $0) }.flatMap(shownScroll)
         let atStart = scroller.map { $0.contentOffset.y <= 0.5 - $0.adjustedContentInset.top } ?? false
@@ -212,15 +204,6 @@ extension NavigationHost {
             if tabs.selectedIndex != selected { tabs.selectedIndex = selected }
             tabs.view.layoutIfNeeded()
         }
-        if panel == nil, let parent = held.parent, let root = held.view.superview {
-            parent.addChild(nav)
-            nav.view.frame = held.view.frame
-            nav.view.autoresizingMask = held.view.autoresizingMask
-            root.insertSubview(nav.view, aboveSubview: held.view)
-            nav.view.setPaintForeground(aboveAuthored: false)
-            nav.didMove(toParent: parent)
-            retireHeldRoot()
-        }
         nav.view.layoutIfNeeded()
         if let route, let kept {
             route.mount()
@@ -234,10 +217,10 @@ extension NavigationHost {
         }
         // Navigation follows it only now: UIKit showing its root as it
         // appears is not a pop from the route the root names.
-        if panel == nil || index == routerTab { primaryNavigation = nav }
+        if index == routerTab { primaryNavigation = nav }
         if let (tabs, _) = tabItemsSource { tabItemsSource = (tabs, tabPanels.compactMap(tabStack)) }
         coversChanged()
-        presenter.session?.log("navigation: \(panel == nil ? "root" : "tab \(index)") builds its navigation controller (\(why))")
+        presenter.session?.log("navigation: tab \(index) builds its navigation controller (\(why))")
         return nav
     }
 }

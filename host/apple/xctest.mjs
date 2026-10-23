@@ -22,7 +22,6 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
   // HeldStateTests' own (a card that presses over a flat leaf), beside them.
   contract([resolve(root, 'host/apple/tests/fixtures/held-state.contract'), '-o', env[`${prefix}_HELD_STATE_PLAN`] = resolve(dir, 'held-state.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/dialog-sheet-reads.contract'), '-o', env[`${prefix}_DIALOG_SHEET_READS_PLAN`] = resolve(dir, 'dialog-sheet-reads.plan')]);
-  contract([resolve(root, 'host/apple/tests/fixtures/held-root.contract'), '-o', env[`${prefix}_HELD_ROOT_PLAN`] = resolve(dir, 'held-root.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/progress-contexts.contract'), '-o', env[`${prefix}_PROGRESS_CONTEXTS_PLAN`] = resolve(dir, 'progress-contexts.plan')]);
   const question = 'host/apple/tests/ExactKitTests/SnapshotFixtures/open-question';
   const refusing = resolve(dir, 'entries/refusing');
