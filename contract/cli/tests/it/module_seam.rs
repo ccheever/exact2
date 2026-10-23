@@ -354,3 +354,41 @@ fn an_implementation_that_is_its_own_substitute_answers_behind_the_agent_s_ticke
         "{meter}"
     );
 }
+
+/// LLP 1133.009 D10 item 12: a reader asked again with new arguments hands
+/// its implementation the new group before the old one is released, and
+/// only the old group is released; the whole name is released when its last
+/// reader goes.
+#[test]
+fn an_argument_group_with_no_reader_is_released_after_its_successor_is_asked() {
+    let (_app, mut r, calls) = boot("groups");
+    r.bind_extensions(&["sensor"], &[]);
+    let mut parked = Vec::new();
+    pump(&mut r, &mut parked);
+    assert!(show(&r, "meter").contains("\"a\""), "{}", show(&r, "meter"));
+    r.act("move", vec![exact_runner::Value::str("b")]).unwrap();
+    pump(&mut r, &mut parked);
+    assert!(show(&r, "meter").contains("\"b\""), "{}", show(&r, "meter"));
+    let calls = calls.lock().unwrap().clone();
+    let at = |want: &Json| calls.iter().position(|c| c == want);
+    let asked_b = at(
+        &json!({ "extension": "sensor", "source": "level", "args": { "track": "b", "interval": 50.0 } }),
+    );
+    let released_a = at(
+        &json!({ "extension": "sensor", "release": "level", "args": { "track": "a", "interval": 50.0 } }),
+    );
+    assert!(asked_b.is_some() && released_a.is_some(), "{calls:?}");
+    assert!(asked_b < released_a, "the new group first: {calls:?}");
+    assert!(
+        !calls
+            .iter()
+            .any(|c| c["release"] == "level" && c["args"]["track"] == "b"),
+        "{calls:?}"
+    );
+    assert!(
+        !calls
+            .iter()
+            .any(|c| c == &json!({ "extension": "sensor", "release": "level" })),
+        "a reader is left: {calls:?}"
+    );
+}
