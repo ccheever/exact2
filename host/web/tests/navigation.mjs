@@ -8,7 +8,7 @@ import { Cdp, open } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { serveStatic, serveBuildTree, readWebRequest } from '../serve.mjs';
 import { publishRoot } from '../../../scripts/deploy.mjs';
-import { DirectoryOrigin, appDocumentPath } from '../../../scripts/origin.mjs';
+import { DirectoryOrigin, appDocumentPath, sha256 } from '../../../scripts/origin.mjs';
 const dir = process.env.EXACT_ROUTER_TEST, dist = resolve(dir, 'dist');
 // `EXACT_ROUTER_TARGET=js` (host/web/tests/it/navigation.rs): the JS target
 // (LLP 1071), each plan a JS build (the Caltrain carrier; the plans read no
@@ -28,6 +28,12 @@ if (js) jsBuild('app.plan', dist);
 else cpSync(process.env.EXACT_ROUTER_DIST, dist, { recursive: true });
 if (!js) for (const name of ['glue.js', 'navigation.js', 'motion-glue.js', 'collection-glue.js']) cpSync('host/web/' + name, dist + '/' + name);
 const bytes = [...readFileSync(dir + '/app.plan')];
+if (!js) {
+  const plan = Buffer.from(bytes), envelope = JSON.parse(readFileSync(dist + '/exact.json', 'utf8'));
+  writeFileSync(dist + '/app.plan', plan);
+  envelope.plan.sha256 = sha256(plan); envelope.plan.bytes = plan.length;
+  writeFileSync(dist + '/exact.json', JSON.stringify(envelope));
+}
 const noNavigate = [...readFileSync(dir + '/no-navigate.plan')];
 const noNotfound = [...readFileSync(dir + '/no-notfound.plan')];
 const noRoot = [...readFileSync(dir + '/no-root.plan')];
@@ -640,6 +646,24 @@ try {
         assert.equal(row.status, 404, target); assert.equal(row.cache, 'no-store', target);
         assert.equal(appDocumentPath(target), false, target);
         assert.equal((await readWebRequest(tree, target)).found, null, target);
+      }
+    }
+  });
+  await run('declared dotted routes launch; unmatched files remain missing', async () => {
+    for (const tree of [dist, published]) {
+      served = tree;
+      const n = await fresh('/post/photos.zip');
+      await record('extension route', '/post/photos.zip', n, 2, 0);
+      for (const [path, accept, status] of [
+        ['/post/photos.zip', 'text/html', 200], ['/post/a%2Fb.zip', 'text/html', 200],
+        ['/post/photos.zip/', 'text/html', 404], ['/post/photos.zip', '*/*', 404],
+        ['/deck/missing.html', 'text/html', 404], ['/missing.pdf', 'text/html', 404],
+        ['/manifest.json', 'text/html', 200],
+      ]) {
+        const response = await fetch(url + path, {headers: {accept}});
+        assert.equal(response.status, status, path);
+        assert.equal(response.headers.get('cache-control'), status === 200 && (!js || tree === published) ? 'no-cache' : 'no-store', path);
+        if (status === 200) assert.equal(response.headers.get('content-type'), path === '/manifest.json' ? 'application/manifest+json' : 'text/html');
       }
     }
   });
