@@ -20,6 +20,9 @@ final class CoverBootIOSTests: XCTestCase {
             }
         }
         let view = ExactView(session: session), host = UIViewController()
+        view.fit()
+        XCTAssertFalse(session.booted)
+        XCTAssertNil(session.launchViewport, "a zero frame must not decode a launch policy")
         host.additionalSafeAreaInsets = UIEdgeInsets(top: 24, left: 12, bottom: 16, right: 18)
         let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
         let frame = scene?.screen.bounds ?? CGRect(x: 0, y: 0, width: 402, height: 874)
@@ -41,6 +44,8 @@ final class CoverBootIOSTests: XCTestCase {
         XCTAssertGreaterThan(view.safeAreaInsets.top + view.safeAreaInsets.bottom, 0)
         XCTAssertEqual(try XCTUnwrap(initial), view.bounds.size, "viewport-dependent resources must never see a safe-area-sized cover root")
         XCTAssertEqual(session.viewportSize, view.bounds.size)
+        XCTAssertEqual(session.launchViewport?.plan, plan)
+        XCTAssertEqual(session.launchViewport?.cover, true)
         let env = try XCTUnwrap(Agent(session: session).layout()["env"] as? [String: Any])
         XCTAssertEqual(try XCTUnwrap(env["safe-area-inset-bottom"] as? Double), Double(view.safeAreaInsets.bottom), accuracy: 0.01)
         XCTAssertEqual(try XCTUnwrap(env["safe-area-inset-left"] as? Double), Double(view.safeAreaInsets.left), accuracy: 0.01)
@@ -89,6 +94,8 @@ final class CoverBootIOSTests: XCTestCase {
         XCTAssertTrue(session.booted, session.bootError ?? "the embedded bake boots after refusal")
         XCTAssertEqual(app.selectedToken, 0)
         XCTAssertNil(app.lastPlan)
+        XCTAssertNil(try XCTUnwrap(session.launchViewport).plan, "fallback must replace the rejected policy cache")
+        XCTAssertEqual(session.launchViewport?.cover, bakedCover)
         XCTAssertEqual(session.presenter.viewportFit == "cover", bakedCover)
         XCTAssertNotEqual(view.bounds.size, view.bounds.inset(by: view.safeAreaInsets).size)
         let expected = bakedCover ? view.bounds.size : view.bounds.inset(by: view.safeAreaInsets).size
