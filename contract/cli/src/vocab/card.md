@@ -175,7 +175,7 @@ action log
   days = days.concat([formatDate(at, time.utcOffset, "iso")])
 ```
 ### a test, and verify
-By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert; `reload` relaunches on its storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` last, for iPhone; `--shots <dir>` keeps screenshots.
+By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert, `clock held` for an `exactHeld` reply; `reload` relaunches on its storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` last, for iPhone; `--shots <dir>` keeps screenshots.
 ```contract-test
 test "a pick survives a relaunch"
   tap "pick"
