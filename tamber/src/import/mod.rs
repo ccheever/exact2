@@ -146,8 +146,14 @@ pub fn reconcile(
             }
         }
     }
+    // (each design token found by name in one step: the first so named, as a scan finds)
+    let mut by_name: std::collections::HashMap<&str, &crate::syntax::Token> =
+        std::collections::HashMap::new();
+    for d in &design.tokens {
+        by_name.entry(d.name.value.as_str()).or_insert(d);
+    }
     for t in tokens {
-        let Some(have) = design.tokens.iter().find(|d| d.name.value == t.name) else {
+        let Some(&have) = by_name.get(t.name.as_str()) else {
             ops.push(Op::AddToken {
                 name: t.name.clone(),
                 kind: t.kind.map(str::to_string),

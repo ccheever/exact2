@@ -325,7 +325,7 @@ pub(super) fn unfolded(
             {
                 Some(&(_, _, i)) if tokens[i].kind.is_some() => {
                     if why[i].is_none() {
-                        why[i] = Some(d.message.clone());
+                        why[i] = Some(d.message.chars().take(300).collect());
                         refused = true;
                     }
                 }
@@ -340,7 +340,10 @@ pub(super) fn unfolded(
         }
         // Nothing to point at: the rest share the design's refusal.
         if !refused {
-            let message = all.first().map_or_else(String::new, |d| d.message.clone());
+            // (said in every token's why: bounded, one diagnostic no multiplier of them)
+            let message: String = all
+                .first()
+                .map_or_else(String::new, |d| d.message.chars().take(300).collect());
             for &i in included.iter().filter(|&&i| tokens[i].kind.is_some()) {
                 why[i] = Some(message.clone());
             }

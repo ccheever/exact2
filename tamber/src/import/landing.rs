@@ -186,9 +186,6 @@ fn kinds(design: &Design, vocab: &Vocab) -> HashMap<String, String> {
     out
 }
 
-/// The most candidates a refusal is narrowed among by folding without each.
-const PROBES: usize = 32;
-
 /// Why each of `tokens` would not hold once the import lands in `design`
 /// (`None` where it holds). `axes` the import adds; `owned` the axes whose
 /// `when` lines are the importer's to take back. Refused whole when the
@@ -238,10 +235,16 @@ pub(super) fn landing(
         .iter()
         .map(seen)
         .collect();
-    // Each fold charged by what it checks: the design and every token laid (a refused budget stays
-    // refused, and the next charged step says so).
+    // Each fold charged by what it checks: the design and every token laid. Once the budget is spent no fold
+    // runs, and the next charged step refuses the import.
+    let spent = std::cell::Cell::new(false);
     let fold = |skip: &[bool]| -> Vec<Diagnostic> {
-        let _ = crate::budget::spend((design.tokens.len() + tokens.len()) as u64 + 1);
+        if spent.get()
+            || crate::budget::spend((design.tokens.len() + tokens.len()) as u64 + 1).is_err()
+        {
+            spent.set(true);
+            return Vec::new();
+        }
         match crate::check_design(laid(design, tokens, skip, axes, owned), vocab) {
             Ok(_) => Vec::new(),
             Err(all) => all
@@ -347,15 +350,23 @@ pub(super) fn landing(
         }
         let skip: Vec<bool> = why.iter().map(Option::is_some).collect();
         let errors = fold(&skip);
+        // (no fold run past the budget passes for one that folded)
+        crate::budget::spend(1).map_err(refuse)?;
         if errors.is_empty() {
             return Ok(why);
         }
         let mut charged = false;
         for d in &errors {
+            // (a refusal said in each token's why, bounded: one diagnostic is no multiplier of every candidate)
+            let message: String = match d.message.char_indices().nth(300) {
+                Some((at, _)) => format!("{}…", &d.message[..at]),
+                None => d.message.clone(),
+            };
+            let _ = crate::budget::spend(design.tokens.len() as u64 + 1);
             if d.line >= LAID {
                 let i = (d.line - LAID) as usize;
                 if i < tokens.len() && why[i].is_none() {
-                    why[i] = Some(d.message.clone());
+                    why[i] = Some(message.clone());
                     charged = true;
                 }
                 continue;
@@ -374,9 +385,9 @@ pub(super) fn landing(
                 }
             });
             if let Some((own, branch)) = own {
-                let laid_own = tokens
-                    .iter()
-                    .position(|t| t.name == own.name.value)
+                let laid_own = laid_at
+                    .get(own.name.value.as_str())
+                    .copied()
                     .filter(|i| !skip[*i]);
                 let mut read: Vec<String> = match branch {
                     // A `when` is compared with its default (the scheme's
@@ -389,11 +400,13 @@ pub(super) fn landing(
                 if laid_own.is_none() && branch.is_some() {
                     read.push(own.value.value.clone());
                 }
+                // (each reached name found in one step, each candidate once)
                 let mut candidates: Vec<usize> = laid_own.into_iter().collect();
+                let mut taken: HashSet<usize> = candidates.iter().copied().collect();
                 for v in &read {
                     for r in reads(v, &skip) {
-                        if let Some(i) = tokens.iter().position(|t| t.name == r) {
-                            if !skip[i] && !candidates.contains(&i) {
+                        if let Some(&i) = laid_at.get(r.as_str()) {
+                            if !skip[i] && taken.insert(i) {
                                 candidates.push(i);
                             }
                         }
@@ -407,20 +420,8 @@ pub(super) fn landing(
                     !fold(&s).iter().any(|e| e.id == d.id && e.line == d.line)
                 };
                 // Those whose absence alone clears it; else those that keep
-                // it when they are all that is laid of them. Past `PROBES`
-                // candidates, a fold each is not tried: every one is charged.
-                if candidates.len() > PROBES {
-                    candidates.iter().for_each(|&i| {
-                        charged = true;
-                        why[i].get_or_insert_with(|| {
-                            format!(
-                                "the design's `{}` would not fold once it lands: {}",
-                                own.name.value, d.message
-                            )
-                        });
-                    });
-                    continue;
-                }
+                // it when they are all that is laid of them (each fold charged:
+                // past the budget the import is refused, never narrowed less).
                 let mut culprits: Vec<usize> = candidates
                     .iter()
                     .copied()
@@ -445,7 +446,7 @@ pub(super) fn landing(
                     if why[i].is_none() {
                         why[i] = Some(format!(
                             "the design's `{}` would not fold once it lands: {}",
-                            own.name.value, d.message
+                            own.name.value, message
                         ));
                     }
                 }
@@ -454,15 +455,19 @@ pub(super) fn landing(
             // A dial no token reads once the import lands: the tokens that
             // read it before and no longer do.
             if let Some(dial) = design.dials.iter().find(|x| x.name.line == d.line) {
+                // (the design's tokens that read it, once: each laid token then checked in one step)
+                let readers: HashSet<&str> = design
+                    .tokens
+                    .iter()
+                    .filter(|o| values(o).flat_map(words).any(|w| w == dial.name.value))
+                    .map(|o| o.name.value.as_str())
+                    .collect();
                 for (i, t) in tokens.iter().enumerate() {
-                    let read_it = design.tokens.iter().any(|o| {
-                        o.name.value == t.name
-                            && values(o).flat_map(words).any(|w| w == dial.name.value)
-                    });
+                    let read_it = readers.contains(t.name.as_str());
                     if why[i].is_none() && read_it {
                         why[i] = Some(format!(
                             "the design's dial `{}` would be left unused once it lands: {}",
-                            dial.name.value, d.message
+                            dial.name.value, message
                         ));
                         charged = true;
                     }
@@ -473,7 +478,7 @@ pub(super) fn landing(
         crate::budget::spend(1).map_err(refuse)?;
         // Nothing to charge a refusal to: every token laid goes with it.
         if !charged {
-            let message = errors[0].message.clone();
+            let message: String = errors[0].message.chars().take(300).collect();
             for w in why.iter_mut().filter(|w| w.is_none()) {
                 *w = Some(format!(
                     "the design would not fold once the import lands: {message}"
