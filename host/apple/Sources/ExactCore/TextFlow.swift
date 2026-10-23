@@ -61,7 +61,7 @@ package final class TextFlowSource {
     package let utf8Count: Int
     package let utf16Count: Int
     private(set) package var rustBytes = 0
-    package var box: (above: CGFloat, below: CGFloat, explicit: Bool)?
+    package var box: TextLineBox?
     package var ownedBytes: Int { advances.count * MemoryLayout<Float>.stride + rustBytes }
     package init(_ shape: TextShape) {
         // Preserve original UTF16 positions while matching the walker's CSS
@@ -174,18 +174,10 @@ package final class TextFlowSource {
 extension TextEngine {
     /// Fixed band takes the maximum inline/strut extents across the paragraph.
     /// Explicit CSS line boxes permit fallback ink to overflow without growing.
-    package func lineBox(_ spec: Spec, line: CTLine) -> (above: CGFloat, below: CGFloat, explicit: Bool) {
+    package func lineBox(_ spec: Spec, line: CTLine) -> TextLineBox {
         let strut = spec.strut ?? spec.runs.first
-        func extents(_ run: Run) -> (CGFloat, CGFloat) { CSSLineBox.extents(font(run) as CTFont, height: run.lineHeight) }
-        let minimum = strut.map(extents) ?? (0, 0)
-        var above = minimum.0, below = minimum.1
-        var aboveExplicit = strut?.lineHeight != nil, belowExplicit = aboveExplicit
-        func include(_ a: CGFloat, _ b: CGFloat, explicit: Bool) {
-            if a > above { above = a; aboveExplicit = explicit }
-            else if a == above { aboveExplicit = aboveExplicit && explicit }
-            if b > below { below = b; belowExplicit = explicit }
-            else if b == below { belowExplicit = belowExplicit && explicit }
-        }
+        func extents(_ run: Run) -> TextLineBox { TextLineBox(font(run) as CTFont, height: run.lineHeight) }
+        var box = strut.map(extents) ?? TextLineBox()
         for glyphRun in CTLineGetGlyphRuns(line) as! [CTRun] {
             let range = CTRunGetStringRange(glyphRun)
             var offset = 0
@@ -196,19 +188,18 @@ extension TextEngine {
                 guard offset < range.location + range.length && end > range.location else { continue }
                 matched = true
                 if authored.lineHeight != nil {
-                    let (a, b) = extents(authored); include(a, b, explicit: true)
+                    box.include(extents(authored))
                 } else { includesNormal = true }
             }
             if !matched, let strut, strut.lineHeight != nil {
-                let (a, b) = extents(strut); include(a, b, explicit: true); continue
+                box.include(extents(strut)); continue
             }
             if matched && !includesNormal { continue }
             let attrs = CTRunGetAttributes(glyphRun) as NSDictionary
             let font = attrs[kCTFontAttributeName] as! CTFont
-            let (a, d) = CSSLineBox.extents(font, height: nil)
-            include(a, d, explicit: false)
+            box.include(TextLineBox(font, height: nil))
         }
-        return (above, below, aboveExplicit || belowExplicit)
+        return box
     }
 
     // The walker stops at max(1024, 8*prepared work units) bands (or clamp).
@@ -221,7 +212,7 @@ extension TextEngine {
         let source = shape.preparedFlow(), spec = shape.spec
         let box = source.box ?? lineBox(spec, line: source.line)
         source.box = box
-        let lineHeight = box.above + box.below
+        let lineHeight = box.height
         let (fragments, height, accepted) = source.flow(flow, width: width, height: lineHeight,
             fontSize: (spec.strut ?? spec.runs.first)?.size ?? 0, clamp: spec.lineClamp, direction: spec.direction)
         guard source.handle != 0 && accepted else {
@@ -249,7 +240,7 @@ extension TextEngine {
             }
             let flush: CGFloat = spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0
             let x = CGFloat(fragment.x) + TextEngine.penOffset(line, flush: flush, room: Double(fragment.available), rtl: spec.direction == 1)
-            origins.append(x); baselines.append(CGFloat(fragment.y) + box.above)
+            origins.append(x); baselines.append(CGFloat(fragment.y) + box.baseline)
             bottoms.append(CGFloat(fragment.y) + lineHeight)
             glyphs += CTLineGetGlyphCount(line); lines.append(line)
             maxWidth = max(maxWidth, x + CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))

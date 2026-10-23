@@ -21,8 +21,7 @@ final class RegionFontOwner: @unchecked Sendable {
 struct RegionFont: Sendable {
     let owner: RegionFontOwner
     var value: CTFont { owner.value }
-    let above: CGFloat
-    let below: CGFloat
+    let box: TextLineBox
 }
 
 struct RegionTextRun: Sendable {
@@ -71,8 +70,7 @@ final class RegionTextSource: Sendable {
         let start = ProcessInfo.processInfo.systemUptime
         func font(_ run: Run) -> RegionFont {
             let f = engine.font(size: run.size, weight: run.weight, family: run.family, italic: run.italic)
-            let (above, below) = CSSLineBox.extents(f as CTFont, height: run.lineHeight)
-            return RegionFont(owner: RegionFontOwner(f as CTFont), above: above, below: below)
+            return RegionFont(owner: RegionFontOwner(f as CTFont), box: TextLineBox(f as CTFont, height: run.lineHeight))
         }
         var offset = 0
         runs = spec.runs.map { run in
