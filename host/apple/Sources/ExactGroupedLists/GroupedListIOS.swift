@@ -393,7 +393,15 @@ final class GroupedListHost: GroupedLists {
            let top = presenter.keyboardGuideTop(in: container), middle.y >= container.convert(CGPoint(x: 0, y: top), to: nil).y {
             return ["error": "tap #\(id): its cell's middle is under the software keyboard; dismiss it or scroll the row above it first"]
         }
-        guard !node.disabled, before(middle), !node.disabled, presenter.views[node.id] === node else { return ["error": "tap #\(id): its row changed during pointer handlers"] }
+        if node.disabled {
+            let reason: String
+            if row.view == node.id { reason = "the row is disabled or not a button" }
+            else if row.accessory == "toggle" { reason = "the switch is disabled" }
+            else if row.accessory == "radio" { reason = "the radio or its row is disabled" }
+            else { reason = "the detail button is disabled" }
+            return ["error": "tap #\(id): \(reason)"]
+        }
+        guard before(middle), !node.disabled, presenter.views[node.id] === node else { return ["error": "tap #\(id): its row changed during pointer handlers"] }
         let at = presenter.viewportScroll.convert(middle, from: nil)
         let page = presenter.viewportScroll.pageOrigin // a box's space (LLP 1130)
         let reply: [String: Any] = ["tapped": id, "at": [Agent.r2(at.x - page.x), Agent.r2(at.y - page.y)],
