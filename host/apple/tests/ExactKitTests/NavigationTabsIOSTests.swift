@@ -313,6 +313,21 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertEqual(p.viewport.frame, view.bounds, "a sheet does not move or resize the document")
     }
 
+    func testTabsSwitchedToAuthoredUnderASheetClearTheHomeIndicator() throws {
+        let session = try fixture("authored-tabs-under-sheet", wholeScreen: true)
+        let p = session.presenter
+        let list = try node(session, "tabs")
+        if session.firstDrawMs == nil { session.firstDrawMs = ExactEnv.wall() }
+        try tapNode(session, "menu")
+        until("the menu is a sheet") { p.modals.coordinateView != nil }
+        try authoredTabs(session, true)
+        until("authored tabs get their edge cover while the sheet is open") {
+            if case .edges(let edges)? = p.navigation.covers[list.id] { return edges.bottom > 0 }
+            return false
+        }
+        XCTAssertEqual(p.viewport.frame, try XCTUnwrap(session.view).bounds)
+    }
+
     func testAuthoredTabsLeaveLandscapeNavigationBackgroundAtTheEdges() throws {
         let session = try fixture("authored-tabs-landscape")
         let p = session.presenter, view = try XCTUnwrap(session.view)

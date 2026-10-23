@@ -567,6 +567,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         guard !changing, !presenter.modals.inTransition, !heldWaits else {
             pendingSync = true
             owePress()
+            reportCovers()
             return
         }
         pendingSync = false
