@@ -898,6 +898,11 @@ fn box_transform_transitions_play_without_sampling_and_reclaim_for_the_agent() {
       box testId="turn" width=40 height=40 rotate=(on ? 180 : 0) transition="rotate 1s linear"
       box testId="grow" width=40 height=40 scale=(on ? 2 : 1) transition="scale -exact-spring(200, 20, 1)"
       box testId="hit" width=40 height=40 press=go translate=(on ? "40px 0px" : "0px 0px") transition="translate 1s linear"
+      box testId="invoker-parent" width=100 height=40 translate=(on ? "40px 0px" : "0px 0px") transition="translate 1s linear"
+        button popovertarget="more"
+          text "More"
+      box id="more" popover="auto"
+        text "Menu"
       box testId="corner" width=40 height=40 transform-origin="0% 0%" rotate=(on ? 180 : 0) transition="rotate 1s linear"
 "##;
     let plan = contract::compile(app).unwrap().encode();
@@ -935,7 +940,11 @@ fn box_transform_transitions_play_without_sampling_and_reclaim_for_the_agent() {
     );
     let radians = spec(&batch, id(&host, "turn"))["v"][1].as_f64().unwrap();
     assert!((radians - std::f64::consts::PI).abs() < 1e-5);
-    for (name, property) in [("hit", Property::Translate), ("corner", Property::Rotate)] {
+    for (name, property) in [
+        ("hit", Property::Translate),
+        ("invoker-parent", Property::Translate),
+        ("corner", Property::Rotate),
+    ] {
         assert!(
             !host.engine.is_played(key(&host, name), property),
             "{name} must sample"
