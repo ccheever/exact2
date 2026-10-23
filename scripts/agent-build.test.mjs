@@ -22,6 +22,12 @@ test('a child failure retains errors from either stream past warnings and progre
   assert.equal(childFailure({ stderr: 'error: simulator installation failed\nwarning: one\nwarning: two\nwarning: three\n', stdout: 'Build complete!\n' }), 'error: simulator installation failed');
 });
 
+test('a metrics build summary does not claim that a drive was planned', () => {
+  const summary = failureSummary('error: missing sdk\n', { host: 'ios', code: 1, log: 'size.log', beforeDrive: false });
+  assert.match(summary, /the iOS build failed \(exit 1\); its whole log: size.log/);
+  assert.doesNotMatch(summary, /driven/);
+});
+
 /** An outside app, as `exact new` lays one out, with only what the decision reads. */
 function scratchApp(name) {
   const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-agent-build-')));

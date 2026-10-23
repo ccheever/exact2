@@ -98,8 +98,8 @@ function failureLines(output) {
 }
 
 /** `failureLines`, then that the build failed and where its log is. */
-export function failureSummary(output, { host, code, log }) {
-  return [...failureLines(output), `the ${label(host)} build failed (exit ${code}), so nothing was driven; its whole log: ${log}`].join('\n');
+export function failureSummary(output, { host, code, log, beforeDrive = true }) {
+  return [...failureLines(output), `the ${label(host)} build failed (exit ${code})${beforeDrive ? ', so nothing was driven' : ''}; its whole log: ${log}`].join('\n');
 }
 
 /** A failed child's diagnostic for a metrics row. */
