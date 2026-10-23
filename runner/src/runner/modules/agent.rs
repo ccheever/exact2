@@ -1,0 +1,217 @@
+//! The agent's side of the module seam (LLP 1133.002 §6, LLP 1124 D7):
+//! `state.extensions`, and `prefer extension` and `prefer permission`.
+
+use super::super::{CommitReceipt, DataSource, Runner};
+use super::{error_code, Json, ModulesRow, Route, Waits};
+use serde_json::{json, Map};
+
+impl<D: DataSource> Runner<D> {
+    /// `state.extensions` (LLP 1133.002 §6, Disclosure): each module the plan
+    /// names, by its extension: whether a host's implementation answers it
+    /// (`bound`, and `agent` where it answers under the agent), its
+    /// permission's state, the preferred values, each source's readers (a
+    /// resource that reads it, or whose data code did), and the tickets held
+    /// with their calls' origins. `None` for a plan that names none.
+    pub fn extensions_json(&self) -> Option<String> {
+        if self.plan.modules.is_empty() {
+            return None;
+        }
+        let mut out = Map::new();
+        for row in &self.plan.modules {
+            let extension = self.plan.str(row.extension).to_owned();
+            let declared = self.plan.str(row.declared).to_owned();
+            let key = self.key(row);
+            let bound = self.extensions.bound.contains(&extension);
+            let entry = out.entry(extension.clone()).or_insert_with(
+                || json!({ "bound": bound, "preferred": {}, "readers": {}, "held": [] }),
+            );
+            if self.route(row) == Route::Agent {
+                entry["agent"] = json!(true);
+            }
+            if let Some(name) = self.substitute(row)["permission"]["name"].as_str() {
+                entry["permission"] = json!(self.permission_state(name));
+            }
+            if let Some(v) = self.extensions.preferred.get(&key) {
+                entry["preferred"][&declared] = v.clone();
+            }
+            if !row.send {
+                let readers: Vec<&str> = (0..self.plan.resources.len())
+                    .filter(|&i| {
+                        self.plan.resources[i].source
+                            == self.plan.sources[row.source.0 as usize].name
+                            || self.watching[i].contains(&key)
+                    })
+                    .map(|i| self.plan.str(self.plan.resources[i].name))
+                    .collect();
+                entry["readers"][&declared] = json!(readers);
+            }
+            for h in self.extensions.held.iter().filter(|h| {
+                h.source == self.plan.str(self.plan.sources[row.source.0 as usize].name)
+            }) {
+                if let Some(held) = entry["held"].as_array_mut() {
+                    held.push(json!({ "ticket": h.hold, "name": declared, "origin": h.origin.word(), "waits": match h.waits { Waits::Permission => "permission", Waits::Value => "value", Waits::Raise => "raise" } }));
+                }
+            }
+        }
+        Some(Json::Object(out).to_string())
+    }
+
+    /// The agent's `prefer extension` and `prefer permission` (LLP 1124 D7,
+    /// LLP 1069.007 D2): `{"op":"prefer","extension":{"geolocation.watchPosition":
+    /// {…}|"clear"}}` sets a source's answer; `{"op":"prefer","permission":
+    /// {"geolocation":"granted"}}` a permission's state. Readers are asked
+    /// again. `None` for any other request.
+    pub fn extension_agent(
+        &mut self,
+        request: &str,
+    ) -> Option<(Vec<CommitReceipt>, Result<String, String>)> {
+        let v: Json = serde_json::from_str(request).ok()?;
+        if v.get("op").and_then(|o| o.as_str()) != Some("prefer") {
+            return None;
+        }
+        let refuse = |e: String| Some((Vec::new(), Err(e)));
+        if let Some(group) = v.get("permission") {
+            let Some(group) = group.as_object() else {
+                return refuse(
+                    "prefer permission: an object of `<name>`: granted|denied|prompt".into(),
+                );
+            };
+            for (name, state) in group {
+                let known = (self.plan.modules.iter())
+                    .any(|m| self.substitute(m)["permission"]["name"].as_str() == Some(name));
+                let state = state
+                    .as_str()
+                    .filter(|s| matches!(*s, "granted" | "denied" | "prompt"));
+                match (known, state) {
+                    (false, _) => {
+                        return refuse(format!(
+                            "prefer permission: no module here asks for `{name}`"
+                        ))
+                    }
+                    (_, None) => {
+                        return refuse(format!(
+                            "prefer permission.{name}: granted, denied or prompt"
+                        ))
+                    }
+                    (true, Some(state)) => self.set_permission(name, state),
+                }
+            }
+            if v.get("extension").is_none() {
+                let (receipts, error) = self.apply_announced();
+                if let Some(e) = error {
+                    return refuse(format!("prefer permission: {e:?}"));
+                }
+                let reply = json!({ "permission": self.extensions.permission });
+                return Some((receipts, Ok(reply.to_string())));
+            }
+        }
+        let Some(group) = v.get("extension")?.as_object() else {
+            return refuse("prefer extension: an object of `extension.source`".into());
+        };
+        for (key, value) in group {
+            let Some(row) = self
+                .plan
+                .modules
+                .iter()
+                .find(|m| self.key(m) == *key)
+                .cloned()
+            else {
+                let known: Vec<String> = (self.plan.modules.iter())
+                    .filter(|m| !m.send)
+                    .map(|m| self.key(m))
+                    .collect();
+                return refuse(format!(
+                    "prefer extension: no source `{key}` in this app; its module sources are {}",
+                    if known.is_empty() {
+                        "none".into()
+                    } else {
+                        known.join(", ")
+                    }
+                ));
+            };
+            if row.send {
+                return refuse(format!(
+                    "prefer extension: `{key}` is a send, which the module answers"
+                ));
+            }
+            let sub = self.substitute(&row);
+            let permission = &sub["permission"];
+            let status = permission["status"].as_str() == Some(self.plan.str(row.declared));
+            let field = permission["field"].as_str().filter(|_| status);
+            if let Some(field) = field.filter(|f| value.get(f).is_some()) {
+                // One authority per fact (§6): the state is the permission's.
+                let name = permission["name"].as_str().unwrap_or_default();
+                return refuse(format!(
+                    "prefer extension: `{key}`'s `{field}` is set by `prefer permission.{name}`"
+                ));
+            }
+            if value != "clear" && error_code(value).is_none() {
+                let mut checked = value.clone();
+                if let (Some(field), Some(object)) = (field, checked.as_object_mut()) {
+                    object.insert(field.into(), json!("prompt"));
+                }
+                // An implementation's own substitute takes a partial
+                // overlay (LLP 1133.009 D10 item 11); a declared one, a value.
+                let checked = match sub["implementation"] == true {
+                    true => self.partial(&row, &checked),
+                    false => self.typed(&row, &checked.to_string()).map(|_| ()),
+                };
+                if let Err(e) = checked {
+                    return refuse(format!("prefer extension: {e}"));
+                }
+            }
+        }
+        let mut told = std::collections::BTreeSet::new();
+        for (key, value) in group {
+            if value == "clear" {
+                self.extensions.preferred.remove(key);
+            } else {
+                self.extensions.preferred.insert(key.clone(), value.clone());
+            }
+            self.log(format!("prefer extension {key}"));
+            self.announce(key);
+            let row = (self.plan.modules.iter()).find(|m| self.key(m) == *key);
+            if let Some(row) = row.filter(|r| self.route(r) == Route::Agent) {
+                told.insert(self.plan.str(row.extension).to_owned());
+            }
+        }
+        for extension in told {
+            self.tell_preferred(&extension);
+        }
+        self.settle_values();
+        let (receipts, error) = self.apply_announced();
+        if let Some(e) = error {
+            return refuse(format!("prefer extension: {e:?}"));
+        }
+        let reply = json!({ "extension": self.extensions.preferred, "permission": self.extensions.permission });
+        Some((receipts, Ok(reply.to_string())))
+    }
+
+    /// `value`, a partial overlay of `row`'s answer: each field it writes
+    /// checked against the answer's shape, record by record.
+    fn partial(&self, row: &ModulesRow, value: &Json) -> Result<(), String> {
+        let ty = self.plan.sources[row.source.0 as usize].ty;
+        let shape = exact_js_value::Shape::from_plan(&self.plan, ty)?;
+        partial(&self.key(row), value, &shape)
+    }
+}
+
+fn partial(at: &str, value: &Json, shape: &exact_js_value::Shape) -> Result<(), String> {
+    use exact_js_value::Shape;
+    match (value, shape) {
+        (Json::Object(map), Shape::Record(fields)) => {
+            for (name, v) in map {
+                let Some((_, field)) = fields.iter().find(|(f, _)| f == name) else {
+                    return Err(format!("{at}: field `{name}` is not in the shape"));
+                };
+                partial(&format!("{at}.{name}"), v, field)?;
+            }
+            Ok(())
+        }
+        (Json::Null, Shape::Option(_)) => Ok(()),
+        (value, Shape::Option(inner)) => partial(at, value, inner),
+        (value, shape) => exact_js_value::from_json(value, shape)
+            .map(|_| ())
+            .map_err(|e| format!("{at}: {e}")),
+    }
+}

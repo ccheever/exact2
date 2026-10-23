@@ -1,13 +1,13 @@
 import { admitsSecret, createRequestExecutor, fetchHostAsset, sameGrantDeclaration, setAppGrantSet } from './admission.js';
 import { rustGrantSet, tsGrantSet } from './admission-data.js';
-import { boundedHttpBody, streamed } from './http-body.js';
-// A Rust data module on the JS runtime (LLP 1029.000's seam, ABI 3,
+import { boundedHttpBody, longPollRefusal, streamed } from './http-body.js';
+// A Rust data module on the JS runtime (LLP 1029.000's seam, ABI 4,
 // `logic/abi/src/lib.rs`): the app's importless module wasm and its plan's
 // declarations (`app.bind.plan`, the plan without the bake's answers),
 // fetched after first pixel; once bound and activated, every answer is a
 // synchronous call, as the runner's `DataSource::answer` is. Until then the
 // runtime keeps each resource's compiled value and asks again at `ready`.
-const ABI = 3, utf8 = new TextEncoder(), text = new TextDecoder();
+const ABI = 4, utf8 = new TextEncoder(), text = new TextDecoder();
 
 function writer() {
   let buf = new Uint8Array(256), at = 0;
@@ -93,13 +93,18 @@ export async function install(data, sources, load = p => fetchHostAsset(p).then(
     // A call the seam could not carry (`call` above) is the resource's
     // failure instead (LLP 1071 §7).
     if (tag >= 2 && tag <= 4) throw Object.assign(new Error(r.str()), { unknown: tag === 2, refuse: true });
-    if (tag === 1 || tag === 6 || tag === 9) {
+    if (tag === 1 || tag === 6 || tag === 9 || tag === 10) {
       const http = tag === 1 ? 'ordered' : `independent:${r.u32()}`;
       const scoped = r.u8() === 1, scope = r.str();
       const method = r.str(), url = r.str(), headers = [];
       for (let n = r.u32(); n--;) headers.push([r.str(), r.str()]);
       const n = r.u32(), body = r.bytes(n);
-      return { req: { method, url, headers, body: text.decode(body), raw: body, http, maxResponseBytes: http === 'ordered' ? undefined : Number(http.split(':')[1]), scope: scoped ? scope : null, stream: tag === 9 } };
+      // A long poll (tag 10, LLP 1016.000 D8): its terms after the body, checked as the stream opens (http-body.js).
+      const longPoll = tag === 10 ? { cursor: r.str(), from: r.str(), sameCursorEvent: [false, true][r.u8()] ?? (() => { throw new Error('invalid long poll terms'); })() } : undefined;
+      // (refused as the native seam refuses it: before the turn's writes apply)
+      const pollRefusal = longPoll && longPollRefusal({ url, longPoll, stream: true }, method, n ? 'x' : '');
+      if (pollRefusal) throw new Error(pollRefusal);
+      return { req: { method, url, headers, body: text.decode(body), raw: body, http, maxResponseBytes: http === 'ordered' ? undefined : Number(http.split(':')[1]), scope: scoped ? scope : null, stream: tag >= 9, longPoll } };
     }
     // Storage work (LLP 1027.001 D2): a portable request the host runs
     // through the web host's own `storage-request.js`, under its scope.

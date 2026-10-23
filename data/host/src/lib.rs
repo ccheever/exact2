@@ -86,7 +86,7 @@ impl<D: DataSource> Storage<D> {
         if let Answer::Later(request) = &mut answer {
             // Storage becomes a continuation below: a deadline on it is
             // refused, not dropped.
-            if let Some(why) = request.timeout_refusal() {
+            if let Some(why) = request.timeout_refusal().or(request.long_poll_refusal()) {
                 return Err(unavailable(why));
             }
             if request.http != exact_runner::HttpScheduling::Ordered

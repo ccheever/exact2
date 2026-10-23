@@ -5,8 +5,8 @@
   "id": "com.exact.photoeditor",
   "start_url": "/",
   "display": "standalone",
-  "theme_color": "#111318",
-  "background_color": "#111318",
+  "theme_color": "#000000",
+  "background_color": "#000000",
   "app": {
     "id": "com.exact.photoeditor",
     "name": "Photo Editor"

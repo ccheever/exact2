@@ -97,6 +97,7 @@ mod apply;
 mod live_time;
 pub mod midi;
 mod modules;
+pub use modules::CallOrigin;
 mod split;
 mod surface_record;
 mod text_axes;
@@ -328,9 +329,11 @@ struct PendingReq {
     /// A mutation's: the write it carries (`writes.rs`), which only its
     /// reply lands or ends.
     write: Option<u64>,
-    /// Held (LLP 1016.000 D9, [`Request::is_held`]): pending, but no clock
-    /// waits on it.
+    /// Held (LLP 1016.000 D9, [`Request::is_held`]): pending, but no clock waits on it. A long poll (D8),
+    /// `replied` once it has a reply of any kind, is held and named too.
     held: bool,
+    long_poll: bool,
+    replied: bool,
 }
 
 /// An open stream's messages so far, and those the host coalesced away
@@ -352,10 +355,9 @@ impl PendingReq {
         self.stream.is_none_or(|s| s.messages == 0)
     }
 
-    /// Waited on by a clock (a jump, `clock settle`, `clock data`): in
-    /// flight and not held (LLP 1016.000 D9).
+    /// Waited on by a clock (a jump, `clock settle`, `clock data`): in flight, not held (D8, D9).
     fn waited(&self) -> bool {
-        self.in_flight() && !self.held
+        self.in_flight() && !self.held && !self.replied
     }
 }
 
@@ -474,6 +476,8 @@ pub struct Runner<D: DataSource> {
     sockets: Vec<crate::SocketSend>,
     /// The host's live count of a socket's buffered bytes (D7), if it has one.
     socket_reader: Option<sockets::SocketReader>,
+    /// The host's live view of its long polls' backoff waits (D8), if it has one.
+    retry_reader: Option<crate::RetryReader>,
     mutation_requests: u64,
     /// Resources an action asked to re-request; consumed by the next settle
     /// that can ask them (LLP 1054.000.000 D2).
@@ -933,6 +937,7 @@ impl<D: DataSource> Runner<D> {
             requests: Vec::new(),
             sockets: Vec::new(),
             socket_reader: None,
+            retry_reader: None,
             mutation_requests: 0,
             refresh_next: Vec::new(),
             writes: writes::Writes::default(),

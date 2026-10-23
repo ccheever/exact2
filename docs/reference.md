@@ -1175,6 +1175,40 @@ target), with one difference: on the web build the stream's `fetch` must be
 made while the answer is asked, before its first `await` (a later one is
 refused, saying so); on Hermes it may follow an `await`.
 
+A **long poll** (LLP 1016.000 D8) is a stream with `exactLongPoll: {cursor,
+from}` beside `exactStream`, for an endpoint that holds each request until it
+has news: `fetch('https://sync.example/changes?since=0&wait=25', {
+exactStream: (e) => e.type === 'error' ? null : JSON.parse(e.data),
+exactLongPoll: { cursor: 'since', from: 'seq' } })`. The host asks with GET
+(`Accept: application/json` unless named), one request at a time. Each 2xx
+JSON reply is one `message`: `data` its text, `lastEventId` its cursor, the
+reply's field `from` (`seq`, or `meta.seq` one level down; a string, or a
+whole number within 2^53; a string cursor is at most 4096 bytes with no control
+characters, and one past either rule ends the stream, `Refused`); the next
+request carries that cursor in the query parameter `cursor`. A heartbeat asks
+again with no event: a 204, a 304, an
+empty body, or a reply with the cursor it was asked with (`sameCursor:
+"event"` delivers that one instead, for an endpoint that sends news under an
+unchanged cursor); a heartbeat, or a reply that asks again, asks again no
+sooner than a second after it was asked, so a server that answers at once is
+not hammered. From its first reply of any kind no clock waits on it:
+`state.pending` names it `held: true`, `clock held <name>` waits for its next
+reply, and each reply raises `state.heldReplies` (LLP 1016.000 D9). The network, a timeout, a 408, 429, 502, 503 or 504 asks
+again after `Retry-After` (at most 60 s) or a backoff of 1, 2, 4, 8, 16, then
+30 s, each within a fifth, reset by any 2xx; no event is delivered, and
+`state.streams` shows the stream's `retrying: {attempt, inMs, error}`. Anything
+else ends the stream as any stream's end does: another status (`Response`, with
+its body), a 2xx with no cursor at `from` (`Response`), an event stream or a
+reply past the ceiling (`Refused`). It must be a GET with no body over
+`http:`/`https:`, with `exactStream` (otherwise a `TypeError`). Letting the
+resource go aborts the request held open, or the wait. TypeScript sources on
+every host take it, and Rust sources with `Request::long_poll(cursor, from)` on
+a stream's request. An older prelude would ignore it and open an event stream,
+so it moves `typescriptRuntime` to 3: a native app with a TypeScript data module
+needs a new binary once more. A Rust source's long poll is a new kind on the
+module seam, so the Rust ABI moves to 4, and every app with Rust data sources
+needs a new binary once too.
+
 On the **web JS target and on macOS, iOS, Linux and Windows, TypeScript sources**
 receive `(event, socket)` for a WebSocket (LLP 1016.000 D7). Keep the handle by your resource's identity in
 module state. Its events are `open`, ordered `message` (string or ArrayBuffer

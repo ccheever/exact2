@@ -261,8 +261,13 @@ impl<D: DataSource> Bridge<D> {
             let mut presenter = crate::batch::Batch::new();
             Self::auth_forgotten(h, &mut presenter);
             for r in h.take_requests() {
-                // A deadline the auth and surface paths can't keep: the executor refuses it, fencing ordered work.
-                if r.request.timeout_refusal().is_some() {
+                // A deadline the auth and surface paths can't keep, or a long poll on work that is no HTTP
+                // request (LLP 1016.000 D8): the executor refuses it, fencing ordered work.
+                if r.request
+                    .timeout_refusal()
+                    .or(r.request.long_poll_refusal())
+                    .is_some()
+                {
                     Self::run_dispatch(h, x, parked, r, exact_runner::Dispatch::Missing);
                     continue;
                 }

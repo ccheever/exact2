@@ -917,7 +917,7 @@ fn styled(node: &Node, separated: bool, swiped: bool) -> Node {
             m("padding-bottom", "stack-padding-block", span),
             s("font-size", BODY, span),
             attr("color", tint(label()), span),
-            s("text-align", "left", span),
+            s("text-align", "start", span),
         ]);
         rows.extend(separator(separated, span));
         rows.extend(attrs.iter().cloned());
@@ -978,7 +978,7 @@ fn styled(node: &Node, separated: bool, swiped: bool) -> Node {
         m("padding-bottom", "row-padding-block", span),
         s("font-size", BODY, span),
         attr("color", tint(ink), span),
-        s("text-align", "left", span),
+        s("text-align", "start", span),
         // A word longer than its line breaks rather than running over the
         // value beside it, as a UILabel's does.
         s("overflow-wrap", "break-word", span),

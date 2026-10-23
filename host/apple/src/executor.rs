@@ -96,6 +96,10 @@ impl Executor {
     pub fn socket_reader(&self) -> exact_runner::SocketReader {
         self.core.socket_reader()
     }
+    /// Each long poll's backoff wait, by its stream ticket, live (D8).
+    pub fn retry_reader(&self) -> exact_runner::RetryReader {
+        self.core.retry_reader()
+    }
 }
 
 /// What the bridge asks of the I/O executor (LLP 1047.001): the executor's
@@ -126,6 +130,8 @@ pub trait Io {
     fn socket(&self, batch: &exact_runner::SocketSend) -> Result<Vec<(u64, u64, u64)>, String>;
     /// [`Executor::socket_reader`].
     fn socket_reader(&self) -> exact_runner::SocketReader;
+    /// [`Executor::retry_reader`].
+    fn retry_reader(&self) -> exact_runner::RetryReader;
 }
 
 impl Io for Executor {
@@ -164,6 +170,9 @@ impl Io for Executor {
     }
     fn socket_reader(&self) -> exact_runner::SocketReader {
         Executor::socket_reader(self)
+    }
+    fn retry_reader(&self) -> exact_runner::RetryReader {
+        Executor::retry_reader(self)
     }
 }
 

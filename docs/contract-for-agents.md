@@ -998,6 +998,12 @@ own mutation; to repeat, use a task (see "Repeating while a condition holds").
 Do not mistake the scheduling boundary
 for a general async workflow or a per-reply event log.
 
+A long poll (`/changes?since=…&wait=…`) is a stream too: add
+`exactLongPoll: { cursor: 'since', from: 'seq' }` beside `exactStream`, and the
+host asks again with each reply's cursor, skipping heartbeats and backing off
+on failures (`docs/reference.md`, LLP 1016.000 D8). Re-read on each event with
+`resource view = load() with live.seq`.
+
 A bidirectional WebSocket uses a resource's TypeScript
 `fetch(url, { exactStream(event, socket) { … } })` (LLP 1016.000 D7).
 Keep the handle in module state by resource identity; after its `open` event,

@@ -422,6 +422,13 @@ fn turn<D: DataSource>(
     };
     loop {
         match result {
+            // A long poll on the worker's own work (LLP 1016.000 D8): refused before that work runs.
+            Ok(Answer::Later(request)) if request.long_poll_refusal().is_some() => {
+                if let Some(token) = request.continuation {
+                    source.discard(token);
+                }
+                return Err(unavailable(request.long_poll_refusal().unwrap_or_default()));
+            }
             Ok(Answer::Later(request)) if request.continuation.is_some() => {
                 let token = request.continuation.expect("checked");
                 let Some(work) = source.continuation(token) else {
@@ -978,5 +985,50 @@ mod tests {
         );
         assert!(seen[0].starts_with("127:"));
         assert_eq!(seen[1], "after-next");
+    }
+
+    /// LLP 1016.000 D8 in a worker: a long poll attached to the worker's own
+    /// work is refused before that work runs.
+    struct PollsOtherWork(Arc<Mutex<bool>>);
+
+    impl DataSource for PollsOtherWork {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(Value::Number(0.0))
+        }
+
+        fn answer(&mut self, _: &mut Store, _: &str, _: &[Value]) -> Result<Answer, DataError> {
+            Ok(Answer::Later(
+                Request::continuation(1).long_poll("since", "seq"),
+            ))
+        }
+
+        fn continuation(&mut self, _: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+            let ran = self.0.clone();
+            Some(Box::new(move || {
+                *ran.lock().unwrap() = true;
+                Outcome::Storage(vec![])
+            }))
+        }
+    }
+
+    #[test]
+    fn a_long_poll_on_a_worker_s_own_work_is_refused_before_it_runs() {
+        let ran = Arc::new(Mutex::new(false));
+        let mut placed = Placed::new(PollsOtherWork(ran.clone()), Placement::Worker);
+        placed.activate().unwrap();
+        let mut store = Store::new("", []);
+        let token = match placed.answer(&mut store, "polled", &[]).unwrap() {
+            Answer::Later(request) => request.continuation.unwrap(),
+            _ => panic!("a worker answer"),
+        };
+        let outcome = send(placed.dispatch(token, &store))
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        let refused = crate::envelope::apply(outcome, &mut store, &mut Vec::new()).unwrap_err();
+        assert!(
+            format!("{refused:?}").contains("exactLongPoll"),
+            "{refused:?}"
+        );
+        assert!(!*ran.lock().unwrap(), "its work never ran");
     }
 }

@@ -14,6 +14,10 @@ export const heldAsks = () => [...HeldAsks].filter(current).map(t => ({ name: t.
 /** Replies landed for held fetches, by target: `clock held`'s evidence (the runner's `held_replies`). */
 export const heldReplies = () => Object.fromEntries(Replies);
 export function heldReply(call) { if (current(call.ticket)) Replies.set(call.ticket.name, (Replies.get(call.ticket.name) ?? 0) + 1); }
+/** A long poll's reply (LLP 1016.000 D8): from its first the stream is held and named, and each is a reply. */
+export function longPollReplied(t) { if (current(t)) { HeldAsks.add(t); Replies.set(t.name, (Replies.get(t.name) ?? 0) + 1); } }
+/** A long poll's end, or its letting go: no longer held. */
+export function longPollEnded(t) { HeldAsks.delete(t); }
 export function counted(t, inflight) {
   if (t.call) { t.call.recount ??= () => counted(t, inflight); t.call.ticket ??= t; } // a fetch's start and end (ts-fetch.js)
   const waits = !!t.waiting && !t.closed, candidate = waits && t.call?.held > 0;

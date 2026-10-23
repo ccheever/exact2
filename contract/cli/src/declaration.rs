@@ -184,17 +184,26 @@ fn module(
         live: entry["live"] == true,
         request: request.to_owned(),
         sync: entry["sync"]["name"].as_str().map(str::to_owned),
-        substitute: substitute(&entry["substitute"], interface)?,
+        substitute: substitute(entry, interface)?,
         span,
     })
 }
 
-/// A name's declared substitute, with its interface's `permission` and
-/// `grants` beside it, as the plan carries it: what the agent's runner
-/// answers with no implementation bound (LLP 1133.002 §6), and the grant
-/// lines the app writes one of (D6).
-fn substitute(declared: &Value, interface: &Value) -> Result<String, String> {
-    let mut out = match declared {
+/// A name's declared substitute, and what the runner's admission reads
+/// beside it, as the plan carries it (LLP 1133.002 §6, D14; LLP 1133.009
+/// D10): what the agent's runner answers with no implementation bound; the
+/// interface's `permission` and `grants`, the lines the app writes one of
+/// (D6); `implementation` where the interface is its own substitute
+/// (`"substitute": "implementation"`, LLP 1133.006 D8); and the name's own
+/// `origin`, `foreground` and the `when` that conditions them, its grant
+/// lines (`nameGrants`: a list, or a line per argument), the answer's
+/// `handles`, and the option a polled source's period is (`poll`).
+fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
+    let name = entry["source"]
+        .as_str()
+        .or(entry["send"].as_str())
+        .unwrap_or_default();
+    let mut out = match &entry["substitute"] {
         Value::Null => Map::new(),
         Value::Object(map) => map.clone(),
         other => return Err(format!("a `substitute` is an object, not `{other}`")),
@@ -203,6 +212,49 @@ fn substitute(declared: &Value, interface: &Value) -> Result<String, String> {
         if !interface[field].is_null() {
             out.insert(field.into(), interface[field].clone());
         }
+    }
+    match &interface["substitute"] {
+        Value::Null => {}
+        Value::String(s) if s == "implementation" => {
+            out.insert("implementation".into(), Value::Bool(true));
+        }
+        other => {
+            return Err(format!(
+                "an interface's `substitute` is \"implementation\", not `{other}`"
+            ))
+        }
+    }
+    let check = |ok: bool, what: &str| match ok {
+        true => Ok(()),
+        false => Err(format!("`{name}`'s {what}")),
+    };
+    for (field, value) in object(entry) {
+        match field.as_str() {
+            "origin" => check(
+                matches!(value.as_str(), Some("app" | "person")),
+                "`origin` is \"app\" or \"person\"",
+            )?,
+            "foreground" => check(value.is_boolean(), "`foreground` is true or false")?,
+            "when" => check(value.is_object(), "`when` is an object of argument values")?,
+            "grants" => check(
+                value.is_array() || value.is_object(),
+                "`grants` is a list of lines, or a line per argument",
+            )?,
+            "handles" => check(value.is_object(), "`handles` names each id field's kind")?,
+            "poll" => check(
+                value
+                    .as_str()
+                    .is_some_and(|o| !object(&entry["options"])[o].is_null()),
+                "`poll` names one of its options",
+            )?,
+            _ => continue,
+        }
+        let key = if field == "grants" {
+            "nameGrants"
+        } else {
+            field
+        };
+        out.insert(key.into(), value.clone());
     }
     Ok(Value::Object(out).to_string())
 }

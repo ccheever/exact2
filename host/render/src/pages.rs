@@ -60,7 +60,9 @@ pub fn pages<D: DataSource>(
             request,
             forced: false,
         };
+        // A long poll on work that is no HTTP request (LLP 1016.000 D8): refused before its work runs.
         let dispatch = match out.request.continuation {
+            _ if out.request.long_poll_refusal().is_some() => Dispatch::Missing,
             Some(token) => data.dispatch(token, &store),
             None => Dispatch::Missing,
         };

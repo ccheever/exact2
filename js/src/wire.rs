@@ -19,7 +19,7 @@ pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
             }
         }
     }
-    Ok(Request {
+    let request = Request {
         http: match j.get("max_response_bytes") {
             None => exact_runner::HttpScheduling::Ordered,
             Some(value) => exact_runner::HttpScheduling::Independent {
@@ -45,6 +45,34 @@ pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
         stream: j.get("stream").and_then(Json::as_bool).unwrap_or(false),
         socket: j.get("socket").and_then(Json::as_bool).unwrap_or(false),
         bytes: j.get("bytes").and_then(Json::as_bool).unwrap_or(false),
+        // `exactLongPoll` (LLP 1016.000 D8): its cursor parameter and the reply field it is taken from.
+        long_poll: match j.get("long_poll") {
+            None | Some(Json::Null) => None,
+            Some(lp) => {
+                let name = |k: &str| {
+                    lp.get(k)
+                        .and_then(Json::as_str)
+                        .filter(|s| (1..=256).contains(&s.chars().count()))
+                        .map(str::to_string)
+                        .ok_or_else(|| {
+                            format!("exactLongPoll.{k} must be a name of 1 to 256 characters")
+                        })
+                };
+                Some(Box::new(exact_runner::LongPoll {
+                    cursor: name("cursor")?,
+                    from: name("from")?,
+                    same_cursor_event: match lp.get("same_cursor_event") {
+                        None | Some(Json::Null) => false,
+                        Some(Json::Bool(b)) => *b,
+                        Some(_) => {
+                            return Err(
+                                "exactLongPoll.sameCursor is \"heartbeat\" or \"event\"".into()
+                            )
+                        }
+                    },
+                }))
+            }
+        },
         timeout_ms: match j.get("timeout_ms") {
             None | Some(Json::Null) => None,
             Some(value) => Some(
@@ -63,7 +91,12 @@ pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
         },
         redirect: Redirect::parse(j.get("redirect").and_then(Json::as_str))?,
         held: j.get("held").and_then(Json::as_bool).unwrap_or(false),
-    })
+    };
+    // A long poll's terms, checked as every host checks them (LLP 1016.000 D8).
+    match request.long_poll_refusal() {
+        Some(why) => Err(why.into()),
+        None => Ok(request),
+    }
 }
 
 /// A stream's outcome for its mapper, as [`outcome_to_json`] spells it but

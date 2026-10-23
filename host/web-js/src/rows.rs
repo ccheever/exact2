@@ -1020,7 +1020,7 @@ fn sandboxed_source<'a>(
 pub(crate) fn pressed_transition_map() -> String {
     format!(
                     "v=>{{if(v==null)return v;{}const o=p.map(t=>t.replace(/^scale(?=\\s)/,\"--exact-scale\")),m=p.filter(t=>/^(scale|all)(\\s|$)/.test(t)).pop();if(m)o.push(\"scale 0s\",m.replace(/^(scale|all)/,\"--exact-scale\"));return o.join(\",\")||\"none\"}}",
-                    crate::style::TRANSITION_ENTRIES
+                    crate::style::TRANSITION_ENTRIES.as_str()
                 )
 }
 
@@ -1140,6 +1140,7 @@ mod tests {
                 "none"
             ])
         );
+        crate::style::tests::assert_spring_transitions(&super::pressed_transition_map());
     }
 
     use crate::style::{

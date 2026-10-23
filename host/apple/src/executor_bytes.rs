@@ -119,6 +119,7 @@ fn append(shared: &Shared, ticket: u64, bytes: &[u8], bound: usize) -> Read {
                 stream: true,
                 light: false,
                 again: false,
+                reply: false,
             })
         }
     }

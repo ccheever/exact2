@@ -403,6 +403,7 @@ fn relative_lengths_are_pixels_live_and_units_ahead_of_time() {
         (StyleId::CornerShape, "-exact-continuous round round round"),
     ] {
         s.set_dynamic(id, &StyleValue::Text(value.into())).unwrap();
+        s.written.set(id);
     }
     let (live, skipped) = css_text(&s, &[]);
     assert!(skipped.is_empty(), "{skipped:?}");
@@ -493,6 +494,7 @@ fn a_negative_calculation_on_a_size_reaches_the_browser_clamped() {
     let text = || StyleValue::Text("calc(10px - 20px)".into());
     s.set_dynamic(StyleId::Width, &text()).unwrap();
     s.set_dynamic(StyleId::MarginLeft, &text()).unwrap();
+    s.written.set(StyleId::MarginLeft);
     let (css, _) = css_text(&s, &[]);
     assert!(css.contains("width:0px;"), "{css}");
     assert!(css.contains("margin-left:-10px;"), "{css}");

@@ -214,6 +214,19 @@ fn cases() -> Vec<(&'static str, String)> {
             }),
         ),
         (
+            "request-long-poll",
+            one(|b| {
+                let exact_runner::Answer::Later(poll) = exact_runner::Answer::stream(
+                    Request::get("https://api.example/changes?since=0")
+                        .independent_http(4096)
+                        .long_poll("since", "meta.seq"),
+                ) else {
+                    unreachable!()
+                };
+                b.request(&request(50, poll, false))
+            }),
+        ),
+        (
             "request-continue",
             one(|b| {
                 b.request(&request(
@@ -396,6 +409,10 @@ const GOLDEN: &[(&str, &str)] = &[
         r#"{"ops":[{"op":"request","ticket":49,"target":"feed \"home\"","scope":null,"method":"GET","url":"https://api.example/authorize","headers":[],"redirect":"manual","body":"","cache":"default"}],"timers":false,"clock":0,"error":null}"#,
     ),
     (
+        "request-long-poll",
+        r#"{"ops":[{"op":"request","ticket":50,"target":"feed \"home\"","scope":null,"nativeHttp":"independent","maxResponseBytes":4096,"method":"GET","url":"https://api.example/changes?since=0","headers":[],"body":"","cache":"default","stream":true,"longPoll":{"cursor":"since","from":"meta.seq","sameCursorEvent":false}}],"timers":false,"clock":0,"error":null}"#,
+    ),
+    (
         "request-continue",
         r#"{"ops":[{"op":"continue","ticket":43,"token":9007199254740993}],"timers":false,"clock":0,"error":null}"#,
     ),
@@ -452,5 +469,23 @@ fn every_op_writes_the_json_it_always_wrote() {
     for ((name, text), (golden_name, golden)) in cases.iter().zip(GOLDEN) {
         assert_eq!(name, golden_name);
         assert_eq!(text, golden, "{name}");
+    }
+}
+
+/// LLP 1016.000 D8 on the web page: a long poll attached to work that is no
+/// HTTP request is refused in the batch, before `emit_request` dispatches any
+/// continuation, auth or storage work (host.rs `emit_request`, first line).
+#[test]
+fn a_long_poll_on_other_work_is_refused_before_dispatch() {
+    for request in [
+        Request::continuation(7).long_poll("since", "seq"),
+        Request::storage(b"{}".to_vec()).long_poll("since", "seq"),
+        Request::native(b"x".to_vec()).long_poll("since", "seq"),
+    ] {
+        let why = crate::batch::request_refusal(&request);
+        assert!(
+            why.is_some_and(|w| w.starts_with("exactLongPoll")),
+            "{why:?}"
+        );
     }
 }

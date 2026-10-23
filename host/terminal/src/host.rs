@@ -329,6 +329,9 @@ impl<D: DataSource> Host<D> {
         let (receipts, _) = self.runner.apply_announced();
         if landed || !receipts.is_empty() {
             self.after_commit();
+        } else {
+            // (what a landing asked with no commit, a background round's next request, still goes out)
+            self.run_requests();
         }
     }
 

@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {dirname,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
-import {boundedHttpBody as readBody, request, waitForInflight} from './http-body.js';
+import {boundedHttpBody as readBody, longPollTiming, request, waitForInflight} from './http-body.js';
 import {admittingGrant, scopedGrantSet} from './grant-admission.js';
 import {createRequestExecutor} from '../web-js/admission.js';
 
@@ -292,4 +292,134 @@ test('a scheme line admits every origin of its scheme, and a request names the l
   const admitted = new AbortController();
   const unreachable = await request({ method: 'GET', url: 'http://127.0.0.1:1/events', headers: [], stream: true }, { grantSet: set, controllers: new Set(), controller: admitted });
   expect([unreachable.kind, admitted.grant]).toEqual([1, 'net.fetch http:']);
+});
+
+// LLP 1016.000 D8: a long poll against a stand-in. Each request takes the
+// next answer in the queue; `hold` keeps it open until the client lets go.
+function standIn(answers) {
+  const asked = [], held = [];
+  let open = 0, most = 0;
+  const server = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) {
+    asked.push(new URL(req.url).search); open++; most = Math.max(most, open);
+    try {
+      const a = answers.shift() ?? 'hold';
+      if (a === 'hold') return await new Promise((resolve) => { held.push(req); req.signal.addEventListener('abort', () => resolve(new Response('', { status: 204 }))); });
+      return new Response(a.body ?? null, { status: a.status ?? 200, headers: a.headers ?? { 'content-type': 'application/json' } });
+    } finally { open--; }
+  } });
+  return { server, asked, held, most: () => most, origin: `http://127.0.0.1:${server.port}` };
+}
+function longPoll(s, controller, sent, poll = {}, extra = {}) {
+  const op = { method: 'GET', url: `${s.origin}/changes?since=0&wait=25`, headers: [], body: '', stream: true, maxResponseBytes: 64, longPoll: { cursor: 'since', from: 'seq', sameCursorEvent: false, ...poll }, ...extra };
+  // Each reply is counted (`replied`); one that is no event (`exact:reply`) is no message here.
+  controller.replies = 0; controller.replied = () => controller.replies++;
+  return request(op, { grantSet: normalized(`net.fetch ${s.origin}`), controllers: new Set(), controller, message: (m) => { if (m.event === 'exact:reply') controller.markers = (controller.markers ?? 0) + 1; else sent.push(m); } });
+}
+const until = async (ok) => { const end = performance.now() + 5000; while (!ok()) { if (performance.now() > end) throw new Error('timed out'); await new Promise((r) => setTimeout(r, 5)); } };
+
+test('a long poll delivers each reply with its cursor, asks again with it, and heartbeats deliver nothing', async () => {
+  const s = standIn([
+    { body: '{"seq":1,"c":["a"]}' }, { status: 204 }, { body: ' ' }, { body: '{"seq":1,"c":[]}' }, { status: 304 },
+    { body: '{"seq":2}' }, { body: '{"seq":"x3"}' },
+  ]);
+  const controller = new AbortController(), sent = [], started = performance.now();
+  longPollTiming.heartbeatMs = 40;
+  const done = longPoll(s, controller, sent);
+  await until(() => s.held.length === 1);
+  // Four heartbeats answered at once, each asked again no sooner than the floor.
+  assert.ok(performance.now() - started >= 4 * 40);
+  longPollTiming.heartbeatMs = 1000;
+  assert.deepEqual(sent.map((m) => m.id), ['1', '2', 'x3']);
+  assert.equal(sent[0].data, '{"seq":1,"c":["a"]}');
+  assert.deepEqual(s.asked, ['?since=0&wait=25', ...Array(5).fill('?since=1&wait=25'), '?since=2&wait=25', '?since=x3&wait=25']);
+  assert.equal(s.most(), 1, 'one request at a time');
+  assert.equal(controller.markers, 4, 'each heartbeat a reply that is no event');
+  assert.equal(controller.replies, 7, 'every reply counted');
+  controller.abort();
+  const end = await done;
+  assert.equal(end.kind, 4);
+  await until(() => s.held[0].signal.aborted);
+  s.server.stop(true);
+});
+
+test('under sameCursor "event" a reply with the cursor asked with is delivered', async () => {
+  const s = standIn([{ body: '{"seq":1,"n":1}' }, { body: '{"seq":1,"n":2}' }]);
+  const controller = new AbortController(), sent = [];
+  const done = longPoll(s, controller, sent, { sameCursorEvent: true });
+  await until(() => s.held.length === 1);
+  assert.deepEqual(sent.map((m) => m.data), ['{"seq":1,"n":1}', '{"seq":1,"n":2}']);
+  controller.abort(); await done; s.server.stop(true);
+});
+
+test('a long poll waits out Retry-After, shows retrying, and a drop ends the wait', async () => {
+  const s = standIn([{ status: 503, headers: { 'retry-after': '0' } }, { body: '{"seq":5}' }, { status: 429, headers: { 'retry-after': '30' } }]);
+  const controller = new AbortController(), sent = [];
+  const done = longPoll(s, controller, sent);
+  await until(() => controller.retrying?.error === 'HTTP 429');
+  assert.deepEqual(sent.map((m) => m.id), ['5']);
+  assert.equal(controller.retrying.attempt, 1, 'the 2xx reset the count');
+  assert.equal(controller.retrying.error, 'HTTP 429');
+  assert.ok(controller.retrying.at - performance.now() > 25000);
+  const dropped = performance.now();
+  controller.abort();
+  assert.equal((await done).kind, 4);
+  assert.ok(performance.now() - dropped < 1000, 'the wait ended with the drop');
+  assert.equal(controller.retrying, undefined);
+  assert.equal(s.asked.length, 3, 'not asked again');
+  s.server.stop(true);
+});
+
+test('what is not a poll reply ends a long poll, and only a bodiless GET is one', async () => {
+  const cases = [
+    [{ status: 404, body: 'gone', headers: {} }, (e) => e.kind === 0 && e.status === 404],
+    [{ body: 'not json', headers: {} }, (e) => e.kind === 0 && e.status === 200],
+    [{ body: '{"other":1}' }, (e) => e.kind === 0 && e.status === 200],
+    [{ body: '[1,2]' }, (e) => e.kind === 0 && e.status === 200],
+    [{ body: 'data: 1\n\n', headers: { 'content-type': 'text/event-stream' } }, (e) => e.kind === 2 && /event stream/.test(new TextDecoder().decode(e.body))],
+    [{ body: `{"seq":1,"pad":"${'.'.repeat(80)}"}` }, (e) => e.kind === 2],
+  ];
+  for (const [answer, ok] of cases) {
+    const s = standIn([answer]);
+    const end = await longPoll(s, new AbortController(), []);
+    assert.ok(ok(end), JSON.stringify({ answer, end: { ...end, body: new TextDecoder().decode(end.body) } }));
+    s.server.stop(true);
+  }
+  const s = standIn([]);
+  const post = await longPoll(s, new AbortController(), [], {}, { method: 'POST', body: btoa('x') });
+  assert.equal(post.kind, 2);
+  assert.match(new TextDecoder().decode(post.body), /a GET with no body/);
+  assert.equal(s.asked.length, 0);
+  s.server.stop(true);
+});
+
+test('a retry asks no sooner than the floor, a busy body is never read, and a cursor no host carries ends the poll', async () => {
+  longPollTiming.heartbeatMs = 40;
+  try {
+    const s = standIn([{ status: 503, headers: { 'retry-after': '0' }, body: 'x'.repeat(100000) }, { status: 429, headers: { 'retry-after': 'Sun, 06 Nov 1994 08:49:37 GMT' } }, { body: '{"seq":9}' }]);
+    const controller = new AbortController(), sent = [], started = performance.now();
+    const done = longPoll(s, controller, sent);
+    await until(() => sent.length === 1);
+    assert.ok(performance.now() - started >= 80);
+    assert.equal(controller.markers, 2);
+    controller.abort(); await done; s.server.stop(true);
+    for (const body of ['{"seq":9007199254740993}', '{"seq":"a\\nb"}', '{"seq":1.5}', '{"seq":"\\ud800"}']) {
+      const t = standIn([{ body }]);
+      const end = await longPoll(t, new AbortController(), []);
+      assert.equal(end.kind, 2, body);
+      t.server.stop(true);
+    }
+    // A long poll refused before anything is sent: a socket's URL, a bad `from`.
+    const r = standIn([]);
+    const ws = await request({ method: 'GET', url: r.origin.replace('http', 'ws'), headers: [], body: '', stream: true, longPoll: { cursor: 'since', from: 'seq', sameCursorEvent: false } }, { grantSet: normalized(`net.fetch ${r.origin}\nnet.websocket ${r.origin.replace('http', 'ws')}`), controllers: new Set(), controller: new AbortController() });
+    assert.match(new TextDecoder().decode(ws.body), /HTTP, not a WebSocket/);
+    // (an http URL with no `//` is refused, as natively)
+    const { longPollRefusal } = await import('./http-body.js');
+    assert.match(longPollRefusal({ url: 'https:example.test/changes', stream: true, longPoll: { cursor: 'since', from: 'seq', sameCursorEvent: false } }, 'GET', ''), /HTTP, not a WebSocket/);
+    const plain = await longPoll(r, new AbortController(), [], {}, { stream: false });
+    assert.match(new TextDecoder().decode(plain.body), /a stream's/);
+    const deep = await longPoll(r, new AbortController(), [], { from: 'a.b.c' });
+    assert.match(new TextDecoder().decode(deep.body), /exactLongPoll.from/);
+    assert.equal(r.asked.length, 0);
+    r.server.stop(true);
+  } finally { longPollTiming.heartbeatMs = 1000; }
 });

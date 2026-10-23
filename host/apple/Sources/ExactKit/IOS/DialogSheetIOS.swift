@@ -125,16 +125,18 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
     /// The dialog's box is `size` now: the sheet follows it, in UIKit's own
     /// animation of a detent change.
     func fit(_ size: CGSize) {
-        if size != box {
-            box = size
-            #if !os(tvOS)
-            if let sheet = sheetPresentationController {
-                if viewIfLoaded?.window != nil, !ExactEnv.agentFreezes { sheet.animateChanges { sheet.invalidateDetents() } }
-                else { sheet.invalidateDetents() }
-            }
-            #endif
-        }
+        let resized = size != box
+        box = size
+        // The frame op arrived in the dialog's authored parent coordinates.
+        // Recenter before UIKit captures the detent animation's starting geometry.
         place()
+        guard resized else { return }
+        #if !os(tvOS)
+        if let sheet = sheetPresentationController {
+            if viewIfLoaded?.window != nil, !ExactEnv.agentFreezes { sheet.animateChanges { sheet.invalidateDetents() } }
+            else { sheet.invalidateDetents() }
+        }
+        #endif
     }
     /// The dialog at the sheet's top, centred across what the sheet shows
     /// between its side insets as HTML centres a modal dialog; a dialog wider

@@ -850,8 +850,11 @@ fn hand_out<D: DataSource>(runner: &mut Runner<D>, executor: &Executor, held: &m
     executor.forget(|ticket| runner.holds(ticket));
     lift(executor, held);
     for r in runner.take_requests() {
-        // Device capabilities: the environment has none.
-        if r.request.surface.is_some() || r.request.storage.is_some() {
+        // Device capabilities: the environment has none; nor may a long poll run on other work (LLP 1016.000 D8).
+        if r.request.surface.is_some()
+            || r.request.storage.is_some()
+            || r.request.long_poll_refusal().is_some()
+        {
             held.refused.insert(r.ticket);
             continue;
         }

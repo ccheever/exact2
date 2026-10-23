@@ -15,6 +15,9 @@ export const SOCKET_AND_FETCH = 'a mutation cannot both send on a socket and fet
 // (`answering.loose`); an answer with only held fetches out counts for no clock (held.js `counted`, whose
 // hooks the page's entry sets on `answering`, build.mjs).
 export function fetch(input, options) {
+  // Checked before any path, a mutation's captured fetch included (LLP 1016.000 D8).
+  if (options?.exactLongPoll !== undefined && options.exactStream === undefined)
+    return Promise.reject(new TypeError('exactLongPoll asks again for an answer that keeps coming: give exactStream too'));
   const held = options?.exactHeld;
   if (held !== undefined && held !== true && held !== false) return Promise.reject(new TypeError('exactHeld is true or false'));
   if (held && options.exactStream !== undefined) return Promise.reject(new TypeError('exactHeld: a stream is never held; it stops counting at its first message'));

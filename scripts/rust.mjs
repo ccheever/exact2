@@ -203,7 +203,7 @@ function rustGrants(compat) {
 }
 export function rustReceipt(app, compat, plan, module, target, executor) {
   const extension = executor === 'tiered' ? 'bin' : executor === 'wasm' ? 'wasm' : target.includes('apple') ? 'dylib' : target.includes('windows') ? 'dll' : 'so';
-  return { version: 1, kind: 'rust', abi: 3, appId: app.id, grants: rustGrants(compat), target, executor,
+  return { version: 1, kind: 'rust', abi: 4, appId: app.id, grants: rustGrants(compat), target, executor,
     source: nativeSource(app), plan: rustCard('app.plan', plan), module: rustCard(`app.module.${extension}`, module) };
 }
 
@@ -418,7 +418,7 @@ export function rustBundle(app, bundle, build, built) {
     {name:'rust/app.module.json',bytes:Buffer.from(JSON.stringify(receipt))},
     {name:'rust/'+receipt.module.file,bytes:variant.bytes},
   ].map(a => ({...a,sha256:hash(a.bytes)}));
-  const requires = {rustMode:mode,rustAbi:3,rustTarget:receipt.target,grantCeiling:build.compat.inputs.grantCeiling,rustGrants:rustGrants(build.compat)};
+  const requires = {rustMode:mode,rustAbi:4,rustTarget:receipt.target,grantCeiling:build.compat.inputs.grantCeiling,rustGrants:rustGrants(build.compat)};
   const artifacts = build.graph.artifacts.map(a => {
     if (a.name !== 'app.plan') return a;
     const {sources, ...rest} = a.requires;

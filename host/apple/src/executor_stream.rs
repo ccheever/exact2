@@ -29,6 +29,8 @@ enum Opened {
     Events(StreamingResponse, usize),
     Bytes(StreamingResponse, usize),
     Socket(Box<dyn MessageSource>, usize),
+    /// A long poll (LLP 1016.000 D8), asked by its own loop: its first request and per-reply ceiling.
+    LongPoll(Request, usize),
 }
 pub(super) use socket::{close as close_sockets, release, Socket};
 
@@ -70,6 +72,15 @@ pub(super) fn run(
                 .map_err(|e| format!("the app's grants did not parse: {e}"))
         });
         match bindings {
+            Ok(b) if request.long_poll.is_some() => {
+                let limit = match request.http {
+                    HttpScheduling::Ordered => MAX_BODY,
+                    HttpScheduling::Independent { max_response_bytes } => {
+                        max_response_bytes as usize
+                    }
+                };
+                Ok((Opened::LongPoll(request.clone(), limit), b))
+            }
             Ok(b) if is_socket(&request.url) => open_socket(&b, request, &abort).map(|s| (s, b)),
             // A body from an app file, read as the stream opens (LLP 1108 D6 R2).
             Ok(b) => {
@@ -98,6 +109,9 @@ pub(super) fn run(
             socket::read(shared, ticket, socket, limit, abort)
         }
         Ok((Opened::Socket(socket, _), _bindings)) => read_socket(shared, ticket, socket, abort),
+        Ok((Opened::LongPoll(request, limit), bindings)) => {
+            long_poll::run(shared, ticket, request, forced, &bindings, limit, abort)
+        }
         Err(outcome) => complete(shared, ticket, outcome),
     }
 }
@@ -166,7 +180,22 @@ fn read_socket(
 /// (forgotten, retired, ended). The newest undelivered message per ticket is
 /// kept and the ones it replaces are counted on it (LLP 1016.000 D4): display
 /// data coalesces, and a log sees the gap and re-asks from its cursor.
-fn message(shared: &Shared, ticket: u64, mut message: Message) -> bool {
+fn message(shared: &Shared, ticket: u64, message: Message) -> bool {
+    deliver(shared, ticket, message, false)
+}
+
+/// A long poll's reply that is no event (LLP 1016.000 D8): a message of the
+/// reserved event `LONG_POLL_REPLY`, which never takes an event's place nor
+/// counts as one dropped, and which an event that follows replaces.
+fn reply(shared: &Shared, ticket: u64) -> bool {
+    let m = Message {
+        event: exact_runner::LONG_POLL_REPLY.into(),
+        ..Message::default()
+    };
+    deliver(shared, ticket, m, true)
+}
+
+fn deliver(shared: &Shared, ticket: u64, mut message: Message, reply: bool) -> bool {
     let mut state = shared.state.lock().unwrap();
     if state.retired {
         return false;
@@ -188,6 +217,14 @@ fn message(shared: &Shared, ticket: u64, mut message: Message) -> bool {
         .iter_mut()
         .find(|done| done.ticket == ticket && done.message);
     match waiting {
+        Some(done) if reply => {
+            done.elapsed_ms = elapsed_ms;
+        }
+        Some(done) if done.reply => {
+            done.outcome = Outcome::Message(message);
+            done.elapsed_ms = elapsed_ms;
+            done.reply = false;
+        }
         Some(done) => {
             if let Outcome::Message(older) = &done.outcome {
                 message.coalesced = message
@@ -208,6 +245,7 @@ fn message(shared: &Shared, ticket: u64, mut message: Message) -> bool {
             stream: true,
             light: false,
             again: false,
+            reply,
         }),
     }
     if has_ready(&state) {
@@ -445,6 +483,8 @@ impl EventStream {
 
 #[path = "executor_bytes.rs"]
 mod bytes;
+#[path = "executor_longpoll.rs"]
+mod long_poll;
 #[path = "executor_socket.rs"]
 mod socket;
 

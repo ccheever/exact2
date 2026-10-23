@@ -92,6 +92,7 @@ mod menus;
 mod midi;
 mod migrate;
 mod miswiring;
+mod module_seam;
 mod modules;
 mod motion_feel;
 mod mutation;

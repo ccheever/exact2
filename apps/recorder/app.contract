@@ -29,20 +29,21 @@ component Recorder
     else
       send started = startRecording()
   view
-    column testId="recorder" width="100%" height="100%" gap=16 padding=20 box-sizing="border-box" background-color="#101418" color="#e8edf2" font-family="system-ui"
+    column testId="recorder" width="100%" height="100%" gap=16 padding=20 box-sizing="border-box" background-color="-exact-background" color="-exact-label" accent-color="light-dark(#0b66d6, #68a5fe)" font-family="system-ui"
       text "Recorder" font-size=24 font-weight=600
       waveform-view testId="waveform" width="100%" height=140 flex-shrink=0
       row gap=12 align-items="center"
-        button press=toggle disabled=(busy or not status.available) testId="toggle" padding=12 border-radius=24 background-color=(status.recording ? "#e5484d" : "#2f81f7")
-          text (status.recording ? "Stop" : "Record") color="#ffffff" font-weight=600
-        text status.message testId="status" font-size=14 color="#9aa7b4"
+        // System red and AccentColorText do not guarantee 4.5:1 on every host.
+        button press=toggle disabled=(busy or not status.available) testId="toggle" padding=12 border-radius=24 background-color=(status.recording ? "light-dark(#b91c1c, #ff4245)" : "AccentColor")
+          text (status.recording ? "Stop" : "Record") color="light-dark(#ffffff, #000000)" font-weight=600
+        text status.message testId="status" font-size=14 color="-exact-secondary-label"
       match saved
         case some(s)
-          text s.message testId="saved-message" font-size=13 color="#7ee2a8"
+          text s.message testId="saved-message" font-size=13 color="light-dark(#166534, #7ee2a8)"
         case none
           text "" font-size=13
       text (library.takes.length == 0 ? "No takes yet." : "Takes") font-size=16 font-weight=600 testId="takes-heading"
       column gap=6 testId="takes"
         for take in library.takes key=take.name
-          row gap=8 padding=10 border-radius=8 background-color="#1a2129" testId=("take-" + take.name)
+          row gap=8 padding=10 border-radius=8 background-color="-exact-secondary-background" testId=("take-" + take.name)
             text take.label font-size=14

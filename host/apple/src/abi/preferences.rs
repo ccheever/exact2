@@ -212,14 +212,18 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// The extensions the app's module composes, a name a line.
+    /// The extensions the app's module composes, a name a line; `agent
+    /// <name>` for one bound under the agent.
     pub fn bind_extensions(&mut self, len: usize) {
         let text = std::str::from_utf8(&self.input[..len.min(self.input.len())])
             .unwrap_or("")
             .to_owned();
-        let names: Vec<&str> = text.lines().filter(|l| !l.is_empty()).collect();
+        let (agent, real): (Vec<&str>, Vec<&str>) = (text.lines())
+            .filter(|l| !l.is_empty())
+            .partition(|l| l.starts_with("agent "));
+        let agent: Vec<&str> = agent.iter().map(|l| &l["agent ".len()..]).collect();
         if let Some(h) = self.host.as_mut() {
-            h.runner_mut().bind_extensions(&names);
+            h.runner_mut().bind_extensions(&real, &agent);
         }
     }
 

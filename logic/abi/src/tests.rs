@@ -180,6 +180,59 @@ fn network_request_preserves_absent_empty_and_restricted_grants() {
     }
 }
 
+/// A long poll's terms cross the seam (tag 10, LLP 1016.000 D8); bad ones
+/// are refused.
+#[test]
+fn a_long_poll_round_trips_and_bad_terms_are_refused() {
+    let Answer::Later(mut request) = Answer::stream(
+        Request::get("https://example.com/changes?since=0")
+            .independent_http(4096)
+            .long_poll("since", "meta.seq"),
+    ) else {
+        unreachable!()
+    };
+    for same in [false, true] {
+        request.long_poll.as_mut().unwrap().same_cursor_event = same;
+        let mut encoded = Writer::default();
+        encode_result(&mut encoded, Ok(Answer::Later(request.clone())));
+        let bytes = encoded.into_vec();
+        assert_eq!(bytes[0], 10);
+        let mut decoded = Reader::new(&bytes);
+        assert_eq!(
+            read_result(&mut decoded).unwrap(),
+            Ok(Answer::Later(request.clone()))
+        );
+        end(&decoded).unwrap();
+    }
+    // A module's bad terms are its own refusal, never sent; an ordered stream's too.
+    let mut bad = request.clone();
+    bad.long_poll.as_mut().unwrap().cursor = String::new();
+    let mut ordered = request.clone();
+    ordered.http = HttpScheduling::Ordered;
+    for r in [bad, ordered] {
+        let mut encoded = Writer::default();
+        encode_result(&mut encoded, Ok(Answer::Later(r)));
+        assert!(matches!(
+            read_result(&mut Reader::new(&encoded.into_vec())),
+            Ok(Err(DataError::Unavailable(why))) if why.starts_with("exactLongPoll")
+        ));
+    }
+    // A tag 10 with bad terms, however it was written, is refused as it is read.
+    let mut w = Writer::default();
+    w.u8(10);
+    w.u32(4096);
+    w.u8(0);
+    w.string("");
+    w.string("GET");
+    w.string("https://example.com/changes");
+    pairs(&mut w, &[]);
+    bytes(&mut w, &[]);
+    w.string("since");
+    w.string("a.b.c");
+    w.u8(0);
+    assert!(read_result(&mut Reader::new(&w.into_vec())).is_err());
+}
+
 #[test]
 fn storage_unknown_tags_truncation_and_oversize_are_refused_before_effects() {
     for tag in [8, 255] {
