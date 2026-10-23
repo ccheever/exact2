@@ -506,8 +506,8 @@ impl Scope {
 }
 
 /// A prop or inject named like an app `fn`, where the component calls
-/// that name in an expression: inlining can rewrite the call's head to
-/// the bound expression's (`subst_expr`), where the checker typed the fn. A
+/// that name in an expression: `subst_expr` can replace the call's head
+/// with the supplied name, although the checker resolved the app fn. A
 /// handler's own call (`press=name(…)`) is the action's both ways, and a
 /// name only handlers use, or nothing does, clashes with nothing.
 fn hides_fn(c: &Component, p: &Param, ty: &Ty, kind: &str, shapes: &Shapes) -> Option<TypeError> {

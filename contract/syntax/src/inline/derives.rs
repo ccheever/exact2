@@ -12,7 +12,7 @@
 //! other derives, so a chain of derives each reading the one before twice
 //! resolves in linear size, not exponential.
 
-use super::{err, substituted};
+use super::{err, renamed_locals};
 use crate::ast::{BinOp, Binding, Component, Expr, Node, Stmt, TemplatePart};
 use crate::parser::SyntaxError;
 use std::collections::{BTreeMap, BTreeSet};
@@ -20,12 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 /// The derives of `c` that its view, states, or actions read, each with its
 /// resolved expression. A derive read only by other derives is resolved
 /// where they read it.
-/// `records` are the declared record constructors, whose call heads a
-/// renamed binder never replaces.
-pub(super) fn resolved_derives<'c>(
-    c: &'c Component,
-    records: &BTreeSet<String>,
-) -> Result<Vec<(&'c Binding, Expr)>, SyntaxError> {
+pub(super) fn resolved_derives(c: &Component) -> Result<Vec<(&Binding, Expr)>, SyntaxError> {
     let mut indices = BTreeMap::new();
     for (i, derive) in c.derives.iter().enumerate() {
         if indices.insert(derive.name.as_str(), i).is_some() {
@@ -45,7 +40,7 @@ pub(super) fn resolved_derives<'c>(
     let bodies: Vec<Expr> = c
         .derives
         .iter()
-        .map(|d| freshen(&d.expr, &mut fresh, records))
+        .map(|d| freshen(&d.expr, &mut fresh))
         .collect();
     let reads: Vec<BTreeSet<usize>> = bodies
         .iter()
@@ -274,9 +269,9 @@ impl Cx<'_> {
     }
 }
 
-/// `e` with every `match` binder renamed to a spelling no author can write
-/// (`x@b1`), each distinct.
-fn freshen(e: &Expr, fresh: &mut u32, records: &BTreeSet<String>) -> Expr {
+/// `e` with every `match` binder and arrow parameter renamed to a spelling
+/// no author can write (`x@b1`), each distinct. Call heads keep their names.
+fn freshen(e: &Expr, fresh: &mut u32) -> Expr {
     match e {
         Expr::Match {
             subject,
@@ -287,14 +282,14 @@ fn freshen(e: &Expr, fresh: &mut u32, records: &BTreeSet<String>) -> Expr {
         } => {
             *fresh += 1;
             let name = format!("{var}@b{fresh}");
-            let some = freshen(some, fresh, records);
+            let some = freshen(some, fresh);
             let renamed = BTreeMap::from([(var.clone(), name.clone())]);
-            let some = substituted(&some, &renamed, records);
+            let some = renamed_locals(&some, &renamed);
             Expr::Match {
-                subject: Box::new(freshen(subject, fresh, records)),
+                subject: Box::new(freshen(subject, fresh)),
                 var: name,
                 some: Box::new(some),
-                none: Box::new(freshen(none, fresh, records)),
+                none: Box::new(freshen(none, fresh)),
                 span: *span,
             }
         }
@@ -309,20 +304,21 @@ fn freshen(e: &Expr, fresh: &mut u32, records: &BTreeSet<String>) -> Expr {
                     name
                 })
                 .collect();
-            let body = freshen(body, fresh, records);
+            let body = freshen(body, fresh);
             Expr::Arrow {
                 params,
-                body: Box::new(substituted(&body, &renamed, records)),
+                body: Box::new(renamed_locals(&body, &renamed)),
                 span: *span,
             }
         }
-        _ => map_children(e, &mut |child| freshen(child, fresh, records)),
+        _ => map_children(e, &mut |child| freshen(child, fresh)),
     }
 }
 
-/// The derives `expr` reads directly (binders are fresh, so none shadows).
+/// The derives `expr` reads as values (binders are fresh, so none shadows).
+/// A call head names a function or action, never a derive's value.
 fn dependencies(expr: &Expr, indices: &BTreeMap<&str, usize>, out: &mut BTreeSet<usize>) {
-    if let Expr::Ident(name, _) | Expr::Call(name, _, _) = expr {
+    if let Expr::Ident(name, _) = expr {
         if let Some(&i) = indices.get(name.as_str()) {
             out.insert(i);
         }

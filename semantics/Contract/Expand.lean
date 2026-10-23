@@ -136,6 +136,11 @@ def get (s : Subst) (n : String) : Option Repl :=
   | .some (_, spelled) => spelled.map .name
   | .none => (s.map.get? n).map replOf
 
+/-- A freshened binder still protects its authored call head during later
+prop substitution; `@` cannot occur in an authored name. -/
+def bindsCall (s : Subst) (n : String) : Bool :=
+  s.binders.any fun (bound, _) => bound == n || (bound.splitOn "@").head? == some n
+
 def free (s : Subst) : List String := s.map.foldl (fun acc (_, v) => acc ++ freeNames [] v) []
 
 def introduced (s : Subst) (n : String) : Bool := s.binders.any (·.2 == Option.some n)
@@ -187,7 +192,7 @@ def substExpr (s : Subst) : Expr → Expr
     | .none => e
   | .call n args =>
     let args := substList s args
-    if !s.calls || s.records.contains n then .call n args else
+    if !s.calls || s.records.contains n || s.bindsCall n then .call n args else
     match s.get n with
     | .some (.name f) => .call f args
     | .some (.expr (.call f first)) => .call f (first ++ args)
@@ -311,70 +316,69 @@ def freshenParams : List String → StateM Nat (SMap × List String)
 mutual
 /-- Every `match` binder and callback parameter renamed `x@bk`, each
 distinct (derives.rs `freshen`). -/
-def freshen (records : List String) : Expr → StateM Nat Expr
+def freshen : Expr → StateM Nat Expr
   | .matchOpt subj x a b => do
     modify (· + 1)
     let k ← get
     let name := s!"{x}@b{k}"
-    let a ← freshen records a
-    let a := substituted records [(x, .var name)] a
-    let subj ← freshen records subj
-    let b ← freshen records b
+    let a ← freshen a
+    let a := renamedLocals [(x, .var name)] a
+    let subj ← freshen subj
+    let b ← freshen b
     pure (.matchOpt subj name a b)
   | .arrow ps body => do
     let (renamed, names) ← freshenParams ps
-    let body ← freshen records body
-    pure (.arrow names (substituted records renamed body))
-  | .some o => return .some (← freshen records o)
-  | .unary op o => return .unary op (← freshen records o)
-  | .member o f => return .member (← freshen records o) f
-  | .named n o => return .named n (← freshen records o)
-  | .typed o t => return .typed (← freshen records o) t
+    let body ← freshen body
+    pure (.arrow names (renamedLocals renamed body))
+  | .some o => return .some (← freshen o)
+  | .unary op o => return .unary op (← freshen o)
+  | .member o f => return .member (← freshen o) f
+  | .named n o => return .named n (← freshen o)
+  | .typed o t => return .typed (← freshen o) t
   | .binary op a b => do
-    let a ← freshen records a
-    let b ← freshen records b
+    let a ← freshen a
+    let b ← freshen b
     pure (.binary op a b)
   | .ternary a b c => do
-    let a ← freshen records a
-    let b ← freshen records b
-    let c ← freshen records c
+    let a ← freshen a
+    let b ← freshen b
+    let c ← freshen c
     pure (.ternary a b c)
   | .letE x v b => do
-    let v ← freshen records v
-    let b ← freshen records b
+    let v ← freshen v
+    let b ← freshen b
     pure (.letE x v b)
-  | .call n args => return .call n (← freshenList records args)
+  | .call n args => return .call n (← freshenList args)
   | .record s base fields => do
     let base ← match base with
-      | .some b => do pure (Option.some (← freshen records b))
+      | .some b => do pure (Option.some (← freshen b))
       | .none => pure Option.none
-    let fields ← freshenFields records fields
+    let fields ← freshenFields fields
     pure (.record s base fields)
-  | .template parts => return .template (← freshenList records parts)
-  | .list items => return .list (← freshenList records items)
+  | .template parts => return .template (← freshenList parts)
+  | .list items => return .list (← freshenList items)
   | e@(.num _) | e@(.str _) | e@(.bool _) | e@.none | e@(.var _) => pure e
-def freshenList (records : List String) : List Expr → StateM Nat (List Expr)
+def freshenList : List Expr → StateM Nat (List Expr)
   | [] => pure []
   | e :: es => do
-    let e ← freshen records e
-    let es ← freshenList records es
+    let e ← freshen e
+    let es ← freshenList es
     pure (e :: es)
-def freshenFields (records : List String) : List (String × Expr) → StateM Nat (List (String × Expr))
+def freshenFields : List (String × Expr) → StateM Nat (List (String × Expr))
   | [] => pure []
   | (n, e) :: es => do
-    let e ← freshen records e
-    let es ← freshenFields records es
+    let e ← freshen e
+    let es ← freshenFields es
     pure ((n, e) :: es)
 end
 
 mutual
-/-- The derives `e` reads directly: by name or by a call's head. -/
+/-- The derives `e` reads as values; call heads and record shapes are not reads. -/
 def dependencies (idx : String → Option Nat) : Expr → List Nat
   | .var n => (idx n).toList
-  | .call n args => (idx n).toList ++ dependenciesList idx args
-  | .record s base fields =>
-    (idx s).toList ++ (match base with | .some b => dependencies idx b | .none => []) ++
-      dependenciesFields idx fields
+  | .call _ args => dependenciesList idx args
+  | .record _ base fields =>
+    (match base with | .some b => dependencies idx b | .none => []) ++ dependenciesFields idx fields
   | .member o _ | .named _ o | .typed o _ | .some o | .unary _ o => dependencies idx o
   | .binary _ a b => dependencies idx a ++ dependencies idx b
   | .ternary a b c => dependencies idx a ++ dependencies idx b ++ dependencies idx c
@@ -580,14 +584,14 @@ def visitOrder (reads : List (List Nat)) (names : List String) : Nat → Nat →
 
 /-- The derives of `c` that its view, states, provides or actions read,
 each resolved (derives.rs `resolved_derives`). -/
-def resolvedDerives (records : List String) (c : CComponent) : Except String (List (String × Expr)) := do
+def resolvedDerives (c : CComponent) : Except String (List (String × Expr)) := do
   let names := c.derives.map (·.name)
   if names.eraseDups.length != names.length then throw "a derive declared twice"
   if c.derives.isEmpty then return []
   let n := c.derives.length
   let idx : String → Option Nat := fun x => names.idxOf? x
   let (bodies, _) := (c.derives.foldlM (fun acc d => do
-      let b ← freshen records d.body
+      let b ← freshen d.body
       pure (acc ++ [b])) [] : StateM Nat (List Expr)).run 0
   let reads := bodies.map (dependencies idx)
   let (_, order) ← (List.range n).foldlM (fun acc i => visitOrder reads names (n + 1) i acc)
@@ -957,7 +961,7 @@ def inlineNode (p : CProgram) : Nat → Subst → CNode → ExM (List Node)
         called := called ++ [(pd.name, target, held)]
       for a in c.actions do
         child := child.insert a.name (.call (nameOf a.name) (captures.map (·.2.1)))
-      let derives ← match resolvedDerives p.records c with
+      let derives ← match resolvedDerives c with
         | .ok ds => pure ds
         | .error e => refuse e
       let cs : Subst := { map := withDerives p.records child derives, records := p.records }
