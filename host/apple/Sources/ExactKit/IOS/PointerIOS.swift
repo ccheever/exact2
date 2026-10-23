@@ -32,6 +32,7 @@ final class PointerRecognizer: UIGestureRecognizer {
     /// A sheet mount's observer for the presented route's logical
     /// ancestors: its node is the listener each touch resolves to.
     weak var relay: MountRelay?
+    weak var selection: SelectionDocument?
     private var touch: UITouch?
     /// The held touch's id, DOM's `pointerId`: the mouse is 1, so a touch
     /// counts on from 2, a new one for each contact.
@@ -63,10 +64,14 @@ final class PointerRecognizer: UIGestureRecognizer {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesBegan(touches, with: event)
-        if touch == nil, let relay { node = relay.listener(touches.first?.view) { $0.wantsPointer } }
+        let source = touches.first.flatMap(Self.source)
+        if touch == nil, let selection, let first = touches.first {
+            node = selection.paragraph(at: first.location(in: selection.surface)).flatMap { Self.bubbling(from: $0).first }
+        }
+        if touch == nil, let relay { node = relay.listener(source) { $0.wantsPointer } }
         // A contact going down ends a live press's handoff before its `pointerdown` runs.
         node?.presenter?.supersedePress()
-        guard touch == nil, let first = touches.first, let node, !node.disabled, relay != nil || !nearer(first.view) else { return }
+        guard touch == nil, let first = touches.first, let node, !node.disabled, relay != nil || !nearer(source) else { return }
         touch = first
         touchId += 1
         buttons = first.type == .indirectPointer ? Self.domButtons(event.buttonMask) : 1
@@ -75,19 +80,19 @@ final class PointerRecognizer: UIGestureRecognizer {
         // sends the bubbling down and up for them all.
         path = Self.bubbling(from: node).map(Weak.init)
         presenter = node.presenter
-        let target = first.view.flatMap { view -> NodeView? in
+        let target = source.flatMap { view -> NodeView? in
             guard let start = NodeView.innermost(view) else { return nil }
             let point = first.location(in: nil), local = start.local(point)
             if presenter?.svg.target(start.id, at: local) != nil
                 || start.inlineActivationTarget(at: local) != nil || start.inlineLink(at: local) != nil { return nil }
             return start.activationTarget(at: point)
         }
-        let pressPath = first.view.flatMap { start -> PressPath? in
+        let pressPath = source.flatMap { start -> PressPath? in
             guard let presenter, let target else { return nil }
             let path = PressPath(from: start, to: target, presenter: presenter)
             return path.bubbled ? path : nil
         }
-        let lifetimes = pressPath == nil && target != nil ? first.view.map { presenter?.pressLifetimes(from: $0, to: target) ?? [] } ?? [] : []
+        let lifetimes = pressPath == nil && target != nil ? source.map { presenter?.pressLifetimes(from: $0, to: target) ?? [] } ?? [] : []
         // A handler may disable a node further up before its turn, or stop
         // this down; the up's path and the hold stay.
         dispatch(path.compactMap(\.node).filter { $0.handlers.contains("pointerdown") }) { n in
@@ -96,6 +101,10 @@ final class PointerRecognizer: UIGestureRecognizer {
         if let pressPath, let presenter {
             if !pressPath.isLive(in: presenter) { presenter.cancelledPressTouches.add(first) }
         } else if !lifetimes.allSatisfy({ $0() }) { presenter?.cancelledPressTouches.add(first) }
+    }
+    private static func source(_ touch: UITouch) -> UIView? {
+        guard let surface = touch.view as? SelectionSurface else { return touch.view }
+        return surface.input?.document?.paragraph(at: touch.location(in: surface)) ?? surface
     }
     /// One bubbling dispatch to `nodes`, innermost first, each still the
     /// tree's when its turn comes, until a handler calls `stopPropagation()`.
