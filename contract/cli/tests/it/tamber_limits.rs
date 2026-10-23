@@ -193,3 +193,35 @@ fn many_profile_colours_are_taken_in_moments() {
     assert!(built.is_ok(), "{:?}", built.err());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The build's one-scheme question and its retention walk read each token
+/// once (the checker bound's sweep): 10,000 tokens marked `scheme=fixed`
+/// beside a chain of 400 aliases written backwards, and a chain of 30,000
+/// names a param's value reads, build in moments (15.6 s before, 1.4 s
+/// now).
+#[test]
+fn the_builds_scheme_and_retention_walks_are_linear() {
+    let dir = reading("limits-walks");
+    let mut src = String::from("tamber t\n\ntheme\n  ink = #111111\n");
+    for k in 0..10_000 {
+        src += &format!("  f{k} = #222222  scheme=fixed\n");
+    }
+    for k in (1..400).rev() {
+        src += &format!("  a{k} = a{}\n", k - 1);
+    }
+    src += "  a0 = f0\n";
+    for k in 1..30_000 {
+        src += &format!("  c{k} = c{}\n", k - 1);
+    }
+    src += "  c0 = #333333\n\nparams\n  Map.pin = c29999\n";
+    std::fs::write(dir.join("app.tamber"), &src).unwrap();
+    let began = Instant::now();
+    let built = contract::compile_path(&dir.join("app.contract"));
+    assert!(
+        began.elapsed() < Duration::from_secs(8),
+        "{:?}",
+        began.elapsed()
+    );
+    assert!(built.is_ok(), "{:?}", built.err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
