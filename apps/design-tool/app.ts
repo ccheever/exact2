@@ -1098,7 +1098,7 @@ const sources: Sources = {
         if (!e.state && e.reason) holdNotes.set(String(e.build), letGo(String(e.reason), e.detail));
       }
       else if (e.event === 'unsupported') {
-        const b = buildsNow.get(String(e.build)), step = e.what === 'inspect' && stepRefused(String(e.build), e.detail); if (b && !step) b.unsupported = { what: String(e.what ?? ''), detail: e.detail ?? null };
+        const b = buildsNow.get(String(e.build)), step = e.what === 'inspect' && stepRefused(String(e.build), e.detail, b); if (b && !step) b.unsupported = { what: String(e.what ?? ''), detail: e.detail ?? null };
         // (A navigation its page refused, counted: the grid reloads that copy at the place instead, LLP 1122 T7.)
         if (b && e.what === 'navigate') b.navRefusals = (b.navRefusals ?? 0) + 1;
         if (e.what === 'hold') holdNotes.set(String(e.build), `This build cannot hold that state${e.detail ? `: ${e.detail}` : ''}.`); else if (b && e.what === 'inspect' && !step && inspectOn.has(String(e.build))) refuse(b, String(e.detail ?? '')); // (refusals.ts)
