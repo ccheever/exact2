@@ -241,7 +241,7 @@ function cookies(header, name) {
 /** A request's body up to `limit`: `{body}`, `{over}` (the caller answers
  * 413 and closes), or `{gone}` (the client went, or `signal` aborted: a
  * stalled upload ends with its revoke). */
-const readBody = (req, limit, signal) => new Promise(done => {
+export const readBody = (req, limit, signal) => new Promise(done => {
   const chunks = [];
   let size = 0, settled = false;
   const finish = v => {

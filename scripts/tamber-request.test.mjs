@@ -43,3 +43,23 @@ test('a keep-alive connection\'s finished reads leave no close listener behind',
   }
   expect(socket.listenerCount('close')).toBe(0);
 });
+
+test('the canvas port\'s own body reader settles when its connection closes, and leaves no listener behind once settled', async () => {
+  const { PassThrough } = await import('node:stream');
+  const { EventEmitter } = await import('node:events');
+  const { readBody: canvasBody } = await import('./tamber-canvas.mjs');
+  const socket = new EventEmitter();
+  for (let i = 0; i < 20; i++) {
+    const req = Object.assign(new PassThrough(), { socket });
+    const read = canvasBody(req, 1024);
+    req.end('ok');
+    expect((await read).body.toString()).toBe('ok');
+  }
+  expect(socket.listenerCount('close')).toBe(0);
+  // A body whose request's own close never comes: its connection's close settles it as gone.
+  const req = Object.assign(new PassThrough(), { socket });
+  const read = canvasBody(req, 1024);
+  req.write('par');
+  socket.emit('close');
+  expect(await read).toEqual({ gone: true });
+});
