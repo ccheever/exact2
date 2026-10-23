@@ -186,6 +186,9 @@ fn kinds(design: &Design, vocab: &Vocab) -> HashMap<String, String> {
     out
 }
 
+/// The most candidates a refusal is narrowed among by folding without each.
+const PROBES: usize = 32;
+
 /// Why each of `tokens` would not hold once the import lands in `design`
 /// (`None` where it holds). `axes` the import adds; `owned` the axes whose
 /// `when` lines are the importer's to take back. Refused whole when the
@@ -235,7 +238,10 @@ pub(super) fn landing(
         .iter()
         .map(seen)
         .collect();
+    // Each fold charged by what it checks: the design and every token laid (a refused budget stays
+    // refused, and the next charged step says so).
     let fold = |skip: &[bool]| -> Vec<Diagnostic> {
+        let _ = crate::budget::spend((design.tokens.len() + tokens.len()) as u64 + 1);
         match crate::check_design(laid(design, tokens, skip, axes, owned), vocab) {
             Ok(_) => Vec::new(),
             Err(all) => all
@@ -316,6 +322,7 @@ pub(super) fn landing(
         }
     }
     for _ in 0..=tokens.len() + 1 {
+        crate::budget::spend(1).map_err(refuse)?;
         // A token naming a refused one goes with it (the reference would read
         // the design's token of that name instead): walked once from the
         // refused, each step charged.
@@ -394,7 +401,20 @@ pub(super) fn landing(
                     !fold(&s).iter().any(|e| e.id == d.id && e.line == d.line)
                 };
                 // Those whose absence alone clears it; else those that keep
-                // it when they are all that is laid of them.
+                // it when they are all that is laid of them. Past `PROBES`
+                // candidates, a fold each is not tried: every one is charged.
+                if candidates.len() > PROBES {
+                    candidates.iter().for_each(|&i| {
+                        charged = true;
+                        why[i].get_or_insert_with(|| {
+                            format!(
+                                "the design's `{}` would not fold once it lands: {}",
+                                own.name.value, d.message
+                            )
+                        });
+                    });
+                    continue;
+                }
                 let mut culprits: Vec<usize> = candidates
                     .iter()
                     .copied()
@@ -443,6 +463,8 @@ pub(super) fn landing(
                 }
             }
         }
+        // A fold the budget ran out in refuses the import (each fold above charged it).
+        crate::budget::spend(1).map_err(refuse)?;
         // Nothing to charge a refusal to: every token laid goes with it.
         if !charged {
             let message = errors[0].message.clone();
