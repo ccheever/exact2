@@ -83,9 +83,16 @@ export const parseRequest = text => {
  * this, so the rule lives here once. */
 export const viaDoor = access => access?.local === true || access?.remote === true || access?.tunnel === true;
 
-/** A request sent on to a design server or dev loop on this machine (`tamber tool --via`'s proxy, the tool tests'
- * proxy), on a connection of its own. A pooled one can be one the server has just closed as idle (Bun's node:http
- * closes a kept-alive socket after 5 s): sent on it, the request meets a reset (ECONNRESET, "the socket connection
- * was closed unexpectedly"), and under load the time between the server's close and this side seeing it is long
- * enough to land in (QUEUE 2026-10-22, the design-tool test split). A loopback connect costs next to nothing. */
-export const upstream = (url, init) => fetch(url, { ...init, keepalive: false });
+/** A request sent on to a design server or dev loop on this machine (`tamber tool --via`'s proxy, the canvas gateway,
+ * their probes, the tool tests' proxy), on a connection of its own. A pooled one can be one the server has just
+ * closed as idle (Bun's node:http closes a kept-alive socket after 5 s and a second's grace): sent on it, the request
+ * meets a reset (ECONNRESET, "the socket connection was closed unexpectedly"). That is the likely cause of the
+ * design-tool test split's one ECONNRESET under load (QUEUE 2026-10-22), where the time before this side sees the
+ * close is long enough to land in; tamber-upstream.test.mjs makes the reuse certain. A loopback connect costs next
+ * to nothing. */
+export const upstream = (url, init = {}) => {
+  // (A `connection: keep-alive` passed on from the client would put the socket back in the pool all the same.)
+  const headers = new Headers(init.headers);
+  headers.delete('connection'); headers.delete('keep-alive');
+  return fetch(url, { ...init, headers, keepalive: false });
+};
