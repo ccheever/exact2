@@ -4,10 +4,15 @@ import AppKit
 import CoreText
 
 extension NodeView {
-    /// A field's ground where it writes none: none on the Mac, where the
-    /// bezeled NSTextField draws its own (the textarea's is its scroll
-    /// view's, `TextAreaMac.swift`).
-    var fieldGround: CGColor? { nil }
+    /// AppKit's bezel cannot be recoloured. A themed input paints its
+    /// ground through Exact's box and keeps the kernel's editor geometry.
+    var fieldGround: CGColor? {
+        guard field != nil, pageField == nil, isNativeTextControl, !fieldInCell,
+              let color = ThemeRoles.color("Field", in: self) else { return nil }
+        var ground: CGColor?
+        effectiveAppearance.performAsCurrentDrawingAppearance { ground = color.cgColor }
+        return ground
+    }
     func fieldOutline() -> CGPath? { nil }
     var isNativeTextControl: Bool {
         (field != nil || textArea != nil) && props["markup"] != "markdown" && style["appearance"]?.string != "none"
@@ -65,13 +70,14 @@ extension NodeView {
         let native = isNativeTextControl
         // @ref LLP 1115.002 D6 — a grouped form's field has no bezel, no
         // ground and no ring: the row is the field, as SwiftUI's `Form` has it.
-        let bezel = native && !fieldInCell
+        let themed = fieldGround != nil
+        let bezel = native && !fieldInCell && !themed
         let standard = FieldChromeCache.platformField(kind: FieldClass(field).chromeKind)
         field.isBezeled = bezel
         field.bezelStyle = standard.bezelStyle
         field.drawsBackground = bezel && standard.drawsBackground
         field.backgroundColor = bezel ? standard.backgroundColor : .clear
-        field.focusRingType = outlineNone || (native && fieldInCell) ? .none : native ? .default : .exterior
+        field.focusRingType = outlineNone || (native && fieldInCell) || themed ? .none : native ? .default : .exterior
         restyleFieldFocus()
         field.alignment = fieldAlignment
         if native, field.currentEditor() == nil {
