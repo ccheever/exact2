@@ -383,10 +383,11 @@ extension Agent {
             node["visible"] = ["hidden": !presenter.toolbar.visible(host), "inert": host.inert,
                                "inViewport": false, "clipped": false]
         }
-        if let leaf = host.symbolView {
+        if let leaf: NSView = host.symbolView ?? host.symbolShape {
             let source = host.imageSource ?? "", name = host.props["symbolName"] ?? ""
             let points = max(0, host.number("font_size", PageFacts.defaultRootFontSize))
-            let size = leaf.image?.size ?? CGSize(width: points, height: points)
+            // A path's leaf fills the image's paths (IconShapeMac.swift): the image's size, as its view had it.
+            let size = (host.symbolView.map(\.image) ?? host.image)?.size ?? CGSize(width: points, height: points)
             var symbol: [String: Any] = ["renderer": String(describing: Swift.type(of: leaf)), "source": source, "name": name, "found": host.symbolFound, "intrinsic": [Agent.r2(size.width), Agent.r2(size.height)], "frame": rect(box(leaf))]
             if !host.symbolFound { symbol["reason"] = source == "symbol:sf/" || source == "symbol:" ? "empty" : name.isEmpty ? "role" : "os" }
             native["symbol"] = symbol
