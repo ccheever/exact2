@@ -66,3 +66,27 @@ pub(super) fn state<D: DataSource>(runner: &Runner<D>, s: &mut String) {
         s.push('}');
     }
 }
+
+/// `{"held":[…],"heldReplies":{…}}`: the requests the server holds, each
+/// `{name, ticket}`, and the replies landed for held requests by target.
+pub(super) fn held<D: DataSource>(runner: &Runner<D>) -> String {
+    let mut s = String::from("{\"held\":[");
+    for (i, (name, ticket)) in runner.held_requests().iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push_str("{\"name\":");
+        quote(name, &mut s);
+        let _ = write!(s, ",\"ticket\":{ticket}}}");
+    }
+    s.push_str("],\"heldReplies\":{");
+    for (i, (name, count)) in runner.held_replies().iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        quote(name, &mut s);
+        let _ = write!(s, ":{count}");
+    }
+    s.push_str("}}");
+    s
+}

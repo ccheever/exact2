@@ -1122,6 +1122,14 @@ fn a_jump_does_not_wait_on_a_held_request_and_names_it() {
     }
     let state = json(handle(&mut p, r#"{"op":"state"}"#));
     assert_eq!(state["pending"][0]["held"], true, "{state}");
+    // The tree names it too, for a missed target's note (agent-held.mjs `inFlightNote`).
+    let tree = json(handle(&mut p, r#"{"op":"tree"}"#));
+    assert_eq!(
+        tree["pending"],
+        serde_json::json!([{"name": "item", "ticket": 1, "held": true}]),
+        "{}",
+        tree["pending"]
+    );
     // Released: the reply lands on real time, and the answer asks `/detail`.
     release.send(()).unwrap();
     let asked = std::time::Instant::now() + std::time::Duration::from_secs(10);
