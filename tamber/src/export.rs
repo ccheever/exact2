@@ -15,12 +15,15 @@
 //! expression or a role included, and a changed one is proposed as a
 //! `set-token` for its tuple.
 
+mod refs;
 use crate::export_batch::{Planned, Taken};
 use crate::export_dials::{alike, last_by_name, read_css, Lasts};
 use crate::import::{counted, dtcg::colour, Import, Unmapped};
 use crate::syntax::Token;
 use crate::{fallback, Diagnostic, Folded, Folding, Half, Host, Op, Vocab};
 use exact_color::{Parsed, Space, Wide};
+use refs::tokens_by_context;
+pub(crate) use refs::ByContext;
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 
@@ -521,83 +524,6 @@ pub fn digest(text: &str) -> Option<String> {
     header(&doc)?["digest"].as_str().map(str::to_string)
 }
 
-/// A token tree's tokens: each name (a group's `$root` the group's) and its
-/// token object.
-fn flatten(tree: &Value, prefix: &str, out: &mut Vec<(String, Value)>) {
-    let Some(obj) = tree.as_object() else { return };
-    if obj.contains_key("$value") {
-        out.push((prefix.to_string(), tree.clone()));
-        return;
-    }
-    for (k, v) in obj {
-        let name = match (k.as_str(), prefix) {
-            ("$root", _) => prefix.to_string(),
-            (k, _) if k.starts_with('$') => continue,
-            (k, "") => k.to_string(),
-            (k, p) => format!("{p}.{k}"),
-        };
-        flatten(v, &name, out);
-    }
-}
-
-/// A context source's tokens, in order: a token tree, or a reference to a
-/// set or a tree in the same document (`#/sets/…`), resolved as the
-/// Resolver Module says. A reference elsewhere, a cycle, or a document
-/// whose references multiply past one import's work is refused, charged
-/// before each tree is copied.
-fn source_tokens(
-    doc: &Value,
-    src: &Value,
-    depth: usize,
-    out: &mut Vec<(String, Value)>,
-) -> Result<(), String> {
-    if depth > 16 {
-        return Err("references nest too deep".into());
-    }
-    crate::budget::spend(1)?;
-    let Some(r) = src.get("$ref").and_then(Value::as_str) else {
-        crate::budget::copy(src)?;
-        flatten(src, "", out);
-        return Ok(());
-    };
-    let target = r
-        .strip_prefix('#')
-        .and_then(|p| doc.pointer(p))
-        .ok_or_else(|| format!("`{r}` names nothing in this document"))?;
-    match target.get("sources").and_then(Value::as_array) {
-        Some(srcs) => {
-            for s in srcs {
-                source_tokens(doc, s, depth + 1, out)?;
-            }
-        }
-        None => {
-            crate::budget::copy(target)?;
-            flatten(target, "", out);
-        }
-    }
-    Ok(())
-}
-
-/// Each context's tokens by name, from a document's `mode` modifier, a
-/// later source after an earlier.
-pub(crate) type ByContext = std::collections::BTreeMap<String, Vec<(String, Value)>>;
-
-fn tokens_by_context(doc: &Value) -> Result<ByContext, String> {
-    let mut out = ByContext::new();
-    for (context, srcs) in doc["modifiers"]["mode"]["contexts"]
-        .as_object()
-        .into_iter()
-        .flatten()
-    {
-        let mut all = Vec::new();
-        for src in srcs.as_array().into_iter().flatten() {
-            source_tokens(doc, src, 0, &mut all).map_err(|e| format!("`{context}`: {e}"))?;
-        }
-        out.insert(context.clone(), all);
-    }
-    Ok(out)
-}
-
 /// A colour object as Tamber writes it: its `hex` where that, and its alpha
 /// in steps of a byte, are exactly what its sRGB components say (an 8-bit
 /// colour, as a design writes one), else what the DTCG importer reads.
@@ -724,8 +650,25 @@ pub fn reimport_against(
     current: &str,
     vocab: &Vocab,
 ) -> Result<Import, Vec<Diagnostic>> {
-    let refuse = |m: String| vec![Diagnostic::new("tamber-export-import", m, 1, 1)];
     let _work = crate::budget::Work::begin(crate::budget::REIMPORT);
+    let planned = reimport_within(incoming, explicit, kept, current, vocab)?;
+    // A search that stopped at the budget (the narrowest `when`'s) widened
+    // nothing in silence: the re-import is refused in the budget's words.
+    match crate::budget::spent() {
+        Some(why) => Err(vec![Diagnostic::new("tamber-export-import", why, 1, 1)]),
+        None => Ok(planned),
+    }
+}
+
+/// [`reimport_against`] within its budget.
+fn reimport_within(
+    incoming: &str,
+    explicit: Option<&str>,
+    kept: &[String],
+    current: &str,
+    vocab: &Vocab,
+) -> Result<Import, Vec<Diagnostic>> {
+    let refuse = |m: String| vec![Diagnostic::new("tamber-export-import", m, 1, 1)];
     let doc: Value = crate::import::dtcg_doc(incoming, &refuse)?;
     let cur = crate::check(current, vocab)?;
     let fresh = dtcg(&cur, vocab)?;

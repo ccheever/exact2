@@ -74,6 +74,13 @@ pub fn spend(n: u64) -> Result<(), String> {
     })
 }
 
+/// The refusal's words when this import's budget is spent (a step that
+/// stopped at it rather than refusing at once), else `None`.
+pub(crate) fn spent() -> Option<String> {
+    let spent = DEPTH.with(Cell::get) > 0 && LEFT.with(Cell::get) == 0;
+    spent.then(|| spend(1).unwrap_err())
+}
+
 /// What copying `v` costs: its bytes, roughly.
 pub fn size(v: &Value) -> u64 {
     match v {
