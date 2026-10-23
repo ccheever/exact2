@@ -1278,7 +1278,7 @@ extension Agent {
         // A film's frames keep one size.
         let presented = req["film"] as? Bool == true ? nil : presentedOverApp()
         let wholeWindow = req["window"] as? Bool == true || presented != nil
-        let captureView: UIView = wholeWindow ? (vp.window ?? vp) : vp
+        let captureView: UIView = wholeWindow ? (vp.window ?? vp) : (presenter.root.superview ?? vp)
         // The page's picture is its area, whose top-left is a box's (0, 0), not the bands it is drawn past (LLP 1130).
         let margins = wholeWindow ? .zero : presenter.pageMargins
         let size = captureView.bounds.inset(by: margins).size
