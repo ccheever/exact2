@@ -233,7 +233,7 @@ pub(super) fn inline_use(
     // A resolved derive reads no other derive by name, so every
     // one is substituted against the same props, states and actions.
     let records = ctx.records;
-    let derives = resolved_derives(c, records).unwrap_or_else(|e| {
+    let derives = resolved_derives(c).unwrap_or_else(|e| {
         ctx.errors.push(e);
         c.derives.iter().map(|d| (d, absent(d.span))).collect()
     });
