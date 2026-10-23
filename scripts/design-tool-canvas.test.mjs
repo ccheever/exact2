@@ -137,8 +137,9 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
     while (other.frames.at(-1)?.pin && Date.now() < until) await new Promise(ok => setTimeout(ok, 500));
     expect(other.frames.at(-1)).toMatchObject({ pin: null });
     const held = other.frames.at(-1).at - closed;
-    expect(held).toBeGreaterThan(10_000);
-    // The lease (90 s after a long poll by cursor's answer) and the server's sweep (5 s), with a little room.
+    // The lease, 90 s after a long poll by cursor's last answer (at most a 25 s wait before the close), so past the
+    // POST form's 35 s; and the server's sweep (5 s), with a little room.
+    expect(held).toBeGreaterThan(60_000);
     expect(held).toBeLessThan(100_000);
     // While the tool was open, more than a lease went by with no hand-back.
     const pinnedAt = other.frames.find(f => f.pin).at;

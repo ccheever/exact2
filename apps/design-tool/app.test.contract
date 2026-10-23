@@ -852,6 +852,13 @@ test "the changes' long poll by cursor (tamber/1.17): a reply folds as it comes 
   clock data
   expect state changes.stream == true
   expect text "entry-text-4" == "app.tamber: text.label · agent:codex"
+  // A reply larger than a stream's default ceiling (1 MiB) comes on it as a read's would.
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "text.secondary"}], "pad": 1500000} as ada
+  clock held changes
+  clock +1
+  clock data
+  expect state changes.stream == true
+  expect text "entry-text-5" == "app.tamber: text.secondary · agent:codex"
   // Another run of the server: the poll held there answers that, which is read again by POST (it starts again), and
   // a new poll goes on in the new run.
   request POST "/__stub/restart" {} as ada

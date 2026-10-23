@@ -362,6 +362,8 @@ shape Changes
   redo: number
   session: number
   held: Held[]
+  // The design read the held list's swatches are of (`design.answer`): a newer one has them shown again.
+  heldDesign: number
   builds: Build[]
   // The builds whose page refused inspect mode, said in the Inspector (at most three), and how many more.
   refusals: InspectRefusal[]
@@ -1059,6 +1061,10 @@ component DesignTool
     after(1, advance)
   task retry when not pending(changes) and not changes.ok key=changes.answer
     after(3000, advance)
+  // A newer design read under a held list on the long poll by cursor: asked once again (at once, from where it is),
+  // so its swatches are of that read; no idle re-ask does it there (stage 14 D).
+  task heldSwatches when changes.stream and changes.held.length > 0 and design.answer > changes.heldDesign and not pending(design) key=design.answer
+    after(1, reheld)
   // A clients read refused while the poll goes on is asked again, each 3 s
   // (its own count: the poll's answers would put it off for ever).
   task watchCanvas when canvasAt.frame.indexOf("#g=") >= 0 and (canvasPolled != canvasKey or canvasPollsLeft > 0) and not pending(canvasIn) and not pending(canvasAt) key=canvasPoll
@@ -1068,6 +1074,8 @@ component DesignTool
   task retryClients when hello.local and not pending(clients) and not clients.ok key=clientsTries
     after(3000, reloadClients)
 
+  action reheld
+    asks = asks + 1
   action advance
     // A change (an answer, paced while a scrub is open), another run, more
     // missed than the server keeps, or no answer: read the files again.
