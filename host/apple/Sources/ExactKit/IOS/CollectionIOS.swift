@@ -42,11 +42,12 @@ extension CollectionHost {
     package func geometry(_ id: UInt32) -> CollectionFacts? {
         guard let node = presenter?.views[id], let scroll = node.scroll, !hidden(node) else { return nil }
         // Layout's box, not the one drawn on the pixel grid (`PixelGridIOS.swift`): the runner lays rows to it.
-        let bounds = node.layoutBounds, insets = scroll.adjustedContentInset
+        let bounds = node.layoutBounds, insets = scroll.adjustedContentInset, band = node.pageBand
         let content = node.contentBox()
         let portWidth = max(0, bounds.width - insets.left - insets.right)
-        // A page band (LLP 1130 D3) is past the box, not inside it.
-        let portHeight = max(0, bounds.height - (insets.top - node.pageBand.top) - (insets.bottom - node.pageBand.bottom))
+        // The physical port includes the page bands. Their insets are
+        // padding before and after the rows, not space removed from the port.
+        let portHeight = max(0, bounds.height + band.top + band.bottom - (insets.top - band.top) - (insets.bottom - band.bottom))
         guard portWidth.isFinite, portHeight.isFinite else { return nil }
         let horizontal = entries[id]?.snapshot.horizontal ?? false
         // Animating to a smooth correction: where it is headed is the port
@@ -67,8 +68,8 @@ extension CollectionHost {
         let available = max(0, portWidth - content.minX - (node.layoutBounds.width - content.maxX))
         let width = measured ?? available
         guard width.isFinite else { return nil }
-        let start = max(0, node.padding("top")), end = max(0, node.padding("bottom"))
-        return CollectionFacts(offset: Double(max(-start, at.y + insets.top - content.minY)),
+        let start = max(0, node.padding("top")) + band.top, end = max(0, node.padding("bottom")) + band.bottom
+        return CollectionFacts(offset: Double(max(-start, at.y + insets.top - band.top - content.minY)),
             portMain: Double(portHeight), portCross: Double(portWidth), cross: Double(width),
             measurements: [], focus: nil, interaction: nil, paddingStart: Double(start), paddingEnd: Double(end))
     }
@@ -84,7 +85,7 @@ extension CollectionHost {
     func portInsets(_ id: UInt32) -> [Double]? {
         guard let node = presenter?.views[id], let scroll = node.scroll else { return nil }
         node.layoutIfNeeded()
-        return [Double(scroll.adjustedContentInset.top), Double(scroll.adjustedContentInset.left)]
+        return [Double(scroll.adjustedContentInset.top - node.pageBand.top), Double(scroll.adjustedContentInset.left)]
     }
     /// The port back at `top` (`geometry`'s offset), within what it can
     /// reach, unless the reader or a smooth correction is moving it.
@@ -94,7 +95,7 @@ extension CollectionHost {
         let content = node.contentBox(), i = scroll.adjustedContentInset
         var target = scroll.contentOffset
         if entries[id]?.snapshot.horizontal ?? false { target.x = CGFloat(top) + content.minX - i.left }
-        else { target.y = CGFloat(top) + content.minY - i.top }
+        else { target.y = CGFloat(top) + content.minY - i.top + node.pageBand.top }
         target = Self.reachable(target, in: scroll)
         if scroll.contentOffset != target { scroll.setContentOffset(target, animated: false) }
     }
@@ -138,7 +139,7 @@ extension CollectionHost {
             // From where the batch began (`geometry`'s offset): UIKit has
             // already pulled the offset in to content that shrank under it.
             let content = node.contentBox()
-            if horizontal { target.x = CGFloat(start) - insets.left + content.minX } else { target.y = CGFloat(start) - insets.top + content.minY }
+            if horizontal { target.x = CGFloat(start) - insets.left + content.minX } else { target.y = CGFloat(start) - insets.top + node.pageBand.top + content.minY }
         }
         if horizontal { target.x += CGFloat(delta) } else { target.y += CGFloat(delta) }
         if !(scroll.isTracking || scroll.isDragging || scroll.isDecelerating) {
@@ -281,7 +282,7 @@ extension CollectionHost {
         } else {
             let maximum = max(-insets.top, scroll.contentSize.height + insets.bottom - scroll.bounds.height)
             target = CGPoint(x: scroll.contentOffset.x,
-                y: min(maximum, max(-insets.top, CGFloat(top) + content.minY - insets.top)))
+                y: min(maximum, max(-insets.top, CGFloat(top) + content.minY - insets.top + node.pageBand.top)))
         }
         // A smooth correction is UIKit's scroll animation (LLP 1070.000
         // §6.2): the window is already built at the destination; rows in
