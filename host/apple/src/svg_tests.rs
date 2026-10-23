@@ -318,3 +318,79 @@ fn a_morph_retargeted_midway_starts_from_the_path_it_shows() {
         &[0., 0., 50., 2., 33.33, 16.67, 66.67, 16.67, 100., 50., 3.],
     );
 }
+
+#[test]
+fn a_prefetched_rows_lowered_animations_resume_when_it_enters_the_port() {
+    let source = r#"
+keyframes fade
+  from opacity=0.2
+  to opacity=1
+component App
+  view
+    list appearance="none" virtualized=true estimated-item-height=80 height=200 width=300
+      for i in range(50) key=i
+        view height=80 width=300
+          view width=60 height=40 testId=`fade-${i}` animation="fade 1000ms linear both" -exact-animation-trigger="view"
+          svg width=30 height=20 testId=`svg-${i}`
+            circle cx=10 cy=10 r=8 animation="fade 1000ms linear both" -exact-animation-trigger="view"
+"#;
+    let plan = contract::compile(source).unwrap().encode();
+    let (mut host, boot) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        400.0,
+        600.0,
+    )
+    .unwrap();
+    let id = |name: &str| {
+        let kernel = host.runner().kernel();
+        kernel
+            .node_by_key(kernel.find_by_test_id(name)[0])
+            .unwrap()
+            .id
+    };
+    let box_id = id("fade-5");
+    let svg_id = id("svg-5");
+    let ops = |batch: &str| {
+        serde_json::from_str::<serde_json::Value>(batch).unwrap()["ops"]
+            .as_array()
+            .unwrap()
+            .clone()
+    };
+    let box_spec = |ops: &[serde_json::Value]| {
+        ops.iter()
+            .find(|op| op["op"] == "animations" && op["id"] == box_id)
+            .map(|op| op["specs"][0].clone())
+    };
+    let svg_spec = |ops: &[serde_json::Value]| {
+        ops.iter()
+            .find(|op| op["op"] == "svg" && op["id"] == svg_id)
+            .map(|op| op["scene"]["els"][0]["a"][0].clone())
+    };
+    let initial = ops(&boot);
+    assert_eq!(box_spec(&initial).unwrap()["h"], 0.0);
+    assert_eq!(svg_spec(&initial).unwrap()["h"], 0.0);
+    host.tick(2000.0);
+    let snapshot = host.runner().collections().remove(0);
+    let feedback = exact_runner::CollectionFeedback {
+        view: snapshot.view,
+        revision: snapshot.revision,
+        scroll_sequence: snapshot.scroll_sequence + 1,
+        offset: 400.0,
+        port_cross: 300.0,
+        port_main: 200.0,
+        cross: 300.0,
+        padding: [0.0; 2],
+        measurements: Vec::new(),
+        focus_view: None,
+        interaction_view: None,
+    };
+    let batch = host.collection_feedback(&feedback.encode().unwrap(), 2000.0);
+    let shown = ops(&batch);
+    for spec in [box_spec(&shown), svg_spec(&shown)] {
+        let spec = spec.expect("a revealed prefetched play must resend its Core Animation spec");
+        assert!(spec["h"].is_null(), "the play is no longer held: {spec}");
+        assert_eq!(spec["s"], 2.0, "the play starts at reveal, not mount");
+    }
+}
