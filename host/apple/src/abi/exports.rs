@@ -225,6 +225,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.location_of(len), |n| n)
         }
 
+        /// The first root's literal viewport-fit, read before boot. Zero len selects the bake.
+        #[no_mangle]
+        pub extern "C" fn exact_plan_covers_viewport(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| u32::from(b.plan_covers_viewport(len, $plan)), |_| 0)
+        }
+
         /// Derive a declared protocol handler location from href, scheme and template.
         #[no_mangle]
         pub extern "C" fn exact_protocol_location_of(rt: u32, len: usize) -> u32 {
