@@ -514,7 +514,7 @@ component BookRow
             Meter(value=percent(book.currentPage, book.pages), tid=`book-progress-${book.id}`)
         image "symbol:forward-chevron" aria-hidden=true
           font="-exact-footnote"
-          -exact-tint-color="-exact-tertiary-label"
+          color="-exact-tertiary-label"
 
 // A book's screen: a grouped list, one section per concern.
 component BookSections
