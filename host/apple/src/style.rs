@@ -1054,7 +1054,11 @@ fn style_json_shown(
     let crossing: Option<&[StyleId]> =
         if node.props.str(exact_kernel::PropId::SemanticTag) == Some("dialog") {
             Some(&insets)
-        } else if computed.position_area != PositionArea::None {
+        } else if computed.position_area != PositionArea::None
+            || node.props.str(exact_kernel::PropId::Popover).is_some()
+        {
+            // A popover is placed by its area, the web's default where its
+            // author wrote none (`PositionArea.painted`), its margin box flipping.
             Some(&placed)
         } else if node.layout_position() == exact_kernel::PositionType::Sticky {
             Some(&vertical)
