@@ -108,7 +108,7 @@ fn deep_nesting_is_refused_before_the_reader_recurses() {
 fn a_value_past_its_bytes_is_refused_without_echoing_it() {
     let sum = |bytes: usize| {
         let mut v = "calc(1px".to_string();
-        while v.len() + 6 + 1 <= bytes {
+        while v.len() + 6 < bytes {
             v.push_str(" + 1px");
         }
         while v.len() + 1 < bytes {
@@ -152,7 +152,7 @@ fn a_px_chain_within_the_depth_still_folds() {
         .collect();
     lines.push(format!("  p{n} = 4px"));
     assert_eq!(refused(&theme(&lines)).0, Vec::<&str>::new());
-    assert!(MAX_RESIDUAL_ATOMS >= 64);
+    const { assert!(MAX_RESIDUAL_ATOMS >= 64) };
 }
 
 /// Every op that carries a value checks it first (`edit::valid`, rt1's
@@ -295,7 +295,7 @@ fn a_long_chain_of_names_is_refused_before_the_stack_runs_out() {
         .chain(["  b500 = 4px".to_string()])
         .collect();
     assert_eq!(refused(&theme(&ok)).0, Vec::<&str>::new());
-    assert!(exact_tamber::MAX_REFERENCE_DEPTH > 500);
+    const { assert!(exact_tamber::MAX_REFERENCE_DEPTH > 500) };
 }
 
 /// A platform colour's fallback is read again, and the reader counts its
