@@ -245,7 +245,7 @@ public final class ExactView: UIView {
     // owns focus, so it still receives the system keyboard.
     private lazy var shortcutInputView = UIView(frame: .zero)
     public override var inputView: UIView? { isFirstResponder ? shortcutInputView : nil }
-    public override var canBecomeFirstResponder: Bool { true }
+    public override var canBecomeFirstResponder: Bool { session.presenter.needsKeyboardFocus && !session.presenter.menus.focus.suspended }
     public override var keyCommands: [UIKeyCommand]? { session.presenter.shortcutCommands(#selector(exactShortcut(_:))) }
     @objc private func exactShortcut(_ command: UIKeyCommand) { session.presenter.performShortcut(command) }
     // This view holds the focus while nothing else does: a hardware key that
@@ -305,7 +305,7 @@ public final class ExactView: UIView {
                 #if os(iOS)
                 // Nothing focused (autofocus has run): this view holds the
                 // focus, so a hardware keyboard's shortcuts are heard (ShortcutsIOS).
-                if session.presenter.focusedNode == nil { _ = becomeFirstResponder() }
+                syncKeyboardFocus()
                 #endif
             }
         }
