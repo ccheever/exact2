@@ -113,7 +113,15 @@ final class PressPaintTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), -0.5, accuracy: 1e-6)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: PressFeedback.duration + 0.05))
         XCTAssertEqual(v.style["background_color"], ink(blue), "then let go")
-        XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), 0)
+        // The release eases back to rest: read where it settles, not the fade
+        // in flight, which a run loop slept past (a loaded machine) finds
+        // already gone (a later refresh drops a settled release's fade).
+        if let back = fade(v) { XCTAssertEqual(try XCTUnwrap(back.toValue as? Float), 0, "easing back") }
+        XCTAssertFalse(v.pressPaint.down)
+        XCTAssertEqual(v.pressPaint.ease.to, 0)
+        let rest = v.pressPaint.ease.start + PressFeedback.duration
+        while CACurrentMediaTime() < rest { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+        XCTAssertEqual(v.pressPaint.ease.factor(at: CACurrentMediaTime()), 0, accuracy: 1e-6, "settled at rest")
     }
 
     /// An ancestor's quick release (it waits out `PressFeedback.unseen`), with
