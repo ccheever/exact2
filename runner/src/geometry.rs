@@ -562,9 +562,14 @@ pub(crate) fn shown_in(kernel: &Kernel, scrolled: &Scrolled, slot: u32, frame: F
     let arena = kernel.arena();
     let at = shift(f64::from(frame.x), f64::from(frame.y));
     if scrolled.is_open(arena.key(slot)) {
+        // With no rectangle from its host, one in the viewport's block is
+        // where its insets put it there, as a fixed box (stage 14 B).
+        let env = arena.env();
+        let viewport = (env.viewport_width, env.viewport_height);
+        let placed = || kernel.top_layer_origin(arena.local_id(slot), viewport);
         let to = match scrolled.top_frame(arena.key(slot)) {
             Some(rect) => shown_at(kernel, slot, frame, rect),
-            None => at,
+            None => placed().map_or(at, |(x, y)| shift(f64::from(x), f64::from(y))),
         };
         return Shown::Viewport(to);
     }
