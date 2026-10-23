@@ -39,6 +39,7 @@ mod admit;
 mod agent;
 mod bound;
 mod handles;
+mod poll;
 pub use admit::CallOrigin;
 use admit::{Origins, Route};
 use std::sync::{Arc, Mutex};
@@ -80,6 +81,8 @@ pub(super) struct Extensions {
     /// Requests whose reply carries handles, by ticket, with their source
     /// (`handles.rs`).
     provisional: BTreeMap<u64, String>,
+    /// Each polled source's last ask, on the session's clock (`poll.rs`).
+    polls: BTreeMap<String, f64>,
 }
 
 /// A held request's outcome once the agent answered it.
