@@ -628,8 +628,10 @@ public final class Agent {
         let deadline = Date(timeIntervalSinceNow: 0.3)
         while ReservedRegions.available, !presenter.hingeReported, Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
         if presenter.hasFold { return ["error": "prefer: posture and segments: the device decides (it has a fold)"] }
-        #endif
+        var next = session.view?.agentFold ?? presenter.fold
+        #else
         var next = presenter.fold
+        #endif
         var gap: CGFloat = 0, grid = false
         for (name, raw) in fold {
             let number = (raw as? NSNumber).map(\.doubleValue) ?? Double("\(raw)")
@@ -651,6 +653,9 @@ public final class Agent {
             // The window's segments, as the host sends them (LLP 1075.003 §9.11).
             do { next.rects = try Segments.even(viewport: session.screenSize ?? presenter.viewportSize, cols: next.cols, rows: next.rows, gap: gap) } catch { return ["error": "prefer: \(error)"] }
         }
+        #if os(iOS) || os(tvOS)
+        if let view = session.view { return view.prefer(next).map { ["error": "prefer: \($0)"] } }
+        #endif
         return session.segments(next).map { ["error": "prefer: \($0)"] }
     }
 
