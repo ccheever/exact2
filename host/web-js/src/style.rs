@@ -847,15 +847,54 @@ fn ramp_rem(text: &str) -> Option<String> {
 
 /// A computed `transition`'s entries as an author's (LLP 1081 D5), shared by
 /// the ordinary and the pressed mappers: comments go (CSS removes them, so a
-/// check must too); springs are the engine's; an entry naming the host's
-/// `--exact-*` or an old spelling is dropped, as the native parser refuses
-/// it; `-exact-tint-color` becomes the property the browser animates,
-/// `--exact-tint`. `p` is the list of kept entries.
-pub const TRANSITION_ENTRIES: &str = "const p=v.replace(/\\/\\*[\\s\\S]*?\\*\\//g,\" \").split(/,(?![^(]*\\))/).map(t=>t.trim()).filter(t=>t&&!/spring\\(/i.test(t)&&!/(^|\\s)(--exact-\\S*|tint-color|exit-animation|layout-transition|press-scale|drag-timeline|symbol-rendering|symbol-palette|symbol-value|symbol-effect|press-haptic|content-transition|scroll-edge-effect|hover-effect|smart-invert|animation-trigger)(?=\\s|$)/i.test(t)).map(t=>t.replace(/(^|\\s)-exact-tint-color(?=\\s|$)/i,\"$1--exact-tint\"));";
+/// check must too); springs on non-physics properties become `linear()`;
+/// an entry naming the host's `--exact-*` or an old spelling is dropped,
+/// as the native parser refuses it. `-exact-tint-color` becomes the property
+/// the browser animates, `--exact-tint`. `p` is the list of kept entries.
+pub static TRANSITION_ENTRIES: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    use exact_motion::Property;
+    let mut properties: std::collections::BTreeMap<_, Vec<&str>> = Property::ALL
+        .into_iter()
+        .chain([Property::D])
+        .filter(|p| *p != Property::ShadowColor)
+        .map(|p| {
+            (
+                p.name(),
+                if p.springs() {
+                    vec![]
+                } else {
+                    vec![p.css_name()]
+                },
+            )
+        })
+        .collect();
+    properties.insert("border-color", vec!["border-color"]);
+    properties.insert("all", vec![]);
+    let all: Vec<_> = Property::ALL
+        .into_iter()
+        .chain([Property::D])
+        .filter(|p| !p.springs() && *p != Property::ShadowColor)
+        .map(|p| {
+            if p == Property::BorderTopColor {
+                "border-color"
+            } else {
+                p.css_name()
+            }
+        })
+        .filter(|n| !n.starts_with("border-") || *n == "border-color")
+        .collect();
+    let spring = include_str!("../transition-spring.js")
+        .replace("ALL_PROPERTIES", &serde_json::to_string(&all).unwrap())
+        .replace("PROPERTIES", &serde_json::to_string(&properties).unwrap());
+    format!("const spring={spring};const p=v.replace(/\\/\\*[\\s\\S]*?\\*\\//g,\" \").split(/,(?![^(]*\\))/).map(t=>t.trim()).filter(t=>t&&!/(^|\\s)(--exact-\\S*|tint-color|exit-animation|layout-transition|press-scale|drag-timeline|symbol-rendering|symbol-palette|symbol-value|symbol-effect|press-haptic|content-transition|scroll-edge-effect|hover-effect|smart-invert|animation-trigger)(?=\\s|$)/i.test(t)).flatMap(t=>/spring\\(/i.test(t)?spring(t):[t]).map(t=>t.replace(/(^|\\s)-exact-tint-color(?=\\s|$)/i,\"$1--exact-tint\"));")
+});
 
 /// A computed `transition`, as the browser takes it: [`TRANSITION_ENTRIES`].
 pub static TRANSITION_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    format!("v=>{{if(v==null)return v;{TRANSITION_ENTRIES}return p.join(\",\")||\"none\"}}")
+    format!(
+        "v=>{{if(v==null)return v;{}return p.join(\",\")||\"none\"}}",
+        TRANSITION_ENTRIES.as_str()
+    )
 });
 
 /// `text` with each `-exact-platform-color()` in it as its CSS (its `web` colour or
