@@ -13,9 +13,15 @@ extension NodeView {
         // A painted swipe row's full swipe decides where it rests (PaintedSwipesIOS.swift).
         defer { if swipeOwner { presenter?.swipeActions.painted.willEnd(self, scrollView, target: targetContentOffset) } }
         #endif
-        guard (style["scroll_snap_type"]?.string) == "x mandatory" else { return }
+        targetContentOffset.pointee = snappedOffset(targetContentOffset.pointee, in: scrollView)
+    }
+
+    /// The native resting position, optionally constrained to the snap area
+    /// holding a target the agent reveals.
+    func snappedOffset(_ proposed: CGPoint, in scrollView: UIScrollView, revealing target: UIView? = nil) -> CGPoint {
+        guard (style["scroll_snap_type"]?.string) == "x mandatory" else { return proposed }
         let maximum = max(0, scrollView.contentSize.width - scrollView.bounds.width)
-        var positions: [CGFloat] = []
+        var positions: [CGFloat] = [], targetPositions: [CGFloat] = []
         func visit(_ view: UIView) {
             for case let node as NodeView in view.subviews where !node.isHidden {
                 let align = node.style["scroll_snap_align"]?.string
@@ -30,16 +36,19 @@ extension NodeView {
                     let at = align == "end" && !wide ? rect.maxX - width : rect.minX
                     let start = min(maximum, max(0, at))
                     let end = wide ? min(maximum, max(start, rect.maxX - width)) : start
-                    positions.append(min(end, max(start, targetContentOffset.pointee.x)))
+                    let position = min(end, max(start, proposed.x))
+                    positions.append(position)
+                    if let target, target === node || target.isDescendant(of: node) { targetPositions.append(position) }
                 }
                 // A nested scroll container captures its own snap areas.
                 if node.scrollView == nil && !node.scrollDormant && (node.style["scroll_snap_type"]?.string ?? "none") == "none" { visit(node.container) }
             }
         }
         visit(scrollView)
-        if let nearest = positions.min(by: { abs($0 - targetContentOffset.pointee.x) < abs($1 - targetContentOffset.pointee.x) }) {
-            targetContentOffset.pointee.x = nearest
-        }
+        let choices = targetPositions.isEmpty ? positions : targetPositions
+        var result = proposed
+        if let nearest = choices.min(by: { abs($0 - proposed.x) < abs($1 - proposed.x) }) { result.x = nearest }
+        return result
     }
 }
 #endif
