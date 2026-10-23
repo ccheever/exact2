@@ -222,6 +222,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             if changing { startRevealing() }
         }
     }
+    var heldRoot: HeldStack?
     private(set) var presentedNavigations: [UINavigationController] = []
     /// The theme's title ink each bar was last given (`titleInk`), held no
     /// longer than its bar.
@@ -459,22 +460,27 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             installTabs(p, tabs, first: first, in: parent)
             return
         }
-        // The stack holds its first routes before its view enters the window,
-        // as the tabs' stacks do (`installTabs`): UIKit shows a root's large
-        // title collapsed when the stack was laid out in the window before it
-        // had that root.
-        let nav = makeNavigation(first: first.first?.node)
-        primaryNavigation = nav
-        prepareRoutes(first, in: nav)
-        nav.setViewControllers(first, animated: false)
-        recordOwned(nav)
-        watchPops(nav)
-        parent.addChild(nav)
-        nav.view.frame = p.root.bounds
-        nav.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        p.root.addSubview(nav.view)
-        nav.view.setPaintForeground(aboveAuthored: false)
-        nav.didMove(toParent: parent)
+        let stack: UIViewController
+        if needsNavigation(first) {
+            let nav = makeNavigation(first: first.first?.node)
+            primaryNavigation = nav
+            prepareRoutes(first, in: nav)
+            nav.setViewControllers(first, animated: false)
+            recordOwned(nav)
+            watchPops(nav)
+            stack = nav
+        } else {
+            let held = HeldStack()
+            heldRoot = held
+            show(first, in: held)
+            stack = held
+        }
+        parent.addChild(stack)
+        stack.view.frame = p.root.bounds
+        stack.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        p.root.addSubview(stack.view)
+        stack.view.setPaintForeground(aboveAuthored: false)
+        stack.didMove(toParent: parent)
     }
 
     /// A hidden navigation bar needs its availability check here. The
@@ -567,6 +573,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         installPrimary(p, first: Array(wanted[parts[0]]))
         // The other tabs' stacks, the selected tab and its items (LLP 1075.003 §3.7).
         if p.tabs != nil { syncTabs(p) }
+        else if let heldRoot, needsNavigation(Array(wanted[parts[0]])) || heldRoot.built != nil {
+            if realizeWaits { syncAfterTransition() } else { realize(nil, why: "the root pushes or shows a bar") }
+        }
         // Initial content draws before a presentation covers it.
         if parts.count > 1, let session = presenter.session, session.firstDrawMs == nil { return }
         // The selected tab held while its navigation controller waits for
@@ -743,7 +752,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     var owner: UIViewController? { presenter.modals.owner ?? primaryOwner?.parent }
     /// The controller Exact installed under the root: the tab container, or
     /// the one stack.
-    var primaryOwner: UIViewController? { tabOwner ?? primaryNavigation }
+    var primaryOwner: UIViewController? { tabOwner ?? primaryNavigation ?? heldRoot }
 
     func willMount() { mounting = true }
 
@@ -1231,6 +1240,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         primaryNavigation?.view.removeFromSuperview()
         primaryNavigation?.removeFromParent()
         primaryNavigation = nil
+        retireHeldRoot()
         container = nil
         logicalChildren = [:]
         shownKeys = []; fallbackKey = nil
