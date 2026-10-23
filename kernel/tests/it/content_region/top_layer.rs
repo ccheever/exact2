@@ -181,3 +181,26 @@ fn a_shell_popovers_bad_measurement_is_recovered() {
     pass(&mut k, 300., 1);
     assert!(k.node(9).unwrap().frame.width > good, "measured again");
 }
+
+/// An owner that was a popover and is no longer registers before the next
+/// layout drops its old block: it is judged as it is now.
+#[test]
+fn a_former_popover_owner_registers_before_the_next_layout() {
+    let mut k = fixture();
+    let popover = Op::SetProp {
+        id: 2,
+        prop: PropId::Popover,
+        value: "manual".into(),
+    };
+    k.apply(0, 0, &[popover]).unwrap();
+    k.compute_layout(1, Offer::definite(400., 300.)).unwrap();
+    assert!(k.host_block(2).is_some());
+    let cleared = Op::ClearProp {
+        id: 2,
+        prop: PropId::Popover,
+    };
+    k.apply(1, 1, &[cleared]).unwrap();
+    let b = binding(&k);
+    assert!(k.set_content_region(Some(b)).is_ok());
+    assert!(ready(&mut k, 400., 1).current);
+}

@@ -142,7 +142,9 @@ fn contains_absolute(node: NodeRef<'_>) -> bool {
 }
 
 fn excluded(kernel: &Kernel, node: NodeRef<'_>, scroller: ViewId) -> bool {
-    if node.style.display == Display::None {
+    // A box in a block of its own (a popover's, the viewport) is in that
+    // block's space, and scrolls with no scroller here.
+    if node.style.display == Display::None || kernel.host_block(node.id).is_some() {
         return true;
     }
     // A popover lays out absolute (the kernel's top layer), unless sticky.
