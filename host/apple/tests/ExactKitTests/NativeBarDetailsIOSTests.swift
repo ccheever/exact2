@@ -43,6 +43,7 @@ final class NativeBarDetailsIOSTests: XCTestCase {
         XCTAssertTrue(group.drawn)
         XCTAssertTrue(group.placed.contains { $0 === seal })
         let view = HeaderTitleView(host: p.navigation)
+        view.title.textColor = .label
         view.update(group, title: "Verified")
         let title = try XCTUnwrap(view.title.attributedText)
         var count = 0
@@ -56,6 +57,24 @@ final class NativeBarDetailsIOSTests: XCTestCase {
             }
         }
         XCTAssertEqual(count, 1)
+        let headingInk = title.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor
+        XCTAssertEqual(headingInk?.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)),
+                       UIColor.label.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)))
+        seal.applyStyle([:])
+        let untinted = try XCTUnwrap(HeaderTitle(header: header, heading: heading, tap: nil, apart: []))
+        view.update(untinted, title: "Verified")
+        let inherited = try XCTUnwrap(view.title.attributedText)
+        inherited.enumerateAttribute(.attachment, in: NSRange(location: 0, length: inherited.length)) { value, range, _ in
+            guard value is NSTextAttachment else { return }
+            let ink = inherited.attribute(.foregroundColor, at: range.location, effectiveRange: nil) as? UIColor
+            XCTAssertEqual(ink?.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)),
+                           UIColor.label.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)))
+        }
+        view.title.textColor = .red
+        view.update(untinted, title: "Verified")
+        let changed = try XCTUnwrap(view.title.attributedText)
+        XCTAssertEqual(changed.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor, .red,
+                       "an unchanged title still follows a changed heading colour")
         XCTAssertTrue(title.string.hasPrefix("Verified"))
         XCTAssertEqual(view.accessibilityLabel, "Verified")
         XCTAssertTrue(view.subtitle.isHidden)
