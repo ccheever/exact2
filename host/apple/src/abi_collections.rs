@@ -15,6 +15,7 @@ impl<D: DataSource> Bridge<D> {
     /// bytes; kind 7 forgets it. Kind 8 is the margins UIKit's own list gives
     /// a grouped list's cards and cells: f32 the card's left and right
     /// insets, then the cell's left and right margins; kind 9 clears them.
+    /// Kind 12 reports scrollbar gutters in the right and bottom fields.
     pub fn covers(&mut self, len: usize) -> u32 {
         let bytes = self.input.get(..len).unwrap_or(&[]);
         let mut records = Vec::new();
@@ -76,6 +77,10 @@ impl<D: DataSource> Bridge<D> {
                         covers.push((view, Some(exact_kernel::HostCover::Edges(edges))));
                     }
                     2 => covers.push((view, Some(exact_kernel::HostCover::Whole))),
+                    12 => covers.push((
+                        view,
+                        Some(exact_kernel::HostCover::Gutter([edge(12), edge(16)])),
+                    )),
                     3 => {
                         let inset = exact_kernel::HostCover::Inset([edge(8), edge(16)]);
                         covers.push((view, Some(inset)));

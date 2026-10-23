@@ -835,6 +835,7 @@ package final class Presenter {
         let gone = views.removeValue(forKey: id)
         chrome.forget(id)
         scrollers.remove(id)
+        covers.report("scroller-\(id)", [:])
         pendingScrolls.remove(id)
         listViews.removeValue(forKey: id)
         listTravel.removeValue(forKey: id)

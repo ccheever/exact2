@@ -57,6 +57,8 @@ enum HostCover: Equatable {
     /// scroller): the kernel lays its content out between these insets
     /// (LLP 1116.000 D1.2).
     case inset(top: CGFloat, bottom: CGFloat)
+    /// Space occupied by native scrollers, measured after tiling.
+    case gutter(right: CGFloat, bottom: CGFloat)
 }
 
 /// The module's hatch entries (NativeModule.swift reads them from its table).
