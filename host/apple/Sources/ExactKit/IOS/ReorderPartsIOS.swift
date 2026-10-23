@@ -121,7 +121,10 @@ struct ReorderScroller {
 
 extension NodeView {
     /// Where focus goes after a keyboard or custom-action move (D9).
-    func focusAfterReorder() { UIAccessibility.post(notification: .layoutChanged, argument: self) }
+    func focusAfterReorder() {
+        _ = becomeFirstResponder()
+        UIAccessibility.post(notification: .layoutChanged, argument: self)
+    }
 
     /// A grouped grip's drag (D6): the ghost's session, not Arrange's.
     package func reorderGroupDragged(_ gesture: UIGestureRecognizer, point: CGPoint) -> Bool {
