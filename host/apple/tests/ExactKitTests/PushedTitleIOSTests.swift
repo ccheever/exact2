@@ -411,6 +411,7 @@ final class PushedTitleIOSTests: XCTestCase {
         XCTAssertTrue(largeTitleShows("short"))
     }
 
+    /// Baseline coverage: this drive also passes on the starting revision.
     func testAgentDragsScrollAGroupedListAndPullItsTitleOpen() throws {
         let (session, _, nav) = try fixture()
         let (expanded, inline) = try heights(nav)
