@@ -31,6 +31,36 @@ fn plan(resource: Option<&str>) -> Vec<u8> {
 }
 
 #[test]
+fn plan_covers_viewport_reads_only_the_first_roots_literal_without_booting() {
+    let mut bridge = Bridge::<StorageModule>::new();
+    for (source, covers) in [
+        (
+            "component App\n  view\n    main viewport-fit=\"cover\"\n",
+            true,
+        ),
+        (
+            "component App\n  view\n    main\n      column viewport-fit=\"cover\"\n",
+            false,
+        ),
+        (
+            "component App\n  view\n    main viewport-fit=\"auto\"\n",
+            false,
+        ),
+        (
+            "component App\n  state fit = \"cover\"\n  view\n    main viewport-fit=fit\n",
+            false,
+        ),
+    ] {
+        let plan = contract::compile(source).unwrap().encode();
+        let len = bridge.input_write(&plan);
+        assert_eq!(bridge.plan_covers_viewport(len, &[]), covers, "{source}");
+        assert!(bridge.host.is_none());
+    }
+    assert!(!bridge.plan_covers_viewport(usize::MAX, &[]));
+    assert!(!bridge.plan_covers_viewport(0, b"invalid"));
+}
+
+#[test]
 fn the_first_preboot_launch_location_is_the_boot_fact() {
     let mut bridge = Bridge::<StorageModule>::new();
     bridge.input_write(b"/first");
