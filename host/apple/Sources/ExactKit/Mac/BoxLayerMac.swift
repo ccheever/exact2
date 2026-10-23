@@ -22,7 +22,7 @@ extension NodeView {
         guard !cssVisibilityHidden, surface == nil, let ctx = NSGraphicsContext.current?.cgContext else { return }
         let uniform = number("border_width")
         let sides = ["top", "right", "bottom", "left"]
-        let widths = sides.map { number("border_width_" + $0, uniform) }
+        let widths = sides.map { devicePixels(number("border_width_" + $0, uniform)) }
         let top = color("border_color_top", .clear)
         let colors = sides.map { color("border_color_" + $0, top).cgColor }
         let styles = sides.map { style["border_style_" + $0]?.string ?? "solid" }

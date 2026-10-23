@@ -209,6 +209,13 @@ extension NodeView {
         aimedGradient = AimedGradient(layer: g, source: source, dark: dark, bounds: bounds, box: box, gradient: gradient, stops: stops)
     }
 
+    /// CSS paints a positive border in whole device pixels, at least one.
+    func devicePixels(_ width: CGFloat) -> CGFloat {
+        guard width > 0 else { return 0 }
+        let scale = window?.screen.scale ?? contentScaleFactor
+        return max(1, (width * scale + 0.001).rounded(.down)) / scale
+    }
+
     /// The box onto the layer, or `boxDrawn` when `draw(_:)` must paint it.
     /// The web's box: background and border inside the border box, a
     /// uniform border following the curve, the radius clipping children only
@@ -221,7 +228,7 @@ extension NodeView {
         let fill = background.flatMap { $0.alpha > 0 ? $0 : nil }
         let uniform = number("border_width")
         let sides = ["top", "right", "bottom", "left"]
-        let widths = sides.map { number("border_width_" + $0, uniform) }
+        let widths = sides.map { devicePixels(number("border_width_" + $0, uniform)) }
         let top = color("border_color_top", .clear)
         let colors = sides.map { color("border_color_" + $0, top).cgColor }
         let width = widths[0]
