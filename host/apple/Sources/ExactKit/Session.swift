@@ -425,7 +425,7 @@ public final class ExactSession {
     private var viewsEpoch = 0
     private let published = NSLock()
     /// What the owner committed without main waiting.
-    enum Published { case fill(UInt32), tick, canvas, notice }
+    enum Published { case fill(UInt32), tick, canvas, notice, reply }
     /// Batches the owner committed without main waiting, in its order: a
     /// slice's (with its list), a frame's tick's and a canvas draw's.
     private var publishedQueue: [(kind: Published, batch: Batch, generation: Int)] = []
@@ -437,8 +437,10 @@ public final class ExactSession {
     private(set) var canvasInFlight = false
     /// A system notice's batches on the owner (`tellSoon`), each landing in its order.
     var noticesInFlight = 0
+    var repliesInFlight = 0
+    var replySubmissions: [Double] = []
     /// Owner work main did not wait for, whose batches land before any made later (T4).
-    var ownerInFlight: Bool { fillInFlight || tickInFlight || canvasInFlight || noticesInFlight > 0 }
+    var ownerInFlight: Bool { fillInFlight || tickInFlight || canvasInFlight || noticesInFlight > 0 || repliesInFlight > 0 }
     /// Whether this generation's plan reads `onLine`, learned by a synchronous `tellPage`.
     var readsOnLineKnown: (generation: Int, value: Bool)?
     private var canvasOwed = false
@@ -556,9 +558,6 @@ public final class ExactSession {
 
     deinit { destroy() }
 
-    /// A request's reply is in (LLP 1016 D2): the executor's thread says so;
-    /// the pump runs on the main thread, where the runner lives. `ctx` is
-    /// the handle; a session that is gone is a stranger, dropped.
     /// The live session behind a runtime handle, or nil for a stranger's.
     static func session(for rt: ExactRuntime) -> ExactSession? { live[rt]?.session }
 
@@ -566,9 +565,7 @@ public final class ExactSession {
         let rt = ExactRuntime(UInt(bitPattern: ctx))
         DispatchQueue.main.async {
             guard let s = ExactSession.live[rt]?.session else { return }
-            s.whenIdle { [weak s] in guard let s else { return }; s.apply(s.runtime.pump(now: s.now()))
-                if let p = s.pendingActivation { s.pendingActivation = nil; if p.generation == s.generation { s.activatedGeneration = nil; s.firstDrawn(generation: p.generation, token: p.token) } } // a redraw never retries it
-            }
+            s.whenIdle { [weak s] in s?.pumpReplies() }
         }
     }
 
@@ -647,11 +644,16 @@ public final class ExactSession {
             let next = publishedQueue.isEmpty ? nil : publishedQueue.removeFirst()
             published.unlock()
             guard let next else { return }
+            let began = CACurrentMediaTime()
+            var submitted = 0.0
             switch next.kind {
             case .fill: fillInFlight = false
             case .tick: tickInFlight = false
             case .canvas: canvasInFlight = false
             case .notice: noticesInFlight -= 1
+            case .reply:
+                repliesInFlight -= 1
+                submitted = replySubmissions.removeFirst()
             }
             guard state != .destroyed, next.generation == generation else {
                 if case .fill(let view) = next.kind { landedFill(view, stale: true) }
@@ -660,6 +662,10 @@ public final class ExactSession {
             let batch = next.batch
             if !(changesNothing(batch) && batch.timerDueMs == timerDue) {
                 apply(batch)
+            }
+            if case .reply = next.kind {
+                sampler?.replyPump(main: submitted + (CACurrentMediaTime() - began) * 1000)
+                retryActivation()
             }
             // A draw owed while this one ran, or one a tick left owed.
             if canvasOwed { askCanvasDraw() }
