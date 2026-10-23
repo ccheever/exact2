@@ -245,7 +245,7 @@ fn outgoing_group_drop_keeps_the_deleted_source_neighbour_fallback() {
 }
 
 #[test]
-fn deleting_rows_above_the_anchor_keeps_unreported_scroll_travel() {
+fn deleting_rows_above_the_anchor_keeps_the_correction_relative() {
     let source = SOURCE.replace(
         "  view",
         "  action trim()\n    send changed = trim()\n  view",
@@ -325,6 +325,11 @@ fn refused_or_cancelled_drop_does_not_anchor_a_later_move() {
         .token;
         r.preview_reorder(token, g.clone(), 300.).unwrap();
         assert_eq!(r.drop_reorder(token, g).is_err(), refused);
+        if grouped && refused {
+            let frame = r.reorder_frame(token).unwrap();
+            assert_eq!(frame.phase, crate::ReorderPhase::Settling);
+            assert_eq!(frame.ending, None);
+        }
         if cancel {
             r.cancel_reorder(token).unwrap();
         }

@@ -6,7 +6,7 @@
 // by the motion piece when a plan has a reorder drag, so a list without one
 // carries none of it.
 import { inertAncestor } from './navigation.js';
-import { clock, every, commit, journal, refused } from "./rt.js";
+import { clock, every, commit, journal } from "./rt.js";
 import { dragTarget } from './drag-target.js';
 
 // The runner's journal line (rt.js `say`).
@@ -324,17 +324,12 @@ export function install({ internals: { Collection, Lists, Views, find, minEpoch,
     if (!hasReorder(s.token)) { endSession(s, null, false); return; }
     if (s.target !== s.source && Lists.get(s.target.view) !== s.target) { s.source.setOutgoing(false); s.target = s.source; }
   }
-  // A handler's writes can be refused after it returns, during settlement.
-  let pendingDrop = null;
   function dispatchDrop(target, args, session = null) {
-    const drop = pendingDrop = { owner:ReorderOwner, session };
-    try { target.el.$reorderdrop(...args); }
-    catch (error) {
-      pendingDrop = null;
-      drop.owner.settleDropAnchor(true);
-      if (session) endSession(session, null, false);
-      throw error;
-    }
+    const owner = ReorderOwner, token = owner.preview.token;
+    return commit(() => target.el.$reorderdrop(...args), "action", ok => {
+      if (owner.preview?.token === token) owner.settleDropAnchor(!ok);
+      if (!ok && session && Session === session && session.phase === "holding") endSession(session, null, false);
+    });
   }
   const Reorder = {
     binding: reorderBinding,
@@ -477,12 +472,6 @@ export function install({ internals: { Collection, Lists, Views, find, minEpoch,
   };
   // A preview whose binding is gone ends (runner reconcile_reorder).
   After.push(() => {
-    if (pendingDrop) {
-      const {owner, session} = pendingDrop;
-      pendingDrop = null;
-      owner.settleDropAnchor(!!refused());
-      if (refused() && session && Session === session && session.phase === "holding") endSession(session, null, false);
-    }
     if (ReorderOwner && !Lists.has(ReorderOwner.view)) { ReorderOwner = null; Session = null; return; }
     if (Session?.group) return; // the motion piece's flush asks first (`reconcileGroup`)
     const p = ReorderOwner?.preview;

@@ -144,7 +144,7 @@ export const owner = () => Owner, rev = () => Rev, ticket = () => Ticket, nextTi
 export class Refusal extends Error {}
 /** A data or shape refusal (the runner's `RunnerError::Data` or `Shape`): one in a reply's commit lets its ticket go (`reply`). */
 export class Failed extends Refusal { constructor(message, code = "error", reason = "") { super(message); this.code = code; this.reason = reason; } } // `code`, `reason`: failure(x)'s (shape.js `failureCode`, `failureReason`)
-let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false, Refused = null, Why = "", Sched = null; // `Why`: the step the last commit was refused in and the exception's own words, cut (`why`): a boot refusal's reason (`mount`); the journal keeps them whole
+let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Finishes = null, Poisoned = false, Refused = null, Why = "", Sched = null; // `Why`: the step the last commit was refused in and the exception's own words, cut (`why`): a boot refusal's reason (`mount`); the journal keeps them whole
 const why = (step, m, c = [...m]) => `while ${step}: ${c.length > WHY_MAX ? `${c.slice(0, WHY_MAX).join("")}… (${c.length - WHY_MAX} more characters in the journal)` : m}`, WHY_MAX = 300; // by code point; a write's value or a source's error may be long, or private
 /** Queued sends and gated tasks (schedule.js, LLP 1092), installed by a plan that declares them; the last commit's refusal. */
 export const useSchedule = s => { Sched = s; }, refused = () => Refused;
@@ -162,11 +162,11 @@ const again = t => { if (t.again) { t.again = false; say(`${t.r.name}: asked aga
 function settle() { for (const n of Settle) fresh(n); }
 /** One commit: `f` runs; its writes, sends and refreshes land; settlement
  * runs; a refusal anywhere up to here puts everything back and leaves the
- * tree untouched; then the tree updates, requests go out, commands run. */
-export function commit(f, what = "commit") {
-  if (Writes) return f();
+ * tree untouched; then the tree updates, completion callbacks run, requests go out, commands run. */
+export function commit(f, what = "commit", finished) {
+  if (Writes) { if (finished) Finishes.push(finished); return f(); }
   if (Poisoned) return say(`refused ${what}: the runner is poisoned; reload`);
-  Writes = []; Commands = []; Out = []; Landed = []; Sends = []; Refresh = []; Refused = null; Why = ""; time();
+  Writes = []; Commands = []; Out = []; Landed = []; Sends = []; Refresh = []; Finishes = finished ? [finished] : []; Refused = null; Why = ""; time();
   const was = Now.v, undo = [], saved = Resources.map(r => r.save()), held = Mutations.map(m => m.ticket), store = Store.save(), queued = Sched?.save(), writes = Ov.save();
   let ok = true, step = Booting ? "building the view" : `running the ${what}`; // where a refusal stops it (`Why`)
   try {
@@ -197,15 +197,15 @@ export function commit(f, what = "commit") {
     if (!(e instanceof Refusal)) console.error(e);
     Restoring = true; try { settle(); } catch {} finally { Restoring = false; }
   }
-  const [out, cmds, landed] = [Out, Commands, Landed];
+  const [out, cmds, landed, finishes] = [Out, Commands, Landed, Finishes];
   // A key handler's preventDefault/stopPropagation act on its event before the dispatch ends, a tree update a view transition defers too (review C3).
   if (KeyEvent || Propagating) for (const c of cmds.filter(c => c[0] === "preventDefault" || c[0] === "stopPropagation")) { cmds.splice(cmds.indexOf(c), 1); command(...c); }
-  Writes = null;
-  unpark();
+  Writes = Finishes = null; unpark();
   const tail = () => { // the tree update; inside a view transition when it may hand on a shared element's name (LLP 1013.000 D7)
     for (const f of Before) f();
     Pres?.before({ ops: gains() }, Views); // presence measures what it tracks, and what may gain the row, before the tree changes (LLP 1063)
-    try { flush(); openTabs(); } catch (e) { Poisoned = true; Why = why("updating the tree", String(e)); say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); Sched?.forget(); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
+    try { flush(); openTabs(); } catch (e) { Poisoned = true; Why = why("updating the tree", String(e)); say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); Sched?.forget(); for (const f of finishes) f(false); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
+    for (const f of finishes) f(ok);
     settled(true); if (!ok) return Sched?.scan(false), false;
     clock.epoch++; Store.persist();
     for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c); Sounds.apply?.(cmds); Sounds.midiApply?.(cmds); Sounds.stood?.(); if (!Booting) { autofocus(); Input?.arrive(); } // after its focus commands, as the wasm host (focus.js); then the focus follows the route (input-glue.js; LLP 1115.000 D4.2)
