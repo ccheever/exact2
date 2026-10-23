@@ -85,7 +85,7 @@ fn a_full_width_row_stays_in_its_card_and_its_separator_is_decoration() {
     let full_line = line("full").unwrap();
     assert_eq!(
         (full_line.x, full_line.y, full_line.width, full_line.height),
-        (56.0, 51.0, 314.0, 1.0),
+        (55.0, 51.0, 315.0, 1.0),
         "from the text after the symbol to the card's edge, at the row's foot"
     );
     // A percentage padding is of the card's width (CSS Box Model 3 §5.2).
@@ -193,5 +193,6 @@ fn a_full_width_native_button_row_stays_in_its_card() {
     // A row a class made one: its inset knows a leading symbol, and its
     // widest does too.
     let symbol = frame("class-symbol");
-    assert_eq!((symbol.x, symbol.x + symbol.width), (72.0, 386.0));
+    // At the test's 16-point root UIKit's text starts 55 in (`-exact-list-symbol-inset`).
+    assert_eq!((symbol.x, symbol.x + symbol.width), (71.0, 385.0));
 }
