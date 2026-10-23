@@ -55,7 +55,7 @@ export function createTranscriptWorld(assetOrigin: string): World {
     .replace(/<@&(\d+)>/g, (match, id) => roleIds.has(id) ? `<@&${roleIds.get(id)}>` : match);
   const messages: World['messages'] = {};
   const entries: ReadState[] = [];
-  const read = (channel: Channel, lastRead: string) => {
+  const read = (channel: Channel, lastRead: string | null) => {
     const history = messages[channel.id];
     channel.last_message_id = history.at(-1)!.id;
     const unread = history.slice(history.findIndex(message => message.id === lastRead) + 1);
@@ -98,7 +98,7 @@ export function createTranscriptWorld(assetOrigin: string): World {
       message.referenced_message = target ? replySnapshot(target) : null;
     }
     messages[channel.id] = history;
-    read(channel, ids.get(source.lastRead)!);
+    read(channel, ids.get(source.lastRead) ?? null);
   }
   const private_channels: Channel[] = [[users[1]], [users[2]], users.slice(1, 4)].map((recipients, i) => ({
     id: snowflakeFromMs(DIRECTORY_EPOCH + 3, i), type: i === 2 ? 3 : 1,

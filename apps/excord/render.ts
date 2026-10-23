@@ -229,5 +229,5 @@ export function windowOf(slice: Slice, channel: string, anchor: string, since: s
   return { channel, anchor, rows, hasBefore: slice.hasBefore, hasAfter: slice.hasAfter,
     firstId: rows[0]?.id ?? '', lastId: rows[rows.length - 1]?.id ?? '',
     pin: anchor || rows[Math.max(0, rows.length - HALF)]?.id || '',
-    unread: unread.count, unreadMore: unread.more, unreadAt: unread.at };
+    unread: unread.count, unreadMore: unread.more, unreadAt: unread.at, need: '', cursor: '' };
 }

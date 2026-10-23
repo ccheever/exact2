@@ -120,6 +120,8 @@ shape Message
 // `unread` counts the messages after the read position the window was asked
 // with, `unreadMore` says it is a lower bound (the cache does not reach that
 // position), and `unreadAt` is the first one's time, or the read message's.
+// `need` names the one page the window lacks ("latest", "around", "before" or
+// "after" `cursor`; "" for none), which the view asks for with `loadPage`.
 shape Window
   channel: string
   anchor: string
@@ -132,6 +134,8 @@ shape Window
   unread: number
   unreadMore: bool
   unreadAt: number
+  need: string
+  cursor: string
 
 // A channel or DM as the lists show it, and the open channel. `version` moves
 // whenever its history changes; `arrived` counts the messages that arrived
@@ -159,28 +163,31 @@ shape Guild
   unread: bool
   mentions: number
 
-// A channel's versions: `version` moves with any change to it, `history` only
-// with a change to its messages.
-shape Version
-  id: string
-  version: number
-  history: number
-
-// The gateway's snapshot (Excord LLP 0001 §4.2): the connection's state
-// ("connecting", "awaiting-hello", "identifying", "resuming", "ready",
-// "backoff", "stopped" or "signed-out"), a version for the lists (`sidebar`)
-// and one per channel, so a dispatch re-asks only what it changed. `fixture`
-// says the build talks to the fixture, whose traffic menu shows; `retryIn` is
-// how long a backoff waits, `attempt` counts connections.
+// The gateway's snapshot (Excord LLP 0001 §4.2), the same size for any
+// account: the connection's state ("idle", "connecting", "awaiting-hello",
+// "identifying", "resuming", "ready", "backoff", "stopped" or "signed-out"),
+// a version for the lists (`sidebar`, moved by any change outside the channel
+// on screen), and the versions of the channel on screen (`channel`): `version`
+// moves with any change to it, `history` only with a change to its messages.
+// `fixture` says the build talks to the fixture, whose traffic menu shows;
+// `retryIn` is how long a backoff waits, `attempt` counts connections.
 shape Gateway
   state: string
   detail: string
   me: string
   fixture: bool
   sidebar: number
-  versions: Version[]
+  channel: string
+  version: number
+  history: number
   retryIn: number
   attempt: number
+
+// The kept credentials, read into the data module: `ready` once read, and
+// whether there is a token to sign in with.
+shape Session
+  ready: bool
+  signedIn: bool
 
 shape Ack
   ok: bool
