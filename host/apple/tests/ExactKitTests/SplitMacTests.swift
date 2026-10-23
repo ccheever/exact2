@@ -837,7 +837,10 @@ final class SplitMacTests: XCTestCase {
         for painted in [true, false] {
             let source = app(tabs: false).replacingOccurrences(
                 of: "testId=`field-${e.params.id}`",
-                with: "testId=`field-${e.params.id}`\n            button testId=\"pop-open\" popovertarget=\"bookpop\"\n              text \"More\"\n            column id=\"bookpop\" testId=\"bookpop\" popover=\"auto\" width=100 height=40")
+                with: "testId=`field-${e.params.id}`\n            button testId=\"pop-open\" popovertarget=\"bookpop\"\n              text \"More\"\n            column id=\"bookpop\" testId=\"bookpop\" popover=\"auto\" width=100 height=40"
+            ).replacingOccurrences(
+                of: "      for e in stack(nav) key=e.id\n",
+                with: "      button testId=\"list-pop-open\" popovertarget=\"listpop\"\n        text \"Filter\"\n      column id=\"listpop\" testId=\"listpop\" popover=\"manual\" width=100 height=40\n      for e in stack(nav) key=e.id\n")
             let session = try boot(tabs: false, size: CGSize(width: 1000, height: 500), source: source)
             _ = compose(ExactView(session: session), width: 1000, sidebar: false)
             let window = try XCTUnwrap(self.window)
@@ -875,11 +878,19 @@ final class SplitMacTests: XCTestCase {
                 let again = Date().addingTimeInterval(3)
                 while !p.menus.isOpen(pop), Date() < again { settle() }
                 XCTAssertTrue(pop.isDescendant(of: pane))
+                // And one opened after it from the page, in the page's layer.
+                let later = try node("listpop")
+                try press("list-pop-open")
+                let opened = Date().addingTimeInterval(3)
+                while !p.menus.isOpen(later), Date() < opened { settle() }
                 p.navigation.split.painted = true
                 settle()
                 XCTAssertFalse(p.navigation.split.active, "no split")
-                XCTAssertTrue(p.menus.isOpen(pop))
+                XCTAssertTrue(p.menus.isOpen(pop) && p.menus.isOpen(later))
                 XCTAssertTrue(pop.isDescendant(of: p.viewport), "its layer follows the route into the page")
+                let layers = p.viewport.subviews
+                let (first, second) = (layers.firstIndex { pop.isDescendant(of: $0) }, layers.firstIndex { later.isDescendant(of: $0) })
+                XCTAssertLessThan(try XCTUnwrap(first), try XCTUnwrap(second), "under the one opened after it")
             }
             session.destroy(); self.session = nil; window.close(); self.window = nil
         }
