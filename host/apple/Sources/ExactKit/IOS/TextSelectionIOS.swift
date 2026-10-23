@@ -368,7 +368,9 @@ final class SelectableText: UIResponder, UITextInput, UITextInteractionDelegate 
             let line = paragraph.lines[found.line], within = CTLineGetStringRange(line)
             let lo = max(range.location, within.location), hi = min(NSMaxRange(range), within.location + within.length)
             let rtl = CTLineGetOffsetForStringIndex(line, lo, nil) > CTLineGetOffsetForStringIndex(line, hi, nil)
-            return SelectableRect(shown(found.rect, line: found.line), first: i == 0, last: i == lines.count - 1, rtl: rtl)
+            let baseline = paragraph.baselines[found.line]
+            let shift = TextEngine.paintedBaseline(baseline, scale: node?.traitCollection.displayScale ?? 1) - baseline.rounded()
+            return SelectableRect(shown(found.rect.offsetBy(dx: 0, dy: shift), line: found.line), first: i == 0, last: i == lines.count - 1, rtl: rtl)
         }
     }
 
@@ -436,7 +438,7 @@ final class SelectableText: UIResponder, UITextInput, UITextInteractionDelegate 
         var above: CGFloat = 0, below: CGFloat = 0
         _ = CTLineGetTypographicBounds(line, &above, &below, nil)
         let x = box.minX + paragraph.origin(i, align: spec.align, width: box.width) + CTLineGetOffsetForStringIndex(line, offset, nil)
-        return shown(CGRect(x: x - 1, y: box.minY + paragraph.baselines[i].rounded() - above, width: 2, height: above + below), line: i)
+        return shown(CGRect(x: x - 1, y: box.minY + TextEngine.paintedBaseline(paragraph.baselines[i], scale: node?.traitCollection.displayScale ?? 1) - above, width: 2, height: above + below), line: i)
     }
     func selectionRects(for range: UITextRange) -> [UITextSelectionRect] {
         (range as? SelectableRange).map { rects($0.range) } ?? []
