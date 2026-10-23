@@ -17,6 +17,44 @@ final class NativeButtonRasterIOSTests: XCTestCase {
         while !condition(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
         XCTAssertTrue(condition(), file: file, line: line)
     }
+    func testANativeFaceDecodesForItsImageRatherThanItsInitialButtonBounds() throws {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let data = try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 1024, height: 256), format: format).image { context in
+            for x in stride(from: 0, to: 1024, by: 4) {
+                (x.isMultiple(of: 8) ? UIColor.red : UIColor.blue).setFill()
+                context.fill(CGRect(x: x, y: 0, width: 4, height: 256))
+            }
+        }.pngData())
+        let source = "data:image/png;base64," + data.base64EncodedString()
+        let p = Presenter(), loader = RasterLoader(), resolver = AssetResolver(root: URL(fileURLWithPath: NSTemporaryDirectory()))
+        defer { loader.shutdown() }
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        self.window = window
+        p.viewport.frame = window.bounds; window.addSubview(p.viewport); window.makeKeyAndVisible()
+        var face = ButtonFace(); face.title = "Photo"; face.raster = true
+        face.image = .init(view: 2, source: source, size: nil)
+        p.buttonFace = { _ in face }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "control", "props": ["type": "button"], "style": [:]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 24.0, "h": 24.0],
+        ]))
+        let owner = try XCTUnwrap(p.views[1]), button = try XCTUnwrap(p.controls.controls[1] as? NativeButtonIOS)
+        XCTAssertEqual(owner.bounds.width, 24)
+        loader.load(owner, source: source, resolver: resolver)
+        until { owner.raster != nil }
+        let decoded = try XCTUnwrap(owner.raster?.image.image)
+        XCTAssertEqual(decoded.width, 1024, "natural-size image needs its detail despite the initial image-free button bounds")
+        XCTAssertEqual(decoded.height, 256)
+        XCTAssertEqual(button.configuration?.image?.size, CGSize(width: 1024, height: 256))
+        let context = try XCTUnwrap(CGContext(data: nil, width: 1024, height: 1, bitsPerComponent: 8, bytesPerRow: 4096,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(decoded, in: CGRect(x: 0, y: 0, width: 1024, height: 1))
+        let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+        XCTAssertEqual(Array(UnsafeBufferPointer(start: pixels + 2 * 4, count: 4)), [255, 0, 0, 255])
+        XCTAssertEqual(Array(UnsafeBufferPointer(start: pixels + 6 * 4, count: 4)), [0, 0, 255, 255])
+    }
+
     func testARasterFaceLoadsChangesSizeAndColourAndReleasesWhenRemoved() throws {
         let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_BUTTON_RASTER_PLAN"])))
         let session = ExactApp.shared.makeSession(label: "button-raster")
