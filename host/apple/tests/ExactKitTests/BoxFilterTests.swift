@@ -78,6 +78,32 @@ final class BoxFilterTests: XCTestCase {
     }
 
     #if os(macOS)
+    func testOversizedBorderRadiiReduceBeforeTheInnerEdgeIsInset() throws {
+        let box = node(1), effect = try filter()
+        for filtered in [false, true] {
+            func render(radius: Double) throws -> CGImage {
+                var style: NodeStyle = ["background_color": [255,0,0,255], "border_width": 4,
+                    "border_color_top": [0,0,255,255], "border_radius_top_left": .number(radius),
+                    "border_radius_top_right": .number(radius)]
+                if filtered { style["filter"] = effect }
+                box.applyStyle(style)
+                window.displayIfNeeded()
+                if filtered { box.renderFilter(); return try picture(box) }
+                return try XCTUnwrap(Capture.picture(of: XCTUnwrap(box.layer), size: box.bounds.size, scale: 1))
+            }
+            let reduced = try render(radius: 20), oversized = try render(radius: 999)
+            XCTAssertEqual(try pixel(reduced, x: 20, y: 20), [255,0,0,255])
+            XCTAssertEqual(try pixel(reduced, x: 20, y: 1), [0,0,255,255])
+            var mismatches = 0
+            for y in [1,5,10,20,30,35,38] {
+                for x in [1,5,10,20,30,35,38] {
+                    if try pixel(reduced, x: x, y: y) != pixel(oversized, x: x, y: y) { mismatches += 1 }
+                }
+            }
+            XCTAssertEqual(mismatches, 0, "999-point top corners must paint like 20-point corners; filtered: \(filtered)")
+        }
+    }
+
     func testAFilteredBoxKeepsEachRoundedAndSquareCorner() throws {
         let box = node(1), effect = try filter()
         let corners = ["top_left", "top_right", "bottom_right", "bottom_left"]
