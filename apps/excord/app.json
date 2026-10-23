@@ -28,6 +28,12 @@
     },
     "web": {}
   },
+  "commands": {
+    "server": ["bun", "fixture/server.ts", "--world", "transcript", "--reset-on-identify"]
+  },
+  "server": {
+    "database": false
+  },
   "deploy": {
     "store": {
       "web": "0",

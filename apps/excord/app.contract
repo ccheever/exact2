@@ -10,7 +10,7 @@
 // `reachstart` and `reachend` behind it); a jump replaces the window and places
 // its target with `scrollIntoView`.
 
-use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Version, Gateway, Ack, Sent from "./shapes.contract"
+use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Gateway, Session, Ack, Sent from "./shapes.contract"
 use MessageRow from "./transcript.contract"
 use Badge from "exact:content"
 
@@ -31,8 +31,6 @@ routes nav
     channel "/c/:channel"
 
 fn channelOf(cs: Channel[], id: string): Channel = match first(cs.filter(c => c.id == id)) { case some(c) => c, case none => Channel(id="", guild="", name="", topic="", version=0, unread=0, mentions=0, firstUnread="", firstUnreadAt=0, lastRead="", arrived=0, typing="") }
-fn versionOf(vs: Version[], id: string): number = match first(vs.filter(v => v.id == id)) { case some(v) => v.version, case none => 0 }
-fn historyOf(vs: Version[], id: string): number = match first(vs.filter(v => v.id == id)) { case some(v) => v.history, case none => 0 }
 // The gateway holds a session, or is opening one, so the heartbeat runs.
 fn connected(state: string): bool = state == "awaiting-hello" or state == "identifying" or state == "resuming" or state == "ready"
 
@@ -71,6 +69,8 @@ component Excord
   state savingStash = ""
   state unreadBar = false
   state unreadLabel = ""
+  state ackTries = 0
+  state pageTries = 0
   state baseArrived = 0
   state followed = 0
   state highlight = ""
@@ -95,13 +95,19 @@ component Excord
   state lagVersion = 0
   resource time = exactTime() as shape Time
   resource page = exactPage() as shape Page
-  resource gateway = gatewayState() as shape Gateway else empty(state="connecting")
+  // The gateway opens once the kept credentials are read, which only `session` reads, so
+  // keeping a new identify or token re-asks it and not the socket. The launch's epoch makes
+  // the session clock real from its first step.
+  resource session = loadSession() as shape Session else empty()
+  resource gateway = gatewayState(session.ready) with time.epochAtZero as shape Gateway else empty(state="connecting")
   resource guilds = loadGuilds(gateway.sidebar) as shape Guild[] else empty()
   derive guild = match first(guilds) { case some(g) => g, case none => Guild(id="", name="", unread=false, mentions=0) }
   resource channels = loadChannels(guild.id, gateway.sidebar) as shape Channel[] else empty()
   resource dms = loadDms(gateway.sidebar) as shape Channel[] else empty()
-  derive chanVersion = versionOf(gateway.versions, open)
-  derive histVersion = historyOf(gateway.versions, open)
+  // The snapshot carries the versions of the channel on screen; until it names the
+  // one just opened, the lists' version stands in, which moves with its changes too.
+  derive chanVersion = gateway.channel == open ? gateway.version : gateway.sidebar
+  derive histVersion = gateway.channel == open ? gateway.history : gateway.sidebar
   resource chan = loadChannel(open, chanVersion) as shape Channel else empty()
   // Slow history (the fixture's): the window is asked with the anchor and version as of
   // the last pump, every 150 ms of the test clock, as a real store's page takes a while.
@@ -116,7 +122,9 @@ component Excord
   mutation changed as shape Ack queue refreshes win, chan, channels, dms, guilds
   mutation edited as shape Ack refreshes win then afterEdit
   // An ack changes the read state, not the history the window shows.
-  mutation acked as shape Ack queue refreshes chan, channels, dms, guilds
+  mutation acked as shape Ack queue refreshes chan, channels, dms, guilds then afterAck
+  // The page the window names (`win.need`), one at a time.
+  mutation paged as shape Ack queue refreshes win, chan then afterPage
   mutation beat as shape Ack
   // The clock moved on and the gateway asked again: a backoff's retry.
   mutation redialed as shape Ack refreshes gateway
@@ -128,7 +136,8 @@ component Excord
   derive dividerKey = match first(rows.filter(r => r.isNew)) { case some(r) => r.key, case none => "" }
   // The window answers the reader's present request (a page or a jump has
   // landed). A window's pin asks for the same rows, so pinning it keeps it current.
-  derive current = win.channel == open and (win.anchor == anchor or win.pin == anchor)
+  // A window still lacking the page that holds its anchor (or its tail) answers nothing yet.
+  derive current = win.channel == open and (win.anchor == anchor or win.pin == anchor) and win.need != "around" and win.need != "latest"
   // The transcript is on screen, not the channel list.
   derive reading = top(nav).name == "channel"
   derive draft = draftOf(drafts, open)
@@ -164,8 +173,13 @@ component Excord
   // What the reader has seen at the end is acknowledged a second after it shows,
   // while the transcript is in front: at most one ack a second. Leaving the end
   // or the channel acknowledges at once what was on screen (`scrolled`, `back`).
-  task ack when reading and current and anchor == "" and not away and chan.unread > 0 and page.visibilityState == "visible"
+  // It is asked again when the channel changes (a message reached the tail after the
+  // ack chose its newest) and after a failed ack, at most three times.
+  task ack when reading and current and anchor == "" and not away and chan.unread > 0 and page.visibilityState == "visible" key=`${chan.version}/${ackTries}`
     after(1000, ackNow)
+  // The page the window lacks; a failed one is asked again, at most three times.
+  task fetchPage when win.channel == open and win.need != "" and pageTries < 3 and not pending(paged) key=`${win.channel}/${win.need}/${win.cursor}/${pageTries}`
+    after(1, pageNow)
   // The bar says what was unread when the channel opened: its label is held from
   // the first window that answers it, as arrivals and sends move the count on.
   task unreadLands when unreadBar and unreadLabel == "" and win.channel == open
@@ -188,6 +202,20 @@ component Excord
   action ackNow
     if not away
       send acked = markRead(open)
+  action afterAck
+    match acked
+      case some(r)
+        ackTries = r.ok ? 0 : min(3, ackTries + 1)
+      case none
+        ackTries = 0
+  action pageNow
+    send paged = loadPage(win.channel, win.need, win.cursor)
+  action afterPage
+    match paged
+      case some(r)
+        pageTries = r.ok ? 0 : pageTries + 1
+      case none
+        pageTries = 0
   action followEnd
     followed = chan.arrived
     if not away and endGap > 0.5
@@ -220,7 +248,9 @@ component Excord
     else
       anchor = ""
       target = ""
-    send joined = subscribe(id)
+    ackTries = 0
+    pageTries = 0
+    send joined = viewChannel(id)
     nav = push(nav, path("channel", id))
   // Leaving keeps the reader's place, puts an unsaved edit away and acknowledges
   // what was on screen at the end.
@@ -239,14 +269,16 @@ component Excord
       stash = ""
     if not away and anchor == "" and chan.unread > 0
       send acked = markRead(open)
+    send joined = viewChannel("")
 
   // The window: the reader's place decides which run of history it holds.
   // The reader is at the end within the last row's height of it (§3.7). The
-  // window moves a page (100 rows) when the first visible row comes within 50
-  // rows of its edge: `reachstart` alone gives one viewport of lead, which a fling
-  // overruns. Paging up leaves that row at index 100 to 150 and paging down at 50
-  // to 100, so the two thresholds never answer each other. A page is asked only
-  // of a window that answers the present request, whatever else is refreshing.
+  // window anchors at its first (last) row when the first visible row comes
+  // within 15 rows of that edge, and the data module then fetches the one page
+  // (50 rows) beyond it (§2: the next page only as the reader moves toward the
+  // edge): `reachstart` alone gives one viewport of lead, which a fling
+  // overruns. A page is asked only of a window that answers the present
+  // request, whatever else is refreshing.
   action scrolled(x: number, y: number, e: ScrollEvent)
     let k = match e.firstVisibleKey { case some(k) => k, case none => "" }
     let at = keys.indexOf(k)
@@ -271,10 +303,10 @@ component Excord
         if anchor != "" and not win.hasAfter
           anchor = ""
     if at >= 0 and current and target == ""
-      if at < 50 and win.hasBefore
+      if at < 15 and win.hasBefore
         anchor = win.firstId
       else
-        if at > keys.length - 50 and win.hasAfter
+        if at > keys.length - 15 and win.hasAfter
           anchor = win.lastId
     endGap = gap < 1 ? 0 : round(gap)
     topKey = k
