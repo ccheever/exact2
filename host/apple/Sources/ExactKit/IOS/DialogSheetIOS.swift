@@ -23,6 +23,16 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
     /// The dialog's box as the kernel laid it out: the sheet's height.
     private(set) var box = CGSize.zero
     private var backdropTap: UITapGestureRecognizer?
+    #if !os(tvOS)
+    private var maximumDetentHeight: CGFloat?
+    #endif
+    /// The presentation's height offer stays independent of the chosen detent.
+    var availableHeight: CGFloat? {
+        #if !os(tvOS)
+        if let maximumDetentHeight { return maximumDetentHeight }
+        #endif
+        return presentationController?.containerView?.safeAreaLayoutGuide.layoutFrame.height
+    }
     #if os(iOS)
     /// What the dialog's authored ancestors listen for: the sheet is out of
     /// the page their recognizers see (`MountRelay`).
@@ -40,8 +50,10 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
         // One resting height, the content's: overscroll and dismissal stay
         // UIKit's, and there is no grabber, as for a route's single detent.
         sheetPresentationController?.detents = [.custom(identifier: .init("exact.dialog")) { [weak self] context in
-            guard let height = self?.box.height, height > 0 else { return context.maximumDetentValue }
-            return min(height.rounded(.up), context.maximumDetentValue)
+            guard let self else { return context.maximumDetentValue }
+            maximumDetentHeight = context.maximumDetentValue
+            let height = box.height
+            return height > 0 ? min(height.rounded(.up), context.maximumDetentValue) : context.maximumDetentValue
         }]
         #endif
     }
@@ -221,10 +233,10 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
     var containingBlocks: [(UInt32, HostBlock)] {
         entries.compactMap { entry in
             let scroller = entry.controller.scroller
-            guard scroller.window != nil, !scroller.bounds.isEmpty else { return nil }
+            guard scroller.window != nil, !scroller.bounds.isEmpty,
+                  let height = entry.controller.availableHeight, height > 0 else { return nil }
             let inset = scroller.adjustedContentInset
-            let size = CGSize(width: max(0, scroller.bounds.width - inset.left - inset.right),
-                              height: max(0, scroller.bounds.height - inset.top - inset.bottom))
+            let size = CGSize(width: max(0, scroller.bounds.width - inset.left - inset.right), height: height)
             return (entry.dialog.id, HostBlock(width: .size(size.width), height: .fit(size.height)))
         }
     }

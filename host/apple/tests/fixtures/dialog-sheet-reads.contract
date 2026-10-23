@@ -1,5 +1,8 @@
 // The UIKit sheet's point reads cross the native top-layer ABI.
 component App
+  state contentHeight = 100
+  action grow
+    contentHeight = 300
   state hit = "unread"
   state hits = "unread"
   action read(e: PointerEvent)
@@ -14,3 +17,7 @@ component App
           text "Clipped"
       dialog id="responsive" width="100%" height=180
         text "Sheet width"
+      dialog id="growing" width=300
+        view width=100 height=contentHeight press=grow testId="grow-sheet"
+      dialog id="percentage" width=300 height="50%"
+        text "Half the available height"

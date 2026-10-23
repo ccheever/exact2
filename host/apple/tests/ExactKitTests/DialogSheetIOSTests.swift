@@ -1236,6 +1236,37 @@ final class DialogSheetIOSTests: XCTestCase {
         XCTAssertNil(p.owners.told[dialog.id], "closing returns the containing block")
     }
 
+    func testAnAutomaticSheetGrowsWhenItsRuntimeContentGrows() throws {
+        guard Self.scene else { throw missing("scene", "content growth changes the sheet detent") }
+        let session = try boot(planKey: "EXACT_DIALOG_SHEET_READS_PLAN"), p = session.presenter
+        p.dialogCommand("showModal", "growing")
+        settle { !p.menus.inTransition }
+        let sheet = try sheet(XCTUnwrap(window?.rootViewController))
+        XCTAssertEqual(sheet.box.height, 100, accuracy: 0.01)
+        p.press(try node(session, "grow-sheet").id)
+        XCTAssertEqual(sheet.box.height, 300, accuracy: 0.01)
+        settle { !p.menus.inTransition }
+        XCTAssertEqual(sheet.box.height, 300, accuracy: 0.01)
+    }
+
+    func testAPercentageSheetKeepsThePresentationContainersHeightBasis() throws {
+        guard Self.scene else { throw missing("scene", "percentage height is independent of the detent") }
+        let session = try boot(planKey: "EXACT_DIALOG_SHEET_READS_PLAN"), p = session.presenter
+        p.dialogCommand("showModal", "percentage")
+        settle { !p.menus.inTransition }
+        let sheet = try sheet(XCTUnwrap(window?.rootViewController))
+        let available = try XCTUnwrap(sheet.presentationController?.containerView).bounds.height
+        let height = sheet.box.height
+        XCTAssertGreaterThan(height, available * 0.4)
+        XCTAssertLessThan(height, available * 0.6)
+        for _ in 0..<3 {
+            sheet.view.setNeedsLayout()
+            sheet.view.layoutIfNeeded()
+            p.owners.publish()
+        }
+        XCTAssertEqual(sheet.box.height, height, accuracy: 0.01)
+    }
+
     /// The fixture's `native-dialog`, `dialog width=320 padding=16
     /// closedby="any"` holding an input and two buttons: its button's
     /// `command="show-modal"` raises a sheet with the kernel's 320-point box
