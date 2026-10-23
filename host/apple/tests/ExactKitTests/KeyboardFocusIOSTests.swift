@@ -231,6 +231,12 @@ final class KeyboardFocusIOSTests: XCTestCase {
         button.frame = CGRect(x: 32, y: 200, width: 250, height: 44)
         button.menu = UIMenu(children: [UIAction(title: "Chocolate Glaze") { _ in }, UIAction(title: "Blueberry Spread") { _ in }])
         view.addSubview(button)
+        let shortcut = NodeView(id: 901, kind: "button", presenter: p)
+        p.views[shortcut.id] = shortcut
+        p.root.addSubview(shortcut)
+        shortcut.frame = CGRect(x: 32, y: 350, width: 100, height: 44)
+        shortcut.handlers = ["press"]
+        shortcut.applyProps(set: ["accessibilityKeyShortcuts": "Meta+g"], clear: [])
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         XCTAssertTrue(view.becomeFirstResponder())
         button.performPrimaryAction()
@@ -245,12 +251,6 @@ final class KeyboardFocusIOSTests: XCTestCase {
         XCTAssertEqual(view.inputView?.bounds.height, 0, "shortcut focus must not request a system keyboard")
         button.contextMenuInteraction?.dismissMenu()
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
-        let shortcut = NodeView(id: 901, kind: "button", presenter: p)
-        p.views[shortcut.id] = shortcut
-        p.root.addSubview(shortcut)
-        shortcut.frame = CGRect(x: 32, y: 350, width: 100, height: 44)
-        shortcut.handlers = ["press"]
-        shortcut.applyProps(set: ["accessibilityKeyShortcuts": "Meta+g"], clear: [])
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
         let command = try XCTUnwrap(view.keyCommands?.first { $0.input == "g" && $0.modifierFlags == .command })
