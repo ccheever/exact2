@@ -158,7 +158,10 @@ globalThis.exact.mediaHold = (el, then = () => {}) => {
   // `metadata` rests once its metadata is in, and one of `none` before any. Idle with nothing decoded yet is a
   // download done ahead of its decoding: the metadata, and a seek bound to wait for it, are still to come.)
   const idle = () => el.networkState === 1 && (el.readyState >= 1 || el.preload === 'none');
-  const ready = () => !!el.error || (el.seeking !== true && (el.readyState >= 3 || idle() || !source()));
+  // (A seek the glue holds for the metadata, queued behind readiness: not at rest until it is made, but for a
+  // preload of none, which fetches nothing until played.)
+  const pending = () => states.get(el)?.seek != null && el.preload !== 'none';
+  const ready = () => !!el.error || (el.seeking !== true && (!source() || (!pending() && (el.readyState >= 3 || idle()))));
   if (gone.has(el) || ready()) return null; // (retired: nothing of it holds anything)
   let release;
   const names = ['seeked', 'canplay', 'error', 'emptied', 'stalled', 'suspend', 'loadedmetadata', 'loadeddata'];
