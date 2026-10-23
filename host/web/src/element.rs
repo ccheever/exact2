@@ -1292,19 +1292,22 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             }
         }
     }
-    // A platform button's floor (neutral.css: 36 px each way, 44 on a
-    // touch device) and its padding are the look's, and a size its
-    // author wrote is the author's. In CSS a minimum outranks a size, so
-    // the sheet is told which of the two were written and steps aside on
-    // that axis.
+    // Mark authored size and padding so neutral.css can remove the platform
+    // minimum on that axis; CSS minimums otherwise outrank the author's size
     if node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("button") {
-        let sizes: Vec<&str> = [(StyleId::Width, "width"), (StyleId::Height, "height")]
-            .into_iter()
-            .filter(|(id, _)| node.style.written.has(*id))
-            .map(|(_, name)| name)
-            .collect();
-        if !sizes.is_empty() {
-            out.insert("data-exact-said".into(), sizes.join(" "));
+        use StyleId::{Height, PaddingBottom, PaddingLeft, PaddingRight, PaddingTop, Width};
+        let written = |ids: &[StyleId]| ids.iter().any(|id| node.style.written.has(*id));
+        let said: Vec<&str> = [
+            (written(&[Width]), "width"),
+            (written(&[Height]), "height"),
+            (written(&[PaddingLeft, PaddingRight]), "padding-inline"),
+            (written(&[PaddingTop, PaddingBottom]), "padding-block"),
+        ]
+        .into_iter()
+        .filter_map(|(on, word)| on.then_some(word))
+        .collect();
+        if !said.is_empty() {
+            out.insert("data-exact-said".into(), said.join(" "));
         }
     }
     // A `<button>` submits a form unless it says otherwise; a `button` never does.
