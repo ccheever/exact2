@@ -97,7 +97,7 @@ extension NodeView {
     private func paintSurface(_ s: SurfaceLayer, _ box: CGRect) {
         let sides = ["top", "right", "bottom", "left"]
         let uniform = number("border_width")
-        let widths = sides.map { number("border_width_" + $0, uniform) }
+        let widths = sides.map { devicePixels(number("border_width_" + $0, uniform)) }
         let styles = sides.map { style["border_style_" + $0]?.string ?? "solid" }
         let top = color("border_color_top", .clear)
         let colors = sides.map { color("border_color_" + $0, top).cgColor }
