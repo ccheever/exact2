@@ -20,7 +20,21 @@ function request(input, init, redirect) {
   if (refusal) throw new TypeError(refusal);
   const raw = init.body == null ? undefined : new TextEncoder().encode(String(init.body));
   const request = typeof Request === 'function' && input instanceof Request ? input : null;
-  return { method: methodOf(input, init), url: request ? request.url : String(input), headers: [...new Headers(init.headers ?? request?.headers ?? [])], raw, bodyFrom, redirect, maxResponseBytes: independent ?? 1048576 };
+  const method = methodOf(input, init), url = request ? request.url : String(input);
+  return { method, url, headers: [...new Headers(init.headers ?? request?.headers ?? [])], raw, bodyFrom, redirect, maxResponseBytes: independent ?? 1048576, longPoll: longPollOf(init.exactLongPoll, method, url) };
+}
+// `exactLongPoll` (LLP 1016.000 D8), as js/src/prelude.js `longPollOf` checks it.
+function longPollOf(poll, method, url) {
+  if (poll === undefined) return undefined;
+  if (/^wss?:/i.test(url)) throw new TypeError('exactLongPoll: a long poll is HTTP, not a WebSocket');
+  if (method !== 'GET') throw new TypeError('exactLongPoll: a long poll asks with GET');
+  if (poll === null || typeof poll !== 'object') throw new TypeError('exactLongPoll is { cursor, from }');
+  const name = k => typeof poll[k] === 'string' && poll[k].length > 0 && poll[k].length <= 256;
+  if (!name('cursor')) throw new TypeError('exactLongPoll.cursor is the query parameter the cursor goes in, a name');
+  if (!name('from')) throw new TypeError("exactLongPoll.from is the reply's field the cursor comes from, a name");
+  if (poll.sameCursor !== undefined && poll.sameCursor !== 'heartbeat' && poll.sameCursor !== 'event')
+    throw new TypeError('exactLongPoll.sameCursor is "heartbeat" (the default) or "event"');
+  return { cursor: poll.cursor, from: poll.from, sameCursorEvent: poll.sameCursor === 'event' };
 }
 // A turn's operations, sent once its commit stands. The whole batch is
 // checked again before any frame: an earlier batch in the same commit may

@@ -234,6 +234,27 @@ fn coalesced_messages_are_counted_and_the_newest_lands() {
 }
 
 #[test]
+fn a_long_poll_waiting_to_ask_again_shows_retrying() {
+    let mut r = boot();
+    let ticket = one_stream(&mut r);
+    r.fulfill(ticket, message("1", 0)).unwrap();
+    r.set_retry_reader(std::sync::Arc::new(move |t| {
+        (t == ticket).then(|| crate::Retrying {
+            attempt: 2,
+            in_ms: 1900,
+            error: "HTTP \"503\"".into(),
+        })
+    }));
+    let state = crate::agent::state(&r);
+    assert!(
+        state.contains(
+            "\"coalesced\":0,\"retrying\":{\"attempt\":2,\"inMs\":1900,\"error\":\"HTTP \\\"503\\\"\"}}]"
+        ),
+        "{state}"
+    );
+}
+
+#[test]
 fn a_gap_reopens_the_stream_from_its_cursor() {
     let mut r = boot();
     r.data().reopen_on_gap = true;

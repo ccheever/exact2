@@ -1,0 +1,469 @@
+//! A long poll, natively (LLP 1016.000 D8): a stream whose request says
+//! `long_poll`. The host asks the URL, delivers each 2xx reply with a body
+//! as one message (its `id` the new cursor, its `data` the body's text), and
+//! asks again with the cursor the reply gives, set in the named query
+//! parameter. One request is in flight at a time, on this stream's own
+//! thread. A heartbeat (a 204, a 304, an empty body, or, unless
+//! `same_cursor_event`, a reply whose cursor is the one asked with) is asked
+//! again with no message. A transient failure (the network, a 408, 429,
+//! 502, 503 or 504) is asked again after `Retry-After` (at most 60 s) or a
+//! backoff of 1, 2, 4, 8, 16 and then 30 s, each within a fifth either way,
+//! reset by any 2xx. Anything else ends the stream as a stream's one answer
+//! does: a status that is not one of those, a 2xx that is not JSON, one
+//! with no cursor, an event stream, a body past the ceiling. Forgetting the
+//! ticket aborts the request in flight and any wait.
+use super::super::{check_headers, failed, fetch_failure, fetch_request, Shared};
+use super::message;
+use exact_runner::{FailureKind, LongPoll, Message, Outcome, Request, Response, Retrying};
+use ibex2::stdlib::abort::AbortController;
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
+
+/// The longest `Retry-After` honoured, and the backoff's ceiling.
+const RETRY_AFTER_MAX_MS: u64 = 60_000;
+const BACKOFF_MAX_MS: u64 = 30_000;
+
+/// What one ask came to.
+enum Asked {
+    /// A reply, read whole: its status, headers and body.
+    Reply(u16, Vec<(String, String)>, Vec<u8>),
+    /// It failed in a way a long poll asks again after: the network.
+    Transient(String),
+    /// It ended the stream.
+    End(Outcome),
+}
+
+impl super::super::Core {
+    /// Each long poll's backoff wait, by its stream ticket, read live: what
+    /// `state.streams` shows as `retrying`.
+    pub(crate) fn retry_reader(&self) -> exact_runner::RetryReader {
+        let shared = self.shared.clone();
+        Arc::new(move |ticket| {
+            let retrying = shared.retrying.lock().unwrap();
+            let (attempt, at, error) = retrying.get(&ticket)?;
+            Some(Retrying {
+                attempt: *attempt,
+                in_ms: at.saturating_duration_since(Instant::now()).as_millis() as u64,
+                error: error.clone(),
+            })
+        })
+    }
+}
+
+/// Run the long poll `ticket` (its first request `request`) until the
+/// runner lets it go or a reply ends it.
+pub(super) fn run(
+    shared: &Shared,
+    ticket: u64,
+    request: Request,
+    forced: bool,
+    b: &ibex2::host::Bindings,
+    limit: usize,
+    abort: AbortController,
+) {
+    let terms = request.long_poll.as_deref().cloned().unwrap_or(LongPoll {
+        cursor: String::new(),
+        from: String::new(),
+        same_cursor_event: false,
+    });
+    let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // (a Rust source's request is checked here; the prelude refused a TypeScript one already)
+        let http = ["http://", "https://"].iter().any(|s| {
+            (request.url.get(..s.len())).is_some_and(|p| p.eq_ignore_ascii_case(s))
+        });
+        if !http {
+            return failed(FailureKind::Refused, "exactLongPoll: a long poll is HTTP, not a WebSocket");
+        }
+        if !request.method.eq_ignore_ascii_case("GET") || !request.body.is_empty() || request.body_from.is_some() {
+            return failed(FailureKind::Refused, "exactLongPoll: a long poll is a GET with no body");
+        }
+        let mut url = request.url.clone();
+        let mut failures: u32 = 0;
+        loop {
+            if abort.signal().aborted() {
+                return failed(FailureKind::Aborted, "native request aborted");
+            }
+            let asked_with = query_value(&url, &terms.cursor);
+            let mut req = request.clone();
+            req.url = url.clone();
+            let (wait, error) = match ask(b, req, forced, limit, &abort) {
+                Asked::End(outcome) => return outcome,
+                Asked::Transient(_) if abort.signal().aborted() => {
+                    return failed(FailureKind::Aborted, "native request aborted")
+                }
+                Asked::Transient(error) => (backoff(ticket, &mut failures), error),
+                Asked::Reply(status, headers, body) => match status {
+                    204 | 304 => {
+                        failures = 0;
+                        continue;
+                    }
+                    200..=299 => {
+                        failures = 0;
+                        if body.iter().all(u8::is_ascii_whitespace) {
+                            continue;
+                        }
+                        let event_stream = headers.iter().any(|(k, v)| {
+                            k.eq_ignore_ascii_case("content-type")
+                                && v.split(';').next().is_some_and(|t| {
+                                    t.trim().eq_ignore_ascii_case("text/event-stream")
+                                })
+                        });
+                        if event_stream {
+                            return failed(
+                                FailureKind::Refused,
+                                "an event stream under exactLongPoll: a long poll's replies are JSON",
+                            );
+                        }
+                        let Some(next) = cursor_of(&body, &terms.from) else {
+                            return Outcome::Response(Response { status, headers, body });
+                        };
+                        if !terms.same_cursor_event && asked_with.as_deref() == Some(next.as_str()) {
+                            continue;
+                        }
+                        let m = Message {
+                            id: next.clone(),
+                            data: String::from_utf8_lossy(&body).into_owned(),
+                            ..Message::default()
+                        };
+                        if !message(shared, ticket, m) {
+                            return failed(FailureKind::Aborted, "the stream was let go");
+                        }
+                        url = with_query_value(&url, &terms.cursor, &next);
+                        continue;
+                    }
+                    408 | 429 | 502 | 503 | 504 => {
+                        let wait = match retry_after(&headers, now_epoch_ms()) {
+                            Some(ms) => {
+                                failures = failures.saturating_add(1);
+                                ms
+                            }
+                            None => backoff(ticket, &mut failures),
+                        };
+                        (wait, format!("HTTP {status}"))
+                    }
+                    _ => return Outcome::Response(Response { status, headers, body }),
+                },
+            };
+            let at = Instant::now() + Duration::from_millis(wait);
+            (shared.retrying.lock().unwrap()).insert(ticket, (failures, at, error));
+            let waited = pause(&abort, wait);
+            shared.retrying.lock().unwrap().remove(&ticket);
+            if !waited {
+                return failed(FailureKind::Aborted, "native request aborted");
+            }
+        }
+    }))
+    .unwrap_or_else(|_| failed(FailureKind::Aborted, "the long poll panicked"));
+    shared.retrying.lock().unwrap().remove(&ticket);
+    super::super::complete(shared, ticket, run);
+}
+
+/// One request of the poll, its reply read whole within `limit`.
+fn ask(
+    b: &ibex2::host::Bindings,
+    request: Request,
+    forced: bool,
+    limit: usize,
+    abort: &AbortController,
+) -> Asked {
+    let mut req = fetch_request(request, forced);
+    if !req.headers.has("accept") {
+        req.headers.set("accept", "application/json");
+    }
+    req.max_body = Some(usize::MAX);
+    let r = match b.fetch.stream(req, &abort.signal()).and_then(check_headers) {
+        Ok(r) => r,
+        Err(e) => {
+            return match fetch_failure(e, abort) {
+                Outcome::Failed {
+                    kind: FailureKind::Network | FailureKind::Timeout,
+                    message,
+                } => Asked::Transient(message),
+                other => Asked::End(other),
+            }
+        }
+    };
+    let (status, headers) = (r.status, r.headers.entries().to_vec());
+    let mut body = r.body;
+    let mut bytes = Vec::new();
+    let mut chunk = [0; 16 * 1024];
+    loop {
+        match body.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) if bytes.len() + n > limit => {
+                body.cancel();
+                return Asked::End(failed(FailureKind::Refused, "HTTP response exceeds limit"));
+            }
+            Ok(n) => bytes.extend_from_slice(&chunk[..n]),
+            Err(_) if abort.signal().aborted() => {
+                return Asked::End(failed(FailureKind::Aborted, "native request aborted"))
+            }
+            Err(e) => return Asked::Transient(e.to_string()),
+        }
+    }
+    Asked::Reply(status, headers, bytes)
+}
+
+/// The cursor a reply's JSON gives at `from` (`a` or `a.b`): a string as it
+/// is, a number as JSON writes it; none for anything else.
+fn cursor_of(body: &[u8], from: &str) -> Option<String> {
+    let json: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let mut at = &json;
+    for part in from.splitn(2, '.') {
+        at = at.get(part)?;
+    }
+    match at {
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+/// The value of query parameter `name` in `url`, decoded; none when absent.
+pub(crate) fn query_value(url: &str, name: &str) -> Option<String> {
+    let query = url.split('#').next()?.split_once('?')?.1;
+    query.split('&').find_map(|pair| {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        (decode(k) == name).then(|| decode(v))
+    })
+}
+
+/// `url` with query parameter `name` set to `value` (replaced where it is,
+/// else appended), every other parameter and the fragment kept.
+pub(crate) fn with_query_value(url: &str, name: &str, value: &str) -> String {
+    let (base, fragment) = match url.split_once('#') {
+        Some((b, f)) => (b, Some(f)),
+        None => (url, None),
+    };
+    let (path, query) = base.split_once('?').unwrap_or((base, ""));
+    let pair = format!("{}={}", encode(name), encode(value));
+    let mut found = false;
+    let mut parts: Vec<String> = Vec::new();
+    for p in query.split('&').filter(|p| !p.is_empty()) {
+        let k = p.split_once('=').map_or(p, |(k, _)| k);
+        if decode(k) == name {
+            if !found {
+                parts.push(pair.clone());
+                found = true;
+            }
+        } else {
+            parts.push(p.to_string());
+        }
+    }
+    if !found {
+        parts.push(pair);
+    }
+    let mut out = format!("{path}?{}", parts.join("&"));
+    if let Some(f) = fragment {
+        out.push('#');
+        out.push_str(f);
+    }
+    out
+}
+
+fn decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => out.push(b' '),
+            b'%' if i + 2 < bytes.len() => {
+                match u8::from_str_radix(
+                    std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or(""),
+                    16,
+                ) {
+                    Ok(b) => {
+                        out.push(b);
+                        i += 2;
+                    }
+                    Err(_) => out.push(b'%'),
+                }
+            }
+            b => out.push(b),
+        }
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn encode(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+/// The next backoff wait, in ms, for a stream's `failures`-th failure in a
+/// row: 1, 2, 4, 8, 16, then 30 s, within a fifth either way.
+fn backoff(ticket: u64, failures: &mut u32) -> u64 {
+    let base = (1000u64 << (*failures).min(5)).min(BACKOFF_MAX_MS);
+    *failures = failures.saturating_add(1);
+    // (a jitter of its own, from the ticket and the attempt: no shared randomness)
+    let mut x = ticket.wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        ^ u64::from(*failures).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    x ^= x >> 31;
+    let fifth = base / 5;
+    base - fifth + x % (2 * fifth + 1)
+}
+
+/// `Retry-After` in ms (seconds, or an HTTP date from `now`), at most a minute.
+pub(crate) fn retry_after(headers: &[(String, String)], now_ms: u64) -> Option<u64> {
+    let v = headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("retry-after"))
+        .map(|(_, v)| v.trim())?;
+    let ms = match v.parse::<u64>() {
+        Ok(secs) => secs.saturating_mul(1000),
+        Err(_) => http_date_ms(v)?.saturating_sub(now_ms),
+    };
+    Some(ms.min(RETRY_AFTER_MAX_MS))
+}
+
+/// An IMF-fixdate (`Sun, 06 Nov 1994 08:49:37 GMT`) as ms since the epoch.
+fn http_date_ms(v: &str) -> Option<u64> {
+    let parts: Vec<&str> = v.split_whitespace().collect();
+    let [_, day, month, year, time, "GMT"] = parts.as_slice() else {
+        return None;
+    };
+    let months = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let m = months.iter().position(|x| x == month)? as i64 + 1;
+    let (d, y): (i64, i64) = (day.parse().ok()?, year.parse().ok()?);
+    let hms: Vec<i64> = time
+        .split(':')
+        .map(|x| x.parse().ok())
+        .collect::<Option<_>>()?;
+    let [h, mi, s] = hms.as_slice() else {
+        return None;
+    };
+    // Days from the civil date (Howard Hinnant's algorithm).
+    let (y2, m2) = if m <= 2 { (y - 1, m + 9) } else { (y, m - 3) };
+    let era = y2.div_euclid(400);
+    let yoe = y2 - era * 400;
+    let doy = (153 * m2 + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    let secs = days * 86_400 + h * 3600 + mi * 60 + s;
+    u64::try_from(secs).ok().map(|s| s * 1000)
+}
+
+fn now_epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
+}
+
+/// Wait `ms`, or less when `abort` fires: whether it waited it out.
+fn pause(abort: &AbortController, ms: u64) -> bool {
+    let woken = Arc::new((Mutex::new(false), Condvar::new()));
+    let _registration = {
+        let woken = woken.clone();
+        abort.signal().register(move || {
+            *woken.0.lock().unwrap() = true;
+            woken.1.notify_all();
+        })
+    };
+    let deadline = std::time::Instant::now() + Duration::from_millis(ms);
+    let mut aborted = woken.0.lock().unwrap();
+    while !*aborted {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            return true;
+        }
+        aborted = woken.1.wait_timeout(aborted, left).unwrap().0;
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_cursor_parameter_is_set_where_it_is_or_appended() {
+        assert_eq!(
+            with_query_value("https://x.test/changes?since=0&wait=25", "since", "7"),
+            "https://x.test/changes?since=7&wait=25"
+        );
+        assert_eq!(
+            with_query_value("https://x.test/changes?wait=25", "since", "a b"),
+            "https://x.test/changes?wait=25&since=a%20b"
+        );
+        assert_eq!(
+            with_query_value("https://x.test/changes", "since", "7"),
+            "https://x.test/changes?since=7"
+        );
+        assert_eq!(
+            with_query_value("https://x.test/c?since=1#top", "since", "2"),
+            "https://x.test/c?since=2#top"
+        );
+        assert_eq!(
+            query_value("https://x.test/c?a=1&since=a%20b", "since").as_deref(),
+            Some("a b")
+        );
+        assert_eq!(query_value("https://x.test/c?a=1", "since"), None);
+    }
+
+    #[test]
+    fn the_cursor_is_a_string_or_a_number_at_its_field() {
+        assert_eq!(
+            cursor_of(br#"{"seq":12,"changes":[]}"#, "seq").as_deref(),
+            Some("12")
+        );
+        assert_eq!(
+            cursor_of(br#"{"meta":{"next":"abc"}}"#, "meta.next").as_deref(),
+            Some("abc")
+        );
+        assert_eq!(cursor_of(br#"{"seq":null}"#, "seq"), None);
+        assert_eq!(cursor_of(br#"not json"#, "seq"), None);
+    }
+
+    #[test]
+    fn retry_after_and_backoff_are_bounded() {
+        let h = |v: &str| vec![("Retry-After".to_string(), v.to_string())];
+        assert_eq!(retry_after(&h("3"), 0), Some(3000));
+        assert_eq!(retry_after(&h("3600"), 0), Some(60_000));
+        let now = http_date_ms("Sun, 06 Nov 1994 08:49:37 GMT").unwrap();
+        assert_eq!(
+            retry_after(&h("Sun, 06 Nov 1994 08:49:42 GMT"), now),
+            Some(5000)
+        );
+        assert_eq!(retry_after(&[], 0), None);
+        let mut failures = 0;
+        let waits: Vec<u64> = (0..8).map(|_| backoff(7, &mut failures)).collect();
+        for (w, base) in waits
+            .iter()
+            .zip([1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000])
+        {
+            assert!(
+                *w >= base - base / 5 && *w <= base + base / 5,
+                "{w} near {base}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_pause_ends_at_once_when_aborted() {
+        let abort = AbortController::new();
+        let a = abort.clone();
+        let t = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            a.abort();
+        });
+        let start = std::time::Instant::now();
+        assert!(!pause(&abort, 10_000));
+        assert!(start.elapsed() < Duration::from_secs(2));
+        t.join().unwrap();
+    }
+}
+
+#[cfg(test)]
+#[path = "executor_longpoll_tests.rs"]
+mod loop_tests;

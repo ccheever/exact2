@@ -475,6 +475,8 @@ pub struct Runner<D: DataSource> {
     sockets: Vec<crate::SocketSend>,
     /// The host's live count of a socket's buffered bytes (D7), if it has one.
     socket_reader: Option<sockets::SocketReader>,
+    /// The host's live view of its long polls' backoff waits (D8), if it has one.
+    retry_reader: Option<crate::RetryReader>,
     mutation_requests: u64,
     /// Resources an action asked to re-request; consumed by the next settle
     /// that can ask them (LLP 1054.000.000 D2).
@@ -934,6 +936,7 @@ impl<D: DataSource> Runner<D> {
             requests: Vec::new(),
             sockets: Vec::new(),
             socket_reader: None,
+            retry_reader: None,
             mutation_requests: 0,
             refresh_next: Vec::new(),
             writes: writes::Writes::default(),

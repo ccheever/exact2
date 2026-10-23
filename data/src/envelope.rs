@@ -170,6 +170,9 @@ fn request_json(request: &Request) -> Json {
         "headers": request.headers,
         "body": base64(&request.body),
         "stream": request.stream,
+        "long_poll": request.long_poll.as_ref().map(|p| json!({
+            "cursor": p.cursor, "from": p.from, "same_cursor_event": p.same_cursor_event,
+        })),
         "timeout_ms": request.timeout_ms,
         "body_from": request.body_from,
         "redirect": (request.redirect != Redirect::Follow).then(|| request.redirect.name()),
@@ -222,6 +225,24 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
         // stream: a body that is not events is its one answer.
         socket: false,
         bytes: false,
+        // A long poll (LLP 1016.000 D8) a worker's source asked for: its
+        // terms, checked as the prelude checks them.
+        long_poll: match &json["long_poll"] {
+            Json::Null => None,
+            poll => {
+                let name = |key: &str| {
+                    (poll[key].as_str())
+                        .filter(|s| (1..=256).contains(&s.chars().count()))
+                        .map(str::to_string)
+                        .ok_or_else(|| unavailable("turn reply: invalid long poll terms"))
+                };
+                Some(Box::new(exact_runner::LongPoll {
+                    cursor: name("cursor")?,
+                    from: name("from")?,
+                    same_cursor_event: poll["same_cursor_event"].as_bool().unwrap_or(false),
+                }))
+            }
+        },
         timeout_ms: match &json["timeout_ms"] {
             Json::Null => None,
             value => Some(
@@ -312,6 +333,25 @@ mod tests {
         let outcome = encode(Ok(Answer::Later(request)), &mut Store::default(), vec![]);
         match apply(outcome, &mut Store::default(), &mut Vec::new()).unwrap() {
             Answer::Later(r) => assert!(r.stream && !r.socket && !r.bytes, "{r:?}"),
+            _ => panic!("a yield"),
+        }
+    }
+
+    #[test]
+    fn a_worker_s_long_poll_keeps_its_terms() {
+        let request = Request {
+            stream: true,
+            ..Request::get("https://x.test/changes?since=0")
+                .independent_http(4096)
+                .long_poll("since", "seq")
+        };
+        let outcome = encode(
+            Ok(Answer::Later(request.clone())),
+            &mut Store::default(),
+            vec![],
+        );
+        match apply(outcome, &mut Store::default(), &mut Vec::new()).unwrap() {
+            Answer::Later(r) => assert_eq!(r.long_poll, request.long_poll),
             _ => panic!("a yield"),
         }
     }
