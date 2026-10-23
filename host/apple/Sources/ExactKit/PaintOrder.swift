@@ -12,6 +12,8 @@ private var paintRanksKey: UInt8 = 0
 private var paintForegroundKey: UInt8 = 0
 private final class DensePaintRanks {
     var positions: [Int64: CGFloat] = [0: 0]
+    /// The highest depth a child was placed at.
+    var top: CGFloat = 0
     static func existing(_ parent: PaintView) -> DensePaintRanks? {
         objc_getAssociatedObject(parent, &paintRanksKey) as? DensePaintRanks
     }
@@ -147,7 +149,16 @@ extension NodeView {
             return max(own, under + 0.0005)
         }
         #endif
-        for child in children { child.setPaintPosition(place(child)) }
+        var top: CGFloat = 0
+        for child in children {
+            let z = place(child)
+            child.setPaintPosition(z)
+            top = max(top, z)
+        }
+        dense?.top = top
+        #if os(iOS) || os(tvOS)
+        (parent as? ScrollView)?.keepPlatformViewsOver()
+        #endif
     }
 
     /// Live children may reorder around an exit, but the ghost keeps its
@@ -247,6 +258,27 @@ extension NSView {
 #endif
 
 #if os(iOS) || os(tvOS)
+extension ScrollView {
+    /// UIKit hangs a scroller's edge effect (iOS 26) in a view after its
+    /// content, at depth 0, to draw over it. A child ranked above 0 (one
+    /// holding a native button, a `position: relative` card, a `z-index`)
+    /// would paint over the effect and run sharp under the bar, so each
+    /// view of UIKit's after the last ranked child goes to the top child's
+    /// depth, where its later place puts it over them. One with a depth of
+    /// its own (the indicators' 1000, a view sent behind) keeps it. After a
+    /// ranking, and after UIKit's layout, which adds and moves its views.
+    /// Not the viewport, whose children are the host's document and
+    /// presentations.
+    func keepPlatformViewsOver() {
+        guard !(self is Viewport), let top = DensePaintRanks.existing(self)?.top, top > 0 else { return }
+        for view in subviews.reversed() {
+            if view is NodeView || view is FlightClip || view.paintForeground { return }
+            let z = view.layer.zPosition
+            if z >= 0, z < top { view.layer.zPosition = top }
+        }
+    }
+}
+
 /// A leaf has no UIView, but it still occludes siblings for input. Runs
 /// retain each border box: the gaps between their shapes remain hittable.
 final class FlatHit {
