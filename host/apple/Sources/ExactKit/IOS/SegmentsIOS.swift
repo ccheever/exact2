@@ -324,7 +324,11 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             if let child = presenter.views[childID] { child.isHidden = hidden.removeValue(forKey: childID) ?? false }
             else { hidden.removeValue(forKey: childID) }
         }
-        controls.removeValue(forKey: id)?.removeFromSuperview()
+        if let control = controls.removeValue(forKey: id) {
+            control.removeFromSuperview()
+            presenter.views[id]?.applyBoxLayer()
+            presenter.views[id]?.setNeedsDisplay()
+        }
         removeBar(owner: id)
         clearSize(owner: id)
     }
@@ -407,7 +411,11 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
     /// are the authored ones — a selected symbol's and an unselected one's —
     /// so an app's accent is the tab bar's; unsaid, the platform's tint.
     private func project(_ owner: NodeView, _ tabs: [NodeView], _ faces: [TabBarFace]) {
-        controls.removeValue(forKey: owner.id)?.removeFromSuperview()
+        if let control = controls.removeValue(forKey: owner.id) {
+            control.removeFromSuperview()
+            owner.applyBoxLayer()
+            owner.setNeedsDisplay()
+        }
         adopt(owner, tabs)
         let bar = bars[owner.id] ?? {
             let value = ExactTabBar(ownerID: owner.id)
@@ -533,6 +541,10 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             }()
             if control.superview !== owner { owner.addSubview(control) }
             assign(control, \.isEnabled, available(owner))
+            // The authored colour belongs to UIKit's control, within its native height and corners.
+            assign(control, \.backgroundColor, owner.channels("background_color").map { TextEngine.color($0) })
+            owner.applyBoxLayer()
+            owner.setNeedsDisplay()
             control.accessibilityLabel = owner.props["accessibilityLabel"]
             if control.numberOfSegments != tabs.count {
                 control.removeAllSegments()

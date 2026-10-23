@@ -77,7 +77,7 @@ extension ControlHost {
         assign(button, \.tintColor, accent)
         #if os(iOS)
         if let select = button as? SelectButtonIOS {
-            select.valueAlignment = selectAlignment(owner)
+            select.valueAlignment = valueAlignment(owner)
             let direction: UISemanticContentAttribute = owner.style["direction"]?.string == "rtl" ? .forceRightToLeft : .forceLeftToRight
             if select.semanticContentAttribute != direction {
                 select.semanticContentAttribute = direction
@@ -96,8 +96,8 @@ extension ControlHost {
     }
 
     #if os(iOS)
-    /// Align the closed value independently of its indicator. Logical edges follow the computed direction.
-    func selectAlignment(_ owner: NodeView) -> UIControl.ContentHorizontalAlignment {
+    /// Align closed select and date values; logical edges follow the computed direction.
+    func valueAlignment(_ owner: NodeView) -> UIControl.ContentHorizontalAlignment {
         let rtl = owner.style["direction"]?.string == "rtl"
         // Unwritten label/value rows trail the value; a value on its own line starts.
         if !owner.wrote("text_align"), ["left", "start", nil].contains(owner.style["text_align"]?.string), let beside = besideLabel(owner) {
