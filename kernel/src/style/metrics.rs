@@ -249,7 +249,7 @@ mod tests {
             ("grouped-card-radius", Number(26.0), Number(10.0)),
             ("grouped-card-inset", Number(16.0), Number(20.0)),
             ("grouped-section-max-width", Text("unset"), Number(744.0)),
-            ("grouped-section-top", Number(17.33), Number(10.0)),
+            ("grouped-section-top", Number(35.0), Number(10.0)),
             ("grouped-section-top-first", Number(35.33), Number(20.0)),
             ("grouped-header-weight", Number(600.0), Number(700.0)),
             (

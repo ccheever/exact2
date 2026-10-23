@@ -5835,7 +5835,7 @@
     ["grouped-section-width", "style length", "unset", "100%", "unset", "unset"],
     ["grouped-section-max-width", "style length", "unset", 744, "unset", "unset"],
     ["grouped-section-margin-inline", "style length", "unset", "auto", "unset", "unset"],
-    ["grouped-section-top", "style length", 17.33, 10, 17.33, 17.33],
+    ["grouped-section-top", "style length", 35, 10, 35, 35],
     ["grouped-section-top-first", "style length", 35.33, 20, 35.33, 35.33],
     ["grouped-section-top-header", "style length", 0, 30, 0, 0],
     ["grouped-section-top-header-first", "style length", 0, 20, 0, 0],
