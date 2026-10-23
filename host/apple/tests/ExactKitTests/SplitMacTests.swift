@@ -866,6 +866,11 @@ final class SplitMacTests: XCTestCase {
                 XCTAssertTrue(pop.isDescendant(of: pane))
                 let shown = pop.convert(pop.bounds, to: nil), invoker = opener.convert(opener.bounds, to: nil)
                 XCTAssertEqual(shown.minX, invoker.minX, accuracy: 1, "\(shown) under \(invoker)")
+                // A menu-shaped one (AppKit's menu) pops up there too, not clamped into the list.
+                let menu = NSMenu()
+                menu.addItem(withTitle: "Row", action: nil, keyEquivalent: "")
+                menu.minimumWidth = 100
+                XCTAssertEqual(p.menus.popUpPoint(menu, pop, in: opener).x, 0, accuracy: 1, "under its invoker's left edge")
                 // Escape closes it with the keyboard still in the pane.
                 XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(try node("field-a").field)))
                 let escape = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
