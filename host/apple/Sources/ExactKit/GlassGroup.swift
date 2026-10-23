@@ -422,7 +422,7 @@ extension NodeView {
         glassIsolation = nil
         let content = isolation.subviews.first { $0 is GlassContent } ?? isolation
         GlassGroups.moving(in: self) {
-            for held in content.subviews { addSubview(held, positioned: .below, relativeTo: subviews.first) }
+            for held in content.subviews.reversed() { addSubview(held, positioned: .below, relativeTo: subviews.first) }
             isolation.removeFromSuperview()
         }
     }
@@ -444,8 +444,10 @@ extension NodeView {
         content.autoresizingMask = [.width, .height]
         made.contentView = content
         GlassGroups.moving(in: self) {
+            let parked = materialContent.flatMap { $0.superview === material.superview ? $0 : nil }
             addSubview(made, positioned: .below, relativeTo: material)
             content.addSubview(material)
+            if let parked { content.addSubview(parked) }
         }
         glassIsolation = made
         return true
