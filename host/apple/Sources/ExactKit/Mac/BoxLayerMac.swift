@@ -288,11 +288,13 @@ extension NodeView {
         if g.superlayer !== layer { insertBoxSublayer(g) }
         if g.frame != layer.bounds { g.frame = layer.bounds }
         let radius = p.radius
-        let round = radius > 0 && p.oneRadius
+        let round = radius > 0 && p.oneRadius && !p.partialCorners
         if g.cornerRadius != (round ? radius : 0) { g.cornerRadius = round ? radius : 0 }
         if round, g.maskedCorners != p.corners { g.maskedCorners = p.corners }
         if g.cornerCurve != p.curve { g.cornerCurve = p.curve }
         if g.masksToBounds != round { g.masksToBounds = round }
+        g.mask = p.partialCorners ? ClipPath.mask(BorderPaint.roundedRect(bounds,
+            cornerSizes(in: bounds), shape: CornerShape(style["corner_shape"]))) : nil
         gradient.apply(g, bounds: layer.bounds, box: gradientBox, dark: drawsDark, limit: style["dynamic_range_limit"]?.string)
     }
 
