@@ -159,7 +159,7 @@ on macOS and Linux.
   page whose selection moved while the frame was on its way reports its selection as it is now;
   `unsupported` with `what: "inspect"` is only a page that can't step at all (none of the shipped hosts now: the web pages and Apple's step),
   which a client takes as no `select` there, not as no inspect.
-- `tamber/1.17` (stage 14, after stage 13 closed) adds `import`'s kind `pen`, Pencil's `.pen` file
+- `tamber/1.17` (stage 14, after stage 13 closed) is opened by the `pen` importer (stage 14 A): it adds `import`'s kind `pen`, Pencil's `.pen` file
   (stage 13 B, carried into stage 14 A), and every import's `notes` (in the held proposal's `review`
   when it has any): what decided a choice the source didn't say, a Pencil number's kind; and an
   import's `prefix` is at most 128 characters, for every kind (a correction: a longer one is refused).
