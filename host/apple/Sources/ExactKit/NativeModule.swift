@@ -646,12 +646,15 @@ final class NativeViews {
         activateHatches()
         guard hasAppModule, instance == nil, case .success(let table) = self.table() else { return }
         _ = module(table)
-        // Its extensions answer their names from now on, outside the agent;
-        // under the agent the runner's substitute does (LLP 1124 D7), unless
-        // the drive binds one (`--bind`).
-        let bound = ExactEnv.agentMode ? table.extensions.filter(ExactEnv.agentBind.contains) : table.extensions
-        if !bound.isEmpty, let session {
-            session.runtime.bindExtensions(bound)
+        // Its extensions answer their names from now on, outside the agent.
+        // Under the agent those the drive binds (`--bind`) answer as in
+        // production, and the rest are told they run under the agent: they
+        // answer an interface that is its own substitute, and the runner's
+        // substitute every other (LLP 1124 D7, LLP 1133.006 D8).
+        let real = ExactEnv.agentMode ? table.extensions.filter(ExactEnv.agentBind.contains) : table.extensions
+        let agent = ExactEnv.agentMode ? table.extensions.filter { !ExactEnv.agentBind.contains($0) } : []
+        if !(real.isEmpty && agent.isEmpty), let session {
+            session.runtime.bindExtensions(real + agent.map { "agent " + $0 })
         }
     }
 
