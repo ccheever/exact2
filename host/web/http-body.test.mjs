@@ -412,6 +412,9 @@ test('a retry asks no sooner than the floor, a busy body is never read, and a cu
     const r = standIn([]);
     const ws = await request({ method: 'GET', url: r.origin.replace('http', 'ws'), headers: [], body: '', stream: true, longPoll: { cursor: 'since', from: 'seq', sameCursorEvent: false } }, { grantSet: normalized(`net.fetch ${r.origin}\nnet.websocket ${r.origin.replace('http', 'ws')}`), controllers: new Set(), controller: new AbortController() });
     assert.match(new TextDecoder().decode(ws.body), /HTTP, not a WebSocket/);
+    // (an http URL with no `//` is refused, as natively)
+    const { longPollRefusal } = await import('./http-body.js');
+    assert.match(longPollRefusal({ url: 'https:example.test/changes', stream: true, longPoll: { cursor: 'since', from: 'seq', sameCursorEvent: false } }, 'GET', ''), /HTTP, not a WebSocket/);
     const plain = await longPoll(r, new AbortController(), [], {}, { stream: false });
     assert.match(new TextDecoder().decode(plain.body), /a stream's/);
     const deep = await longPoll(r, new AbortController(), [], { from: 'a.b.c' });
