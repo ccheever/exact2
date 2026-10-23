@@ -269,14 +269,16 @@ package final class TextSelection {
             if self.gesture == current, !(responder is NSWindow || responder === self.presenter?.viewport) { self.clear() }
         }
     }
-    /// A click begins a selection without ending a field's editing. A
-    /// double click, Shift-click or drag takes the focus for text selection. The
+    /// A plain click keeps a field's editor. Other selection presses take
+    /// focus unless retainFocus applies. The
     /// focus moving between two paragraphs clears a selection; not one this
     /// click is about to extend.
     func press(_ node: NodeView, event: NSEvent) {
         holding = event.modifierFlags.contains(.shift) && anchor != nil
         let editing = (node.window?.firstResponder as? NSTextView)?.isEditable == true
-        if !editing || holding || event.clickCount > 1 || atomic(node) { node.window?.makeFirstResponder(node) }
+        if !node.retainsFocus && (!editing || holding || event.clickCount > 1 || atomic(node)) {
+            node.window?.makeFirstResponder(node)
+        }
         holding = false
         begin(node, event: event)
     }

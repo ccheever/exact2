@@ -516,7 +516,7 @@ if (host === 'web') {
 }
 
 // A fresh named store admits app storage without sharing another drive's profile or port.
-const appDrive = host === 'web' ? { storage: `smoke-${randomUUID()}`, env: { EXACT_AGENT_EPHEMERAL_PORT: '1' } } : app.name === 'messages' ? { storage: `smoke-${randomUUID()}` } : {};
+const appDrive = host === 'web' ? { storage: `smoke-${randomUUID()}`, env: { EXACT_AGENT_EPHEMERAL_PORT: '1' } } : app.name === 'messages' ? { storage: `smoke-${randomUUID()}`, touch: host === 'ios' ? 'platform' : 'agent' } : {};
 const s = await open({ host, browser: 'chrome', ...appDrive });
 // A web artifact's staged capabilities (LLP 1047.000 §9): the page boots
 // without them, and the first agent call loads inspection before it asks.
