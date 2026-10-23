@@ -330,6 +330,28 @@ public final class ExactView: UIView {
         presenter.reachPageEdges()
     }
 
+    /// Keep the simulated fold in window coordinates so keyboard dismissal
+    /// restores its full segments (`prefer`, LLP 1078 D7)
+    private(set) var agentFold: ViewportFold?
+
+    /// Apply the simulated fold under the current keyboard, retaining the
+    /// previous fold if the kernel refuses it
+    func prefer(_ fold: ViewportFold) -> String? {
+        let was = (agentFold, lastFold)
+        (agentFold, lastFold) = (fold, underKeyboard(fold, size: lastSize))
+        guard let refused = session.segments(lastFold) else { return nil }
+        (agentFold, lastFold) = was
+        return refused
+    }
+
+    /// Clip every segment to the layout viewport under `resizes-content`,
+    /// or only the last row to the visual viewport under `resizes-visual`
+    private func underKeyboard(_ fold: ViewportFold, size: CGSize) -> ViewportFold {
+        let presenter = session.presenter
+        let visual = !["resizes-content", "overlays-content"].contains(presenter.keyboardPolicy)
+        return fold.ending(at: visual ? CGSize(width: size.width, height: size.height - presenter.keyboardInset) : size, lastRow: visual)
+    }
+
     func fit() {
         let presenter = session.presenter
         // A native callback served for the owner cannot resize the runtime
@@ -477,13 +499,13 @@ public final class ExactView: UIView {
         // posture is folded while any is active or the hinge says it is
         // partially open. Below 27.1 there are none.
         let bent = hingeStatus == 2
-        // The window's, not a sheet's (LLP 1075.003 §9.11), its segments
-        // ending where the keyboard ends the viewport, or under
-        // `resizes-visual` its last row at the visual viewport's end.
+        // The window's, not a sheet's (LLP 1075.003 §9.11), or the agent's
+        // on a device with none, under the keyboard.
         let fold = Self.fold(of: self, viewport: screenFrame, size: screen ?? size, hingeBent: bent)
-        let visual = !["resizes-content", "overlays-content"].contains(presenter.keyboardPolicy)
-        let segments = fold.fold.ending(at: visual ? CGSize(width: size.width, height: size.height - presenter.keyboardInset) : size, lastRow: visual)
         if fold.hasFold { presenter.hasFold = true }
+        // Discard an override accepted before UIKit first reported the hardware fold
+        if presenter.hasFold { agentFold = nil }
+        let segments = underKeyboard(agentFold ?? fold.fold, size: size)
         // The regions can trail the hinge's update by a frame (the handler
         // runs before UIKit flips `isActive`), so a reading that disagrees
         // with the hinge is taken again on the next frames, a bounded number

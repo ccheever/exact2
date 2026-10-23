@@ -321,5 +321,72 @@ final class KeyboardFormIOSTests: XCTestCase {
         XCTAssertEqual(list.contentOffset.y, offset, accuracy: 0.5, "the list is not scrolled to a hidden caret")
         p.applyKeyboard(top: nil, duration: 0, curve: 0)
     }
+
+    func testTheAgentsFoldEndsWhereTheKeyboardEndsTheViewport() throws {
+        let session = try fixture()
+        let p = session.presenter, agent = Agent(session: session)
+        let view = try XCTUnwrap(session.view)
+        let root = try XCTUnwrap(p.root.subviews.first as? NodeView)
+        let window = session.screenSize ?? p.viewportSize
+        XCTAssertFalse(p.hasFold, "the agent supplies the fold on this phone")
+        for policy in ["resizes-content", "resizes-visual", "overlays-content"] {
+            p.apply(wireBatch([["op": "props", "id": Int(root.id), "set": ["interactiveWidget": policy]]]))
+            XCTAssertEqual(p.keyboardPolicy, policy)
+            var fold = ViewportFold(posture: "folded", cols: 1, rows: 2,
+                                    rects: try Segments.even(viewport: window, cols: 1, rows: 2, gap: 40))
+            XCTAssertNil(agent.prefer(["fold": ["posture": "folded", "cols": 1, "rows": 2, "gap": 40]])["error"])
+            XCTAssertEqual(p.fold, fold, "\(policy): the full grid before the keyboard")
+            p.applyKeyboard(top: keys, duration: 0, curve: 0)
+            XCTAssertGreaterThan(p.keyboardInset, 0, "\(policy): the keyboard overlaps the viewport")
+            let end = policy == "resizes-visual" ? p.viewportSize.height - p.keyboardInset : p.viewportSize.height
+            if policy == "overlays-content" {
+                XCTAssertEqual(p.fold, fold, "an overlay leaves the segments unchanged")
+            } else {
+                XCTAssertLessThan(end, fold.rects[1].maxY, "\(policy): the keyboard clips the lower segment")
+                XCTAssertEqual(p.fold.rects.first, fold.rects.first, "\(policy): the upper segment stays in place")
+                XCTAssertEqual(p.fold.rects.last?.minY, fold.rects[1].minY, "\(policy): the lower segment stays in place")
+                XCTAssertEqual(p.fold.rects.last?.maxY ?? -1, end, accuracy: 0.01, "\(policy): the lower segment ends at the keyboard")
+            }
+            if policy != "resizes-content" {
+                XCTAssertEqual(p.viewportSize, window, "\(policy): the layout viewport keeps its size")
+            }
+            // Change only posture while the grid is clipped; hiding must restore its full rectangles
+            XCTAssertNil(agent.prefer(["fold": ["posture": "continuous"]])["error"])
+            XCTAssertEqual(p.fold.posture, "continuous")
+            XCTAssertEqual(p.fold.rects.last?.maxY ?? -1, end, accuracy: 0.01)
+            p.applyKeyboard(top: nil, duration: 0, curve: 0)
+            fold.posture = "continuous"
+            XCTAssertEqual(p.fold, fold, "\(policy): dismissal restores the full grid and keeps the new posture")
+
+            p.applyKeyboard(top: keys, duration: 0, curve: 0)
+            XCTAssertNil(agent.prefer(["fold": ["gap": 80]])["error"])
+            fold.rects = try Segments.even(viewport: window, cols: 1, rows: 2, gap: 80)
+            XCTAssertEqual(p.fold.rects.last?.minY, fold.rects[1].minY, "\(policy): a new grid uses the window while the keyboard is up")
+            XCTAssertEqual(p.fold.rects.last?.maxY ?? -1, end, accuracy: 0.01, "\(policy): a new grid is clipped immediately")
+            p.applyKeyboard(top: nil, duration: 0, curve: 0)
+            XCTAssertEqual(p.fold, fold, "\(policy): the new grid is restored on dismissal")
+
+            p.applyKeyboard(top: fold.rects[0].midY, duration: 0, curve: 0)
+            let upper = try XCTUnwrap(p.fold.rects.first), lower = try XCTUnwrap(p.fold.rects.last)
+            if policy == "resizes-content" {
+                XCTAssertLessThan(p.viewportSize.height, fold.rects[0].maxY)
+                XCTAssertEqual(upper.maxY, p.viewportSize.height, accuracy: 0.01, "content resizing clips the upper row too")
+                XCTAssertEqual(lower.height, 0)
+            } else if policy == "resizes-visual" {
+                XCTAssertEqual(upper, fold.rects[0], "visual resizing keeps the upper row even above the keys")
+                XCTAssertEqual(lower.height, 0, "the last row ends at zero height when the keys reach above it")
+            } else {
+                XCTAssertEqual(p.fold, fold)
+            }
+            p.applyKeyboard(top: nil, duration: 0, curve: 0)
+            XCTAssertEqual(p.fold, fold)
+        }
+        // Model a hardware fold reported after prefer's bounded discovery wait
+        p.hasFold = true
+        view.fit()
+        XCTAssertNil(view.agentFold, "hardware detection discards the simulation")
+        XCTAssertEqual(p.fold, .flat, "the view uses the device's geometry again")
+        XCTAssertNotNil(agent.prefer(["fold": ["rows": 2]])["error"], "hardware keeps control of subsequent requests")
+    }
 }
 #endif
