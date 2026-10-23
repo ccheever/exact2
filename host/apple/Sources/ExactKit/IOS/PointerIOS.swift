@@ -331,6 +331,8 @@ extension NodeView {
     /// identities are still available. A late terminal callback cannot clear
     /// a new contact or a new incarnation's feedback.
     func cancelPressContact(reparenting: Bool = false) {
+        if !reparenting { pressCancellationEpoch &+= 1 }
+        recognizedPress?.cancel()
         guard let contact = pressContact, !contact.cancelled, contact.incarnation == incarnation else { return }
         contact.cancelled = true
         contact.cancelledByReparenting = reparenting
