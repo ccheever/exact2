@@ -78,6 +78,23 @@ final class BoxFilterTests: XCTestCase {
     }
 
     #if os(macOS)
+    func testAFilteredGradientKeepsSquareCornersAsItsRadiiChange() throws {
+        let box = node(1), effect = try filter()
+        let corners = ["top_left", "top_right", "bottom_right", "bottom_left"]
+        let gradient: BatchValue = ["linear": 90, "stops": [0,255,0,0,255, 1,0,0,255,255]]
+        for selected in Array(1..<16) + [0] {
+            var style: NodeStyle = ["background_image": gradient, "filter": effect]
+            for (i, corner) in corners.enumerated() { style["border_radius_" + corner] = .number(selected & (1 << i) == 0 ? 0 : 16) }
+            box.applyStyle(style)
+            window.displayIfNeeded()
+            box.renderFilter()
+            let image = try picture(box)
+            let alpha = try [(1,1), (38,1), (38,38), (1,38)].map { try pixel(image, x: $0.0, y: $0.1)[3] }
+            XCTAssertEqual(alpha, (0..<4).map { selected & (1 << $0) == 0 ? 255 : 0 }, "corners \(selected)")
+            XCTAssertEqual(try pixel(image, x: 20, y: 20)[3], 255)
+        }
+    }
+
     func testOversizedBorderRadiiReduceBeforeTheInnerEdgeIsInset() throws {
         let box = node(1), effect = try filter()
         for filtered in [false, true] {
