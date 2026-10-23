@@ -17,7 +17,9 @@ pub(crate) fn kernel(measurer: Box<dyn TextMeasurer>) -> Kernel {
     } else {
         Column::Ios
     });
-    Kernel::new(measurer)
+    let mut kernel = Kernel::new(measurer);
+    kernel.set_pixel_borders();
+    kernel
 }
 
 impl<D: DataSource> Host<D> {
@@ -54,7 +56,7 @@ impl<D: DataSource> Host<D> {
     }
 
     /// Tell the runner the display's scale: a relayout in one commit where a
-    /// row is a hairline, nothing where none is.
+    /// hairline or snapped border can move, nothing where none can.
     pub fn set_display_scale(&mut self, scale: f64) -> String {
         match self.runner.set_display_scale(scale) {
             Ok(Some(receipt)) => self.commit(

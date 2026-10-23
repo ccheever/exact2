@@ -22,12 +22,20 @@ impl StyleProps {
         })
     }
 
-    /// The widths as they occupy space under `env`: a terminal's border
-    /// rule makes each drawn side one cell (LLP 1101.001 P13).
+    /// Used widths for layout and paint: whole device pixels on a graphical
+    /// host that sets `border_scale`, or one cell on a terminal (LLP 1101.001 P13).
     pub fn border_widths_in(&self, env: &super::Env) -> [f32; 4] {
         let widths = self.border_widths();
         if env.cell_borders {
             super::cells::border(widths)
+        } else if let Some(scale) = env.border_scale {
+            widths.map(|width| {
+                if width > 0.0 {
+                    (width * scale + 0.001).floor().max(1.0) / scale
+                } else {
+                    0.0
+                }
+            })
         } else {
             widths
         }

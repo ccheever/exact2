@@ -4,7 +4,8 @@
 //! means — parents before children, so an `em` font size builds on its
 //! parent's resolved one, as CSS computes it. A hairline row (LLP 1115.000
 //! D10.3) is resolved with them, against the display's scale as the host
-//! last set it.
+//! last set it. Hosts that snap borders resolve their used widths against
+//! that scale before layout too, without changing the authored rows.
 use super::*;
 use crate::generated::StyleProps;
 use crate::style::relative::MEDIUM;
@@ -50,6 +51,29 @@ pub(crate) fn resolve(
     }
     if let Some(scale) = arena.display_scale_next.take() {
         arena.display_scale = Some(scale);
+        if arena.env().border_scale.is_some_and(|old| old != scale) {
+            let mut env = arena.env().clone();
+            env.border_scale = Some(scale);
+            arena.set_env(env);
+            let slots: Vec<_> = arena
+                .iter_live()
+                .filter(|&slot| {
+                    arena
+                        .effective_style(slot)
+                        .border_widths()
+                        .iter()
+                        .any(|w| *w > 0.0)
+                })
+                .collect();
+            let rows = StyleMask::of(StyleId::BorderWidthTop)
+                .union(StyleMask::of(StyleId::BorderWidthRight))
+                .union(StyleMask::of(StyleId::BorderWidthBottom))
+                .union(StyleMask::of(StyleId::BorderWidthLeft));
+            for slot in slots {
+                style_changed(arena, layout, slot, rows, receipt);
+                touched.push(arena.key(slot));
+            }
+        }
     }
     // Bold Text (LLP 1115.000 D12.3): every text is measured and drawn again
     // at the weight it now means.

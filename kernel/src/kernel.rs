@@ -831,8 +831,8 @@ impl Kernel {
     /// root font size is: UIKit's `displayScale`, AppKit's
     /// `backingScaleFactor`, the browser's `devicePixelRatio`, the pixels a
     /// point a shell draws at. The next commit applies it, re-resolving
-    /// every hairline row, so an empty batch is enough. `false` when it is
-    /// the scale already set.
+    /// every hairline row and, on a pixel-snapping host, every border width.
+    /// An empty batch is enough. `false` when it is the scale already set.
     /// @ref LLP 1115.000 D10.3
     pub fn set_display_scale(&mut self, scale: f32) -> Result<bool, KernelError> {
         if !scale.is_finite() || scale <= 0.0 {
@@ -845,8 +845,7 @@ impl Kernel {
         Ok(true)
     }
 
-    /// Whether any live node has a hairline row: a new display scale moves
-    /// nothing otherwise.
+    /// Whether any live node has a hairline row.
     pub fn has_hairlines(&self) -> bool {
         use crate::style::relative::Unit;
         let arena = &self.arena;
