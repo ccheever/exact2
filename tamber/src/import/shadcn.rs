@@ -729,6 +729,8 @@ fn offers(
         .iter()
         .map(|r| (r.name.clone(), r.system))
         .collect();
+    let varying = super::reach::names_reaching(design, &roles, tokens, &varies_here);
+    let varies = |name: &str| varying.contains(name);
     let mut out = Vec::new();
     for (var, role) in [
         ("background", "-exact-background"),
@@ -744,7 +746,7 @@ fn offers(
         let existing = crate::edit::token_index(design, &roles, role)
             .ok()
             .map(|i| &design.tokens[i]);
-        if varies(&token, tokens, design, &roles, &mut Vec::new()) {
+        if varies(&token) {
             out.push(Offer {
                 role: role.into(),
                 note: Some(format!("not offered: `{token}` varies by an app axis, and a role has one value, which the hosts' own surfaces read (LLP 1121 D5; the build refuses it, `tamber-role-axis`)")),
@@ -805,9 +807,7 @@ fn offers(
             !o.ops.is_empty() && crate::edit::role_key(&roles, &o.role).as_ref() == Some(&key)
         });
         let values = std::iter::once(&t.value.value).chain(t.whens.iter().map(|w| &w.value.value));
-        let named = values
-            .flat_map(|v| words(v))
-            .find(|w| varies(w, tokens, design, &roles, &mut Vec::new()));
+        let named = values.flat_map(|v| words(v)).find(|w| varies(w));
         let widened = t.whens.iter().any(|w| {
             w.conds
                 .iter()
@@ -837,40 +837,18 @@ fn offers(
 /// The axes the importer owns: their `when` lines are the source's.
 const OWNED: &[&str] = &["theme"];
 
-/// Whether `name` varies by an app axis once the import is accepted: a
-/// `when` line the source gives it, one the design keeps (on an axis the
-/// importer does not own, or on a token it does not map), or a token its
-/// values name that varies.
-fn varies<'a>(
-    name: &'a str,
-    tokens: &'a [Mapped],
-    design: &'a Design,
-    roles: &[(String, bool)],
-    seen: &mut Vec<&'a str>,
-) -> bool {
-    if seen.contains(&name) {
-        return false;
-    }
-    seen.push(name);
-    let mapped = tokens.iter().find(|t| t.name == name);
-    // A design's token under any spelling of its role, as lowering reads it.
-    let have = crate::edit::token_index(design, roles, name)
-        .ok()
-        .map(|i| &design.tokens[i]);
+/// Whether a name varies by an app axis here, before what it names: a
+/// `when` line the source gives it (`mapped`), or one the design keeps on
+/// it (`have`) on an axis the importer does not own, or on a token it does
+/// not map. A name varies once the import is accepted when it reaches one
+/// that does (`reach::names_reaching`).
+fn varies_here(mapped: Option<&Mapped>, have: Option<&crate::Token>) -> bool {
     let kept = have.is_some_and(|t| {
         t.whens
             .iter()
             .any(|w| mapped.is_none() || w.conds.iter().any(|(a, _)| !OWNED.contains(&a.as_str())))
     });
-    if kept || mapped.is_some_and(|t| !t.whens.is_empty()) {
-        return true;
-    }
-    let value = match (mapped, have) {
-        (Some(t), _) => t.value.as_str(),
-        (None, Some(t)) => t.value.value.as_str(),
-        (None, None) => return false,
-    };
-    words(value).any(|w| varies(w, tokens, design, roles, seen))
+    kept || mapped.is_some_and(|t| !t.whens.is_empty())
 }
 
 /// The names a value may hold.

@@ -186,11 +186,12 @@ pub(crate) fn check(icons: &[Token], tokens: &[Token]) -> (Vec<Icon>, Vec<Diagno
     let (mut out, mut errors) = (Vec::new(), Vec::new());
     let at =
         |t: &Token, id: &'static str, m: String| Diagnostic::new(id, m, t.name.line, t.name.col);
-    for (i, t) in icons.iter().enumerate() {
+    // The names declared so far, once each (linear: round 3).
+    let mut names: std::collections::HashSet<&str> =
+        tokens.iter().map(|x| x.name.value.as_str()).collect();
+    for t in icons {
         let name = &t.name.value;
-        if tokens.iter().any(|x| x.name.value == *name)
-            || icons[..i].iter().any(|x| x.name.value == *name)
-        {
+        if !names.insert(name.as_str()) {
             errors.push(at(
                 t,
                 "tamber-duplicate",
