@@ -181,6 +181,7 @@ component Header
   view
     row testId="header" flex-shrink=0 height=52 padding-left=18 padding-right=18 align-items="center" justify-content="space-between"
       row align-items="center" gap=4
+        // The flame is brand artwork; its gradient stays literal in both schemes.
         svg width=28 height=28 viewBox="0 0 24 24"
           defs
             linearGradient id="brand-flame" x1=0 y1=0 x2=1 y2=1
@@ -188,6 +189,7 @@ component Header
               stop offset=1 stop-color="#ff7854"
           path d="M12 1.5C13 6 19.5 8.5 19.5 14.5C19.5 19 16 22.5 12 22.5C8 22.5 4.5 19 4.5 14.5C4.5 11.5 6 9.5 8 8.5C8 10.5 8.5 12 9.5 12.5C9.5 8 10.5 4 12 1.5Z" fill="url(#brand-flame)"
         text "spark" testId="wordmark" font-size=28 font-weight=800 letter-spacing=-1 class=Brand
+      // The shadow stays literal artwork in both schemes.
       row testId="like-counter" align-items="center" gap=6 padding-left=12 padding-right=12 padding-top=6 padding-bottom=6 border-radius=999 background-color="-exact-secondary-grouped-background" box-shadow="0 2px 8px rgba(0, 0, 0, 0.08)"
         svg width=16 height=16 viewBox="0 0 24 24"
           path d="M12 1.5C13 6 19.5 8.5 19.5 14.5C19.5 19 16 22.5 12 22.5C8 22.5 4.5 19 4.5 14.5C4.5 11.5 6 9.5 8 8.5C8 10.5 8.5 12 9.5 12.5C9.5 8 10.5 4 12 1.5Z" fill="AccentColor"
@@ -222,6 +224,7 @@ component Card
   derive stampAt = cardWidth * 0.25
   derive shown = match first(p.photos.filter((u, i) => i == photo)) { case some(u) => u, case none => "" }
   view
+    // The shadow and photo scrim stay literal artwork in both schemes.
     column color-scheme="dark" color="-exact-label" testId=(pos == 0 ? "card-top" : `card-${p.id}`) aria-label=`${p.name}, ${p.age}` position="absolute" top=8 bottom=8 left=`calc(50% - ${cardWidth / 2}px)` width=cardWidth display="flex" flex-direction="column" overflow="hidden" border-radius=18 background-color="-exact-tertiary-background" box-shadow="0 10px 28px rgba(20, 24, 31, 0.18)" translate=`${tx}px ${ty}px` rotate=tilt scale=(pos <= 0 ? 1 : (pos == 1 ? 0.94 + 0.06 * progress : 0.94)) opacity=(pos == 2 ? 0 : 1) transition=cardTransition(pos, dragging)
       image shown aria-label=`Photo of ${p.name}` position="absolute" top=0 left=0 width="100%" height="100%" object-fit="cover" background-color="-exact-tertiary-background"
       column position="absolute" left=0 right=0 bottom=0 height="60%" background-image="linear-gradient(to bottom, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.55) 45%, rgba(0, 0, 0, 0.9))"
@@ -288,6 +291,7 @@ component RoundButton
     off: bool
     press: action
   view
+    // The shadow stays literal artwork in both schemes.
     button testId=testId aria-label=label press=press disabled=off -exact-press-scale=0.9 width=size height=size flex-shrink=0 border-radius=999 border-width=0 padding=0 display="flex" align-items="center" justify-content="center" background-color="-exact-secondary-grouped-background" box-shadow="0 6px 18px rgba(20, 24, 31, 0.12)" opacity=(off ? 0.45 : 1) transition="opacity 200ms ease-out"
       svg width=glyph height=glyph viewBox="0 0 24 24"
         path d=path fill=color
@@ -302,15 +306,13 @@ component EmptyDeck
         path d="M12 1.5C13 6 19.5 8.5 19.5 14.5C19.5 19 16 22.5 12 22.5C8 22.5 4.5 19 4.5 14.5C4.5 11.5 6 9.5 8 8.5C8 10.5 8.5 12 9.5 12.5C9.5 8 10.5 4 12 1.5Z" fill="AccentColor"
       text "You've seen everyone nearby" font-size=20 font-weight=700 class=Ink text-align="center"
       text "Check back later, or start over from the top of the deck." font-size=15 class=Ink text-align="center" max-width=260
-      // The brand gradient stays dark enough for white labels in either appearance.
+      // The brand gradient and shadow stay literal artwork; the gradient
+      // stays dark enough for white labels in either appearance.
       button testId="start-over" color-scheme="dark" press=restart -exact-press-scale=0.96 padding-left=28 padding-right=28 padding-top=13 padding-bottom=13 border-width=0 border-radius=999 background-image="linear-gradient(90deg, #c0175a, #b73242)" box-shadow="0 6px 16px rgba(253, 41, 123, 0.3)"
         text "Start over" font-size=16 font-weight=700 color="-exact-label"
 
 keyframes pop
   from opacity=0 scale=0.85
-
-keyframes fade
-  from opacity=0
 
 // "It's a match!", over everything, until "Keep swiping".
 component MatchOverlay
@@ -318,11 +320,13 @@ component MatchOverlay
     p: Profile
     keepSwiping: action
   view
-    // The dark brand artwork also sits behind the status bar on a phone.
-    column testId="match-overlay" color-scheme="dark" status-bar-style="auto" role="dialog" aria-label="It's a match" position="absolute" top=0 left=0 right=0 bottom=0 align-items="center" justify-content="center" gap=22 padding=32 background-image="linear-gradient(160deg, rgba(192, 23, 90, 0.94), rgba(183, 50, 66, 0.94) 55%, rgba(166, 74, 36, 0.94))" animation="fade 260ms ease-out 320ms both"
+    // Paint the dark brand artwork as soon as its light status-bar ink is
+    // selected. Only the contents enter with a delay.
+    column testId="match-overlay" color-scheme="dark" status-bar-style="auto" role="dialog" aria-label="It's a match" position="absolute" top=0 left=0 right=0 bottom=0 align-items="center" justify-content="center" gap=22 padding=32 background-image="linear-gradient(160deg, rgba(192, 23, 90, 0.94), rgba(183, 50, 66, 0.94) 55%, rgba(166, 74, 36, 0.94))"
       column align-items="center" gap=22 animation="pop 420ms cubic-bezier(.2, .9, .3, 1.2) 320ms both"
         text "It's a match!" testId="match-title" font-size=44 font-weight=900 font-style="italic" letter-spacing=-1 color="-exact-label" text-align="center"
         text `You and ${p.name} like each other.` font-size=17 color="-exact-label" text-align="center"
+        // The portrait shadow stays literal artwork in both schemes.
         image (match first(p.photos) { case some(u) => u, case none => "" }) aria-label=`Photo of ${p.name}` width=168 height=168 border-radius=999 object-fit="cover" border-width=5 border-style="solid" border-color="-exact-label" box-shadow="0 12px 30px rgba(0, 0, 0, 0.25)" testId="match-photo"
         button testId="keep-swiping" press=keepSwiping -exact-press-scale=0.96 padding-left=36 padding-right=36 padding-top=14 padding-bottom=14 border-radius=999 border-width=2 border-style="solid" border-color="-exact-label" background-color="-exact-fill"
           text "Keep swiping" font-size=17 font-weight=700 color="-exact-label"
