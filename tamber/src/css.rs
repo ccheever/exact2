@@ -25,8 +25,58 @@ pub(crate) enum Item {
     Op(char),
 }
 
-/// Read `text` as space-separated items, or say why it is not a value.
+/// The most a value's text may be, in bytes (the design checker's own
+/// bound: every value the build reads is far shorter, and one a paired
+/// client writes can't make the checker's work grow past it).
+pub const MAX_VALUE_BYTES: usize = 4096;
+/// The deepest a value may nest functions and calc groups: the reader
+/// recurses once a level, so a deeper one is refused before it would
+/// overflow the stack.
+pub const MAX_VALUE_DEPTH: usize = 32;
+
+/// A value past [`MAX_VALUE_BYTES`] or [`MAX_VALUE_DEPTH`]: its id and
+/// words, which never echo the value (it may be a megabyte).
+pub(crate) fn over_limit(text: &str) -> Option<(&'static str, String)> {
+    if text.len() > MAX_VALUE_BYTES {
+        return Some((
+            "tamber-value-size",
+            format!(
+                "a value is at most {MAX_VALUE_BYTES} bytes; this one is {}",
+                text.len()
+            ),
+        ));
+    }
+    // As the reader nests: a quoted string's text is no function.
+    let (mut depth, mut deepest, mut quoted) = (0usize, 0usize, false);
+    for b in text.bytes() {
+        match b {
+            b'"' => quoted = !quoted,
+            _ if quoted => {}
+            b'(' => {
+                depth += 1;
+                deepest = deepest.max(depth);
+            }
+            b')' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    (deepest > MAX_VALUE_DEPTH).then(|| {
+        (
+            "tamber-value-depth",
+            format!(
+                "a value nests at most {MAX_VALUE_DEPTH} functions deep; this one nests {deepest}"
+            ),
+        )
+    })
+}
+
+/// Read `text` as space-separated items, or say why it is not a value. A
+/// value past the checker's bounds ([`over_limit`]) is refused before it
+/// is read.
 pub(crate) fn parse(text: &str) -> Result<Vec<Item>, String> {
+    if let Some((_, why)) = over_limit(text) {
+        return Err(why);
+    }
     let mut p = Reader {
         s: text.as_bytes(),
         text,

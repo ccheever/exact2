@@ -764,6 +764,12 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
   - a token's `kind` is one stage 6 built (`color`, `length`, `number`, `box-shadow`,
     `text-shadow`, `duration`, `easing`, `type`, `family`);
   - the axes may make at most 64 tuples;
+  - a value is at most 4096 bytes (`tamber-value-size`) and nests at most 32 functions or calc
+    groups deep (`tamber-value-depth`), refused before anything reads it, in every op that
+    carries one (a name or metadata word past 4096 bytes too), in words that give its size and
+    never echo it; each importer refuses a source value past them with the same id;
+  - a length over base names expands to at most 256 terms (`tamber-length-size`): a chain of
+    tokens each naming the next more than once is refused where it passes;
   - naming a dial, token, `when` or axis value the design doesn't have is refused.
 - **A param's value** (*1.10*): `name` is a param's full name (`post.contract#PostButton.radius`)
   or its short one (`PostButton.radius`); a name no param of the app answers, or a short name two

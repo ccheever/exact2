@@ -420,7 +420,10 @@ const NESTING: usize = 64;
 /// a declaration or a rule is reported, not copied about (no real one is
 /// near them).
 const NAME: usize = 256;
-const VALUE: usize = 4096;
+const VALUE: usize = crate::css::MAX_VALUE_BYTES;
+/// The report of a value past [`VALUE`], which a CSS importer refuses as
+/// the checker's bound (`source_read`).
+const LONG_VALUE: &str = "a custom property's value past 4 KiB";
 
 /// How many bytes of enclosing preludes the blocks may copy, all told: each
 /// block keeps its context, so 64 long preludes around many small rules
@@ -574,7 +577,7 @@ fn body(
                         let at = from + (segment.len() - segment.trim_start().len());
                         let why = match name.len() > NAME {
                             true => "a custom property's name past 256 bytes",
-                            false => "a custom property's value past 4 KiB",
+                            false => LONG_VALUE,
                         };
                         read.deep.push((name.chars().take(80).collect(), at, why));
                         return;
@@ -749,4 +752,93 @@ pub(super) fn orphaned_dial<'a>(design: &'a Design, t: &crate::Token) -> Option<
                     .filter(|o| !std::ptr::eq(*o, t))
                     .any(|o| words_of(o).any(|w| w == *d))
         })
+}
+
+/// The design checker's bound at import (theme2's condition on the checker
+/// bound): a source value past `css::over_limit`, mapped or reported,
+/// refuses the import with that bound's id, naming the source's name and
+/// never echoing the value. The importers' own budget bounds their work
+/// reading the source; this bounds what they hand the checker.
+pub(crate) fn bounded(import: Result<Import, Vec<Diagnostic>>) -> Result<Import, Vec<Diagnostic>> {
+    let import = import?;
+    let over = |name: &str, value: &str| {
+        crate::css::over_limit(value).map(|(id, why)| {
+            let name: String = name.chars().take(80).collect();
+            vec![Diagnostic::new(id, format!("`{name}`: {why}"), 1, 1)]
+        })
+    };
+    for u in &import.unmapped {
+        if let Some(no) = over(&u.name, &u.value) {
+            return Err(no);
+        }
+    }
+    let ops = import
+        .ops
+        .iter()
+        .chain(import.offers.iter().flat_map(|o| &o.ops));
+    for op in ops {
+        let values: Vec<(&str, &str)> = match op {
+            Op::SetToken { name, value, .. }
+            | Op::SetDial { name, value }
+            | Op::SetParam { name, value, .. } => vec![(name, value)],
+            Op::AddToken {
+                name, value, whens, ..
+            } => std::iter::once((name.as_str(), value.as_str()))
+                .chain(whens.iter().map(|(_, v, _)| (name.as_str(), v.as_str())))
+                .collect(),
+            _ => Vec::new(),
+        };
+        for (name, value) in values {
+            if let Some(no) = over(name, value) {
+                return Err(no);
+            }
+        }
+    }
+    Ok(import)
+}
+
+/// Each source value an importer reads, before it maps any: one past
+/// `css::over_limit` refuses the import with that bound's id (theme2's
+/// condition), naming the source's name and never echoing the value, though
+/// the importer might have folded it to something short.
+pub(crate) fn source_bound<'a>(
+    values: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> Result<(), Vec<Diagnostic>> {
+    for (name, value) in values {
+        if let Some((id, why)) = crate::css::over_limit(value) {
+            let name: String = name.chars().take(80).collect();
+            return Err(vec![Diagnostic::new(id, format!("`{name}`: {why}"), 1, 1)]);
+        }
+    }
+    Ok(())
+}
+
+/// Every string a JSON value holds, depth first (a composite token's parts).
+pub(crate) fn json_strings<'a>(v: &'a serde_json::Value, out: &mut Vec<&'a str>) {
+    match v {
+        serde_json::Value::String(s) => out.push(s),
+        serde_json::Value::Array(a) => a.iter().for_each(|v| json_strings(v, out)),
+        serde_json::Value::Object(o) => o.values().for_each(|v| json_strings(v, out)),
+        _ => {}
+    }
+}
+
+/// A CSS importer's source as `css_read` read it: a value past the checker's
+/// bound, which the reader reports rather than copies, or one it copied,
+/// refuses the import with `tamber-value-size` ([`source_bound`]).
+pub(crate) fn source_read(blocks: &[Block], deep: &[Deep]) -> Result<(), Vec<Diagnostic>> {
+    if let Some(d) = deep.iter().find(|d| d.why == LONG_VALUE) {
+        let name: String = d.prelude.chars().take(80).collect();
+        return Err(vec![Diagnostic::new(
+            "tamber-value-size",
+            format!("`{name}`: a value is at most {VALUE} bytes"),
+            d.line as u32,
+            1,
+        )]);
+    }
+    source_bound(
+        blocks
+            .iter()
+            .flat_map(|b| b.decls.iter().map(|(n, v)| (n.as_str(), v.as_str()))),
+    )
 }

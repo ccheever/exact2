@@ -7,6 +7,7 @@
 use crate::css::Item;
 use crate::fold::{fail, FoldError, Folded, Named, Names};
 use crate::residual::Residual;
+use crate::residual::MAX_RESIDUAL_ATOMS;
 
 /// What QUEUE's `rem`/`em` item says a relative length inside a function
 /// waits on.
@@ -366,6 +367,27 @@ fn based(r: Residual) -> Quantity {
 }
 
 fn func(
+    f: &str,
+    args: &[Vec<Item>],
+    text: &str,
+    names: &mut dyn Names,
+) -> Result<Quantity, FoldError> {
+    // Each function's result is bounded where it is made, so a nest of
+    // them, or a chain of tokens naming one another, never builds one
+    // larger than its arguments' bounded copies.
+    match func_unbounded(f, args, text, names)? {
+        Quantity::Base(r) if r.atoms() > MAX_RESIDUAL_ATOMS => fail(
+            "tamber-length-size",
+            format!(
+                "this length over base names expands to {} terms, more than {MAX_RESIDUAL_ATOMS}: the tokens it names name others more than once",
+                r.atoms()
+            ),
+        ),
+        q => Ok(q),
+    }
+}
+
+fn func_unbounded(
     f: &str,
     args: &[Vec<Item>],
     text: &str,
