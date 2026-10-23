@@ -162,6 +162,14 @@ pub struct Request {
     pub body_from: Option<String>,
     /// What a redirect response does (`fetch`'s `redirect`).
     pub redirect: Redirect,
+    /// The server may hold the reply until something changes (a long poll;
+    /// LLP 1016.000 D9): pending as any request, but no clock waits on it,
+    /// neither a jump nor `clock settle` nor `clock data`, and each reply
+    /// that leaves it out names it. Its answer must be safe to supersede: a
+    /// send to its target meanwhile replaces it. Only a plain HTTP request
+    /// is held (a stream already stops counting at its first message).
+    /// Set by TypeScript's `fetch(url, {exactHeld: true})` and [`Request::held`].
+    pub held: bool,
 }
 
 /// The largest file [`Request::body_from`] sends: 64 MiB.
@@ -201,6 +209,7 @@ impl Request {
             timeout_ms: None,
             body_from: None,
             redirect: Redirect::Follow,
+            held: false,
         }
     }
 
@@ -258,6 +267,7 @@ impl Request {
             timeout_ms: None,
             body_from: None,
             redirect: Redirect::Follow,
+            held: false,
         }
     }
 
@@ -279,6 +289,7 @@ impl Request {
             timeout_ms: None,
             body_from: None,
             redirect: Redirect::Follow,
+            held: false,
         }
     }
 
@@ -375,6 +386,29 @@ impl Request {
     pub fn timeout(mut self, ms: u32) -> Self {
         self.timeout_ms = Some(ms);
         self
+    }
+
+    /// Held: the server may keep the reply until something changes, and no
+    /// clock waits on it (see [`Request::held`]). On anything but a plain
+    /// HTTP request it changes nothing.
+    pub fn held(mut self) -> Self {
+        self.held = true;
+        self
+    }
+
+    /// Whether no clock waits on this request: [`Request::held`] on a plain
+    /// HTTP request (not a stream, storage, a continuation, a surface, a
+    /// native call or an auth request, nor an upload, whose file is read
+    /// before it is sent).
+    pub fn is_held(&self) -> bool {
+        self.held
+            && !self.stream
+            && self.body_from.is_none()
+            && self.storage.is_none()
+            && self.continuation.is_none()
+            && self.surface.is_none()
+            && !self.is_native()
+            && !self.is_auth()
     }
 
     /// With its body read from the app file `path` when the host runs it
