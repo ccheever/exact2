@@ -66,16 +66,25 @@ const SIDES: [&str; 8] = [
 /// nothing in one decides a kind.
 const OPAQUE: [&str; 3] = ["uniforms", "inputs", "metadata"];
 /// The other properties that take a variable (Pencil's schema names them:
-/// paints, opacity, rotation, `enabled`, the type longhands and `content`,
-/// an ellipse's angles and ratio, a polygon's count, an icon's names and
-/// weight, a gradient stop's `position`). A `$…` under any other key (an id, a layout enum, a
-/// position, a `context`) binds nothing and decides no kind.
-const BINDABLE: [&str; 19] = [
+/// paints and strokes, a mesh's `colors`, opacity, rotation, the flags
+/// (`enabled`, `flipX`/`flipY`, `clip`, `underline`, `strikethrough`), the
+/// type longhands and `content`, an ellipse's angles and ratio, a polygon's
+/// count, an icon's names and weight, and a gradient stop's `position`,
+/// that one only there). A `$…` under any other key (an id, a layout enum,
+/// any other position, a `context`) binds nothing and decides no kind.
+const BINDABLE: [&str; 26] = [
     "fill",
+    "stroke",
+    "colors",
     "color",
     "opacity",
     "rotation",
     "enabled",
+    "flipX",
+    "flipY",
+    "clip",
+    "underline",
+    "strikethrough",
     "fontWeight",
     "fontStyle",
     "lineHeight",
