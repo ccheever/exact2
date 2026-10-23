@@ -273,7 +273,7 @@ extension NodeView {
     /// takes the node's backdrop instead.
     func applyBackdrop() {
         guard let l = layer else { return }
-        let operations = materialView == nil && props["backgroundMaterial"] == nil ? backdropOperations : []
+        let operations = !cssVisibilityHidden && materialView == nil && props["backgroundMaterial"] == nil ? backdropOperations : []
         guard !operations.isEmpty else {
             if l.backgroundFilters != nil { l.backgroundFilters = nil; backdropDrawn = nil; syncEllipticalClip() }
             return

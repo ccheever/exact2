@@ -607,6 +607,7 @@ final class SvgHost {
     var fonts: SvgText.Fonts?
     private var boxSpecs: [UInt32: (layer: CALayer, specs: [CssAnimation])] = [:]
     private var boxInstalled: [UInt32: [String: Int]] = [:]
+    private var hiddenBoxes: Set<UInt32> = []
     private var seeked: Double?
 
     /// A scene's root layer's name, by which its node re-asks its range (LLP 1100 D8).
@@ -650,7 +651,17 @@ final class SvgHost {
         guard let layer else { return }
         let specs = CssAnimation.list(payload["specs"])
         boxSpecs[id] = specs.isEmpty ? nil : (layer, specs)
-        CssAnimations.apply(specs, to: layer, clock: clock, installed: &boxInstalled[id, default: [:]])
+        CssAnimations.apply(visibleBoxSpecs(id, specs), to: layer, clock: clock, installed: &boxInstalled[id, default: [:]])
+    }
+
+    private func visibleBoxSpecs(_ id: UInt32, _ specs: [CssAnimation]) -> [CssAnimation] {
+        hiddenBoxes.contains(id) ? specs.filter { $0.key != "backgroundColor" } : specs
+    }
+
+    func boxVisibility(_ id: UInt32, hidden: Bool, clock: Double?) {
+        if hidden { hiddenBoxes.insert(id) } else { hiddenBoxes.remove(id) }
+        guard let entry = boxSpecs[id] else { return }
+        CssAnimations.apply(visibleBoxSpecs(id, entry.specs), to: entry.layer, clock: clock, installed: &boxInstalled[id, default: [:]])
     }
 
     /// An agent moved the clock: every held animation shows the new instant.
@@ -658,7 +669,7 @@ final class SvgHost {
         guard clock != seeked else { return }
         seeked = clock
         for scene in scenes.values { scene.seek(clock: clock) }
-        for (id, entry) in boxSpecs { CssAnimations.apply(entry.specs, to: entry.layer, clock: clock, installed: &boxInstalled[id, default: [:]]) }
+        for (id, entry) in boxSpecs { CssAnimations.apply(visibleBoxSpecs(id, entry.specs), to: entry.layer, clock: clock, installed: &boxInstalled[id, default: [:]]) }
     }
 
     /// The SVG element a press at `point` (in `id`'s view) goes to, if any
@@ -673,5 +684,6 @@ final class SvgHost {
         payloads.removeValue(forKey: id)
         if let entry = boxSpecs.removeValue(forKey: id) { CssAnimations.apply([], to: entry.layer, clock: nil, installed: &boxInstalled[id, default: [:]]) }
         boxInstalled.removeValue(forKey: id)
+        hiddenBoxes.remove(id)
     }
 }
