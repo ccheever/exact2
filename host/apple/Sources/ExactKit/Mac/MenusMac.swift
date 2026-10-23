@@ -544,13 +544,21 @@ final class MenuHost: NSObject {
     }
     func layout() {
         guard let presenter else { return }
-        for (at, entry) in entries.enumerated() where entry.menu == nil && entry.native == nil {
-            // Moved to a new owner, it goes under the layers opened after it there.
-            if let host = layerHost(entry, in: entry.source?.window), entry.layer.superview !== host {
-                let later = entries[(at + 1)...].first { $0.layer.superview === host }?.layer
-                if let later { host.addSubview(entry.layer, positioned: .below, relativeTo: later) } else { host.addSubview(entry.layer) }
-                entry.layer.setPaintForeground() // its depth among the new owner's, which kept the old one's
+        // Each owner's painted layers stay last among its views, in the order
+        // they opened: a layer moved to a new owner (a split ending), or a
+        // route mounted after it in the pane, is put back on top, and ranked
+        // among its owner's (its depth was its old owner's).
+        let painted = entries.filter { $0.menu == nil && $0.native == nil }
+        for entry in painted {
+            guard let host = layerHost(entry, in: entry.source?.window) else { continue }
+            let mine = painted.filter { layerHost($0, in: $0.source?.window) === host }.map(\.layer)
+            let last = host.subviews.suffix(mine.count)
+            if entry.layer.superview !== host || last.count != mine.count || !zip(last, mine).allSatisfy({ $0 === $1 }) {
+                for layer in mine { host.addSubview(layer) }
+                entry.layer.setPaintForeground()
             }
+        }
+        for entry in painted {
             entry.layer.frame = entry.layer.superview?.bounds ?? presenter.viewport.bounds
             let anchor: NSRect = entry.source.map { self.anchor($0, in: entry.layer, run: entry.run) } ?? .zero
             var box = entry.frame
