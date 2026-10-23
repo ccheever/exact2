@@ -1,6 +1,6 @@
 // @ref LLP 1007 §3: the app is the wasm; this is its DOM host.
 import { sheetLeaves, liveById, sourceField, popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, commitGuestOrigin, guestMessageAuthorized, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, modalLayers, editMenu, navigation, afterPaintPieces, afterPaint, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, frameURL, dataURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, settleValue, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle, pageStore } from "./navigation.js";
-let guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll, typeControl, agentInputLoading;
+let guestOutline, guestTap, guestType, reveal, backButton, viewBox, layoutBoxes, scrollRange, selectAll, typeControl, agentInputLoading;
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule, notifyModule, frameModule; // the file picker (LLP 1069.002), documents (LLP 1069.010) and notifications, loaded on first use
 const picker = (at = incarnation) => (pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, generation: () => incarnation, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }))).then(m => m.at(at)); // its operations answer generation `at`, the one that asked
@@ -1087,7 +1087,7 @@ function gpuPendingReply(request, pending) { const names = pending.map(item => i
 function agentInputReady() {
   if (viewBox) return Promise.resolve();
   return agentInputLoading ??= loadAfterPaint('./input-glue.js', 'agentInput').then(helpers => {
-    ({ guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll, typeControl } = helpers);
+    ({ guestOutline, guestTap, guestType, reveal, backButton, viewBox, layoutBoxes, scrollRange, selectAll, typeControl } = helpers);
   });
 }
 // Synchronous once inspection and the agent's input helpers are ready (LLP 1043.000 D7/D8).
@@ -1161,7 +1161,7 @@ function agentReply(request) {
         if (i) { for (const a of [i.block === undefined ? 'start' : i.block, i.inline === undefined ? 'nearest' : i.inline]) if (!['start', 'center', 'end', 'nearest'].includes(a)) return { error: `no alignment ${typeof a === "string" ? a : JSON.stringify(a)}: start, center, end or nearest`, malformed: true }; const { batch } = sendBatch(wasm.exact_into_view(request.id, writeIn(`${i.key ?? ''}\n${i.block ?? 'start'}\n${i.inline ?? 'nearest'}`))); return batch.error != null ? { error: batch.error } : tagged({ tapped: request.id, into: i }); }
         const frame = views.get(request.id); if (request.holdState !== undefined) return (async () => { for (let i = 0; i < 40 && !globalThis.exact.hold; i++) await new Promise(ok => setTimeout(ok, 50)); return globalThis.exact.hold ? (r => r.error ? { error: r.error, ...(r.malformed ? { malformed: true } : {}) } : tagged({ tapped: request.id, holdState: r.held, delivery: "recognized" }))(globalThis.exact.hold(frame, request.holdState)) : { error: "the input glue is not loaded" }; })(); // LLP 1122 D8: `holdState`, once the glue loads (it loads after paint)
         if (request.history !== undefined || request.back) return request.back ? navigation.back(root) : navigation.travel(frame, request.history); // the agent's `back` (LLP 1116.006 D4)
-        if (frame && (inertAncestor(frame) || ["hidden", "collapse"].includes(getComputedStyle(frame).visibility)))
+        if (frame && (inertAncestor(frame) || ["hidden", "collapse"].includes(getComputedStyle(backButton(frame) ?? frame).visibility)))
           return { handled: true, error: `view ${request.id} is hidden or inert` };
         return frame instanceof HTMLIFrameElement ? guestTap(frame, request) : { guest: false };
       }

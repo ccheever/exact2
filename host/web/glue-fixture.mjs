@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { focusController, placeReporter, timeReporter, launchLocation } from './navigation.js';
-import { viewBox, layoutBoxes, scrollRange } from './input-glue.js';
+import { backButton, viewBox, layoutBoxes, scrollRange } from './input-glue.js';
 
 // Like http-body/request-refusal.test.mjs, run the actual glue with host doubles.
 // Include the real public object and nodeDetail so registration and flow facts
@@ -69,7 +69,7 @@ export function fixture(agentMode = true) {
     preferences: () => '{}', localAssetURL: source => source, pageFacts: {} /* `globalThis.exact` exposes it (LLP 1139.003 D2) */, sizes: new Set(), mediaAttached: (deadline, set = context.mediaAttaching) => Promise.all(set).then(() => true) /* glue.js's, unbounded */,
     launchLocation: () => launchLocation(context), // the launch path less the drive's facts (feed F16)
   });
-  vm.runInContext(`let toldOffset = null; const folded = () => false; /* no folded text here (LLP 1007.001) */ const viewBox = ${viewBox}; const layoutBoxes = ${layoutBoxes}; const scrollRange = ${scrollRange};\n` + ['let gpuLoading', 'const POST_BOUND', 'let frameSampler', 'const followOffset', 'const shownValue'].map(head => source.match(new RegExp(`^${head} = .*$`, 'm'))[0]).join('\n') + '\n' + source.match(/const heldNamed = r => \{.*? : r; \};/)[0] + '\n' + ['nodeDetail', 'agentInputReady', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
+  vm.runInContext(`let toldOffset = null; const folded = () => false; /* no folded text here (LLP 1007.001) */ const backButton = ${backButton}; const viewBox = ${viewBox}; const layoutBoxes = ${layoutBoxes}; const scrollRange = ${scrollRange};\n` + ['let gpuLoading', 'const POST_BOUND', 'let frameSampler', 'const followOffset', 'const shownValue'].map(head => source.match(new RegExp(`^${head} = .*$`, 'm'))[0]).join('\n') + '\n' + source.match(/const heldNamed = r => \{.*? : r; \};/)[0] + '\n' + ['nodeDetail', 'agentInputReady', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
   context.reportPlace = placeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   context.reportTime = timeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   return context;
