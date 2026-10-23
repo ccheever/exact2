@@ -203,7 +203,8 @@ final class SplitMacTests: XCTestCase {
         XCTAssertTrue(exposed.contains("row-a"), "the list is still exposed")
         XCTAssertTrue(exposed.contains("field-a"), "the detail is exposed too: \(exposed)")
         let box = try node("half-a")
-        let point = box.convert(NSPoint(x: 10, y: 10), to: columns.view)
+        let frame = agent.box(box)
+        let point = NSPoint(x: frame.minX + 10, y: frame.minY + 10)
         let pixels = agent.sample(["points": [[point.x, point.y]]])["values"] as? [[Double]]
         let pixel = try XCTUnwrap(pixels?.first)
         XCTAssertGreaterThan(pixel[0], 0.8)
@@ -232,6 +233,46 @@ final class SplitMacTests: XCTestCase {
         XCTAssertNil(route.layer?.backgroundColor)
         p.apply(wireBatch([["op": "style", "id": route.id, "style": ["background_color": role, "written": ["background_color"]]]]))
         XCTAssertNotNil(route.layer?.backgroundColor, "an author's explicit role still paints")
+    }
+
+    func testPublicLayoutSamplesAndScreenshotClicksShareThePageOrigin() throws {
+        let source = app(tabs: true).replacingOccurrences(of: "box testId=`half-${e.params.id}`", with: "box press=count testId=`half-${e.params.id}`")
+        let session = try boot(tabs: true, size: CGSize(width: 1100, height: 500), source: source)
+        let columns = compose(ExactView(session: session), width: 1100, sidebar: true)
+        try press("row-a")
+        let window = try XCTUnwrap(window), p = session.presenter, agent = Agent(session: session)
+        window.setFrameOrigin(NSPoint(x: -20000, y: -20000))
+        window.orderFrontRegardless()
+        XCTAssertNotNil(window.toolbar)
+        XCTAssertGreaterThan(columns.sidebarWidth, 100)
+        let card = try node("half-a")
+        let layout = try XCTUnwrap(agent.layout()["nodes"] as? [[String: Any]])
+        let frame = try XCTUnwrap(layout.first { $0["id"] as? Int == Int(card.id) })
+        let x = try XCTUnwrap(frame["x"] as? Double), y = try XCTUnwrap(frame["y"] as? Double)
+        let sampled = agent.sample(["points": [[x + 5, y + 10]]])
+        let pixel = try XCTUnwrap((sampled["values"] as? [[Double]])?.first)
+        XCTAssertGreaterThan(pixel[0], 0.8)
+        XCTAssertLessThan(pixel[2], 0.1, "a public layout point samples the orange card")
+
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".png")
+        defer { try? FileManager.default.removeItem(at: path) }
+        let capture = agent.screenshot(["path": path.path])
+        XCTAssertNil(capture["error"])
+        let image = try XCTUnwrap(NSBitmapImageRep(data: Data(contentsOf: path)))
+        let scale = CGFloat(image.pixelsWide) / CGFloat(try XCTUnwrap(capture["w"] as? Double))
+        var right = 0, top = image.pixelsHigh
+        for py in 0..<image.pixelsHigh { for px in 0..<image.pixelsWide {
+            guard let c = image.colorAt(x: px, y: py)?.usingColorSpace(.sRGB),
+                  c.redComponent > 0.9, c.greenComponent > 0.5, c.greenComponent < 0.8, c.blueComponent < 0.05 else { continue }
+            right = max(right, px); top = min(top, py)
+        } }
+        XCTAssertGreaterThan(right, 0)
+        XCTAssertLessThan(top, image.pixelsHigh)
+        let reply = agent.tap(["id": Int(card.id), "hover": true, "x": CGFloat(right) / scale - 5, "y": CGFloat(top) / scale + 10])
+        XCTAssertNil(reply["error"], "\(reply)")
+        let point = try XCTUnwrap(p.agentPointer)
+        let hit = window.contentView?.hitTest(point)
+        XCTAssertTrue(hit === card || hit?.isDescendant(of: card) == true, "a screenshot point sends the pointer to the card")
     }
 
     func testAnUnsplitStackClosesADetailPaneRestoredByAppKit() throws {

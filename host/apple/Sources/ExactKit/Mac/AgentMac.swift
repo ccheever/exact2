@@ -1172,12 +1172,18 @@ extension Agent {
         hidden.forEach { $0.0.isHidden = true }
         // As a capture: every canvas paints its picture, read back from the
         // module, and every iframe paints its arm snapshot at its node.
-        let picture = Capture.picture(of: v)
+        var picture = Capture.picture(of: v)
         hidden.forEach { $0.0.isHidden = $0.1 }
         Capture.web = [:]
+        let area = presenter.navigation.split.agentCaptureArea
+        if presenter.navigation.split.active, let full = picture, let image = full.cgImage {
+            let scale = CGFloat(full.pixelsWide) / v.bounds.width
+            picture = image.cropping(to: area.applying(CGAffineTransform(scaleX: scale, y: scale))).map(NSBitmapImageRep.init(cgImage:))
+            picture?.size = area.size
+        }
         guard let png = picture?.representation(using: .png, properties: [:]) else { return ["error": "no sRGB PNG of the viewport"] }
         do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
-        var r: [String: Any] = ["screenshot": path, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height)]
+        var r: [String: Any] = ["screenshot": path, "w": Agent.r2(area.width), "h": Agent.r2(area.height)]
         // An activated run (EXACT_AGENT_ACTIVATE=1, measure-controls'): whether the app was active and its window key
         // as it was taken, which the measure requires of each picture.
         if Self.activated { r["active"] = NSApp.isActive && (v.window?.isKeyWindow ?? false) }
