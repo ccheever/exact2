@@ -709,10 +709,12 @@ after the persona (a status from 100 through 599, LLP 1116.010 D3) is the test o
 refusal: that status passes it, any other (a success too) fails it. The app
 shows the write when it next reads, so follow it with `clock +<its poll's ms>` and
 `clock data` before the `expect` (a failed `expect` before the clock moved says so).
-`test` and `verify` run the server on an empty database (one already answering there,
-your dev server, is refused). Runs take the server's port in turn (another checkout's
+`test`, `verify` and `agent --test` run the server on an empty database (one already
+answering there, your dev server, is refused). Runs take the server's port in turn (another checkout's
 run on it is waited for, and named). `fail fetch` does not reach a `request`: the driver sends
-it, not the app.
+it, not the app. Arguments after the entry in app.json's `commands.server` are passed
+through in order. For a server that keeps no database, set `"server": { "database": false }`
+beside `commands` to omit `DB` and skip scratch database creation and removal.
 `tap "id" drag to "other" [at x y]` ends on the other
 node (LLP 1094 D12). `tap "id" drag dx dy` is the driver's `tap … drag` (from the
 node's middle, or `from x y` in its box, in points; `press`, `over`, `hold` in
