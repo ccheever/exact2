@@ -6,6 +6,9 @@ impl<D: DataSource> Host<D> {
     /// they cannot refuse work the runner has already committed.
     pub(super) fn persist(&mut self) {
         let mut changed = self.runner.data().take_storage_changed();
+        if let Some(store) = &self.secrets {
+            store.retry_failed();
+        }
         for line in self.kept_failures() {
             self.store_failure(line);
         }
