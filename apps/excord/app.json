@@ -38,7 +38,9 @@
     "store": {
       "web": "0",
       "macos": "0",
-      "ios": "0"
+      "ios": "0",
+      "linux": "0",
+      "windows": "0"
     }
   }
 }
