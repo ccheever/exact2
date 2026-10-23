@@ -173,3 +173,44 @@ fn the_wire_measures_a_kind_and_a_value_as_a_design_does() {
     let applied = apply(src, &add(None, padded), &vocab());
     assert!(applied.is_ok(), "{:?}", applied.err());
 }
+
+/// Role spellings in quoted families don't each read the role's value
+/// again in the importers' role analysis (Astra's round 3 re-check: 81
+/// million edges from 40,000 spellings).
+#[test]
+fn role_spellings_are_read_once_each_in_role_analysis() {
+    let spell = |k: usize| {
+        let mut s: Vec<char> = "secondary-background".chars().collect();
+        for (i, c) in s.iter_mut().enumerate() {
+            if k >> (i % 16) & 1 == 1 {
+                *c = c.to_ascii_uppercase();
+            }
+        }
+        s.into_iter().collect::<String>()
+    };
+    let mut lines = Vec::new();
+    // The role's value: about 4 KB of words, each a node to follow.
+    let words: Vec<String> = (0..700).map(|k| format!("w{k}")).collect();
+    lines.push(format!(
+        "  -exact-secondary-background = {}",
+        words.join(" ")
+    ));
+    for j in 0..200 {
+        let family: Vec<String> = (0..190).map(|k| spell(j * 190 + k)).collect();
+        lines.push(format!("  f{j}: family = \"{}\"", family.join(" ")));
+    }
+    let src = format!("tamber t\n\ntheme\n  ink = #111111\n{}\n", lines.join("\n"));
+    let design = parse(&src).unwrap();
+    let began = Instant::now();
+    let _ = exact_tamber::import::shadcn::import(
+        ":root { --secondary: #102030; --card: #ffffff; }",
+        "shadcn",
+        &design,
+        &vocab(),
+    );
+    assert!(
+        began.elapsed() < Duration::from_secs(20),
+        "{:?}",
+        began.elapsed()
+    );
+}
