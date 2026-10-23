@@ -292,7 +292,7 @@ fn shows(c: &Component, file: &File, prop: &str, seen: &mut Vec<(String, String)
         if bound.iter().any(|b| b == prop) {
             return;
         }
-        let is_prop = |e: &Expr| matches!(e, Expr::Ident(name, _) if name == prop);
+        let is_prop = |e: &Expr| yields(e, prop);
         match node {
             Node::Element {
                 tag, positional, ..
@@ -312,6 +312,21 @@ fn shows(c: &Component, file: &File, prop: &str, seen: &mut Vec<(String, String)
                 .find(|d| d.name == *name)
                 .is_some_and(|d| shows(d, file, param, seen))
         })
+}
+
+/// Whether `e`'s value is `prop`'s, unchanged: the name itself, a template
+/// of it alone (`` `${src}` ``), or either branch of a `?:` (a fallback
+/// beside it). A template that adds text (`symbol:${name}`) makes another
+/// string, never the prop's.
+fn yields(e: &Expr, prop: &str) -> bool {
+    match e {
+        Expr::Ident(name, _) => name == prop,
+        Expr::Template(parts, _) => {
+            matches!(parts.as_slice(), [TemplatePart::Expr(inner)] if yields(inner, prop))
+        }
+        Expr::Ternary(_, then, otherwise, _) => yields(then, prop) || yields(otherwise, prop),
+        _ => false,
+    }
 }
 
 /// A role to show for such a prop: its own name if that names one, else

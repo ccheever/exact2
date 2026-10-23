@@ -874,15 +874,30 @@ component Face
     column part="face"
       Pic(src=avatar, label=name)
       text name
+
+component Banner
+  props
+    banner: string
+    fallback: string
+    plain: bool
+    icon: string
+  parts
+    band: paint
+  view
+    column part="band"
+      image `${banner}` width=20 height=20
+      image (plain ? fallback : `${fallback}`) width=20 height=20
+      image `symbol:${icon}` width=20 height=20
 "#;
 
-const PICS_APP: &str = r#"use Pic, Face from "@acme/lib"
+const PICS_APP: &str = r#"use Pic, Face, Banner from "@acme/lib"
 
 component App
   view
     column
       Pic(src="a.png", label="a")
       Face(avatar="b.png", name="b")
+      Banner(banner="c.png", fallback="d.png", plain=false, icon="star")
 "#;
 
 /// A string prop shown as an image's source, directly or through a
@@ -915,5 +930,15 @@ fn a_string_shown_as_an_image_gets_a_neutral_picture_and_text_keeps_its_name() {
         .expect("a Face cell");
     assert!(face.contains(&format!("avatar={neutral}")), "{face}");
     assert!(face.contains(r#"name="name""#), "{face}");
+    // Through a template of it alone and either branch of a `?:`; a symbol's name is no image.
+    let banner = text
+        .lines()
+        .find(|l| l.contains("Banner("))
+        .expect("a Banner cell");
+    assert!(banner.contains(&format!("banner={neutral}")), "{banner}");
+    assert!(banner.contains(&format!("fallback={neutral}")), "{banner}");
+    assert!(!banner.contains(&format!("icon={neutral}")), "{banner}");
+    // Sized by itself, as a browser sizes an SVG without a size, for native readers.
+    assert!(text.contains("width='150' height='150'"), "{banner}");
     let _ = std::fs::remove_dir_all(&dir);
 }
