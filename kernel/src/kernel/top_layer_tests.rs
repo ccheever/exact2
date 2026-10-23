@@ -336,3 +336,58 @@ fn a_popover_moved_out_from_under_a_replaced_box_is_laid_out() {
     k.compute_layout(1, OFFER).unwrap();
     assert_eq!(frame(&k, 5).width, 400.0);
 }
+
+/// Where a popover sits in the viewport by its insets (`top_layer_origin`,
+/// CSS 2 §10.3.7 and §10.6.4): two `auto` margins share even a negative
+/// room down; across, the containing block's direction picks the inset
+/// that wins when both are written.
+#[test]
+fn a_popovers_insets_place_it_by_the_css_rules() {
+    let place = |root: &[(StyleId, StyleValue)], rows: &[(StyleId, StyleValue)], offer: Offer| {
+        let mut k = Kernel::with_monospace();
+        let mut ops = vec![];
+        for id in 1..=2 {
+            ops.push(Op::CreateView {
+                id,
+                node_type: NodeType::View,
+            });
+        }
+        ops.push(style(1, root));
+        ops.push(style(2, rows));
+        ops.push(popover(2));
+        ops.push(Op::SetChildren {
+            id: 1,
+            children: vec![2],
+        });
+        ops.push(Op::AttachRoot { id: 1 });
+        k.apply(0, 1, &ops).unwrap();
+        k.compute_layout(1, offer).unwrap();
+        let (crate::AxisOffer::Definite(w), crate::AxisOffer::Definite(h)) =
+            (offer.width, offer.height)
+        else {
+            unreachable!()
+        };
+        k.top_layer_origin(2, (w, h)).unwrap()
+    };
+    let tall = [
+        (StyleId::Width, n(80.0)),
+        (StyleId::Height, n(400.0)),
+        (StyleId::Top, n(0.0)),
+        (StyleId::Bottom, n(0.0)),
+        (StyleId::MarginTop, StyleValue::Auto),
+        (StyleId::MarginBottom, StyleValue::Auto),
+    ];
+    let (_, y) = place(&[], &tall, Offer::definite(800.0, 320.0));
+    assert_eq!(y, -40.0, "down, a negative share is shared");
+    let both = [
+        (StyleId::Width, n(80.0)),
+        (StyleId::Height, n(40.0)),
+        (StyleId::Left, n(0.0)),
+        (StyleId::Right, n(0.0)),
+    ];
+    let (x, _) = place(&[], &both, OFFER);
+    assert_eq!(x, 0.0, "left to right, the left inset wins");
+    let rtl = [(StyleId::Direction, t("rtl"))];
+    let (x, _) = place(&rtl, &both, OFFER);
+    assert_eq!(x, 720.0, "right to left, the right one");
+}
