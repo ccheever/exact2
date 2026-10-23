@@ -138,6 +138,45 @@ final class AgentMouseFormsMacTests: XCTestCase {
         }
     }
 
+    func testCancellingAControlClickLeavesKeyboardAndProgrammaticActivationAvailable() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "agent-context-contact")
+        defer { session.destroy() }
+        let p = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 240, y: 160, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        window.orderFrontRegardless()
+        defer { window.close() }
+        var face = ButtonFace(); face.title = "Go"
+        p.buttonFace = { _ in face }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "control", "props": ["type": "button"], "handlers": ["press", "contextmenu"]],
+            ["op": "frame", "id": 1, "x": 16, "y": 16, "w": 120, "h": 32], ["op": "roots", "ids": [1]],
+        ]))
+        p.viewport.layoutSubtreeIfNeeded()
+        let button = try XCTUnwrap(p.controls.controls[1] as? NativeButtonMac)
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        let context = expectation(description: "Control-click handled without tracking")
+        p.onClipboard = { _, kind, _ in if kind == 10 { context.fulfill() } }
+        let agent = Agent(session: session)
+        XCTAssertNil(agent.contact("down", ["id": 1, "modifiers": "Control"])["error"])
+        wait(for: [context], timeout: 30)
+        XCTAssertNil(agent.contact("cancel", [:])["error"])
+        // No native tracking loop consumes this context click's queued release.
+        while let event = NSApp.nextEvent(matching: [.leftMouseDragged, .leftMouseUp], until: Date(timeIntervalSinceNow: 30), inMode: .default, dequeue: true) {
+            NSApp.sendEvent(event)
+            if event.type == .leftMouseUp { break }
+        }
+        XCTAssertTrue(window.makeFirstResponder(button))
+        let space = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: " ", charactersIgnoringModifiers: " ", isARepeat: false, keyCode: 49))
+        button.keyDown(with: space)
+        button.performClick(nil)
+        XCTAssertEqual(presses, [1, 1], "a completed context click cannot cancel later actions")
+    }
+
     func testMiddleTripleWheelAtAndShiftDragReachTheViewAndTheMonitor() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "agent-mouse-forms")
