@@ -291,7 +291,7 @@ final class NativeButtonsIOSTests: XCTestCase {
         var green = face("Green", style: "plain", ios: "plain")
         green.rows.title["text_color"] = .array([.number(0), .number(128), .number(0), .number(255)])
         let faces: [UInt32: ButtonFace] = [
-            2: face("Delete", style: "bordered", ios: "bordered"), 3: face("Delete", style: "plain", ios: "plain"),
+            2: face("Delete", style: "bordered", ios: "bordered"), 3: face(nil, symbol: "trash", style: "plain", ios: "plain"),
             4: face("Delete", style: "tinted", ios: "tinted"), 5: face("Delete", style: "bordered-prominent", ios: "borderedProminent"),
             6: face("Delete", style: "filled", ios: "filled"), 7: face("Keep", style: "plain", ios: "plain"),
             8: face("Delete", style: "plain", ios: "plain"), 9: green,
@@ -309,6 +309,7 @@ final class NativeButtonsIOSTests: XCTestCase {
         // Red ink where the style's ink is its own: the plain, gray, bordered and tinted; deepened a notch
         // on the ones with a fill of their own, so it reads 3:1 on it (`check`).
         XCTAssertEqual(try ink(3), red, "plain: systemRed")
+        XCTAssertNotNil(try button(p, 3).configuration?.image, "an icon-only Delete has the destructive foreground too")
         for id: UInt32 in [2, 4] {
             let c = try XCTUnwrap(try ink(id), "\(id)")
             var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
