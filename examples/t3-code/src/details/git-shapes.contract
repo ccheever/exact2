@@ -1,0 +1,134 @@
+// The workspace card's Git data: git-actions.ts gitCardView and
+// git-branch.ts cardBranchView, carried on ShellDetails.git.
+use CheckoutItem from "../composer/pr-checkout-shapes.contract"
+shape GitRef
+  name: string
+  badge: string
+  selected: bool
+  index: number
+shape GitBranch
+  show: bool
+  open: bool
+  label: string
+  value: string
+  disabled: bool
+  query: string
+  refs: GitRef[]
+  creatable: string
+  status: string
+  empty: string
+  enterOp: string
+  enterValue: string
+  originShown: bool
+  originOn: bool
+  count: number
+  // "Checkout pull request" before the refs (0 or 1).
+  checkout: CheckoutItem[]
+shape GitMenuItem
+  id: string
+  label: string
+  icon: string
+  disabled: bool
+  reason: string
+shape GitNote
+  id: string
+  text: string
+  tone: string
+shape GitFile
+  path: string
+  insertions: number
+  deletions: number
+  excluded: bool
+shape GitProvider
+  value: string
+  label: string
+  ready: bool
+  hint: string
+  selected: bool
+// Two provider cards side by side (the reference's grid-cols-2).
+shape GitProviderRow
+  key: string
+  first: GitProvider
+  second: GitProvider
+  pair: bool
+// One environment of the "Run on" select (git-env.ts).
+shape RunOnOption
+  id: string
+  label: string
+  machine: string
+  primary: bool
+  projectId: string
+  selected: bool
+shape GitCard
+  writable: bool
+  repo: bool
+  initLabel: string
+  initPending: bool
+  quickLabel: string
+  quickIcon: string
+  quickDisabled: bool
+  quickHint: string
+  progress: bool
+  progressStatus: string
+  progressOutput: string
+  progressElapsed: string
+  success: bool
+  successTitle: string
+  successDescription: string
+  menuDisabled: bool
+  menuOpen: bool
+  menu: GitMenuItem[]
+  menuPublish: bool
+  notes: GitNote[]
+  dialog: string
+  // The control that opened the dialog: the quick action, or the options menu's trigger (DialogFinalFocus).
+  dialogFrom: string
+  sourceMark: string
+  commitBranch: string
+  commitDefault: bool
+  editing: bool
+  files: GitFile[]
+  fileCount: number
+  selectedCount: number
+  // A changed file opens in the editor: the thread can be operated and the status names its worktree root.
+  filesOpenable: bool
+  allSelected: bool
+  noneSelected: bool
+  someSelected: bool
+  selectedInsertions: number
+  selectedDeletions: number
+  confirmTitle: string
+  confirmDescription: string
+  confirmContinue: string
+  // Why "Check out feature branch & continue" is unavailable, or "".
+  confirmFeatureReason: string
+  // GitActionsControl canChangeThreadBranch: whether a feature ref can be checked out for this thread.
+  canChangeBranch: bool
+  publishStep: number
+  publishProviders: GitProvider[]
+  publishRows: GitProviderRow[]
+  publishProvider: string
+  publishProviderLabel: string
+  publishHost: string
+  publishPlaceholder: string
+  publishRepository: string
+  publishVisibility: string
+  publishRemote: string
+  publishProtocol: string
+  publishAdvanced: bool
+  publishPending: bool
+  publishError: string
+  publishAnyReady: bool
+  publishCanNext: bool
+  publishCanSubmit: bool
+  publishPushed: bool
+  publishName: string
+  publishUrl: string
+  publishSummary: string
+  envPick: bool
+  envOptions: RunOnOption[]
+  // "Add to another machine" (useAddProjectTargets), offered under the Run on rows.
+  envAdd: RunOnOption[]
+  envAddMenuWidth: number
+  envCount: number
+  branch: GitBranch

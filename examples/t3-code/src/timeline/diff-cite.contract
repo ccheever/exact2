@@ -1,0 +1,122 @@
+// Cite, adapted from T3 Code 74541bab17 AssistantSelectionToolbar.tsx and lib/selectionActions.ts (MIT; see LICENSE-T3):
+// a floating glass button with the quote glyph at a selection in an answer, "Cite" with aria-label "Cite selection in
+// composer", or disabled "Shorten selection" ("Selection is too long to cite") past 8,000 UTF-16 units. The reference portals
+// it to the body (`fixed z-50`), so the window draws it here (app-window.contract), above the timeline's rows (cite-selection-
+// anchor: inside the answer, the row's footer under the last block took its press). Its top-left is the release point of
+// the pointer that made the selection while that point is within 8 pt of a selected line, else the selection's last line's
+// right and bottom + 4 (`rects.item(rects.length - 1)`), held in the timeline's box (resolveSelectionActionPosition) and 8 pt inside the window. A plain Tab while it shows focuses
+// it (the answer's `keycapture`, markdown.contract); Escape there hides it and keeps the selection. The press keeps the
+// selection's focus (`retainFocus`), sends the parts to diff-review.ts with the window frame of the selection's last line,
+// measured again (where the chip's comment opens: AssistantCitationChip's `popupAnchor`), and clears the selection
+// (`window.getSelection()?.removeAllRanges()` after `onCite`).
+use DiffGlyph from "../diff/diff-glyphs.contract"
+
+// A selected line from its text's top-left.
+shape CiteLine
+  x: number
+  y: number
+  width: number
+  height: number
+
+// One text's part of the selection, in the answer's text stream (UTF-16 offsets); `block` is the text's id suffix. `lx`,
+// `ly`, `lw`, `lh`: the part's last selected line (`Selection.rects`' last) from the text's top-left at the event; `lw` -1
+// when the host reported none (a reader paragraph), where the text's own frame stands for it. `lines`: every selected line.
+shape CitePart
+  block: string
+  start: number
+  end: number
+  lx: number
+  ly: number
+  lw: number
+  lh: number
+  lines: CiteLine[]
+
+// What an answer offers the window's Cite: the answer (`source`, its message id), the parts' ranges ("start-end,…") in its
+// text stream, the stream, the selection's length, Cite's top-left in the window (held in the timeline's box), and the
+// text holding the selection's end (`end`, its id) with that part's last line from the text's top-left.
+shape CiteOffer
+  source: string
+  ranges: string
+  stream: string
+  size: number
+  x: number
+  y: number
+  end: string
+  lx: number
+  ly: number
+  lw: number
+  lh: number
+
+// A text's part, with its last selected line from the text's top-left.
+fn citePart(key: string, start: number, end: number, rects: Geometry[], box: Geometry): CitePart = match rects.at(-1) { case some(r) => CitePart(block=key, start=start, end=end, lx=r.x - box.x, ly=r.y - box.y, lw=r.width, lh=r.height, lines=rects.map((q) => CiteLine(x=q.x - box.x, y=q.y - box.y, width=q.width, height=q.height))), case none => CitePart(block=key, start=start, end=end, lx=0, ly=0, lw=-1, lh=0, lines=[]) }
+
+// Whether the point (x, y) is within 8 pt of the part's selected lines, its text drawn at `box` (the text's own frame when
+// the host reported no line): AssistantSelectionToolbar's `pointerOnText`.
+fn citeNearBox(x: number, y: number, left: number, top: number, width: number, height: number): bool = x >= left - 8 and x <= left + width + 8 and y >= top - 8 and y <= top + height + 8
+fn citeNear(part: CitePart, box: Geometry, x: number, y: number): bool = part.lines.length == 0 ? citeNearBox(x, y, box.x, box.y, box.width, box.height) : part.lines.filter((l) => citeNearBox(x, y, box.x + l.x, box.y + l.y, l.width, l.height)).length > 0
+
+// The part holding the selection's end (the greatest end offset), as a list of none or one.
+fn citeEnd(parts: CitePart[]): CitePart[] = parts.filter((p) => parts.filter((q) => q.end > p.end).length == 0).slice(0, 1)
+
+// The id suffix of the text holding the selection's end ("" for none).
+fn citeEndKey(parts: CitePart[]): string = citeEnd(parts).map((p) => p.block).join("")
+
+// The selection's last line's right edge and bottom in the window, from the end text's frame `box` (its own frame when the
+// host reported no line).
+fn citeLineRight(parts: CitePart[], box: Geometry): number = match citeEnd(parts).at(0) { case some(p) => (p.lw < 0 ? box.x + box.width : box.x + p.lx + p.lw), case none => box.x + box.width }
+fn citeLineBottom(parts: CitePart[], box: Geometry): number = match citeEnd(parts).at(0) { case some(p) => (p.lw < 0 ? box.y + box.height : box.y + p.ly + p.lh), case none => box.y + box.height }
+
+// resolveSelectionActionPosition's hold on one axis: within the timeline's box [lo, lo + size] (`unmeasured`: no box).
+fn citeAxis(v: number, lo: number, size: number, unmeasured: bool): number = unmeasured ? v : min(max(lo, v), lo + size)
+
+// The selection's length in UTF-16 units.
+fn citeSize(parts: CitePart[], stream: string): number = parts.map((p) => stream.slice(p.start, p.end)).join("").length
+
+// The offer for `parts` with Cite's top-left at (x, y).
+fn citeOfferFor(source: string, parts: CitePart[], stream: string, x: number, y: number): CiteOffer = match citeEnd(parts).at(0) { case some(p) => CiteOffer(source=source, ranges=parts.map((q) => `${q.start}-${q.end}`).join(","), stream=stream, size=citeSize(parts, stream), x=x, y=y, end=`cite-${source}-${p.block}`, lx=p.lx, ly=p.ly, lw=p.lw, lh=p.lh), case none => CiteOffer(source="", ranges="", stream="", size=0, x=0, y=0, end="", lx=0, ly=0, lw=-1, lh=0) }
+
+// The window frame Cite sends, "x,y,width,height" (the comment opens under it, align end): the selection's last line, its
+// text measured again at the press (the timeline may have moved); the text's own frame when the host reported no line.
+fn citeLineFrame(offer: CiteOffer, box: Geometry): string = box.unavailable ? "" : (offer.lw < 0 ? `${box.x},${box.y},${box.width},${box.height}` : `${box.x + offer.lx},${box.y + offer.ly},${offer.lw},${offer.lh}`)
+
+// The selection's last line in the window, from the end text's frame `box`, measured again after a scroll.
+fn citeLineLeft(offer: CiteOffer, box: Geometry): number = offer.lw < 0 ? box.x : box.x + offer.lx
+fn citeLineTop(offer: CiteOffer, box: Geometry): number = offer.lw < 0 ? box.y : box.y + offer.ly
+fn citeLineWidth(offer: CiteOffer, box: Geometry): number = offer.lw < 0 ? box.width : offer.lw
+fn citeLineHeight(offer: CiteOffer, box: Geometry): number = offer.lw < 0 ? box.height : offer.lh
+
+// isSelectionRectVisible against the timeline's box: the end text still drawn and its last line inside the box.
+fn citeLineShown(offer: CiteOffer, box: Geometry, bounds: Geometry): bool = not box.unavailable and (bounds.unavailable or (citeLineLeft(offer, box) < bounds.x + bounds.width and citeLineLeft(offer, box) + citeLineWidth(offer, box) > bounds.x and citeLineTop(offer, box) < bounds.y + bounds.height and citeLineTop(offer, box) + citeLineHeight(offer, box) > bounds.y))
+
+// The offer with Cite at the last line's right and bottom + 4 again (no pointer after a scroll), held in the timeline's box.
+fn citeRestored(offer: CiteOffer, box: Geometry, bounds: Geometry): CiteOffer = CiteOffer(source=offer.source, ranges=offer.ranges, stream=offer.stream, size=offer.size, x=citeAxis(citeLineLeft(offer, box) + citeLineWidth(offer, box), bounds.x, bounds.width, bounds.unavailable), y=citeAxis(citeLineTop(offer, box) + citeLineHeight(offer, box) + 4, bounds.y, bounds.height, bounds.unavailable), end=offer.end, lx=offer.lx, ly=offer.ly, lw=offer.lw, lh=offer.lh)
+
+// The button's size (button xs glass: 28 pt tall; "Cite" or "Shorten selection" at 12 pt with the glyph) for the layout
+// effect's hold: 8 pt inside the window on each side.
+fn citeActionLeft(x: number, viewportWidth: number, tooLong: bool): number = max(8, min(max(8, min(x, viewportWidth - 8)), viewportWidth - (tooLong ? 138 : 66) - 8))
+fn citeActionTop(y: number, viewportHeight: number): number = max(8, min(max(8, min(y, viewportHeight - 8)), viewportHeight - 28 - 8))
+
+component CiteAction
+  props
+    offer: CiteOffer
+    viewportWidth: number
+    viewportHeight: number
+    press: action
+    dismiss: action
+  derive tooLong = offer.size > 8000
+  state hovering = false
+  // The Tab's focus draws the button's ring (focus-visible:ring-2 ring-ring ring-offset-1 ring-offset-background); a click
+  // leaves the focus where it is (`retainFocus`), so only a key reaches it.
+  state focused = false
+  action hover(over: bool)
+    hovering = over
+  action focusChanged(inside: bool)
+    focused = inside
+  action keys(k: string)
+    if k == "Escape"
+      preventDefault()
+      dismiss()
+  view
+    button id="cite-action" retainFocus=true press=press key=keys hover=hover focus=focusChanged(true) blur=focusChanged(false) disabled=tooLong aria-label=(tooLong ? "Selection is too long to cite" : "Cite selection in composer") testId=`cite-${offer.source}` position="absolute" left=citeActionLeft(offer.x, viewportWidth, tooLong) top=citeActionTop(offer.y, viewportHeight) z-index=50 height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" gap="0.375rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color=(hovering ? "light-dark(#f4f4f5f2, #1c1c1cf2)" : "light-dark(#ffffffeb, #111111eb)") box-shadow=(focused ? "0 0 0 1px light-dark(#fcfcfc, #0a0a0a), 0 0 0 3px light-dark(#1b4ed8, #346bf1), 0 8px 24px -12px #00000059" : "0 8px 24px -12px #00000059") opacity=(tooLong ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+      DiffGlyph(name="quote", size=14, color="light-dark(#27272a, #f5f5f5)")
+      text (tooLong ? "Shorten selection" : "Cite") font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"

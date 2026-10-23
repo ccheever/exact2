@@ -1,0 +1,10 @@
+// The reference's generic placeholder role (T3 Code 1e2ecbd975, MIT, see LICENSE-T3): ui/input.tsx and
+// ui/command.tsx write `placeholder:text-placeholder`, and index.css sets `--placeholder` to the muted
+// foreground. A text field without a field style takes this placeholder-only class (CSS
+// `::placeholder { color }`). Ui/textarea.tsx writes no placeholder
+// colour; its clone fields take the same muted role. Field styles (PvField, AeField, SbField, TkField)
+// hold the same part themselves, since an element takes one class. Fields whose words follow the
+// Settings palette or a file's own ink function write a computed part beside them instead.
+style FieldPlaceholder
+  ::placeholder
+    color="light-dark(#71717b, #818181)"

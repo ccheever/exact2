@@ -1,0 +1,49 @@
+// The details card's pull request row with the host's detail (the
+// checks popover, the trailing action's measured width, the tooltip card) and the
+// Merge AlertDialog, as pr-row.ts and pr-row-actions.ts answer them.
+use PrBreakdown from "../pull-requests/pr-breakdown.contract"
+shape PrCheck
+  key: string
+  name: string
+  status: string
+  label: string
+  url: string
+  description: string
+shape PrCard
+  show: bool
+  title: string
+  number: string
+  stateKey: string
+  stateLabel: string
+  branches: string
+  checksShown: bool
+  checksStatus: string
+  checksText: string
+  conflictText: string
+  files: string
+  additions: string
+  deletions: string
+  breakdown: PrBreakdown
+  flipped: bool
+  width: number
+  height: number
+shape PrRowExtra
+  destructive: bool
+  suffix: bool
+  tail: number
+  popId: string
+  method: string
+  checksTitle: string
+  checksSummary: string
+  checksList: PrCheck[]
+  checksLabels: string[]
+  checksDetails: bool
+  collapsible: bool
+  expanded: bool
+  card: PrCard
+shape MergeAsk
+  open: bool
+  number: number
+  description: string
+  target: string
+  pending: bool

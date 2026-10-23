@@ -1,0 +1,263 @@
+// Integrations › Devices › EAS Simulator (settings-eas-hosts.ts): the row with its host list
+// (EasDeviceHostsSettings) and the Add/Edit EAS host dialog (EasDeviceHostEditor), mounted at
+// the window root by SettingsADialogs.
+use FieldPlaceholder from "../shared/field-placeholder.contract"
+use LucideCloud from "../settings/settings-icons.contract"
+use LucideX from "../settings/settings-icons.contract"
+use HostButton from "./settings-a-hosts.contract"
+use HostField from "./settings-a-hosts.contract"
+use FocusGuard from "../shared/dialog-trap.contract"
+use DialogOpenFocus from "../shared/dialog-trap.contract"
+
+shape EasHostRow
+  id: string
+  label: string
+  limits: string
+  first: bool
+shape EasHostsView
+  supported: bool
+  disabled: bool
+  editing: bool
+  hosts: EasHostRow[]
+shape EasApp
+  id: string
+  fullName: string
+shape EasEditorView
+  open: bool
+  serial: string
+  isNew: bool
+  title: string
+  id: string
+  label: string
+  tokenSaved: bool
+  appId: string
+  sessions: string
+  sessionMinutes: string
+  idleMinutes: string
+  accountSeq: number
+  accountStatus: string
+  accountMessage: string
+  apps: EasApp[]
+
+// EasDeviceHostConfig's limits over the fields' text, read as the reference's `Number(value)` reads them
+// ("" is 0). easProblem is "" for a valid draft, else why Save is off (settings-eas-hosts.ts easHostProblem).
+fn easCount(text: string): number = match parseNumber(text) { case some(n) => n, case none => (text.trim() == "" ? 0 : -1) }
+fn easWhole(text: string, max: number): bool = floor(easCount(text)) == easCount(text) and easCount(text) >= 1 and easCount(text) <= max
+fn easProblem(label: string, sessions: string, sessionMinutes: string, idleMinutes: string): string = (label.trim() != "" and easWhole(sessions, 20) and easWhole(sessionMinutes, 115) and easWhole(idleMinutes, 60) and easCount(idleMinutes) < easCount(sessionMinutes)) ? "" : ((easCount(sessionMinutes) > 0 and easCount(idleMinutes) >= easCount(sessionMinutes)) ? "Idle minutes must be smaller than session minutes." : "Give the host a label and limits within the ranges shown.")
+
+keyframes easSpin
+  from rotate=0
+  to rotate=360
+
+// Spinner size xs (LoaderCircle, motion-safe:animate-spin), shown before a button's label while its work runs.
+component EasSpinner
+  inject
+    still: bool
+  props
+    color: string
+  view
+    box width="0.75rem" height="0.75rem" flex-shrink=0 animation=(still ? "none" : "easSpin 1s linear infinite") aria-hidden=true
+      svg width="0.75rem" height="0.75rem" viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
+        path d="M21 12a9 9 0 1 1-6.219-8.56"
+
+// Button size sm, variant ghost or ghost-destructive.
+component EasGhostButton
+  props
+    label: string
+    destructive: bool
+    disabled: bool
+    press: action
+    buttonId: string
+  view
+    button press=press disabled=disabled testId=buttonId display="flex" flex-direction="row" align-items="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" opacity=(disabled ? 0.64 : 1) data-focus-stop=(disabled ? "" : "enabled")
+      text label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(destructive ? "light-dark(#dc2626, #f87171)" : "light-dark(#27272a, #f5f5f5)") white-space="nowrap"
+
+// SettingsRow "EAS Simulator" over `easDeviceHosts` (serverScoped; its inheritance button is the slot), with the host list as its children.
+component EasDeviceHostsRow
+  props
+    view: EasHostsView
+    busy: bool
+    rest: action
+  slot
+  view
+    column width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.25rem" padding-left="1rem" padding-right="1rem" border-top-width=1 border-top-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)" testId="device-row-eas-hosts" id="eas-device-hosts"
+      row width="100%" gap="2rem" align-items="center"
+        column flex=1 min-width=0 gap="0.25rem"
+          row min-height="1.25rem" align-items="center" gap="0.375rem"
+            text "EAS Simulator" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+            children
+            box width="1.25rem" height="1.25rem"
+          text "Run iOS Simulators in Expo's cloud from this environment. Sessions bill the Expo account until they stop, so each host limits how many run and for how long. Editing or removing a host stops its running sessions." font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
+        row flex-shrink=0 min-width="10rem" justify-content="flex-end"
+          HostButton(label="Add EAS host", disabled=(busy or view.disabled or view.editing), press=rest("eas-open", ""), buttonId="eas-hosts-add", plus=true)
+      column width="100%" padding-top="0.75rem" padding-bottom="0.5rem" box-sizing="border-box"
+        if view.hosts.length == 0
+          text "No EAS hosts." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" testId="eas-hosts-empty"
+        for host in view.hosts key=host.id
+          row width="100%" gap="0.75rem" align-items="center" justify-content="space-between" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" border-top-width=(host.first ? 0 : 1) border-top-style="solid" border-color="light-dark(#e4e4e766, #ffffff06)" testId=`eas-host-${host.id}`
+            column flex=1 min-width=0
+              row min-width=0 gap="0.375rem" align-items="center"
+                LucideCloud(size=14, color="light-dark(#27272a, #f5f5f5)")
+                text host.label font-size="0.875rem" font-weight=500 line-height="1.25rem" line-clamp=1 color="light-dark(#27272a, #f5f5f5)"
+              text host.limits font-size="0.75rem" line-height="1rem" line-clamp=1 color="light-dark(#71717b, #818181)" testId=`eas-host-limits-${host.id}`
+            row flex-shrink=0 gap="0.25rem"
+              EasGhostButton(label="Edit", destructive=false, disabled=(busy or view.disabled), press=rest("eas-edit", `id=${encodeURIComponent(host.id)}`), buttonId=`eas-host-edit-${host.id}`)
+              EasGhostButton(label="Remove", destructive=true, disabled=(busy or view.disabled), press=rest("eas-remove", `id=${encodeURIComponent(host.id)}`), buttonId=`eas-host-remove-${host.id}`)
+
+// EasDeviceHostEditor: Name, the Expo access token, the account check, the EAS project and the
+// three limits; Cancel / Save host. The draft lives here; Save sends it and the server checks it.
+component EasHostDialog
+  inject
+    dialogEntered: action
+    dialogFallback: action
+  props
+    editor: EasEditorView
+    busy: bool
+    error: string
+    rest: action
+    local: action
+  // Each field shows the edited host until it is typed into (state cannot start from a prop here).
+  state labelDraft = ""
+  state labelEdited = false
+  // "" until the token is edited: then "new" (typed), "cleared" (the X), or "saved" again when the field is emptied.
+  state tokenKindDraft = ""
+  state tokenValue = ""
+  state appDraft = ""
+  state appEdited = false
+  state sessionsDraft = ""
+  state sessionsEdited = false
+  state sessionMinutesDraft = ""
+  state sessionMinutesEdited = false
+  state idleDraft = ""
+  state idleEdited = false
+  // `seq` counts checks and token edits; an answer shows while the check it answers (`checkAt`) is the latest of them.
+  state seq = 0
+  state checkAt = 0
+  state opened = false
+  derive label = labelEdited ? labelDraft : editor.label
+  derive tokenKind = tokenKindDraft != "" ? tokenKindDraft : (editor.tokenSaved ? "saved" : "cleared")
+  derive appId = appEdited ? appDraft : editor.appId
+  derive sessions = sessionsEdited ? sessionsDraft : editor.sessions
+  derive sessionMinutes = sessionMinutesEdited ? sessionMinutesDraft : editor.sessionMinutes
+  derive idleMinutes = idleEdited ? idleDraft : editor.idleMinutes
+  derive problem = easProblem(label, sessions, sessionMinutes, idleMinutes)
+  derive account = checkAt != seq ? "idle" : (editor.accountSeq == checkAt ? editor.accountStatus : "checking")
+  derive credential = `serial=${editor.serial}&tokenKind=${tokenKind}&token=${encodeURIComponent(tokenKind == "new" ? tokenValue : "")}`
+  derive saveInput = `${credential}&label=${encodeURIComponent(label)}&appId=${encodeURIComponent(appId)}&sessions=${encodeURIComponent(sessions)}&sessionMinutes=${encodeURIComponent(sessionMinutes)}&idleMinutes=${encodeURIComponent(idleMinutes)}`
+  derive dialogTargets = ["eas-host-name", "eas-host-close"]
+  action editLabel(next: string)
+    labelDraft = next
+    labelEdited = true
+  // Emptying the field is not clearing the saved token; the X is, so a saved token comes back here.
+  action editToken(next: string)
+    tokenValue = next
+    tokenKindDraft = next != "" ? "new" : (editor.tokenSaved ? "saved" : "cleared")
+    seq = seq + 1
+  action clearToken
+    tokenValue = ""
+    tokenKindDraft = "cleared"
+    seq = seq + 1
+  action chooseApp(next: string)
+    appDraft = next
+    appEdited = true
+  action editSessions(next: string)
+    sessionsDraft = next
+    sessionsEdited = true
+  action editSessionMinutes(next: string)
+    sessionMinutesDraft = next
+    sessionMinutesEdited = true
+  action editIdle(next: string)
+    idleDraft = next
+    idleEdited = true
+  // The reference's form onSubmit: Enter in a field saves a valid draft.
+  action submitDraft
+    if problem == "" and not busy
+      rest("eas-save", saveInput)
+  action check
+    let next = seq + 1
+    seq = next
+    checkAt = next
+    local("eas-check", `${credential}&seq=${next}`)
+  // The editor checks the account as it opens (its first layout), which names the saved project and shows a
+  // rejected credential before anything is changed.
+  action laidOut(width: number, height: number)
+    if width > 0 and height > 0 and not opened
+      let next = seq + 1
+      opened = true
+      seq = next
+      checkAt = next
+      local("eas-check", `${credential}&seq=${next}`)
+  view
+    column position="absolute" left=0 right=0 top=0 bottom=0 align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" z-index=30 testId="eas-host-dialog-overlay"
+      column position="relative" width="100%" max-width="32rem" max-height="100%" box-sizing="border-box" border-radius="1.125rem" border-width=1 border-style="solid" border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label=editor.title testId="eas-host-dialog" id="eas-host-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("eas-host-dialog") key=dialogFallback("eas-host-dialog", dialogTargets)
+        // The focus trap (dialog-trap.contract): from Name to the X (DialogPopup's last child).
+        FocusGuard(guardId="eas-host-guard-start", targets=dialogTargets, popup="eas-host-dialog")
+        DialogOpenFocus(target="eas-host-name")
+        box aria-hidden=true resize=laidOut position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none"
+        column padding-top="1.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="0.75rem" gap="0.5rem" flex-shrink=0
+          text editor.title font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          text "The environment's server signs in to Expo and starts the sessions. Without a token here it uses EXPO_TOKEN, then its eas login." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+        column padding-top="0.25rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="1.5rem" gap="1rem" box-sizing="border-box" min-height=0 overflow-y="auto"
+          HostField(label="Name", grow=true)
+            input id="eas-host-name" value=label input=editLabel submit=submitDraft class=FieldPlaceholder disabled=busy aria-label="Name" spellcheck="false" autocorrect="off" testId="eas-host-name" flex=1 min-width=0 height="1.875rem" padding=0 position="relative" top="0.40625rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.875rem" color="light-dark(#27272a, #f5f5f5)" data-focus-stop=(busy ? "" : "enabled") data-editable="yes"
+          column gap="0.375rem"
+            text "Expo access token" font-size="0.875rem" line-height="1.0625rem" color="light-dark(#27272a, #f5f5f5)"
+            row width="100%" gap="0.5rem" align-items="center"
+              // SecretInput: a password field whose placeholder says a token is stored.
+              row flex=1 min-width=0 height="2rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" box-shadow="0 1px 2px #0000000a" align-items="center" padding-left="0.6875rem" padding-right="0.6875rem"
+                input id="eas-host-token" type="password" value=(tokenKind == "new" ? tokenValue : "") input=editToken submit=submitDraft placeholder=(tokenKind == "saved" ? "Stored secret, enter a new value to replace" : "Optional") class=FieldPlaceholder disabled=busy aria-label="Expo access token" autocomplete="off" spellcheck="false" autocorrect="off" testId="eas-host-token" flex=1 min-width=0 height="1.875rem" padding=0 position="relative" top="0.40625rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.875rem" color="light-dark(#27272a, #f5f5f5)" data-editable="yes"
+              if tokenKind != "cleared"
+                button press=clearToken aria-label="Clear access token" testId="eas-host-token-clear" width="1.75rem" height="1.75rem" padding=0 flex-shrink=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+                  LucideX(size=14, color="light-dark(#dc2626, #f87171)")
+          row width="100%" align-items="center" justify-content="space-between" gap="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" testId="eas-host-account"
+            text (account == "signed-in" or account == "failed" ? editor.accountMessage : (account == "checking" ? "Checking the Expo account…" : "Check the Expo account before choosing a project.")) role="status" flex=1 min-width=0 font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="eas-host-account-status"
+            button press=check disabled=(busy or account == "checking") testId="eas-host-check" display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" flex-shrink=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow=(busy or account == "checking" ? "none" : "0 1px 2px #0000000d") opacity=(busy or account == "checking" ? 0.64 : 1)
+              if account == "checking"
+                EasSpinner(color="light-dark(#71717b, #818181)")
+              text "Check account" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
+          column gap="0.375rem"
+            text "EAS project" font-size="0.875rem" line-height="1.0625rem" color="light-dark(#27272a, #f5f5f5)"
+            select value=appId change=chooseApp disabled=busy aria-label="EAS project" testId="eas-host-project" align-self="flex-start" height="2rem" font-size="0.875rem" id="eas-host-project" data-editable="yes"
+              option "From the thread's project" value=""
+              if appId != "" and editor.apps.filter((app) => app.id == appId).length == 0
+                option appId value=appId
+              for app in editor.apps key=app.id
+                option app.fullName value=app.id
+            text "Sessions bill the project's Expo account. \"From the thread's project\" reads extra.eas.projectId from the project's app config." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+          row width="100%" gap="0.75rem"
+            EasLimitField(label="Sessions at once", value=sessions, max=20, busy=busy, fieldId="eas-host-sessions", edit=editSessions, submit=submitDraft)
+            EasLimitField(label="Session minutes", value=sessionMinutes, max=115, busy=busy, fieldId="eas-host-session-minutes", edit=editSessionMinutes, submit=submitDraft)
+            EasLimitField(label="Idle minutes", value=idleMinutes, max=60, busy=busy, fieldId="eas-host-idle-minutes", edit=editIdle, submit=submitDraft)
+          text `Expo allows sessions of up to 40 minutes on free accounts and 115 on paid ones, and ends one after the idle minutes without activity, so idle minutes must be smaller than session minutes.${editor.isNew ? "" : " Saving restarts this host, which stops its running sessions."}` font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="eas-host-limits-help"
+          if problem != ""
+            text problem role="alert" font-size="0.75rem" line-height="1rem" color="light-dark(#dc2626, #f87171)" testId="eas-host-problem"
+          if error != ""
+            text error role="alert" font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)" testId="eas-host-error"
+        row gap="0.5rem" justify-content="flex-end" flex-shrink=0 padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff06)"
+          button press=rest("eas-close", "") disabled=busy aria-keyshortcuts="Escape" testId="eas-host-cancel" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+            text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+          button press=rest("eas-save", saveInput) disabled=(busy or problem != "") testId="eas-host-save" gap="0.375rem" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" border-radius="0.5rem" border-width=0 background-color="light-dark(#1b4ed8, #346bf1)" display="flex" flex-direction="row" align-items="center" opacity=(busy or problem != "" ? 0.64 : 1) data-focus-stop=(busy or problem != "" ? "" : "enabled")
+            if busy
+              EasSpinner(color="#ffffff")
+            text "Save host" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
+        // DialogPopup's X, hidden while saving (showCloseButton={!busy}).
+        if not busy
+          button id="eas-host-close" press=rest("eas-close", "") aria-label="Close" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" testId="eas-host-close" title="" data-focus-stop="enabled"
+            LucideX(size=16, color="light-dark(#71717b, #818181)")
+        FocusGuard(guardId="eas-host-guard-end", targets=dialogTargets, popup="eas-host-dialog")
+
+// One of the three limits: a whole number from 1 to `max` (Input type="number").
+component EasLimitField
+  props
+    label: string
+    value: string
+    max: number
+    busy: bool
+    fieldId: string
+    edit: action
+    submit: action
+  view
+    column flex=1 min-width=0 gap="0.375rem"
+      text label font-size="0.875rem" line-height="1.0625rem" color="light-dark(#27272a, #f5f5f5)"
+      row width="100%" height="2rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" box-shadow="0 1px 2px #0000000a" align-items="center" padding-left="0.6875rem" padding-right="0.6875rem"
+        input id=fieldId type="number" min=1 max=max step=1 inputmode="numeric" value=value input=edit submit=submit disabled=busy aria-label=label autocorrect="off" testId=fieldId flex=1 min-width=0 height="1.875rem" padding=0 position="relative" top="0.40625rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.875rem" font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)" data-editable="yes"

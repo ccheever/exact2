@@ -1,0 +1,64 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src http: https:; base-uri 'none'; form-action 'none'">
+<style>html,body,iframe{margin:0;width:100%;height:100%;border:0;display:block;background:transparent;overflow:hidden}</style>
+<script>
+// Exact transports text; MCP Apps transports JSON objects. This document owns
+// only this conversion, with the server document inside an opaque sandbox.
+(() => {
+  const maxBytes = 256 * 1024;
+  const encoder = new TextEncoder();
+  let config;
+  try { config = JSON.parse(decodeURIComponent(location.hash.slice(1))); } catch { return; }
+  if (!config || typeof config.token !== 'string' || config.token.length > 256 || typeof config.src !== 'string') return;
+  let source;
+  try { source = new URL(config.src); } catch { return; }
+  if (!['http:', 'https:'].includes(source.protocol) || source.username || source.password) return;
+  const direct = parent === window;
+  let hostOrigin = '';
+  if (!direct) {
+    try { hostOrigin = new URL(document.referrer).origin; } catch { return; }
+    if (hostOrigin === 'null') return;
+  }
+  const frame = document.createElement('iframe');
+  frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups allow-downloads');
+  frame.setAttribute('referrerpolicy', 'no-referrer');
+  let revoked = false, loaded = false;
+  const validMessage = value => value && typeof value === 'object' && !Array.isArray(value) && value.jsonrpc === '2.0';
+  const encoded = value => {
+    try { const text = JSON.stringify(value); return encoder.encode(text).byteLength <= maxBytes ? text : null; } catch { return null; }
+  };
+  // McpAppFrame opens full screen only right after input in the app: this page holds the app's frame, so a tap
+  // there gives it the focus and this page the activation; input elsewhere in the host never reaches this web view.
+  const activation = () => ({ focused: document.hasFocus() && document.activeElement === frame, active: navigator.userActivation?.isActive === true });
+  const emit = (message, extra) => {
+    const text = encoded({ t3Document: config.token, message, ...extra });
+    if (text !== null) parent.postMessage(text, direct ? '*' : hostOrigin);
+  };
+  addEventListener('message', event => {
+    if (revoked) return;
+    if (event.source === frame.contentWindow && event.origin === 'null') {
+      if (validMessage(event.data) && encoded(event.data) !== null) emit(event.data, event.data.method === 'ui/request-display-mode' ? { activation: activation() } : undefined);
+      return;
+    }
+    // Native direct guests receive an isolated-world synthesized event. Web
+    // guests require the exact parent Window and its non-opaque origin.
+    if (event.source !== parent || event.origin !== (direct ? '' : hostOrigin) || typeof event.data !== 'string' || encoder.encode(event.data).byteLength > maxBytes) return;
+    let envelope;
+    try { envelope = JSON.parse(event.data); } catch { return; }
+    if (envelope?.t3Document !== config.token || !validMessage(envelope.message)) return;
+    frame.contentWindow?.postMessage(envelope.message, '*');
+  });
+  frame.addEventListener('load', () => {
+    // A guest's WindowProxy survives self-navigation. Revoke when its next
+    // load becomes observable; navigation-start revocation is unavailable here.
+    if (loaded) { revoked = true; return; }
+    loaded = true;
+    emit({ jsonrpc: '2.0', method: 't3/adapter-ready', params: {} });
+  });
+  frame.src = source.href;
+  document.addEventListener('DOMContentLoaded', () => document.body.append(frame), { once: true });
+})();
+</script>
+<body></body>

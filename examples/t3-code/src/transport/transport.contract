@@ -1,0 +1,54 @@
+// The server connections' resource and reply shapes (transport.ts). The root owns the resources,
+// the tick and its tasks (app.contract, "The server connections").
+
+// A session slot: the session's key ("focused", a background environment's `origin\nid`, or "" when
+// free), its attempt, the better-route checks asked for while connected, and the socket's URL once
+// the attempt's ticket is in.
+shape TransportSlot
+  key: string
+  attempt: number
+  check: number
+  url: string
+// An update job's slot (an outdated host's self-update): its job key and step.
+shape TransportUpdateSlot
+  key: string
+  step: number
+// What the tick publishes: news for the delivering answer, the table's revision, when it wants to run
+// again (`soon` every 250 ms, `live` every second), and the sockets each slot wants.
+shape TransportTable
+  deliver: number
+  rev: number
+  soon: bool
+  live: bool
+  s0: TransportSlot
+  s1: TransportSlot
+  s2: TransportSlot
+  s3: TransportSlot
+  s4: TransportSlot
+  s5: TransportSlot
+  s6: TransportSlot
+  s7: TransportSlot
+  s8: TransportSlot
+  u0: TransportUpdateSlot
+  u1: TransportUpdateSlot
+  u2: TransportUpdateSlot
+  u3: TransportUpdateSlot
+// A slot's own attempt (the ladder's) or better-route check.
+shape TransportConnect
+  attempt: number
+  seq: number
+// An update job's step: its socket URL while the update runs.
+shape TransportUpdateStep
+  step: number
+  url: string
+  seq: number
+// A socket's last event.
+shape TransportSocket
+  state: string
+  seq: number
+// What the delivering answer reports: status, events and fleet changes for the snapshot, fleet changes
+// alone for Settings › Connections, and the revision of the table the tick would publish now.
+shape TransportInbox
+  news: number
+  fleet: number
+  table: number

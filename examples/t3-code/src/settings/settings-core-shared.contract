@@ -1,0 +1,50 @@
+// Shared settings option records, colours and button style.
+shape CoreOption
+  id: string
+  value: string
+  label: string
+  detail: string
+  icon: string
+  selected: bool
+  disabled: bool
+
+shape CorePalette
+  canvas: string
+  sidebar: string
+  sidebarBorder: string
+  rowActive: string
+  sidebarText: string
+  sidebarMuted: string
+  sidebarIcon: string
+  text: string
+  muted: string
+  heading: string
+  description: string
+  card: string
+  cardBorder: string
+  divider: string
+  input: string
+  field: string
+  accent: string
+  accentText: string
+  switchOff: string
+  thumb: string
+  thumbOff: string
+  popover: string
+  popoverBorder: string
+  highlight: string
+  kbd: string
+  output: string
+  line: string
+  rowHover: string
+  sectionMuted: string
+  tileActive: string
+  border: string
+  backdrop: string
+  footer: string
+  surface: string
+
+style SettingsGhost
+  cursor="pointer"
+  display="flex" flex-direction="row" align-items="center" justify-content="center"
+  box-sizing="border-box" border-width=0 background-color="#00000000" flex-shrink=0 min-height=0

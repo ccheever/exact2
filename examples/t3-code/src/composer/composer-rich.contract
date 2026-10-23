@@ -1,0 +1,164 @@
+use ProjectGlyph from "../sidebar/sidebar-shapes.contract"
+
+shape ComposerCodeHeader
+  start: number
+  end: number
+  infoStart: number
+  infoEnd: number
+  info: string
+  language: string
+  label: string
+
+shape ComposerCodeLanguage
+  id: string
+  label: string
+
+shape ComposerSourceChip
+  kind: string
+  start: number
+  end: number
+  source: string
+  label: string
+  name: string
+  path: string
+  href: string
+  contextKind: string
+  contextId: string
+  image: bool
+  comment: string
+  quote: string
+  face: ComposerChipFace
+
+// The reference's chips are atoms (ComposerPromptEditorTiptap: atom, contentEditable={false}); here
+// they are source text, so the selection keeps out of them. A caret inside a reference goes to the
+// nearer edge of what shows of it (a link's `[` and label: the editor hides `](…)`, LLP 1045 D5);
+// a range's ends go outward, so a selection takes a reference whole.
+fn composerChipShownEnd(c: ComposerSourceChip): number = c.source.indexOf("](") >= 0 ? c.start + c.source.indexOf("](") : c.end
+fn composerChipEdge(chips: ComposerSourceChip[], at: number, side: number): number = at + sum(chips.filter((c) => at > c.start and at < c.end).map((c) => (side < 0 ? c.start : side > 0 ? c.end : at - c.start <= composerChipShownEnd(c) - at ? c.start : c.end) - at))
+// Whether either end of a selection falls strictly inside a reference.
+fn composerChipInside(chips: ComposerSourceChip[], start: number, end: number): bool = chips.filter((c) => (start > c.start and start < c.end) or (end > c.start and end < c.end)).length > 0
+// Whether a selection holds any part of a reference: the editor keeps a hidden destination through a native
+// replacement (LLP 1045 D5), so text put over a reference is the app's one range edit instead.
+fn composerChipOverlaps(chips: ComposerSourceChip[], start: number, end: number): bool = start < end and chips.filter((c) => start < c.end and end > c.start).length > 0
+// SURROUND_CLOSE's openers (composer-surround.ts): typed over a selection, the app wraps it.
+fn composerSurrounds(text: string): bool = ["(", "[", "{", "'", "\u{22}", "“", "`", "<", "«", "*", "_"].includes(text)
+// Whether Backspace (`back`) or Delete removes a reference whole: at its edge or inside it (composer-source-chips.ts composerChipDeletion).
+fn composerChipDeletes(chips: ComposerSourceChip[], start: number, end: number, back: bool): bool = composerChipInside(chips, start, end) or (start == end and chips.filter((c) => back ? start == c.end : start == c.start).length > 0)
+// Whether word deletion reaches a reference: beside the caret or past spaces (composerChipWordDeletion).
+fn composerChipWordDeletes(chips: ComposerSourceChip[], text: string, start: number, end: number, back: bool): bool = composerChipDeletes(chips, start, end, back) or (start == end and chips.filter((c) => back ? c.end <= start and text.slice(c.end, start).trim() == "" and not text.slice(c.end, start).includes("\n") : c.start >= start and text.slice(start, c.start).trim() == "" and not text.slice(start, c.start).includes("\n")).length > 0)
+// The reference an unmodified Left (`back`) or Right steps over from its edge, as ComposerPromptEditorTiptap's
+// handleKeyDown moves past an adjacent chip: the caret's place after the step, or -1.
+fn composerChipStep(chips: ComposerSourceChip[], at: number, back: bool): number = sum(chips.filter((c) => back ? at == c.end : at == c.start).map((c) => (back ? c.start : c.end) + 1)) - 1
+
+shape ComposerChipFace
+  kind: string
+  label: string
+  suffix: string
+  icon: string
+  fileToken: string
+  imageId: string
+  available: bool
+  interactive: bool
+  comment: bool
+  tip: string
+  // A thread chip's project icon (ThreadContextChip's ProjectFavicon); kind "" with no known project.
+  glyph: ProjectGlyph
+
+shape ComposerSourceBlock
+  kind: string
+  start: number
+  end: number
+  contentStart: number
+  bodyStart: number
+  bodyEnd: number
+  bodyLine: bool // false: a fence closed on the next line, projected where its body would be
+
+// Deferred input metadata; field source and undo remain owned by the textarea.
+shape ComposerIntentMetadata
+  serial: number
+  kind: string
+  text: string
+  key: string
+  shift: bool
+  command: bool
+  start: number
+  end: number
+  inputSerial: number
+
+shape ComposerIntentReply
+  owner: string
+  value: string
+  mode: string
+  serial: number
+  kind: string
+  start: number
+  end: number
+  text: string
+  selectionStart: number
+  selectionEnd: number
+  preserveSelection: bool
+
+shape ComposerRichView
+  generation: number
+  historyPrevious: bool
+  historyNext: bool
+  languages: ComposerCodeLanguage[]
+  owner: string
+  value: string
+  mode: string
+  headers: ComposerCodeHeader[]
+  blocks: ComposerSourceBlock[]
+  chips: ComposerSourceChip[]
+
+shape ComposerFieldObservation
+  generation: number
+  snapshotOwner: string
+  owner: string
+  value: string
+  start: number
+  end: number
+  composing: bool
+  live: bool
+  focused: bool
+  inputSerial: number
+
+shape ComposerFieldCommand
+  generation: number
+  snapshotOwner: string
+  owner: string
+  value: string
+  start: number
+  end: number
+  text: string
+  selectionStart: number
+  selectionEnd: number
+  focus: bool
+  then: string
+  seq: number
+  ready: bool
+  history: number
+  citation: number
+  completion: number
+
+shape ComposerFieldResult
+  applied: bool
+  reason: string
+  value: string
+  start: number
+  end: number
+
+shape ComposerFieldAcknowledgement
+  applied: bool
+  reason: string
+  value: string
+  start: number
+  end: number
+  generation: number
+  snapshotOwner: string
+  owner: string
+  seq: number
+  then: string
+  send: bool
+  focus: string
+  removedImage: string
+  inputSerial: number

@@ -1,0 +1,202 @@
+// Remote open-in-editor (MIT reference, see LICENSE-T3: apps/web/src/remoteOpen.ts,
+// components/chat/OpenInPicker.tsx and OpenInPicker.logic.ts, ChatMarkdown.tsx
+// canUseMarkdownFileShellActions, at 1e2ecbd975; the remote editor links and their usernames at 74541bab17). When this client
+// is not on the environment's machine, "Open" hands the OS a `vscode://vscode-remote/ssh-remote+…`
+// deep link (Zed's and JetBrains' own shapes too; the local editor connects over SSH) instead of
+// running an editor on the environment's host.
+// Host precedence: the SSH alias of a saved SSH environment beats the server's advertised
+// `remoteOpenTargets` (tailnet name first, then mDNS). The link carries the login username: the SSH target's,
+// else one written in the alias (`user@host`), else the one the server advertises with its host. The editors offered are the
+// remote-capable ones this Mac has (T3RemoteEditors.swift probes them), else VS Code.
+//
+// The primary is the embedded server on this Mac (local-primary.ts), and an SSH environment is a
+// loopback tunnel named in the saved SSH targets (T3Ssh.swift), so the target is read from those
+// targets before the origin.
+import { arr, obj, str } from '../client/domain';
+import { bridgeReply, type Native } from '../client/protocol';
+import { buildRemoteOpenUrl, REMOTE_CAPABLE_EDITOR_IDS, remoteSchemeForEditor } from '../shared/editors';
+import { fleet, trimOrigin } from './settings-b-fleet';
+import { focusedOnPrimary } from './local-primary';
+import { savedRoutes } from './connection-routes';
+import { sshTargets } from './settings-b-ssh';
+import type { T3Client } from '../client/client';
+import { openExternal } from '../client/external-open';
+
+export type RemoteOpenHost = { kind: 'ssh-alias' | 'tailscale' | 'mdns'; host: string; username?: string };
+export type SshOpenTarget = { alias: string; username: string | null };
+export type RemoteOpenState = { mode: 'local-exec' } | { mode: 'remote-links'; host: RemoteOpenHost } | { mode: 'remote-unavailable' };
+export type RemoteOpenMode = RemoteOpenState['mode'];
+/** ConnectionTarget's tags, as far as the clone has them (no relay, no WSL). */
+export type RemoteTarget = { kind: 'primary'; httpBaseUrl: string } | { kind: 'ssh' } | { kind: 'bearer' } | { kind: 'relay' } | { kind: 'desktop-local' };
+
+const LOCAL_EXEC: RemoteOpenState = { mode: 'local-exec' };
+const REMOTE_UNAVAILABLE: RemoteOpenState = { mode: 'remote-unavailable' };
+
+function hostnameOf(url: string): string | null {
+  try { return new URL(url).hostname; } catch { return null; }
+}
+const loopbackHost = (hostname: string) => /^(localhost|127(?:\.\d{1,3}){3}|\[::1\]|::1)$/i.test(hostname);
+
+/** resolveRemoteOpenState. */
+export function resolveRemoteOpenState(input: { target: RemoteTarget | null; sshTarget: SshOpenTarget | null; remoteOpenTargets: { kind: string; host: string; username?: string }[] | undefined; isDesktopRenderer: boolean }): RemoteOpenState {
+  const { target } = input;
+  // No catalog entry: keep the exec behavior rather than guessing.
+  if (target === null) return LOCAL_EXEC;
+  if (target.kind === 'primary') {
+    // The desktop app's own primary is always this machine; a browser on a loopback primary is too.
+    if (input.isDesktopRenderer) return LOCAL_EXEC;
+    const hostname = hostnameOf(target.httpBaseUrl);
+    if (hostname !== null && loopbackHost(hostname)) return LOCAL_EXEC;
+  } else if (target.kind === 'desktop-local') {
+    return LOCAL_EXEC;
+  }
+  if (input.sshTarget !== null && input.sshTarget.alias.length > 0) {
+    // A bare alias leaves the user to the editor's SSH config; a username from either place is kept, the target's first.
+    const { alias } = input.sshTarget, at = alias.lastIndexOf('@');
+    const username = input.sshTarget.username?.trim() || (at === -1 ? null : alias.slice(0, at));
+    return { mode: 'remote-links', host: { kind: 'ssh-alias', host: at === -1 ? alias : alias.slice(at + 1), ...(username ? { username } : {}) } };
+  }
+  const advertised = input.remoteOpenTargets?.[0];
+  if (advertised !== undefined) return { mode: 'remote-links', host: { kind: advertised.kind === 'mdns' ? 'mdns' : 'tailscale', host: advertised.host, ...(advertised.username ? { username: advertised.username } : {}) } };
+  return REMOTE_UNAVAILABLE;
+}
+
+/** shouldShowOpenInPicker: the primary always; other environments only outside local-exec (a WSL backend keeps it hidden). */
+export function shouldShowOpenInPicker(input: { activeProjectName: string | undefined; activeThreadEnvironmentId: string; primaryEnvironmentId: string | null; remoteOpenMode: RemoteOpenMode }): boolean {
+  if (!input.activeProjectName) return false;
+  if (input.primaryEnvironmentId !== null && input.activeThreadEnvironmentId === input.primaryEnvironmentId) return true;
+  return input.remoteOpenMode !== 'local-exec';
+}
+
+/** canUseMarkdownFileShellActions: a Markdown file link gets editor actions only where Open runs on this machine. */
+export function canUseMarkdownFileShellActions(environmentId: string | null, remoteOpenMode: RemoteOpenMode, isRemoteOpenResolved: boolean): boolean {
+  return environmentId !== null && isRemoteOpenResolved && remoteOpenMode === 'local-exec';
+}
+
+// ── Remote-capable editors (useRemoteCapableEditors) ──
+export const REMOTE_FALLBACK_EDITORS = ['vscode'];
+/** The probe's answer kept to remote-capable editors, VS Code when none resolve. */
+export function remoteEditorsFrom(ids: unknown[]): string[] {
+  const capable = ids.filter((id): id is string => typeof id === 'string' && REMOTE_CAPABLE_EDITOR_IDS.includes(id));
+  return capable.length > 0 ? capable : REMOTE_FALLBACK_EDITORS;
+}
+let probed: string[] | null = null;
+/** Probed once per process, as the reference caches it; a failed probe settles on the fallback. */
+export async function remoteCapableEditors(native: Native | null | undefined): Promise<string[]> {
+  if (probed) return probed;
+  if (!native?.available) return REMOTE_FALLBACK_EDITORS;
+  try {
+    const reply = await bridgeReply(native, { op: 'remoteEditorsProbe' });
+    const ids = obj(reply.value).editors;
+    probed = reply.ok && Array.isArray(ids) ? remoteEditorsFrom(ids) : REMOTE_FALLBACK_EDITORS;
+  } catch { probed = REMOTE_FALLBACK_EDITORS; }
+  return probed;
+}
+export function resetRemoteEditorsForTests(): void { probed = null; aliases = { loaded: false, values: {} }; hintSeen = null; }
+
+// ── The one-time "Opens over SSH" hint (useRemoteOpenHint), kept by the module per device ──
+let hintSeen: boolean | null = null;
+async function remoteHintSeen(native: Native): Promise<boolean> {
+  if (hintSeen !== null) return hintSeen;
+  try { hintSeen = obj((await bridgeReply(native, { op: 'remoteEditorsHint' })).value).seen === true; } catch { hintSeen = false; }
+  return hintSeen;
+}
+async function markRemoteHintSeen(native: Native): Promise<void> {
+  hintSeen = true;
+  await bridgeReply(native, { op: 'remoteEditorsHint', seen: true }).catch(() => undefined);
+}
+
+// ── The focused environment's target ──
+let aliases: { loaded: boolean; values: Record<string, SshOpenTarget> } = { loaded: false, values: {} };
+/** The saved SSH environments' aliases and usernames by loopback origin; read again after an SSH environment is added. */
+export async function loadSshAliases(native: Native | null | undefined, fresh = false): Promise<Record<string, SshOpenTarget>> {
+  if (aliases.loaded && !fresh) return aliases.values;
+  const targets = await sshTargets(native);
+  const saved = Object.fromEntries(Object.entries(targets).map(([origin, target]) => [trimOrigin(origin), { alias: target.alias, username: target.username }]));
+  aliases = { loaded: true, values: { ...saved, ...(!fresh ? aliases.values : {}) } };
+  return aliases.values;
+}
+export function rememberSshAlias(origin: string, alias: string, username: string | null = null): void {
+  // Adding one tunnel does not mean the previously saved tunnels have been loaded.
+  aliases.values[trimOrigin(origin)] = { alias, username };
+}
+
+/** `connectionLabel` is the connection's own name (ConnectionTarget.label): the saved environment's, else the server's. */
+export type RemoteOpen = { state: RemoteOpenState; resolved: boolean; primary: boolean; label: string; connectionLabel: string };
+/** useRemoteOpenResolution for the focused environment, from what is known now (sync: the keyboard dispatch reads it). */
+export function remoteOpenFor(client: T3Client): RemoteOpen {
+  const origin = trimOrigin(str(client.origin));
+  const saved = fleet.saved.find(entry => str(entry.environmentId) === client.environmentId);
+  const sshRoute = saved ? savedRoutes(saved).find(route => route.kind === 'ssh') : undefined;
+  const sshTarget: SshOpenTarget | null = sshRoute?.ssh?.alias ? { alias: sshRoute.ssh.alias, username: sshRoute.ssh.username }
+    : (sshRoute ? aliases.values[trimOrigin(sshRoute.origin)] : undefined) || aliases.values[origin] || null;
+  const target: RemoteTarget | null = !client.environmentId || !origin ? null : sshTarget?.alias ? { kind: 'ssh' } : focusedOnPrimary(client) ? { kind: 'primary', httpBaseUrl: origin } : { kind: 'bearer' };
+  const advertised = Array.isArray(obj(client.config).remoteOpenTargets)
+    ? arr(obj(client.config).remoteOpenTargets).map(entry => ({ kind: str(entry.kind), host: str(entry.host).trim(), username: str(entry.username).trim() })).filter(entry => entry.host) : undefined;
+  const state = resolveRemoteOpenState({ target, sshTarget, remoteOpenTargets: advertised, isDesktopRenderer: true });
+  const label = str(obj(obj(client.config).environment).label).trim() || 'this machine';
+  return { state, resolved: aliases.loaded && target !== null, primary: target?.kind === 'primary', label, connectionLabel: str(saved?.label).trim() || label };
+}
+
+/** The editors Open offers here: the server's PATH probe on this machine, else this Mac's remote-capable ones. */
+export function effectiveEditors(remote: RemoteOpen, serverEditors: string[], remoteEditors: string[]): string[] {
+  return remote.state.mode === 'local-exec' ? serverEditors : remoteEditors;
+}
+
+export type OpenInView = { mode: RemoteOpenMode; show: boolean; label: string; hint: string; unavailable: string; empty: boolean; editors: string[] };
+/** What the details card's Open row needs (OpenInPicker panel form). */
+export async function openInView(client: T3Client, native: Native | null | undefined, serverEditors: string[], projectName: string): Promise<OpenInView> {
+  await loadSshAliases(native);
+  const remote = remoteOpenFor(client);
+  const remoteEditors = remote.state.mode === 'remote-links' ? await remoteCapableEditors(native) : REMOTE_FALLBACK_EDITORS;
+  const editors = effectiveEditors(remote, serverEditors, remoteEditors);
+  const seen = remote.state.mode === 'remote-links' && native?.available ? await remoteHintSeen(native) : true;
+  return {
+    mode: remote.state.mode,
+    show: shouldShowOpenInPicker({ activeProjectName: projectName || undefined, activeThreadEnvironmentId: client.environmentId, primaryEnvironmentId: remote.primary ? client.environmentId : null, remoteOpenMode: remote.state.mode }),
+    label: remote.label,
+    hint: remote.state.mode === 'remote-links' && !seen ? `Opens over SSH. Needs your key on ${remote.label}` : '',
+    unavailable: remote.state.mode === 'remote-unavailable' ? `No SSH route to ${remote.label}` : '',
+    empty: remote.state.mode !== 'remote-unavailable' && editors.length === 0,
+    editors,
+  };
+}
+
+/** The open-favorite shortcut is live only where the picker shows (ChatView useOpenFavoriteEditorShortcut `enabled`). */
+export function openFavoriteEnabled(client: T3Client, projectName: string): boolean {
+  const remote = remoteOpenFor(client);
+  return shouldShowOpenInPicker({ activeProjectName: projectName || undefined, activeThreadEnvironmentId: client.environmentId, primaryEnvironmentId: remote.primary ? client.environmentId : null, remoteOpenMode: remote.state.mode });
+}
+
+/**
+ * OpenInPicker openInEditor: on this machine the server runs the editor (shell.openInEditor; `reveal` selects a
+ * file in the file manager instead of opening it); remotely the deep link goes to the OS (`isFile` opens a file, not
+ * a folder), and only an accepted link counts as the first remote open; with no SSH route nothing opens. Returns
+ * whether the editor became the preferred one.
+ */
+export async function openInEditorHere(client: T3Client, native: Native, cwd: string, editor: string, options: { isFile?: boolean; reveal?: boolean } = {}): Promise<boolean> {
+  if (!cwd || !editor) return false;
+  await loadSshAliases(native);
+  const remote = remoteOpenFor(client);
+  if (remote.state.mode === 'remote-unavailable') return false;
+  if (remote.state.mode === 'remote-links') {
+    const url = buildRemoteOpenUrl({ editor, ...remote.state.host, absolutePath: cwd, isFile: options.isFile === true });
+    if (url === undefined) return false;
+    if (!openExternal(url)) return false;
+    await markRemoteHintSeen(native);
+    return true;
+  }
+  await client.restAccess(native).request('shell.openInEditor', { cwd, editor, ...(options.reveal && editor === 'file-manager' ? { reveal: true } : {}) });
+  return true;
+}
+
+/**
+ * editor.openFavorite (OpenInPicker's shortcut handler): the preferred editor opens the workspace,
+ * remotely the first remote-capable editor this Mac has. False when nothing could open.
+ */
+export async function openFavoriteHere(client: T3Client, native: Native, cwd: string, serverFavorite: string): Promise<boolean> {
+  await loadSshAliases(native);
+  const remote = remoteOpenFor(client);
+  const editor = remote.state.mode === 'local-exec' ? serverFavorite : remote.state.mode === 'remote-links' ? (await remoteCapableEditors(native))[0] ?? '' : '';
+  return openInEditorHere(client, native, cwd, editor);
+}

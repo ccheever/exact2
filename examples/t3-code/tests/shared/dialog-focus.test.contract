@@ -1,0 +1,97 @@
+// Native focus-return checks with the agent's default Keyboard Navigation off.
+// Focus a field before pointer opening, close with Escape, then send a printable key to
+// the non-focusable window root. The existing field must receive it: targeting the field
+// again would force focus and hide a regression. Keyboard-open paths use the existing
+// CLI's `prefer keyboard-navigation true` and Space, and are recorded separately.
+// Each test relaunches against the existing isolated audit home and pinned runtime:
+//   EXACT_ROOT=<worktree> target/t3-audit/clone-drive.sh <lane> <port> --test examples/t3-code/tests/shared/dialog-focus.test.contract
+// Startup clocks let the embedded server answer. The fixture's two provider-update
+// notices cover Settings until dismissed; no provider operation is sent.
+
+test "Pointer-opened Add provider restores Settings search after Escape"
+  clock +20000 real
+  clock +3000 real
+  tap "Dismiss notification"
+  clock +2500 real
+  tap "Dismiss notification"
+  clock +1000 real
+  tap "connection-settings"
+  clock settle
+  tap "settings-providers"
+  clock settle
+  type "settings-search" key "End"
+  tap "add-provider"
+  clock settle
+  expect state providerDialog == "add"
+  expect state wizardStep == 0
+  type "t3-code" key "Escape"
+  clock settle
+  expect state providerDialog == ""
+  type "t3-code" key "x"
+  clock settle
+  expect state settingsQuery == "x"
+
+test "Pointer-opened New task restores Settings search after Escape"
+  clock +20000 real
+  clock +3000 real
+  tap "Dismiss notification"
+  clock +2500 real
+  tap "Dismiss notification"
+  clock +1000 real
+  tap "connection-settings"
+  clock settle
+  tap "settings-scheduled-tasks"
+  clock settle
+  type "settings-search" key "End"
+  tap "new-scheduled-task"
+  clock settle
+  expect state restEditor == "task"
+  type "t3-code" key "Escape"
+  clock settle
+  expect state restEditor == ""
+  type "t3-code" key "x"
+  clock settle
+  expect state settingsQuery == "x"
+
+test "Model prices on Limits returns to the environment menu trigger after Escape"
+  clock +20000 real
+  clock +3000 real
+  tap "open-usage"
+  clock +3000 real
+  tap "usage-metric-limits"
+  clock +2500 real
+  tap "usage-environment"
+  clock +1200 real
+  tap "usage-model-prices"
+  clock +2500 real
+  expect state usage.prices.open == true
+  expect tree has "usage-prices-dialog"
+  type "t3-code" key "Escape"
+  clock +1500 real
+  expect state usage.prices.open == false
+  // The focus is back on the environment menu's trigger: Enter opens its menu, Model prices in it.
+  type "t3-code" key "Enter"
+  clock +1200 real
+  expect tree has "usage-model-prices"
+
+test "Pointer-opened Add host restores Settings search after Escape"
+  clock +20000 real
+  clock +3000 real
+  tap "Dismiss notification"
+  clock +2500 real
+  tap "Dismiss notification"
+  clock +1000 real
+  tap "connection-settings"
+  clock settle
+  tap "settings-integrations"
+  clock settle
+  type "settings-search" key "End"
+  tap "device-hosts-add"
+  clock settle
+  expect tree has "device-host-dialog"
+  type "t3-code" key "Escape"
+  clock settle
+  expect tree missing "device-host-dialog"
+  type "t3-code" key "x"
+  clock settle
+  expect state settingsQuery == "x"

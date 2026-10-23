@@ -1,0 +1,44 @@
+// The workspace card's project script row, adapted from T3 Code (MIT;
+// see LICENSE-T3): ProjectScriptsControl displayMode="panel" (the primary script
+// as a split row: its icon and name, a hairline and the chevron that opens every
+// script plus "Add project script") and projectScripts.ts primaryProjectScript
+// (T3 Code 9c161462c9: settle actions stay in the menu). Running
+// a script opens the terminal drawer; "Add project script" opens project Actions.
+import { obj, str, type Obj } from '../client/domain';
+import { resolveScripts, primaryScript, scriptMenuLabel } from '../settings/settings-b-actions';
+import type { T3Client } from '../client/client';
+import { ClientError, type Native, type Files } from '../client/protocol';
+import { runTerminalCommand } from '../terminal/terminal-drawer-view';
+import { pushToast } from '../shell/toast';
+import { letGo } from '../client/let-go';
+import { openScriptPreview } from '../browser/browser-links';
+
+export type CardScript = { id: string; label: string; icon: string };
+export type CardScripts = { scriptName: string; scriptIcon: string; scripts: CardScript[] };
+export const NO_SCRIPTS: CardScripts = { scriptName: '', scriptIcon: 'play', scripts: [] };
+
+/** The card's script row for `project` (its resolved scripts under the environment's settings). */
+export function cardScripts(settings: Obj, project: Obj | undefined, lastInvoked = ''): CardScripts {
+  if (!project) return NO_SCRIPTS;
+  const scripts = resolveScripts(obj(settings), project);
+  const primary = primaryScript(scripts, lastInvoked);
+  return { scriptName: primary?.name ?? '', scriptIcon: primary?.icon || 'play',
+    scripts: scripts.map(script => ({ id: script.id, label: scriptMenuLabel(script), icon: script.icon || 'play' })) };
+}
+
+
+const lastScripts = new WeakMap<T3Client, Map<string, string>>();
+export function lastInvokedProjectScript(client: T3Client): string { return lastScripts.get(client)?.get(client.projectId) ?? ''; }
+export async function runProjectTerminalScript(client: T3Client, native: Native, storage: Files, scriptId: string): Promise<void> {
+  const project = client.shell.projects.find(project => project.id === client.projectId);
+  if (!project || !client.threadId) return;
+  const scripts = resolveScripts(obj(client.config.settings), project);
+  const script = scriptId ? scripts.find(script => script.id === scriptId) : primaryScript(scripts, lastInvokedProjectScript(client));
+  if (!script) throw new ClientError('That project script is no longer available.');
+  let remembered = lastScripts.get(client);
+  if (!remembered) { remembered = new Map(); lastScripts.set(client, remembered); }
+  remembered.set(client.projectId, script.id);
+  try { await runTerminalCommand(client, native, storage, script.command, script.name); }
+  catch (error) { if (letGo(error)) throw error; throw new ClientError(error instanceof Error ? error.message : `Failed to run script "${script.name}".`); }
+  if (script.autoOpenPreview && str(script.previewUrl)) await openScriptPreview(client, native, str(script.previewUrl)); // browser-links.ts
+}

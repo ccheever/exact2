@@ -1,0 +1,56 @@
+use ComposerRichView from "./composer-rich.contract"
+use TimelineIcon from "../timeline/timeline-icons-kit.contract"
+use FileTypeIcon from "../shared/timeline-files.contract"
+use SidebarProjectGlyph from "../sidebar/sidebar-icons-kit.contract"
+
+shape ComposerChipRequest
+  generation: number
+  snapshotOwner: string
+  owner: string
+  value: string
+  inputSerial: number
+  start: number
+  end: number
+  source: string
+  surface: string
+  comment: bool
+  frame: Geometry
+
+// References remain ordinary controls beside the source editor. Their actions
+// carry the exact source range and current owner back to the shared dispatcher.
+component ComposerChipControls
+  inject
+    rem: number
+    composerChipPress: action
+  props
+    source: ComposerRichView
+    owner: string
+    value: string
+    serial: number
+    surface: string
+    size: number
+    family: string
+  derive font = size * 0.86
+  action press(start: number, end: number, source: string, comment: bool, anchorId: string)
+    composerChipPress(surface, owner, value, serial, start, end, source, comment, anchorId)
+  view
+    if source.owner == owner and source.value == value and source.chips.length > 0
+      row width="100%" flex-wrap="wrap" gap="0.375rem" align-items="center" font-family=family font-size=font aria-label="References" testId=`${surface}-references`
+        for chip in source.chips key=chip.start
+          row max-width="100%" min-width=0 gap="0.25rem" align-items="center"
+            button id=`${surface}-chip-${chip.start}` press=press(chip.start, chip.end, chip.source, false, `${surface}-chip-${chip.start}`) disabled=(not chip.face.interactive) testId=`${surface}-chip-${chip.start}` aria-label=`${chip.face.kind}, ${chip.face.label} ${chip.face.suffix}` title=chip.face.tip max-width="100%" min-width=0
+              row min-width=0 gap="0.375rem" align-items="center"
+                if chip.face.fileToken != ""
+                  FileTypeIcon(token=chip.face.fileToken, size=(font * 0.85 * 16 / rem))
+                else if chip.face.imageId != ""
+                  box width=(font * 0.85) height=(font * 0.85) hatch="t3-snapshot-tile" data-snapshot-id=`thumb:${chip.face.imageId}`
+                else if chip.face.glyph.kind != ""
+                  SidebarProjectGlyph(g=chip.face.glyph, size=(font * 0.85 * 16 / rem), dim=false)
+                else
+                  TimelineIcon(name=chip.face.icon, size=(font * 0.85 * 16 / rem), color="light-dark(#71717a, #a1a1aa)")
+                text chip.face.label min-width=0 line-clamp=2
+                if chip.face.suffix != ""
+                  text chip.face.suffix
+            if chip.face.comment
+              button id=`${surface}-chip-comment-${chip.start}` press=press(chip.start, chip.end, chip.source, true, `${surface}-chip-comment-${chip.start}`) disabled=(not chip.face.interactive) aria-label=(chip.comment == "" ? "Add comment to citation" : "Edit citation comment") title="" testId=`${surface}-chip-comment-${chip.start}`
+                TimelineIcon(name="message-circle", size=(font * 0.85 * 16 / rem), color="light-dark(#71717a, #a1a1aa)")

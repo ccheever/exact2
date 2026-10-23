@@ -1,0 +1,309 @@
+// Window-shell commands (T3 Code 9c161462c9, MIT reference: hooks/useThreadActionMenu.ts,
+// hooks/useThreadActions.ts, chat/ChatHeader.tsx rename, OpenInPicker; the
+// provider update prompt's "Update" is provider-update-notify.ts) and the toasts the reference raises around the
+// main window's actions. `shell:` ops write to the server through the
+// client's generation-guarded access; `shelllocal:` ops never do.
+import { cloneCommand } from './project-clones-live';
+import { closeThreadTerminals } from '../terminal/terminal-drawer-view';
+import { automationCommand } from '../settings/scheduled-tasks-commands';
+import type { T3Client } from '../client/client';
+import { pushToast } from './toast';
+import { arr, obj, str } from '../client/domain';
+import { activeRun, ClientError, type Files, type Native } from '../client/protocol';
+import { rememberEditor, detailsKey } from '../details/shell-details';
+import { toggleInline } from './shell-prefs';
+import { markCopied } from './shell';
+import { gitShellCommand, GIT_FAILURE_TITLES } from '../details/git-route';
+import { surfaceLocal, surfaceCommand } from '../panel/panel-surfaces';
+import { openInEditorHere } from '../connections/remote-open'; // remote Open (OpenInPicker)
+import { letGo } from '../client/let-go';
+import { markUnread } from '../sidebar/sidebar-commands';
+import { canStopNativeSubagent, canStopWorkflow } from '../details/lineage-workflows';
+import { visiblePullRequests } from '../panel/shell-pr';
+import { replaceLinkedPrompt } from '../prompt-links/linked-prompt';
+import { openHome } from '../pages/home-landing';
+import { addMachineLocal } from './add-project-dialog';
+
+function threadOf(client: T3Client, threadId: string) {
+  const thread = client.shell.threads.find(candidate => candidate.id === threadId);
+  if (!thread) throw new ClientError('That thread is no longer available.');
+  return thread;
+}
+
+/** resolveRenameCommit: trim, reject empty (the caller toasts), skip unchanged. */
+export function resolveRenameCommit(title: string, originalTitle: string): { action: 'commit'; title: string } | { action: 'reject-empty' } | { action: 'noop' } {
+  const trimmed = title.trim();
+  if (trimmed.length === 0) return { action: 'reject-empty' };
+  if (trimmed === originalTitle) return { action: 'noop' };
+  return { action: 'commit', title: trimmed };
+}
+
+export async function shellCommand(client: T3Client, native: Native, storage: Files, op: string, id: string, value: string): Promise<string> {
+  if (op.startsWith('surface-')) return surfaceCommand(client, native, storage, op.slice(8), id, value); // panel-surfaces.ts
+  if (op.startsWith('clone-')) return cloneCommand(client, native, storage, op, id, value); // project-clones-live.ts
+  if (op.startsWith('automation-')) return automationCommand(client, native, op.slice(11), id, value); // scheduled-tasks-commands.ts
+  const access = client.restAccess(native);
+  if (op === 'select-editor') { rememberEditor(client, value); return ''; }
+  if (op === 'open-editor') {
+    if (!id) throw new ClientError('This thread does not have a workspace path to open.');
+    // OpenInPicker: remotely a deep link to this Mac's editor, never an editor run on the other machine (remote-open.ts).
+    if (await openInEditorHere(client, native, id, value)) rememberEditor(client, value);
+    return '';
+  }
+  // The card's branch picker, Git actions and dialogs (git-route.ts).
+  if (op.startsWith('git-')) return gitShellCommand(client, native, storage, op.slice(4), id, value);
+  if (op === 'mark-unread') { await markUnread(client, native, id); return ''; } // the sidebar's, silent on failure
+  if (op === 'stop-subagent') { await stopSubagent(client, native, storage, id); return ''; }
+  if (op === 'stop-workflow') { await stopWorkflow(client, native, id); return ''; }
+  const thread = threadOf(client, id);
+  const title = str(thread.title, 'thread');
+  if (op === 'rename') {
+    const resolution = resolveRenameCommit(value, str(thread.title));
+    if (resolution.action === 'reject-empty') { pushToast(client, { kind: 'warning', title: 'Thread title cannot be empty' }); return ''; }
+    if (resolution.action === 'noop') return '';
+    const [commandId] = await access.ids(1);
+    await access.dispatch(storage, { type: 'thread.metadata.update', commandId, threadId: id, title: resolution.title }, `Rename ${title}`);
+    return '';
+  }
+  if (op === 'merge-back') {
+    // ThreadRelationshipsPanel merge(): thread.merge_back from the fork's latest finished run, then open the target.
+    const [targetThreadId = '', runId = ''] = value.split('|');
+    if (!targetThreadId || !runId) throw new ClientError('Complete a run in this fork before merging it back');
+    const [commandId] = await access.ids(1);
+    await access.dispatch(storage, { type: 'thread.merge_back', commandId, createdBy: 'user', creationSource: 'web', sourceThreadId: id, targetThreadId,
+      sourcePoint: { type: 'run', runId } }, `Merge ${title} back`);
+    await client.openSelected(native, targetThreadId);
+    return '';
+  }
+  const [commandId] = await access.ids(1);
+  const payloads: Record<string, [string, Record<string, unknown>]> = {
+    pin: ['Pin', { type: 'thread.pin' }], unpin: ['Unpin', { type: 'thread.unpin' }],
+    'regenerate-title': ['Regenerate title of', { type: 'thread.metadata.update', regenerateTitle: true }],
+    'auto-settle': ['Change auto-settle of', { type: 'thread.auto-settle.set', enabled: value !== 'false' }],
+    archive: ['Archive', { type: 'thread.archive' }], delete: ['Delete', { type: 'thread.delete' }],
+  };
+  const entry = payloads[op];
+  if (!entry) throw new ClientError(`Unknown thread action: ${op}`);
+  if (op === 'archive' && (thread.activeRunId || ['preparing', 'starting', 'running', 'waiting'].includes(str(thread.status)))) {
+    throw new ClientError('Stop the running turn before archiving this thread.');
+  }
+  if (op === 'delete') await closeThreadTerminals(client, native, id); // useThreadActions closes the thread's terminals first
+  await access.dispatch(storage, { ...entry[1], commandId, threadId: id }, `${entry[0]} ${title}`);
+  return '';
+}
+
+/**
+ * ThreadRelationshipsPanel stopSubagent → interruptThreadTurn({ threadId: owner, subagentId }) over the owner's fresh
+ * projection. A provider-native task stops by `subagent.stop` alone. An app-owned task with a child thread first
+ * gets the parent's `subagent.stop`, whose failure is ignored, and then its child thread is stopped: `thread.stop`
+ * when the server advertises threadStop; otherwise the child's active run, else its latest run while it still owns
+ * background work, is interrupted with its queue held, and with neither its pull request watches are turned off. A
+ * failure is the toast "Could not stop subagent".
+ */
+async function stopSubagent(client: T3Client, native: Native, storage: Files, childThreadId: string): Promise<void> {
+  try {
+    if (client.writable === false) return;
+    const access = client.restAccess(native);
+    const listed = arr(client.projection?.subagents).find(agent => agent.childThreadId === childThreadId);
+    if (!listed) return;
+    const owner = str(listed.threadId) || client.threadId;
+    const fresh = obj(await access.request('orchestration.getThreadProjection', { threadId: owner }));
+    const agent = arr(fresh.subagents).find(candidate => candidate.id === listed.id);
+    if (agent?.origin !== 'app_owned' || !str(agent.childThreadId)) {
+      if (agent?.runId == null || (agent.origin === 'provider_native' && !canStopNativeSubagent(agent))) return;
+      const [commandId] = await access.ids(1);
+      await access.dispatch(storage, { type: 'subagent.stop', commandId, threadId: owner, runId: str(agent.runId), subagentId: str(agent.id) }, 'Stop subagent');
+      return;
+    }
+    // The parent ends the task even when its child lost track of it (#19002). Older
+    // servers reject this for app-owned tasks, so the child stop below still runs.
+    if (agent.runId != null) {
+      try {
+        const [commandId] = await access.ids(1);
+        await access.dispatch(storage, { type: 'subagent.stop', commandId, threadId: owner, runId: str(agent.runId), subagentId: str(agent.id) }, 'Stop subagent');
+      } catch (error) {
+        if (letGo(error)) throw error;
+        if (client.error === messageOf(error)) client.error = '';
+      }
+    }
+    const child = str(agent.childThreadId);
+    if (client.threadStopOffered) {
+      const [commandId] = await access.ids(1);
+      await access.dispatch(storage, { type: 'thread.stop', commandId, threadId: child }, 'Stop subagent');
+      return;
+    }
+    const projection = child === client.threadId ? client.projection : obj(await access.request('orchestration.getThreadProjection', { threadId: child }));
+    const runs = arr(obj(projection).runs);
+    const background = arr(client.shell.threads.find(thread => thread.id === child)?.pendingBackgroundTasks).length > 0;
+    const run = activeRun(obj(projection)) ?? (background ? runs[runs.length - 1] : undefined);
+    if (!run) {
+      for (const link of visiblePullRequests(obj(obj(projection).thread).pullRequests)) {
+        if (link.watch === undefined) continue;
+        const [commandId] = await access.ids(1);
+        await access.dispatch(storage, { type: 'thread.pull-request.watch', commandId, threadId: child, host: link.host, repository: link.repository, number: link.number, watching: false }, 'Stop pull request watch');
+      }
+      return;
+    }
+    const [commandId] = await access.ids(1);
+    await access.dispatch(storage, { type: 'run.interrupt', commandId, threadId: child, runId: str(run.id), holdQueue: true }, 'Stop subagent');
+  } catch (error) {
+    if (letGo(error)) throw error;
+    if (client.error === messageOf(error)) client.error = ''; // the toast stands in for the transcript banner
+    pushToast(client, { kind: 'error', title: 'Could not stop subagent' });
+  }
+}
+
+/** A workflow stops through its coordinator's dedicated RPC; interrupting the owner would stop unrelated work. */
+async function stopWorkflow(client: T3Client, native: Native, subagentId: string): Promise<void> {
+  try {
+    const agent = arr(client.projection?.subagents).find(candidate => candidate.id === subagentId);
+    if (!agent || !canStopWorkflow(agent, client.writable)) return;
+    await client.restAccess(native).request('orchestration.stopWorkflow', { threadId: str(agent.threadId) || client.threadId, subagentId }, true);
+  } catch (error) {
+    if (letGo(error)) throw error;
+    if (client.error === messageOf(error)) client.error = '';
+    pushToast(client, { kind: 'error', title: 'Could not stop workflow' });
+  }
+}
+
+/** Local window actions: clipboard copies with the reference's toasts. */
+export async function shellLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
+  if (op === 'prompt-link-replace') { replaceLinkedPrompt(client, Number(id)); return ''; }
+  // Check for Updates… (DesktopApplicationMenu.ts): the module's "Updates unavailable" box (T3Menus.swift).
+  if (op === 'check-for-updates') { await native.later({ op: 'checkForUpdates', generation: client.generation }); return ''; }
+  const copy = async (text: string) => {
+    const response = obj(await native.later({ op: 'copyText', text, generation: client.generation }));
+    if (response.ok !== true) throw new ClientError('Could not copy to the clipboard.');
+  };
+  if (op === 'copy-error') { await copy(value); if (Number(id) > 0) markCopied(client, Number(id)); return ''; }
+  // The window ⌘W hid, reopened: the reference's new window loads `/` (DesktopWindow.activate), whose landing opens the
+  // most recent project's draft across every environment (home-landing.ts).
+  if (op === 'reopen') { await openHome(client, native); return 'sidebar:new-thread'; }
+  // ThreadDetailsControl in the inline presentation: toggles this thread's docked card (remembered).
+  if (op === 'details-inline') { toggleInline(client, detailsKey(client)); return ''; }
+  if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // panel-surfaces.ts
+  if (op.startsWith('add-machine-')) return addMachineLocal(client, native, op.slice(12), id, value); // Add to another machine (add-project-dialog.ts)
+  const thread = client.shell.threads.find(candidate => candidate.id === id);
+  if (op === 'copy-path') {
+    const project = client.shell.projects.find(candidate => candidate.id === (thread?.projectId ?? client.projectId));
+    const path = str(thread?.worktreePath) || str(project?.workspaceRoot);
+    if (!path) { pushToast(client, { kind: 'error', title: 'Path unavailable', description: 'This thread does not have a workspace path to copy.', stacked: true }); return ''; }
+    try { await copy(path); } catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Failed to copy path', description: messageOf(error) }); return ''; }
+    pushToast(client, { kind: 'success', title: 'Path copied', description: path });
+    return '';
+  }
+  if (op === 'copy-branch') {
+    const branch = str(thread?.branch);
+    if (!branch) return '';
+    try { await copy(branch); } catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Failed to copy branch', description: messageOf(error) }); return ''; }
+    pushToast(client, { kind: 'success', title: 'Branch copied', description: branch });
+    return '';
+  }
+  if (op === 'copy-thread-id') {
+    if (!thread) throw new ClientError('That thread is no longer available.');
+    try { await copy(str(thread.id)); } catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Failed to copy thread ID', description: messageOf(error) }); return ''; }
+    pushToast(client, { kind: 'success', title: 'Thread ID copied', description: str(thread.id) });
+    return '';
+  }
+  throw new ClientError(`Unknown window action: ${op}`);
+}
+const messageOf = (error: unknown) => error instanceof Error ? error.message : 'An error occurred.';
+
+/** The reference's failure toast titles for main-window actions (Sidebar.tsx, ChatView.tsx, useThreadActionMenu.ts). */
+const FAILURE_TITLES: Record<string, string> = {
+  'chat:settle': 'Failed to settle thread', 'chat:settle-advance': 'Failed to settle thread', 'chat:unsettle': 'Failed to un-settle thread', unsettle: 'Failed to un-settle thread',
+  'chat:unsnooze': 'Failed to wake thread', 'chat:snooze': 'Failed to snooze thread',
+  'shell:pin': 'Failed to pin thread', 'shell:unpin': 'Failed to unpin thread', 'shell:rename': 'Failed to rename thread',
+  'shell:archive': 'Failed to archive thread', 'shell:delete': 'Failed to delete thread',
+  'shell:regenerate-title': 'Failed to regenerate thread title', 'shell:auto-settle': 'Failed to update auto-settle',
+  'shell:open-editor': 'Unable to open editor', 'shell:git-action': 'Git action failed', 'copy-diagnostic': 'Could not copy trace ID',
+};
+
+/**
+ * Route a failed command to the toast the reference shows instead of the
+ * transcript banner. Returns true when the failure was toasted.
+ */
+export function shellFailure(client: T3Client, op: string, message: string): boolean {
+  if (!message) return false;
+  const title = FAILURE_TITLES[op] ?? GIT_FAILURE_TITLES[op];
+  if (title) { pushToast(client, { kind: 'error', title, description: message, stacked: true }); return true; }
+  // UsageLimitRecoveryBanner: a failed change toasts, as inline error text would widen the banner's actions.
+  const limitTitle = op === 'cc:limit-resume' ? 'Could not change auto-resume' : op === 'cc:limit-snooze' ? 'Could not snooze thread' : '';
+  if (limitTitle) { pushToast(client, { kind: 'error', title: limitTitle, description: message }); return true; }
+  if (op === 'send' && client.connection !== 'connected') {
+    pushToast(client, { kind: 'warning', title: 'Not connected: message not sent', description: 'Reconnecting to the environment. Try again once it is connected.', stacked: true });
+    return true;
+  }
+  if (op === 'send' && message === 'Choose or add a project first.') {
+    pushToast(client, { kind: 'warning', title: 'Choose a project first', description: 'This draft no longer points to an available project.', stacked: true });
+    return true;
+  }
+  return false;
+}
+
+const decode = (part: string) => { try { return decodeURIComponent(part); } catch { return part; } };
+function formParams(value: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const part of value.split('&')) { const at = part.indexOf('='); if (part) out[decode(at < 0 ? part : part.slice(0, at))] = at < 0 ? '' : decode(part.slice(at + 1)); }
+  return out;
+}
+
+/**
+ * Settings pages toast their failures instead of drawing them inline
+ * (ScheduledTasksSettings, KeybindingsSettings, SettingsPanels, archived
+ * threads). Returns the toast's title when one was raised; the caller marks
+ * the command's message `toasted:` so the form stays open without its own
+ * error text.
+ */
+const WEBHOOK_FAILURE = /^(Invalid filter|Invalid age limit|Invalid webhook settings|Signing secret is required): /;
+export function settingsFailure(client: T3Client, op: string, id: string, value: string, message: string): string {
+  if (!message) return '';
+  let title = '', description = message;
+  const form = formParams(value);
+  if (op === 'rest:task' && form.action === 'save' && message.split('\n').every(line => WEBHOOK_FAILURE.test(line))) {
+    // The webhook trigger's checks (scheduled-webhook.ts webhookSchedule): one toast per line, as submit()
+    // raises one reportFailure per invalid field.
+    const lines = message.split('\n');
+    for (let index = 0; index < lines.length; index++) {
+      const match = WEBHOOK_FAILURE.exec(lines[index]!)!;
+      pushToast(client, { kind: 'error', title: match[1]!, description: lines[index]!.slice(match[0].length), stacked: true });
+    }
+    return WEBHOOK_FAILURE.exec(lines[0]!)![1]!;
+  }
+  if (op === 'rest:task' && form.action === 'save') {
+    if (/^Scheduled task is incomplete|^Enter a task name and prompt/.test(message)) { title = 'Scheduled task is incomplete'; description = 'Add a title, prompt, project, and model.'; }
+    else if (/interval of at least one minute/.test(message)) { title = 'Invalid interval'; description = 'Enter an interval of at least one minute.'; }
+    // The editor's own check (scheduled-view.ts taskInput: "Checkout path is required: …") or the module's validation.
+    else if (/^Checkout path is required|existing checkout path/.test(message)) { title = 'Checkout path is required'; description = 'Enter the path of the checkout to run in.'; }
+    else { title = 'Could not save scheduled task'; description = message.replace(/^Could not save scheduled task: /, ''); }
+  } else if (op === 'rest:task' || op === 'task-toggle' || op === 'task-delete' || op === 'task-run') title = 'Could not update scheduled task';
+  else if (op === 'task-save') title = 'Could not save scheduled task';
+  else if (op === 'rest:keybinding' || op === 'keybinding-save' || op === 'keybinding-remove') title = form.action === 'remove' || op === 'keybinding-remove' ? 'Unable to remove keybinding' : 'Unable to save keybinding';
+  else if (op === 'rest:keybinding-open') title = 'Unable to open keybindings file';
+  else if (op === 'unarchive-thread') title = 'Failed to unarchive thread';
+  else if (op === 'delete-archived-thread') title = 'Failed to delete thread';
+  else if (op === 'settings-core' && id.startsWith('textGenerationModelSelection:')) title = 'Text generation model not saved';
+  // General's model picks (ProjectDefaultsSettings setModel, SettingsPanels onInstanceModelChange).
+  else if (op === 'settings-core' && id.startsWith('default-model:|')) title = 'Default model not saved';
+  else if (op === 'settings-core' && id.startsWith('text-generation-model:|')) title = 'Text generation model not saved';
+  else if (op === 'settings-core' && id.startsWith('sourceControlWriterModelSelection:')) title = 'Source control writer model not saved';
+  if (!title) return '';
+  pushToast(client, { kind: 'error', title, description, stacked: true });
+  return title;
+}
+
+/**
+ * Successes the reference announces (⇧⌘C copy-thread: "Thread ID copied";
+ * ⌥⇧⌘A appearance.cycle, the only device-setting write of appearanceMode:
+ * an untyped 1.5 s "Appearance: <mode>" that replaces the previous one).
+ */
+export function shellSuccess(client: T3Client, op: string, value: string, message: string, id = ''): void {
+  if (op === 'device-setting' && id === 'appearanceMode' && !message) {
+    const label = value === 'light' ? 'Light' : value === 'dark' ? 'Dark' : 'System';
+    pushToast(client, { kind: 'info', title: `Appearance: ${label}`, timeoutMs: 1500, leading: 'none', key: 'appearance-cycle' });
+  }
+  if (op === 'restlocal:copy-thread' && message === 'Copied thread ID') {
+    pushToast(client, { kind: 'success', title: 'Thread ID copied', description: client.threadId });
+  }
+  if (op === 'copy-diagnostic' && message === 'Copied trace ID') pushToast(client, { kind: 'success', title: 'Trace ID copied', description: value });
+}

@@ -1,0 +1,10 @@
+{
+  "name": "t3-code-shiki-compare",
+  "private": true,
+  "description": "Verification apparatus: real Shiki 4.2 (the reference's highlighter) against the clone's grammar engine (shiki-compare.mjs).",
+  "type": "module",
+  "dependencies": {
+    "@pierre/theme": "1.1.0",
+    "shiki": "4.2.0"
+  }
+}

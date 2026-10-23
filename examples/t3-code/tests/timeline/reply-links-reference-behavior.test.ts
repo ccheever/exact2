@@ -1,0 +1,28 @@
+// Fragment links are handled inside their Markdown document (T3 Code 9c161462c9, MIT; see LICENSE-T3).
+import { describe, expect, test } from 'bun:test';
+import { T3Client } from '../../src/client/client';
+import type { Files, Native } from '../../src/client/protocol';
+import type { Obj } from '../../src/client/domain';
+
+const files: Files = { fs: { mkdir: async () => undefined, readFile: async () => { throw new Error('none'); }, atomicWriteFile: async () => undefined } } as unknown as Files;
+
+describe('a fragment link keeps the thread', () => {
+  test('chatlocal:link-open with a fragment never changes the route', async () => {
+    const owner = new T3Client();
+    owner.origin = 'http://127.0.0.1:41857'; owner.generation = 0; owner.environmentId = 'env'; owner.projectId = 'fixture'; owner.threadId = 'verify-timeline';
+    owner.shell = { sequence: 1, projects: [{ id: 'fixture', title: 'Verification fixture', updatedAt: '2026-10-01T00:00:00Z' }, { id: 'work', title: 'work', updatedAt: '2026-10-09T00:00:00Z' }],
+      threads: [{ id: 'verify-timeline', projectId: 'fixture', updatedAt: '2026-10-05T00:00:00Z' }] };
+    const calls: Obj[] = [];
+    const native: Native = { available: true, watch() {}, later: async (input: unknown) => { calls.push(input as Obj); return { ok: true, generation: 0, value: {} }; } };
+    const result = await owner.command('chatlocal:link-open', 'link|', '#notes', 0, native, files);
+    expect(result.message).toBe('');
+    expect([owner.threadId, owner.projectId]).toEqual(['verify-timeline', 'fixture']);
+    // The click's modifiers ride with its press; nothing goes to the system browser, the
+    // module's opener or its gesture recorder.
+    expect(calls.map(call => call.op).filter(op => op !== 'devicePresentation')).toEqual([]);
+    // A mailto link (in prose or a table cell) answers nothing and keeps the thread.
+    owner.threadId = 'verify-timeline'; owner.projectId = 'fixture';
+    expect((await owner.command('chatlocal:link-open', 'link', 'mailto:list@example.test', 0, native, files)).message).toBe('');
+    expect([owner.threadId, owner.projectId]).toEqual(['verify-timeline', 'fixture']);
+  });
+});

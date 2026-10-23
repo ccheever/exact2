@@ -1,0 +1,310 @@
+// The composer's toolbar, menus and placeholder, projected the way T3's
+// ChatComposer.tsx, TraitsPicker.tsx and runtimeModeConfig.ts do. Contract
+// renders the rows; nothing here mutates the client.
+import { arr, obj, str, type Obj } from '../client/domain';
+import { requestPresentation } from './requests';
+import type { T3Client } from '../client/client';
+import { footerLayout, traitsDisplay, primaryAction, composerNotices, noticeRank, syncStatus, tasksProgress, providerControl, contextMeter, compactChip } from './composer-controls-view';
+import { planFollowUp, noteNow } from './composer-controls';
+import { queuedView } from './composer-controls-queue';
+import { subagentBar } from './composer-controls-subagent';
+import { attachOffered } from './composer-controls-attach';
+import { fanoutSelections, fanoutView } from './composer-controls-fanout';
+import { composerSelection } from './composer-provider-selection';
+import { chordGlyphs, optionValue, reportedSelection, resolvedCurrent, triggerModelName, type Selection } from './composer-controls-model';
+import { composerRequiresModifier, sendChords, sendCommandChords } from './composer-editor-intent';
+import { layoutFrames } from '../shell/layout-frames';
+import { draftHoldsCommandEnter } from '../diff/diff';
+import { fileDraftHoldsCommandEnter } from '../panel/files-surface'; // the Files preview's draft too
+import { activeRef, terminalOpen } from '../terminal/terminal-drawer-view'; // ChatComposer passes the real terminalOpen
+import { annotatingInThread, sendChordsWhileAnnotating } from '../browser/browser-annotation'; // ⌘↩ in Annotate
+import { measuredLabels } from './composer-measure';
+import { atRootFontSize, composerMenus, effortMenuWidth, measured, probe, probeKey, traitsMenuHeight } from './composer-menus';
+import { anchorFrame } from '../shared/laid-out-widths';
+import { clampInterfaceFontSize } from '../appearance/appearance-fonts';
+import { environmentView } from '../details/git-env';
+import { ULTRATHINK_LOCKED_MESSAGE, ultrathinkTraits, withImplicitFastModeDefault } from './composer-provider-state';
+import { ultrathinkFrame } from './composer-ultrathink';
+import { overflowMenu } from './composer-overflow';
+import { usageConfirm } from './composer-controls-usage'; // the reset credit confirm
+import { stripLabelsCompact, stripLabelTexts } from './context-strip'; // the context strip's labels or icons
+import type { ComposerNotice, FooterSteps } from './composer-controls-view';
+
+/** runtimeModeConfig.ts: label, description and lucide icon per mode. */
+export const runtimeModes = [
+  { mode: 'approval-required', label: 'Supervised', description: 'Ask before commands and file changes.', icon: 'lock' },
+  { mode: 'auto-accept-edits', label: 'Auto-accept edits', description: 'Auto-approve edits, ask before other actions.', icon: 'pen-line' },
+  { mode: 'auto', label: 'Auto', description: 'Supported providers approve routine actions; others still ask.', icon: 'sparkles' },
+  { mode: 'full-access', label: 'Full access', description: 'Allow commands and edits without prompts.', icon: 'lock-open' },
+];
+const SAVED_OPTION_LABELS: Record<string, string> = { agent: 'Agent', effort: 'Effort', reasoningEffort: 'Reasoning effort', variant: 'Reasoning' };
+
+type ComposerSource = {
+  config: Obj; projection: Obj; presentation: Obj; providerId: string; modelId: string; modelOptions: Obj[];
+  runtimeMode: string; interactionMode: string; threadId: string; projectId: string; connection: string;
+  local: { drafts: Record<string, string>; deviceSettings: { planModeEnabled: boolean } };
+  /** The composer's draft (T3Client.draft); the ultrathink flow reads it. */
+  draft?: string;
+  /** composer-provider-selection.ts: the project defaults and whether the catalog arrived. */
+  shell?: { projects: Obj[] }; configLive?: boolean;
+};
+
+/**
+ * derivePhase(deriveThreadRuntime(...)): the run that owns live work (preparing,
+ * starting, running, waiting), else the newest run not held in the queue; a
+ * newer queued run never hides an older executing one (deriveThreadActivityRun).
+ * "disconnected" while the thread has no such run and no provider thread.
+ */
+/** Annotate is on in a Browser tab of the open thread (browser-annotation.ts). */
+function annotatingOpenThread(client: T3Client): boolean {
+  const ref = activeRef(client);
+  return !!ref && annotatingInThread(client, ref.environmentId, ref.threadId);
+}
+
+export function threadPhase(projection: Obj): string {
+  const runs = arr(projection.runs), thread = obj(projection.thread);
+  const latest = (list: Obj[]) => list.reduce<Obj | undefined>((best, run) => !best || Number(run.ordinal) > Number(best.ordinal) ? run : best, undefined);
+  const unheld = latest(runs.filter(run => !(run.status === 'queued' && run.queueHeld === true)));
+  if (!unheld && !str(thread.activeProviderThreadId)) return 'disconnected';
+  const active = latest(runs.filter(run => ['preparing', 'starting', 'running', 'waiting'].includes(str(run.status)))) ?? unheld;
+  const status = str(active?.status, 'idle');
+  if (['preparing', 'starting', 'queued'].includes(status)) return 'connecting';
+  if (['running', 'waiting'].includes(status)) return 'running';
+  return 'ready';
+}
+
+/** ChatComposer.tsx placeholder chain (74541bab17). */
+export function composerPlaceholder(input: { connected: boolean; approval: boolean; question: boolean; choiceOnly: boolean;
+  projectRequired: boolean; providerUnavailable: boolean; phase: string; planReady?: boolean }): string {
+  if (input.approval) return 'Send a message to decline and redirect the agent';
+  if (input.question) return input.choiceOnly ? 'Choose an option above' : 'Type your own answer, or leave this blank to use the selected option';
+  if (input.planReady) return 'Add feedback to refine the plan, or leave this blank to implement it';
+  if (!input.connected) return 'Connect to your T3 server to send a message';
+  if (input.projectRequired) return 'Choose a project above to start a thread';
+  if (input.providerUnavailable) return 'Enable a provider in Settings to send a message';
+  return input.phase === 'disconnected' ? 'Ask for changes, send follow-ups, or attach images'
+    : 'Ask anything, @tag files/folders, $use skills, or / for commands';
+}
+
+/** getProviderOptionDescriptors + TraitsMenuContent: one flat menu of headers, dividers and radio rows. */
+export function traitsMenu(descriptors: Obj[], selections: Obj[], selection: Selection | null = null, reported: Selection | null = null,
+  ultra: { primaryId: string; controlled: boolean; inBody: boolean } = { primaryId: '', controlled: false, inBody: false }) {
+  const items: Array<{ key: string; kind: string; descriptor: string; value: string; label: string; description: string; selected: boolean; isDefault: boolean; index: number; disabled: boolean }> = [];
+  const labels: string[] = [];
+  let index = 0;
+  descriptors.filter(descriptor => descriptor.type === 'select').forEach((descriptor, group) => {
+    const id = str(descriptor.id), options = arr(descriptor.options);
+    // getDescriptorStringValue(descriptor, selection, reported): the checked radio follows the trigger's label.
+    // A prompt that controls the primary effort checks "ultrathink"; "ultrathink" in its body locks the rows.
+    const primary = id === ultra.primaryId, locked = primary && ultra.inBody;
+    const current = primary && ultra.controlled ? 'ultrathink' : optionValue(descriptor, resolvedCurrent(descriptor, selections), selection, reported);
+    if (group > 0) items.push({ key: `divider:${id}`, kind: 'divider', descriptor: id, value: '', label: '', description: '', selected: false, isDefault: false, index: -1, disabled: false });
+    items.push({ key: `header:${id}`, kind: 'header', descriptor: id, value: '', label: str(descriptor.label, SAVED_OPTION_LABELS[id] ?? id), description: '', selected: false, isDefault: false, index: -1, disabled: false });
+    if (locked) items.push({ key: `note:${id}`, kind: 'note', descriptor: id, value: '', label: ULTRATHINK_LOCKED_MESSAGE, description: '', selected: false, isDefault: false, index: -1, disabled: false });
+    for (const option of options) {
+      items.push({ key: `${id}:${str(option.id)}`, kind: 'option', descriptor: id, value: str(option.id), label: str(option.label, str(option.id)),
+        description: str(option.description), selected: option.id === current, isDefault: option.isDefault === true, index: index++, disabled: locked });
+    }
+    const label = str(options.find(option => option.id === current)?.label);
+    if (label) labels.push(label);
+  });
+  const selects = descriptors.some(descriptor => descriptor.type === 'select');
+  descriptors.filter(descriptor => descriptor.type === 'boolean').forEach((descriptor, group) => {
+    const id = str(descriptor.id), value = selections.find(selection => selection.id === id)?.value ?? descriptor.currentValue;
+    if (group > 0 || selects) items.push({ key: `divider:${id}`, kind: 'divider', descriptor: id, value: '', label: '', description: '', selected: false, isDefault: false, index: -1, disabled: false });
+    items.push({ key: `header:${id}`, kind: 'header', descriptor: id, value: '', label: str(descriptor.label, SAVED_OPTION_LABELS[id] ?? id), description: '', selected: false, isDefault: false, index: -1, disabled: false });
+    for (const on of [true, false]) items.push({ key: `${id}:${on}`, kind: 'option', descriptor: id, value: String(on), label: on ? 'On' : 'Off', description: '',
+      selected: (value === true) === on, isDefault: false, index: index++, disabled: false });
+  });
+  return { items, label: labels.join(' · '), count: index, selected: items.find(item => item.kind === 'option' && item.selected)?.index ?? 0 };
+}
+
+const named: Record<string, string> = { ' ': 'Space', escape: 'Escape', enter: 'Enter', tab: 'Tab', arrowup: 'ArrowUp', arrowdown: 'ArrowDown' };
+function whenMatches(ast: unknown, context: Record<string, boolean>, depth = 0): boolean | null {
+  const node = obj(ast); if (!node.type) return true; if (depth > 64) return null;
+  if (node.type === 'identifier') return Object.prototype.hasOwnProperty.call(context, str(node.name)) ? context[str(node.name)]! : null;
+  const left = whenMatches(node.type === 'not' ? node.node : node.left, context, depth + 1);
+  if (node.type === 'not') return left === null ? null : !left;
+  const right = whenMatches(node.right, context, depth + 1);
+  if (left === null || right === null) return null;
+  return node.type === 'and' ? left && right : node.type === 'or' ? left || right : null;
+}
+/** The chords that currently resolve to a command, as `aria-keyshortcuts` (same precedence as keybinding-settings.ts). */
+export function commandChords(config: Obj, command: string, fallback: string, modelPickerOpen = false, extra: Record<string, boolean> = {}): string {
+  if (!Array.isArray(config.keybindings)) return fallback;
+  const context: Record<string, boolean> = { true: true, false: false, isDesktop: true, isWeb: false, terminalFocus: false, terminalOpen: false,
+    previewFocus: false, previewOpen: false, usagePageOpen: false, composerFocus: true, editableFocus: true, turnRunning: false,
+    modelPickerOpen, draftThreadRoute: false, modalOpen: false, ...extra };
+  const winners = new Map<string, string>();
+  for (const rule of [...arr(config.keybindings)].reverse()) {
+    const shortcut = obj(rule.shortcut), key = str(shortcut.key);
+    const chord = [...(shortcut.modKey || shortcut.metaKey ? ['Meta'] : []), ...(shortcut.ctrlKey ? ['Control'] : []),
+      ...(shortcut.altKey ? ['Alt'] : []), ...(shortcut.shiftKey ? ['Shift'] : []), named[key] || key].join('+');
+    const match = whenMatches(rule.whenAst, context);
+    if (match === false || winners.has(chord)) continue;
+    winners.set(chord, match === null ? '' : str(rule.command));
+  }
+  return [...winners].filter(([, winner]) => winner === command).map(([chord]) => chord).join(' ');
+}
+
+/** The toolbar controls row's width (the app module's `controls` anchor, T3Composer), which footerLayout fits; 0 until laid out. */
+export function controlsWidth(presentation: Obj): number {
+  const value = obj(presentation.anchors).controls;
+  return Array.isArray(value) ? Number(value[1]) || 0 : 0;
+}
+
+// The last footer layout per client, for resolveRestingComposerControlsLayout's promotion slack.
+const footerSteps = new WeakMap<object, FooterSteps>();
+export function composerView(client: ComposerSource, requests: { approval: boolean; question: boolean; choiceOnly: boolean; planReady?: boolean; terminalOpen?: boolean }) {
+  const keyContext = { terminalOpen: requests.terminalOpen === true }; // ChatComposer: the real terminalOpen, terminalFocus false
+  const providers = arr(client.config.providers);
+  // resolveComposerProviderSelection + deriveEffectiveComposerModelState: the instance and model the turn runs on.
+  const chosen = composerSelection(client, !!fanoutSelections(client as unknown as T3Client));
+  const provider = chosen.provider ?? providers.find(entry => entry.instanceId === client.providerId);
+  const modelId = chosen.entry ? chosen.model : client.modelId;
+  const model = arr(provider?.models).find(entry => entry.slug === modelId);
+  const descriptors = arr(obj(model?.capabilities).optionDescriptors);
+  // The composer's selection and what the active provider thread reports it runs (display only, never dispatched).
+  const selection = provider && modelId ? { instanceId: str(provider.instanceId), model: modelId, options: client.modelOptions } : null;
+  const reported = client.threadId ? reportedSelection(client.projection) : null;
+  // The traits show the implicit Fast default (Normal) and the prompt's ultrathink (composerProviderState.tsx).
+  const shown = withImplicitFastModeDefault(descriptors, client.modelOptions) ?? [], prompt = client.draft ?? '';
+  const ultra = ultrathinkTraits(descriptors, prompt);
+  const traits = traitsMenu(descriptors, shown, selection, reported, ultra);
+  const supported = Array.isArray(provider?.supportedRuntimeModes) ? (provider!.supportedRuntimeModes as unknown[]).map(value => str(value)) : [];
+  const runtimes = runtimeModes.filter(option => !supported.length || supported.includes(option.mode));
+  const runtime = runtimes.find(option => option.mode === client.runtimeMode) ?? runtimes[0] ?? runtimeModes[0]!;
+  const planVisible = client.local.deviceSettings.planModeEnabled && !!provider && provider.showInteractionModeToggle !== false;
+  const display = traitsDisplay(str(provider?.driver), descriptors, shown, selection, reported, ultra);
+  // getTriggerDisplayModelName; the tooltip adds the picker's shortcut (ProviderModelPicker triggerTooltipContent).
+  const modelTitle = model ? triggerModelName(model) : modelId || 'Choose model', modelShortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M', false, keyContext).split(' ')[0] ?? '');
+  const { steps, ...layout } = footerLayout({ model: modelTitle, traits: display.label, traitsIcon: display.label !== '',
+    runtime: runtime.label, plan: planVisible ? (client.interactionMode === 'plan' ? 'Plan' : 'Build') : '', host: controlsWidth(client.presentation),
+    measure: measuredLabels(client.presentation), previous: footerSteps.get(client) });
+  footerSteps.set(client, steps);
+  // The "More composer controls" rows for the expanded and the resting footer.
+  const runtimeRows = runtimes.map(option => ({ mode: option.mode, label: option.label, selected: option === runtime }));
+  const more = overflowMenu({ traits: traits.items, traitsHidden: layout.traitsOverflow, modeHidden: layout.modeOverflow, planVisible, interactionMode: client.interactionMode, runtimes: runtimeRows });
+  const restingMore = overflowMenu({ traits: traits.items, traitsHidden: layout.restingTraitsOverflow, modeHidden: layout.restingModeOverflow, planVisible, interactionMode: client.interactionMode, runtimes: runtimeRows });
+  return {
+    placeholder: composerPlaceholder({ connected: client.connection === 'connected', ...requests, planReady: !!requests.planReady,
+      projectRequired: !client.projectId, providerUnavailable: chosen.showProviderUnavailable,
+      phase: client.threadId ? threadPhase(client.projection) : 'disconnected' }),
+    modelTip: modelShortcut ? `${modelTitle}${model?.isUnavailable === true ? ' (Unavailable)' : ''} · ${modelShortcut}` : `${modelTitle}${model?.isUnavailable === true ? ' (Unavailable)' : ''}`,
+    traitsLabel: display.label,
+    ...layout, traitsCount: traits.count, traitsSelected: traits.selected, traits: traits.items,
+    runtimeMode: runtime.mode, runtimeLabel: runtime.label, runtimeIcon: runtime.icon, runtimeDescription: runtime.description,
+    runtimeSelected: Math.max(0, runtimes.indexOf(runtime)), runtimeCount: runtimes.length,
+    runtimes: runtimes.map((option, index) => ({ ...option, selected: option === runtime, index })),
+    planVisible, planActive: planVisible && client.interactionMode === 'plan',
+    ultrathink: ultrathinkFrame(client, prompt),
+    more: more.items, moreCount: more.count, restingMore: restingMore.items, restingMoreCount: restingMore.count,
+    moreMenuWidth: effortMenuWidth(client.presentation, more.items), restingMoreMenuWidth: effortMenuWidth(client.presentation, restingMore.items), moreMenuHeight: traitsMenuHeight(more.items), restingMoreMenuHeight: traitsMenuHeight(restingMore.items), // the spectrum ring and the model icon's chroma
+    keyEffort: commandChords(client.config, 'composer.effort', 'Meta+Shift+E', false, keyContext), keyMode: commandChords(client.config, 'composer.mode', 'Meta+Shift+A', false, keyContext),
+  };
+}
+
+/** Window-space tops of the composer's toolbar and context strip, which its menus open from (layout-frames.ts); 0 until measured. */
+export function frameTops(frames: Obj) {
+  const top = (name: string) => { const value = Array.isArray(frames[name]) ? frames[name] as unknown[] : []; return Number(value[1]) || 0; };
+  const strip = Array.isArray(frames.strip) ? frames.strip as unknown[] : [];
+  const toolbar = Array.isArray(frames.toolbar) ? frames.toolbar as unknown[] : [];
+  return { toolbarTop: top('toolbar'), toolbarRight: (Number(toolbar[0]) || 0) + (Number(toolbar[2]) || 0), stripTop: top('strip'), stripLeft: Number(strip[0]) || 0, stripRight: (Number(strip[0]) || 0) + (Number(strip[2]) || 0) };
+}
+
+/**
+ * NoticeDescription (ComposerBannerStack.tsx): a description, plain or a roster of segments, offers its details while
+ * its natural width (its probes) exceeds the width it was laid out at (its `nd:` anchor). While the button shows, its
+ * 24pt and the 4pt gap before it count as room, so it cannot keep itself shown once the text would fit.
+ */
+const detailsShown = new WeakMap<T3Client, Set<string>>();
+const measurable = (notice: ComposerNotice) => (!!notice.description || notice.segments.length > 0) && !notice.redact && !notice.machines.length;
+/** The texts a description lays out, each at its size and weight: a roster's links are medium, its commas regular. */
+function descriptionTexts(notice: ComposerNotice): Array<[string, number]> {
+  if (!notice.segments.length) return [[notice.description, 400]];
+  return notice.segments.flatMap(segment => [[segment.label, segment.threadId ? 500 : 400] as [string, number], ...(segment.last ? [] : [[', ', 400] as [string, number]])]);
+}
+export function withNoticeDetails<T extends ComposerNotice>(client: T3Client, notices: T[], rootFontSize: number): T[] {
+  const anchors = obj(client.presentation.anchors), shown = detailsShown.get(client), next = new Set<string>();
+  const width = (name: string) => { const value = anchors[name]; return Array.isArray(value) ? Number(value[1]) : NaN; };
+  const out = notices.map(notice => {
+    if (!measurable(notice)) return notice;
+    const laidOut = width(`nd:${notice.id}`), parts = descriptionTexts(notice).map(([text, weight]) => width(probeKey(text, 12, weight)));
+    if (!(laidOut >= 0) || !parts.every(part => part > 0)) return notice;
+    const natural = parts.reduce((sum, part) => sum + part, 0) * rootFontSize / 16;
+    const details = natural > laidOut + (shown?.has(notice.id) ? 28 * rootFontSize / 16 : 0) + 0.5;
+    if (details) next.add(notice.id);
+    return { ...notice, details };
+  });
+  detailsShown.set(client, next);
+  return out;
+}
+
+/** The snapshot's `composer` row: request state comes from the requests projection. */
+export function composerSnapshot(client: T3Client, now = 0) {
+  noteNow(client, now);
+  const requests = requestPresentation(client);
+  const question = requests.questions[0];
+  const phase = client.threadId ? threadPhase(client.projection) : 'disconnected';
+  const view = composerView(client, { approval: requests.approvals.length > 0, question: !!question,
+    choiceOnly: !!question && !question.customAllowed, planReady: !!planFollowUp(client) && !question, terminalOpen: terminalOpen(client) });
+  const tasks = tasksProgress(client), sync = syncStatus(client);
+  // The activity row (sync, else the running turn's tasks unless a request blocks the drawer) is the stack's
+  // first activity item (ChatComposer bannerStackItems): urgent, warning and error notices go before it.
+  const activity = sync ? 'sync' : tasks.tasksTotal > 0 && !requests.approvals.length && !question ? 'tasks' : '';
+  const ranked = composerNotices(client, now), after = ranked.findIndex(notice => noticeRank(notice) > 0);
+  const activityAt = !activity ? -1 : after < 0 ? ranked.length : after, activityFront = activityAt === 0;
+  // `activityBefore`: the stacked activity strip floats just before this notice; `activityLast`: after every notice.
+  const rootFontSize = clampInterfaceFontSize((client.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface);
+  const notices = withNoticeDetails(client, ranked, rootFontSize).map((notice, index) => ({ ...notice, front: !activityFront && index === 0, activityBefore: !activityFront && index === activityAt,
+    titleDetails: noticeTitleDetails(client.presentation, notice, rootFontSize) }));
+  const activityLast = !!activity && !activityFront && activityAt === ranked.length;
+  const queue = queuedView(client), action = primaryAction(client, phase);
+  if (queue.queueEditing) Object.assign(action, { sendLabel: 'Update queued message', sendIcon: 'check', sendTooltip: 'Update queued message', sendRunning: true });
+  // A send that compacts first says so (ComposerPrimaryActions submitLabel, submitTooltip).
+  const compact = compactChip(client, now, !!queue.queueEditing);
+  if (compact.compactSend) Object.assign(action, { sendLabel: 'Compact and send', sendTooltip: action.sendStatus || `Summarize ${compact.compactTokens} tokens of history, then send` });
+  const chosen = composerSelection(client, !!fanoutSelections(client));
+  const modelId = chosen.entry ? chosen.model : client.modelId;
+  const model = arr((chosen.provider ?? arr(client.config.providers).find(entry => entry.instanceId === client.providerId))?.models).find(entry => entry.slug === modelId);
+  // A provider-native subagent thread mounts no composer: the bar stands alone, without its dock.
+  const bar = subagentBar(client, now);
+  // Several models for a new thread: the trigger names them (allModelNames), with the picker's shortcut.
+  const fan = fanoutView(client), shortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M', false, { terminalOpen: terminalOpen(client) }).split(' ')[0] ?? '');
+  if (fan.fanout) view.modelTip = shortcut ? `${fan.fanoutAria} · ${shortcut}` : fan.fanoutAria;
+  if (bar.subagent) { notices.length = 0; queue.queued = []; }
+  return atRootFontSize({ ...view, ...action, ...compact, ...fan, attach: !bar.subagent && attachOffered(client, question), ...providerControl(client), ...tasks, ...queue, ...bar, ...contextMeter(client, str(model?.name, modelId)), ...frameTops(layoutFrames(client)),
+    // composer-editor-intent.ts; the focused composer's key action takes these (app.contract composerKeyEvent). A focused
+    // Diff (or Files preview) comment draft keeps ⌘↩ (DiffCommentAnnotation's isCommentSubmitShortcut), and Annotate's
+    // editor too (browser-annotation.ts): the set is empty, or without ⌘↩, then.
+    sendChords: draftHoldsCommandEnter(client) || fileDraftHoldsCommandEnter(client) ? '' : sendChordsWhileAnnotating(sendChords(client.config, phase === 'running', !client.threadId, terminalOpen(client), composerRequiresModifier(client.local.deviceSettings.sendShortcut, client.draft)), annotatingOpenThread(client)),
+    sendCommandChords: sendCommandChords(client.config, phase === 'running', !client.threadId, terminalOpen(client), composerRequiresModifier(client.local.deviceSettings.sendShortcut, client.draft)),
+    // TooltipPopup: 12pt text inset 8pt plus its 1pt border, for the window-edge shift.
+    sendTipWidth: Math.ceil(measured(client.presentation, action.sendTooltip, 12, 400) + 18),
+    // Menu widths from measured texts (composer-menus.ts); Run on's labels join the probes.
+    ...composerMenus(client.presentation, view, runOnLabels(environmentView(client)),
+      [probe(action.sendTooltip, 12, 400), ...notices.filter(measurable).flatMap(notice => descriptionTexts(notice).map(([text, weight]) => probe(text, 12, weight))), ...stripLabelTexts(client).map(text => probe(text, 12, 400)), ...notices.map(notice => probe(notice.title, 12, 500))]),
+    stripCompact: stripLabelsCompact(client, rootFontSize),
+    syncStatus: bar.subagent ? '' : sync, activity: bar.subagent ? '' : activity, activityFront: !bar.subagent && activityFront, activityLast: !bar.subagent && activityLast, notices, resetConfirm: bar.subagent ? '' : usageConfirm(client) }, rootFontSize);
+}
+
+/**
+ * ComposerBannerStack NoticeText (T3 Code 74541bab17): whether a notice's plain title is cut off, from its natural width
+ * (its probe, scaled as withNoticeDetails scales the description's) against the content row it shares with the
+ * description, which shrinks to nothing first, and the description's own details button while that shows. The title's
+ * details button never counts against the title, so showing it cannot keep itself shown.
+ */
+export function noticeTitleDetails(presentation: Obj, notice: { id: string; title: string; tip: string; description: string; redact: string; segments: unknown[]; machines: unknown[]; details?: boolean }, rootFontSize = 16): boolean {
+  if (notice.tip || notice.machines.length > 0 || !notice.title) return false;
+  const content = anchorFrame(presentation, `notice-content:${notice.id}`);
+  const probed = anchorFrame(presentation, probe(notice.title, 12, 500).key);
+  if (!content || !probed) return false;
+  const scale = rootFontSize / 16, described = !!(notice.description || notice.redact || notice.segments.length);
+  const after = (described ? 4 : 0) + (notice.details ? 28 : 0);
+  return probed[1] * scale > content[1] - after * scale + 0.5;
+}
+
+/** The Run on rows the menus measure, the machines "Add to another machine" lists among them. */
+function runOnLabels(view: { envOptions: { label: string }[]; envAdd: { label: string }[] }): string[] {
+  return [...view.envOptions, ...view.envAdd].map(option => option.label);
+}

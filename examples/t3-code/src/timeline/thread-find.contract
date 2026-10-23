@@ -1,0 +1,65 @@
+use Icon from "../shared/icons.contract"
+shape ThreadFindView
+  open: bool
+  query: string
+  focus: number
+  count: string
+  error: string
+  pending: bool
+  complete: bool
+  empty: bool
+  navigation: number
+  entry: string
+  occurrence: number
+  highlight: string
+  attention: bool
+shape FindPart
+  id: string
+  text: string
+  find: number
+// A line drawn outside the Markdown (a workflow opening's title, description, a phase title) in highlight parts.
+shape FindLine
+  id: string
+  parts: FindPart[]
+fn findPaint(mark: number): string = mark >= 2 ? "light-dark(#f59e0b, #f59e0b)" : mark == 1 ? "light-dark(#fbbf2466, #fbbf2459)" : "#00000000"
+component FindParts
+  props
+    parts: FindPart[]
+  view
+    for part in parts key=part.id
+      text part.text background-color=findPaint(part.find) id=(part.find == 3 ? "thread-find-active" : "") color=(part.find >= 2 ? "#171717" : "inherit")
+fn findPartAt(parts: FindPart[], id: string): number = parts.slice(0, max(0, parts.map((part) => part.id).indexOf(id))).map((part) => part.text).join("").length
+component FindToken
+  props
+    value: string
+    at: number
+    parts: FindPart[]
+  view
+    for part in parts key=part.id
+      if findPartAt(parts, part.id) < at + value.length and findPartAt(parts, part.id) + part.text.length > at
+        text value.slice(max(0, findPartAt(parts, part.id) - at), min(value.length, findPartAt(parts, part.id) + part.text.length - at)) id=(part.find == 3 and at <= findPartAt(parts, part.id) and at + value.length > findPartAt(parts, part.id) ? "thread-find-active" : "") background-color=findPaint(part.find) color=(part.find >= 2 ? "#171717" : "inherit")
+component ThreadFindBar
+  props
+    find: ThreadFindView
+    local: action
+  action key(k: string, e: KeyboardEvent)
+    // The native field retains Enter/Escape while its input method has marked text (KeyEvents.passesComposition).
+    if k == "Enter"
+      local((e.shiftKey ? "find-previous" : "find-next"), "", "")
+    if k == "Escape"
+      local("find-close", "", "")
+  action edit(value: string)
+    local("find-query", "", value)
+  view
+    row width="100%" height=36 padding-left=8 padding-right=4 box-sizing="border-box" align-items="center" gap=4 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 2px 8px #0000001a" role="search" aria-label="Find in thread" aria-busy=(find.pending or not find.complete) testId="thread-find-bar"
+      input type="search" value=find.query input=edit key=key id="thread-find-query" aria-label="Find in thread" placeholder="Find in thread" maxlength=200 spellcheck=false autocomplete="off" autofocus=true flex=1 min-width=0 border-width=0 background-color="#00000000" font-size=13 autocorrect="off" data-editable="yes"
+      text find.count aria-live="polite" font-size=11 font-variant-numeric="tabular-nums" color=(find.empty ? "light-dark(#dc2626, #f87171)" : "light-dark(#71717a, #a1a1aa)")
+      if find.error != ""
+        button press=local("find-retry", "", "") height=24 padding-left=8 padding-right=8 border-width=0 background-color="#00000000" title=""
+          text "Retry" font-size=12 font-weight=500
+      button press=local("find-previous", "", "") disabled=(find.empty or find.pending or not find.complete or find.query.trim() == "") aria-label="Previous match" width=24 height=24 padding=0 border-width=0 background-color="#00000000" title=""
+        Icon(name="chevron-up", size=14, color="currentColor")
+      button press=local("find-next", "", "") disabled=(find.empty or find.pending or not find.complete or find.query.trim() == "") aria-label="Next match" width=24 height=24 padding=0 border-width=0 background-color="#00000000" title=""
+        Icon(name="chevron", size=14, color="currentColor")
+      button press=local("find-close", "", "") aria-label="Close find" width=24 height=24 padding=0 border-width=0 background-color="#00000000" title=""
+        Icon(name="x", size=14, color="currentColor")

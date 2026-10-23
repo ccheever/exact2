@@ -1,0 +1,228 @@
+// Settings › Integrations › Browser's default rows (MIT reference, see LICENSE-T3, T3 Code
+// 74541bab17: apps/web/src/components/settings/IntegrationsSettings.tsx BrowserViewportSetting, BrowserZoomSetting,
+// BrowserAppearanceSetting, BrowserRecordingFrameRateSetting, BrowserRecordingInputSettings,
+// BrowserAutoShowFloatingPreviewSetting, BrowserSearchEngineSetting). `view` is browser-defaults.ts `browserDefaultsView`; each write is
+// `restlocal:browser-defaults` with `key=…&value=…`. "Open links in" is browser-links.ts's row, between these two groups.
+use SelectOption from "../settings/settings-kit.contract"
+use SettingsSelect from "../settings/settings-kit.contract"
+use SettingsSwitch from "../settings/settings-kit.contract"
+use SkPopup from "../settings/settings-kit.contract"
+use SkField from "../settings/settings-kit.contract"
+use SkInk from "../settings/settings-kit.contract"
+use LucideChevronDown from "../settings/settings-icons.contract"
+use KmItem from "../shared/menu-keys.contract"
+use kmTriggerKey from "../shared/menu-keys.contract"
+use kmTriggerTarget from "../shared/menu-keys.contract"
+use LucideUndo2 from "../settings/settings-icons.contract"
+use LucideRotateCcw from "../settings/settings-icons.contract"
+use TipBubble from "../shell/shell-tip.contract"
+
+// The viewport menu's rows (browser-defaults.ts ViewportOption): a preset's size is `detail`; the first preset carries the
+// "Standard" group heading.
+shape BdViewportOption
+  value: string
+  label: string
+  detail: string
+  heading: string
+  selected: bool
+
+shape BrowserDefaultsView
+  viewportValue: string
+  viewportLabel: string
+  viewportSized: bool
+  viewportWidth: number
+  viewportHeight: number
+  rotateLabel: string
+  viewportReset: bool
+  viewportOptions: BdViewportOption[]
+  zoomLabel: string
+  zoomReset: bool
+  zoomOptions: SelectOption[]
+  appearanceLabel: string
+  appearanceReset: bool
+  appearanceOptions: SelectOption[]
+  frameRateLabel: string
+  frameRateReset: bool
+  frameRateOptions: SelectOption[]
+  keyPresses: bool
+  mousePresses: bool
+  autoShow: bool
+  autoShowReset: bool
+  pullRequestLinksInApp: bool
+  searchEngineLabel: string
+  searchEngineReset: bool
+  searchEngineOptions: SelectOption[]
+  searchEngineCustom: bool
+  customSearchUrl: string
+  // The custom URL's warning while it is not an http(s) URL with `%s`; empty when it is.
+  customSearchUrlStatus: string
+
+// SettingsRow: the title (with its reset arrow while the value is not the default), the description, the control.
+component BdRow
+  slot
+  props
+    rowId: string
+    title: string
+    description: string
+    reset: bool
+    resetLabel: string
+    resetPress: action
+  view
+    row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" testId=`browser-default-row-${rowId}`
+      column flex=1 min-width=0 gap="0.25rem"
+        row min-height="1.25rem" align-items="center" gap="0.375rem"
+          text title font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+          box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center"
+            if reset
+              button press=resetPress aria-label=`Reset ${resetLabel} to default` testId=`reset-browser-default-${rowId}` width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+                LucideUndo2(size=12, color="light-dark(#71717b, #818181)")
+        text description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
+      row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end" gap="0.5rem" flex-wrap="wrap"
+        children
+
+// Default browser viewport, zoom, appearance, and the recording rows.
+component BrowserTabDefaultRows
+  inject
+    rem: number
+  props
+    view: BrowserDefaultsView
+    local: action
+  action pick(key: string, value: string)
+    local("browser-defaults", `key=${key}&value=${encodeURIComponent(value)}`)
+  view
+    column width="100%" testId="browser-defaults"
+      BdRow(rowId="viewport", title="Default browser viewport", description="Tab size for you and agents. Fill fits the panel; other sizes show the device toolbar.", reset=view.viewportReset, resetLabel="default browser viewport", resetPress=pick("reset", "viewport"))
+        BdViewportSelect(label=view.viewportLabel, width=(176 * rem / 16), options=view.viewportOptions, choose=pick("viewport"))
+        if view.viewportSized
+          BdViewportSize(view=view, pick=pick)
+      BdRow(rowId="zoom", title="Default browser zoom", description="Page zoom applied to new browser tabs.", reset=view.zoomReset, resetLabel="default browser zoom", resetPress=pick("reset", "zoom"))
+        SettingsSelect(selectId="browser-default-zoom", label="Default browser zoom", valueLabel=view.zoomLabel, empty=false, value="", width=(160 * rem / 16), disabled=false, options=view.zoomOptions, choose=pick("zoom"))
+      BdRow(rowId="appearance", title="Default browser appearance", description="The color scheme pages are told to prefer. System follows your OS setting.", reset=view.appearanceReset, resetLabel="default browser appearance", resetPress=pick("reset", "appearance"))
+        SettingsSelect(selectId="browser-default-appearance", label="Default browser appearance", valueLabel=view.appearanceLabel, empty=false, value="", width=(160 * rem / 16), disabled=false, options=view.appearanceOptions, choose=pick("appearance"))
+      BdRow(rowId="frame-rate", title="Browser recording frame rate", description="Maximum recording rate. 30 fps saves CPU and storage; 60 fps is smoother.", reset=view.frameRateReset, resetLabel="browser recording frame rate", resetPress=pick("reset", "frame-rate"))
+        SettingsSelect(selectId="browser-recording-frame-rate", label="Browser recording frame rate", valueLabel=view.frameRateLabel, empty=false, value="", width=(160 * rem / 16), disabled=false, options=view.frameRateOptions, choose=pick("frame-rate"))
+      BdRow(rowId="key-presses", title="Show key presses in recordings", description="Show pressed keys and shortcuts in new recordings. Password fields are excluded.", reset=false, resetLabel="", resetPress=pick("reset", "none"))
+        SettingsSwitch(checked=view.keyPresses, label="Show key presses in recordings", disabled=false, switchId="browser-recording-key-presses", toggle=pick("key-presses", view.keyPresses ? "false" : "true"))
+      BdRow(rowId="mouse-presses", title="Show mouse presses in recordings", description="Highlight mouse presses and held buttons in new recordings.", reset=false, resetLabel="", resetPress=pick("reset", "none"))
+        SettingsSwitch(checked=view.mousePresses, label="Show mouse presses in recordings", disabled=false, switchId="browser-recording-mouse-presses", toggle=pick("mouse-presses", view.mousePresses ? "false" : "true"))
+
+// BrowserViewportSetting's Select (ui/select.tsx size="sm", SelectPopup align="end": 278 wide at 16px, as measured in the
+// reference): Fill panel, Responsive, then a "Standard" SelectGroupLabel over the presets, each preset's size
+// right-aligned in muted tabular figures. Its keyboard is SettingsSelect's (menu-keys.contract).
+component BdViewportSelect
+  props
+    label: string
+    width: number
+    options: BdViewportOption[]
+    choose: action
+  derive menuItems = options.map((option) => KmItem(id=`browser-default-viewport-option-${option.value}`, label=option.label))
+  action triggerKey(k: string, e: KeyboardEvent)
+    if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
+      preventDefault()
+      stopPropagation()
+      if not e.repeat
+        showPopover("browser-default-viewport-menu", source="browser-default-viewport")
+        let target = kmTriggerTarget(menuItems, k)
+        if target != ""
+          focus(target)
+  view
+    box position="relative" width=width
+      button popovertarget="browser-default-viewport-menu" key=triggerKey role="combobox" aria-label="Default browser viewport" id="browser-default-viewport" testId="browser-default-viewport" class=SkField display="flex" flex-direction="row" align-items="center" gap="0.375rem" width=width
+        text label font-size="0.875rem" line-height="1.25rem" class=SkInk flex=1 min-width=0 line-clamp=1 text-align="left"
+        LucideChevronDown(size=12, color="light-dark(#71717b, #818181)")
+      SkPopup(menuId="browser-default-viewport-menu", invoker="browser-default-viewport", label="Default browser viewport", width=(278 * width / 176), list=true, endAlign=width, items=menuItems, keyed=0)
+        for option in options key=option.value
+          if option.heading != ""
+            text option.heading padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)" role="presentation" testId="browser-default-viewport-group"
+          BdViewportItem(keysId="browser-default-viewport-menu-keys", option=option, choose=choose(option.value))
+
+component BdViewportItem
+  props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
+    option: BdViewportOption
+    choose: action
+  state lit = false
+  action hover(over: bool)
+    if over
+      focus(`browser-default-viewport-option-${option.value}`)
+    else if lit
+      focus(keysId)
+  action focused(on: bool)
+    lit = on
+  view
+    button id=`browser-default-viewport-option-${option.value}` press=choose popovertarget="browser-default-viewport-menu" popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="option" aria-selected=option.selected testId=`browser-default-viewport-option-${option.value}` display="flex" flex-direction="row" align-items="center" justify-content="space-between" gap="1.25rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(option.selected ? "light-dark(#27272a14, #f5f5f514)" : lit ? "light-dark(#27272a14, #f5f5f50f)" : "#00000000")
+      text option.label font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 white-space="nowrap" text-align="left" color="light-dark(#27272a, #f5f5f5)"
+      if option.detail != ""
+        text option.detail flex-shrink=0 font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color="light-dark(#71717b, #818181)"
+
+// The sized viewport's width × height (committed on Enter or when the field is left) and Rotate.
+component BdViewportSize
+  props
+    view: BrowserDefaultsView
+    pick: action
+  state over = false
+  action hover(on: bool)
+    over = on
+  action width(value: string)
+    pick("viewport-width", value)
+  action height(value: string)
+    pick("viewport-height", value)
+  view
+    row align-items="center" gap="0.25rem" min-width=0
+      // Keyed by the stored size, so a refused entry shows the stored value again.
+      for size in [`${view.viewportWidth}x${view.viewportHeight}`] key=size
+        input value=`${view.viewportWidth}` change=width inputmode="numeric" aria-label="Default viewport width" spellcheck="false" testId="browser-default-viewport-width" width="5rem" height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" id="field-browser-default-viewport-width" data-editable="yes"
+        text "×" font-size="0.75rem" color="light-dark(#71717b, #818181)"
+        input value=`${view.viewportHeight}` change=height inputmode="numeric" aria-label="Default viewport height" spellcheck="false" testId="browser-default-viewport-height" width="5rem" height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" id="field-browser-default-viewport-height" data-editable="yes"
+      box position="relative" flex-shrink=0 hover=hover
+        button press=pick("viewport-rotate", "") aria-label=view.rotateLabel testId="browser-default-viewport-rotate" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+          LucideRotateCcw(size=16, color="light-dark(#71717b, #818181)")
+        TipBubble(label="Rotate", side="top", align="center", offset=36, inset=0, shown=over)
+
+// Auto-show floating preview (after "Open links in").
+component BrowserAutoShowRow
+  props
+    view: BrowserDefaultsView
+    local: action
+  view
+    BdRow(rowId="auto-show", title="Auto-show floating preview", description="Show the floating preview when an agent opens a browser or device unless the agent says otherwise.", reset=view.autoShowReset, resetLabel="auto-show floating preview", resetPress=local("browser-defaults", "key=reset&value=auto-show"))
+      SettingsSwitch(checked=view.autoShow, label="Auto-show floating preview", disabled=false, switchId="browser-auto-show-floating-preview", toggle=local("browser-defaults", `key=auto-show&value=${view.autoShow ? "false" : "true"}`))
+
+// Search engine (BrowserSearchEngineSetting, after Auto-show; not desktop-only in the reference, as web clients search
+// from server-run tabs) and, while Custom is chosen, the custom search URL, committed on Enter or when the field is left.
+component BrowserSearchEngineRow
+  inject
+    rem: number
+  props
+    view: BrowserDefaultsView
+    local: action
+  action pick(value: string)
+    local("browser-defaults", `key=search-engine&value=${encodeURIComponent(value)}`)
+  action commit(value: string)
+    local("browser-defaults", `key=custom-search-url&value=${encodeURIComponent(value)}`)
+  view
+    column width="100%" testId="browser-search-engine-setting"
+      BdRow(rowId="search-engine", title="Search engine", description="What the address bar searches when you type something that isn't a URL.", reset=view.searchEngineReset, resetLabel="search engine", resetPress=local("browser-defaults", "key=reset&value=search-engine"))
+        SettingsSelect(selectId="browser-search-engine", label="Search engine", valueLabel=view.searchEngineLabel, empty=false, value="", width=(160 * rem / 16), disabled=false, options=view.searchEngineOptions, choose=pick)
+      if view.searchEngineCustom
+        row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" testId="browser-default-row-custom-search-url"
+          column flex=1 min-width=0 gap="0.25rem"
+            row min-height="1.25rem" align-items="center"
+              text "Custom search URL" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+            text "Use %s where the search terms go." font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
+            if view.customSearchUrlStatus != ""
+              text view.customSearchUrlStatus font-size="0.75rem" line-height="1rem" padding-top="0.125rem" color="light-dark(#71717b, #818181)" testId="browser-custom-search-url-status"
+          row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end"
+            // Keyed by the stored text, so a commit the data module trimmed shows what it kept.
+            for stored in [view.customSearchUrl] key=stored
+              input value=stored change=commit placeholder="https://example.com/search?q=%s" aria-label="Custom search URL" spellcheck="false" autocorrect="off" autocapitalize="none" maxlength=2048 testId="browser-custom-search-url" id="field-browser-custom-search-url" width="16rem" height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)" data-editable="yes"
+
+// Open pull requests in T3 Code (PullRequestLinksOpenInAppSetting, after Search engine; not a preview default, so never disabled).
+component PullRequestLinksRow
+  props
+    view: BrowserDefaultsView
+    local: action
+  view
+    BdRow(rowId="pull-request-links-open-in-app", title="Open pull requests in T3 Code", description="Clicking a pull request link opens it in T3 Code. Turn off to open pull request links like any other link, on GitHub or your git host.", reset=(not view.pullRequestLinksInApp), resetLabel="open pull requests in T3 Code", resetPress=local("browser-defaults", "key=reset&value=pull-request-links"))
+      SettingsSwitch(checked=view.pullRequestLinksInApp, label="Open pull requests in T3 Code", disabled=false, switchId="pull-request-links-open-in-app", toggle=local("browser-defaults", `key=pull-request-links&value=${view.pullRequestLinksInApp ? "false" : "true"}`))
