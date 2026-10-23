@@ -877,8 +877,9 @@ package final class Presenter {
         if command == nil && popover == nil, node.id == id, let url = node.defaultLink, node.activateLink(url, bubbled: bubbled) { return }
         if node.isButton, !node.handlers.contains("press") { dispatchButtonAncestor(node, click: click ?? pressClick) }
         else if (command == nil && popover == nil) || node.handlers.contains("press") { pressClick = click ?? pressClick; onPress?(id); pressClick = nil }
-        command?()
-        popover?()
+        guard views[node.id] === node else { return }
+        dialogs.command(node, fromNativeMenu: fromNativeMenu, bubbled: bubbled)?()
+        menus.command(node, fromNativeMenu: fromNativeMenu, bubbled: bubbled)?()
     }
     func change(_ id: UInt32, _ value: String) { onChange?(id, value) }
     /// A text field typed into since it took the focus: its `change` fires
