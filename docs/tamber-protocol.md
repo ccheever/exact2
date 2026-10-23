@@ -157,7 +157,7 @@ on macOS and Linux.
   reports it as a click's selection. A selection that moved since the client's chain was read
   (another node, or a rebuild) is stale, 409 with `stale: true`, as staleness is everywhere, and a
   page whose selection moved while the frame was on its way reports its selection as it is now;
-  `unsupported` with `what: "inspect"` is only a page that can't step at all (Apple's, for now),
+  `unsupported` with `what: "inspect"` is only a page that can't step at all (none of the shipped hosts now: the web pages and Apple's step),
   which a client takes as no `select` there, not as no inspect.
 
 ## Where it runs

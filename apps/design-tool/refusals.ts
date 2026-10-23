@@ -45,7 +45,7 @@ export const restoreRefusals = (builds: Map<string, Refusing>, kept: ReturnType<
 };
 
 /** A move up the chain sent to a build (tamber/1.16 `select`), until its page answers: an `unsupported inspect` in
- * that while is the page saying it can't step (Apple's for now), which greys out the tool's up control for that build
+ * that while is the page saying it can't step (an older build's), which greys out the tool's up control for that build
  * alone, never inspect (theme2 15:02). A selection from it ends the while. */
 export const stepping = new Set<string>(), cantStep = new Set<string>();
 export const stepRefused = (id: string) => { if (!stepping.delete(id)) return false; cantStep.add(id); return true; };
