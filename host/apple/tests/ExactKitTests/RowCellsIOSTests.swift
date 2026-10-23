@@ -13,6 +13,15 @@ import XCTest
 ///   bun host/apple/build.mjs --test --ios
 final class RowCellsIOSTests: XCTestCase {
     private var window: UIWindow!
+    func testAReorderedRowsSeparatorMovesWithItsPresentationWithoutABatchRedraw() throws {
+        let p = try fixture()
+        let (row, line) = try XCTUnwrap(rowLines(p).first)
+        let before = row.layer.convert(line.frame, to: p.root.layer)
+        p.apply(wireBatch([["op": "present", "id": row.id, "property": "translate", "x": 0, "y": 17.25]]))
+        let moved = row.layer.convert(line.frame, to: p.root.layer)
+        XCTAssertEqual(moved.minY - before.minY, 17.25, accuracy: 1e-6)
+        XCTAssertTrue(line.superlayer === row.layer)
+    }
     override func tearDown() { window?.isHidden = true; window = nil; super.tearDown() }
 
     /// A page 1 holding a list 2 of four rows 44 points tall, each with a
