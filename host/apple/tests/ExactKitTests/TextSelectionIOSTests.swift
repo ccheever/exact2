@@ -548,6 +548,30 @@ final class TextSelectionIOSTests: XCTestCase {
         override var type: UIEvent.EventType { .touches }
     }
 
+    func testSharedTextTouchesDeliverPointerEventsThroughTheParagraph() throws {
+        let p = mounted([
+            box(1, style: ["user_select": "text"], handlers: ["pointerdown", "pointerup"]),
+            text(2, "First paragraph", handlers: ["pointerdown", "pointermove", "pointerup"]),
+            text(3, "Second paragraph"),
+            ["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]],
+            frame(1, 0, h: 180, w: 400), frame(2, 30, x: 20), frame(3, 80, x: 20)
+        ])
+        let first = try node(p, 2), event = TextTouchEvent()
+        let hit = try XCTUnwrap(first.hitTest(CGPoint(x: 30, y: 10), with: event))
+        let touch = Touch(hit)
+        touch.point = first.convert(CGPoint(x: 30, y: 10), to: hit)
+        // UIKit sends recognizer events only up the hit view's physical ancestry.
+        let observers = sequence(first: hit, next: { $0.superview }).flatMap { view in
+            (view.gestureRecognizers ?? []).compactMap { $0 as? PointerRecognizer }
+        }
+        var heard: [String] = []
+        p.onPointer = { id, kind, _ in heard.append("\(id):\(kind)") }
+        observers.forEach { $0.touchesBegan([touch], with: event) }
+        observers.forEach { $0.touchesMoved([touch], with: event) }
+        observers.forEach { $0.touchesEnded([touch], with: event) }
+        XCTAssertEqual(heard, ["2:down", "1:down", "2:move", "2:up", "1:up"])
+    }
+
     func testTheSharedInputTakesTextTouchesAndForwardsAPress() throws {
         let p = mounted([
             box(1, style: ["user_select": "text"]),
