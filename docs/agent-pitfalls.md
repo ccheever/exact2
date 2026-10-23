@@ -1426,8 +1426,8 @@ The journal names a top level slower than 50 ms.
   2026-10-07.)
 
 - **A native button refuses an image's frame or a third text.** Its face is
-  semantic: two texts (title and subtitle) and one image (a symbol, or on iOS
-  a raster at its natural size). The symbol's size
+  semantic: two texts (title and subtitle) and one symbol image. Raster faces
+  need `appearance="none"` until every graphical host paints them. The symbol's size
   is `font-size` on the image, not `width`, `height` or `object-fit`. Its own
   colour is `-exact-tint-color`; the title's is `color`. Use a custom `button`
   without `appearance="auto"` for aligned image frames or arbitrary children.

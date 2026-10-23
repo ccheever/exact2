@@ -78,9 +78,27 @@ fn the_precedence_fixture_keeps_exacts_bare_contact_target() {
     assert_eq!(r.slot("pressed"), Some(&Value::Number(1.0)));
 }
 #[test]
-fn an_explicit_native_button_accepts_a_raster_image_and_subtitle() {
+fn raster_native_faces_are_refused_until_every_graphical_host_draws_them() {
+    for source in [
+        "\"photo.png\"",
+        "(busy ? \"symbol:sf/photo\" : \"photo.png\")",
+        "`photos/${n}.png`",
+    ] {
+        let body = format!("button appearance=\"auto\"\n  image {source}\n  text \"Photo\"");
+        let error = contract::compile(&app(&body)).unwrap_err();
+        assert_eq!(error.id, "lower-button-content", "{error}");
+        assert!(error.message.contains("every graphical host"), "{error}");
+        assert!(error.message.contains("appearance=\"none\""), "{error}");
+        boot(&app(
+            &body.replace("appearance=\"auto\"", "appearance=\"none\"")
+        ));
+    }
+}
+
+#[test]
+fn a_custom_raster_face_keeps_its_image_identity_subtitle_and_size() {
     let mut r = boot(&app(
-        "button appearance=\"auto\" testId=\"photo\"\n  image \"photo.png\"\n  text \"Photo\"\n  text \"Choose a picture\"",
+        "button appearance=\"none\" testId=\"photo\"\n  image \"photo.png\"\n  text \"Photo\"\n  text \"Choose a picture\"",
     ));
     let face = r.kernel().press_face(view_of(&r, "photo")).unwrap();
     assert!(face.raster);

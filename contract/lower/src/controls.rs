@@ -916,6 +916,16 @@ impl Lowerer<'_> {
     }
 }
 
+fn symbol_source(source: &Expr) -> bool {
+    match source {
+        Expr::Template(parts, _) => {
+            matches!(parts.first(), Some(contract_syntax::TemplatePart::Text(text)) if text.starts_with("symbol:"))
+        }
+        _ => literals(source)
+            .is_some_and(|sources| sources.iter().all(|source| source.starts_with("symbol:"))),
+    }
+}
+
 /// Every face a native button's children can show, as (texts, symbol
 /// images), saturated above two texts/one image; refusing what a face cannot
 /// hold (LLP 1069.011.001 D3, D12): repeated/arbitrary children and non-face
@@ -1022,10 +1032,17 @@ fn face_counts(
                                 )
                             })
                         };
+                        if !positional.first().is_some_and(symbol_source) {
+                            return err(
+                                "lower-button-content",
+                                "a native button needs an image with a provable `symbol:` prefix: raster faces are not painted by every graphical host; write `button appearance=\"none\"` for a raster face",
+                                *span,
+                            );
+                        }
                         let ok = match positional.first() {
                             Some(Expr::Template(_, _)) => true,
                             Some(e) => {
-                                literals(e).is_none_or(|srcs| srcs.iter().all(|s| !s.is_empty() && (!s.starts_with("symbol:") || symbol(s))))
+                                literals(e).is_some_and(|srcs| srcs.iter().all(|s| symbol(s)))
                             }
                             None => false,
                         };
