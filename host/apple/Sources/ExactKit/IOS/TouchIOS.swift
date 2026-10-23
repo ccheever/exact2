@@ -280,6 +280,12 @@ extension Agent {
         // `--chrome platform`: its bar item (r5 weather, mood journal).
         if target === v, let (control, segment) = presenter.segments.drawn(v) { target = control; region = segment }
         var barred = false
+        if target === v, let field = presenter.navigation.drawnSearch(v) {
+            guard field.window === win, !field.isHidden, field.bounds.width > 0, field.bounds.height > 0 else {
+                return ["error": "tap #\(v.id): UIKit's search field is not shown; scroll to the top and `clock settle` first"]
+            }
+            target = field; barred = true
+        }
         if target === v, let item = barItem(v) {
             guard case .success(let (bar, frame)) = item else { return ["error": "tap #\(v.id): its bar item is not placed in the navigation bar; `clock settle` first waits out a push or sheet still moving"] }
             target = bar; region = frame; barred = true

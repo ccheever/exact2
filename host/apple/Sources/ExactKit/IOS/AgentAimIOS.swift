@@ -6,6 +6,19 @@
 import UIKit
 
 extension NavigationHost {
+    /// The search field a shown route projects into UIKit's search bar.
+    func drawnSearch(_ node: NodeView) -> UITextField? {
+        #if os(iOS)
+        guard !ExactEnv.authoredChrome else { return nil }
+        for c in controllers.values {
+            guard let nav = c.navigationController, nav.topViewController === c, barShows(nav),
+                  c.viewIfLoaded?.window != nil, let search = c.search, search.field === node else { continue }
+            return search.controller.searchBar.searchTextField
+        }
+        #endif
+        return nil
+    }
+
     /// Under `--chrome platform`, the navigation bar a header button's item
     /// sits in and the item's box in it: where a finger aims, and where its
     /// pull-down opens. Nil for any other node; a refusal for an item UIKit

@@ -541,6 +541,20 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
     } finally { await d.close(); }
   }
 
+  if (host === 'ios' && !device) {
+    const d = await open({ host, chrome: 'platform', touch: 'platform' });
+    try {
+      await d.clock('settle');
+      const tap = await d.tap('header-search');
+      await d.clock('settle');
+      check(tap.delivery === 'platform' && (await d.state()).keyboard?.visible,
+        `${host} native: a real header search tap focuses UIKit's search field: ${JSON.stringify(tap)}`);
+      await d.type('header-search', 'fixture');
+      check(byTestId(await d.tree(), 'header-search')?.props.value === 'fixture', `${host} native: the projected search hears typing`);
+    } catch (error) { check(false, `${host} native: header search: ${error.message}`); }
+    finally { await d.close(); }
+  }
+
   // A route pushed in a sheet's own stack (Detail over Sheet), popped by
   // UIKit's bar Back and by the edge swipe, real touches both (a session
   // with UIKit's bars, `--chrome platform`, and the touch runner): each is
