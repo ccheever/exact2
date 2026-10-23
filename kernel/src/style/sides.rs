@@ -6,6 +6,7 @@
 //! its four rows, as the browser expands the shorthand, and refuses another
 //! computed list (LLP 1001 §1): no row splits one.
 
+use super::{Dimension, StyleProps};
 use crate::generated::StyleId;
 
 /// The shorthands' rows, in top, right, bottom, left order, and
@@ -113,6 +114,47 @@ pub fn elliptical(text: &str) -> bool {
         }
         c == '/' && depth == 0
     })
+}
+
+/// Right to left, a box's padding and margin sides that only the platform's
+/// sheet set mirror, as UIKit's own layouts do (a grouped row's inset past
+/// its leading symbol is on its right), where its author wrote neither side
+/// of the pair: Contract writes physical sides, and what an author wrote
+/// stays where it was written. A side that names an edge (a safe area's, a
+/// layout region's) stays on it. The web writes the same sides as CSS's
+/// logical properties (`exact_web::css`).
+pub(crate) fn mirror_unsaid(style: &StyleProps, s: &mut taffy::style::Style) {
+    let mirrors = |left: StyleId, right: StyleId, sides: [&Dimension; 2]| {
+        !style.written.has(left)
+            && !style.written.has(right)
+            && sides.iter().all(|d| d.directionless())
+    };
+    if mirrors(
+        StyleId::PaddingLeft,
+        StyleId::PaddingRight,
+        [&style.padding_left, &style.padding_right],
+    ) {
+        std::mem::swap(&mut s.padding.left, &mut s.padding.right);
+    }
+    if mirrors(
+        StyleId::MarginLeft,
+        StyleId::MarginRight,
+        [&style.margin_left, &style.margin_right],
+    ) {
+        std::mem::swap(&mut s.margin.left, &mut s.margin.right);
+    }
+}
+
+impl Dimension {
+    /// Whether it means the same on either side: not an edge's inset (a
+    /// safe area's, a layout region's, a viewport segment's), nor a math
+    /// tree, which can hold one.
+    pub fn directionless(&self) -> bool {
+        !matches!(
+            self,
+            Self::Env(..) | Self::Region(..) | Self::Segment(..) | Self::Compare(..)
+        )
+    }
 }
 
 #[cfg(test)]

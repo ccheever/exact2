@@ -676,7 +676,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         let writes = owner.wrote("background_color")
         let restyled = next.style != previous.style || rethemed || writes != writesGround
         writesGround = writes
-        model = next
+        model = next; followDirection()
         rows = Dictionary(next.sections.flatMap { $0.rows }.map { ($0.view, $0) }, uniquingKeysWith: { a, _ in a })
         carriesCustomRows = rows.values.contains(where: \.custom)
         #if !os(tvOS)
