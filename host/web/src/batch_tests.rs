@@ -214,6 +214,19 @@ fn cases() -> Vec<(&'static str, String)> {
             }),
         ),
         (
+            "request-long-poll",
+            one(|b| {
+                let exact_runner::Answer::Later(poll) = exact_runner::Answer::stream(
+                    Request::get("https://api.example/changes?since=0")
+                        .independent_http(4096)
+                        .long_poll("since", "meta.seq"),
+                ) else {
+                    unreachable!()
+                };
+                b.request(&request(50, poll, false))
+            }),
+        ),
+        (
             "request-continue",
             one(|b| {
                 b.request(&request(
@@ -394,6 +407,10 @@ const GOLDEN: &[(&str, &str)] = &[
     (
         "request-manual-redirect",
         r#"{"ops":[{"op":"request","ticket":49,"target":"feed \"home\"","scope":null,"method":"GET","url":"https://api.example/authorize","headers":[],"redirect":"manual","body":"","cache":"default"}],"timers":false,"clock":0,"error":null}"#,
+    ),
+    (
+        "request-long-poll",
+        r#"{"ops":[{"op":"request","ticket":50,"target":"feed \"home\"","scope":null,"nativeHttp":"independent","maxResponseBytes":4096,"method":"GET","url":"https://api.example/changes?since=0","headers":[],"body":"","cache":"default","stream":true,"longPoll":{"cursor":"since","from":"meta.seq","sameCursorEvent":false}}],"timers":false,"clock":0,"error":null}"#,
     ),
     (
         "request-continue",
