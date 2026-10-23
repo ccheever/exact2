@@ -570,6 +570,29 @@ final class TextSelectionIOSTests: XCTestCase {
         override var type: UIEvent.EventType { .touches }
     }
 
+    func testInlineContextMenusKeepTheirParagraphOnTheTextTouchPath() throws {
+        let p = mounted([
+            box(1, style: ["user_select": "text"]),
+            text(2, "First paragraph"), text(3, "Second paragraph"),
+            ["op": "paragraph", "id": 2, "runs": [
+                ["id": 21, "parent": 2, "paint": true, "props": ["text": "First"], "handlers": ["contextmenu"]],
+                ["id": 22, "parent": 2, "paint": true, "props": ["text": " paragraph"]]
+            ]],
+            ["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]],
+            frame(1, 0, h: 180, w: 400), frame(2, 30, x: 20), frame(3, 80, x: 20)
+        ])
+        let first = try node(p, 2)
+        let at = try point(in: first, of: "First")
+        XCTAssertNotNil(first.inlineContextTarget(at: at))
+        let recognizer = try XCTUnwrap(first.contextRecognizer)
+        let hit = try XCTUnwrap(first.hitTest(at, with: TextTouchEvent()))
+        XCTAssertTrue(hit === first, "a menu's paragraph must receive UIKit's text touch")
+        XCTAssertTrue(sequence(first: hit, next: { $0.superview }).contains { view in
+            view.gestureRecognizers?.contains { $0 === recognizer } == true
+        }, "UIKit delivers the long press along this physical path")
+        XCTAssertNil(p.textSelection.text(for: first)?.document, "context-menu prose keeps its paragraph input")
+    }
+
     func testSharedTextTouchesDeliverPointerEventsThroughTheParagraph() throws {
         let p = mounted([
             box(1, style: ["user_select": "text"], handlers: ["pointerdown", "pointerup"]),
