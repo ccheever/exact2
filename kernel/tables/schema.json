@@ -5825,7 +5825,7 @@
     ["header-top", "style length", 0],
     ["grouped-ground", "style", "light-dark(#f2f2f7, #000000)", "-exact-grouped-background", "light-dark(#f2f2f7, #000000)", "-exact-grouped-background"],
     ["grouped-ground-plain", "style", "light-dark(#ffffff, #000000)", "-exact-background", "light-dark(#ffffff, #000000)", "-exact-background"],
-    ["grouped-card-fill", "style", "light-dark(#ffffff, #1c1c1e)", "light-dark(#f9f9f9, #272727)", "light-dark(#ffffff, #1c1c1e)", "light-dark(#ffffff, #1c1c1e)"],
+    ["grouped-card-fill", "style", "light-dark(#ffffff, #1c1c1e)", "light-dark(#f9f9f9, rgba(255, 255, 255, 0.03))", "light-dark(#ffffff, #1c1c1e)", "light-dark(#ffffff, #1c1c1e)"],
     ["grouped-separator", "style", "-exact-separator", "light-dark(#efefef, #333333)", "-exact-separator", "-exact-separator"],
     ["grouped-header-color", "style", "-exact-secondary-label", "-exact-label", "-exact-secondary-label", "-exact-secondary-label"],
     ["grouped-symbol-tint", "style", "AccentColor", "-exact-label", "AccentColor", "AccentColor"],
