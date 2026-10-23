@@ -6,6 +6,7 @@
 // TypeScript source's `native` (ts-data.js); an app without modules never
 // has it.
 import './native-glue.js';
+import { data } from './rt.js';
 
 // The runner's dispatch codes (native-glue.js `DISPATCH`) as the runtime's
 // handler kinds; hover's over and off are its true and false.
@@ -18,6 +19,9 @@ export function viewHost(say) {
   const x = globalThis.exact;
   // The glue dispatches once the page is ready, which it awaits.
   if (typeof x.ready?.then !== 'function') x.ready = Promise.resolve(x.ready);
+  // An `app:/` path's object URL for a module's view (the photo editor's
+  // photo), as an `image` shows the app's own file (media.js `appURL`).
+  x.appFileURL ??= path => import(new URL('./picker-glue.js', import.meta.url).href).then(() => x.appURL(path, data.appId));
   return views ??= x.nativeHost({ log: say, packages: x.packageViews ?? null, dispatch(el, code, text) {
     const [kind, value] = KINDS[code] ?? [];
     if (kind) el.dispatchEvent(new CustomEvent('exact-native', { detail: { kind, value: value ?? text } }));

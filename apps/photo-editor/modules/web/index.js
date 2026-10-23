@@ -67,10 +67,17 @@ class Editor {
     this.setPhoto(props.photo);
   }
 
+  // An `app:/` photo (one the camera took) is the app's own file, shown
+  // through the host's object URL for it, as an `img` shows one.
   setPhoto(photo) {
     if (!photo || photo === this.photo) return;
     this.photo = photo;
-    this.img.src = new URL(photo, document.baseURI).href;
+    if (!photo.startsWith('app:/')) { this.img.src = new URL(photo, document.baseURI).href; return; }
+    Promise.resolve(globalThis.exact?.appFileURL?.(photo)).then((url) => {
+      if (this.photo !== photo) return;
+      if (url) this.img.src = url;
+      else this.event(8, `no photo at ${photo}`);
+    });
   }
 
   setProps(props) {
