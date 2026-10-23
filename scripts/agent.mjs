@@ -36,7 +36,7 @@ import { peekLogs, takeWorldLogs, driveNotes, STORAGE_REFUSED, STORAGE_NOTE, run
 import { MalformedOperation, operationReply, inputJSON, keyArguments, validateKey, pointerArguments, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, tapArguments, pointerGap, chordModifiers, withChordModifiers, heldForClick, clockSlices, padOp, postCommand, postInto } from './agent-keys.mjs';
 import { jsonLines, hangup, waitAtMost, bootRefusal, REPLY_MS } from './agent-wire.mjs';
 import { openStdio } from './agent-stdio.mjs';
-import { heldClock } from './agent-held.mjs';
+import { heldClock, inFlightNote } from './agent-held.mjs';
 export { jsonLines, hangup };
 export { MalformedOperation, resizeArguments, postCommand, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
 import { appleRunBinary, appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
@@ -841,8 +841,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     async inFlight() {
       // Native misses use the tree's snapshot; another transport read could time out.
       const st = s.host === 'web' ? await s.op({ op: 'state' }).catch(() => null) : {pending:s.pendingRequests};
-      const pending = (st?.pending ?? []).map((p) => p.name).filter(Boolean);
-      return pending.length ? `; ${pending.length} request${pending.length === 1 ? ' is' : 's are'} still in flight (${[...new Set(pending)].join(', ')}): \`clock data\` waits for data, and \`state\` shows what is still pending` : '';
+      return inFlightNote(st?.pending ?? []); // held asks named apart, with `clock held` (agent-held.mjs)
     },
     /** What this carrier's input actually is (LLP 1035.003 D2/D3): whether it can hold a contact across requests,
      * and how each form is delivered — `platform` (a real input event through the platform's own path),

@@ -189,3 +189,18 @@ fn state_pending_lists_a_held_request_as_held() {
         "{state}"
     );
 }
+
+#[test]
+fn the_held_op_answers_held_requests_and_their_replies_cheaply() {
+    let mut r = boot();
+    let (ticket, _) = one_request(&mut r);
+    assert_eq!(
+        crate::agent::handle(&r, r#"{"op":"held"}"#),
+        format!("{{\"held\":[{{\"name\":\"changes\",\"ticket\":{ticket}}}],\"heldReplies\":{{}}}}")
+    );
+    r.fulfill(ticket, reply("x")).unwrap();
+    assert_eq!(
+        crate::agent::handle(&r, r#"{"op":"held"}"#),
+        "{\"held\":[],\"heldReplies\":{\"changes\":1}}"
+    );
+}

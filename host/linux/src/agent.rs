@@ -10,6 +10,7 @@
 //! @ref LLP 1015 §5; LLP 1012 §3–§4
 
 pub(crate) mod contact;
+mod held;
 
 use crate::presenter::Presenter;
 use exact_runner::agent::{error, field_bool, field_num, field_str, num};
@@ -1010,6 +1011,7 @@ fn tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             }
         }
     }
+    held::name_pending(p, &mut tree);
     tree.to_string()
 }
 
@@ -1046,33 +1048,15 @@ fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             }
             None => format!("{{\"clock\":{}}}", num(landed)),
         };
-        return held_named(p, reply);
+        return held::held_named(p, reply);
     }
     if field_bool(line, "data") {
         let reply = land_data(p, SETTLE_BOUND);
-        return held_named(p, reply);
+        return held::held_named(p, reply);
     }
     let reply = clock_within(p, line, SETTLE_BOUND);
     retell_offset(p);
-    held_named(p, reply)
-}
-
-/// `reply` naming the requests the server holds, which no clock waited on
-/// (LLP 1016.000 D9): `held` and `heldTargets`, as the web hosts' do. An
-/// error reply is left as it is.
-fn held_named<D: DataSource>(p: &Presenter<D>, mut reply: String) -> String {
-    let held = p.host().runner().held_requests();
-    if held.is_empty() || reply.starts_with("{\"error\"") || !reply.ends_with('}') {
-        return reply;
-    }
-    let targets: Vec<&str> = held.iter().map(|(name, _)| name.as_str()).collect();
-    reply.pop();
-    reply.push_str(&format!(
-        ",\"held\":{},\"heldTargets\":{}}}",
-        held.len(),
-        serde_json::json!(targets)
-    ));
-    reply
+    held::held_named(p, reply)
 }
 
 /// `clock data`: the app's data lands — its deferred module activated (the

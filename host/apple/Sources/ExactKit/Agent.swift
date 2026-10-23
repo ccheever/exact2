@@ -686,9 +686,9 @@ public final class Agent {
     func clock(_ req: [String: Any]) -> [String: Any] {
         var out = clockStep(req)
         guard out["error"] == nil,
-              let d = session.agent("{\"op\":\"state\"}").data(using: .utf8),
+              let d = session.agent("{\"op\":\"held\"}").data(using: .utf8),
               let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return out }
-        let held = (o["pending"] as? [[String: Any]])?.filter { $0["held"] as? Bool == true } ?? []
+        let held = o["held"] as? [[String: Any]] ?? [] // the runner's `held`, not the whole `state`
         if !held.isEmpty {
             out["held"] = held.count
             out["heldTargets"] = held.compactMap { $0["name"] as? String }

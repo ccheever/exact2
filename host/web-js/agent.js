@@ -511,6 +511,8 @@ export function install(exact) {
         return { clock: exact.clock.now, ...(inflight > 0 ? { inflight } : {}), ...(background > 0 ? { background } : {}) };
       })());
       case 'tags': return tags();
+      // The runner's `held` (LLP 1016.000 D9): what `clock held` polls, cheaper than `state`.
+      case 'held': return { held: exact.heldAsks?.() ?? [], heldReplies: exact.heldReplies?.() ?? {} };
       // `screenshot` and `check` (LLP 1116.003 D8): transitions under way shown where they end, for this picture only.
       // An animation begun since the last commit (a spinner's turn, LLP 1069.001) is put on the clock first: a
       // picture is the clock's, never the browser's (two of one clock are the same bytes).
