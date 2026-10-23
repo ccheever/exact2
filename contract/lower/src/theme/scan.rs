@@ -462,9 +462,10 @@ impl Said {
                     // applies it, and may be overridden there).
                     // A font row with its node's fonts, or not at all when
                     // they aren't known (an unknown class, the build's). A
-                    // computed row with its type and the root's typing, or
-                    // not at all when the arm around it isn't typed (its
-                    // the region's) or its form doesn't say its type.
+                    // computed row with its type and the typing of the arm
+                    // around it (the root's outside any), or not at all when
+                    // that arm isn't typed or the row's form doesn't say its
+                    // type.
                     let mut fonts = None;
                     // A module tag's row lowering refuses is never judged
                     // (`native::refused`, before any check of it).
@@ -517,8 +518,8 @@ impl Said {
                     // rows and sheet; a `button`'s, which `button_appearance`
                     // reads first, a native one refusing rows of its own; an
                     // `audio`'s `display`; a row a `delete=` swipe expands,
-                    // whose rows go before the class's), and one a `for` or
-                    // `match` binds a name around. A style row applied at any
+                    // whose rows go before the class's), and one in a `for`
+                    // or `match` arm that isn't typed. A style row applied at any
                     // such element is the build's at every element (`unjudged`,
                     // below): there it may be the build's first refusal of it,
                     // in its words.
@@ -642,9 +643,10 @@ impl Said {
                 // A `for`'s item, and its position when named, typed as
                 // lowering types them from the list's type; a `match`'s
                 // binding in its `some` arm, and the frame its `none` arm
-                // pushes (binding nothing, so typed whatever the subject).
-                // A subject whose type isn't known by its form leaves the
-                // region untyped.
+                // pushes (binding nothing). A subject whose type isn't known
+                // by its form leaves the whole region untyped, the `none`
+                // arm too: the build lowers the `some` arm first, and its
+                // refusal there would be the build's first (Grok's round 1).
                 Node::Each {
                     var,
                     index,
@@ -678,7 +680,7 @@ impl Said {
                         ..around.clone()
                     };
                     let none_arm = Around {
-                        typing: here.as_ref().map(|t| t.pushed(|s| s.push_none())),
+                        typing: subject.map(|(t, _)| t.pushed(|s| s.push_none())),
                         ..around.clone()
                     };
                     stack.extend(some.1.iter().map(|c| (c, some_arm.clone())));

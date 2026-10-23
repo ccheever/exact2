@@ -40,8 +40,9 @@
 //!
 //! Not checked here, and still caught by the build after a miss: a
 //! computed row whose type its scope doesn't give by its form (a call, an
-//! index, a `let` inside another form, any row in a `for` or `match` whose
-//! subject is such), whose number tokens are the build's; a computed
+//! index, a `let` inside another form), and any computed row in a `for` or
+//! `match` (either arm) whose subject is such, whose number tokens are the
+//! build's (a literal row there is judged as anywhere); a computed
 //! shorthand or `flex`; a state part's row; a style's row any element
 //! applying it leaves to the build (lowering rewrites its class rows first,
 //! it chooses between styles, or the `for` or `match` around it isn't typed:
