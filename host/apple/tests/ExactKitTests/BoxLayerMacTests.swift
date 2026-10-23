@@ -282,15 +282,16 @@ final class BoxLayerMacTests: XCTestCase {
         XCTAssertNil(card.layer?.backgroundColor)
         XCTAssertEqual(card.layer?.cornerRadius, 0)
         XCTAssertEqual(card.layer?.masksToBounds, false, "rounding clips nothing while the overflow is visible")
-        XCTAssertEqual(card.boxFill?.backgroundColor?.alpha, 1)
-        XCTAssertEqual(card.boxFill?.cornerRadius ?? 0, 24, accuracy: 0.001)
+        XCTAssertEqual((card.boxFill as? CAShapeLayer)?.fillColor?.alpha, 1)
+        XCTAssertEqual(card.boxFill?.cornerRadius, 0)
+        XCTAssertNotNil((card.boxFill as? CAShapeLayer)?.path)
         // The layer is flipped as the view is: minimum y is the top.
         XCTAssertEqual(card.boxFill?.maskedCorners, [.layerMinXMinYCorner, .layerMaxXMinYCorner])
         style["overflow_x"] = "hidden"; style["overflow_y"] = "hidden"
         let clipped = node(style)
-        XCTAssertEqual(clipped.layer?.backgroundColor?.alpha, 1, "a clipping box is rounded by its own mask")
-        XCTAssertEqual(clipped.layer?.cornerRadius ?? 0, 24, accuracy: 0.001)
-        XCTAssertNil(clipped.boxFill)
+        XCTAssertNotNil(clipped.layer?.mask, "a clipping box keeps its explicit corner outline")
+        XCTAssertEqual(clipped.layer?.cornerRadius, 0)
+        XCTAssertNotNil(clipped.boxFill as? CAShapeLayer)
     }
 
     /// The live row's waveform bar: a 3 × h pill of one colour.

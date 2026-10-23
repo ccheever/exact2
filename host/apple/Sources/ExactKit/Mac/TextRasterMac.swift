@@ -315,6 +315,7 @@ extension NodeView {
         }
         textRasterPending = false
         CATransaction.commit()
+        presenter?.boxFilters.changed(self)
     }
 
     func dropTextRaster() {
