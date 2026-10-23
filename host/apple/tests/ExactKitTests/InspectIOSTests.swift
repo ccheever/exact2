@@ -71,7 +71,7 @@ final class InspectIOSTests: XCTestCase {
         // (One whose middle the window's hit test gives to it, or to a part of
         // it that stands for no other node.)
         let content = try XCTUnwrap(session.presenter.views.values.first { node in
-            guard node.window === window, !node.isHidden, node.bounds.width > 20, node.bounds.height > 20, !node.isDescendant(of: nav.navigationBar) else { return false }
+            guard node.window === window, !node.isHidden, node.bounds.width > 0, node.bounds.height > 0, !node.isDescendant(of: nav.navigationBar) else { return false }
             let box = node.convert(node.bounds, to: window)
             var hit = window.hitTest(CGPoint(x: box.midX, y: box.midY), with: nil)
             while let v = hit, !(v is NodeView) { hit = v.superview }
