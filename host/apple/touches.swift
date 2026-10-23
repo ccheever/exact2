@@ -24,6 +24,10 @@
 //    "point":[x,y]?,"to":[x,y]?,"seconds":s?,"label":exactLabel?}
 //                                → {"done":true}, {"tree":snapshot} or {"elements":[snapshot,…]}
 //                                snapshot: label, identifier, type, frame [x,y,w,h], children
+//   SpringBoard gestures with `screen` and `display` use the same synthesizer
+//   as app gestures: fixed portrait screen points on the named display.
+//   A swipe also needs `screenTo`; `velocity` (points/s, default 1000) and
+//   `hold` (seconds, default 0) control its move and hold before lifting.
 //   {"op":"quit"}                ends the test
 // A tap's `screen`, the same point in the screen's fixed, portrait space,
 // sends it through XCTest's own event synthesizer (`Synthesizer`), and a
@@ -137,6 +141,41 @@ final class ExactTouches: XCTestCase {
     static func springboard(_ request: [String: Any]) throws -> [String: Any] {
         let spring = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         func refuse(_ why: String) -> NSError { NSError(domain: "ExactTouches", code: 1, userInfo: [NSLocalizedDescriptionKey: why]) }
+        if request["screen"] != nil || request["display"] != nil || request["screenTo"] != nil {
+            func fixed(_ key: String) throws -> CGPoint {
+                guard let xy = request[key] as? [Double], xy.count == 2, xy.allSatisfy(\.isFinite) else { throw refuse("SpringBoard needs a finite \(key) in fixed portrait screen points") }
+                return CGPoint(x: xy[0], y: xy[1])
+            }
+            guard let dimensions = request["display"] as? [Double], dimensions.count == 2,
+                  dimensions.allSatisfy({ $0.isFinite && $0 > 0 }),
+                  let display = Displays.showing(CGSize(width: dimensions[0], height: dimensions[1])) else {
+                throw refuse("SpringBoard display does not match an XCTest display; supply its screen size in points")
+            }
+            let from = try fixed("screen"), started = Date().timeIntervalSince1970 * 1000
+            let outcome: Synthesizer.Outcome
+            switch request["action"] as? String {
+            case "tap": outcome = Synthesizer.tap(from, display: display)
+            case "hold":
+                guard let seconds = request["seconds"] as? Double, seconds.isFinite, seconds > 0, seconds <= 5 else { throw refuse("SpringBoard hold needs seconds in 0...5") }
+                outcome = Synthesizer.drag(from: from, to: from, press: seconds, velocity: 0, hold: 0, display: display, bounds: nil)
+            case "swipe":
+                guard let velocity = (request["velocity"] ?? 1000.0) as? Double, velocity.isFinite, velocity > 0,
+                      let hold = (request["hold"] ?? 0.0) as? Double, hold.isFinite, hold >= 0, hold <= 5 else {
+                    throw refuse("SpringBoard swipe needs a positive velocity and hold in 0...5 seconds")
+                }
+                let to = try fixed("screenTo"), size = CGSize(width: dimensions[0], height: dimensions[1])
+                // Leave the synthesizer's five-second completion allowance within the driver's 15-second request limit
+                let duration = 0.1 + Double(hypot(to.x - from.x, to.y - from.y)) / velocity + hold
+                guard duration.isFinite, duration <= 9 else { throw refuse("SpringBoard swipe exceeds 9 seconds; increase velocity or reduce the distance or hold") }
+                outcome = Synthesizer.drag(from: from, to: to, press: 0.1, velocity: velocity, hold: hold, display: display, bounds: size)
+            default: throw refuse("SpringBoard screen coordinates need tap, hold or swipe")
+            }
+            switch outcome {
+            case .injected: return ["done": true, "injected": ["start": started, "end": Date().timeIntervalSince1970 * 1000, "via": "synthesizer", "display": display]]
+            case .unfinished: throw refuse("XCTest's event synthesizer did not finish the SpringBoard gesture; nothing more was injected")
+            case .missing, .refused: throw refuse("XCTest's event synthesizer could not inject the SpringBoard gesture on the requested display; no coordinate fallback was sent")
+            }
+        }
         func point(_ key: String) throws -> XCUICoordinate {
             guard let xy = request[key] as? [Double], xy.count == 2, xy.allSatisfy(\.isFinite) else { throw refuse("SpringBoard needs a finite \(key)") }
             return spring.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: xy[0], dy: xy[1]))
