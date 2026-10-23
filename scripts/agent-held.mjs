@@ -23,11 +23,15 @@ export async function heldClock(s, words) {
   const unknown = words.filter((w) => !names.includes(w));
   if (unknown.length) throw new MalformedOperation(`clock held: ${unknown.join(', ')} ${unknown.length > 1 ? 'are' : 'is'} not a held request in flight (${names.length ? `held: ${names.join(', ')}` : 'none is held'})`);
   const targets = words.length ? [...new Set(words)] : names, before = first.heldReplies ?? {};
-  // Looks back off from 25 ms to 200 ms, each wait cut to what is left of the bound, so the bound stays exact.
+  // Looks back off from 25 ms to 200 ms, each wait, and each look itself, cut to what is left of the bound, so the
+  // bound stays exact: a look that answers past it counts nothing.
   let left = targets, seen = first;
+  const until = (end) => new Promise((ok) => setTimeout(() => ok(null), Math.max(0, end - performance.now())));
   for (let end = performance.now() + bound, gap = 25; left.length && performance.now() < end; gap = Math.min(gap * 2, 200)) {
     await new Promise((ok) => setTimeout(ok, Math.max(0, Math.min(gap, end - performance.now()))));
-    seen = await look();
+    const got = await Promise.race([look(), until(end)]);
+    if (!got) break;
+    seen = got;
     const now = seen.heldReplies ?? {};
     left = left.filter((t) => !((now[t] ?? 0) > (before[t] ?? 0)));
   }
