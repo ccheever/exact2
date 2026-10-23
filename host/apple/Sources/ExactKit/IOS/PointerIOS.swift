@@ -507,6 +507,7 @@ extension NodeView {
 
     /// `handoff`: VoiceOver's activation, which hands the press's focus on as a tap's does (`activate(at:)`).
     func activateKey(_ name: String, handoff: Bool = false) -> Bool {
+        if isFirstResponder, !formDisabled, !inert, reorderKey(name) { return true }
         guard !disabled, name == "Enter" || (name == " " && props["href"] == nil && UIDevice.current.userInterfaceIdiom != .tv) else { return false }
         #if os(iOS)
         if kind == "button", let presenter, presenter.invocation(of: self) != nil {
