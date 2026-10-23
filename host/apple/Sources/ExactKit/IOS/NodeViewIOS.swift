@@ -538,7 +538,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             symbolKey = key; loadGeneration += 1
             let generation = loadGeneration
             // An icon with no SF Symbol draws its own path (D10, stage 9 A).
-            image = name.isEmpty ? iconPathImage(side: points) : symbolImage(name, symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight)))
+            image = name.isEmpty ? iconPathImage(side: points) : symbolImage(name, SymbolMeasure.configuration(points: points, weight: weight))
             symbolFound = image != nil; if points <= 0 { image = nil }
             if name.isEmpty, props["symbolPath"] == nil, !source.hasPrefix("symbol:sf/"), source != "symbol:", symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(source) refused: unknown symbol role") }
             if !name.isEmpty || source.hasPrefix("symbol:sf/") || source == "symbol:" { symbolRefusal = nil }
@@ -551,8 +551,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // The symbol's size when the kernel's measurer could not say
             presenter?.queueIntrinsicSize(self, generation: generation, SymbolMeasure.size(name, points: points, weight: weight))
         }
-        // An icon path is the node's tint, else its colour (D10); a symbol is its tint, else its written colour (stage 9 B); `nil` inherits UIKit's live tint.
-        symbolView?.tintColor = props["symbolPath"] != nil ? iconPathTint : symbolTint ?? symbolInk
+        symbolView?.tintColor = symbolInk
+        symbolView?.preferredSymbolConfiguration = symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight))
         if let leaf = symbolView { applySymbolEffect(leaf) }
         layoutSymbol()
     }

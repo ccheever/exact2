@@ -1,6 +1,4 @@
-// An icon path on a node (LLP 1121 D10; stage 9 A; ExactCore's IconPath draws
-// it): its image and tint. On the Mac a path and an SF Symbol share the
-// platform's unsaid ink; an authored tint or colour takes precedence.
+// An icon path on a node (LLP 1121 D10), drawn by ExactCore’s IconPath.
 #if os(macOS)
 import AppKit
 #else
@@ -14,16 +12,5 @@ extension NodeView {
     func iconPathImage(side: CGFloat) -> IconImage? {
         guard let commands = props["symbolPath"] else { return nil }
         return IconPath.image(commands, viewBox: props["symbolViewBox"] ?? "", size: CGSize(width: side, height: side))
-    }
-    /// An icon path's tint (D10): `-exact-tint-color` where written (its
-    /// accent where it names one), else the node's text colour, else the
-    /// platform's (live).
-    var iconPathTint: PlatformColor {
-        if style["tint_color"] != nil { return symbolTint ?? inheritedTint }
-        #if os(macOS)
-        return symbolTint ?? symbolInk ?? unsaidSymbolTint
-        #else
-        return channels("text_color").map(TextEngine.color) ?? .label
-        #endif
     }
 }
