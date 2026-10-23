@@ -9,10 +9,11 @@ extension NavigationHost {
     /// Whether the search bar draws `tablist` (`SegmentHost` steps aside).
     func scopes(tablist: NodeView) -> Bool { controllers.values.contains { $0.scoped === tablist } }
 
-    /// The scope bar's segmented control and the segment drawn for `tab`.
-    func scopeSegment(_ tab: NodeView) -> (control: UIControl, segment: CGRect)? {
+    /// A route's title, subtitle or search scope control and the segment drawn for `tab`.
+    func barSegment(_ tab: NodeView) -> (control: UIControl, segment: CGRect)? {
         #if os(iOS)
         let found: (RouteController, [UInt32], UISegmentedControl?)? = controllers.values.lazy.compactMap { c in
+            if let title = c.titleSegments, title.press.tabs.contains(tab.id) { return (c, title.press.tabs, title.control) }
             if let search = c.search, search.scopeTabs.contains(tab.id) { return (c, search.scopeTabs, search.scopeControl) }
             if #available(iOS 26.0, *), let s = c.subtitleSegments, s.tabs.contains(tab.id) { return (c, s.tabs, s.shown) }
             return nil

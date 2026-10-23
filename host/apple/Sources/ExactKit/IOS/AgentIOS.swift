@@ -307,8 +307,8 @@ extension Agent {
             }
             let nativeAction = presenter.swipeActions.ownsAction(id)
             let actionView = presenter.swipeActions.actionView(id)
-            // A search's scope segment is where UIKit draws it (LLP 1134 D4).
-            let scope = (v as? NodeView).flatMap { presenter.navigation.scopeSegment($0) }.map { s in
+            // A bar's segment is where UIKit draws it.
+            let scope = (v as? NodeView).flatMap { presenter.navigation.barSegment($0) }.map { s in
                 s.control.convert(s.segment, to: vp).offsetBy(dx: -vp.pageOrigin.x, dy: -vp.pageOrigin.y)
             }
             let r = nativeAction ? actionView.map { box($0) } ?? .zero : scope ?? box(v)
@@ -402,15 +402,15 @@ extension Agent {
             reply["node"] = node
             return reply
         }
-        // A search's scope segment is answered where UIKit draws it (LLP 1134 D4).
-        if let scope = presenter.navigation.scopeSegment(v), let window = scope.control.window {
+        // A bar's segment is answered where UIKit draws it.
+        if let scope = presenter.navigation.barSegment(v), let window = scope.control.window {
             func rect(_ r: CGRect) -> [String: Any] { ["x": Agent.r2(r.minX), "y": Agent.r2(r.minY), "w": Agent.r2(r.width), "h": Agent.r2(r.height)] }
             let vp = presenter.viewport, frame = scope.control.convert(scope.segment, to: window)
             node["space"] = ["viewport": rect(scope.control.convert(scope.segment, to: vp).offsetBy(dx: -vp.pageOrigin.x, dy: -vp.pageOrigin.y)), "window": rect(frame),
                              "screen": rect(window.convert(frame, to: window.screen.coordinateSpace)), "local": ["w": Agent.r2(scope.segment.width), "h": Agent.r2(scope.segment.height)],
                              "capture": ["scale": Agent.r2(window.screen.scale)]]
             node["visible"] = ["hidden": false, "inert": v.disabled, "inViewport": true, "clipped": false]
-            node["native"] = ["view": "UISearchBar scope segment", "accessibilityLabel": v.accessibleName]
+            node["native"] = ["view": "UISegmentedControl segment", "accessibilityLabel": v.accessibleName]
             node["observed"] = ["clock": session.now(), "wall": Date().timeIntervalSince1970 * 1000]
             reply["node"] = node
             return reply

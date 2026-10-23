@@ -599,8 +599,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
 
     /// Agent activation names the authored tab even though UIKit owns its pixels.
     func activate(_ node: NodeView) -> Bool? {
-        // A search's scope segment (LLP 1134 D4).
-        if presenter.navigation.scopeSegment(node) != nil {
+        // A segment in the route's bar takes precedence over its hidden content control.
+        if presenter.navigation.barSegment(node) != nil {
             guard !node.disabled, !node.ariaUnavailable else { return false }
             presenter.press(node.id)
             return true
@@ -616,7 +616,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
     /// box in it — its segment view's, else an equal share. Nil for a node no
     /// segmented control draws (a tab bar's items are UIKit's private views).
     func drawn(_ node: NodeView) -> (control: UIControl, segment: CGRect)? {
-        if let scope = presenter.navigation.scopeSegment(node) { return scope }
+        if let scope = presenter.navigation.barSegment(node) { return scope }
         guard let entry = members.first(where: { $0.value.contains(node.id) }), let control = controls[entry.key],
               let index = entry.value.firstIndex(of: node.id), control.numberOfSegments == entry.value.count else { return nil }
         let views = control.segmentViews
