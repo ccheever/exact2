@@ -199,9 +199,10 @@ extension Presenter {
         let clip = viewport.contentView
         // A dialog or popover in a window of its own is its block's root
         // (BlockHostMac.swift): reported by its block, which the root sits
-        // in by its own frame (LLP 1123 D2); one in the page by its border box
+        // in by its own frame (LLP 1123 D2); one in the page by its block
+        // too, the viewport's (stage 14 B), or else its border box
         func shown(_ view: NodeView) -> CGRect {
-            guard blocks.owns(view), let container = view.superview else { return clip.convertAcross(view.bounds, from: view) }
+            guard blocks.owns(view), let container = view.superview else { return clip.convertAcross(blocks.rects[view.id] ?? view.bounds, from: view) }
             let size = blocks.used[view.id] ?? container.bounds.size
             return clip.convertNativePresentation(CGRect(origin: .zero, size: size), from: container)
         }

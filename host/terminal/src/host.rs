@@ -864,7 +864,13 @@ impl<D: DataSource> Host<D> {
         let Some(target) = kernel.node(id).map(|n| n.frame) else {
             return;
         };
-        let mut at = kernel.node(id).and_then(|n| n.parent);
+        // A block's root (a popover's, the viewport) is not in what scrolls
+        // above it: the walk stops at it.
+        let blocked = |view: ViewId| kernel.host_block(view).is_some();
+        let mut at = kernel
+            .node(id)
+            .and_then(|n| n.parent)
+            .filter(|_| !blocked(id));
         let mut changes = Vec::new();
         while let Some(p) = at {
             let Some(n) = kernel.node(p) else { break };
@@ -885,7 +891,7 @@ impl<D: DataSource> Host<D> {
                 };
                 changes.push((p, next.clamp(0.0, reach)));
             }
-            at = n.parent;
+            at = n.parent.filter(|_| !blocked(p));
         }
         for (view, offset) in changes {
             if self.scroll.get(&view).copied().unwrap_or(0.0) != offset {
@@ -1199,6 +1205,10 @@ mod invocation_tests;
 #[cfg(test)]
 #[path = "host_clock_tests.rs"]
 mod clock_tests;
+
+#[cfg(test)]
+#[path = "host_top_layer_tests.rs"]
+mod top_layer_tests;
 
 #[cfg(test)]
 #[path = "host_scale_tests.rs"]
