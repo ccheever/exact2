@@ -33,73 +33,72 @@ pub const MAX_REFERENCE_DEPTH: usize = 512;
 /// range end's, icon's, param's, component param's, metadata's, axis's or
 /// export's). The work is the design's text, once.
 pub(crate) fn preflight(design: &Design) -> Vec<Diagnostic> {
+    use crate::css::{over_bytes, over_limit};
     let mut out = Vec::new();
-    let mut value = |text: &str, at: (u32, u32)| {
-        if let Some((id, why)) = crate::css::over_limit(text) {
+    let mut said = |over: Option<(&'static str, String)>, at: (u32, u32)| {
+        if let Some((id, why)) = over {
             out.push(Diagnostic::new(id, why, at.0, at.1));
         }
     };
     let pos = |a: &At<String>| (a.line, a.col);
-    value(&design.name, (1, 1));
+    let meta = |k: &str, v: &str| over_bytes("a metadata word", &format!("{k}={v}"));
+    said(over_bytes("a name", &design.name), (1, 1));
     for t in design
         .tokens
         .iter()
         .chain(&design.icons)
         .chain(&design.params)
     {
-        value(&t.name.value, pos(&t.name));
+        said(over_bytes("a name", &t.name.value), pos(&t.name));
         if let Some(k) = &t.kind {
-            value(k, pos(&t.name));
+            said(over_bytes("a kind", k), pos(&t.name));
         }
-        value(&t.value.value, pos(&t.value));
+        said(over_limit(&t.value.value), pos(&t.value));
         for w in &t.whens {
-            value(&w.value.value, pos(&w.value));
+            said(over_limit(&w.value.value), pos(&w.value));
             for (a, v) in &w.conds {
-                value(a, pos(&w.value));
-                value(v, pos(&w.value));
+                said(over_bytes("a name", a), pos(&w.value));
+                said(over_bytes("a name", v), pos(&w.value));
             }
         }
         for (k, v) in &t.meta {
-            value(k, pos(&t.value));
-            value(v, pos(&t.value));
+            said(meta(k, v), pos(&t.value));
         }
     }
     for d in &design.dials {
-        value(&d.name.value, pos(&d.name));
-        value(&d.value.value, pos(&d.value));
+        said(over_bytes("a name", &d.name.value), pos(&d.name));
+        said(over_limit(&d.value.value), pos(&d.value));
         if let Some((lo, hi)) = &d.range {
-            value(lo, pos(&d.value));
-            value(hi, pos(&d.value));
+            said(over_limit(lo), pos(&d.value));
+            said(over_limit(hi), pos(&d.value));
         }
         for (k, v) in &d.meta {
-            value(k, pos(&d.value));
-            value(v, pos(&d.value));
+            said(meta(k, v), pos(&d.value));
         }
     }
     for c in &design.components {
-        value(&c.name.value, pos(&c.name));
+        said(over_bytes("a name", &c.name.value), pos(&c.name));
         for p in &c.params {
-            value(&p.name.value, pos(&p.name));
-            value(&p.kind, pos(&p.name));
-            value(&p.value.value, pos(&p.value));
+            said(over_bytes("a name", &p.name.value), pos(&p.name));
+            said(over_bytes("a kind", &p.kind), pos(&p.name));
+            said(over_limit(&p.value.value), pos(&p.value));
             if let Some((lo, hi)) = &p.range {
-                value(lo, pos(&p.value));
-                value(hi, pos(&p.value));
+                said(over_limit(lo), pos(&p.value));
+                said(over_limit(hi), pos(&p.value));
             }
             for (k, v) in &p.meta {
-                value(k, pos(&p.value));
-                value(v, pos(&p.value));
+                said(meta(k, v), pos(&p.value));
             }
         }
     }
     for a in &design.axes {
-        value(&a.name.value, pos(&a.name));
+        said(over_bytes("a name", &a.name.value), pos(&a.name));
         for v in &a.values {
-            value(v, pos(&a.name));
+            said(over_bytes("a name", v), pos(&a.name));
         }
     }
     for e in design.exports.iter().flatten() {
-        value(&e.value, pos(e));
+        said(over_bytes("a name", &e.value), pos(e));
     }
     out
 }

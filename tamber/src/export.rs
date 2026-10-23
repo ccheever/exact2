@@ -732,8 +732,7 @@ pub fn reimport_against(
     let baseline = match explicit {
         Some(b) => {
             let (theirs, ours): (Value, Value) = (
-                serde_json::from_str(b)
-                    .map_err(|e| refuse(format!("the baseline: not JSON: {e}")))?,
+                crate::import::dtcg_doc(b, &|m| refuse(format!("the baseline: {m}")))?,
                 serde_json::from_str(&fresh)
                     .map_err(|e| refuse(format!("the design's export: {e}")))?,
             );
