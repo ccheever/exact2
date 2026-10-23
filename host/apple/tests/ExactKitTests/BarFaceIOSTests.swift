@@ -74,6 +74,26 @@ final class BarFaceIOSTests: XCTestCase {
         XCTAssertNil(color, "inherited: unsaid")
     }
 
+    func testASymbolOnlyUsesColourWrittenInsideTheBarButton() throws {
+        let symbol: [String: Any] = ["op": "create", "id": 5, "kind": "image",
+            "props": ["imageSource": "symbol:sf/star", "symbolName": "star"],
+            "style": ["text_color": [240, 40, 120, 255]]]
+        let (p, node) = button([dot, symbol])
+        defer { p.reset() }
+        let engine = TextEngine(resolve: { _ in nil })
+        func colour() throws -> [[Double]]? {
+            let face = try XCTUnwrap(ChipFace(node, engine: engine))
+            guard case .symbol(_, _, let ink) = face.parts[1] else { XCTFail(); return nil }
+            return ink
+        }
+        XCTAssertNil(try colour(), "computed page ink leaves the bar's ink")
+        p.apply(wireBatch([["op": "style", "id": 5, "style": ["text_color": [240, 40, 120, 255], "written": ["text_color"]]]]))
+        XCTAssertEqual(try colour()?[0], [240, 40, 120, 255])
+        p.apply(wireBatch([["op": "style", "id": 5, "style": ["text_color": [240, 40, 120, 255]]],
+                           ["op": "style", "id": 1, "style": ["text_color": [240, 40, 120, 255], "written": ["text_color"]]]]))
+        XCTAssertEqual(try colour()?[0], [240, 40, 120, 255], "the enclosing button's authored colour applies")
+    }
+
     /// Bold Text weights the system font, an authored weight included (LLP
     /// 1115.000 D12.3): the kernel's weights say it, so the face draws the
     /// weight its rows give (600 where Bold Text took a 400), and adds no
