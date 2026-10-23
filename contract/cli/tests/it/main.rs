@@ -77,6 +77,7 @@ mod keyframes;
 mod keyup;
 mod launch_identity;
 mod library_packages;
+mod library_path_icons;
 mod library_rules;
 mod link_runs;
 mod lint;
