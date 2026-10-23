@@ -9,7 +9,8 @@ extension BatchOp {
     /// the runner by its block's rectangle, which the runner maps through
     /// the block (LLP 1123 D2); a popover's block is the viewport's, its
     /// content's size (stage 14 B), and its margins make it larger than the
-    /// border box. Nil for any other op.
+    /// border box. Nil for any other op, and for a `block` op with no size,
+    /// which takes the block away.
     var blockRect: CGRect? {
         guard payload["op"] as? String == "block",
               let w = payload["w"] as? NSNumber, let h = payload["h"] as? NSNumber else { return nil }

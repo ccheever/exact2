@@ -58,3 +58,35 @@ fn a_popover_is_read_where_its_host_shows_its_block() {
         assert_eq!(r.slot("point"), Some(&Value::str(hit)), "at {x}, {y}");
     }
 }
+
+/// The viewport is no box: a popover's implied block clips nothing, so a
+/// child it lets overflow is read where it shows, past the popover's box.
+#[test]
+fn a_popovers_block_clips_nothing() {
+    let source = r#"component App
+  state point = "unset"
+  action read(x: number, y: number)
+    point = match elementFromPoint(x, y) { case some(id) => id, case none => "none" }
+  view
+    column id="page" width=400 height=800
+      column id="pins" popover="manual" width=100 height=40
+        column id="below" position="absolute" left=0 top=50 width=100 height=20
+"#;
+    let mut r = Runner::boot(
+        contract::compile(source).unwrap(),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let root = r.kernel().roots()[0];
+    r.kernel_mut()
+        .compute_layout(root, Offer::definite(400.0, 800.0))
+        .unwrap();
+    let pins = view_of(r.kernel(), "pins").unwrap();
+    r.top_layer_frames(&[(pins, [10.0, 10.0, 100.0, 40.0], None)], None);
+    r.act("read", vec![Value::Number(20.0), Value::Number(65.0)])
+        .unwrap();
+    assert_eq!(r.slot("point"), Some(&Value::str("below")));
+}

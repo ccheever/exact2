@@ -592,9 +592,15 @@ fn valid_rect(rect: &[f64; 4]) -> bool {
 
 /// A block's rectangle in its root's border-box coordinates, when `slot`
 /// is a block's root: the box its host shows the subtree in, which clips
-/// it, as a sheet or a pane clips what it shows.
+/// it, as a sheet or a pane clips what it shows. None for the block the
+/// kernel implies (a popover's, the viewport): its used size is the
+/// popover's margin box, which clips nothing, as the viewport is no box.
 pub(crate) fn block_clip(kernel: &Kernel, slot: u32, frame: Frame) -> Option<[f64; 4]> {
-    let (w, h) = kernel.host_block_size(kernel.arena().local_id(slot))?;
+    let view = kernel.arena().local_id(slot);
+    if kernel.host_block_implied(view) {
+        return None;
+    }
+    let (w, h) = kernel.host_block_size(view)?;
     let (x, y) = (f64::from(frame.x), f64::from(frame.y));
     Some([-x, -y, f64::from(w) - x, f64::from(h) - y])
 }

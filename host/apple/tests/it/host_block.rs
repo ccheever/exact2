@@ -139,7 +139,7 @@ fn two_panes_and_a_sheet_of_one_page_lay_out_each_in_its_block() {
     );
 
     // The same sizes again say nothing; the sheet's block taken back puts
-    // the route in its parent again, and no used size is sent.
+    // the route in its parent again, and its block op has no size.
     let same = host.set_blocks(&[(list, is(200.0, 560.0)), (detail, is(600.0, 560.0))]);
     assert_eq!(
         (count(&same, "frame"), count(&same, "block")),
@@ -151,7 +151,8 @@ fn two_panes_and_a_sheet_of_one_page_lay_out_each_in_its_block() {
         frame_of(&back, sheet),
         (0.0, 0.0, stack.width, stack.height)
     );
-    assert_eq!(count(&back, "block"), 0, "{back}");
+    assert_eq!(count(&back, "block"), 1, "{back}");
+    assert_eq!(used(&back, sheet), None, "{back}");
     // A view that is gone is the batch's error, and the others are set.
     let gone = host.set_blocks(&[(9_999, is(10.0, 10.0)), (list, is(240.0, 560.0))]);
     assert!(
@@ -185,4 +186,36 @@ fn a_popover_comes_in_the_viewports_block() {
         batch.contains(&format!("{marker}\"w\":416,\"h\":46,\"x\":8,\"y\":8}}")),
         "{batch}"
     );
+}
+
+/// A popover leaving the top layer (its author makes it sticky) leaves its
+/// block: a `block` op with no size, so the host forgets the rectangle it
+/// reported the popover by.
+#[test]
+fn a_popover_leaving_its_block_is_sent_a_block_op_with_no_size() {
+    let plan = contract::compile(
+        r##"component Pins
+  state inflow = false
+  action toggle
+    inflow = not inflow
+  view
+    column testId="page" width="100%" height="100%"
+      button testId="toggle" press=toggle
+        text "Toggle"
+      column testId="pins" popover="manual" position=(inflow ? "sticky" : "absolute") width="50%" height=30
+"##,
+    )
+    .unwrap();
+    let measurer = Box::new(MonospaceMeasurer::default());
+    let (mut host, batch) = Host::boot(&plan.encode(), NoData, measurer, 800.0, 600.0).unwrap();
+    let pins = view(&host, "pins");
+    assert_eq!(used(&batch, pins), Some((400.0, 30.0)));
+    let left = host.dispatch_at(view(&host, "toggle"), Event::Press, 0.0);
+    assert!(
+        left.contains(&format!("{{\"op\":\"block\",\"id\":{pins}}}")),
+        "{left}"
+    );
+    assert!(host.runner().kernel().host_block(pins).is_none());
+    let back = host.dispatch_at(view(&host, "toggle"), Event::Press, 10.0);
+    assert_eq!(used(&back, pins), Some((400.0, 30.0)), "{back}");
 }
