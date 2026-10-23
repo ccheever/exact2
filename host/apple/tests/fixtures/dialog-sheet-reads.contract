@@ -5,6 +5,11 @@ component App
     contentHeight = 300
   state hit = "unread"
   state hits = "unread"
+  state seen = false
+  state observations = 0
+  action intersected(e: IntersectionObserverEntry)
+    seen = e.isIntersecting
+    observations = observations + 1
   action read(e: PointerEvent)
     hit = match elementFromPoint(e.clientX, e.clientY) { case some(id) => id, case none => "none" }
     hits = elementsFromPoint(e.clientX, e.clientY).join(",")
@@ -13,7 +18,7 @@ component App
       dialog id="form" width=300 height=1800 pointermove=read
         column id="content" width=100 height=50 margin-left=20 margin-top=40
           text "Visible"
-        column id="clipped" position="absolute" left=20 top=1700 width=100 height=50
+        column id="clipped" intersect=intersected position="absolute" left=20 top=1700 width=100 height=50
           text "Clipped"
       dialog id="responsive" width="100%" height=180
         text "Sheet width"
