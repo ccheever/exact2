@@ -94,8 +94,7 @@ pub(crate) struct SvgState {
     /// leaves the engine.
     played: IdSet<ViewId>,
     /// Each played transition's spec and the transition it was made for.
-    pub(crate) played_specs:
-        std::collections::BTreeMap<(u64, usize), (exact_motion::TransitionEnds, String)>,
+    pub(crate) played_specs: std::collections::BTreeMap<(u64, usize), super::svg_lower::PlayedSpec>,
     /// SVG elements with a press handler (LLP 1055.000 D17).
     pressable: IdSet<ViewId>,
     /// Whether a `foreignObject` was met: its boxes are then looked for
@@ -326,7 +325,7 @@ impl SvgState {
                 &underlying,
                 Some((size.0 as f64, size.1 as f64)),
             );
-            let played = transition_specs(engine, key, &mut self.played_specs);
+            let played = transition_specs(engine, key, size, &mut self.played_specs);
             if played.is_empty() {
                 self.played.remove(&id);
             } else {
