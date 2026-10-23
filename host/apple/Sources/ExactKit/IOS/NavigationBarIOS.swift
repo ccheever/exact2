@@ -559,7 +559,7 @@ extension NavigationHost {
         let id = Int(node.id)
         if tabBarShows, let root = container, let tabs = NavigationTabs.of(root, presenter), let index = tabs.tabs.firstIndex(where: { $0 === node }) {
             guard !node.disabled else { return ["error": "tab #\(id) is disabled"] }
-            guard before(nil), !node.disabled, presenter.views[node.id] === node else { return ["error": "tab #\(id) changed during its pointer handlers"] }
+            guard before(nil), !node.disabled, !node.inert, presenter.views[node.id] === node else { return ["error": "tab #\(id) changed during its pointer handlers"] }
             let root = reselectedRoot(index) // as the bar's own tap: the selected tab at its root scrolls to the top
             presenter.press(node.id)
             if let root { scrollToTop(root) }
@@ -578,7 +578,7 @@ extension NavigationHost {
         guard shown.contains(where: { c in
             c.barPresses.contains { $0.id == node.id } || c.lifted.map { node === $0 || node.isDescendant(of: $0) } == true
         }) else { return nil }
-        guard !node.disabled, before(nil), !node.disabled, presenter.views[node.id] === node else { return ["error": "bar item #\(id) is unavailable"] }
+        guard !node.disabled, before(nil), !node.disabled, !node.inert, presenter.views[node.id] === node else { return ["error": "bar item #\(id) is unavailable"] }
         // An item whose button only opens a menu is UIKit's pull-down, which
         // no public API opens: under the agent's painted popovers it opens
         // painted (`agentOpen(barItem:)`); under UIKit's menus a real touch opens it.
