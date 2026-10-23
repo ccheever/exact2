@@ -931,7 +931,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                         );
                     }
                 }
-                routes::location(f, args, shapes)?;
+                routes::location(f, args, scope, shapes)?;
                 if f == Stdlib::FormatNumber {
                     literals::currency_code(args, *span)?;
                 }

@@ -751,6 +751,9 @@ impl Lowerer<'_> {
                 }
                 "-exact-press-haptic" => {
                     let kind = match &a.value {
+                        Expr::Str(k, _) if !exact_plan::HAPTIC_KINDS.contains(&k.as_str()) => {
+                            return refuse("lower-button-style-attr", "a native button plays no `-exact-press-haptic`: remove `-exact-press-haptic`".into());
+                        }
                         Expr::Str(k, _) => k.as_str(),
                         _ => "impact-light",
                     };
