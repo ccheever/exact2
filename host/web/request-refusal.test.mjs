@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { Worker } from 'node:worker_threads';
 import { boundedHttpBody, request, streamed } from './http-body.js';
 import { deferredFulfill, refusal } from './navigation.js';
-import { admitsNetwork, coversPath, createGrantSet, grantError, sameGrantDeclaration, scopedGrantSet } from './grant-admission.js';
+import { admittingGrant, admitsNetwork, coversPath, createGrantSet, grantError, sameGrantDeclaration, scopedGrantSet } from './grant-admission.js';
 import { createRequestExecutor, createSecretFacade, fetchWith, redirectOf } from '../web-js/admission.js';
 import { cdpBrowser, chromium } from '../../scripts/agent-launch.mjs';
 import { need } from '../../scripts/coverage.mjs';
@@ -471,6 +471,8 @@ test('the web matcher consumes the Rust grammar corpus', () => {
     expect(!grantError(set), item.spec).toBe(item.ok);
     for (const [url, admitted] of item.fetch ?? []) expect(admitsNetwork(set, url, 'fetch'), `${item.spec}: ${url}`).toBe(admitted);
     for (const [url, admitted] of item.websocket ?? []) expect(admitsNetwork(set, url, 'websocket'), `${item.spec}: socket ${url}`).toBe(admitted);
+    if (item.spec.startsWith('net.websocket ') && item.spec.includes('://*.'))
+      for (const [url, admitted] of item.websocket ?? []) expect(admittingGrant(set, url, 'websocket'), `${item.spec}: socket line ${url}`).toBe(admitted ? item.spec : null);
     for (const [cap, path, admitted] of item.fs ?? []) expect(coversPath(set, cap, path), `${item.spec}: ${path}`).toBe(admitted);
     for (const [cap, path] of item.nativeFs ?? []) expect(coversPath(set, cap, path), `${item.spec}: inert ${path}`).toBe(false);
   }
