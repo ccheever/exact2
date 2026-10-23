@@ -4,6 +4,14 @@ import XCTest
 @testable import ExactKit
 
 final class CollectionFillIOSTests: XCTestCase {
+    private func snapshot(_ revision: Int, measured: Bool) -> [String: Any] {
+        let rows: [[String: Any]] = (0..<4).map {
+            ["view": 2 + $0, "root": 2 + $0, "epoch": 1, "index": $0, "size": 72, "measured": measured]
+        }
+        return ["op": "collections", "items": [["view": 1, "revision": revision, "scrollSequence": 0,
+            "count": 100, "totalExtent": 7200, "pending": false, "rows": rows, "correction": NSNull()]]]
+    }
+
     private func fixture() throws -> (Presenter, UIWindow, UIScrollView) {
         let p = Presenter()
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 300, height: 200))
@@ -93,6 +101,8 @@ final class CollectionFillIOSTests: XCTestCase {
         }
         p.collections.flush()
         XCTAssertEqual(count(try XCTUnwrap(reports.last)), 4)
+        p.apply(wireBatch([snapshot(2, measured: true)]))
+        p.collections.settle()
         reports.removeAll()
         let started = CACurrentMediaTime()
         for y in [30, 40, 50] {
@@ -105,15 +115,49 @@ final class CollectionFillIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "frame", "id": 2, "x": 10, "y": 20, "w": 280, "h": 73]]))
         p.collections.settle()
         XCTAssertEqual(count(try XCTUnwrap(reports.last)), 1, "a changed height is sent")
-        p.apply(wireBatch([["op": "collections", "items": [["view": 1, "revision": 2, "scrollSequence": 0,
-            "count": 100, "totalExtent": 7200, "pending": false,
-            "rows": (0..<4).map { ["view": 2 + $0, "root": 2 + $0, "epoch": 1, "index": $0] },
-            "correction": NSNull()]]]]))
+        p.apply(wireBatch([snapshot(3, measured: false)]))
         p.collections.settle()
-        // The runner may invalidate its height index without changing a
-        // row's frame or epoch. A new revision must measure it again.
+        // Invalidation withdraws the acknowledgement, even if a row's
+        // frame and epoch have not changed.
         p.collections.fillSlice(1, limit: 1)
         XCTAssertEqual(count(try XCTUnwrap(reports.last)), 4)
+    }
+
+    func testARejectedPinDoesNotAcknowledgeItsRowMeasurements() throws {
+        let (p, window, _) = try fixture()
+        defer { p.reset(); window.isHidden = true }
+        p.apply(wireBatch([snapshot(1, measured: true)]))
+        var storedHeight = 72.0, rejected = 0
+        p.collections.onFeedback = { data in
+            data.withUnsafeBytes { bytes in
+                let pin = UInt32(littleEndian: bytes.loadUnaligned(fromByteOffset: 76, as: UInt32.self))
+                // The runner rejects the whole report for an unpublished pin.
+                if pin == 99 { rejected += 1; return }
+                let count = UInt32(littleEndian: bytes.loadUnaligned(fromByteOffset: 96, as: UInt32.self))
+                for i in 0..<Int(count) {
+                    let at = 100 + i * 20
+                    let id = UInt32(littleEndian: bytes.loadUnaligned(fromByteOffset: at, as: UInt32.self))
+                    if id == 2 {
+                        storedHeight = Double(bitPattern: UInt64(littleEndian: bytes.loadUnaligned(fromByteOffset: at + 12, as: UInt64.self)))
+                    }
+                }
+            }
+        }
+        p.collections.flush()
+        // Model a host view the runner does not own, inside a mounted row.
+        p.apply(wireBatch([
+            ["op": "create", "id": 99, "kind": "view", "handlers": ["press"]],
+            ["op": "children", "id": 2, "ids": [99]],
+            ["op": "frame", "id": 2, "x": 10, "y": 20, "w": 280, "h": 73],
+        ]))
+        p.collections.pointer(99)
+        p.collections.settle()
+        XCTAssertEqual(rejected, 1)
+        XCTAssertEqual(storedHeight, 72)
+        p.collections.pointer(nil)
+        p.collections.settle()
+        XCTAssertEqual(storedHeight, 73, "the valid report retries the rejected height at the same revision")
+        XCTAssertEqual(p.collections.entries[1]?.snapshot.revision, 1)
     }
 
 }
