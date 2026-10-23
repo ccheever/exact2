@@ -784,7 +784,7 @@ impl<D: DataSource> Runner<D> {
         let name = self.target_name(target);
         self.log(super::lines::enqueued(ticket, &name, &request));
         self.note_asked(target, ticket);
-        self.note_handles(ticket, &source);
+        self.note_handles(ticket, &source, &request.body);
         self.pending.push(PendingReq {
             refusal: None,
             refused: false,
@@ -878,6 +878,11 @@ impl<D: DataSource> Runner<D> {
     /// body to the source's native handler with the reply, on the host's
     /// worker, which returns at once — the module's own thread answers.
     pub fn native_work(&mut self, request: &Request) -> Dispatch {
+        // A module request whose reply carries handles: watched as it leaves
+        // the implementation (LLP 1133.009 D6).
+        if let Some(dispatch) = self.handled_work(&request.body) {
+            return dispatch;
+        }
         // A module's name called from data code: the runner's admission, then
         // the module (LLP 1133.002 D14).
         if let Some(dispatch) = self.module_call(&request.body) {
@@ -1069,16 +1074,14 @@ impl<D: DataSource> Runner<D> {
         if let Some(ms) = elapsed_ms {
             exact_num::push_text!(&mut summary, "; wall {} ms", ms);
         }
-        // A module's reply carrying handles that is not delivered disposes
-        // of them (LLP 1133.009 D6).
-        let handles = self.reply_handles(ticket, &outcome);
         let Some(pos) = self.pending.iter().position(|p| p.ticket == ticket) else {
             self.log(super::lines::dropped(ticket, &summary));
-            if let Some(handles) = handles {
-                self.dispose(handles, "its reply was dropped");
-            }
+            // A module's reply carrying handles that is not delivered
+            // disposes of them (LLP 1133.009 D6).
+            self.dispose_dropped();
             return Ok(None);
         };
+        let handles = self.landed_handles(ticket);
         if let (Some(_), Outcome::Message(_)) = (self.pending[pos].stream, &outcome) {
             return self.message(pos, outcome, &summary);
         }
