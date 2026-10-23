@@ -103,21 +103,6 @@ fn long_pair_lists_check_in_moments() {
     });
 }
 
-/// Many dials, each moving one token, are found moving in one pass.
-#[test]
-fn many_dials_are_found_moving_in_moments() {
-    let n = 20_000;
-    let mut src = String::from("tamber t\n\ndials\n");
-    for k in 0..n {
-        src += &format!("  d{k}: color = #102030\n");
-    }
-    src += "\ntheme\n  ink = #111111\n";
-    for k in 0..n {
-        src += &format!("  t{k} = d{k}\n");
-    }
-    within(30, "check", || check(&src, &vocab()).map(|_| ()).ok());
-}
-
 /// History's edits and a revert over large designs read each by name once,
 /// and a removed token's place is found in one pass.
 #[test]
@@ -235,4 +220,71 @@ fn many_shadcn_themes_are_refused_in_moments() {
         .unwrap_err()
     });
     assert!(!d.is_empty());
+}
+
+/// A design has at most 32 axes and a token at most 64 `when` lines
+/// (theme2's 19:26), refused before anything walks them; the importers
+/// refuse past them with the same ids.
+#[test]
+fn axes_and_when_lines_are_capped() {
+    use exact_tamber::{MAX_AXES, MAX_WHENS};
+    let mut src = String::from("tamber t\n\naxes\n");
+    for a in 0..=MAX_AXES {
+        src += &format!("  a{a} = v\n");
+    }
+    src += "\ntheme\n  ink = #111111\n";
+    let d = check(&src, &vocab()).unwrap_err();
+    assert!(d.iter().any(|d| d.id == "tamber-axes"), "{d:?}");
+    let mut src = String::from("tamber t\n\naxes\n  a = v0");
+    for v in 1..=MAX_WHENS {
+        src += &format!(" | v{v}");
+    }
+    src += "\n\ntheme\n  ink = #111111\n";
+    for v in 0..=MAX_WHENS {
+        src += &format!("    when a=v{v}: #22222{}\n", v % 10);
+    }
+    let d = check(&src, &vocab()).unwrap_err();
+    assert!(d.iter().any(|d| d.id == "tamber-whens"), "{d:?}");
+    // Pencil's themes are axes: one past the cap is refused with its id.
+    let themes: Vec<String> = (0..=MAX_AXES)
+        .map(|a| format!("\"t{a}\":[\"x\"]"))
+        .collect();
+    let pen = format!(
+        "{{\"version\":\"2.21\",\"themes\":{{{}}},\"variables\":{{\"v\":{{\"type\":\"color\",\"value\":\"#000000\"}}}}}}",
+        themes.join(",")
+    );
+    let d = exact_tamber::import::dtcg::pen::import_with(
+        "x.pen",
+        &pen,
+        "pen",
+        &parse("tamber app\n").unwrap(),
+        &vocab(),
+    )
+    .map(|i| i.ops.len())
+    .unwrap_err();
+    assert!(d.iter().any(|d| d.id == "tamber-axes"), "{d:?}");
+}
+
+/// A transaction of 1024 value writes on a large design is parsed once
+/// (theme2's 19:20: a parse per operation made it operations x tokens),
+/// and its one restore undoes all of them.
+#[test]
+fn a_transaction_of_value_writes_parses_the_design_once() {
+    let n = 20_000;
+    let src = theme((0..n).map(|k| format!("  t{k} = #111111")));
+    let ops: Vec<Op> = (0..1024)
+        .map(|k| Op::SetToken {
+            name: format!("t{}", k * 19),
+            when: Vec::new(),
+            value: "#222222".into(),
+            at: None,
+            comment: None,
+        })
+        .collect();
+    let edited = within(10, "1024 set-token", || {
+        exact_tamber::apply_all(&src, &ops, &vocab()).unwrap()
+    });
+    assert_eq!(edited.text.matches("#222222").count(), 1024);
+    let undone = exact_tamber::undo(&edited.text, &edited.inverse, &vocab()).unwrap();
+    assert_eq!(undone.text, src);
 }

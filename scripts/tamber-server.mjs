@@ -109,6 +109,8 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
 // The server's own line limit, less room for the id this adds and an import's `recognised` digests (64, stage 10b).
 const LINE_LIMIT = 1 << 20;
 const BODY_LIMIT = LINE_LIMIT - 64 - 64 * 72;
+/** The most operations a client's request carries (`tamber-ops-size`, tamber/1.17). */
+const OPS_LIMIT = 1024;
 const body = (req, res) => readBody(req, BODY_LIMIT, res); // over it, answered before the connection closes
 const ANSWER_MS = 120_000, POLL_MS = TIMING.poll, KEPT = 256, HOLD_MS = 15 * 60_000, HELD = 64;
 // A paired client's name (scripts/tamber-pairing.mjs): no local client takes one.
@@ -540,6 +542,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // Nested past 64 levels: refused before anything of it is kept, since a
     // value kept (a held proposal's review) is sent on to every stream.
     if (request && tooDeep(request)) { json(res, 400, { error: { message: 'a request is nested at most 64 levels deep' } }); return true; }
+    // A client's transaction is at most OPS_LIMIT operations (tamber/1.17,
+    // `tamber-ops-size`), refused before any is read. Operations the server
+    // applies itself (a held import's, a revert's) are no client's request.
+    if (request && Array.isArray(request.ops) && request.ops.length > OPS_LIMIT) { json(res, 400, { error: { id: 'tamber-ops-size', message: `a transaction is at most ${OPS_LIMIT} operations; this one has ${request.ops.length}` } }); return true; }
     // Revoked or expired while its body came: refused before anything it asks runs.
     if (who.client && !pairs.live(who.client)) { json(res, 401, { error: { message: GONE } }); return true; }
     // A paired client is the client its token names, whatever its body says.

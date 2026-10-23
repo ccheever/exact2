@@ -231,14 +231,6 @@ fn step(
         .map(|r| (r.name.clone(), r.system))
         .collect();
     doc.apply(&design, op)?;
-    let (a, b) = (&before.lines, &doc.lines);
-    let prefix = a.iter().zip(b).take_while(|(x, y)| x == y).count();
-    let suffix = a[prefix..]
-        .iter()
-        .rev()
-        .zip(b[prefix..].iter().rev())
-        .take_while(|(x, y)| x == y)
-        .count();
     // A rename names, and folds nothing else differently: a word it changed
     // that was no use (a channel, a colour space, a platform selector) would.
     if let Op::RenameToken { .. } = op {
@@ -260,13 +252,26 @@ fn step(
             _ => return Err(refuse("a rename needs a design that checks before and after it")),
         }
     }
-    let undo = Op::Restore {
+    let undo = restore(&before, &doc.lines);
+    Ok((doc.text(), undo))
+}
+
+/// The restore that puts `before`'s lines back where `after` changed them.
+fn restore(before: &Doc, after: &[String]) -> Op {
+    let (a, b) = (&before.lines, after);
+    let prefix = a.iter().zip(b).take_while(|(x, y)| x == y).count();
+    let suffix = a[prefix..]
+        .iter()
+        .rev()
+        .zip(b[prefix..].iter().rev())
+        .take_while(|(x, y)| x == y)
+        .count();
+    Op::Restore {
         line: prefix as u32 + 1,
         remove: (b.len() - prefix - suffix) as u32,
         lines: a[prefix..a.len() - suffix].to_vec(),
         newline: before.newline,
-    };
-    Ok((doc.text(), undo))
+    }
 }
 
 /// An operation's fields, each its own kind: a value on one line, names and
@@ -489,13 +494,27 @@ fn run(
     vocab: &Vocab,
     params: &crate::params::Params,
 ) -> Result<Edited, Vec<Diagnostic>> {
-    let mut text = src.to_string();
-    let mut inverse = Vec::new();
-    for op in ops {
-        let (next, undo) = step(&text, op, vocab, params)?;
-        text = next;
-        inverse.insert(0, undo);
-    }
+    // Values and dials alone, with one parse of the design (`batch`), and
+    // one restore that puts back every line they changed; anything else a
+    // parse each (the checker bound's sweep: a parse per operation was K x N).
+    let batched = batch::stepped(src, ops, vocab).map(|text| {
+        let undo = restore(&Doc::new(src), &Doc::new(&text).lines);
+        (text, vec![undo])
+    });
+    let (text, inverse) = match batched {
+        Some(done) => done,
+        None => {
+            let mut text = src.to_string();
+            let mut inverse = Vec::new();
+            for op in ops {
+                let (next, undo) = step(&text, op, vocab, params)?;
+                text = next;
+                inverse.push(undo);
+            }
+            inverse.reverse();
+            (text, inverse)
+        }
+    };
     match params.is_empty() {
         true => drop(crate::check(&text, vocab)?),
         false => drop(crate::check_design(
