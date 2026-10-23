@@ -106,6 +106,25 @@ final class NavigationTabsIOSTests: XCTestCase {
         if tabs.delegate?.tabBarController?(tabs, shouldSelect: target) ?? true { tabs.selectedIndex = index }
     }
 
+    func testAgentActivatesAHiddenRootTabThroughItsVisibleBar() throws {
+        let session = try fixture("agent-root-tab")
+        let p = session.presenter, tab = try node(session, "tab-second")
+        let tabs = try XCTUnwrap(p.navigation.tabController)
+        XCTAssertTrue(try node(session, "tabs").isHidden, "the native bar replaces the authored tablist")
+        XCTAssertEqual(tabs.selectedIndex, 0)
+        let reply = Agent(session: session).tap(["id": Int(tab.id)])
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertEqual(reply["native"] as? String, "tab-bar-item")
+        until("the visible tab bar selects the retained second stack") { tabs.selectedIndex == 1 }
+        try authoredTabs(session, true)
+        try authoredTabs(session, false)
+        let first = try node(session, "tab-home")
+        let back = Agent(session: session).tap(["id": Int(first.id)])
+        XCTAssertNil(back["error"], "\(back)")
+        XCTAssertEqual(back["native"] as? String, "tab-bar-item")
+        until("the restored native tab bar selects the first stack") { tabs.selectedIndex == 0 }
+    }
+
     func testAppearanceNoneKeepsRootTabsAuthoredAndTheirStacksRetained() throws {
         let session = try fixture("authored-tabs", wholeScreen: true)
         let p = session.presenter, navigation = p.navigation
