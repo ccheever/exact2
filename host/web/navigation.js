@@ -195,13 +195,13 @@ function appBarBack(nav, routes, index, split, shown) {
   // `keepsAuthoredHeader`).
   const pushed = index > 0 && !sheet(route) && route.getAttribute("data-navigationbar") !== "none" && !(split && (index === 1 || rowOf.has(route)))
     && !(route.firstElementChild === header && header.matches(authored) && headerShown);
-  // A header iOS makes no bar of that shows the control has no Back beside it, the web's choice so that one header shows
-  // one way back (iOS draws UIKit's there too). A control in its menu or a dialog, or in a header not shown, keeps the
-  // Back; in a header not shown, the Back is hidden with it. One hidden on its own in a shown header gets no Back, so
-  // nothing shows (QUEUE.md); there and in a header not shown, the browser's Back presses the control.
+  // A header iOS makes no bar of draws Back only if its control is hidden or in a menu/dialog (iOS draws it either way).
+  // Discount the bar's own hiding mark. In a header not shown, the Back stays hidden with it.
   const control = pushed ? backControl(nav, route) : null, inShownHeader = headerShown && !!control && header.contains(control) && !header.contains(control.closest("[popover], dialog"));
   const items = headerShown && (inShownHeader || shown) ? barItems(route, header) : null;
-  const held = inShownHeader && !!items?.includes(control), drawn = pushed && (!inShownHeader || !!items);
+  const held = inShownHeader && !!items?.includes(control);
+  if (inShownHeader && !items) control.removeAttribute("data-exact-bar-back");
+  const drawn = pushed && (!inShownHeader || !!items || !control.checkVisibility({ visibilityProperty: true }));
   if (shown) header.toggleAttribute("data-exact-bar", !!items); // a shown bar, whose symbols are the bar's size (neutral.css)
   let button = header.shadowRoot?.querySelector('button[part="back"]');
   if (drawn && !button && !header.shadowRoot && header.attachShadow) { // not a shadow root of someone else's
