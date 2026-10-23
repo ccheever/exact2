@@ -1,7 +1,7 @@
 # LLP 1141: Porting real apps — the euxy loop, as a method for many apps
 
 **Type:** Plan
-**Status:** Draft r2, 2026-10-22. r1 was reviewed blind by GPT-6 Astra (xhigh) and Grok 4.7 (xhigh), direction and method only (`llp/reviews/plan-2026-10-22-1141-r1.{astra,grok}.md`); both READY WITH CHANGES, and r2 folds them in (§R). Muse was not run: its login had lapsed. Charlie rules §10; then the pilot (§6) starts, and each app gets a sub-LLP.
+**Status:** Accepted, 2026-10-23, as r2 with Charlie's rulings (§10). Draft r2, 2026-10-22. r1 was reviewed blind by GPT-6 Astra (xhigh) and Grok 4.7 (xhigh), direction and method only (`llp/reviews/plan-2026-10-22-1141-r1.{astra,grok}.md`); both READY WITH CHANGES, and r2 folds them in (§R). Muse was not run: its login had lapsed. The pilot (§6, §10.6) starts next, and each app gets a sub-LLP.
 **Systems:** Nothing in exact2 directly. Each app's sub-LLP decides changes to whatever its port shows wanting, and adds `QUEUE.md` entries, `docs/agent-pitfalls.md` entries and recipes. The ports, the originals and their measurements live outside the repository (§7).
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-22
@@ -310,14 +310,15 @@ The stopping rules are declared before an app's first port:
   second grader agreeing.
 - **Closed with named limits.** After at most four fresh ports, each bar still missed is named
   in the sub-LLP with its owner and reason (a platform limit, a decision not to support
-  something, work queued), and Charlie accepts the list.
+  something, work queued), and Charlie accepts the list. Memory may close this way only within
+  1.4× of the reference (§10.1).
 - **Inconclusive.** The measures could not separate the arms within the run budget.
 
 Only *passed* counts toward a pass rate. An app also stops early when two successive fix
 batches move none of its measures.
 
 Graduated and closed ports are kept, and their replays form a regression corpus
-(§10, question 2).
+(§10.2).
 
 ### 4.8 Claims about authoring cost
 
@@ -394,8 +395,8 @@ Each row is crossed with the platform measured, the original's stack (native, Ex
 Native, React web), data scale and interaction intensity, so a row covered only by small
 native iOS apps is visibly thin.
 
-**The pilot** is three apps before the program scales. Charlie chooses them from LLP 1141.000
-(§10). The pilot includes:
+**The pilot** is three apps before the program scales, chosen in §10.6 from LLP 1141.000.
+The pilot includes:
 
 - one native original;
 - one Expo or React Native original;
@@ -469,22 +470,31 @@ The pace: two lanes in flight, alternating a new app with a re-port, so the fixe
 app are measured before the next starts. After the pilot, a lane pauses when two successive
 fix batches move no measure in any app.
 
-## 10. Questions for Charlie
+## 10. Rulings (Charlie, 2026-10-23)
 
-1. **The bars** (§2). Are the defaults right? The memory bar is kept at 1.2× even though
-   euxy misses it today (26.7 MB at rest against UIKit's 21.1 on 2026-10-16, before the cuts
-   of 10-17 to 10-21). Both reviewers would keep the ratios as provisional, with the
-   uncertainty rules of §2.
-2. **Apparatus.** May the versioned bench move into exact2 (`scripts/ports/`) once two apps
-   have run it without app-specific edits? May replays of graduated and closed ports run on a
-   schedule on bones, outside the blocking checks? Both reviewers recommend yes to both.
-3. **The native arm's cost.** It doubles a port's builder tokens. Recommended: on the first
-   port, on the port that would pass, and on any pair used for an authoring claim (§4.8),
-   reusing its frozen build for replays; rebuilt when the model or the OS major version
-   changes.
-4. **An Expo or React arm**, on a stratified subset of native originals (§4.2)? The bake-off
-   already compares Expo on small specs.
-5. **Maestro** as the one journey driver, after a pilot run on the current euxy builds
-   finishes one flow on both arms? It is new apparatus on the measuring side only; no app
-   depends on it.
-6. **The pilot's three apps** and the held-back transfer app (§6), from LLP 1141.000.
+Charlie answered §10's six questions on 2026-10-23, leaving four of them to the author. The
+author's choices are marked as such.
+
+1. **The bars.** "1.2x is ballpark right but i could also be ok w 1.3 or 1.4"; the rest
+   left to the author. *Author's choice:* the bars stand as §2 gives them, memory at 1.2×.
+   A memory miss up to 1.4× may close as a named limit (§4.7). Beyond 1.4×, an app cannot
+   close: it stays open until a fix lands.
+2. **Apparatus: yes.** The versioned bench moves into exact2 as `scripts/ports/` once two
+   apps have run it without app-specific edits. Replays of passed and closed ports run on a
+   schedule on bones, outside the blocking checks.
+3. **The native arm: as recommended.** It runs on an app's first port, on the port that
+   would pass it, and on any pair used for an authoring claim (§4.8). Its frozen build serves
+   the replays, and it is rebuilt when the model or the OS major version changes.
+4. **An Expo or React arm:** left to the author. *Author's choice:* none in the pilot. The
+   bake-off already compares Expo and React on small specs, and the pilot's Expo original
+   (§6) gives Expo's runtime evidence. This is revisited after the pilot, for one native
+   original, if the bake-off stops running Expo.
+5. **The journey driver:** left to the author. *Author's choice:* Maestro, as §4.0 says,
+   once a flow finishes on euxy's current Exact and UIKit builds. If it cannot finish one,
+   each arm's own driver runs the prose journey: `scripts/agent.mjs` for Exact, XCUITest for
+   iOS and Macrobenchmark's `UiAutomator` for Android.
+6. **The pilot:** left to the author. *Author's choice:* the four apps of LLP 1141.000 §4:
+   - the React Conf app (Expo original);
+   - Hackers (native original);
+   - Pocket Casts' podcast page and player (deep app);
+   - NetNewsWire, held back for the transfer check.
