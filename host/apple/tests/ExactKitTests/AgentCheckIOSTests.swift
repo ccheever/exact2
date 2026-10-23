@@ -4,6 +4,12 @@ import XCTest
 @testable import ExactGroupedLists
 import UIKit
 
+private final class CheckScrollDecoration: UIView {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        point.y < 100 ? super.hitTest(point, with: event) : nil
+    }
+}
+
 /// `check` on UIKit (LLP 1116.003 D8): the observations the driver judges —
 /// a paragraph's ink and whether it fits its box, a control covered by
 /// another node, a target the author sized small, a view past the viewport's
@@ -572,6 +578,29 @@ final class AgentCheckIOSTests: XCTestCase {
         XCTAssertNil(cover(7), "under the top bar at the scroller's end, scrolling back clears it: \(items)")
         let last = try XCTUnwrap(cover(8), "under the bottom bar at the scroller's end, nothing clears it: \(items)")
         XCTAssertEqual(last["by"] as? Int, 10)
+    }
+
+    func testAPartlyClippedTopRowCanScrollClearOfItsOwnListsDecoration() throws {
+        let agent = mounted([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "list", "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 3, "kind": "view", "props": ["testId": "row"], "handlers": ["press"]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [3]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 800],
+            ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 400, "h": 800],
+            ["op": "frame", "id": 3, "x": 0, "y": 440, "w": 400, "h": 100],
+            ["op": "content", "id": 2, "w": 400, "h": 1200]
+        ])
+        let p = try XCTUnwrap(session).presenter, scroll = try XCTUnwrap(p.views[2]?.scroll)
+        scroll.contentInset.top = 100
+        scroll.contentOffset.y = 400
+        let decoration = CheckScrollDecoration(frame: scroll.bounds)
+        scroll.addSubview(decoration)
+        let row = try XCTUnwrap(p.views[3]), point = row.convert(CGPoint(x: 200, y: 50), to: nil)
+        XCTAssertTrue(window?.hitTest(point, with: nil) === decoration)
+        let items = try XCTUnwrap(agent.check([:])["items"] as? [[String: Any]])
+        let item = try XCTUnwrap(items.first { $0["id"] as? Int == 3 })
+        XCTAssertNil(item["cover"], "scrolling toward the start brings the row below the inset: \(item)")
     }
 
     /// A row under iOS 26's floating bar (a bottom search field) is covered by the bar's glass, not by the container

@@ -94,7 +94,10 @@ extension Agent {
         func shown(_ v: UIView) -> CGRect {
             var r = port, at = v.superview
             while let cur = at {
-                if let sv = cur as? UIScrollView, sv.clipsToBounds { r = r.intersection(sv.convert(sv.bounds, to: nil)) }
+                if let sv = cur as? UIScrollView, sv.clipsToBounds {
+                    let port = sv.pageBounds.inset(by: sv.adjustedContentInset)
+                    r = r.intersection(sv.convert(port, to: nil))
+                }
                 at = cur.superview
             }
             return r
