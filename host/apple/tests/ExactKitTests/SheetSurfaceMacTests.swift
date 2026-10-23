@@ -96,6 +96,7 @@ final class SheetSurfaceMacTests: XCTestCase {
         let material = try XCTUnwrap(ground.materialView as? NSVisualEffectView)
         XCTAssertEqual(material.material, .sheet)
         XCTAssertEqual(material.blendingMode, .behindWindow)
+        XCTAssertEqual(material.state, .followsWindowActiveState, "AppKit must dim an inactive sheet ground")
         XCTAssertNil(try f.node("modal").materialView)
         let picture = try capture(actualSheet)
         let actual = try measuredColours(picture)
