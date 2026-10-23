@@ -343,6 +343,11 @@ socket frames (LLP 1121 D13). So D4 adds both directions.
 - **Ownership and cleanup.** Each command belongs to the client that sent it.
   - When that client disconnects or its token is revoked, the server clears its inspect,
     outlines, holds and pins on every build.
+  - A client is connected while it holds a subscription, or a long poll open or answered within
+    the last 35 s (the poll's 25 s and some). A client on the GET long poll (`exactLongPoll`,
+    tamber/1.17, stage 14 D) stays connected 90 s after its answer: the host re-asks it after a
+    backoff of up to 30 s (the server never asks for longer on that route), so 35 s would drop
+    its pins in a wait it did not choose (theme2's ruling, 2026-10-23).
   - A build that reconnects (a JS reload is a new document; a wasm program rebuild is a page
     reload) gets its current pins and holds replayed with its new hello. A hold is replayed
     only where the server finds exactly one corresponding site in the new plan, through the
@@ -1069,7 +1074,7 @@ T1 and T1a are complete.
 - **Builds and pins:** the build list comes from the server, with each build's effective facts from
   its status, and pinning, pinned or handing back by revision (`pinRevision`, *1.3*). Each build's
   last refusal is listed (`unsupported`). The tool names itself on its long poll, so its pins hold
-  while it runs and are handed back about 35 s after it closes.
+  while it runs and are handed back about 90 s after it closes (its GET long poll's window, D4).
 - **Scrubs:** "Scrub live" sits beside Apply, an explicit choice and never the default. A
   scrub opens on that button rather than on pressing a control, since no press reaches the tool.
   - One frame is in flight at a time, the latest value.

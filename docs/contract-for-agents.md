@@ -3180,7 +3180,9 @@ the down, then every 83 ms),
 `type "id" paste "text"` (⌘V on macOS, Ctrl+V elsewhere, then the paste; a `key` handler that `preventDefault()`s that chord keeps it from landing), `type "id" copy`, `type "id" cut`, `pick "id" "path"…` or
 `pick "id" cancel` (a held picker or export, by its node or capability as
 above; paths are the test file's), `clock settle|data|+ms|+ms real|ms` (`data`:
-what is in flight lands, with each answer's `then`, the clock unmoved), `resize
+what is in flight lands, with each answer's `then`, the clock unmoved), `clock held [<resource>…]` (the
+driver's: real time with the clock frozen until each held request, or each named, has had a reply, such as a long
+poll's after a push the test caused; then `clock data`), `resize
 800x600` (the window, mid-test), `reload`
 (the app restarts on the store it had, including a `secret.keep`, its state and
 clock starting over, so a test shows what persists; the web reloads its current

@@ -165,6 +165,15 @@ on macOS and Linux.
   import's `prefix` is at most 128 characters, for every kind (a correction: a longer one is refused).
   It also adds the checker's own limits (the checker bound): `tamber-value-size`, `tamber-value-depth`,
   `tamber-length-size` and `tamber-reference-depth`, refused alike by `check`, the build and every write and import.
+  It also adds `GET /__tamber/events?after=<cursor>&epoch=<e>&client=<c>` (stage 14 D): the events read for a client
+  that re-asks by cursor (LLP 1016.000 D8's `exactLongPoll`), with the POST read's token, scope and doors. Each
+  answer carries a `cursor`, which is opaque (a client only compares it and sends it back), and `asked`, the cursor it
+  answers (null with none), so a client sees one it never had (a reply coalesced away); nothing new in 25 s is a
+  204 with no body (a heartbeat). An ask with no `after` (a stream's first, which its host waits on) is answered at
+  once, as `wait: false` is: from `open=<cursor>` if given, the events since that cursor, `asked` being it (`open`
+  is read only with no `after`, so a host's re-asks, which set `after`, leave it unread; one this run can't serve, another run's or past what is kept, is answered `missed`, as the POST answers a gap). The POST read's answer
+  carries a `cursor` too, for a stream to open from. The parameters are bounded as the body's fields are. The route sends no `Retry-After` longer than 30 s. A client polling so stays present
+  90 s after an answer (LLP 1122 D4).
 
 ## Where it runs
 
@@ -199,6 +208,7 @@ No WebSocket (LLP 1121 §10, stage 3 commit 4). Everything is HTTP on the server
 | `/__tamber` | POST | one request, one reply |
 | `/__tamber/subscribe` | POST | the change stream, as server-sent events on the response |
 | `/__tamber/events` | POST | the change stream as a long poll, for a client whose `fetch` reads a whole body |
+| `/__tamber/events?after=…` | GET | the same, re-asked by cursor (`exactLongPoll`, *1.17*): first from `open=…` at once, a `cursor` in each answer, 204 after 25 s with nothing new |
 | `/__tamber/tool/…` | GET, HEAD | the design tool's built files, to a local request (*1.1*) and on the remote doors (stage 10 B) |
 
 - **The development gate runs first.** It answers 421 with an empty body to an unknown host, or to

@@ -353,6 +353,8 @@ shape Changes
   seq: number
   epoch: string
   missed: bool
+  // From the long poll by cursor (stage 14 D): it goes on by itself, so its reply asks nothing again.
+  stream: bool
   recent: Change[]
   // The session's undo and redo depth, and which run of the server they
   // are for (a new run empties them).
@@ -552,6 +554,19 @@ shape Lit
   names: string[]
   whos: string[]
   tints: string[]
+  // The same, row by row and cell by cell, so a row or cell finds its own in one pass (a lookup by index in a
+  // filter is a pass per item: 351 tokens lit at once passed the iteration limit).
+  marks: LitMark[]
+  cellMarks: LitCell[]
+
+shape LitMark
+  name: string
+  who: string
+  tint: string
+
+shape LitCell
+  cell: string
+  tint: string
 
 shape TokenGroup
   name: string
@@ -798,7 +813,7 @@ component DesignTool
   mutation outlined as shape Pinned
   state draftName = ""
   // The long poll's place: the last sequence number seen, in which run, and
-  // one more ask per answer, so an answer with nothing new asks again.
+  // one more ask per read (not per reply of the long poll by cursor, which goes on).
   state since = 0
   state epoch = ""
   // The files as of the last answer: reads of the design follow these, not
@@ -851,7 +866,7 @@ component DesignTool
   resource appAxes = loadAppAxes(file, filesAt, epoch) as shape AppAxes else empty()
   derive pinAxes = file == "" ? design.axes : appAxes.axes
   derive pinFontOk = pinFont == 0 or (pinFont >= 4 and pinFont <= 64)
-  resource changes = waitChanges(since, epoch, asks, client) as shape Changes else empty(ok=true)
+  resource changes = waitChanges(epoch, asks, client) as shape Changes else empty(ok=true)
   // Several live copies (LLP 1122 T7): one copy, a grid of modes, or the
   // selected view's states side by side; the axis the grid's dark copies
   // vary, its larger text size, how many copies, and whether a copy moved
@@ -1067,7 +1082,9 @@ component DesignTool
     if not scrubShown
       proposeAt = changes.paced
     epoch = changes.epoch
-    asks = asks + 1
+    // (The long poll's own reply asks nothing again: it goes on; a read, or its end, asks.)
+    if not changes.stream
+      asks = asks + 1
   action editRemoteAt(v: string)
     remoteAt = v
   action editRemoteCode(v: string)
@@ -2106,11 +2123,11 @@ component DesignTool
                             else if t.source == "package"
                               text `From the ${t.package} package` font="-exact-caption1" color="-exact-secondary-label" testId=`token-source-${t.name}`
                             if lit.names.includes(t.name)
-                              text `changed by ${lit.whos.filter((w, i) => lit.names.indexOf(t.name) == i).join("")}` font="-exact-caption1" color=lit.tints.filter((c, i) => lit.names.indexOf(t.name) == i).join("") testId=`changed-by-${t.name}`
+                              text `changed by ${lit.marks.filter(m => m.name == t.name).map(m => m.who).join("")}` font="-exact-caption1" color=lit.marks.filter(m => m.name == t.name).map(m => m.tint).join("") testId=`changed-by-${t.name}`
                             if t.follows != ""
                               text `follows ${t.follows}` font="-exact-caption1" color="-exact-secondary-label" testId=`follows-${t.name}`
                           for cell in t.cells key=cell.column
-                            column width=96 flex-shrink=0 box-sizing="border-box" gap=2 padding=2 border-radius=6 border-width=2 border-style="solid" border-color=(lit.cells.includes(`${t.name}|${cell.column}`) ? lit.cellTints.filter((c, i) => lit.cells.indexOf(`${t.name}|${cell.column}`) == i).join("") : "transparent") press=selectCell(t.name, cell.column) role="button" aria-label=cell.label testId=`cell-${t.name}-${cell.column}`
+                            column width=96 flex-shrink=0 box-sizing="border-box" gap=2 padding=2 border-radius=6 border-width=2 border-style="solid" border-color=(lit.cells.includes(`${t.name}|${cell.column}`) ? lit.cellMarks.filter(m => m.cell == `${t.name}|${cell.column}`).map(m => m.tint).join("") : "transparent") press=selectCell(t.name, cell.column) role="button" aria-label=cell.label testId=`cell-${t.name}-${cell.column}`
                               if cell.kind == "box-shadow"
                                 // In a padded box of the column's scheme, so the shadow falls on its own ground.
                                 view padding=6 border-radius=4 color-scheme=cell.scheme background-color="-exact-background" testId=`cell-shadow-${t.name}-${cell.column}`
