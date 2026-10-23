@@ -943,6 +943,22 @@ impl<D: DataSource> Host<D> {
         self.commit(&a.receipts, a.error.map(|e| format!("{e:?}")))
     }
 
+    /// Follow a declared route without an authored navigate handler.
+    pub fn host_go(&mut self, location: &str, now_ms: f64) -> String {
+        let mut a = self.runner.advance_timed(now_ms.max(self.now_ms));
+        self.now_ms = a.now_ms.max(self.now_ms);
+        if a.error.is_none() {
+            match self.runner.host_go(location) {
+                Ok(receipt) => a.receipts.extend(receipt.map(|receipt| Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                })),
+                Err(e) => a.error = Some(e),
+            }
+        }
+        self.commit(&a.receipts, a.error.map(|e| format!("{e:?}")))
+    }
+
     /// [`Host::dispatch_at`] at the clock's last value.
     pub fn dispatch(&mut self, view: ViewId, event: Event) -> String {
         self.dispatch_at(view, event, self.now_ms)
