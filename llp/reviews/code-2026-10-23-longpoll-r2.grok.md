@@ -4,6 +4,10 @@
 - **Method:** one brief (sha256 `0706e52d32c9ccbf41c8cc5e0d670fb47db0c267d78b9b4d1b4f43e516abe890`), shared by both reviewers, blind to the other review. The author (Claude, rt1) is not a reviewer.
 - **Transcription:** the final message, unedited.
 
+No blocking issues. Round 1 is fixed, including the two accepted decisions (`RUST_ABI` stays 3; web intermediate redirect hops stay the browser's, and the denied redirect now cancels the body). Three wire gaps remain.
+
+Tests: `cargo test -p exact-apple --lib long_poll` 12 passed; `cargo test -p exact-runner --lib stream_tests` 9 passed; `bun test host/web/http-body.test.mjs` 18 passed.
+
 ## Should-fix
 
 1. **`exact:reply` is special on every stream, and a coalesced long-poll reply never counts.** A server on an ordinary event stream can send `event: exact:reply`. The runner maps that message when the request is not a long poll (`runner/src/runner/commit.rs:1088`). `stream_tests.rs:313-316` calls this an ordinary message, and the assert passes if the event is mapped, because it only requires an error or an empty `heldReplies`. Web JS drops the name for every stream before the mapper (`host/web-js/ts-stream.js:147`, `host/web-js/rt.js:419`). On the Rust-on-JS path that short-circuit also skips `done`, so a first event of that name leaves `t.waiting` set. `readEvents` delivers only the last event of a chunk (`host/web/http-body.js:67`); if that event is `exact:reply`, the chunk is gone, coalesced count included. The native coalescer applies to every ticket (`host/apple/src/executor_stream.rs:204-215`): a queued `exact:reply` does not replace an event, and an event replaces a queued `exact:reply` without adding to `coalesced`. Wasm forwards the name (`host/web/glue.js:750`) and the runner maps it for a stream that is not a long poll.
