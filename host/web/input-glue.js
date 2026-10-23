@@ -188,6 +188,36 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     el.click();
     if (event.key === " " && !surface(el)) keyed(el);
   });
+  // @ref LLP 1115.000 D6 — the unsaid dim (index.html) is CSS's while the
+  // press holds; on release it holds at least 0.1 s from the press and fades
+  // back over 0.2 s, ease-out, as the iOS host's does (PressFeedback.swift
+  // `dimHold`, `dimFade`), so a quick tap still flashes. The innermost
+  // pressable showing the dim's 65% is the one dimmed: a finger's
+  // `data-pressed` still holds at the release, read in capture; a mouse's
+  // `:active` has gone by then (Chrome sets it before `pointerdown`'s
+  // listeners and clears it before `pointerup`'s), so it is read at the press.
+  // The agent's clock skips it.
+  const DIM = { opacity: "0.65", hold: 100, fade: 200 };
+  const dimStarts = new WeakMap(), dimFades = new WeakMap(), dimmedAtPress = new WeakSet();
+  const pressable = at => at?.closest?.('button, a[data-view][href], [data-exact-on~="press"]');
+  const fadeDim = el => {
+    if (agentMode || !el || !root.contains(el)) return;
+    if (getComputedStyle(el).opacity !== DIM.opacity && !dimmedAtPress.has(el)) return;
+    dimmedAtPress.delete(el);
+    const hold = Math.max(0, (dimStarts.get(el) ?? 0) + DIM.hold - performance.now());
+    dimFades.get(el)?.cancel();
+    // No closing keyframe: the fade ends at whatever lies beneath the dim.
+    dimFades.set(el, el.animate([{ opacity: DIM.opacity }, { opacity: DIM.opacity, offset: hold / (hold + DIM.fade), easing: "ease-out" }], { duration: hold + DIM.fade }));
+  };
+  root.addEventListener("pointerdown", e => {
+    const el = pressable(e.target);
+    if (!el) return;
+    dimFades.get(el)?.cancel();
+    dimStarts.set(el, performance.now());
+    if (e.pointerType === "mouse" && getComputedStyle(el).opacity === DIM.opacity) dimmedAtPress.add(el);
+    else dimmedAtPress.delete(el);
+  }, true);
+  for (const type of ["pointerup", "pointercancel"]) addEventListener(type, e => fadeDim(pressable(e.target)), true);
   // @ref LLP 1115.000 D6 — a pressable covering the window is a surface (a
   // scrim that closes a sheet, a viewer that toggles its bars) and shows no
   // press, as on iOS (PressFeedback.swift `platformPressDims`). CSS cannot
@@ -208,11 +238,13 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   const keyed = el => {
     const up = (e, now = false) => {
       if (e?.type === "keyup" && e.key !== " ") return;
+      if (!now) fadeDim(el);
       showPress(el, false, now);
       removeEventListener("keyup", up, true); el.removeEventListener("blur", up);
       if (keyHold === up) keyHold = null;
     };
     keyHold?.(null, true);
+    dimStarts.set(el, performance.now());
     showPress(el, true);
     up.el = el;
     keyHold = up;
