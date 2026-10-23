@@ -16,7 +16,7 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { buildTreeFile, replaceBuild, sendStaticBody, webContentType } from '../web/serve.mjs';
+import { buildTreeFileAsync as buildTreeFile, replaceBuild, sendStaticBody, webContentType } from '../web/serve.mjs';
 import { fresh } from './module.mjs';
 
 /** The gallery's build cache: under the app's nearest `node_modules` (which
@@ -221,12 +221,12 @@ export function galleryLoop({ app, root, appDist, channel = () => null, client, 
       ensure();
       // Its assets are the app's (its own `assets` is a link the builder copies as one): from the app's dist.
       if (rest.startsWith('/assets/')) {
-        const found = buildTreeFile(appDist, rest, req.headers.accept);
+        const found = await buildTreeFile(appDist, rest, req.headers.accept);
         if (!found) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return true; }
         send(req, res, found);
         return true;
       }
-      const found = built ? buildTreeFile(dist, rest, req.headers.accept) : null;
+      const found = built ? await buildTreeFile(dist, rest, req.headers.accept) : null;
       if (!found) {
         if (rest !== '/') { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return true; }
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
