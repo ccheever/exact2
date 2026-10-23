@@ -407,6 +407,8 @@ uint32_t exact_entry_timeline(ExactRuntime rt, double now_ms, double remaining_m
 uint32_t exact_refresh_entry(ExactRuntime rt, double now_ms);
 uint32_t exact_boot_plan(ExactRuntime rt, size_t len, float width, float height);
 uint32_t exact_prepare_plan(ExactRuntime rt, uint64_t token, size_t len, float width, float height);
+/* Check every participant and commit in one owner job, without intervening turns. */
+uint32_t exact_check_prepared(ExactRuntime rt);
 uint32_t exact_commit_plan(ExactRuntime rt);
 /* Admitted generation: concatenated plan, pairing receipt, compiled module.
  * A nonzero token supplies signed delivery facts. Identity and grants match

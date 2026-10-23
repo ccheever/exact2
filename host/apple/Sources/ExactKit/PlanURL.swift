@@ -16,7 +16,7 @@ import CryptoKit
 import Foundation
 
 /// A fixed JavaScript/Rust generation crosses the data seam as one candidate.
-private enum DevelopmentModules {
+enum DevelopmentModules {
     static func combine(javascript: ExactModule?, rust: ExactModule?) throws -> ExactModule? {
         guard let javascript else { return rust }
         guard let rust else { return javascript }
@@ -27,7 +27,7 @@ private enum DevelopmentModules {
         let receipt = try JSONSerialization.data(withJSONObject: [
             "version": 1, "kind": "mixed", "javascript": jsReceipt, "rust": rustReceipt,
             "javascriptBytes": javascript.bytecode.count,
-        ])
+        ], options: .sortedKeys)
         guard receipt.count <= 1 << 20, javascript.bytecode.count <= 32 << 20,
               rust.bytecode.count <= (32 << 20) - javascript.bytecode.count else { throw CocoaError(.fileReadTooLarge) }
         var bytes = javascript.bytecode

@@ -385,6 +385,12 @@ macro_rules! host {
             }, |n| n)
         }
 
+        /// Refuse a candidate whose source changed after preparation.
+        #[no_mangle]
+        pub extern "C" fn exact_check_prepared(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.check_prepared(), |n| n)
+        }
+
         /// Commit an accepted prepared plan.
         #[no_mangle]
         pub extern "C" fn exact_commit_plan(rt: u32) -> u32 {
