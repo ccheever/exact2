@@ -372,6 +372,11 @@ fn func(
     text: &str,
     names: &mut dyn Names,
 ) -> Result<Quantity, FoldError> {
+    // A level of the fold, counted with the tokens it follows (`bound`).
+    let Some(_level) = crate::bound::deeper() else {
+        let (id, why) = crate::bound::too_deep();
+        return fail(id, why);
+    };
     // Bounded as it is made: each argument (a sum, bounded term by term),
     // the arguments together before any pick or clamp copies them, and the
     // result. A nest of functions, a chain of tokens naming one another, or
