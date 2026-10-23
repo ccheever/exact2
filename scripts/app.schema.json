@@ -994,6 +994,18 @@
         "items": { "type": "string", "minLength": 1 }
       }
     },
+    "server": {
+      "type": "object",
+      "description": "The app's own server, started for tests, verification and agent drives.",
+      "additionalProperties": false,
+      "properties": {
+        "database": {
+          "type": "boolean",
+          "default": true,
+          "description": "False declares that the server keeps no database: DB is omitted and no scratch database is created or removed. Otherwise its entry or an imported module must read the database path from DB."
+        }
+      }
+    },
     "tamber": {
       "type": "string",
       "description": "The app's design (LLP 1121 D2): a `.tamber` file, relative to app.json. Without it, `app.tamber` beside app.contract is the design when there is one."
