@@ -1063,15 +1063,13 @@ fn every_pass_over_a_hostile_file_is_charged_to_the_budget() {
             let import = full
                 .as_ref()
                 .expect("a refused value, not a refused import");
-            assert!(
-                import
-                    .unmapped
-                    .iter()
-                    .filter(|u| u.name.starts_with('g'))
-                    .all(|u| u.why.contains("no number")),
-                "{:?}",
-                import.unmapped
-            );
+            let reported = import
+                .unmapped
+                .iter()
+                .filter(|u| u.why.contains("no number"))
+                .count();
+            assert_eq!(reported, 19, "{:?}", import.unmapped);
+            assert_eq!(import.counted.mapped, 0, "none mapped");
         }
         // A budget of three times the file: done or refused, and either quickly (what multiplies is refused;
         // the expressions, reported at once, are done).

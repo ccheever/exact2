@@ -246,7 +246,9 @@ pub(super) fn landing(
                 + t.value.len()
                 + t.whens
                     .iter()
-                    .map(|(c, v)| v.len() + 16 * c.len())
+                    .map(|(c, v)| {
+                        v.len() + c.iter().map(|(a, x)| a.len() + x.len() + 2).sum::<usize>()
+                    })
                     .sum::<usize>()
         })
         .sum();
