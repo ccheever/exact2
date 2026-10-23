@@ -32,6 +32,29 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         XCTAssertFalse(image.isAccessibilityElement)
     }
 
+    func testAnImagesExplicitRangeRoleKeepsItsSpokenValue() throws {
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 20, "kind": "image", "props": [
+                "accessibilityLabel": "Download", "accessibilityRole": "progressbar", "accessibilityValueNow": "50"]],
+            ["op": "children", "id": 4, "ids": [5, 20]],
+            ["op": "frame", "id": 20, "x": 110.0, "y": 0.0, "w": 60.0, "h": 60.0],
+        ]))
+        let image = try XCTUnwrap(p.views[20])
+        XCTAssertTrue(image.isAccessibilityElement)
+        XCTAssertFalse(image.accessibilityTraits.contains(.image))
+        XCTAssertEqual(image.accessibilityValue, image.rangeValueText)
+        XCTAssertNotNil(image.accessibilityValue)
+        p.apply(wireBatch([["op": "props", "id": 20, "set": ["accessibilityValueNow": "75"]]]))
+        XCTAssertEqual(image.accessibilityValue, image.rangeValueText)
+        p.apply(wireBatch([["op": "props", "id": 20, "clear": ["accessibilityRole"]]]))
+        XCTAssertTrue(image.accessibilityTraits.contains(.image))
+        XCTAssertNil(image.accessibilityValue)
+        p.apply(wireBatch([["op": "props", "id": 20, "set": ["accessibilityRole": "progressbar"]]]))
+        XCTAssertFalse(image.accessibilityTraits.contains(.image))
+        XCTAssertEqual(image.accessibilityValue, image.rangeValueText)
+    }
+
     func testToggleButtonsReportFalseTrueAndMixedFromThePlatform() throws {
         let p = try fixture()
         for value in ["false", "true", "mixed"] {
