@@ -257,7 +257,11 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
     fileprivate func containingBlockChanged() { presenter?.owners.publish(); contentMoved() }
     /// A popover over a sheet is in its presentation container, outside
     /// the scroller: it follows its opener as the sheet's content moves.
-    fileprivate func contentMoved() { presenter?.menus.rehostPopovers() }
+    fileprivate func contentMoved() {
+        presenter?.menus.rehostPopovers()
+        // A sticky box in a dialog sticks to the sheet's port (`Sticky.swift`).
+        for entry in entries { presenter?.stickies.scrolled(entry.dialog.id) }
+    }
     var inTransition: Bool {
         !resuming.isEmpty || entries.contains { $0.closing || $0.controller.isBeingPresented || $0.controller.isBeingDismissed }
     }
