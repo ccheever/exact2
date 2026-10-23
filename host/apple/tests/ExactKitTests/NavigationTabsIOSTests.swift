@@ -76,7 +76,13 @@ final class NavigationTabsIOSTests: XCTestCase {
         if module {
             session.natives.installArtifact(try XCTUnwrap(env["EXACT_FIXTURE_MODULE"], "build.mjs --test --ios builds the fixture's module"))
         }
-        spin(0.3)
+        until("root tab container and selected stack are ready") {
+            let navigation = session.presenter.navigation
+            let container = navigation.tabOwner ?? navigation.tabController
+            let selected = navigation.tabController?.selectedViewController ?? navigation.primaryNavigation
+            return container?.viewIfLoaded?.window != nil && selected?.viewIfLoaded?.window != nil &&
+                !Agent(session: session).nativeInFlight()
+        }
         return session
     }
 
