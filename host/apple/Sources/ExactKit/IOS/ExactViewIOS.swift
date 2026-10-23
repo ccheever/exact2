@@ -526,6 +526,7 @@ public final class ExactView: UIView {
             if case .failed = session.state { return }
             lastSize = size
             lastInsets = insets
+            presenter.insets = insets
             lastFold = segments
             session.boot(size: size)
             // The first batch made the roots: one that covers the screen is
