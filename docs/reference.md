@@ -1083,6 +1083,32 @@ whose `kind` is `Timeout` (`the request timed out after 10000 ms`). The same
 holds on Apple, Linux, the web's wasm host and the web build; a stream
 (`exactStream`) takes none.
 
+A long poll, a request the server holds until something changes, says so with
+`exactHeld: true`: `fetch(url + '?wait=25', { exactHeld: true })` (LLP
+1016.000 D9). It is pending as any request (`pending(…)` reads it), but no
+agent clock waits on it: not a jump, not `clock settle`, not `clock data`. Each
+of their replies names it (`held: 1, heldTargets: ["changes"]`) and `state.pending`
+marks it `held: true`; its reply lands when the server answers. The answer's
+work after that reply (another fetch, its parsing) is waited on as usual. A held
+ask must be safe to supersede: a send to its resource meanwhile replaces it, and
+its late reply is dropped, as a long poll that is simply asked again. A drive
+that expects a push (after an action the server answers on the long poll) waits
+for it with `clock held [<target>…] [<n>s]`: real time passes, the clock frozen,
+until each held request has had one reply (20 s by default), then `clock data`. Mark only
+the asks that wait (a first ask answered at once need not be); a stream never is
+(`exactStream` stops counting at its first message), and with `exactStream` it
+is refused; an upload (`exactBodyFrom`) is never held either, its file being read
+before it is sent. A Rust source's request takes `Request::held()` (not across the Rust
+module seam, which refuses it, as it refuses a deadline). On the web build an
+answer counts as held only while every fetch it has out is held: an ordinary
+fetch beside it is waited on, and so is a held one made in a plain `.then`
+callback, where the page cannot tell whose answer it is (made in the answer's
+turn or after an `await`, it can). The count covers the data-source API (fetch,
+`crypto.subtle`, storage, the store's keys, `native` and generated module calls,
+`openAuthSession`); work a source reaches past it, through the page's own
+globals (no boundary there, LLP 1027 D5), is not counted, so an answer awaiting
+it beside a held fetch may count as held. Hermes reaches no such globals.
+
 An answer that keeps coming (LLP 1016.000) is a `fetch` with `exactStream`,
 returned as the answer: `return fetch(url, { exactStream: (event) => value })`.
 The promise never settles; each message, and the end, is mapped now (the

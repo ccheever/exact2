@@ -431,7 +431,7 @@ export function driveNotes(s, { host, storage, origins = [] }) {
       // Resource failures are normal authored states (failed/failure gates). Keep them in state/logs;
       // request-shape refusals above and failing assertions below still get actionable notes.
       if (process.env.EXACT_AGENT_DEBUG) for (const [name, why] of Object.entries(state?.failed ?? {})) note(`failed ${name} ${why}`, `resource ${name} failed: ${why}`);
-      const pending = (state?.pending ?? []).filter((p) => !p.device).map((p) => p.name);
+      const pending = (state?.pending ?? []).filter((p) => !p.device && !p.held).map((p) => p.name);
       if (early && pending.length) note('early', `${op} read the app with ${pending.length} request${pending.length === 1 ? '' : 's'} in flight (${pending.join(', ')}): a reply lands at a clock step, so a drive that reads the app's data starts with "clock data"`);
     } catch { /* advice only */ }
   };
@@ -616,10 +616,13 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       const state = await s.state().catch(() => ({}));
       const failed = Object.entries(state.failed ?? {}).map(([name, why]) => ` (resource ${name} failed: ${why}; it shows its placeholder or last value)`).join('')
         + [...refusedReplies((await peekLogs(s, 0).catch(() => null))?.lines)].map(([name, why]) => ` (${replyNote(name, why)})`).join('');
-      if (unpolled != null) return failures.push(`${message}${failed} (line ${unpolled} wrote to the server, and the clock has not moved past the app's next read since: \`clock +<its poll's ms>\`, then \`clock data\`)`);
-      if (input != null) return failures.push(`${message}${failed} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\` or a transition lands at \`clock settle\`; a timer fires when the clock reaches its time, \`clock +N\`)`);
-      const pending = (state.pending ?? []).filter((p) => !p.device).map((p) => p.name);
-      failures.push(`${message}${failed}${pending.length ? ` (${pending.length} request${pending.length === 1 ? '' : 's'} still in flight: ${pending.join(', ')}; a reply lands at a \`clock\` step, as \`clock settle\`)` : ''}`);
+      // One the server holds (`exactHeld`, LLP 1016.000 D9) no clock lands: named apart, whatever else is said.
+      const heldBy = (state.pending ?? []).filter((p) => p.held).map((p) => p.name);
+      const held = heldBy.length ? ` (held by the server, which no clock waits on: ${heldBy.join(', ')}; after an action whose push you read, \`clock held\` waits for its reply)` : '';
+      if (unpolled != null) return failures.push(`${message}${failed} (line ${unpolled} wrote to the server, and the clock has not moved past the app's next read since: \`clock +<its poll's ms>\`, then \`clock data\`)${held}`);
+      if (input != null) return failures.push(`${message}${failed} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\` or a transition lands at \`clock settle\`; a timer fires when the clock reaches its time, \`clock +N\`)${held}`);
+      const pending = (state.pending ?? []).filter((p) => !p.device && !p.held).map((p) => p.name);
+      failures.push(`${message}${failed}${pending.length ? ` (${pending.length} request${pending.length === 1 ? '' : 's'} still in flight: ${pending.join(', ')}; a reply lands at a \`clock\` step, as \`clock settle\`)` : ''}${held}`);
     };
     try {
       try { await data(); } catch (e) { failures.push(`${t.name}: waiting for the app's data before the first step: ${e.message}`); }
