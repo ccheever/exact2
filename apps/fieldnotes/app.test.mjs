@@ -1,8 +1,40 @@
 import { expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { open } from '../../scripts/agent.mjs';
-import { checkOp } from '../../scripts/agent-check.mjs';
+import { checkOp, ratio } from '../../scripts/agent-check.mjs';
+import schema from '../../kernel/tables/schema.json';
+
+test('filled button ink also contrasts with Apple colour roles', () => {
+  const lines = readFileSync(resolve(import.meta.dir, 'app.contract'), 'utf8').split('\n');
+  const attribute = (line, name) => line.match(new RegExp(`(?:^| )${name}="([^"]+)"`))?.[1];
+  const accent = attribute(lines.find(line => line.includes('testId="fieldnotes"')), 'accent-color');
+  const failures = [];
+  for (const id of ['new-note', 'save-note', 'save-backup', 'confirm-restore']) {
+    const start = lines.findIndex(line => line.includes(`testId="${id}"`));
+    expect(start).toBeGreaterThan(-1);
+    const button = lines[start], indent = button.search(/\S/);
+    const children = lines.slice(start + 1).slice(0, lines.slice(start + 1)
+      .findIndex(line => line.trim() && line.search(/\S/) <= indent));
+    const inks = children.flatMap(line => [...line.matchAll(/ (?:color|-exact-tint-color)="([^"]+)"/g)].map(m => m[1]));
+    expect(inks.length).toBeGreaterThan(0);
+    for (const [scheme, column] of [['light', 4], ['dark', 5]]) {
+      const colour = value => {
+        if (value === 'AccentColor') return colour(attribute(button, 'accent-color') ?? accent);
+        const pair = value.match(/^light-dark\(([^,]+),\s*([^)]+)\)$/);
+        if (pair) return colour(pair[scheme === 'light' ? 1 : 2].trim());
+        if (!value.startsWith('#')) value = schema.colors.find(row => row[0] === value.replace(/^-exact-/, ''))?.[column];
+        expect(value).toMatch(/^#[0-9a-f]{6}$/i);
+        return [1, 3, 5].map(offset => parseInt(value.slice(offset, offset + 2), 16));
+      };
+      for (const ink of inks) {
+        const contrast = ratio(colour(ink), colour(attribute(button, 'background-color')));
+        if (contrast < 4.5) failures.push({ id, scheme, ink, contrast });
+      }
+    }
+  }
+  expect(failures).toEqual([]);
+});
 
 // Build first with `bun host/web/build.mjs fieldnotes`.
 test('Fieldnotes text remains readable in both schemes', async () => {
@@ -33,6 +65,7 @@ test('Fieldnotes text remains readable in both schemes', async () => {
     const saved = (await session.state()).derives.editingId;
     expect(saved).not.toBe('');
     await session.tap('new-note');
+    await session.clock('settle');
     await session.tap(`note-${saved}`);
     await session.clock('settle');
     await session.type('note-body', 'Ferns beside the path. Remember the clearing.');
@@ -41,7 +74,29 @@ test('Fieldnotes text remains readable in both schemes', async () => {
     await session.type('search', 'woods');
     await check('search', `note-${saved}`);
     await session.tap('discard');
+    // Keep the search reload pending until settlement starts, independent of worker speed.
+    await session.carrier.evaluate(`(() => {
+      const send = Worker.prototype.postMessage, held = [];
+      globalThis.releaseFieldnotesRead = () => {
+        Worker.prototype.postMessage = send;
+        for (const [worker, args] of held) send.apply(worker, args);
+      };
+      Worker.prototype.postMessage = function(...args) {
+        if (args[0]?.op === 'open') held.push([this, args]);
+        else send.apply(this, args);
+      };
+    })()`);
+    const clock = session.clock.bind(session);
+    session.clock = async (...args) => {
+      const settled = clock(...args);
+      await session.carrier.evaluate('releaseFieldnotesRead()');
+      session.clock = clock;
+      return settled;
+    };
     await session.tap('close-search');
+    expect((await session.state()).derives.busy).toBe(true);
+    await session.clock('settle');
+    expect((await session.state()).derives.busy).toBe(false);
     await session.tap('delete-note');
     await check('delete confirmation', 'confirm-delete');
     await session.tap('cancel-delete');
