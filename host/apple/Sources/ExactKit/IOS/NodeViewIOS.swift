@@ -1405,7 +1405,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // Sides that differ in colour or width, or a radius the layer
             // cannot say: each side in its colour, joined as the web joins
             // them (`BorderPaint`).
-            let widths = ["top", "right", "bottom", "left"].map { number("border_width_" + $0, uniform) }
+            let widths = ["top", "right", "bottom", "left"].map { devicePixels(number("border_width_" + $0, uniform)) }
             let top = color("border_color_top", .clear)
             let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
             let radii = BorderPaint.radii(style, in: bounds)
