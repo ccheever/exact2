@@ -519,10 +519,10 @@ fn shape(
         Expr::Number(..) => Some(Ty::Number),
         Expr::Ident(name, _) => scope.lookup(name).map(|(_, t)| t.clone()),
         // A record's field, as `expr::compile` types `Expr::Member`.
-        Expr::Member(obj, field, _) => match shape(obj, scope, shapes)? {
-            Ty::Record(record) => shapes.field(&record, field).map(|(_, t)| t.clone()),
-            _ => None,
-        },
+        Expr::Member(obj, field, _) => {
+            let obj = shape(obj, scope, shapes)?;
+            shapes.member(&obj, field).map(|(_, t)| t.clone())
+        }
         Expr::Ternary(_, yes, no, _) => {
             let (yes, no) = (shape(yes, scope, shapes)?, shape(no, scope, shapes)?);
             Some(yes.unify(&no).unwrap_or(Ty::Unknown))
