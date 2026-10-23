@@ -15,17 +15,57 @@ final class NativeGeometry {
     private var modal: Int?
     init(_ presenter: Presenter) { self.presenter = presenter }
 
-    func reset() { fresh = true; boxes = []; modal = nil }
+    func reset() {
+        FrameClock.shared.drop(self)
+        pending = false; fresh = true; boxes = []; modal = nil
+    }
+
+    /// Native containers animate above authored nodes. Their presentation layers
+    /// carry the current position; authored transforms remain the runner's.
+    static func convert(_ rect: CGRect, from source: UIView, to destination: UIView) -> CGRect {
+        guard animates(source.layer) || animates(destination.layer),
+              let from = source.layer.presentation(), let to = destination.layer.presentation() else {
+            return source.convert(rect, to: destination)
+        }
+        return from.convert(rect, to: to)
+    }
+
+    private static func animates(_ layer: CALayer) -> Bool {
+        var at: CALayer? = layer
+        while let current = at {
+            if !(current.delegate is NodeView), !(current.animationKeys() ?? []).isEmpty { return true }
+            at = current.superlayer
+        }
+        return false
+    }
+
+    private func followAnimations() {
+        guard let presenter else { FrameClock.shared.drop(self); return }
+        let routes = presenter.navigation.controllers.values.compactMap(\.viewIfLoaded)
+        let surfaces = presenter.presentations(includingRetiring: true)
+        let moving = (routes + surfaces).contains { $0.window != nil && Self.animates($0.layer) }
+        guard moving else { FrameClock.shared.drop(self); return }
+        FrameClock.shared.want(self, .navigationReveal, rate: FrameClock.full(on: presenter.viewport.window?.screen)) { [weak self] _ in
+            guard let self, !pending, let presenter = self.presenter else { return }
+            presenter.owners.publish()
+            changed()
+        }
+    }
 
     func changed() {
         guard !pending else { return }
         pending = true
         DispatchQueue.main.async { [weak self] in
-            guard let self, let session = presenter?.session, session.state == .ready else { self?.pending = false; return }
+            guard let self, let session = presenter?.session, session.state == .ready else {
+                if let self { pending = false; FrameClock.shared.drop(self) }
+                return
+            }
             session.whenIdle(bound: true, { [weak self, weak session] in
-                guard let self, let session, session.state == .ready else { return }
+                guard let self else { return }
                 pending = false
+                guard let session, session.state == .ready else { FrameClock.shared.drop(self); return }
                 guard let presenter, !presenter.applying, !Owner.shared.isServingMain else { changed(); return }
+                followAnimations()
                 let shown = presenter.openTopLayer
                 let now = shown.frames.map { Box(id: $0.0, frame: $0.1, clip: $0.2) }
                 guard fresh || boxes != now || modal != shown.modal else { return }

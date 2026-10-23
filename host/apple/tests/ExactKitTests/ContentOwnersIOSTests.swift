@@ -165,6 +165,30 @@ final class ContentOwnersIOSTests: XCTestCase {
     /// route beside its panel, so neither reaches the card, and `frame`,
     /// both point reads and the intersection observer agree with the card's
     /// view.
+    func testANativeOwnerPublishesItsIntermediatePlacement() throws {
+        guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else { throw missing("scene", "native owner motion requires a scene") }
+        let s = try fixture("owner-animation", CGSize(width: 402, height: 874), plan: "EXACT_TAB_OWNER_PLAN")
+        let p = s.presenter, route = try node(s, "route-first")
+        let view = try XCTUnwrap(p.navigation.controllers[route.id]?.viewIfLoaded)
+        let owner = try XCTUnwrap(p.navigation.container)
+        p.owners.publish()
+        let start = try XCTUnwrap(p.owners.told[route.id]?.placement?.rect).minX
+        var finished = false
+        UIView.animate(withDuration: 0.8, delay: 0, options: [.curveLinear]) {
+            view.transform = CGAffineTransform(translationX: 160, y: 0)
+            p.owners.publish()
+        } completion: { _ in finished = true }
+        until("the owner publishes an intermediate position", 2) {
+            guard let x = p.owners.told[route.id]?.placement?.rect.minX else { return false }
+            return x > start + 30 && x < start + 120
+        }
+        let layer = try XCTUnwrap(view.layer.presentation()), destination = try XCTUnwrap(owner.layer.presentation())
+        let shown = layer.convert(layer.bounds, to: destination)
+        XCTAssertEqual(try XCTUnwrap(p.owners.told[route.id]?.placement?.rect).minX, shown.minX, accuracy: 3)
+        until("the owner finishes moving", 2) { finished }
+        until("the geometry clock stops", 2) { !FrameClock.shared.wants(p.nativeGeometry) }
+    }
+
     func testATabsRouteIsReadWhereUIKitShowsItUnderATurnedPanel() throws {
         let session = try fixture("owner-turned-tab", CGSize(width: 402, height: 874), plan: "EXACT_TAB_OWNER_PLAN")
         let p = session.presenter
