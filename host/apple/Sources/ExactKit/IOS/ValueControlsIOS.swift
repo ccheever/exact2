@@ -99,6 +99,10 @@ extension ControlHost {
     /// Align the closed value independently of its indicator. Logical edges follow the computed direction.
     func selectAlignment(_ owner: NodeView) -> UIControl.ContentHorizontalAlignment {
         let rtl = owner.style["direction"]?.string == "rtl"
+        // Unwritten label/value rows trail the value; a value on its own line starts.
+        if !owner.wrote("text_align"), ["left", "start", nil].contains(owner.style["text_align"]?.string), let beside = besideLabel(owner) {
+            return beside == rtl ? .left : .right
+        }
         switch owner.style["text_align"]?.string {
         case "left": return .left
         case "right": return .right
@@ -109,6 +113,26 @@ extension ControlHost {
         }
     }
 
+    /// Whether a box shares its line with a sibling before it (true), sits on a line below its siblings
+    /// (false), or has none (nil), by the laid-out frames.
+    private func besideLabel(_ owner: NodeView) -> Bool? {
+        var up = owner.superview
+        while let v = up, !(v is NodeView) { up = v.superview }
+        guard let parent = up as? NodeView else { return nil }
+        // Its siblings before it as layout placed them, those drawn as layers (`FlatLeaves`) too; one not seen
+        // (hidden, `visibility: hidden`, or no area) is no label.
+        let seen = { (v: NodeView) in !v.isHidden && !v.cssVisibilityHidden && v.layoutBounds.width > 0 && v.layoutBounds.height > 0 }
+        let before: [CGRect]
+        if let ids = presenter.flats.children(of: parent.id) {
+            before = ids.prefix { $0 != owner.id }.compactMap { id in
+                if let leaf = presenter.flats.leaves[id] { return leaf.layout.width > 0 && leaf.layout.height > 0 ? leaf.layout : nil }
+                return presenter.views[id].flatMap { seen($0) ? $0.frame : nil }
+            }
+        } else { before = parent.container.subviews.compactMap { $0 as? NodeView }.prefix { $0 !== owner }.filter(seen).map(\.frame) }
+        guard !before.isEmpty else { return nil }
+        let box = owner.frame
+        return before.contains { $0.maxX <= box.minX + 0.5 || $0.minX >= box.maxX - 0.5 ? $0.minY < box.maxY && $0.maxY > box.minY : false }
+    }
     #endif
 
     /// The menu, with the option at `showing` the one shown. A select with

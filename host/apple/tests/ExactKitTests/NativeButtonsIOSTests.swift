@@ -686,6 +686,40 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertEqual(titleRects["default"], titleRects["left"], "an unstyled standalone select starts at the leading edge")
     }
 
+    func testAnUnstyledSelectTrailsItsLabelUntilTheValueWraps() throws {
+        let p = selectPresenter(selectMenu())
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": "Aisle"]],
+            ["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 320, "h": 120],
+            ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 80, "h": 52],
+            ["op": "frame", "id": 3, "x": 100, "y": 0, "w": 220, "h": 52],
+        ]))
+        let node = try XCTUnwrap(p.views[3]), select = try XCTUnwrap(p.controls.controls[3] as? UIButton)
+        let menu = try XCTUnwrap(select.menu)
+        for align in [nil, "left", "start"] as [String?] {
+            let style: [String: Any] = align.map { ["text_align": $0] } ?? [:]
+            p.apply(wireBatch([["op": "style", "id": 3, "style": style]]))
+            _ = try popupTitleRect(select)
+            XCTAssertEqual(select.titleLabel?.textAlignment, .right, "an unwritten label/value row trails its value")
+        }
+        p.apply(wireBatch([["op": "style", "id": 3, "style": ["text_align": "start", "written": ["text_align"]]]]))
+        _ = try popupTitleRect(select)
+        XCTAssertEqual(select.titleLabel?.textAlignment, .left, "authored alignment wins")
+        p.apply(wireBatch([["op": "style", "id": 3, "style": [:]],
+                          ["op": "frame", "id": 3, "x": 0, "y": 60, "w": 320, "h": 52]]))
+        _ = try popupTitleRect(select)
+        XCTAssertEqual(select.titleLabel?.textAlignment, .left, "a value below its label starts")
+        p.apply(wireBatch([["op": "style", "id": 3, "style": ["direction": "rtl"]],
+                          ["op": "frame", "id": 2, "x": 240, "y": 0, "w": 80, "h": 52],
+                          ["op": "frame", "id": 3, "x": 0, "y": 0, "w": 220, "h": 52]]))
+        _ = try popupTitleRect(select)
+        XCTAssertEqual(select.titleLabel?.textAlignment, .left, "the label/value arrangement mirrors in RTL")
+        XCTAssertEqual(select.frame, node.contentBox())
+        XCTAssertTrue(select.menu === menu)
+    }
+
     func testSelectLogicalEdgesRespectDirectionInsideAWidePaddedBox() throws {
         let p = selectPresenter(selectMenu())
         let node = try XCTUnwrap(p.views[3]), select = try XCTUnwrap(p.controls.controls[3] as? UIButton)
