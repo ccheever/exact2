@@ -99,7 +99,7 @@ const heldEntries = () => {
 const booted = (page) => page.waitForFunction(() => document.getElementById('exact-root')?.dataset.bootMs != null, null, { timeout: 30000 })
   .then(() => page.evaluate(() => globalThis.exact.ready));
 
-check("the wasm host: an agent's settle waits for a view's first intersection entry, however late it comes, and a view gone first holds nothing", async () => {
+check("the wasm host: an agent's settle waits for a view's first intersection entry, however late it comes, and a view gone first, or reloaded away, holds nothing", async () => {
   const tmp = mkdtempSync(resolve(tmpdir(), 'exact-wasm-intersect-boot-')), plan = resolve(tmp, 'app.plan');
   let browser, server;
   try {
@@ -147,6 +147,25 @@ check("the wasm host: an agent's settle waits for a view's first intersection en
     expect(dropped.settled).toMatchObject({ settled: true });
     expect(dropped.ms).toBeLessThan(1500);
     expect(dropped.slots).toMatchObject({ calls: 0, shown: false });
+    await gone.close();
+    // A reload while a settle waits on the entry (never released, no bound): the settle lets it go with the old views.
+    const swapped = await browser.newPage();
+    await swapped.addInitScript(heldEntries);
+    await swapped.addInitScript(watchObserve);
+    await swapped.goto(`${server.url.href}?agent=1`);
+    await booted(swapped);
+    const reloaded = await swapped.evaluate(async () => {
+      await globalThis.exact.agentSettled({ op: 'clock', settle: true });
+      const bytes = new Uint8Array(await fetch('/__plan').then((r) => r.arrayBuffer())), loading = globalThis.exact.reload(bytes, true);
+      await globalThis.__observed;
+      await loading;
+      const began = performance.now(), settling = globalThis.exact.agentSettled({ op: 'clock', settle: true });
+      await new Promise((r) => setTimeout(r, 100));
+      await globalThis.exact.reload(bytes, true);
+      const settled = await settling;
+      return { settled, ms: performance.now() - began };
+    });
+    expect(reloaded.ms).toBeLessThan(1500);
   } finally {
     await browser?.close();
     server?.stop(true);
