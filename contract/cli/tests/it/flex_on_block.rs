@@ -145,13 +145,31 @@ fn multicol_exemptions_follow_the_winning_count_and_width() {
     for (style, inline, multicol) in [
         ("", "column-count=\"auto\"", false),
         ("", "column-width=\"auto\"", false),
+        ("", "column-width=\"Auto\"", false),
+        ("", r#"column-width=" \tAuTo\u{c}\u{d}\n""#, false),
+        ("", "column-width=\"unset\"", false),
+        ("", "column-width=\" UnSeT \"", false),
+        ("", "column-width=\"\"", false),
+        ("", r#"column-width=" \t ""#, false),
         ("", "columns=\"auto\"", false),
+        ("", "columns=\"Auto\"", false),
+        ("", r#"columns=" \tAUTO\u{c}\u{d}\n""#, false),
+        ("", "columns=\"unset\"", false),
+        ("", "columns=\" UnSeT \"", false),
         ("", "columns=\"auto auto\"", false),
         ("column-count=\"3\"", "column-count=\"auto\"", false),
         ("column-width=\"12em\"", "column-width=\"auto\"", false),
+        ("column-width=\"12em\"", "column-width=\"AUTO\"", false),
+        ("column-width=\"12em\"", "column-width=\"UNSET\"", false),
+        ("column-width=\"12em\"", "column-width=\"\"", false),
         ("columns=\"12em 3\"", "columns=\"auto\"", false),
+        ("columns=\"12em 3\"", "columns=\"Auto\"", false),
+        ("columns=\"12em 3\"", "columns=\"unset\"", false),
         ("", "columns=\"2\" column-count=\"auto\"", false),
         ("", "columns=\"12em\" column-width=\"auto\"", false),
+        ("", "columns=\"12em\" column-width=\"AUTO\"", false),
+        ("", "columns=\"12em\" column-width=\"unset\"", false),
+        ("", "columns=\"12em\" column-width=\"\"", false),
         (
             "column-count=\"3\"",
             "columns=\"12em\" column-width=\"auto\"",
@@ -168,11 +186,16 @@ fn multicol_exemptions_follow_the_winning_count_and_width() {
         ("", "column-width=\"12em\"", true),
         ("", "columns=\"12em\"", true),
         ("", "columns=\"auto 2\"", true),
+        ("", "columns=\"Auto 2\"", true),
+        ("", "columns=\"unset 2\"", true),
         ("", "columns=\"12em auto\"", true),
         ("", "columns=\"auto\" column-count=\"3\"", true),
         ("", "columns=\"auto\" column-width=\"12em\"", true),
         ("", "columns=\"12em 2\" column-count=\"auto\"", true),
         ("", "columns=\"12em 2\" column-width=\"auto\"", true),
+        ("", "columns=\"12em 2\" column-width=\"AUTO\"", true),
+        ("", "columns=\"12em 2\" column-width=\"unset\"", true),
+        ("", "columns=\"12em 2\" column-width=\"\"", true),
         ("column-width=\"12em\"", "column-count=\"auto\"", true),
         ("column-count=\"3\"", "column-width=\"auto\"", true),
         ("", "column-count=count", true),
@@ -190,7 +213,28 @@ fn multicol_exemptions_follow_the_winning_count_and_width() {
             "{style}component App\n  state count = 3\n  state width = \"12em\"\n  view\n    view {class} {inline} justify-content=\"center\" gap=4 row-gap=4 column-gap=4\n"
         );
         let (plan, warnings) = contract::compile_warned(&src);
-        plan.unwrap_or_else(|e| panic!("{src}: {e:?}"));
+        let plan = plan.unwrap_or_else(|e| panic!("{src}: {e:?}"));
+        if !multicol {
+            let mut r = Runner::boot(
+                plan,
+                NoData,
+                Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+            .unwrap();
+            let root = r.kernel().roots()[0];
+            r.kernel_mut()
+                .compute_layout(root, Offer::definite(400.0, 800.0))
+                .unwrap();
+            let style = r.kernel().node(root).unwrap().style;
+            assert_eq!(style.column_count, 0, "{src}");
+            assert_eq!(
+                style.rare.column_width,
+                exact_kernel::Dimension::Auto,
+                "{src}"
+            );
+        }
         let messages: Vec<_> = warnings.iter().filter(|w| w.id == ID).collect();
         assert_eq!(
             messages.len(),
