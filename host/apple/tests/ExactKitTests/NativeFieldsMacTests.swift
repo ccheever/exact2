@@ -28,6 +28,37 @@ final class NativeFieldsMacTests: XCTestCase {
         }
     }
 
+    func testInputThemeGroundReplacesTheBezelAndRestoresIt() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "input-theme")
+        defer { session.destroy() }
+        let p = session.presenter
+        let node = NodeView(id: 1, kind: "input", presenter: p)
+        p.root.addSubview(node)
+        node.applyProps(set: ["value": "Keep this text"], clear: [])
+        node.applyStyle([:])
+        let field = try XCTUnwrap(node.field)
+        let standard = NSTextField()
+        XCTAssertEqual(field.isBezeled, standard.isBezeled)
+        ThemeRoles.apply(wireBatch([["op": "roles", "roles": ["Field": [12, 200, 40, 255]]]]), root: p.root)
+        p.applyThemeTint()
+        XCTAssertFalse(field.isBezeled)
+        XCTAssertFalse(field.drawsBackground)
+        let ground = try XCTUnwrap(node.fieldGround)
+        let color = try XCTUnwrap(NSColor(cgColor: ground)?.usingColorSpace(.sRGB))
+        XCTAssertEqual(color.greenComponent, 200 / 255, accuracy: 0.001)
+        node.applyBoxLayer()
+        XCTAssertEqual(node.layer?.backgroundColor, ground)
+        XCTAssertEqual(field.stringValue, "Keep this text")
+        ThemeRoles.apply(wireBatch([["op": "roles", "roles": [String: Any]()]]), root: p.root)
+        p.applyThemeTint()
+        XCTAssertNil(node.fieldGround)
+        XCTAssertEqual(field.isBezeled, standard.isBezeled)
+        XCTAssertEqual(field.drawsBackground, standard.drawsBackground)
+        node.applyBoxLayer()
+        XCTAssertNil(node.layer?.backgroundColor)
+    }
+
     private var platformTextareaInset: NSSize {
         let editor = NSTextView(usingTextLayoutManager: true)
         return NSSize(width: editor.textContainerInset.width + (editor.textContainer?.lineFragmentPadding ?? 0), height: editor.textContainerInset.height)
