@@ -11,7 +11,7 @@ use super::*;
 pub(super) struct Clock {
     /// The host presents frames: frame tasks fire only at `frame` (LLP 1073 D4)
     pub(super) presenting: bool,
-    sample: Option<Box<dyn FnMut() -> f64>>,
+    pub(super) sample: Option<Box<dyn FnMut() -> f64>>,
     /// The scheduling instant of the callback running, which the `then`s and
     /// queue `next`s it arms inherit (D2)
     instant: Option<f64>,
@@ -596,6 +596,24 @@ impl<D: DataSource> Runner<D> {
                     at_ms: self.now_ms,
                     receipt,
                 }),
+                Err(error) => {
+                    return Advanced {
+                        receipts,
+                        now_ms: self.now_ms,
+                        error: Some(error),
+                        stopped_on_request: false,
+                    }
+                }
+            }
+        }
+        // A polled module source whose period passed (LLP 1133.009 D10 item
+        // 7): asked once, at the clock the advance landed on.
+        if !stopped_on_request {
+            match self.poll() {
+                Ok(polled) => receipts.extend(polled.into_iter().map(|receipt| Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                })),
                 Err(error) => {
                     return Advanced {
                         receipts,

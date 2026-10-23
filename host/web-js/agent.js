@@ -511,6 +511,8 @@ export function install(exact) {
           // is 200 of these).
           while (exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 1));
         }
+        // A polled module source's ask the jump made lands first (LLP 1133.009 D10 item 7).
+        for (const end = performance.now() + 20000; exact.extensions?.polling?.() && performance.now() < end;) await new Promise(r => setTimeout(r, 1));
         seek();
         await new Promise(r => requestAnimationFrame(() => r()));
         const gpuPending = await settleGpu();

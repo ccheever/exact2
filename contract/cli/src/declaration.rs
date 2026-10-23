@@ -241,12 +241,15 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
                 "`grants` is a list of lines, or a line per argument",
             )?,
             "handles" => check(value.is_object(), "`handles` names each id field's kind")?,
-            "poll" => check(
-                value
-                    .as_str()
-                    .is_some_and(|o| !object(&entry["options"])[o].is_null()),
-                "`poll` names one of its options",
-            )?,
+            "poll" => {
+                let option = value.as_str().or(value["option"].as_str());
+                let default = &value["default"];
+                check(
+                    option.is_some_and(|o| !object(&entry["options"])[o].is_null())
+                        && (default.is_null() || default.is_number()),
+                    "`poll` names one of its options, or is {\"option\", \"default\"} with a default period",
+                )?
+            }
             _ => continue,
         }
         let key = if field == "grants" {

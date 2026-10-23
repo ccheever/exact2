@@ -51,6 +51,9 @@ pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         // The module's storage still to land (LLP 1097 D10): what a host's
         // quit or suspension waits for, cheaper than `state`.
         Some("background") => format!("{{\"operations\":{}}}", runner.background_operations()),
+        // A polled module source's ask in flight (LLP 1133.009 D10 item 7):
+        // what a jump waits for before it replies.
+        Some("polls") => format!("{{\"asking\":{}}}", runner.polls_asking()),
         // The requests the server holds and the replies landed for them (LLP
         // 1016.000 D9): what `clock held` polls and a clock reply names,
         // cheaper than `state`.

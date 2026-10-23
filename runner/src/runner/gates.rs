@@ -112,6 +112,15 @@ impl<D: DataSource> Runner<D> {
                     .then(|| super::virtual_frame(self.now_ms, 1)),
             )
             .chain(self.queues.next_due.iter().copied())
+            // A polled module source on the live clock (LLP 1133.009 D10
+            // item 7); under the agent a poll never stops a jump.
+            .chain(
+                self.clock
+                    .sample
+                    .is_some()
+                    .then(|| self.poll_due_ms())
+                    .flatten(),
+            )
             // A sequence's fill, count-in's end, end and answer (LLP 1125 D3).
             .chain([
                 self.transport.wake_due(),
