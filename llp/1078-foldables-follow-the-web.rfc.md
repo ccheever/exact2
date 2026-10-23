@@ -639,8 +639,9 @@ the keyboard minimized behind the simulator's hardware keyboard: with the device
 `AutomaticMinimizationEnabled` set it raised nothing in another pose ("The pushed
 route's keyboard, found", above), but setting the key on 2026-10-21 left the full
 keyboard up. The other is a Japanese keyboard's candidates while composing: the driver's
-typing composes nothing, and its taps cannot reach keys below the viewport. The agent's
-`prefer segments` grid, the window's, does not follow the keyboard.
+typing composes nothing, and its taps cannot reach keys below the viewport. On iOS the
+agent's `prefer segments` grid uses window coordinates and follows the keyboard
+under the same policy as a device's fold.
 
 So a page places panes by a segment's edges and, under `resizes-content`, ends one under
 the keyboard at `100%` or `bottom: 0`, not by a segment's height (the foldables recipe).
