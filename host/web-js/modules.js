@@ -6,7 +6,7 @@
 // answered from its `from` source's preferred value, else held under its
 // `ticket` for the agent (`type @t …`). A held request is a promise the
 // agent's answer settles. Imported by an app's module only when its plan
-// names a module.
+// names a module or places a package's view (views.js).
 //
 // Every call is admitted first (LLP 1133.002 D14, as the runner's
 // `modules/admit.rs`): the grant lines its name or arguments list, its
@@ -19,11 +19,13 @@
 // `app`.
 import { data, Resources, commit, R, Failed, nextTicket, say, clock, Clocked, After } from "./rt.js";
 import { reportTime } from "./navigation.js";
+import { packageViews } from "./views.js";
 
 // `rows`: source → [extension.name, send, substitute, type, request, options' type, live];
 // `bound`: extension → a loader of its web implementation, where the app binds one
-// (LLP 1133.001 D4), which answers outside the agent.
-export function modules(rows, bound = {}) {
+// (LLP 1133.001 D4), which answers outside the agent;
+// `views`: a package view's tag → [extension, displayed, binding props] (views.js).
+export function modules(rows, bound = {}, views = {}) {
   const byKey = new Map(), preferred = new Map(), permission = new Map(), held = [];
   for (const [source, [key, send, sub, type, request, options, live]] of Object.entries(rows)) byKey.set(key, { source, key, send, sub, type, request, options, live });
   // A request's own timeout, the option its declaration's `timeout` names: from a Contract call's record, or data code's object.
@@ -107,12 +109,14 @@ export function modules(rows, bound = {}) {
   // `changed`, `agent`, the session's clock (`now`, the agent's under the agent) and whether the page is in the
   // foreground (`foreground()`; `foreground(shown)` on the implementation is told each change). The web has no
   // session end an implementation could finish in.
-  const loaded = new Map(), live = new Set();
+  const loaded = new Map(), chunks = new Map(), live = new Set();
   const shown = () => typeof document !== "object" || document.visibilityState !== "hidden";
-  const implementation = row => {
-    const extension = extensionOf(row);
-    if (route(row) === "substitute") return null;
-    if (!loaded.has(extension)) loaded.set(extension, bound[extension]().then(m => {
+  // The extension's chunk, and the session's one instance of its implementation, which its names and its views share
+  // (LLP 1133.008 D8 item 1).
+  const chunk = extension => { if (!chunks.has(extension)) chunks.set(extension, bound[extension]()); return chunks.get(extension); };
+  const instance = extension => {
+    if (!bound[extension]) return null;
+    if (!loaded.has(extension)) loaded.set(extension, chunk(extension).then(m => {
       const context = { changed: key => byKey.has(key) && reask([key]), agent: clock.agent, now: () => clock.now, foreground: shown };
       const impl = m.implementation?.(context) ?? null;
       if (clock.agent) impl?.preferred?.(preferredOf(extension));
@@ -120,6 +124,8 @@ export function modules(rows, bound = {}) {
     }));
     return loaded.get(extension);
   };
+  const implementation = row => route(row) === "substitute" ? null : instance(extensionOf(row));
+  packageViews(views, chunk, instance);
   if (typeof addEventListener === "function") {
     addEventListener("visibilitychange", () => { for (const impl of loaded.values()) impl.then(i => i?.foreground?.(shown())); });
   }

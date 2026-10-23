@@ -51,11 +51,37 @@ abstract class ExactExtension(val context: ExtensionContext) {
      * as long as its process, which ends without calling this.
      */
     open fun destroy(done: () -> Unit) = done()
+
+    /**
+     * Make view [tag], one of the package's `views`, for node [id] of [session] (LLP 1133.008 D8 item 1): the one
+     * extension of the process makes every session's views, so it keeps their state by session, and [id] is what its
+     * reports name. [emit] sends an event (`message`, `load`, …) with its text. A report can come before the view is
+     * made, since the reader attaches views after first pixel.
+     */
+    open fun view(tag: String, session: String, id: String, context: Context, props: JSONObject, emit: (String, String) -> Unit): android.view.View =
+        throw IllegalArgumentException("${javaClass.name} serves no view $tag")
+
+    /** Every prop of a view [view] made, replaced. */
+    open fun update(view: android.view.View, props: JSONObject) {}
+
+    /** The view's node is gone. */
+    open fun destroyView(view: android.view.View) {}
+
+    /**
+     * View [id] of [session] was displayed or hidden, by the origin of the commit that did it (`app`, `tool` or
+     * `wake`; LLP 1133.008 D8 item 2).
+     */
+    open fun displayed(session: String, id: String, shown: Boolean, origin: String) {}
+
+    /** Prop [prop] of view [id], which binds a device, changed, by the origin of the commit that changed it. */
+    open fun bound(session: String, id: String, prop: String, origin: String) {}
 }
 
 /** The app's bound extensions by name, each with how to make it: what the build writes as `exact.app.ExactExtensions`. */
 interface ExtensionRoster {
     val extensions: Map<String, (ExtensionContext) -> ExactExtension>
+    /** Each view tag a package serves, with the extension that makes it (LLP 1133.001 D1). */
+    val views: Map<String, String> get() = emptyMap()
 }
 
 /** What an extension may use of the host. */
@@ -96,10 +122,11 @@ class ExtensionContext internal constructor(val application: Context, name: Stri
 /** The process's extensions: made at their first call, they outlive the activities that show the app. */
 internal object Extensions {
     private const val CODE = 0x45584154 and 0xffff
-    private val roster: Map<String, (ExtensionContext) -> ExactExtension> by lazy {
-        val type = try { Class.forName("exact.app.ExactExtensions") } catch (e: ClassNotFoundException) { return@lazy emptyMap() }
-        (type.getDeclaredConstructor().newInstance() as ExtensionRoster).extensions
+    private val written: ExtensionRoster? by lazy {
+        val type = try { Class.forName("exact.app.ExactExtensions") } catch (e: ClassNotFoundException) { return@lazy null }
+        type.getDeclaredConstructor().newInstance() as ExtensionRoster
     }
+    private val roster: Map<String, (ExtensionContext) -> ExactExtension> get() = written?.extensions ?: emptyMap()
     private val made = HashMap<String, ExactExtension>()
     private var application: Context? = null
     private var foreground = false
@@ -114,7 +141,8 @@ internal object Extensions {
 
     /**
      * Request [id]'s call, the runner's body: `{"extension", "source"|"send", "args", "preferred"?}`, `{"extension",
-     * "release", "args"?}`, `{"extension", "preferred"}`, `{"extension", "dispose"}` or `{"extension", "foreground"}`.
+     * "release", "args"?}`, `{"extension", "preferred"}`, `{"extension", "dispose"}`, `{"extension", "foreground"}`, or
+     * `{"extension", "view", "displayed"|"bound", "origin"}` (a package view's report, LLP 1133.008 D8 item 2).
      */
     fun call(id: Int, body: String) {
         var answered = false
@@ -122,12 +150,16 @@ internal object Extensions {
         try {
             val request = JSONObject(body)
             val name = request.getString("extension")
-            val extension = made[name]
-                ?: roster[name]?.let { make -> application?.let { make(ExtensionContext(it, name)) } }?.also { made[name] = it }
-                ?: return reply(JSONObject().put("error", "NotSupportedError"))
+            val extension = extension(name) ?: return reply(JSONObject().put("error", "NotSupportedError"))
             val declared = request.optString("source").ifEmpty { request.optString("send") }
             val released = request.optString("release")
             when {
+                request.has("view") -> {
+                    val (view, origin) = request.getString("view") to request.optString("origin", "app")
+                    if (request.has("displayed")) extension.displayed(extension.context.session, view, request.getBoolean("displayed"), origin)
+                    if (request.has("bound")) extension.bound(extension.context.session, view, request.getString("bound"), origin)
+                    reply(JSONObject())
+                }
                 released.isNotEmpty() -> {
                     val args = request.optJSONObject("args")
                     if (args != null) extension.release(released, args) else extension.release(released)
@@ -156,6 +188,31 @@ internal object Extensions {
             Log.e("exact", "extension call $id: $e")
             reply(JSONObject().put("error", "NotSupportedError"))
         }
+    }
+
+    /** Extension [name], made at its first call or view. */
+    private fun extension(name: String): ExactExtension? = made[name]
+        ?: roster[name]?.let { make -> application?.let { make(ExtensionContext(it, name)) } }?.also { made[name] = it }
+
+    /** The app's module views with each package's beside them, each made by its extension (LLP 1133.001 D1). */
+    fun withViews(modules: Map<String, NativeModule>): Map<String, NativeModule> {
+        val views = written?.views ?: emptyMap()
+        return if (views.isEmpty()) modules else modules + views.mapValues { (tag, name) -> PackageView(tag, name) }
+    }
+
+    /** A package's view, as [Natives] makes a module's: the process's one extension makes it for its session. */
+    private class PackageView(val tag: String, val name: String) : NativeModule {
+        private val emits = HashMap<android.view.View, (String, String) -> Unit>()
+        override fun create(context: Context, props: JSONObject) = create(context, props, 0)
+        override fun create(context: Context, props: JSONObject, id: Int): android.view.View {
+            val extension = extension(name) ?: throw IllegalStateException("no extension $name for $tag")
+            lateinit var made: android.view.View
+            made = extension.view(tag, extension.context.session, id.toString(), context, props) { kind, text -> emits[made]?.invoke(kind, text) }
+            return made
+        }
+        override fun update(view: android.view.View, props: JSONObject) { extension(name)?.update(view, props) }
+        override fun events(view: android.view.View, emit: (String, String) -> Unit) { emits[view] = emit }
+        override fun destroy(view: android.view.View) { emits.remove(view); extension(name)?.destroyView(view) }
     }
 
     fun ask(permissions: Array<String>, done: () -> Unit) {

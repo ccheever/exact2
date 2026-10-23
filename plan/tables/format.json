@@ -859,6 +859,28 @@
       ]
     },
     {
+      "name": "views",
+      "_comment": "@ref LLP 1133.001 D1, LLP 1133.008 D8 items 1 and 2: each custom-element tag the app's views place that a package serves rather than the app's own module, with the extension whose implementation makes it in each session. `displayed`: the runner reports each instance's displayed state to that implementation, with the origin of the commit that changed it; `binds`: the props, by name separated by spaces, whose changes it reports the same way.",
+      "fields": [
+        {
+          "name": "tag",
+          "codec": "str"
+        },
+        {
+          "name": "extension",
+          "codec": "str"
+        },
+        {
+          "name": "displayed",
+          "codec": "bool"
+        },
+        {
+          "name": "binds",
+          "codec": "str"
+        }
+      ]
+    },
+    {
       "name": "texts",
       "_comment": "@ref LLP 1060 D3: one localized text, `{name}` placeholders unfilled. Within a locale, sorted by key.",
       "fields": [

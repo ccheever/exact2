@@ -18,6 +18,8 @@
 // - `{"extension", "dispose"}`: handles a dropped reply carried (item 10);
 // - `{"extension", "foreground"}`: the app went to the foreground or left
 //   it (item 3);
+// - `{"extension", "view", "displayed"|"bound", "origin"}`: a package view's
+//   displayed state or binding prop changed (LLP 1133.008 D8 item 2);
 // - `{"extension", "sync", "args"}`, through `call`: data code's
 //   synchronous form.
 //
@@ -40,6 +42,11 @@ open class ExactExtensionAdapter {
     open func dispose(_ ids: [String]) {}
     open func foreground(_ shown: Bool) {}
     open func destroy(_ done: @escaping () -> Void) { done() }
+    open func view(_ tag: String, id: String, props: [String: String], events: ExactNativeEvents) throws -> ExactNativeInstance {
+        throw ExactNativeRefusal("no view \(tag)")
+    }
+    open func displayed(_ id: String, _ shown: Bool, origin: String) {}
+    open func bound(_ id: String, _ prop: String, origin: String) {}
 }
 
 /// The adapters of each session's module, by extension; main thread only.
@@ -77,7 +84,12 @@ enum ExactExtensions {
             return true
         }
         let args = request["args"] as? [String: Any]
-        if let name = request["release"] as? String {
+        if let view = request["view"] as? String {
+            let origin = request["origin"] as? String ?? "app"
+            if let shown = request["displayed"] as? Bool { a.displayed(view, shown, origin: origin) }
+            if let prop = request["bound"] as? String { a.bound(view, prop, origin: origin) }
+            reply.send([:])
+        } else if let name = request["release"] as? String {
             if let args { a.release(name, args: args) } else { a.release(name) }
             reply.send([:])
         } else if let values = request["preferred"] as? [String: Any], request["source"] == nil, request["send"] == nil {
@@ -95,6 +107,13 @@ enum ExactExtensions {
             reply.send(["error": "NotSupportedError"])
         }
         return true
+    }
+
+    /// Package view `tag` of node `id`, made by `extension`'s adapter in `m`'s
+    /// session, which is made now if no call made it first.
+    static func view(_ m: ExactModule, _ extensionName: String, _ tag: String, id: String, props: [String: String], events: ExactNativeEvents) throws -> ExactNativeInstance {
+        guard let a = adapter(m, extensionName) else { throw ExactNativeRefusal("no extension \(extensionName) for \(tag)") }
+        return try a.view(tag, id: id, props: props, events: events)
     }
 
     /// A synchronous form (`{"extension", "sync", "args"}`); `nil` for a request that names no extension.

@@ -35,6 +35,7 @@ mod midi;
 mod module_rust;
 mod modules;
 pub mod native;
+mod package_views;
 pub mod picker;
 mod resolve;
 mod retained;
@@ -821,7 +822,7 @@ fn compile_loaded(
     warned: Option<&mut Vec<CompileError>>,
 ) -> Result<(Plan, Option<SourceMap>), Vec<CompileError>> {
     let app_root = app_root.to_path_buf();
-    native::check(&file, &app_root).map_err(|all| {
+    let views = native::check(&file, &app_root).map_err(|all| {
         all.into_iter()
             .map(|e| sources.resolve(e))
             .collect::<Vec<_>>()
@@ -878,6 +879,10 @@ fn compile_loaded(
     })?;
     if !surface.is_empty() {
         return Err(surface);
+    }
+    for v in &views {
+        let binds: Vec<&str> = v.binds.iter().map(String::as_str).collect();
+        plan.add_view(&v.tag, &v.extension, v.displayed, &binds);
     }
     if app_root.join("app.json").is_file() || app_root.join(".shells/app.json").is_file() {
         let manifest = Manifest::read(&app_root).map_err(|message| CompileError {

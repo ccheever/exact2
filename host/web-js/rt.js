@@ -810,7 +810,7 @@ export function nm(e) {
   // In flight until the module is attached and its first events are in (`clock settle` waits for them).
   inflight.n++;
   (Native ??= painted().then(() => import("./native.js")).then(m => m.viewHost(say)))
-    .then(h => { h.attach(e); return h.loaded; }, err => { st.state = "unavailable"; st.error = String(err?.message ?? err); say(`native ${st.name} #${id}: unavailable: ${st.error}`); })
+    .then(h => h.attach(e), err => { st.state = "unavailable"; st.error = String(err?.message ?? err); say(`native ${st.name} #${id}: unavailable: ${st.error}`); })
     .finally(() => setTimeout(() => inflight.n--));
 }
 export const blank = v => typeof v === "string" && !v.trim() ? null : v;

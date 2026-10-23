@@ -521,10 +521,11 @@ fn main() -> ExitCode {
                     );
                 }
             }
-            // A native module's names and extensions (modules.js): the build
-            // writes each extension's web implementation beside the app.
+            // A native module's names, its package views and their extensions
+            // (modules.js): the build writes each extension's web
+            // implementation beside the app.
             let _ = std::fs::remove_file(dir.join("modules.flag"));
-            if !plan.modules.is_empty() {
+            if !plan.modules.is_empty() || !plan.views.is_empty() {
                 let sources: Vec<&str> = (plan.modules.iter())
                     .map(|m| plan.str(plan.sources[m.source.0 as usize].name))
                     .collect();

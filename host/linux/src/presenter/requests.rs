@@ -356,6 +356,9 @@ impl<D: DataSource> Presenter<D> {
         if let Some(held) = self.wakelock_moved() {
             self.queue(Request::KeepScreenOn(held));
         }
+        // A package view's displayed state, by the same rule, now the bars'
+        // covers are set (LLP 1133.008 D8 item 2).
+        self.host.runner_mut().report_views();
     }
 
     /// Whether a displayed element holds the wake lock (`exact_runner::wakelock`,

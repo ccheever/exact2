@@ -13,7 +13,7 @@ impl<D: DataSource> Runner<D> {
     /// resource that reads it, or whose data code did), and the tickets held
     /// with their calls' origins. `None` for a plan that names none.
     pub fn extensions_json(&self) -> Option<String> {
-        if self.plan.modules.is_empty() {
+        if self.plan.modules.is_empty() && self.plan.views.is_empty() {
             return None;
         }
         let mut out = Map::new();
@@ -52,6 +52,16 @@ impl<D: DataSource> Runner<D> {
                     held.push(json!({ "ticket": h.hold, "name": declared, "origin": h.origin.word(), "waits": match h.waits { Waits::Permission => "permission", Waits::Value => "value", Waits::Raise => "raise" } }));
                 }
             }
+        }
+        // Each package view, and who made it displayed (LLP 1133.008 D8 item 2).
+        for row in &self.plan.views {
+            let extension = self.plan.str(row.extension);
+            let views = self.views_json(extension);
+            let bound = self.extensions.bound.contains(extension);
+            let entry = (out.entry(extension.to_owned())).or_insert_with(
+                || json!({ "bound": bound, "preferred": {}, "readers": {}, "held": [] }),
+            );
+            entry["views"] = json!(views);
         }
         Some(Json::Object(out).to_string())
     }

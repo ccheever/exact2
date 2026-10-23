@@ -40,6 +40,7 @@ mod agent;
 mod bound;
 mod handles;
 mod poll;
+mod views;
 pub use admit::CallOrigin;
 use admit::{Origins, Route};
 use std::sync::{Arc, Mutex};
@@ -84,6 +85,8 @@ pub(super) struct Extensions {
     arrived: handles::Arrived,
     /// Each polled source's last ask, on the session's clock (`poll.rs`).
     polls: BTreeMap<String, f64>,
+    /// What each package view's implementation was told (`views.rs`).
+    views: views::Views,
 }
 
 /// A held request's outcome once the agent answered it.

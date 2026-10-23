@@ -1,6 +1,7 @@
 //! The app's native-module roster (LLP 1024 D1): the tags its module
-//! artifact serves, declared in `app.json` as `"modules": ["tag", …]`. A
-//! module tag the roster does not name is `bake-unknown-module`, so a typo
+//! artifact serves, declared in `app.json` as `"modules": ["tag", …]`, and
+//! the views its packages serve (`package_views`). A module tag neither
+//! names is `bake-unknown-module`, so a typo
 //! is a named diagnostic in the dev loop and in every build, never an empty
 //! box at runtime. Beside it, the app's `data-*` words (LLP 1075.003 Q2):
 //! `"data": ["word", …]`, from which the Apple build also writes the Swift
@@ -10,6 +11,7 @@
 //! with the platforms that handle it (LLP 1075.003.000.001 §5).
 
 use super::{CompileError, Manifest};
+use crate::package_views::PackageView;
 use contract_syntax::{File, Span};
 use std::path::Path;
 
@@ -334,9 +336,13 @@ fn words(manifest: &Manifest, kind: &Words) -> Result<Vec<String>, String> {
 }
 
 /// Every module tag, `data-` word and `hatch` word in `file` against what the
-/// app at `app_root` declares.
-pub(super) fn check(file: &File, app_root: &Path) -> Result<(), Vec<CompileError>> {
-    let mut errors = check_modules(file, app_root).err().unwrap_or_default();
+/// app at `app_root` declares; the package views the file places, for the
+/// plan's `views` table.
+pub(super) fn check(file: &File, app_root: &Path) -> Result<Vec<PackageView>, Vec<CompileError>> {
+    let (views, mut errors) = match check_modules(file, app_root) {
+        Ok(views) => (views, Vec::new()),
+        Err(errors) => (Vec::new(), errors),
+    };
     errors.extend(check_words(
         contract_lower::data_words(file),
         app_root,
@@ -348,7 +354,7 @@ pub(super) fn check(file: &File, app_root: &Path) -> Result<(), Vec<CompileError
         &Words::HATCHES,
     ));
     if errors.is_empty() {
-        Ok(())
+        Ok(views)
     } else {
         Err(errors)
     }
@@ -413,10 +419,12 @@ fn check_words(used: Vec<(String, Span)>, app_root: &Path, kind: &Words) -> Vec<
         .collect()
 }
 
-fn check_modules(file: &File, app_root: &Path) -> Result<(), Vec<CompileError>> {
+/// Each module tag `file` places against the app's roster and the views its
+/// packages serve (`crate::package_views`); the package views it places.
+fn check_modules(file: &File, app_root: &Path) -> Result<Vec<PackageView>, Vec<CompileError>> {
     let used = contract_lower::module_tags(file);
     if used.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
     let refusal = |id: &str, message: String, span: Span| CompileError {
         pass: "bake",
@@ -429,27 +437,53 @@ fn check_modules(file: &File, app_root: &Path) -> Result<(), Vec<CompileError>> 
     let roster = Manifest::read(app_root)
         .and_then(|m| roster(&m))
         .map_err(|message| vec![refusal("app-manifest", message, Span::default())])?;
+    let packages = crate::package_views::declared(app_root)
+        .map_err(|message| vec![refusal("bake-view-twice", message, Span::default())])?;
+    if let Some(view) = packages.values().find(|v| roster.contains(&v.tag)) {
+        return Err(vec![refusal(
+            "bake-view-twice",
+            format!(
+                "`{}` is declared by app.json `modules` and by {}: a tag is one per document, so take it out of `modules` or depend on another package",
+                view.tag, view.package
+            ),
+            used.iter().find(|(t, _)| *t == view.tag).map_or_else(Span::default, |u| u.1),
+        )]);
+    }
+    let known: Vec<&str> = (roster.iter().map(String::as_str))
+        .chain(packages.keys().map(String::as_str))
+        .collect();
+    let mut placed = Vec::new();
     let errors: Vec<CompileError> = used
         .into_iter()
-        .filter(|(tag, _)| !roster.contains(tag))
+        .filter(|(tag, _)| {
+            if let Some(view) = packages.get(tag) {
+                if !placed.contains(view) {
+                    placed.push(view.clone());
+                }
+            }
+            !known.contains(&tag.as_str())
+        })
         .map(|(tag, span)| {
-            let hint = contract_syntax::suggestion(&tag, roster.iter().map(String::as_str))
+            let hint = contract_syntax::suggestion(&tag, known.iter().copied())
                 .map(|n| format!("; did you mean `{n}`?"))
                 .unwrap_or_default();
-            let listed = if roster.is_empty() {
-                "the app declares no native modules (app.json `modules`)".to_owned()
+            let listed = if known.is_empty() {
+                "the app declares no native modules (app.json `modules`) and depends on no package that serves a view".to_owned()
             } else {
-                format!("the app's modules are {}", roster.join(", "))
+                format!("the app's modules and its packages' views are {}", known.join(", "))
             };
+            let add = crate::package_views::standard_with(&tag)
+                .map(|m| format!("; exact2's `{m}` module serves it: `exact add {m}` adds it to the app's package.json"))
+                .unwrap_or_default();
             refusal(
                 "bake-unknown-module",
-                format!("`{tag}` is not a native module of this app: {listed}{hint}"),
+                format!("`{tag}` is not a native module of this app: {listed}{hint}{add}"),
                 span,
             )
         })
         .collect();
     if errors.is_empty() {
-        Ok(())
+        Ok(placed)
     } else {
         Err(errors)
     }

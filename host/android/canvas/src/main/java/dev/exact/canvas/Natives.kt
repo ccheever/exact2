@@ -23,6 +23,8 @@ import java.io.File
  */
 interface NativeModule {
     fun create(context: Context, props: JSONObject): View
+    /** [create] for element [id], the node's id: a package's view is made with it (LLP 1133.008 D8 item 1). */
+    fun create(context: Context, props: JSONObject, id: Int): View = create(context, props)
     fun update(view: View, props: JSONObject)
     /** Bound before the first update. Keep this callback only until the next binding; a retired one is ignored. */
     fun events(view: View, emit: (String, String) -> Unit) {}
@@ -521,7 +523,7 @@ class Natives(
             val name = json.optString("module")
             val module = modules[name]
             if (module == null) { android.util.Log.w("exact", "no native module $name"); null }
-            else pool[name]?.removeLastOrNull() ?: module.create(context, moduleProps(json))
+            else pool[name]?.removeLastOrNull() ?: module.create(context, moduleProps(json), id)
         }
     }
 

@@ -262,6 +262,7 @@ impl<D: DataSource> Runner<D> {
     /// Retire every hold whose node is gone (after a commit).
     pub(super) fn retire_holds(&mut self) {
         self.retire_modules();
+        self.views_committed();
         let kernel = &self.kernel;
         let pending = &self.pending;
         let (live, gone): (Vec<_>, Vec<_>) = std::mem::take(&mut self.device_holds)

@@ -46,7 +46,7 @@ export function hold(on, journal) {
  * a route or tab panel its navigation root hides (navigation.js `project`;
  * the route a sheet covers stays visible), as the runner's rule
  * (runner/src/wakelock.rs). */
-function displayed(el, root) {
+export function displayed(el, root) {
   for (let n = el; n; n = n === root ? null : n.parentElement) {
     if (n.hasAttribute("data-exiting") || getComputedStyle(n).display === "none") return false;
     if (n.style.visibility === "hidden" && (n.hasAttribute("navigationKey") || n.getAttribute("role") === "tabpanel")) return false;
