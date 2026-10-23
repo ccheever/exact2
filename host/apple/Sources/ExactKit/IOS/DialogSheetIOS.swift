@@ -17,7 +17,7 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
-final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate {
+final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate, UIScrollViewDelegate {
     fileprivate weak var host: DialogSheets?
     let scroller = ScrollView()
     /// The dialog's box as the kernel laid it out: the sheet's height.
@@ -72,6 +72,7 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
         view.backgroundColor = ThemeRoles.color("background", in: view) ?? ThemeRoles.color("Canvas", in: view, or: .systemBackground)
         scroller.keyboardDismissMode = .interactive
         #endif
+        scroller.delegate = self
         scroller.frame = view.bounds
         scroller.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         scroller.contentInsetAdjustmentBehavior = .always
@@ -82,7 +83,9 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
         super.viewDidLayoutSubviews()
         place()
         host?.containingBlockChanged()
+        host?.geometryChanged()
     }
+    func scrollViewDidScroll(_ scrollView: UIScrollView) { host?.geometryChanged() }
     override var keyCommands: [UIKeyCommand]? {
         [UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(escape))]
     }
@@ -199,6 +202,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
     var onCancel: ((UInt32) -> Void)?
 
     init(presenter: Presenter) { self.presenter = presenter }
+    fileprivate func geometryChanged() { presenter?.nativeGeometry.changed() }
 
     /// Shown, or still on screen while its sheet leaves.
     func owns(_ node: NodeView) -> Bool { (entries + resuming).contains { $0.dialog === node } }
