@@ -80,7 +80,7 @@ struct OffscreenAutoplay {
 final class VideoView {
     weak var owner: NodeView?
     #if os(iOS) || os(tvOS)
-    // Player creation and the first update together include AVKit's presentation view.
+    // Player creation and the first source update together include AVKit's presentation view.
     private var creationSeconds: TimeInterval?
     #endif
     private var handle: UnsafeMutableRawPointer?
@@ -292,7 +292,7 @@ final class VideoView {
         data.withUnsafeBytes { module.update(handle, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
         #if os(iOS) || os(tvOS)
         if !audible { holdSession(false) }
-        if let creationSeconds {
+        if props["src"] != nil, let creationSeconds {
             self.creationSeconds = nil
             HeavyLeaves.record("video", creationSeconds + CACurrentMediaTime() - started)
         }
