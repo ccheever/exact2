@@ -126,6 +126,8 @@ structure Subst where
   binders : List (String × Option String) := []
   /-- Whether a call's head is replaced too. -/
   calls : Bool := true
+  /-- Derives replace value reads only, including those whose bodies are calls. -/
+  valueOnly : List String := []
   /-- Record constructors: a call naming one keeps its head. -/
   records : List String := []
 
@@ -192,7 +194,7 @@ def substExpr (s : Subst) : Expr → Expr
     | .none => e
   | .call n args =>
     let args := substList s args
-    if !s.calls || s.records.contains n || s.bindsCall n then .call n args else
+    if !s.calls || s.valueOnly.contains n || s.records.contains n || s.bindsCall n then .call n args else
     match s.get n with
     | .some (.name f) => .call f args
     | .some (.expr (.call f first)) => .call f (first ++ args)
@@ -808,7 +810,7 @@ def substHandler (s : Subst) (a : String) (args : List Expr) : ExM (String × Li
     | .none => pure (a, [])
   else
     let args := substList s args
-    if !s.calls || s.records.contains a then pure (a, args) else
+    if !s.calls || s.valueOnly.contains a || s.records.contains a then pure (a, args) else
     match s.get a with
     | .some (.name f) => pure (f, args)
     | .some (.expr (.call f first)) => pure (f, first ++ args)
@@ -848,9 +850,11 @@ def baseMap (s : Subst) (c : CComponent) (args provides : List (String × Expr))
   let ia ← injectArgs provides c
   pure (insertAll (insertAll (insertAll [] pa) ia) (c.states.map fun st => (st.name, .var (lifted st.name n))))
 
-/-- The derives, each resolved expression substituted against `m`, inserted. -/
-def withDerives (records : List String) (m : SMap) (derives : List (String × Expr)) : SMap :=
-  insertAll m (derives.map fun (d, e) => (d, substExpr { map := m, records } e))
+/-- The derives, each resolved expression substituted against `m`, inserted
+as value-only bindings. -/
+def withDerives (records : List String) (m : SMap) (derives : List (String × Expr)) : Subst :=
+  { map := insertAll m (derives.map fun (d, e) => (d, substExpr { map := m, records } e)),
+    valueOnly := derives.map (·.1), records }
 
 /-- Enter arm `arm` of the region tagged `tag`. -/
 def inArm {α} (tag arm : Nat) (m : ExM α) : ExM α := do
@@ -964,7 +968,7 @@ def inlineNode (p : CProgram) : Nat → Subst → CNode → ExM (List Node)
       let derives ← match resolvedDerives c with
         | .ok ds => pure ds
         | .error e => refuse e
-      let cs : Subst := { map := withDerives p.records child derives, records := p.records }
+      let cs := withDerives p.records child derives
       let owner' : Option (Nat × Nat) := match owner with
         | .arm t a => Option.some (t, a)
         | _ => Option.none
@@ -978,13 +982,11 @@ def inlineNode (p : CProgram) : Nat → Subst → CNode → ExM (List Node)
           if src != "" then act := act.insert src (.var param)
         for st in c.states do
           act := act.insert st.name (.var (nameOf st.name))
-        let abase := act
-        for (d, e) in derives do
-          act := act.insert d (substExpr { map := abase, records := p.records } e)
+        let mut asub := withDerives p.records act derives
         for (q, _) in a.params do
-          act := act.erase q
+          asub := { asub with map := asub.map.erase q }
         let body := callMarked called
-          (withCaptures (captures.map (·.1.1)) (substStmts { map := act, records := p.records } names a.body))
+          (withCaptures (captures.map (·.1.1)) (substStmts asub names a.body))
         modify fun ctx => { ctx with extraActions := ctx.extraActions ++
           [{ name := nameOf a.name, params := captures.map (·.1) ++ a.params, body }] }
       if !fill.isEmpty && !c.slot then
