@@ -539,6 +539,7 @@ extension Presenter {
         if let e = obj as? NSAccessibilityElement, let n = e.accessibilityParent() as? NodeView { return (n.id, "owner") }
         // A control's cell is the control's (its accessibility is the cell's).
         let host = (obj as? NSCell)?.controlView ?? (obj as? NSView)
+        if obj is NSCell, let owned = host as? AgentOwned, let id = owned.agentViewId { return (id, "owner") }
         if let n = host as? NodeView, obj is NSCell { return (n.id, "owner") }
         var v = obj is NSCell ? host : host?.superview
         let control = host is NSControl

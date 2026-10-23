@@ -655,7 +655,14 @@ final class RouteSheetMacTests: XCTestCase {
         addTeardownBlock { NodeView.everyClickCounts = ExactEnv.agentMode }
         let agent = f.session.agentInstance
         try f.press("open-add")
-        let route = try f.node("add"), author = try f.node("add-author"), (window, _) = try sheet(f)
+        let route = try f.node("add"), author = try f.node("add-author"), (window, chrome) = try sheet(f)
+        XCTAssertEqual(chrome.cancel.accessibilityIdentifier(), "add-cancel")
+        XCTAssertEqual(chrome.confirm.accessibilityIdentifier(), "add-save")
+        let elements = try XCTUnwrap(p.axElements(roots: [chrome])["elements"] as? [[String: Any]])
+        for testId in ["add-cancel", "add-save"] {
+            let button = try XCTUnwrap(elements.first { $0["testId"] as? String == testId }, "\(elements)")
+            XCTAssertEqual(button["id"] as? UInt32, try f.node(testId).id)
+        }
         let navigation = try XCTUnwrap(agent.stateSections()["navigation"] as? [String: Any])
         XCTAssertEqual(navigation["presentation"] as? String, "modal")
         XCTAssertEqual((navigation["stack"] as? [String])?.last, "add", "the route in its sheet is still its stack's")
