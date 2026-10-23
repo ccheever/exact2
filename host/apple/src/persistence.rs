@@ -2,8 +2,8 @@
 use super::*;
 
 impl<D: DataSource> Host<D> {
-    /// Persist after the runner commits. The batch reports failures through
-    /// its existing error channel; the committed in-memory value stays live.
+    /// Persist after the runner commits. I/O failures belong in the journal;
+    /// they cannot refuse work the runner has already committed.
     pub(super) fn persist(&mut self) {
         let mut changed = self.runner.data().take_storage_changed();
         for line in self.kept_failures() {
@@ -38,12 +38,6 @@ impl<D: DataSource> Host<D> {
     }
 
     fn store_failure(&mut self, line: String) {
-        self.runner.log(line.clone());
-        if let Some(error) = &mut self.store_error {
-            error.push_str("; ");
-            error.push_str(&line);
-        } else {
-            self.store_error = Some(line);
-        }
+        self.runner.log(line);
     }
 }

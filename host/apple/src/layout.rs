@@ -24,17 +24,11 @@ impl<D: DataSource> Host<D> {
         }
         batch.facts = self.facts_moved();
         batch.wakelock = self.wakelock_moved();
-        let storage_error = self.store_error.take();
-        let error = match (error, storage_error) {
-            (Some(error), Some(storage)) => Some(format!("{error}; {storage}")),
-            (Some(error), None) => Some(error.to_string()),
-            (None, storage) => storage,
-        };
         batch.finish(
             self.runner.timer_due_ms(),
             !self.engine.quiescent(),
             self.runner.now_ms(),
-            error.as_deref(),
+            error,
         )
     }
 
