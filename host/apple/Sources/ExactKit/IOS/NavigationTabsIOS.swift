@@ -389,7 +389,7 @@ extension NavigationHost {
         // At its top under a collapsed title it goes on to the open title's
         // inset, as UIKit's status-bar tap does, and opens it.
         let inset = max(sv.adjustedContentInset.top, node === c.collapseScroll ? node.scrollOrigin : 0)
-        guard sv.contentOffset.y > 0.5 - inset else { return }
+        guard sv.contentOffset.y > 0.5 - inset else { return restAtTop(sv, in: c) }
         guard scrollsToTopAnimated else { return restAtTop(sv, in: c) }
         sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: -inset), animated: true)
     }

@@ -385,5 +385,49 @@ final class PushedTitleIOSTests: XCTestCase {
         XCTAssertEqual(swap.bar, expanded, accuracy: 0.5, "the title stays open")
         XCTAssertEqual(swap.below, 0, accuracy: 0.5, "its first line just below the title")
     }
+    func testAReasonAboveABottomScrollerDoesNotChangeItsPositionWhenRemoved() throws {
+        let (_, _, nav) = try fixture()
+        let (expanded, _) = try heights(nav)
+        try tap("home-open-swap", in: nav, depth: 2)
+        try tap("swap-fail", in: nav, depth: 2)
+        try tap("swap-fail", in: nav, depth: 2)
+        let swap = try state(nav, "swap", "swap-first", top: "swap-first-top")
+        XCTAssertEqual(swap.scrolled, 0, accuracy: 0.5)
+        XCTAssertEqual(swap.bar, expanded, accuracy: 0.5)
+        XCTAssertTrue(swap.large)
+    }
+
+    func testReselectingATabOpensACollapsedTitleWhoseContentIsAlreadyAtTheTop() throws {
+        let (session, _, nav) = try fixture()
+        let (expanded, _) = try heights(nav)
+        try tap("home-open-long", in: nav, depth: 2)
+        try scroll("long-scroll", to: 300)
+        try tap("long-replace-short", in: nav, depth: 2)
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        session.presenter.navigation.scrollsToTopAnimated = false
+        session.presenter.navigation.scrollToTop(route)
+        settle()
+        XCTAssertEqual(nav.navigationBar.frame.height, expanded, accuracy: 0.5)
+        XCTAssertTrue(largeTitleShows("short"))
+    }
+
+    func testAgentDragsScrollAGroupedListAndPullItsTitleOpen() throws {
+        let (session, _, nav) = try fixture()
+        let (expanded, inline) = try heights(nav)
+        try tap("home-open-rows", in: nav, depth: 2)
+        let rows = try node("rows-scroll")
+        let agent = Agent(session: session)
+        let down = agent.tap(["id": Int(rows.id), "scrollDrag": [0.0, -300.0]])
+        XCTAssertNil(down["error"], "\(down)")
+        settle()
+        XCTAssertGreaterThan(try state(nav, "rows", "rows-scroll").scrolled, 200)
+        XCTAssertEqual(nav.navigationBar.frame.height, inline, accuracy: 0.5)
+        let up = agent.tap(["id": Int(rows.id), "scrollDrag": [0.0, 600.0]])
+        XCTAssertNil(up["error"], "\(up)")
+        settle()
+        XCTAssertEqual(nav.navigationBar.frame.height, expanded, accuracy: 0.5)
+        XCTAssertEqual(try state(nav, "rows", "rows-scroll").scrolled, 0, accuracy: 0.5)
+    }
+
 }
 #endif

@@ -494,5 +494,18 @@ final class TextSelectionIOSTests: XCTestCase {
         XCTAssertNotNil(p.textSelection.text(for: chosen)?.selectedTextRange)
         XCTAssertEqual(p.textSelection.texts.count, TextSelectionHost.kept)
     }
+    func testAnAgentTapClearsASelectionWithoutPressingTheRow() throws {
+        let p = page()
+        let paragraph = try node(p, 7)
+        let point = try point(in: paragraph, of: "Selectable")
+        XCTAssertNotNil(p.textSelection.selectWord(in: paragraph, at: point))
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        let reply = Agent(session: try XCTUnwrap(session)).tap(["id": 7])
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertNil(p.textSelection.selection)
+        XCTAssertTrue(presses.isEmpty)
+    }
+
 }
 #endif

@@ -214,6 +214,7 @@ package final class Presenter {
         // Rows a rescue built show this frame: their text paints now, not
         // after the commit, or they show without it (LLP 1050.000 D1).
         collections.rescued = { [unowned self] in paintVisibleText() }
+        viewport.keyboardDismissMode = .interactive
         viewport.contentInsetAdjustmentBehavior = .never
         viewport.backgroundColor = .platformBackground(in: root)
     }
@@ -482,7 +483,7 @@ package final class Presenter {
         if fields, focused.map({ backward ? $0 == 0 : $0 == order.count - 1 }) ?? true { return false }
         let next = focused.map { (backward ? $0 - 1 + order.count : $0 + 1) % order.count } ?? (backward ? order.count - 1 : 0)
         let target = order[next]
-        let responder: UIView = target.textArea ?? target.field ?? target
+        let responder: UIView = target.headerField ?? target.textArea ?? target.field ?? target
         chooseFocus(target)
         let became = responder.becomeFirstResponder()
         if became, responder === target { target.showFocusRing(true) }
@@ -529,10 +530,11 @@ package final class Presenter {
     private func focus(_ target: NodeView, selectText: Bool) {
         focusAsked = target
         let name = target.props["id"] ?? "#\(target.id)"
+        let shown: UIView = target.headerField ?? target
         // UIKit may not announce its next transition until after the outgoing
         // sheet starts dismissing. The selected route's editor already exists,
         // but cannot receive focus until its controller mounts it in a window.
-        if !deliveringFocus, navigation.defersFocus || modals.defersFocus || target.window == nil {
+        if !deliveringFocus, navigation.defersFocus || modals.defersFocus || shown.window == nil {
             pendingFocus = (target, target.props["id"], selectText, navigation.defersFocus
                 ? "navigation is still transitioning" : modals.defersFocus
                 ? "the sheet is still presenting" : "the target is not mounted")
@@ -540,15 +542,15 @@ package final class Presenter {
             return
         }
         // Inert behind a presentation, or under an authored `inert` (LLP 1123 D2)
-        let hidden = sequence(first: target as UIView, next: \.superview).contains { $0.isHidden }
+        let hidden = sequence(first: shown, next: \.superview).contains { $0.isHidden }
         // The mounted window is a prerequisite, never another session's.
-        if let reason = NavigationRules.focusRefusal(mounted: target.window != nil, disabled: target.formDisabled,
-                                                     zeroSize: target.bounds.width == 0 || target.bounds.height == 0,
+        if let reason = NavigationRules.focusRefusal(mounted: shown.window != nil, disabled: target.formDisabled,
+                                                     zeroSize: shown.bounds.width == 0 || shown.bounds.height == 0,
                                                      hiddenAncestor: hidden, inertAncestor: target.inert) {
             session?.log("focus \"\(name)\" refused: \(reason)")
             return
         }
-        let responder: UIView = target.textArea ?? target.field ?? target
+        let responder: UIView = target.headerField ?? target.textArea ?? target.field ?? target
         if selectText, target.textArea == nil, target.field == nil {
             session?.log("selectText \"\(name)\" refused: not a text editor")
             return
@@ -564,7 +566,7 @@ package final class Presenter {
         pendingFocus = nil
         if let name = args.first as? String {
             guard let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else { return }
-            let responder: UIView = target.textArea ?? target.field ?? target
+            let responder: UIView = target.headerField ?? target.textArea ?? target.field ?? target
             if responder.isFirstResponder { _ = responder.resignFirstResponder() }
             return
         }
