@@ -12,3 +12,5 @@ component App
           text "Visible"
         column id="clipped" position="absolute" left=20 top=1700 width=100 height=50
           text "Clipped"
+      dialog id="responsive" width="100%" height=180
+        text "Sheet width"
