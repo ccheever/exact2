@@ -1059,9 +1059,13 @@ A data module imports pure-JavaScript packages installed in `node_modules`
   package code to learn about the module: `appId`, `grants` and the export
   names are read from app.ts's syntax (`staticFacts`), so each of `appId`
   and `grants` is a constant (a string, a template or `+` of constants, an
-  array of them `.join(…)`, `a === b ? x : y` or `!==` over constants, or a
-  top-level `const` holding one), and every
-  producer refuses another by name and place. (The web build had imported
+  array of them `.join(…)`, or a top-level `const` holding one). Grants may
+  also be an object literal keyed by http(s) origin string literals, each
+  value a string literal or an array of string literal grant lines. The bake
+  requires an exact key for the selected `origin` and replaces the captured
+  initializer with that entry's lines joined by `\n` before type-checking;
+  the authored file stays unchanged. Every producer refuses other forms by
+  name and place. (The web build had imported
   `app.ts` into Bun, whose resolver takes a package's Node entry; a `node:vm`
   realm is no boundary either: on Bun 1.4.2 its global's constructor reaches
   `process`, and promise jobs outlive its timeout.) Every import from a
