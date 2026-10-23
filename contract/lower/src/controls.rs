@@ -983,6 +983,7 @@ fn face_counts(
                             ("image", "width" | "height") if !positional.first().is_some_and(symbol_source) => format!("a raster face needs `button appearance=\"none\"`; put `{}` on its image there to size the picture's box", a.name),
                             ("image", "width" | "height") => format!("write `font-size=…` for the symbol's size in a native button, not `{}`: there a symbol's `font-size` is its point size and `width` would size a box (LLP 1069.011.001 D4); a box of that size is a custom `button`", a.name),
                             (_, name) if name == "role" || name.starts_with("aria-") => format!("put the `{name}` on a node beside the button: a button's content is presentational (WAI-ARIA 1.2, a button's children are presentational), so it is not announced inside it; name the button with `aria-label` if its words differ"),
+                            ("image", "color") if positional.first().is_some_and(symbol_source) => "a native button's symbol is coloured with `-exact-tint-color`, not `color`; a floating round control is `buttonStyle=\"glass\"` (or `\"prominent-glass\"`), still the platform's button".to_string(),
                             _ => format!("a native button's `{tag}` takes no `{}`; write a custom `button` for other face rows", a.name),
                         };
                         return err("lower-button-style-attr", message, a.span);
