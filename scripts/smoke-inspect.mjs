@@ -175,7 +175,7 @@ export async function rebooted(carrier) {
 }
 
 /** Messages' authored menu must work with the Mac's default key loop and UIKit's keyboard focus. */
-export async function messageMenuKeys(s, { host, check }) {
+async function messageMenuKeys(s, { host, check }) {
   await s.tap('conversation-demo');
   await s.clock('settle');
   if (host === 'macos') check((await s.state()).focus.keyboardNavigation === false, 'Messages: Keyboard Navigation is off');
@@ -226,4 +226,27 @@ export async function messageMenuKeys(s, { host, check }) {
   if (host === 'ios') check(tap.delivery === 'platform', 'Messages: the bubble receives a real touch');
   check((await focused())?.props.testId === 'composer', 'Messages: a bubble tap keeps the composer focused');
   check((await s.state()).slots.selected === '', 'Messages: a single tap leaves the menu closed');
+}
+
+
+/** Exercise each message consumer's keyboard route to its actions. */
+export async function messageKeys(s, { host, check, app }) {
+  if (app === 'messages') return messageMenuKeys(s, { host, check });
+  if (!['messages-stress', 'exact-live'].includes(app)) return;
+  if (app === 'messages-stress') await s.tap('toggle-windowed');
+  else if (!byTestId(await s.tree(), 'crew-input')) await s.tap('pane-crew');
+  await s.clock('settle');
+  if (host === 'macos') check((await s.state()).focus.keyboardNavigation === false, `${app}: Keyboard Navigation is off`);
+  const field = app === 'messages-stress' ? 'stress-input' : 'crew-input';
+  await s.type(field, '');
+  await s.type(field, { key: 'Shift+Tab' });
+  const tree = await s.tree(), id = (await s.state()).focus.logical;
+  const button = tree.nodes.find(n => n.id === id);
+  const reply = button?.props.testId?.startsWith('reply-') || button?.props.accessibilityLabel?.startsWith('Reply to ');
+  if (!check(reply, `${app}: Shift+Tab from the composer reaches Reply, got ${button?.props.testId ?? button?.props.accessibilityLabel}`)) return;
+  const source = app === 'messages-stress' ? button.props.testId.slice('reply-'.length)
+    : tree.nodes.find(n => n.parent === button.parent && n.props.testId?.startsWith('crew-swipe-'))?.props.testId.slice('crew-swipe-'.length);
+  if (!check(source != null, `${app}: Reply names a message`)) return;
+  await s.type(button.id, { key: 'Space' });
+  check((await s.state()).slots.replying === source, `${app}: Space replies to the focused message`);
 }

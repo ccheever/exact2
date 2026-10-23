@@ -14,7 +14,7 @@ import { resolve } from 'node:path';
 import { browserDiagnosticNoise, open as openAgent, render, runTests as runAgentTests } from './agent.mjs';
 import { driveStore, pollUntil } from './agent-launch.mjs';
 import { HOST_DEV, resolveApp, withAppFixture } from './app.mjs';
-import { agree, explainNode, hostSections, httpFrameSmoke, poolingDrive, messageMenuKeys, rebooted } from './smoke-inspect.mjs';
+import { agree, explainNode, hostSections, httpFrameSmoke, poolingDrive, messageKeys, rebooted } from './smoke-inspect.mjs';
 import { DirectoryOrigin, parseWebRoot, webReleasePath, webRootPath } from './origin.mjs';
 import { jsTargetBuild, readStaticFile, serveStatic } from '../host/web/serve.mjs';
 import { canonicalBytes, publicKeyFromRaw, webRelease } from './deploy.mjs';
@@ -561,7 +561,7 @@ try {
   }
   await agree(s, `${app.name}: first frame`, { host, check }); // 7a (LLP 1080.001 D5)
   if (byTestId(tree, 'feed-far') && host === 'ios') await poolingDrive(s, { host, check });
-  if (app.name === 'messages' && apple) await messageMenuKeys(s, { host, check });
+  if (apple) await messageKeys(s, { host, check, app: app.name });
   // 2a. The iframe parity oracle and Apple arm (@ref LLP 1020 M1/M2): load
   // and message enter the runner, the guest joins tree/input, and the
   // screenshot carries its pixels. Loading is host I/O, so poll it. The
