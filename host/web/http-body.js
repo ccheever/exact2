@@ -151,7 +151,7 @@ export function retryAfter(value, now = Date.now()) {
   if (v == null) return null;
   if (/^\d+$/.test(v)) return Math.min(Number(v) * 1000, 60000);
   const m = /^[A-Z][a-z]{2}, (\d{2}) ([A-Z][a-z]{2}) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT$/.exec(v);
-  if (!m || !MONTHS.includes(m[2])) return null;
+  if (!m || !MONTHS.includes(m[2]) || +m[1] < 1 || +m[1] > 31 || +m[4] > 23 || +m[5] > 59 || +m[6] > 60) return null;
   return Math.min(Math.max(Date.UTC(+m[3], MONTHS.indexOf(m[2]), +m[1], +m[4], +m[5], +m[6]) - now, 0), 60000);
 }
 // Why a long poll is refused before anything is sent (the runner's `long_poll_refusal`), if it is.

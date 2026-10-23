@@ -452,6 +452,11 @@ impl Request {
     /// with good terms. Every host and seam checks it before anything is sent.
     pub fn long_poll_refusal(&self) -> Option<&'static str> {
         let poll = self.long_poll.as_deref()?;
+        let other = self.is_native() || self.is_auth();
+        if other || self.surface.is_some() || self.storage.is_some() || self.continuation.is_some()
+        {
+            return Some("exactLongPoll: a long poll is an HTTP request's, not other host work's");
+        }
         if !self.stream {
             return Some(
                 "exactLongPoll asks again for an answer that keeps coming: it is a stream's",

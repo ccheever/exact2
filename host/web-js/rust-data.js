@@ -100,7 +100,7 @@ export async function install(data, sources, load = p => fetchHostAsset(p).then(
       for (let n = r.u32(); n--;) headers.push([r.str(), r.str()]);
       const n = r.u32(), body = r.bytes(n);
       // A long poll (tag 10, LLP 1016.000 D8): its terms after the body, checked as the stream opens (http-body.js).
-      const longPoll = tag === 10 ? { cursor: r.str(), from: r.str(), sameCursorEvent: [false, true][r.u8()] } : undefined;
+      const longPoll = tag === 10 ? { cursor: r.str(), from: r.str(), sameCursorEvent: [false, true][r.u8()] ?? (() => { throw new Error('invalid long poll terms'); })() } : undefined;
       return { req: { method, url, headers, body: text.decode(body), raw: body, http, maxResponseBytes: http === 'ordered' ? undefined : Number(http.split(':')[1]), scope: scoped ? scope : null, stream: tag >= 9, longPoll } };
     }
     // Storage work (LLP 1027.001 D2): a portable request the host runs
