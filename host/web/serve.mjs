@@ -544,10 +544,9 @@ function planAppId(bytes) {
 // The schema is the wire authority; no table offsets or row sizes are mirrored here.
 const planFormat = JSON.parse(readFileSync(new URL('../../plan/tables/format.json', import.meta.url), 'utf8'));
 const planFormatDigest = createHash('sha256').update('EXACT.PLAN.FORMAT.SHA256.V1\0').update(canonicalBytes(planFormat)).digest().subarray(0, 8);
-const routePlans = new Map();
+const routeBuffers = new WeakMap();
 function planRoutes(bytes) {
-  const digest = sha256(bytes);
-  if (routePlans.has(digest)) return routePlans.get(digest);
+  if (routeBuffers.has(bytes)) return routeBuffers.get(bytes);
   let routes = [];
   try {
     if (bytes.subarray(0, 4).toString() !== 'EXPL' || bytes.readUInt32LE(4) !== planFormat.formatVersion
@@ -590,13 +589,45 @@ function planRoutes(bytes) {
     }
     if (at !== bytes.length) throw new Error('trailing plan bytes');
   } catch { routes = []; } // An absent or unfinished build admits no additional document paths.
-  if (routePlans.size >= 32) routePlans.delete(routePlans.keys().next().value);
-  routePlans.set(digest, routes);
+  routeBuffers.set(bytes, routes);
   return routes;
 }
-function buildRoutes(root) {
-  try { return planRoutes(readStaticCandidate(root, 'app.plan')); }
-  catch { return []; }
+const servedRoutePlans = new Map();
+function routePlanIdentity(dist, published) {
+  const was = buildRoot(dist);
+  if (!was) return null;
+  const stamp = name => {
+    try {
+      const s = lstatSync(resolve(was.root, name), {bigint: true});
+      return [s.dev, s.ino, s.size, s.mtimeNs, s.ctimeNs, s.mode].join(':');
+    } catch (error) { if (error.code === 'ENOENT') return '-'; throw error; }
+  };
+  return [was.root, was.at.dev, was.at.ino, stamp('app.plan'), published ? stamp(webRootPath) : ''].join('|');
+}
+// Check the build, plan and published head before reading. A producer may
+// rewrite a local plan without replacing its build directory.
+function* servedRoutePlan(dist, published = true) {
+  const key = `${published}:${resolve(dist)}`;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const identity = routePlanIdentity(dist, published);
+      if (!identity) return null;
+      const cached = servedRoutePlans.get(key);
+      if (cached?.identity === identity) return cached.plan;
+      let plan;
+      if (published) plan = yield* staticRead(dist, '/app.plan');
+      else {
+        const bytes = yield {op: 'get', root: resolve(dist), path: 'app.plan'};
+        plan = bytes === null ? null : {body: Buffer.from(bytes, 'base64')};
+      }
+      if (routePlanIdentity(dist, published) !== identity) continue;
+      if (plan) plan = {routes: planRoutes(plan.body), path: plan.path, published: plan.published};
+      if (servedRoutePlans.size >= 32) servedRoutePlans.delete(servedRoutePlans.keys().next().value);
+      servedRoutePlans.set(key, {identity, plan});
+      return plan;
+    } catch { return null; }
+  }
+  return null;
 }
 
 /** Whether the complete build at `dist` belongs to `app`. The completion
@@ -745,7 +776,9 @@ export function jsTargetBuild(dist) {
 /** A file of a JS-target build for a request path: the file, a directory's
  * index.html (a page rendered at build), else the shell for an app
  * location. The previous build answers during a rebuild's rename. */
-export function buildTreeFile(dist, pathname, accept = '') {
+export function buildTreeFile(dist, pathname, accept = '') { return runReads(treeFile(dist, pathname, accept)); }
+export function buildTreeFileAsync(dist, pathname, accept = '') { return runReadsAsync(treeFile(dist, pathname, accept)); }
+function* treeFile(dist, pathname, accept) {
   let path;
   try { path = installRoute(decodeURIComponent(pathname)); } catch { return null; }
   // No dot path, but the auth callback page's (LLP 1069.006 D4: `/.exact/auth/…`)
@@ -759,8 +792,10 @@ export function buildTreeFile(dist, pathname, accept = '') {
     if (!was) continue;
     const { root } = was, prefix = root.endsWith(sep) ? root : root + sep;
     for (const [i, route] of [path, path.replace(/\/?$/, '/index.html'), '/index.html'].entries()) {
-      if (i === 2 && !appDocumentPath(pathname, acceptsHTML(accept))
-        && !(acceptsHTML(accept) && appDocumentPath(pathname, true, buildRoutes(root)))) break;
+      if (i === 2 && !appDocumentPath(pathname, acceptsHTML(accept))) {
+        const plan = acceptsHTML(accept) ? yield* servedRoutePlan(root, false) : null;
+        if (!stillBuild(dist, was) || !appDocumentPath(pathname, acceptsHTML(accept), plan?.routes ?? [])) break;
+      }
       const file = resolve(root, '.' + route);
       try { if (file.startsWith(prefix) && realpathSync(file) === file && statSync(file).isFile()) return { path: file, route }; } catch { /* next */ }
     }
@@ -769,11 +804,11 @@ export function buildTreeFile(dist, pathname, accept = '') {
   }
   return null;
 }
-export function serveBuildTree(dist, req, res) {
+export async function serveBuildTree(dist, req, res) {
   // The raw target is refused as serveStatic refuses it (an encoded dot
   // segment); a parsed URL would resolve one into another route.
   const target = webRequestURL(req.url);
-  const found = target && buildTreeFile(dist, target.pathname, req.headers.accept);
+  const found = target && await buildTreeFileAsync(dist, target.pathname, req.headers.accept);
   if (!found) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
   sendStaticBody(req, res, readFileSync(found.path), { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });
 }
@@ -952,14 +987,19 @@ export async function warmCompression(dist, compression) {
 
 // @ref LLP 1038 D7 — preserve file precedence and negotiate the app
 // document after resolving the shared extensionless-location fallback.
-export async function readWebRequest(dist, pathname, accept = '') {
+export async function readWebRequest(dist, pathname, accept = '', admittedPlan = undefined) {
   if (!webRequestURL(pathname)) return { found: null, index: false };
   let route = pathname;
   let found = await readStaticFileAsync(dist, route);
   if (!found) {
     const navigation = acceptsHTML(accept), ordinary = appDocumentPath(route, navigation);
-    const plan = !ordinary && navigation ? await readStaticFileAsync(dist, '/app.plan') : null;
-    if (ordinary || appDocumentPath(route, navigation, plan ? planRoutes(plan.body) : [])) {
+    // Dev generations can carry a plan newer than the build on disk.
+    let plan = null;
+    if (!ordinary && navigation) {
+      if (admittedPlan === undefined) plan = await runReadsAsync(servedRoutePlan(dist));
+      else if (admittedPlan !== null) plan = {routes: planRoutes(admittedPlan)};
+    }
+    if (ordinary || appDocumentPath(route, navigation, plan?.routes ?? [])) {
       route = '/index.html';
       // A published route table belongs to that immutable release, even if
       // another publish moves the head before the document is read.
