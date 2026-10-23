@@ -278,6 +278,10 @@ fn readers(v: &Value, at: At, out: &mut BTreeMap<String, Uses>) -> Result<(), St
                 if k == "theme" && !opaque && !at.ids {
                     continue;
                 }
+                // (and a `descendants` map's value is a node's overrides, an object: anything else binds nothing)
+                if at.ids && !x.is_object() {
+                    continue;
+                }
                 let inner = At {
                     key: Some(k),
                     parent: at.key,

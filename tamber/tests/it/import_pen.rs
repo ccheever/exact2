@@ -714,6 +714,13 @@ fn round_3_recheck_3_descendants_positions_and_prefix() {
         folded(&go(text).unwrap()).value("pen.n", 0).unwrap().css(),
         "8px"
     );
+    // A `descendants` map's string value is no override: `n` is read as a gap alone.
+    let text = r#"{"version":"2.21","variables":{"n":{"type":"number","value":8}},
+      "children":[{"type":"frame","gap":"$n"},{"type":"ref","ref":"a","descendants":{"opacity":"$n"}}]}"#;
+    assert_eq!(
+        folded(&go(text).unwrap()).value("pen.n", 0).unwrap().css(),
+        "8px"
+    );
     let prefix = "p".repeat(128);
     let vars: Vec<String> = (0..2500)
         .map(|i| format!(r##""c{i}":{{"type":"color","value":"#000000"}}"##))
