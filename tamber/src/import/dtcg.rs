@@ -981,11 +981,11 @@ impl Resolve<'_> {
                     }),
             }
         };
-        // A colour found holds, its names charged (once returned, once kept); a failure may be a
-        // cycle in progress, kept only from the top.
-        let size = found.as_ref().map_or(0, |(a, b, c)| {
-            a.len() + b.len() + c.as_ref().map_or(0, String::len)
-        });
+        // A colour found holds, its names (or why not) charged once returned, once kept; a failure may be a cycle in progress, kept only from the top.
+        let size = match &found {
+            Ok((a, b, c)) => a.len() + b.len() + c.as_ref().map_or(0, String::len),
+            Err(why) => why.len(),
+        };
         crate::budget::spend(2 * size as u64)?;
         if found.is_ok() || visiting.len() <= 1 {
             self.memo.insert(path.to_string(), found.clone());
