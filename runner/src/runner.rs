@@ -329,10 +329,9 @@ struct PendingReq {
     /// A mutation's: the write it carries (`writes.rs`), which only its
     /// reply lands or ends.
     write: Option<u64>,
-    /// Held (LLP 1016.000 D9, [`Request::is_held`]): pending, but no clock
-    /// waits on it.
+    /// Held (LLP 1016.000 D9, [`Request::is_held`]): pending, but no clock waits on it. A long poll (D8),
+    /// `replied` once it has a reply of any kind, is held and named too.
     held: bool,
-    /// A long poll (D8); `replied` once it has a reply of any kind: held and named, no clock's wait.
     long_poll: bool,
     replied: bool,
 }
