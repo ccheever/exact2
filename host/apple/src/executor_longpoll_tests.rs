@@ -210,7 +210,14 @@ fn each_reply_is_a_message_its_cursor_asked_with_next_and_heartbeats_are_asked_a
         Reply::Is(200, vec![JSON], r#"{"seq":"x3"}"#),
     ]);
     core.run_owned(poll(1, false, 4096), None).unwrap();
+    let started = Instant::now();
     let got = until_cursor(&core, &woke, "x3");
+    // Four heartbeats, each answered at once, each asked again no sooner than the floor.
+    assert!(
+        started.elapsed() >= super::HEARTBEAT_FLOOR * 4,
+        "{:?}",
+        started.elapsed()
+    );
     let events: u32 = got.iter().map(|(_, c)| 1 + c).sum();
     assert_eq!(events, 3, "the heartbeats delivered nothing: {got:?}");
     until_asked(&script, 8);

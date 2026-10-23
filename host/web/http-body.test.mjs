@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {dirname,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
-import {boundedHttpBody as readBody, request, waitForInflight} from './http-body.js';
+import {boundedHttpBody as readBody, longPollTiming, request, waitForInflight} from './http-body.js';
 import {admittingGrant, scopedGrantSet} from './grant-admission.js';
 import {createRequestExecutor} from '../web-js/admission.js';
 
@@ -320,9 +320,13 @@ test('a long poll delivers each reply with its cursor, asks again with it, and h
     { body: '{"seq":1,"c":["a"]}' }, { status: 204 }, { body: ' ' }, { body: '{"seq":1,"c":[]}' }, { status: 304 },
     { body: '{"seq":2}' }, { body: '{"seq":"x3"}' },
   ]);
-  const controller = new AbortController(), sent = [];
+  const controller = new AbortController(), sent = [], started = performance.now();
+  longPollTiming.heartbeatMs = 40;
   const done = longPoll(s, controller, sent);
   await until(() => s.held.length === 1);
+  // Four heartbeats answered at once, each asked again no sooner than the floor.
+  assert.ok(performance.now() - started >= 4 * 40);
+  longPollTiming.heartbeatMs = 1000;
   assert.deepEqual(sent.map((m) => m.id), ['1', '2', 'x3']);
   assert.equal(sent[0].data, '{"seq":1,"c":["a"]}');
   assert.deepEqual(s.asked, ['?since=0&wait=25', ...Array(5).fill('?since=1&wait=25'), '?since=2&wait=25', '?since=x3&wait=25']);

@@ -22,6 +22,8 @@ use std::time::{Duration, Instant};
 /// The longest `Retry-After` honoured, and the backoff's ceiling.
 const RETRY_AFTER_MAX_MS: u64 = 60_000;
 const BACKOFF_MAX_MS: u64 = 30_000;
+/// The least time from one heartbeat's request to the next (a test's shorter).
+const HEARTBEAT_FLOOR: Duration = Duration::from_millis(if cfg!(test) { 40 } else { 1000 });
 
 /// What one ask came to.
 enum Asked {
@@ -86,22 +88,31 @@ pub(super) fn run(
             let asked_with = query_value(&url, &terms.cursor);
             let mut req = request.clone();
             req.url = url.clone();
+            // (a heartbeat asks again at most once a second: a server that answers at once is not held on)
+            let asked_at = Instant::now();
+            let beat = || {
+                let left = HEARTBEAT_FLOOR.saturating_sub(asked_at.elapsed());
+                (left.as_millis() as u64, String::new())
+            };
             let (wait, error) = match ask(b, req, forced, limit, &abort) {
                 Asked::End(outcome) => return outcome,
                 Asked::Transient(_) if abort.signal().aborted() => {
                     return failed(FailureKind::Aborted, "native request aborted")
                 }
+                Asked::Transient(error) if error.is_empty() => {
+                    (backoff(ticket, &mut failures), "a network error".into())
+                }
                 Asked::Transient(error) => (backoff(ticket, &mut failures), error),
                 Asked::Reply(status, headers, body) => match status {
                     204 | 304 => {
                         failures = 0;
-                        continue;
+                        beat()
                     }
                     200..=299 => {
                         failures = 0;
                         if body.iter().all(u8::is_ascii_whitespace) {
-                            continue;
-                        }
+                            beat()
+                        } else {
                         let event_stream = headers.iter().any(|(k, v)| {
                             k.eq_ignore_ascii_case("content-type")
                                 && v.split(';').next().is_some_and(|t| {
@@ -118,8 +129,8 @@ pub(super) fn run(
                             return Outcome::Response(Response { status, headers, body });
                         };
                         if !terms.same_cursor_event && asked_with.as_deref() == Some(next.as_str()) {
-                            continue;
-                        }
+                            beat()
+                        } else {
                         let m = Message {
                             id: next.clone(),
                             data: String::from_utf8_lossy(&body).into_owned(),
@@ -130,6 +141,8 @@ pub(super) fn run(
                         }
                         url = with_query_value(&url, &terms.cursor, &next);
                         continue;
+                        }
+                        }
                     }
                     408 | 429 | 502 | 503 | 504 => {
                         let wait = match retry_after(&headers, now_epoch_ms()) {
@@ -144,10 +157,16 @@ pub(super) fn run(
                     _ => return Outcome::Response(Response { status, headers, body }),
                 },
             };
-            let at = Instant::now() + Duration::from_millis(wait);
-            (shared.retrying.lock().unwrap()).insert(ticket, (failures, at, error));
-            let waited = pause(&abort, wait);
-            shared.retrying.lock().unwrap().remove(&ticket);
+            // (a heartbeat's wait is no retry: `error` names one)
+            let retrying = !error.is_empty();
+            if retrying {
+                let at = Instant::now() + Duration::from_millis(wait);
+                (shared.retrying.lock().unwrap()).insert(ticket, (failures, at, error));
+            }
+            let waited = wait == 0 || pause(&abort, wait);
+            if retrying {
+                shared.retrying.lock().unwrap().remove(&ticket);
+            }
             if !waited {
                 return failed(FailureKind::Aborted, "native request aborted");
             }

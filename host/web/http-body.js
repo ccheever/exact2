@@ -135,7 +135,10 @@ async function readBytes(response, limit, message, controller) {
 // cursor asked with is a heartbeat. The network, a timeout, a 408, 429, 502,
 // 503 or 504 asks again after `Retry-After` (at most 60 s) or a backoff of 1,
 // 2, 4, 8, 16, then 30 s within a fifth either way, shown on the controller
-// as `retrying` for `state.streams`; anything else ends the stream.
+// as `retrying` for `state.streams`; anything else ends the stream. A
+// heartbeat asks again no sooner than `heartbeatMs` after it was asked (a
+// test's shorter), so a server that answers at once is not hammered.
+export const longPollTiming = { heartbeatMs: 1000 };
 export async function readLongPoll(op, init, limit, message, controller, admits) {
   const encoder = new TextEncoder(), { cursor, from, sameCursorEvent } = op.longPoll;
   const failed = (kind, text) => ({ kind, status: 0, headers: '', body: encoder.encode(text) });
@@ -153,7 +156,8 @@ export async function readLongPoll(op, init, limit, message, controller, admits)
   let url = new URL(op.url), failures = 0;
   for (;;) {
     if (controller.signal.aborted || !admits(url.href)) return controller.signal.aborted ? aborted() : failed(2, "outside the app's grants (net.fetch)");
-    const asked = url.searchParams.get(cursor);
+    const asked = url.searchParams.get(cursor), askedAt = performance.now();
+    const beat = () => pause(Math.max(0, longPollTiming.heartbeatMs - (performance.now() - askedAt)));
     const deadline = op.timeoutMs === undefined ? null : AbortSignal.timeout(op.timeoutMs);
     const signal = deadline ? AbortSignal.any([controller.signal, deadline]) : controller.signal;
     let wait = null, error = '';
@@ -167,18 +171,18 @@ export async function readLongPoll(op, init, limit, message, controller, admits)
         const ms = after == null ? NaN : /^\d+$/.test(after) ? Number(after) * 1000 : Date.parse(after) - Date.now();
         if (Number.isFinite(ms)) { failures++; wait = Math.min(Math.max(ms, 0), 60000); }
         error = `HTTP ${status}`;
-      } else if (status === 204 || status === 304) { failures = 0; await response.body?.cancel().catch(() => {}); continue; }
+      } else if (status === 204 || status === 304) { failures = 0; await response.body?.cancel().catch(() => {}); await beat(); continue; }
       else {
         const bytes = await boundedHttpBody(response, limit);
         const headers = [...response.headers].map(([k, v]) => `${k}: ${v}`).join('\n');
         if (status < 200 || status > 299) return { kind: 0, status, headers, body: bytes };
         failures = 0;
         const text = new TextDecoder().decode(bytes);
-        if (!text.trim()) continue;
+        if (!text.trim()) { await beat(); continue; }
         if (/^text\/event-stream\s*(;|$)/i.test(response.headers.get('content-type') ?? '')) return failed(2, "an event stream under exactLongPoll: a long poll's replies are JSON");
         const next = cursorOf(text);
         if (next == null) return { kind: 0, status, headers, body: bytes };
-        if (!sameCursorEvent && asked === next) continue;
+        if (!sameCursorEvent && asked === next) { await beat(); continue; }
         if (controller.signal.aborted) return aborted();
         message({ event: '', id: next, data: text, coalesced: 0, received: performance.now() });
         url.searchParams.set(cursor, next);
