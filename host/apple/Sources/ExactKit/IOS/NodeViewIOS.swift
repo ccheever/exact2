@@ -1149,14 +1149,16 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             if #available(iOS 18, tvOS 18, *) {
                 accessibilityExpandedStatus = props["accessibilityExpanded"].map { $0 == "true" ? .expanded : .collapsed } ?? .unsupported
             }
+        } else if rangeRole != nil {
+            // A range role is one element and its value (LLP 1116 D8).
+            isAccessibilityElement = true
+            accessibilityTraits.remove(.image)
+            accessibilityValue = rangeValueText
         } else if kind == "image" || props["accessibilityRole"] == "img" {
             // A labelled image is one element; an unlabelled image is decoration.
             isAccessibilityElement = authoredLabel != nil
             if authoredLabel != nil { accessibilityTraits.insert(.image) } else { accessibilityTraits.remove(.image) }
-        } else if rangeRole != nil {
-            // A range role is one element and its value (LLP 1116 D8).
-            isAccessibilityElement = true
-            accessibilityValue = rangeValueText
+            accessibilityValue = nil
         }
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil {
