@@ -430,7 +430,7 @@ extension NodeView {
         guard !disabled else { pressed = false; inlinePressed = nil; linkPressed = nil; svgPressed = nil; return }
         if let target = svgPressed {
             svgPressed = nil
-            if let touch = touches.first, presenter?.svg.target(id, at: local(touch.location(in: nil))) == target { presenter?.press(target) }
+            if let touch = touches.first, presenter?.svg.target(id, at: local(touch.location(in: nil))) == target { activateSvg(target) }
             return
         }
         if let run = inlinePressed {
@@ -506,7 +506,7 @@ extension NodeView {
     @discardableResult
     func activate(at windowPoint: CGPoint) -> NodeView? {
         // An SVG element under the point takes it (LLP 1055.000 D17).
-        if kind == "svg", let element = presenter?.svg.target(id, at: local(windowPoint)) { presenter?.press(element); return self }
+        if kind == "svg", let element = presenter?.svg.target(id, at: local(windowPoint)) { activateSvg(element); return self }
         let target = activationTarget(at: windowPoint), consumed = controlTakesTouch(at: windowPoint)
         if target == nil, !takesPress, consumed { return nil }
         let bubbled = target.map { (presenter?.pressBox(of: $0, from: self) ?? $0) !== $0 } ?? false
@@ -520,18 +520,22 @@ extension NodeView {
         return target ?? invoker
     }
 
+    func activateSvg(_ element: UInt32, held: String = "") {
+        presenter?.menus.activating(from: self, pressing: nil) { presenter?.press(element, held: held) }
+    }
+
     /// `handoff`: VoiceOver's activation, which hands the press's focus on as a tap's does (`activate(at:)`).
     func activateKey(_ name: String, handoff: Bool = false) -> Bool {
         if isFirstResponder, !formDisabled, !inert, reorderKey(name) { return true }
         guard !disabled, name == "Enter" || (name == " " && props["href"] == nil && UIDevice.current.userInterfaceIdiom != .tv) else { return false }
         #if os(iOS)
-        if isButton, let presenter, presenter.invocation(of: self) != nil {
+        if isButton, let presenter, presenter.invocation(of: self) != nil || presenter.menus.invoker(from: self) === self {
             guard !inert else { return false }
             // Keyboard activation has no hit test; menu overlays own only touches.
             let target = sequence(first: self as UIView, next: { presenter.listenerParent(of: $0) })
                 .compactMap { $0 as? NodeView }.prefix { !$0.disabled && !$0.authoredInert }
                 .first { $0.takesPress(bubbled: presenter.pressBox(of: $0, from: self) !== $0) }
-            let pressHandoff = handoff ? target.map { presenter.beginPress(control: $0.textArea ?? $0.field ?? $0) } : nil
+            let pressHandoff = handoff ? presenter.beginPress(control: self) : nil
             defer { pressHandoff?.dispatched() }
             presenter.menus.activating(from: self, pressing: target) {
                 if let target { presenter.press(target.id, bubbled: presenter.pressBox(of: target, from: self) !== target) }
@@ -588,7 +592,7 @@ extension NodeView {
     }
     package override func accessibilityActivate() -> Bool {
         #if os(iOS)
-        if isButton, presenter?.invocation(of: self) != nil { return activateKey("Enter", handoff: true) }
+        if isButton, presenter?.invocation(of: self) != nil || presenter?.menus.invoker(from: self) === self { return activateKey("Enter", handoff: true) }
         #endif
         return activate(at: convert(CGPoint(x: bounds.midX, y: bounds.midY), to: nil)) != nil
     }
