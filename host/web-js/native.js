@@ -1,6 +1,7 @@
 // Native modules on the JS runtime (LLP 1024 D3–D5, D7; LLP 1067 D5; LLP
-// 1071 §7): the wasm host's own `native-glue.js`, unchanged, over the app's
-// module artifact (`modules/index.js`, its `modules/web/`). A loaded chunk,
+// 1071 §7): the wasm host's own `native-glue.js` over the app's module
+// artifact (`modules/index.js`, its `modules/web/`), and over the views its
+// packages serve (views.js, LLP 1133.001 D1). A loaded chunk,
 // fetched after first paint by the first module element (rt.js `nm`) or a
 // TypeScript source's `native` (ts-data.js); an app without modules never
 // has it.
@@ -17,7 +18,7 @@ export function viewHost(say) {
   const x = globalThis.exact;
   // The glue dispatches once the page is ready, which it awaits.
   if (typeof x.ready?.then !== 'function') x.ready = Promise.resolve(x.ready);
-  return views ??= x.nativeHost({ log: say, dispatch(el, code, text) {
+  return views ??= x.nativeHost({ log: say, packages: x.packageViews ?? null, dispatch(el, code, text) {
     const [kind, value] = KINDS[code] ?? [];
     if (kind) el.dispatchEvent(new CustomEvent('exact-native', { detail: { kind, value: value ?? text } }));
   } });
