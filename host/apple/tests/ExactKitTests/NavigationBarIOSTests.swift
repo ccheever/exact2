@@ -56,7 +56,10 @@ final class NavigationBarIOSTests: XCTestCase {
         if module {
             session.natives.installArtifact(try XCTUnwrap(env["EXACT_FIXTURE_MODULE"], "build.mjs --test --ios builds the fixture's module"))
         }
-        spin(0.3)
+        until("fixture route and native work ready") {
+            session.presenter.navigation.primaryNavigation?.topViewController is RouteController &&
+                !Agent(session: session).nativeInFlight()
+        }
         return session
     }
 
