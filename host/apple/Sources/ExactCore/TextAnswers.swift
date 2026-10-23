@@ -134,6 +134,9 @@ package final class TextAnswers: @unchecked Sendable {
         /// Replaced in turn past `TextAnswers.offersPerParagraph`.
         var next = 0
         var bytes = 0
+        var glyphBytes = 0
+        var olderGlyph: Entry?
+        unowned(unsafe) var newerGlyph: Entry?
         var older: Entry?
         unowned(unsafe) var newer: Entry?
         /// The next entry whose key hashes the same.
@@ -151,6 +154,10 @@ package final class TextAnswers: @unchecked Sendable {
     private let lock = NSLock()
     private var buckets: [Int: Entry] = [:]
     private var oldest: Entry?, newest: Entry?
+    private var oldestGlyph: Entry?, newestGlyph: Entry?
+    private var glyphBytes = 0
+    // Glyphs save one paint, so they occupy at most a sixteenth of the answer budget.
+    private var glyphLimit: Int { min(256 * 1024, limit / 16) }
     private var stats = Stats()
 
     package init(limit: Int = TextAnswers.defaultLimit) { self.limit = limit }
@@ -180,6 +187,7 @@ package final class TextAnswers: @unchecked Sendable {
         unlink(e); append(e)
     }
     private func remove(_ e: Entry) {
+        if e.glyphBytes > 0 { dropGlyphs(e) }
         unlink(e)
         if buckets[e.hash] === e { buckets[e.hash] = e.chained } else {
             var link = buckets[e.hash]
@@ -191,7 +199,7 @@ package final class TextAnswers: @unchecked Sendable {
     }
     /// What an entry costs the heap before its key's bytes and its offers:
     /// the object, two array headers, a bucket.
-    private static let entryBytes = 80 + 32 + 32 + 32
+    private static let entryBytes = 104 + 32 + 32 + 32
     /// A definite offer's two arrays; its place in the entry's array is
     /// counted with that array's capacity.
     private static func cost(_ offer: Offer) -> Int {
@@ -219,7 +227,9 @@ package final class TextAnswers: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         guard let e = find(hash, key), let i = e.offers.firstIndex(where: { $0.bits == offer }),
               let glyphs = e.offers[i].glyphs else { return nil }
+        if e.glyphBytes == glyphs.bytes { unlinkGlyphs(e) }
         e.offers[i].glyphs = nil
+        e.glyphBytes -= glyphs.bytes; glyphBytes -= glyphs.bytes
         e.bytes -= glyphs.bytes; stats.bytes -= glyphs.bytes
         touch(e)
         return glyphs
@@ -228,17 +238,30 @@ package final class TextAnswers: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         dropGlyphs()
     }
-    private func dropGlyphs() {
-        var entry = oldest
-        while let e = entry {
-            for i in e.offers.indices {
-                if let glyphs = e.offers[i].glyphs {
-                    e.bytes -= glyphs.bytes; stats.bytes -= glyphs.bytes
-                    e.offers[i].glyphs = nil
-                }
+    private func unlinkGlyphs(_ e: Entry) {
+        if let newer = e.newerGlyph { newer.olderGlyph = e.olderGlyph } else { newestGlyph = e.olderGlyph }
+        if let older = e.olderGlyph { older.newerGlyph = e.newerGlyph } else { oldestGlyph = e.newerGlyph }
+        e.olderGlyph = nil; e.newerGlyph = nil
+    }
+    private func appendGlyphs(_ e: Entry) {
+        e.olderGlyph = newestGlyph
+        if let newestGlyph { newestGlyph.newerGlyph = e } else { oldestGlyph = e }
+        newestGlyph = e
+    }
+    private func dropGlyphs(_ e: Entry, keeping offer: UInt64? = nil) {
+        unlinkGlyphs(e)
+        // At most eight offers; entries without glyphs never enter this list.
+        for i in e.offers.indices where e.offers[i].bits != offer {
+            if let glyphs = e.offers[i].glyphs {
+                e.bytes -= glyphs.bytes; stats.bytes -= glyphs.bytes
+                e.glyphBytes -= glyphs.bytes; glyphBytes -= glyphs.bytes
+                e.offers[i].glyphs = nil
             }
-            entry = e.newer
         }
+        if e.glyphBytes > 0 { appendGlyphs(e) }
+    }
+    private func dropGlyphs() {
+        while let e = oldestGlyph { dropGlyphs(e) }
     }
     /// The measurer's answer, published once per offer.
     package func put(hash: Int, key: [UInt8], offer: UInt64, metrics: ExactMetrics, lines: LineGeometry?, glyphs: MeasuredGlyphs? = nil) {
@@ -258,8 +281,10 @@ package final class TextAnswers: @unchecked Sendable {
             append(e)
             stats.paragraphs += 1; stats.bytes += e.bytes
         }
-        let value = Offer(bits: offer, metrics: metrics, lines: lines, glyphs: glyphs)
-        var cost = Self.cost(value)
+        let kept = glyphs.flatMap { $0.bytes <= glyphLimit ? $0 : nil }
+        let value = Offer(bits: offer, metrics: metrics, lines: lines, glyphs: kept)
+        var cost = Self.cost(value), glyphCost = kept?.bytes ?? 0
+        if e.glyphBytes > 0 { unlinkGlyphs(e) }
         if e.offers.count < Self.offersPerParagraph {
             let held = e.offers.capacity
             e.offers.append(value)
@@ -267,21 +292,26 @@ package final class TextAnswers: @unchecked Sendable {
             stats.offers += 1
         } else {
             cost -= Self.cost(e.offers[e.next])
+            glyphCost -= e.offers[e.next].glyphs?.bytes ?? 0
             e.offers[e.next] = value
             e.next = (e.next + 1) % Self.offersPerParagraph
         }
         e.bytes += cost; stats.bytes += cost
-        // Glyph copies save one paint; answers save every later measurement.
-        if stats.bytes > limit { dropGlyphs() }
+        e.glyphBytes += glyphCost; glyphBytes += glyphCost
+        if e.glyphBytes > 0 { appendGlyphs(e) }
+        while glyphBytes > glyphLimit, let victim = oldestGlyph {
+            dropGlyphs(victim, keeping: victim === e ? offer : nil)
+        }
         while stats.bytes > limit, let victim = oldest, victim !== e { remove(victim) }
     }
     package func clear() {
         lock.lock(); defer { lock.unlock() }
+        dropGlyphs()
         // Unlinked one by one: a long chain of `older` links released at
         // once would recurse through every entry.
         while let e = oldest { unlink(e); e.chained = nil }
         buckets.removeAll(keepingCapacity: true)
         stats = Stats()
     }
-    deinit { while let e = oldest { unlink(e); e.chained = nil } }
+    deinit { dropGlyphs(); while let e = oldest { unlink(e); e.chained = nil } }
 }
