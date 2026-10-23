@@ -415,6 +415,41 @@ fn app_side_writes_publish_without_reasking_a_time_varying_reader() {
         "{\"ops\":[],\"unchanged\":true}",
         "an archive without I/O performs no commit"
     );
+    struct UnboundWriter(bool);
+    impl DataSource for UnboundWriter {
+        fn app_id(&self) -> &str {
+            "test.exact.wp12-self"
+        }
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            unreachable!()
+        }
+        fn take_storage_changed(&mut self) -> bool {
+            std::mem::take(&mut self.0)
+        }
+    }
+    let before_unbound = counter();
+    let plan = contract::compile("component App\n  view\n    text \"Widget\"\n")
+        .unwrap()
+        .encode();
+    let (_unbound, _) = Host::boot_stored(
+        &plan,
+        UnboundWriter(true),
+        Box::new(MonospaceMeasurer::default()),
+        300.,
+        200.,
+        None,
+        Vec::new(),
+        None,
+    )
+    .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while counter() <= before_unbound && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(
+        counter() > before_unbound,
+        "an app:/ write publishes even without an endowed secrets store"
+    );
     // The publisher owns only queued paths; wait for both the boot and action counters before removal.
     let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
     while std::fs::read_to_string(root.join("widget-store-generation"))
