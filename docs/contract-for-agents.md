@@ -628,6 +628,10 @@ Rename either declaration. Handler-only uses are allowed. An expression's
 `match` or arrow binder protects its bound name; a view's `for` or `match`
 binder does not protect call heads.
 
+A derive supplies a value, even when its expression is a function call.
+Beside `fn pick`, `derive pick = pick(1)` makes `${pick}` read that result;
+`pick(5)` still calls the function.
+
 A child's action may call its `action` props and injected actions, with the
 arguments after those captured where they were bound: the parent's action runs
 in the same commit, and the child never writes the parent's state itself. A
