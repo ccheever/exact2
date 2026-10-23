@@ -815,7 +815,7 @@ fn an_authored_margin_is_the_webs_space_and_the_sheets_is_uikits() {
     );
     assert_eq!(list.space_below, Some(0.0), "and the 0 under the last");
     // LLP 1115.000 D2: a margin is the author's because they wrote it, not
-    // because its number differs from the sheet's. 17.33 between sections and
+    // because its number differs from the sheet's. 17.33 under a section and
     // 0 beside a header are the sheet's own numbers, written here.
     let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go\n      text \"Account\"\n  section margin-top=17.33\n    button press=go\n      text \"Chats\"\n  section margin-top=0\n    header\n      text \"More\"\n    button press=go\n      text \"Help\"");
     let list = r.kernel().grouped_list(id(&r, "list")).unwrap();

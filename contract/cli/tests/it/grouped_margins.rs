@@ -274,3 +274,18 @@ fn a_margin_that_is_no_length_is_refused() {
             .is_err());
     }
 }
+
+/// Two sections without headers are 35 apart, as a hand-built inset-grouped
+/// list's are on iOS 27.1: the sheet's top meets the 17.33 under the section
+/// before it as 35, so the laid-out list is as tall as UIKit draws it (a list
+/// sized to its content clipped UIKit's footer when it was not).
+#[test]
+fn sections_without_headers_are_uikits_gap_apart() {
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=drop(\"a\") testId=\"a\"\n      text \"Account\"\n  section\n    button press=drop(\"b\") testId=\"b\"\n      text \"Chats\"");
+    let (a, b) = (frame(&r, "a"), frame(&r, "b"));
+    assert!(
+        (b.y - (a.y + a.height) - 35.0).abs() < 0.01,
+        "gap {}",
+        b.y - (a.y + a.height)
+    );
+}
