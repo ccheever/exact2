@@ -419,5 +419,69 @@ final class NativeButtonsMacTests: XCTestCase {
         XCTAssertNil(node.glassIsolation)
         XCTAssertTrue(fade.superview === node)
     }
+    func testAHandlerlessInvokerPressesItsAncestorBeforeOpeningItsOwnPopover() throws {
+        let p = presenter(box(1, handlers: ["press"]) + native(2, ["popovertarget": "choices"], handlers: [])
+            + box(4, ["id": "choices", "popover": "manual", "accessibilityRole": "dialog"]) + [
+                ["op": "children", "id": 1, "ids": [2, 4]], ["op": "roots", "ids": [1]]], faces: [2: face("Open")])
+        let pop = try XCTUnwrap(p.views[4])
+        var pressed: [UInt32] = []
+        p.onPress = { id in
+            XCTAssertFalse(p.menus.isOpen(pop), "the handler precedes the button's activation")
+            pressed.append(id)
+        }
+        p.menus.painted = true
+        defer { p.menus.reset() }
+        try XCTUnwrap(p.controls.controls[2] as? NSButton).performClick(nil)
+        XCTAssertEqual(pressed, [1])
+        XCTAssertTrue(p.menus.isOpen(pop))
+    }
+
+    func testACustomInvokerAlsoPressesItsAncestorAndAMissingTargetIsNotPressable() throws {
+        let p = presenter(box(1, handlers: ["press"]) + [
+            ["op": "create", "id": 2, "kind": "button", "props": ["popovertarget": "choices"]],
+            ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 120, "h": 24],
+        ] + box(4, ["id": "choices", "popover": "manual"]) + [
+            ["op": "children", "id": 1, "ids": [2, 4]], ["op": "roots", "ids": [1]]], faces: [:])
+        p.menus.painted = true
+        defer { p.menus.reset() }
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.press(2)
+        XCTAssertEqual(pressed, [1])
+        XCTAssertTrue(p.menus.isOpen(try XCTUnwrap(p.views[4])))
+        let pop = try XCTUnwrap(p.views[4])
+        p.menus.close(pop)
+        p.apply(wireBatch([["op": "frame", "id": 2, "x": 320, "y": 0, "w": 60, "h": 24]]))
+        pressed.removeAll()
+        let click = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseUp, location: NSPoint(x: 350, y: 12), modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0))
+        p.press(2, click: click)
+        XCTAssertTrue(pressed.isEmpty, "the pointer is outside the listener's bounds")
+        p.menus.close(pop)
+        p.press(2)
+        XCTAssertEqual(pressed, [1], "a key's activation has no pointer bounds")
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["popovertarget": "missing", "accessibilityKeyShortcuts": "Meta+c"]]]))
+        XCTAssertFalse(try XCTUnwrap(p.views[2]).pressable)
+        let copy = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: "c", charactersIgnoringModifiers: "c", isARepeat: false, keyCode: 8))
+        XCTAssertFalse(p.shortcuts.perform(copy), "a missing target must leave Copy available")
+    }
+
+    func testClearingAnInvokersTargetDuringEditCommitStillPressesItsListener() throws {
+        let p = presenter(box(1, handlers: ["press"]) + [
+            ["op": "create", "id": 2, "kind": "button", "props": ["popovertarget": "choices"]],
+            ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 120, "h": 24],
+            ["op": "create", "id": 3, "kind": "input", "props": ["value": "draft"], "handlers": ["change"]],
+        ] + box(4, ["id": "choices", "popover": "manual"]) + [
+            ["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]], faces: [:])
+        p.edited = 3
+        p.onChange = { _, _ in p.apply(wireBatch([["op": "props", "id": 2, "clear": ["popovertarget"]]])) }
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.press(2)
+        XCTAssertNil(p.invocation(of: try XCTUnwrap(p.views[2])))
+        XCTAssertEqual(pressed, [1])
+    }
+
 }
 #endif

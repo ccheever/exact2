@@ -325,4 +325,13 @@ extension ControlHost {
                 "size": [Agent.r2(button.frame.width), Agent.r2(button.frame.height)]]
     }
 }
+extension Presenter {
+    func dispatchButtonAncestor(_ source: NodeView, click: NSEvent?) {
+        let point = click.flatMap { [.leftMouseDown, .leftMouseUp].contains($0.type) ? $0.locationInWindow : nil }
+        guard let listener = buttonPressListener(above: source, at: point) else { return }
+        pressClick = click
+        defer { pressClick = nil }
+        onPress?(listener.id)
+    }
+}
 #endif

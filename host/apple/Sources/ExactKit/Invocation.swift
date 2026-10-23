@@ -99,3 +99,36 @@ extension Presenter {
         return run ? .element : nil
     }
 }
+
+
+extension Presenter {
+    func dispatchPressHandler(_ id: UInt32, from original: NodeView?) {
+        if let original, original.isButton, !original.handlers.contains("press") {
+            if let listener = buttonPressListener(above: original) { onPress?(listener.id) }
+        } else { onPress?(id) }
+    }
+
+    /// A button's click reaches a handler above it even when the button owns
+    /// its invocation. Invocation ownership stays with the originating button.
+    func buttonPressListener(above source: NodeView, at point: CGPoint? = nil) -> NodeView? {
+        var child: KeyPlatformView = source, crossed = false
+        func parent(of view: KeyPlatformView) -> KeyPlatformView? {
+            #if os(macOS)
+            return eventParent(of: view)
+            #else
+            return listenerParent(of: view)
+            #endif
+        }
+        while let view = parent(of: child) {
+            crossed = crossed || view !== child.superview
+            child = view
+            guard let node = view as? NodeView else { continue }
+            guard !node.disabled, !node.authoredInert else { return nil }
+            if node.handlers.contains("press") {
+                if let point, !crossed, !node.bounds.contains(node.local(point)) { return nil }
+                return node
+            }
+        }
+        return nil
+    }
+}

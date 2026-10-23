@@ -971,6 +971,36 @@ final class NativeButtonsIOSTests: XCTestCase {
         }
         XCTAssertNil(released, "the cached window identity must not retain the window")
     }
+    func testAHandlerlessInvokerPressesItsAncestorBeforeOpeningItsOwnPopover() throws {
+        let p = presenter(box(1, handlers: ["press"]) + native(2, ["popovertarget": "choices"], handlers: [])
+            + box(4, ["id": "choices", "popover": "manual", "accessibilityRole": "dialog"]) + [
+                ["op": "children", "id": 1, "ids": [2, 4]], ["op": "roots", "ids": [1]]], faces: [2: face("Open")])
+        let pop = try XCTUnwrap(p.views[4])
+        var pressed: [UInt32] = []
+        p.onPress = { id in
+            XCTAssertFalse(p.menus.isOpen(pop), "the handler precedes the button's activation")
+            pressed.append(id)
+        }
+        try button(p, 2).sendActions(for: .primaryActionTriggered)
+        XCTAssertEqual(pressed, [1])
+        XCTAssertTrue(p.menus.isOpen(pop))
+    }
+
+    func testKeyboardAndAccessibilityInvokeAHandlerlessNativeButtonAndPressItsAncestor() throws {
+        for keyboard in [true, false] {
+            let p = presenter(box(1, handlers: ["press"]) + native(2, ["popovertarget": "choices"], handlers: [])
+                + box(4, ["id": "choices", "popover": "manual"]) + [
+                    ["op": "children", "id": 1, "ids": [2, 4]], ["op": "roots", "ids": [1]]], faces: [2: face("Open")])
+            defer { p.menus.reset() }
+            var pressed: [UInt32] = []
+            p.onPress = { pressed.append($0) }
+            let source = try XCTUnwrap(p.views[2])
+            XCTAssertTrue(keyboard ? source.activateKey("Enter") : source.accessibilityActivate())
+            XCTAssertEqual(pressed, [1])
+            XCTAssertTrue(p.menus.isOpen(try XCTUnwrap(p.views[4])))
+        }
+    }
+
 }
 
 private final class NativeWorldLayoutProbe: UIView {
@@ -979,5 +1009,7 @@ private final class NativeWorldLayoutProbe: UIView {
         super.layoutSubviews()
         layouts.append(convert(bounds, to: window))
     }
+
+
 }
 #endif

@@ -628,7 +628,7 @@ package final class Presenter {
         pressHeld = held; defer { pressHeld = "" }
         if let node = views[id], let url = node.defaultLink, node.activateLink(url, bubbled: bubbled) { return }
         let original = views[id]
-        onPress?(id)
+        dispatchPressHandler(id, from: original)
         if let original, views[id] === original { menus.invoke(original, bubbled: bubbled) }
     }
     func change(_ id: UInt32, _ value: String) { onChange?(id, value) }

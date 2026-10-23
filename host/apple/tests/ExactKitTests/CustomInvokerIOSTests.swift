@@ -239,7 +239,7 @@ final class CustomInvokerIOSTests: XCTestCase {
             XCTAssertFalse(p.menus.isOpen(pop))
             delivered()
         }
-        XCTAssertEqual(presses, [2, 2, 2, 2])
+        XCTAssertEqual(presses, [1, 1, 2, 2])
         XCTAssertEqual(events, ["closed,open", "open,closed", "closed,open", "open,closed"])
         source.props["commandfor"] = "choices"
         source.props["command"] = "toggle-popover"
@@ -669,5 +669,34 @@ final class CustomInvokerIOSTests: XCTestCase {
         XCTAssertEqual(controller.presentations, 3)
         XCTAssertEqual(presses, [2, 2, 2, 2, 2])
     }
+    func testDraggingOffAHandlerlessCloserDoesNotCloseOrPressItsAncestor() throws {
+        let p = page()
+        p.apply(wireBatch([
+            ["op": "create", "id": 7, "kind": "button", "props": ["popovertarget": "choices", "popovertargetaction": "hide"]],
+            ["op": "create", "id": 8, "kind": "text", "props": ["text": "Close"]],
+            ["op": "children", "id": 7, "ids": [8]], ["op": "children", "id": 4, "ids": [5, 7]],
+            ["op": "frame", "id": 7, "x": 0, "y": 60, "w": 80, "h": 40],
+            ["op": "frame", "id": 8, "x": 0, "y": 0, "w": 80, "h": 40]
+        ]))
+        let closer = try XCTUnwrap(p.views[7]), pop = try XCTUnwrap(p.views[4])
+        p.press(2)
+        settle { !p.menus.inTransition }
+        XCTAssertTrue(p.menus.isOpen(pop))
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let off = Touch(closer)
+        closer.touchesBegan([off], with: nil)
+        off.point = CGPoint(x: 140, y: 20)
+        closer.touchesMoved([off], with: nil)
+        closer.touchesEnded([off], with: nil)
+        XCTAssertTrue(p.menus.isOpen(pop))
+        XCTAssertTrue(pressed.isEmpty)
+        let inside = Touch(closer)
+        closer.touchesBegan([inside], with: nil)
+        closer.touchesEnded([inside], with: nil)
+        XCTAssertEqual(pressed, [1])
+        XCTAssertFalse(p.menus.isOpen(pop))
+    }
+
 }
 #endif
