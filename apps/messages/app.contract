@@ -144,16 +144,23 @@ component Messages
     selectedOutgoing = outgoing
     panel = false
     blur("composer")
+    focus("message-menu-reply")
+  action menuKey(k: string)
+    if k == "Escape"
+      dismiss()
+      preventDefault()
   action dismiss
+    if selected != ""
+      focus(`message-actions-${selected}`)
     selected = ""
     panel = false
     choosing = false
   action react(glyph: string)
     send changed = command("reaction", thread, `${selected}|${glyph}`, wallTime.epochAtZero + performanceNow())
-    selected = ""
+    dismiss()
   action copy
     copyText(selectedBody)
-    selected = ""
+    dismiss()
   action reply(id: string, body: string)
     replyBody = body
     selected = ""
@@ -402,35 +409,35 @@ component Messages
                       Avatar(initials="↓", color="#34c759", size=38)
                       text "Latest message" font-size=24
             if selected != ""
-              column position="absolute" top=0 left=0 right=0 bottom=0 z-index=30 background-color="#00000030" padding-left=16 padding-right=16
-                button press=dismiss testId="dismiss-context" aria-label="Dismiss message menu" position="absolute" top=0 left=0 width="100%" height="100%"
+              column keycapture=menuKey position="absolute" top=0 left=0 right=0 bottom=0 z-index=30 background-color="#00000030" padding-left=16 padding-right=16
+                button tabindex=0 press=dismiss testId="dismiss-context" aria-label="Dismiss message menu" position="absolute" top=0 left=0 width="100%" height="100%"
                 column position="absolute" left=(not selectedOutgoing and thread == "demo" ? 47 : 16) right=16 top=max(76, min(selectedY - 68, viewport.height - selectedHeight - 292)) gap=12 align-items=(selectedOutgoing ? "flex-end" : "flex-start")
                   row border-radius=30 backgroundMaterial="glass" padding=8 gap=4 animation=(viewport.prefersReducedMotion ? "none" : "card 180ms ease-out")
-                    button press=react("❤️") testId="react-heart" width=40 height=40
+                    button tabindex=0 press=react("❤️") testId="react-heart" width=40 height=40
                       image "assets/tapbacks/heart.png" width=34 height=34 object-fit="contain"
-                    button press=react("👍") testId="react-like" width=40 height=40
+                    button tabindex=0 press=react("👍") testId="react-like" width=40 height=40
                       image "assets/tapbacks/like.png" width=34 height=34 object-fit="contain"
-                    button press=react("👎") testId="react-dislike" width=40 height=40
+                    button tabindex=0 press=react("👎") testId="react-dislike" width=40 height=40
                       image "assets/tapbacks/dislike.png" width=34 height=34 object-fit="contain"
-                    button press=react("😂") testId="react-laugh" width=40 height=40
+                    button tabindex=0 press=react("😂") testId="react-laugh" width=40 height=40
                       image "assets/tapbacks/laugh.png" width=34 height=34 object-fit="contain"
-                    button press=react("‼️") testId="react-emphasis" width=40 height=40
+                    button tabindex=0 press=react("‼️") testId="react-emphasis" width=40 height=40
                       image "assets/tapbacks/emphasis.png" width=34 height=34 object-fit="contain"
-                    button press=react("❓") testId="react-question" width=40 height=40
+                    button tabindex=0 press=react("❓") testId="react-question" width=40 height=40
                       image "assets/tapbacks/question.png" width=34 height=34 object-fit="contain"
                   column contextTarget=`bubble-${selected}` contextMagnify=true max-height=320 overflow="hidden" padding-bottom=6.65
                     Balloon(body=selectedBody, outgoing=selectedOutgoing, tail=true, maximum=maximum, identifier="context-balloon")
                   column width=250 padding-top=6 padding-bottom=6 border-radius=26 backgroundMaterial="glass"
-                    button appearance="none" press=reply(selected, selectedBody) testId="reply" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
+                    button tabindex=0 appearance="none" press=reply(selected, selectedBody) id="message-menu-reply" testId="reply" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
                       text "↩" font-size=22
                       text "Reply" font-size=17
-                    button appearance="none" press=copy testId="copy-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
+                    button tabindex=0 appearance="none" press=copy testId="copy-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
                       image "symbol:copy" font-size=20 -exact-tint-color="light-dark(#000000, #ffffff)"
                       text "Copy" font-size=17
-                    button appearance="none" press=read(selectedBody) testId="read-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
+                    button tabindex=0 appearance="none" press=read(selectedBody) testId="read-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
                       text "Aa" font-size=18
                       text "Select Text" font-size=17
-                    button appearance="none" press=remove disabled=data.busy testId="delete-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
+                    button tabindex=0 appearance="none" press=remove disabled=data.busy testId="delete-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
                       image "symbol:delete" font-size=20 -exact-tint-color="#ff3b30"
                       text "Delete" font-size=17 color="#ff3b30"
             if choosing
