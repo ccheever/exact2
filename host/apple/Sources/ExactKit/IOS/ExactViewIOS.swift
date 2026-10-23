@@ -392,7 +392,7 @@ public final class ExactView: UIView {
         // @ref LLP 1123 D1 — the document is the session view's; a
         // presentation lays its routes out in their own blocks (D2)
         let safe = safeAreaInsets
-        let cover = presenter.viewportFit == "cover"
+        let cover = presenter.viewportFit == "cover" || (!session.booted && session.launchCoversViewport)
         // A native primary container takes the whole view, its bars shown
         // or not, as UIKit's do: a bar's material reaches under the status
         // bar. Its routes keep their content inside its safe area through
