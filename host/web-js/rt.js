@@ -18,18 +18,14 @@ let Media = null; export function useMedia(m) { Media = m; } // and media.js onl
 //   is; a later answer lands in its own commit, if its ticket is current;
 // - timers fire on a clock the host moves (`advance`), each at its own time.
 let Listener = null, Owner = null, Queue = [], FocusQueue = [], Flushing = false, Rev = 0;
-const CLEAN = 0, CHECK = 1, DIRTY = 2;
-function node(fn, v, effect) {
-  const n = { fn, v, effect, s: fn ? DIRTY : CLEAN, src: [], obs: new Set(), kids: null, gone: 0 };
+const CLEAN = 0, CHECK = 1, DIRTY = 2; function node(fn, v, effect) {   const n = { fn, v, effect, s: fn ? DIRTY : CLEAN, src: [], obs: new Set(), kids: null, gone: 0 };
   if (Owner) { (Owner.kids ??= []).push(n); n.up = Owner; }
   return n;
-}
-function read(n) {
+} function read(n) {
   if (Listener && !n.obs.has(Listener)) { n.obs.add(Listener); Listener.src.push(n); }
   if (n.fn) fresh(n);
   return n.v;
-}
-function fresh(n) {
+} function fresh(n) {
   if (n.s === CHECK) for (const s of n.src) { if (s.fn) fresh(s); if (n.s === DIRTY) break; }
   if (n.s === DIRTY) run(n);
   n.s = CLEAN;
@@ -617,14 +613,19 @@ const SVG = "http://www.w3.org/2000/svg";
 let Release;
 const rel = (k, v) => (k === "src" || k === "poster") && /^\/(assets|deck|shaders)\//.test(v ?? "")
   && (Release ??= (() => { try { return /^\/\.exact\/root\/web\/releases\/[0-9a-f]{64}\/$/.test(new URL(document.baseURI).pathname); } catch { return false; } })()) ? "." + v : v;
+// One activation button per click; authored writes and reentrant click() keep their order.
+let Invokers = new Map(); const invocationAttrs = new Set(["popovertarget", "commandfor"]);
+function muteInvoker(e) { if (Invokers.has(e)) return; const values = new Map([...invocationAttrs].map(k => [k, e.getAttribute(k)])), set = e.setAttribute, remove = e.removeAttribute, setOwn = Object.getOwnPropertyDescriptor(e, "setAttribute"), removeOwn = Object.getOwnPropertyDescriptor(e, "removeAttribute"); for (const k of invocationAttrs) remove.call(e, k); e.setAttribute = function(k, v) { k = String(k).toLowerCase(); if (invocationAttrs.has(k)) values.set(k, String(v)); else set.call(this, k, v); }; e.removeAttribute = function(k) { k = String(k).toLowerCase(); if (invocationAttrs.has(k)) values.set(k, null); else remove.call(this, k); }; Invokers.set(e, () => { if (setOwn) Object.defineProperty(e, "setAttribute", setOwn); else delete e.setAttribute; if (removeOwn) Object.defineProperty(e, "removeAttribute", removeOwn); else delete e.removeAttribute; for (const [k, v] of values) { if (v == null) remove.call(e, k); else set.call(e, k, v); } }); }
+function oneActivation(e) { const click = e.click; e.click = function() { const outer = Invokers, nodes = [...outer.keys()]; for (const restore of outer.values()) restore(); Invokers = new Map(); try { return click.call(this); } finally { for (const restore of Invokers.values()) restore(); outer.clear(); Invokers = outer; for (const node of nodes) muteInvoker(node); } }; e.addEventListener("click", ev => { const target = ev.composedPath().find(n => n.localName === "button" || n.localName === "a" && n.hasAttribute("href")); if (target === e) return; muteInvoker(e); const scope = Invokers; setTimeout(() => { if (Invokers !== scope) return; for (const restore of scope.values()) restore(); Invokers = new Map(); }); }, true); }
 export function h(p, tag, cls, attrs, text, ns) {
   if (attrs?.["aria-keyshortcuts"] != null || attrs?.["data-exact-looks"] != null) input(); // (a look snaps by its edges too, LLP 1121 D8)
-  if (Adopt) { const e = adopt(p, tag, cls, attrs); if (tag === "video" || tag === "audio") Media.media(e, attrs); if (tag === "iframe") frame(e, attrs?.["data-app-src"]); return e; }
+  if (Adopt) { const e = adopt(p, tag, cls, attrs); if (tag === "video" || tag === "audio") Media.media(e, attrs); if (tag === "iframe") frame(e, attrs?.["data-app-src"]); if (tag === "button") oneActivation(e); return e; }
   const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag); e.$exactTree = true;
   if (cls !== 0) e.setAttribute("class", "c" + cls);
   if (attrs) { for (const k in attrs) e.setAttribute(k, rel(k, attrs[k])); if ("data-scrolldocument" in attrs) Docs.add(e); }
   if (text !== 0) e.textContent = text;
   if (tag === "iframe") frame(e, attrs?.["data-app-src"]);
+  if (tag === "button") oneActivation(e);
   p.append(e);
   if (tag === "video" || tag === "audio") Media.media(e, attrs); // an `audio` is the same media host (LLP 1042 §8)
   Paint?.list(e); return e;
@@ -645,8 +646,7 @@ export function cv(e) {
 // class it would have had and drops the renderer's view ids, and inserts
 // the region anchors a fresh build would have made. A
 // mismatch abandons adoption and builds afresh (LLP 1048.000 D6).
-let Adopt = false;
-class Mismatch extends Refusal {}
+let Adopt = false; class Mismatch extends Refusal {}
 // The next node to adopt under `p`; insertions go before it and never move it.
 const at = p => (p.$n === undefined ? (p.$n = p.firstChild) : p.$n);
 function adopt(p, tag, cls, attrs) {

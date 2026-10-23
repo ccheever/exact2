@@ -549,14 +549,14 @@ final class CustomInvokerIOSTests: XCTestCase {
         p.menus.action("showPopover", ["choices"])
         try XCTUnwrap(p.controls.controls[8]).sendActions(for: .primaryActionTriggered)
         XCTAssertEqual(presses, [2, 2, 1, 1, 1])
-        XCTAssertTrue(p.menus.isOpen(other), "a native button's bubbled press also activates the custom invoker it passed")
-        // With no press anywhere above it, its action still activates the invoker.
+        XCTAssertFalse(p.menus.isOpen(other), "the native button owns activation even without a target")
+        // With no press anywhere above it, the button still owns activation.
         p.menus.action("hidePopover", ["other"])
         try XCTUnwrap(p.views[1]).handlers = []
         p.menus.action("showPopover", ["choices"])
         try XCTUnwrap(p.controls.controls[8]).sendActions(for: .primaryActionTriggered)
         XCTAssertEqual(presses, [2, 2, 1, 1, 1])
-        XCTAssertTrue(p.menus.isOpen(other), "no press target: the invoker still activates")
+        XCTAssertFalse(p.menus.isOpen(other), "an outer invoker does not activate")
     }
 
     func testSheetBubblingCannotOpenOutsideTheModalButPageActivationCan() throws {

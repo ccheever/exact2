@@ -215,7 +215,11 @@ extension NodeView {
         guard canActivateInline(id), let presenter, let run = presenter.inlineText(id) else { return false }
         if run.handlers.contains("press") {
             #if os(iOS)
-            presenter.menus.activating(from: self, pressing: nil) { presenter.press(id) }
+            if presenter.activationButton(from: self, inline: id) != nil {
+                presenter.menus.activating(from: self, pressing: nil) { presenter.press(id) }
+            } else { presenter.press(id) }
+            #elseif os(macOS)
+            presenter.menus.activating(from: self, pressing: nil, inline: id) { presenter.press(id) }
             #else
             presenter.press(id)
             #endif

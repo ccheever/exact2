@@ -20,6 +20,7 @@ final class AccessibleMenuItem: NSMenuItem {
 }
 
 final class MenuHost: NSObject {
+    var invocationOwner: NodeView?
     private(set) weak var presenter: Presenter?
     final class Entry {
         let popover: NodeView

@@ -88,6 +88,17 @@ final class InvokerButtonIOSTests: XCTestCase {
         XCTAssertTrue(try hit(p, x: 50) === button)
     }
 
+    func testTheInvokersOwnOverflowScrollerKeepsItsMenu() throws {
+        let p = page([
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Open"]],
+            ["op": "frame", "id": 3, "x": 0, "y": 0, "w": 200, "h": 100],
+        ], ids: [3])
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["overflow_y": "auto"]]]))
+        let invoker = try XCTUnwrap(p.views[2])
+        XCTAssertNotNil(invoker.scroll)
+        XCTAssertTrue(try hit(p, x: 50) === overlay(p), "its own pan does not take the menu's tap")
+    }
+
     func testTheMenusPressIsTheOneATouchResolves() throws {
         let p = page([
             ["op": "create", "id": 3, "kind": "text", "props": ["text": "Open"]],
