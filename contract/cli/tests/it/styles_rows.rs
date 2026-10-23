@@ -470,3 +470,23 @@ fn a_material_is_a_name_in_the_table_or_none() {
         "{error:?}"
     );
 }
+
+#[test]
+fn calculated_grid_tracks_lower_in_attributes_and_styles() {
+    let value = "repeat(auto-fill, minmax(min(100%, 200px), 1fr))";
+    let src = format!(
+        "component App\n  view\n    view display=\"grid\" grid-template-columns=\"{value}\"\n"
+    );
+    contract::compile(&src).unwrap();
+    let src = format!("style Cards\n  grid-template-columns=\"{value}\"\ncomponent App\n  view\n    view class=Cards\n");
+    contract::compile(&src).unwrap();
+    let errors = contract::compile(
+        "component App\n  view\n    view grid-template-columns=\"var(--track)\"\n",
+    )
+    .unwrap_err();
+    let message = format!("{errors:?}");
+    assert!(
+        message.contains("calc()") && message.contains("min()"),
+        "{message}"
+    );
+}
