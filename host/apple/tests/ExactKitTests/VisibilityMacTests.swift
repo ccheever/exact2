@@ -53,6 +53,39 @@ final class VisibilityMacTests: XCTestCase {
         XCTAssertTrue(field.isHidden)
     }
 
+    func testAuthoredBackgroundPaintsAboveTheNativeMaterial() throws {
+        let p = presenter()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "props": ["backgroundMaterial": "ultra-thin"], "style": ["background_color": [255, 0, 0, 255]]],
+            ["op": "create", "id": 2, "kind": "view", "style": ["background_color": [0, 0, 255, 255]]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 120, "h": 100],
+            ["op": "frame", "id": 2, "x": 40, "y": 40, "w": 20, "h": 20],
+        ]))
+        let node = try XCTUnwrap(p.views[1]), child = try XCTUnwrap(p.views[2])
+        window?.orderFrontRegardless()
+        func picture() throws -> NSBitmapImageRep { try XCTUnwrap(Capture.picture(of: p.viewport)) }
+        var rep = try picture()
+        XCTAssertGreaterThan(rgba(rep, 20, 20)[0], 0.9)
+        let materialRed = rgba(rep, 20, 20)
+        XCTAssertGreaterThan(materialRed[0], 2 * materialRed[1])
+        XCTAssertGreaterThan(rgba(rep, 50, 50)[2], 0.9, "content stays above the fill")
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["background_color": [0, 255, 0, 255]]]]))
+        rep = try picture()
+        XCTAssertGreaterThan(rgba(rep, 20, 20)[1], 0.9)
+        XCTAssertLessThan(rgba(rep, 20, 20)[0], 0.1)
+        p.apply(wireBatch([["op": "props", "id": 1, "clear": ["backgroundMaterial"]]]))
+        rep = try picture()
+        XCTAssertGreaterThan(rgba(rep, 20, 20)[1], 0.9)
+        XCTAssertNil(node.materialView)
+        XCTAssertTrue(child.superview === node.container)
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["background_color": [255, 0, 0, 255]]]]))
+        let plainRed = rgba(try picture(), 20, 20)
+        for (material, plain) in zip(materialRed, plainRed) {
+            XCTAssertEqual(material, plain, accuracy: 1.0 / 255, "an opaque authored fill is unchanged by the material below")
+        }
+    }
+
     func testHiddenBackdropBlurIsRemovedAndRestored() throws {
         let p = presenter()
         let blur: [String: Any] = ["backdrop_filter": [["blur": 10.0]]]
