@@ -117,7 +117,7 @@ extension MenuHost {
         while let view = at {
             if let node = view as? NodeView {
                 if node.disabled || node.authoredInert || !(node.props["href"] ?? "").isEmpty { return nil }
-                if !(node.props["popovertarget"] ?? "").isEmpty || !(node.props["commandfor"] ?? "").isEmpty { return node }
+                if node.kind == "button", !(node.props["popovertarget"] ?? "").isEmpty || !(node.props["commandfor"] ?? "").isEmpty { return node }
             }
             at = presenter?.listenerParent(of: view) ?? view.superview
         }

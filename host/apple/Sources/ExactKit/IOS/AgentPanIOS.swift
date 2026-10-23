@@ -279,7 +279,7 @@ extension Agent {
         if !took, presenter.hasKeyboardEditor, !presenter.contextRetainsFocus(node) { presenter.endEditing() }
         // The press, its target checked after the focus's callbacks too.
         var pressed: Any = NSNull()
-        if let element = reach.element, let node = reach.reached?.live(in: presenter), !node.disabled, !node.inert { presenter.press(element, held: held); pressed = Int(element) }
+        if let element = reach.element, let node = reach.reached?.live(in: presenter), !node.disabled, !node.inert { node.activateSvg(element, held: held); pressed = Int(element) }
         if reach.element == nil, reach.presentationsOpen, reach.reached?.live(in: presenter) === node {
             let target = stillPresses(reach)
             if target != nil || reach.action == nil && reach.invocation?.isLive(in: presenter) == true {
@@ -463,13 +463,9 @@ extension Agent {
                 return ["contact": Int(v.id), "phase": "down", "at": point(at), "delivery": "recognized"]
             }
             presenter.onPanSample?(true, Double(at.x), Double(at.y), t)
-            // A contact that lands on a press inside the pan node (a button in
-            // a draggable card) presses that node if the pan never begins.
-            let pressInside = hit.isDescendant(of: node) && sequence(first: hit, next: { $0.superview }).prefix { $0 !== node }
-                .contains { ($0 as? NodeView)?.handlers.contains("press") == true }
-            var contact = AgentPan(node: node, pointer: Agent.pointerNode(from: hit).map(HeldNode.init), path: Agent.fingerPath(from: hit), at: at, t: t, held: Agent.heldPrefix(req))
-            // A lift that never panned is the press it landed on, through a finger's lift (`lift`).
-            if pressInside || node.handlers.contains("press") { contact.reach = fingerReach(hit, at: p) }
+            // A stationary contact keeps its activation even without a press listener.
+            var contact = AgentPan(node: node, pointer: Agent.pointerNode(from: hit).map(HeldNode.init), path: Agent.fingerPath(from: hit),
+                                   reach: fingerReach(hit, at: p), at: at, t: t, held: Agent.heldPrefix(req))
             MainActor.assumeIsolated { HeldState.input(at: hit) } // where the finger lands, a held node inside the pan's included
             panContact = contact
             panPointer(contact, .down)
