@@ -1,9 +1,4 @@
-// @ref LLP 1121 stage 9 B (D10) — on the Mac a page symbol nobody tinted
-// whose `color` its author wrote, on it or on an ancestor (the kernel's
-// `symbolColorWritten`), draws in that colour: Shelf's star under
-// `color="AccentColor"` is the accent, not AppKit's `secondaryLabelColor`.
-// A symbol under no written colour keeps that (`PlatformDefaultsMacTests`),
-// and a written tint still wins.
+// LLP 1081 stage 2: symbols take computed color without replacing their image.
 #if os(macOS)
 import AppKit
 import XCTest
@@ -48,6 +43,10 @@ final class SymbolColorMacTests: XCTestCase {
     private func ink(_ p: Presenter, _ id: UInt32) throws -> [Double] {
         try channels(try XCTUnwrap(p.views[id]).symbolView?.contentTintColor)
     }
+    private func presentedImage(_ p: Presenter, _ id: UInt32) throws -> NSImage? {
+        let node = try XCTUnwrap(p.views[id])
+        return node.image?.withSymbolConfiguration(try XCTUnwrap(node.symbolView?.symbolConfiguration))
+    }
     private func assertChannels(_ got: [Double], _ want: [Double], _ message: String, file: StaticString = #filePath, line: UInt = #line) {
         for i in 0..<4 { XCTAssertEqual(got[i], want[i], accuracy: 0.51, "\(message): \(got) is not \(want)", file: file, line: line) }
     }
@@ -86,26 +85,25 @@ final class SymbolColorMacTests: XCTestCase {
                            (5, true, ["text_color": pink, "tint_color": teal])])
         assertChannels(try ink(p, 2), try channels(.controlAccentColor), "Shelf's star: `color=\"AccentColor\"` is the accent")
         assertChannels(try ink(p, 3), [173, 20, 87, 255], "a token's colour")
-        assertChannels(try ink(p, 4), try channels(.secondaryLabelColor), "a colour nobody wrote keeps AppKit's")
-        assertChannels(try ink(p, 5), [48, 176, 199, 255], "a written tint wins")
+        assertChannels(try ink(p, 4), [173, 20, 87, 255], "computed colour is inherited")
+        assertChannels(try ink(p, 5), [173, 20, 87, 255], "raster tint is ignored")
     }
 
-    /// The colour follows a restyle and the kernel's word as each changes;
-    /// a hierarchical glyph, which bakes it into its image, is made again.
+    /// Computed color follows restyling while the glyph retains its identity.
     func testTheInkFollowsItsColourAndItsWord() throws {
         let p = presenter([(2, false, ["text_color": pink]), (3, true, ["text_color": pink, "symbol_rendering": "hierarchical"])])
-        assertChannels(try ink(p, 2), try channels(.secondaryLabelColor), "unwritten")
+        assertChannels(try ink(p, 2), [173, 20, 87, 255], "inherited")
         p.apply(wireBatch([["op": "props", "id": 2, "set": ["symbolColorWritten": "1"], "clear": []]]))
         assertChannels(try ink(p, 2), [173, 20, 87, 255], "written")
         p.apply(wireBatch([["op": "style", "id": 2, "style": ["font_size": 17, "text_color": teal]]]))
         assertChannels(try ink(p, 2), [48, 176, 199, 255], "a new colour")
         p.apply(wireBatch([["op": "props", "id": 2, "set": [:], "clear": ["symbolColorWritten"]]]))
-        assertChannels(try ink(p, 2), try channels(.secondaryLabelColor), "unwritten again")
+        assertChannels(try ink(p, 2), [48, 176, 199, 255], "still inherited")
         let hierarchical = try XCTUnwrap(p.views[3])
         let key = hierarchical.symbolKey
         assertChannels(try ink(p, 3), [173, 20, 87, 255], "hierarchical")
         p.apply(wireBatch([["op": "style", "id": 3, "style": ["font_size": 17, "text_color": teal, "symbol_rendering": "hierarchical"]]]))
-        XCTAssertNotEqual(hierarchical.symbolKey, key, "the baked colour remakes the image")
+        XCTAssertEqual(hierarchical.symbolKey, key, "paint keeps the image identity")
         assertChannels(try ink(p, 3), [48, 176, 199, 255], "hierarchical, a new colour")
     }
 
@@ -157,8 +155,8 @@ final class SymbolColorMacTests: XCTestCase {
         ops.append(["op": "frame", "id": 400, "x": 0.0, "y": 0.0, "w": 24.0, "h": 24.0])
         ops.append(["op": "children", "id": 1, "ids": [100, 200, 300, 400]])
         p.apply(wireBatch(ops))
-        XCTAssertGreaterThan(pixels(p.views[400]?.image).green, 0, "a page symbol bakes its written green")
-        XCTAssertGreaterThan(pixels(p.views[303]?.image).green, 0, "a one-tab tablist stays as authored: its image is the page's")
+        XCTAssertGreaterThan(pixels(try presentedImage(p, 400)).green, 0, "a page symbol bakes its written green")
+        XCTAssertGreaterThan(pixels(try presentedImage(p, 303)).green, 0, "a one-tab tablist stays as authored: its image is the page's")
         for owner: UInt32 in [100, 200] {
             let control = try XCTUnwrap(p.views[owner]?.subviews.first { $0 is NSSegmentedControl } as? NSSegmentedControl, "\(owner) projects")
             XCTAssertEqual(control.segmentCount, 2)
@@ -169,10 +167,7 @@ final class SymbolColorMacTests: XCTestCase {
         }
     }
 
-    /// In a selected table row drawn emphasized, a fixed written colour keeps
-    /// its ink, as a fixed tint does; a role's colour, and a symbol nobody
-    /// coloured, take the selected ink. A fixed colour that comes while the
-    /// row is selected keeps its ink at once.
+    /// Fixed computed color keeps its ink in an emphasized row; a role follows selection.
     func testAnEmphasizedRowKeepsAFixedWrittenColour() throws {
         let role: [String: Any] = ["sys": "labelColor", "c": [[0, 0, 0, 255], [255, 255, 255, 255]]]
         let p = presenter([(2, true, ["text_color": pink]), (3, true, ["text_color": role]), (4, false, ["text_color": pink])])
@@ -180,7 +175,7 @@ final class SymbolColorMacTests: XCTestCase {
         func style(_ id: UInt32) -> NSView.BackgroundStyle? { p.views[id]?.symbolView?.cell?.backgroundStyle }
         XCTAssertEqual(style(2), .normal, "a fixed written colour")
         XCTAssertEqual(style(3), .emphasized, "a role")
-        XCTAssertEqual(style(4), .emphasized, "nobody's")
+        XCTAssertEqual(style(4), .normal, "an inherited fixed colour")
         // A fixed colour written while the row is selected takes the
         // emphasis away at once; deselected, every cell is normal.
         p.apply(wireBatch([["op": "style", "id": 3, "style": ["font_size": 17, "text_color": pink]]]))
