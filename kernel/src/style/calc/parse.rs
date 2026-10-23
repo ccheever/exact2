@@ -142,10 +142,14 @@ pub(crate) fn parse(text: &str) -> Result<Option<Dimension>, Refused> {
 }
 
 /// Grid's length-percentage calculations use the same grammar and limits,
-/// without viewport or environment dependencies.
-pub(crate) fn grid(text: &str) -> Option<super::Comparison> {
-    let tree = calculation(text, true, true).ok()?;
-    Some(super::Comparison::intern(super::simplify::simplify(tree)))
+/// without viewport or environment dependencies. Canonical CSS can add
+/// parentheses, so the wire checks author limits on the simplified tree.
+pub(crate) fn grid(text: &str, canonical: bool) -> Option<super::Comparison> {
+    let tree = super::simplify::simplify(calculation(text, !canonical, true).ok()?);
+    if canonical && !super::wire::within_author_limits(&tree) {
+        return None;
+    }
+    Some(super::Comparison::intern(tree))
 }
 
 /// The simplified tree a text parses to, for the wire's check that a tree
@@ -212,7 +216,12 @@ struct Calc {
 impl Calc {
     fn count<'i>(&mut self, p: &Parser<'i, '_>) -> Parsed<'i, ()> {
         self.values += 1;
-        if self.limited && self.values > MAX_VALUES {
+        let limit = if self.limited {
+            MAX_VALUES
+        } else {
+            super::wire::MAX_NODES
+        };
+        if self.values > limit {
             return why(p, refusal::SIZE);
         }
         Ok(())
@@ -220,7 +229,12 @@ impl Calc {
 
     /// A level deeper: a function or parentheses.
     fn deeper<'i>(&self, p: &Parser<'i, '_>, depth: usize) -> Parsed<'i, usize> {
-        if self.limited && depth == MAX_DEPTH {
+        let limit = if self.limited {
+            MAX_DEPTH
+        } else {
+            super::wire::MAX_LEVELS
+        };
+        if depth >= limit {
             return why(p, refusal::DEPTH);
         }
         Ok(depth + 1)

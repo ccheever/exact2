@@ -14,8 +14,8 @@ use crate::StyleId;
 /// the work before it is checked: past what any text within §10.8's limits
 /// makes, a level's `clamp(none, …, none)` and the parentheses the kernel
 /// writes included.
-const MAX_NODES: usize = 2 * super::MAX_VALUES * (super::MAX_DEPTH + 1);
-const MAX_LEVELS: usize = 2 * super::MAX_DEPTH + 2;
+pub(super) const MAX_NODES: usize = 2 * super::MAX_VALUES * (super::MAX_DEPTH + 1);
+pub(super) const MAX_LEVELS: usize = 2 * super::MAX_DEPTH + 2;
 
 /// Append an entry: a text whose `env()` has a fallback as tag 9 and the
 /// codec's string (a `u32` length and UTF-8 bytes); a tree node by node,
@@ -110,11 +110,7 @@ pub(super) fn decode(r: &mut Reader<'_>, row: StyleId) -> Result<Comparison, Dec
     *r = start;
     let mut nodes = 0;
     let tree = node(r, 0, &mut nodes).ok_or(refused.clone())?;
-    // §10.8's limits as an author wrote them, which a simplified tree holds
-    // no more of: its values, and its levels of functions and of a sum a
-    // product holds in parentheses
-    let (values, levels) = authored(&tree, true);
-    if values > super::MAX_VALUES || levels > super::MAX_DEPTH {
+    if !within_author_limits(&tree) {
         return Err(refused);
     }
     let mut text = String::new();
@@ -127,6 +123,12 @@ pub(super) fn decode(r: &mut Reader<'_>, row: StyleId) -> Result<Comparison, Dec
         Some(crate::Dimension::Compare(c)) => Ok(c),
         _ => Err(refused),
     }
+}
+
+/// Check the simplified tree, excluding parentheses added by serialization.
+pub(super) fn within_author_limits(tree: &Node) -> bool {
+    let (values, levels) = authored(tree, true);
+    values <= super::MAX_VALUES && levels <= super::MAX_DEPTH
 }
 
 /// The values `n` holds and the levels of parentheses and functions it
