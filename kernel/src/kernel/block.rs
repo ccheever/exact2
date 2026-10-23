@@ -440,23 +440,47 @@ impl Kernel {
             (d.resolve(env) != crate::Dimension::Auto).then(|| d.at_basis(env, basis))
         };
         let auto = |m: crate::Dimension| m == crate::Dimension::Auto;
-        // CSS 2 §10.3.7: with both insets, an `auto` margin takes the room
-        // left; two share it, the start's at least zero.
+        // The containing block's direction, the root's: which inset wins
+        // when both are written and neither margin is `auto`, and which
+        // margin is zero when two `auto` ones would be negative.
+        let mut root = node.key.index;
+        while let Some(up) = self.arena.parent(root) {
+            root = up;
+        }
+        let rtl = self
+            .arena
+            .computed_source(root, crate::StyleId::Direction)
+            .direction
+            == crate::generated::Direction::Rtl;
+        // CSS 2 §10.3.7 and §10.6.4: with both insets, an `auto` margin
+        // takes the room left and two share it; across, a negative share
+        // leaves the start margin zero (the end one in RTL), down it stays.
         let axis = |inset: [crate::Dimension; 2],
                     margin: [crate::Dimension; 2],
                     at: f32,
                     size: f32,
                     used: f32,
-                    room: f32| {
+                    room: f32,
+                    across: bool| {
             let end_margin = used - at - size;
+            let from_end = |end: f32| room - end - end_margin - size;
             match (length(inset[0], room), length(inset[1], room)) {
                 (Some(start), Some(end)) => match (auto(margin[0]), auto(margin[1])) {
-                    (true, true) => start + ((room - start - end - size) / 2.0).max(0.0),
-                    (true, false) => room - end - end_margin - size,
-                    _ => start + at,
+                    (true, true) => {
+                        let share = (room - start - end - size) / 2.0;
+                        match (across && share < 0.0, rtl) {
+                            (true, false) => start,
+                            (true, true) => room - end - size,
+                            (false, _) => start + share,
+                        }
+                    }
+                    (true, false) => from_end(end),
+                    (false, true) => start + at,
+                    (false, false) if across && rtl => from_end(end),
+                    (false, false) => start + at,
                 },
                 (Some(start), None) => start + at,
-                (None, Some(end)) => room - end - end_margin - size,
+                (None, Some(end)) => from_end(end),
                 (None, None) => at,
             }
         };
@@ -467,6 +491,7 @@ impl Kernel {
             f.width,
             used.0,
             width,
+            true,
         );
         let y = axis(
             [s.top, s.bottom],
@@ -475,6 +500,7 @@ impl Kernel {
             f.height,
             used.1,
             height,
+            false,
         );
         Some((x, y))
     }
