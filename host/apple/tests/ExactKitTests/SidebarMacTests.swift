@@ -400,14 +400,25 @@ final class SidebarMacTests: XCTestCase {
         view.onWindowSidebar = { changes += 1 }
         let items = { window.toolbar?.items.map(\.itemIdentifier) ?? [] }
 
+        func layoutUntil(_ condition: () -> Bool) {
+            let deadline = Date(timeIntervalSinceNow: 30)
+            repeat {
+                window.layoutIfNeeded()
+                split.view.layoutSubtreeIfNeeded()
+                if condition() { return }
+                RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            } while Date() < deadline
+            XCTAssertTrue(condition(), "the split view did not reach its requested geometry")
+        }
+
         // On a narrow window the page keeps its minimum and the window stops at the two panes' (LLP 1115.002 §1).
         window.setContentSize(NSSize(width: 300, height: 500))
-        window.layoutIfNeeded()
+        layoutUntil { abs(view.frame.width - 320) < 1 && abs((window.contentView?.frame.width ?? 0) - (320 + split.sidebarWidth)) < 2 }
         XCTAssertEqual(view.frame.width, 320, accuracy: 1)
         XCTAssertEqual(window.contentView?.frame.width ?? 0, 320 + split.sidebarWidth, accuracy: 2)
         XCTAssertFalse(split.collapsed, "AppKit hides no sidebar by itself in a window")
         window.setContentSize(NSSize(width: 700, height: 500))
-        window.layoutIfNeeded()
+        layoutUntil { abs(view.frame.width - (700 - split.sidebarWidth - split.splitView.dividerThickness)) < 1.5 }
 
         // View ▸ Show Sidebar is there for a window with a sidebar, with AppKit's chord.
         let menu = DevMenu.makeMenu(shortcuts: p.shortcuts, documents: false, develop: false)
@@ -433,6 +444,7 @@ final class SidebarMacTests: XCTestCase {
                 split.collapsed == hidden && split.splitView.arrangedSubviews.first?.isHidden == hidden
                     && abs(view.frame.width - (hidden ? 700 : 700 - split.sidebarWidth - split.splitView.dividerThickness)) < 1.5
             }
+            layoutUntil(settled)
             XCTAssertTrue(settled(), "\(why): collapsed \(split.collapsed), page \(view.frame.width)")
         }
         toggled(true, "hidden by the person")
