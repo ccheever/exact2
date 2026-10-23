@@ -23,12 +23,12 @@ extension ScrollAnchoring.Changes {
 }
 
 extension NodeView {
-    func captureScrollAnchor(_ sv: UIScrollView) {
+    func captureScrollAnchor(_ sv: UIScrollView, focused: NodeView?) {
         // No anchor at the start (spec §2.2): content inserted on top shows.
         guard hasScrollLayoutBox, sv.contentOffset.y > -sv.adjustedContentInset.top else { return }
         // The scrollport: what a bar or the safe area covers is not in view.
         let i = sv.adjustedContentInset
-        scrollAnchor = ScrollAnchoring.anchor(in: self, space: sv, port: sv.bounds.inset(by: UIEdgeInsets(top: i.top, left: 0, bottom: i.bottom, right: 0)))
+        scrollAnchor = ScrollAnchoring.anchor(in: self, space: sv, port: sv.bounds.inset(by: UIEdgeInsets(top: i.top, left: 0, bottom: i.bottom, right: 0)), focused: focused)
     }
 
     func restoreScrollAnchor(_ sv: UIScrollView) {

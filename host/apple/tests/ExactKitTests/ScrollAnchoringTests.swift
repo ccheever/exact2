@@ -87,7 +87,10 @@ final class ScrollAnchoringTests: XCTestCase {
         let space = try XCTUnwrap(scroller.scroll?.documentView)
         #endif
         let port = CGRect(x: 0, y: 50, width: 300, height: 200)
-        func anchor() -> UInt32? { ScrollAnchoring.anchor(in: scroller, space: space, port: port)?.node.id }
+        let focused = p.focusedNode
+        func anchor() -> UInt32? { ScrollAnchoring.anchor(in: scroller, space: space, port: port, focused: focused)?.node.id }
+        XCTAssertEqual(ScrollAnchoring.anchor(in: scroller, space: space, port: port, focused: nil)?.node.id, 2,
+                       "a pass without a focused candidate uses tree order without looking up focus again")
         XCTAssertEqual(anchor(), 3, "the focused editor wins over box 2")
         p.apply(wireBatch([["op": "props", "id": 3, "set": ["editable": "false"]]]))
         XCTAssertEqual(anchor(), 2, "a read-only editor is no priority candidate")

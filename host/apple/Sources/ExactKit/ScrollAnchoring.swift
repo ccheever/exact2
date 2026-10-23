@@ -106,7 +106,7 @@ enum ScrollAnchoring {
     /// The anchor in `scroller`'s content view `space`, whose visible part is
     /// `port`. A nested scroller is a candidate, its content is not: that
     /// moves with its own offset.
-    static func anchor(in scroller: NodeView, space: PlatformView, port: CGRect) -> (node: NodeView, y: CGFloat)? {
+    static func anchor(in scroller: NodeView, space: PlatformView, port: CGRect, focused: NodeView?) -> (node: NodeView, y: CGFloat)? {
         // A view leaving with an exit animation stays in the window but is no
         // longer the presenter's: the DOM has removed it, so it is no candidate.
         let live = { (n: NodeView) in scroller.presenter?.views[n.id] === n }
@@ -122,7 +122,7 @@ enum ScrollAnchoring {
         }
         // CSS Scroll Anchoring §2.1 examines a viable focused editor before
         // tree-order candidates, including when it is only partly visible.
-        if let focused = scroller.presenter?.focusedNode,
+        if let focused,
            focused.props["editable"] != "false", !focused.disabled,
            focused.field != nil || focused.textArea != nil,
            focused.isDescendant(of: space), focused !== scroller,

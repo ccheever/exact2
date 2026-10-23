@@ -245,7 +245,7 @@ extension NodeView {
         return node.isDescendant(of: sv) && !node.isHidden ? node.convert(node.bounds, to: sv) : nil
     }
 
-    func captureScrollPosition() {
+    func captureScrollPosition(focused: NodeView?) {
         // UIKit may have pending row geometry and its own offset adjustment.
         // Snapshot both from the same layout before preserving the reader.
         if groupedOwner { scrollView?.layoutIfNeeded() }
@@ -260,7 +260,7 @@ extension NodeView {
                     // UIKit quantizes offsets independently of fractional insets.
                     // A rounding difference at the start is not a reading anchor.
                     if sv.contentOffset.y + sv.adjustedContentInset.top > 0.5 { readingAnchors = presenter?.groupedLists?.scrollAnchors(for: id) ?? [] }
-                } else { captureScrollAnchor(sv) }
+                } else { captureScrollAnchor(sv, focused: focused) }
             }
             return
         }
