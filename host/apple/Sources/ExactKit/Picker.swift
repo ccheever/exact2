@@ -121,7 +121,7 @@ final class Picker: NSObject {
         if reply["answered"] as? String == "cancel" { cancel(view); return }
         let text = request["text"] as? String ?? ""
         var paths = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        if paths.count == 1 { paths = paths[0].split(separator: " ").map(String.init) }
+        if !text.contains("\n") { paths = text.split(whereSeparator: \.isWhitespace).map(String.init) }
         let accept = (session.presenter.views[view]?.props["accept"] ?? "").split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty }
         deliver(view, accept: accept, files: paths.map { (URL(fileURLWithPath: $0), ($0 as NSString).lastPathComponent) })
