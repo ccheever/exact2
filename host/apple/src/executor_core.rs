@@ -451,10 +451,8 @@ impl Core {
     ) -> Result<(), (&'static str, Option<OwnedWork>)> {
         let ordered = r.request.is_ordered();
         let mut state = self.shared.state.lock().unwrap();
-        // A deadline on work that cannot take one (a stream, a continuation,
-        // native work), or a long poll that is no stream's HTTP GET (LLP
-        // 1016.000 D8), is refused here, before any path: an ordered one
-        // raises the barrier, as any admission refusal does.
+        // A deadline on work that cannot take one (a stream, a continuation, native work), or a long
+        // poll that is no stream's HTTP GET (LLP 1016.000 D8), is refused here, before any path.
         let checked = r
             .request
             .long_poll_refusal()
