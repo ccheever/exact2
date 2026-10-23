@@ -37,7 +37,7 @@ mod syntax;
 mod trace;
 mod typeface;
 
-pub use check::{Checked, MAX_TUPLES};
+pub use check::{Checked, MAX_REFERENCE_DEPTH, MAX_TUPLES};
 pub use component::{Component, Param};
 pub use css::{MAX_VALUE_BYTES, MAX_VALUE_DEPTH};
 pub use edit::{apply, apply_all, apply_all_with, undo, Edited, Op, WhenLine};
