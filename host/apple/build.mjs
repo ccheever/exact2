@@ -188,13 +188,10 @@ export function appleArtifacts(app, { destination = 'macos', composition, trust 
       : resolve(products, `${executable}.app`),
     embed: resolve(namespace, 'embed') };
 }
-/** Named catalog assets require an app bundle on macOS, including agent drives. */
+/** Drives use the app's Info.plist, including ATS, as a normal launch does. */
 export function appleRunBinary(app, host = false) {
   const paths = appleArtifacts(app, { host });
-  let widgets = false;
-  try { widgets = JSON.parse(readFileSync(resolve(paths.products, 'receipt.json'), 'utf8')).entitlements?.includes('com.apple.security.application-groups') ?? false; }
-  catch { /* A missing receipt is diagnosed by the driver's build check. */ }
-  return !host && (appleAssetCatalogInventory(app, 'macos').length || widgets) ? resolve(paths.bundle, 'Contents/MacOS', paths.executable) : paths.binary;
+  return resolve(paths.bundle, 'Contents/MacOS', paths.executable);
 }
 /** Both bare product directories resolve @executable_path/../Frameworks here. */
 export function publishMacFramework(framework, namespace, identity) {
@@ -626,6 +623,8 @@ async function main(args, lockHeld = false) {
   // tvOS runs the iOS simulator path with tvOS's target, SDK and plist.
   const tv = args.includes('--tvos');
   const ios = device || tv || args.includes('--ios');
+  // Every Mac drive needs the bundle's identity and transport policy.
+  if (!ios && !args.includes('--bundle')) args = [...args, '--bundle'];
   if (tv && (args.includes('--host') || args.includes('--embed'))) {
     console.error('--tvos takes neither --host nor --embed');
     process.exitCode = 1; return;

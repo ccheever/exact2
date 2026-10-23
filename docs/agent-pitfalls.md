@@ -1186,27 +1186,6 @@ The journal names a top level slower than 50 ms.
   refused app file fires `error`, without a successful `load`. This does
   not provide a portable fit-to-width PDF viewer or toolbar controls.
 
-- **An `iframe` of `http://` from a named host loads under the agent and shows an
-  App Transport Security error in the macOS app.** `http://localtest.me:5173/` or
-  `http://example.com/` read "The resource could not be loaded because the App
-  Transport Security policy requires the use of a secure connection" in the `.app`
-  (an IP literal such as `http://127.0.0.1` loads). Cause: ATS reads the bundle's
-  `Info.plist`, and `agent macos` runs the bare executable, which has none. Fix: set
-  `host.macos.appTransportSecurity` (and `host.ios.…` for iOS) to
-  `{ "allowsArbitraryLoadsInWebContent": true }` in `app.json`; it relaxes web views
-  only. On iOS, the host's wrapper for a remote HTTP page also uses HTTP:
-  an HTTPS wrapper would still block that page as mixed content after the ATS
-  opt-in. The inner iframe keeps its sandbox and its authored dimensions.
-  To drive what a user sees on macOS, build with `bun exact.mjs mac --bundle` and set
-  `EXACT_MAC_BIN` to the `.app`'s `Contents/MacOS/<Name>`; the driver then skips its
-  stale-build check, so rebuild the bundle before each drive. An app's own page
-  (`src="assets/…"`) is served at `exact-app://app/assets/…` (the next entry): an
-  absolute `http:` sub-resource on loopback loads, and one on a named host follows
-  the same ATS setting. A sub-resource that fails is logged (`exact: iframe
-  assets/…: <url> did not load (<reason>)`, or `… is not an app asset under assets/
-  or deck/`) (#135).
-  (Issue #106, 2026-10-06.)
-
 - **A bundled web page that works on the web can break on Apple if it reaches its
   parent, sets cookies or registers a service worker.** An `iframe` of an HTML page
   under `assets/` or `deck/` (a built web app: scripts, styles, fonts, chunks,

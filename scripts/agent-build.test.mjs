@@ -11,6 +11,17 @@ import { moduleGraph, notBuildInput } from './agent-launch.mjs';
 import { buildArgs, buildFirst, buildReason, childFailure, failureSummary, nativeBuild, overrideDir, planOverride, planSource, prebuild, rebuildCommand, refuseBuild } from './agent-build.mjs';
 import { resolveApp } from './app.mjs';
 
+test('Mac drives use the assembled app bundle even without catalogs or widgets', () => {
+  const { dir } = scratchApp('ats-drive');
+  try {
+    const app = resolveApp(dir);
+    for (const host of [false, true]) {
+      const paths = appleArtifacts(app, { host });
+      assert.equal(appleRunBinary(app, host), resolve(paths.bundle, 'Contents/MacOS', paths.executable));
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('a child failure keeps stderr when stdout ends with successful build progress', () => {
   assert.match(childFailure({ stderr: 'error: simulator installation failed\n', stdout: 'Building for production...\n[1/2] ExactIOS\nBuild complete!\n' }), /simulator installation failed/);
   assert.match(childFailure({ error: new Error('spawn ENOENT') }), /spawn ENOENT/);
