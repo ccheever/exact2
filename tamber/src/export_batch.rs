@@ -51,47 +51,53 @@ fn judged_on(base: &str, folding: Folding, members: &[&[Op]], vocab: &Vocab) -> 
 }
 
 /// `members` (each its place in the whole list, and its operations) on what
-/// `at` holds.
+/// `at` holds. The members a refusal blames are taken out and the rest tried
+/// again in a loop, not a call apiece (Astra's round 2 on the checker bound:
+/// a chain of edits each exposed by the last recursed once per edit); only
+/// halving recurses, as deep as the members halve.
 fn take(at: &mut Judged, members: &[(usize, &[Op])], vocab: &Vocab) {
-    if members.is_empty() {
-        return;
-    }
-    let ops: Vec<Op> = members
-        .iter()
-        .flat_map(|(_, m)| m.iter().cloned())
-        .collect();
-    let refused = match stepped_all(&at.text, &ops, vocab) {
-        Ok(text) => match crate::check(&text, vocab) {
-            Ok(folding) => {
-                at.text = text;
-                at.folding = folding;
+    let mut members: Vec<(usize, &[Op])> = members.to_vec();
+    loop {
+        if members.is_empty() {
+            return;
+        }
+        let ops: Vec<Op> = members
+            .iter()
+            .flat_map(|(_, m)| m.iter().cloned())
+            .collect();
+        let refused = match stepped_all(&at.text, &ops, vocab) {
+            Ok(text) => match crate::check(&text, vocab) {
+                Ok(folding) => {
+                    at.text = text;
+                    at.folding = folding;
+                    return;
+                }
+                Err(all) => match blamed(&text, &all, &members) {
+                    Some(blamed) => Err(blamed),
+                    None => Ok(all),
+                },
+            },
+            Err(all) => Ok(all),
+        };
+        match refused {
+            // Each token a diagnostic is on refused with its own, the rest
+            // tried again without them.
+            Err(blamed) => {
+                let out: std::collections::HashSet<usize> =
+                    blamed.iter().map(|(b, _)| *b).collect();
+                members.retain(|(k, _)| !out.contains(k));
+                at.refused.extend(blamed);
+            }
+            Ok(all) if members.len() == 1 => {
+                at.refused.push((members[0].0, all));
                 return;
             }
-            Err(all) => match blamed(&text, &all, members) {
-                Some(blamed) => Err(blamed),
-                None => Ok(all),
-            },
-        },
-        Err(all) => Ok(all),
-    };
-    match refused {
-        // Each token a diagnostic is on refused with its own, the rest tried
-        // again without them.
-        Err(blamed) => {
-            let out: std::collections::HashSet<usize> = blamed.iter().map(|(b, _)| *b).collect();
-            let rest: Vec<(usize, &[Op])> = members
-                .iter()
-                .filter(|(k, _)| !out.contains(k))
-                .copied()
-                .collect();
-            at.refused.extend(blamed);
-            take(at, &rest, vocab);
-        }
-        Ok(all) if members.len() == 1 => at.refused.push((members[0].0, all)),
-        Ok(_) => {
-            let half = members.len() / 2;
-            take(at, &members[..half], vocab);
-            take(at, &members[half..], vocab);
+            Ok(_) => {
+                let half = members.len() / 2;
+                take(at, &members[..half], vocab);
+                take(at, &members[half..], vocab);
+                return;
+            }
         }
     }
 }
