@@ -721,6 +721,29 @@ fn round_3_recheck_3_descendants_positions_and_prefix() {
         folded(&go(text).unwrap()).value("pen.n", 0).unwrap().css(),
         "8px"
     );
+    // A node id `type` in a `descendants` map is no type: `width` under it is still pixels.
+    let text = r#"{"version":"2.21","variables":{"n":{"type":"number","value":8}},
+      "children":[{"type":"frame","gap":"$n"},{"type":"ref","ref":"a","descendants":{"type":"gradient","node":{"width":"$n"}}}]}"#;
+    assert_eq!(
+        folded(&go(text).unwrap()).value("pen.n", 0).unwrap().css(),
+        "8px"
+    );
+    // A node id in a `descendants` map is no property: `top` under an id `strokeWidth` is no pixel side,
+    // and `position` under an id `colors` no stop.
+    for (id, inner) in [
+        ("strokeWidth", r#"{"top":"$n"}"#),
+        ("colors", r#"{"position":"$n"}"#),
+    ] {
+        let text = format!(
+            r#"{{"version":"2.21","variables":{{"n":{{"type":"number","value":8}}}},
+              "children":[{{"type":"frame","gap":"$n"}},{{"type":"ref","ref":"a","descendants":{{"{id}":{inner}}}}}]}}"#
+        );
+        assert_eq!(
+            folded(&go(&text).unwrap()).value("pen.n", 0).unwrap().css(),
+            "8px",
+            "{id}"
+        );
+    }
     let prefix = "p".repeat(128);
     let vars: Vec<String> = (0..2500)
         .map(|i| format!(r##""c{i}":{{"type":"color","value":"#000000"}}"##))
@@ -813,5 +836,41 @@ fn round_3_recheck_5_each_tuple_s_copy_of_a_prefixed_name_is_charged() {
     // 500 aliases in 64 tuples, each holding its 384-byte name twice: some 24 million more.
     let long = "€".repeat(128);
     assert!(!within(&long, high + 1_000_000), "the copies are charged");
+    assert!(within(&long, IMPORT));
+}
+
+#[test]
+fn round_3_recheck_6_each_tuple_s_copy_of_why_a_colour_failed_is_charged() {
+    let design = parse(EMPTY).unwrap();
+    let axes: Vec<String> = (0..6).map(|i| format!(r#""a{i}":["x","y"]"#)).collect();
+    let file = |cycle: &str| {
+        let mut vars = vec![format!(
+            r#""{cycle}":{{"type":"color","value":"${cycle}"}}"#
+        )];
+        vars.extend(
+            (0..300).map(|i| format!(r#""c{i:03}":{{"type":"color","value":"${cycle}"}}"#)),
+        );
+        format!(
+            r#"{{"version":"2.21","themes":{{{}}},"variables":{{{}}}}}"#,
+            axes.join(","),
+            vars.join(",")
+        )
+    };
+    let within = |text: &str, limit: u64| {
+        pen::import_within("x.pen", text, "pen", &design, &vocab(), limit).is_ok()
+    };
+    let short = file("x");
+    let (mut low, mut high) = (0, IMPORT);
+    while high - low > 1000 {
+        let mid = (low + high) / 2;
+        if within(&short, mid) {
+            high = mid;
+        } else {
+            low = mid;
+        }
+    }
+    // 300 aliases in 64 tuples, each holding a why that names a 384-byte cycle: some 7 million more.
+    let long = file(&"€".repeat(128));
+    assert!(!within(&long, high + 1_000_000), "the failures are charged");
     assert!(within(&long, IMPORT));
 }
