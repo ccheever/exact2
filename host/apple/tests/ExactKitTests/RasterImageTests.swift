@@ -97,6 +97,22 @@ final class RasterImageTests: XCTestCase {
             }
         }
     }
+    func testJPEGThumbnailRoundingDoesNotRequireResampling() throws {
+        let bytes = try fixture(1448, 1086, type: "public.jpeg")
+        let metadata = try RasterMetadata.read(prefix: bytes.prefix(RasterMetadata.headerLimit), encodedBytes: bytes.count)
+        let source = try XCTUnwrap(CGImageSourceCreateWithData(bytes as CFData, nil))
+        var copies = 0
+        let started = CACurrentMediaTime()
+        for pixel in [65, 99, 101, 363, 365, 511] {
+            let plan = try RasterDecodePlan(metadata: metadata, maxPixel: pixel)
+            let thumbnail = try XCTUnwrap(CGImageSourceCreateThumbnailAtIndex(source, 0, RasterImage.thumbnailOptions(plan)))
+            let image = try XCTUnwrap(RasterImage.normalized(thumbnail, plan: plan))
+            if image !== thumbnail { copies += 1 }
+            XCTAssertTrue(image === thumbnail, "keep ImageIO's pixels within the admitted dimensions")
+            XCTAssertLessThanOrEqual(image.bytesPerRow * image.height, plan.outputBytes)
+        }
+        print("QUEUE 670 JPEG thumbnails=6 resamples=\(copies) ms=\((CACurrentMediaTime() - started) * 1000)")
+    }
     func testReducedRasterKeepsOriginalNaturalDimensionsAndFit() throws {
         let bytes = try fixture(4000, 2000)
         let metadata = try RasterMetadata.read(prefix: bytes.prefix(RasterMetadata.headerLimit), encodedBytes: bytes.count)
