@@ -478,9 +478,15 @@ fn a_retry_asks_no_sooner_than_the_floor_and_its_body_is_never_read() {
         started.elapsed()
     );
     assert!(REPLIES.with(|r| r.get()) >= 1, "each busy reply is a reply");
+    // (the event asks again at once: the fourth ask, held, is waited for before the drop, so it is no race)
+    until_asked(&script, 4);
     core.forget(|_| false);
     until_settled(&core);
-    assert_eq!(script.asked.lock().unwrap().len(), 4);
+    assert_eq!(
+        script.asked.lock().unwrap().len(),
+        4,
+        "no ask after the drop"
+    );
 }
 
 #[test]
