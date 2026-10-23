@@ -1228,8 +1228,13 @@ pub fn reimport_against(
                 .filter(|(a, _)| !(light_moved && under.contains(&a.as_str())))
                 .collect();
             let mut found: Option<Modes> = None;
+            let mut tried = 0; // (past SELECTORS, the line naming every axis)
             'size: for size in 0..=axes.len() {
-                for pick in subsets(axes.len(), size) {
+                for pick in crate::selectors::subsets(axes.len(), size) {
+                    tried += 1;
+                    if tried > crate::selectors::SELECTORS {
+                        break 'size;
+                    }
                     let conds: Modes = pick.iter().map(|&k| axes[k].clone()).collect();
                     if conds.is_empty() {
                         continue;
@@ -1476,22 +1481,4 @@ fn sides_of(text: &str) -> Option<[String; 2]> {
         }
     }
     None
-}
-
-/// Each choice of `size` of `n` indices, in order.
-fn subsets(n: usize, size: usize) -> Vec<Vec<usize>> {
-    if size == 0 {
-        return vec![Vec::new()];
-    }
-    (0..n)
-        .flat_map(|first| {
-            subsets(n - first - 1, size - 1)
-                .into_iter()
-                .map(move |rest| {
-                    std::iter::once(first)
-                        .chain(rest.into_iter().map(|r| r + first + 1))
-                        .collect()
-                })
-        })
-        .collect()
 }
