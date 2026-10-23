@@ -126,6 +126,7 @@ extension Presenter {
             #if os(iOS)
             // A popover's layer over a sheet is clear: only what it holds paints.
             if sheet is PopoverLayer { continue }
+            if let owner = sheet.next as? PaintsSheetSurface { owner.paintSurface(); continue }
             sheet.backgroundColor = ThemeRoles.color("background", in: sheet) ?? ThemeRoles.color("Canvas", in: sheet, or: .systemBackground)
             #endif
         }
