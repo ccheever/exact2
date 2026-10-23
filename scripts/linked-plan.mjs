@@ -61,8 +61,8 @@ export const EARLIER_APPLE_BUILD_SCRIPT = `fn main() {
  * entries bake with exact-js-bake; Rust build scripts opt in with
  * exact_bake::take_linked and register their own compiled executable.
  * Other scripts and entries declaring their own PLAN/COMPAT still embed.
- * Embedding archives and shared widget cores also keep their plans, since
- * their caller supplies no linked sections (host/apple/build.mjs). */
+ * Embedding archives keep their plans, since their caller supplies no
+ * linked sections. Widget builds link the plan into their shared framework. */
 export function linkable(app, pkg) {
   const read = (target) => { try { return readFileSync(target.src_path, 'utf8'); } catch { return null; } };
   const script = pkg.targets.find(t => t.kind.includes('custom-build')), entry = pkg.targets.find(t => t.kind.some(k => ['lib', 'rlib', 'staticlib'].includes(k)));

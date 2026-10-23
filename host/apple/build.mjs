@@ -894,7 +894,7 @@ async function main(args, lockHeld = false) {
   const fixedPlan = production && expected.composition === 'embedded';
   cargoEnv.EXACT_APPLE_LINK = linksByPlan(production, args) ? 'plan' : 'all'; // what the archive links (link.mjs)
   const hostModules = embedOnly || fixedPlan ? null : buildModules(['exact-svg-raster', ...(metal ? ['exact-canvas-vello'] : [])], 'host-modules.log');
-  const buildReceipt = contractLast(() => buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, profile: cargoProfile, link: !args.includes('--embed') && !widgets, prepareGpu(product) {
+  const buildReceipt = contractLast(() => buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, profile: cargoProfile, link: !args.includes('--embed'), prepareGpu(product) {
     const artifact = gpuArtifacts.find(m => m.built === basename(product));
     if (!artifact) throw new Error(`unknown GPU product: ${product}`);
     const signed = signedGpuProduct(product, { identity: sha1, app, framework: ipa ? artifact.framework : null, platform: tv ? 'AppleTVOS' : 'iPhoneOS', hardened: !ios && distribution });
@@ -1005,7 +1005,8 @@ async function main(args, lockHeld = false) {
   // `linkRoot` is this app's own, for what names it.
   const linkRoot = paths.scratch;
   mkdirSync(linkRoot, { recursive: true });
-  const shared = widgets ? sharedWidgetCore({ app, prepared: widgetCore, libDir, crate, env, runApple }) : null;
+  const linkedPlan = buildReceipt.linkedPlan ? placeLinkedPlan(resolve(linkRoot, 'plan'), bakedPlan, readFileSync(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.json`)), bakedCompat.id, readFileSync(resolve(buildReceipt.linkedPlan, 'app.hbc'))) : null;
+  const shared = widgets ? sharedWidgetCore({ app, prepared: widgetCore, libDir, crate, env, runApple, linkedPlan }) : null;
   if (shared) env.EXACT_CORE_FRAMEWORK = relative(pkg, shared.xcframework);
   rmSync(resolve(paths.namespace, 'swift'), { recursive: true, force: true }); // the per-app scratch this replaced
   const binDir = mkdtempSync(resolve(paths.namespace, '.products-'));
@@ -1204,9 +1205,8 @@ async function main(args, lockHeld = false) {
     if (widgetCore) dropLeftoverCore(swiftBinDir);
     const archive = buildReceipt.products.find(made => made.path === resolve(cargoLibDir, `lib${crate.replace(/-/g, '_')}.a`))?.sha256;
     // The linked plan, compat.json and bytecode, as the bake verified them, where this app alone links from (and its next early build).
-    const linkedPlan = buildReceipt.linkedPlan ? placeLinkedPlan(resolve(linkRoot, 'plan'), bakedPlan, readFileSync(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.json`)), bakedCompat.id, readFileSync(resolve(buildReceipt.linkedPlan, 'app.hbc'))) : null;
     for (const p of products) {
-      const productArgs = [...swiftArgs, ...entitledArgs(linkRoot, p), ...(shared ? ['-Xlinker', '-rpath', '-Xlinker', ios ? '@executable_path/Frameworks' : '@executable_path/../Frameworks'] : []), ...linkedPlanArgs(linkedPlan?.dir)];
+      const productArgs = [...swiftArgs, ...entitledArgs(linkRoot, p), ...(shared ? ['-Xlinker', '-rpath', '-Xlinker', ios ? '@executable_path/Frameworks' : '@executable_path/../Frameworks'] : []), ...linkedPlanArgs(shared ? null : linkedPlan?.dir)];
       let entitled = null;
       if (ios && !device) {
         // Simulator Security reads entitlements from the Mach-O text section.
