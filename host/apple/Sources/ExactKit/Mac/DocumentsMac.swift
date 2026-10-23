@@ -57,7 +57,7 @@ public enum ExactDocuments {
     /// is until the app writes it: it is noted, then `noted`, once it does,
     /// looked for a few times a second for two minutes.
     static func noteWhenWritten(_ url: URL, tries: Int = 480, noted: @escaping () -> Void = {}) {
-        if FileManager.default.fileExists(atPath: url.path) { NSDocumentController.shared.noteNewRecentDocumentURL(url); noted(); return }
+        if FileManager.default.fileExists(atPath: url.path) { KeptDocuments.note(url); noted(); return }
         guard tries > 0 else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { noteWhenWritten(url, tries: tries - 1, noted: noted) }
     }
@@ -162,12 +162,12 @@ public enum ExactDocuments {
     /// so a sandboxed build can keep this list the same way (ruled: the Mac
     /// App Store stays possible; no sandbox work now).
     public static func noteRecent(_ path: String) {
-        NSDocumentController.shared.noteNewRecentDocumentURL(URL(fileURLWithPath: path))
+        KeptDocuments.note(URL(fileURLWithPath: path))
     }
 
     /// What Open Recent lists, newest first.
     public static var recent: [String] {
-        NSDocumentController.shared.recentDocumentURLs.map(\.path)
+        KeptDocuments.recent
     }
 
     /// Hand each path to the app, in order. Returns whether every one
