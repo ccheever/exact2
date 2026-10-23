@@ -11,7 +11,7 @@
 //! truth; the mirror is a memo of what the presenter has been told.
 
 use crate::{batch::Batch, style};
-use exact_kernel::motion::{motion_node, targets, MotionSync};
+use exact_kernel::motion::{motion_node, node_key, targets, MotionSync};
 use exact_kernel::{
     Frame, Kernel, NodeKey, NodeRef, NodeType, Offer, Overflow, PropId, PropValue, TextMeasurer,
     ViewId,
@@ -1331,6 +1331,12 @@ impl<D: DataSource> Host<D> {
                 &|v| !runner.handlers_of(v).is_empty(),
             );
             svg_lower::hand_over_paths(runner.kernel(), &mut self.engine, self.svg.box_motion);
+            // A reveal changes a held play without changing its style row.
+            for (key, _) in &sync.animations {
+                if let Some(view) = self.keys.get(&node_key(*key)).copied() {
+                    self.svg.element(runner.kernel(), view);
+                }
+            }
             for view in svg_lower::glass_sampling(self.runner.kernel(), &mut self.engine) {
                 self.svg.element(self.runner.kernel(), view);
             }
