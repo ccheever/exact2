@@ -112,6 +112,8 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const LINE_LIMIT = 1 << 20;
 const BODY_LIMIT = LINE_LIMIT - 64 - 64 * 72;
 const body = (req, res) => readBody(req, BODY_LIMIT, res); // over it, answered before the connection closes
+/** The local token's (the developer's own tools, a CLI import's sources). */
+const LOCAL_BODY_LIMIT = 16 << 20;
 const ANSWER_MS = 120_000, POLL_MS = TIMING.poll, KEPT = 256, HOLD_MS = 15 * 60_000, HELD = 64;
 // A paired client's name (scripts/tamber-pairing.mjs): no local client takes one.
 const REMOTE = 'remote:';
@@ -535,8 +537,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     await ready;
     // The client left while the server started.
     if (res.destroyed || res.writableEnded) return true;
-    const text = await (early ?? body(req, res));
-    if (text == null) { if (text === null) json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); return true; } // (undefined: the client left)
+    // The local token's body may be 16 MiB (a CLI import's sources, tamber/1.17), judged from its header before a byte is read; every other client's 1 MiB.
+    const text = await (early ?? readBody(req, who.local && !access.remote ? LOCAL_BODY_LIMIT : BODY_LIMIT, res));
+    if (text == null) { if (text === null) json(res, 413, { error: { message: `a request is at most ${who.local && !access.remote ? 16 : 1} MiB` } }); return true; } // (undefined: the client left)
     const query = get ? eventsQuery(url) : null, request = get ? query.request : parse(text);
     if (query?.error) { json(res, 400, { error: { message: query.error } }); return true; }
     // Nested past 64 levels: refused before anything of it is kept, since a
