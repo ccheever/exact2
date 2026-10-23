@@ -237,10 +237,26 @@ pub(super) fn landing(
         .collect();
     // Each fold charged by what it checks: the design and every token laid. Once the budget is spent no fold
     // runs, and the next charged step refuses the import.
+    // (a fold copies every token laid, values and all: charged by their bytes, a unit for 16 copied and dropped,
+    // near the budget's calibration of about 12 bytes a unit kept; not by their count)
+    let laid_bytes: usize = tokens
+        .iter()
+        .map(|t| {
+            t.name.len()
+                + t.value.len()
+                + t.whens
+                    .iter()
+                    .map(|(c, v)| v.len() + 16 * c.len())
+                    .sum::<usize>()
+        })
+        .sum();
     let spent = std::cell::Cell::new(false);
     let fold = |skip: &[bool]| -> Vec<Diagnostic> {
         if spent.get()
-            || crate::budget::spend((design.tokens.len() + tokens.len()) as u64 + 1).is_err()
+            || crate::budget::spend(
+                (design.tokens.len() + tokens.len() + laid_bytes / 16) as u64 + 1,
+            )
+            .is_err()
         {
             spent.set(true);
             return Vec::new();
@@ -357,6 +373,10 @@ pub(super) fn landing(
         }
         let mut charged = false;
         for d in &errors {
+            // (past the budget nothing more is narrowed: the charged step after this loop refuses)
+            if spent.get() {
+                break;
+            }
             // (a refusal said in each token's why, bounded: one diagnostic is no multiplier of every candidate)
             let message: String = match d.message.char_indices().nth(300) {
                 Some((at, _)) => format!("{}…", &d.message[..at]),
@@ -413,6 +433,9 @@ pub(super) fn landing(
                     }
                 }
                 let clears = |without: &[usize]| {
+                    if spent.get() {
+                        return false;
+                    }
                     let mut s = skip.clone();
                     for &c in without {
                         s[c] = true;
@@ -432,6 +455,9 @@ pub(super) fn landing(
                         .iter()
                         .copied()
                         .filter(|&c| {
+                            if spent.get() {
+                                return false;
+                            }
                             let others: Vec<usize> =
                                 candidates.iter().copied().filter(|&o| o != c).collect();
                             !clears(&others)

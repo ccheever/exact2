@@ -958,7 +958,7 @@ fn every_pass_over_a_hostile_file_is_charged_to_the_budget() {
     ));
     // Values of another kind, long, kept in every tuple: families, each read as `fontFamily`, so resolved, laid
     // and probed.
-    let long = format!(r#""{}""#, "Inter ".repeat(1500));
+    let long = format!(r#""{}""#, "Inter ".repeat(150));
     let families = (0..50)
         .map(|i| format!(r#"{{"type":"text","fontFamily":"$s{i}"}}"#))
         .collect::<Vec<_>>()
@@ -1043,14 +1043,38 @@ fn every_pass_over_a_hostile_file_is_charged_to_the_budget() {
     for (what, text, design) in &files {
         assert!(text.len() < 1 << 20, "{what}: {} bytes", text.len());
         let t = std::time::Instant::now();
-        let _ = pen::import_within("x.pen", text, "pen", design, &vocab(), IMPORT);
+        let full = pen::import_within("x.pen", text, "pen", design, &vocab(), IMPORT);
         assert!(
             t.elapsed() < std::time::Duration::from_secs(20),
             "{what}: {:?} on the real budget",
             t.elapsed()
         );
-        // A budget of three times the file: done or refused, and either quickly (what is cheap, like strings
-        // nothing reads, is done; what multiplies is refused).
+        // What each reaches, asserted: the families are resolved, probed and laid (each made or said why); the
+        // expressions are reported as no numbers, never folded.
+        if *what == "strings" {
+            let import = full.as_ref().expect("families within the budget");
+            assert!(
+                import.counted.mapped + import.counted.reported >= 50,
+                "{:?}",
+                import.counted
+            );
+        }
+        if *what == "expression" {
+            let import = full
+                .as_ref()
+                .expect("a refused value, not a refused import");
+            assert!(
+                import
+                    .unmapped
+                    .iter()
+                    .filter(|u| u.name.starts_with('g'))
+                    .all(|u| u.why.contains("no number")),
+                "{:?}",
+                import.unmapped
+            );
+        }
+        // A budget of three times the file: done or refused, and either quickly (what multiplies is refused;
+        // the expressions, reported at once, are done).
         let t = std::time::Instant::now();
         let small = pen::import_within(
             "x.pen",

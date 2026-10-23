@@ -103,6 +103,8 @@ const BINDABLE: [&str; 26] = [
 /// A variable's name, at most: Pencil's are short, and a report says one in
 /// every message about it.
 const NAME: usize = 128;
+/// A literal value's bytes, at most (a colour, a family, a string).
+const VALUE: usize = 1024;
 /// An axis's or value's name, at most (a report says it in every tuple's words).
 const AXIS_NAME: usize = 64;
 /// The axes, and values of one, a file may declare.
@@ -667,6 +669,12 @@ fn read(file: &str, doc: &Doc) -> Result<(Read, Vec<String>), String> {
                 }
                 // (a Pencil number is a number: a string under one, which DTCG would read as a CSS expression
                 // for the design to fold, is none)
+                // (a colour, family or string as written is at most 1024 bytes: a token's value is copied wherever
+                // it is laid, probed and marked, so a longer one would multiply)
+                None if value.as_str().is_some_and(|s| s.len() > VALUE) => {
+                    refused.get_or_insert(format!("a value of more than {VALUE} bytes"));
+                    Value::Null
+                }
                 None if ty == "number" && !value.is_number() => {
                     refused.get_or_insert("a number variable whose value is no number".to_string());
                     Value::Null
