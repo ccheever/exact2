@@ -6,7 +6,7 @@ import { heldClock, inFlightNote } from './agent-held.mjs';
 
 /** A session whose `state` is `states[i]`, the last repeated, answered through the host's light `held` op (or,
  * `heldOp: false`, only through `state`), and whose `clock data` is recorded. */
-function session(states, host = 'web', { heldOp = true } = {}) {
+function session(states, host = 'web', { heldOp = true, slow = 0 } = {}) {
   let i = 0;
   const said = [];
   const s = {
@@ -16,6 +16,7 @@ function session(states, host = 'web', { heldOp = true } = {}) {
       if (req.take) return { clock: 9 };
       if (req.op === 'tags') return { epoch: 3, incarnation: 1 };
       if (req.op === 'held' && !heldOp) throw new Error('held is not carried');
+      if (slow && i > 0) await new Promise((ok) => setTimeout(ok, slow));
       const st = states[Math.min(i++, states.length - 1)];
       return req.op === 'held' ? { held: (st.pending ?? []).filter((p) => p.held), heldReplies: st.heldReplies ?? {} } : st;
     },
@@ -86,4 +87,11 @@ test('a missed target names held asks apart, with the clock that waits for them'
   expect(inFlightNote([{ name: 'feed', ticket: 1 }, { name: 'changes', ticket: 2, held: true }]))
     .toBe('; 1 request is still in flight (feed): `clock data` waits for data, and `state` shows what is still pending; changes is held by the server: `clock held` waits for its reply');
   expect(inFlightNote([])).toBe('');
+});
+
+test('a look that answers past the bound counts nothing', async () => {
+  const { s } = session([{ pending: [held(1)] }, { pending: [], heldReplies: { item: 1 } }], 'web', { slow: 150 });
+  const started = performance.now();
+  expect(await heldClock(s, ['50ms'])).toMatchObject({ settled: false, reason: 'held', heldTargets: ['item'] });
+  expect(performance.now() - started).toBeLessThan(140);
 });
