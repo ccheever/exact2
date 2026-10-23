@@ -17,12 +17,17 @@ const APP = [
   'component App',
   '  state calls = 0',
   '  state seen = "none"',
+  '  state shown = true',
   '  action observe(name: string, e: IntersectionObserverEntry)',
   '    calls = calls + 1',
   '    seen = `${name}:${e.isIntersecting}`',
+  '  action hide',
+  '    shown = false',
   '  view',
   '    column',
-  '      box testId="target" width=100 height=50 intersect=observe("row")',
+  '      button "hide" testId="hide" press=hide',
+  '      if shown',
+  '        box testId="target" width=100 height=50 intersect=observe("row")',
   '',
 ].join('\n');
 
@@ -78,7 +83,7 @@ const heldEntries = () => {
   };
 };
 
-test("an agent's settle waits for a view's first intersection entry, however late it comes", async () => {
+test("an agent's settle waits for a view's first intersection entry, however late it comes, and a view gone first holds nothing", async () => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
   const dir = await built();
   let browser, server;
@@ -102,6 +107,22 @@ test("an agent's settle waits for a view's first intersection entry, however lat
     expect(held.settled).toMatchObject({ settled: true });
     expect(held.ms).toBeGreaterThanOrEqual(300);
     expect(held.slots).toMatchObject({ calls: 1, seen: 'row:true' });
+    await page.close();
+    // The view gone before its entry comes (the entry never released, no bound): it holds nothing.
+    const gone = await browser.newPage();
+    await gone.addInitScript(heldEntries);
+    await gone.addInitScript(watchObserve);
+    await gone.goto(`${server.url.href}?agent=1`);
+    await gone.waitForFunction(() => typeof globalThis.exact?.agentSettled === 'function');
+    const dropped = await gone.evaluate(async () => {
+      await globalThis.__observed;
+      document.querySelector('[data-testid="hide"]').click();
+      const began = performance.now(), settled = await globalThis.exact.agentSettled({ op: 'clock', settle: true });
+      return { settled, slots: (await globalThis.exact.agentSettled({ op: 'state' })).slots, ms: performance.now() - began };
+    });
+    expect(dropped.settled).toMatchObject({ settled: true });
+    expect(dropped.ms).toBeLessThan(1500);
+    expect(dropped.slots).toMatchObject({ calls: 0, shown: false });
   } finally {
     await browser?.close();
     server?.stop(true);
