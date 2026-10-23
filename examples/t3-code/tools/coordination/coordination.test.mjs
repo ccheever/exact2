@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'bun:test';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, watch, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, watch, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Coordination, GiB, command, processHostMatches, processIdentity, terminalProof } from './state.mjs';
@@ -276,6 +276,67 @@ test('concurrent direct enrollment assigns one owner and never exposes the new s
   await f.c(winner.worktree).releaseDevice(winner.id, winner.thread, device.host, device.udid, inventory);
   expect((await f.c(f.main).status()).devices['fixture-host:fresh-ipad'].status).toBe('idle');
   expect((await claim(loser)).value).toMatchObject({ udid: device.udid, task: loser.id });
+});
+
+test('coordinator designates only an exact released local surplus and retains the compatible pool', async () => {
+  const f = fixture(); await f.start(); const c = f.c(f.main);
+  const devices = [
+    { host: 'local', udid: 'kept-phone', class: 'phone', runtime: 'iOS-fixture' },
+    { host: 'local', udid: 'kept-ipad', class: 'ipad', runtime: 'iOS-fixture' },
+    { host: 'Mac', udid: 'surplus-ipad', class: 'ipad', runtime: 'iOS-fixture' },
+  ];
+  const inventory = devices.map(d => ({ ...d, state: 'Shutdown' }));
+  const directory = join(f.dir, 'Devices'); mkdirSync(directory);
+  for (const d of devices) {
+    mkdirSync(join(directory, d.udid));
+    await c.enroll('coordinator', d, inventory, true);
+  }
+  const evidence = join(f.dir, 'surplus-evidence.json'); writeFileSync(evidence, '{}');
+  const preserved = await f.c(f.a).preserve(f.ta.id, f.ta.thread, [evidence]);
+  const initial = await c.status(), target = 'Mac:surplus-ipad';
+  expect(initial.devices[target].status).toBe('idle');
+  const identity = d => { const path = join(directory, d.udid), s = lstatSync(path); return { path, dev: s.dev, ino: s.ino }; };
+  const proof = { observedAtMs: Date.now(), reason: 'Retain the original pool; remove the released device enrolled with another host label.',
+    expectedDevice: initial.devices[target], identity: identity(devices[2]),
+    retainedDevices: devices.slice(0, 2).map(d => ({ expected: initial.devices[`${d.host}:${d.udid}`], identity: identity(d) })),
+    inventory, evidence: preserved.evidence };
+  await expect(c.retireDevice('coordinator', 'Mac', 'surplus-ipad', inventory)).rejects.toThrow('only surplus');
+  await expect(c.designateDeviceSurplus('thread-a', proof)).rejects.toThrow('coordinator');
+  for (const invalid of [
+    { ...proof, observedAtMs: Date.now() - 60001 }, { ...proof, observedAtMs: Date.now() + 60000 },
+    { ...proof, reason: '' }, { ...proof, retainedDevices: [] },
+    { ...proof, expectedDevice: { ...proof.expectedDevice, runtime: 'changed' } },
+    { ...proof, identity: { ...proof.identity, ino: proof.identity.ino + 1 } },
+    { ...proof, inventory: inventory.filter(d => d.udid !== 'surplus-ipad') },
+    { ...proof, inventory: [...inventory, inventory[2]] },
+    { ...proof, inventory: inventory.map(d => ({ ...d, state: 'Booted' })) },
+    { ...proof, evidence: [] }, { ...proof, evidence: [evidence] },
+    { ...proof, retainedDevices: [{ expected: proof.expectedDevice, identity: proof.identity }] },
+  ]) {
+    await expect(c.designateDeviceSurplus('coordinator', invalid)).rejects.toThrow();
+    expect((await c.status()).devices).toEqual(initial.devices);
+  }
+  const stateFile = join(f.root, 'state.json');
+  for (const change of [{ task: f.ta.id }, { created: false }, { repo: 'foreign' }, { status: 'owned' }]) {
+    const changed = structuredClone(initial); Object.assign(changed.devices[target], change);
+    writeFileSync(stateFile, JSON.stringify(changed));
+    await expect(c.designateDeviceSurplus('coordinator', proof)).rejects.toThrow('released task-created');
+  }
+  writeFileSync(stateFile, JSON.stringify(initial));
+  const alias = join(f.dir, 'alias', 'Devices'); mkdirSync(alias, { recursive: true });
+  symlinkSync(join(directory, 'surplus-ipad'), join(alias, 'surplus-ipad'));
+  await expect(c.designateDeviceSurplus('coordinator', { ...proof, identity: { ...proof.identity, path: join(alias, 'surplus-ipad') } })).rejects.toThrow('symlink');
+  const proofFile = join(f.dir, 'surplus-proof.json'); writeFileSync(proofFile, JSON.stringify(proof));
+  const result = await f.cli(f.main, ['device-surplus', '--thread', 'coordinator', '--proof', proofFile]);
+  expect(result.code, result.err).toBe(0); expect(result.value.action).toBe('device-surplus-designated');
+  const after = await c.status();
+  expect(after.devices[target]).toEqual({ ...initial.devices[target], status: 'retiring' });
+  for (const d of devices.slice(0, 2)) expect(after.devices[`${d.host}:${d.udid}`]).toEqual(initial.devices[`${d.host}:${d.udid}`]);
+  expect(existsSync(join(directory, 'surplus-ipad'))).toBe(true);
+  await expect(c.retireDevice('coordinator', 'Mac', 'surplus-ipad', inventory)).rejects.toThrow('delete the surplus');
+  rmSync(join(directory, 'surplus-ipad'), { recursive: true });
+  await c.retireDevice('coordinator', 'Mac', 'surplus-ipad', inventory.slice(0, 2));
+  expect(Object.keys((await c.status()).devices).sort()).toEqual(['local:kept-ipad', 'local:kept-phone']);
 });
 
 test('native slot spans repositories and low disk refuses before allocating output', async () => {

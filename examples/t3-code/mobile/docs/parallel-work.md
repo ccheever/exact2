@@ -400,6 +400,17 @@ Surplus released devices become `retiring` and cannot be claimed. The coordinato
 captures their needed evidence, deletes only those exact devices through T3,
 then runs `device-retire` with host, UDID and fresh inventory proving absence.
 
+If a released local simulator remains idle under another recorded host label,
+the coordinator can use `device-surplus --thread COORDINATOR --proof FILE`.
+The proof names the full expected device record, its directory `identity`
+(`path`, `dev`, `ino`), one or two `retainedDevices` with the same expected-record
+and identity fields, fresh Shutdown `inventory`, preserved canonical `evidence`
+paths, a `reason` and `observedAtMs` within the last minute. The target field is
+`expectedDevice`; each retained entry uses `expected`. All directories must be
+siblings under `Devices`, and a compatible released pool device must remain.
+This marks only the selected record `retiring`; it changes no host label and
+deletes nothing. The normal deletion and `device-retire` sequence still applies.
+
 ### Recover the continuation without duplicate work
 
 Keep the existing coordinator schedule ID in Linear. On restart, call
