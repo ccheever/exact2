@@ -342,13 +342,14 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
 
 /// Whether the retention walk keeps `a`, an element's style row [`check`]
 /// judges as the build does, and how. `Some(false)`: a literal value
-/// (strings or numbers, or a `?:` or `match` whose arms all are).
+/// (strings or numbers, or a `?:` or `match` whose arms all are; for a
+/// shorthand or `flex`, `none` arms too, [`cleared`]).
 /// `Some(true)`: a computed one (a name, a template with holes, or a choice
 /// with such an arm beside literal ones), judged whole where its type and
 /// scope are known ([`typed`]): its literal arms, and, in a number row,
 /// every number token a string may name, or its string arms where the
 /// design has none (stage 13 D2). Never through a `let`, which the build
-/// judges through the binding; a shorthand or `flex` only written (its
+/// judges through the binding; a shorthand or `flex` only literal (its
 /// longhands judged as the build expands them, [`expanded`]), and `font`,
 /// whose type tokens are judged whole ([`font_row`]); not a transition's
 /// or an animation's, whose motion
@@ -512,7 +513,8 @@ fn style_row(a: &Attr) -> bool {
 /// (the build judges its bound literal through the binding, as the row:
 /// QUEUE's) nor a name a derive binds (checked where it is bound). Whether
 /// `v` is so written: a choice with a computed arm is not, and is judged
-/// whole as a computed row ([`kept`]).
+/// whole as a computed row ([`kept`]); a shorthand's or `flex`'s literal
+/// choice is judged whole by its expansion instead ([`judge_expanded`]).
 fn written<'e>(v: &'e Expr, out: &mut Vec<&'e Expr>) -> bool {
     match v {
         Expr::Str(..) | Expr::Number(..) => {
@@ -617,13 +619,18 @@ pub fn check(
             }
             // A longhand's own text too, which an expansion may write
             // (`flex="none"`'s basis `auto`; Astra's round 3).
-            let longhands: Vec<Expr> = expanded(&r.attr)
-                .map(|rows| {
-                    (0..rows.len())
-                        .filter_map(|i| component_of(&r.attr, i).ok())
-                        .collect()
-                })
-                .unwrap_or_default();
+            // One that doesn't expand here, unbound (a word only the design
+            // gives), is reached: judged under the design, as the build does
+            // (Astra's narrow re-check).
+            let longhands: Vec<Expr> = match expanded(&r.attr).map(|rows| {
+                (0..rows.len())
+                    .map(|i| component_of(&r.attr, i))
+                    .collect::<Result<Vec<_>, _>>()
+            }) {
+                Some(Err(_)) => return true,
+                Some(Ok(all)) => all,
+                None => Vec::new(),
+            };
             for v in &longhands {
                 super::leaves(v, &mut Vec::new(), &mut leaves);
             }
