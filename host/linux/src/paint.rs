@@ -1189,14 +1189,7 @@ impl Painter {
                     .kernel
                     .button_face_style(node.id)
                     .expect("button");
-                self.button_control(
-                    node,
-                    surface.outer.rect,
-                    ts,
-                    &face,
-                    &rows,
-                    walk.scene.focus == Some(node.id) && self.ringless != Some(node.id),
-                );
+                self.button_control(node, surface.outer.rect, ts, &face, &rows, walk);
             }
             NodeType::Control
                 if look::neutral() && node.props.str(PropId::Type) == Some("file") =>
