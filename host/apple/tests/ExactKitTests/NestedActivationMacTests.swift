@@ -19,16 +19,21 @@ final class NestedActivationMacTests: XCTestCase {
             if type == .leftMouseDown { node.mouseDown(with: event) } else { node.mouseUp(with: event) }
         }
     }
-    private func page() throws -> Presenter {
+    private func page(nativeInner: Bool = false) throws -> Presenter {
         _ = NSApplication.shared
         let p = Presenter(); presenter = p
-        p.buttonFace = { _ in ButtonFace() }
+        p.buttonFace = { id in
+            var face = ButtonFace()
+            if nativeInner && id == 3 { face.title = "Inner" }
+            return face
+        }
         let w = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 800), styleMask: [.titled], backing: .buffered, defer: false)
         w.isReleasedWhenClosed = false; w.contentView = p.viewport; w.orderFrontRegardless(); window = w
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view", "handlers": ["press"]],
             ["op": "create", "id": 2, "kind": "button", "props": ["popovertarget": "outer"], "handlers": ["press"]],
-            ["op": "create", "id": 3, "kind": "button"],
+            ["op": "create", "id": 3, "kind": nativeInner ? "control" : "button",
+             "props": nativeInner ? ["type": "button", "accessibilityRole": "button"] : [:]],
             ["op": "create", "id": 4, "kind": "text", "props": ["text": "Inner"]],
             ["op": "create", "id": 5, "kind": "view", "props": ["id": "outer", "popover": "manual"]],
             ["op": "create", "id": 6, "kind": "view", "props": ["id": "inner", "popover": "manual"]],
@@ -54,14 +59,20 @@ final class NestedActivationMacTests: XCTestCase {
         click(inner)
         XCTAssertEqual(presses, [2, 3]); XCTAssertFalse(p.menus.isOpen(outer))
     }
-    func testAHandlerlessInnerInvokerActivatesOnlyItsOwnTarget() throws {
-        let p = try page(), inner = try XCTUnwrap(p.views[3])
-        inner.props["popovertarget"] = "inner"
+    func testANativeButtonsActionKeepsOnlyItsOwnActivationAndTheAncestorPress() throws {
+        let p = try page(nativeInner: true), inner = try XCTUnwrap(p.views[3])
+        let control = try XCTUnwrap(p.controls.controls[3] as? NativeButtonMac)
+        let outerPopover = try XCTUnwrap(p.views[5]), innerPopover = try XCTUnwrap(p.views[6])
         var presses: [UInt32] = []; p.onPress = { presses.append($0) }
-        click(inner)
+        control.performClick(nil)
         XCTAssertEqual(presses, [2])
-        XCTAssertTrue(p.menus.isOpen(try XCTUnwrap(p.views[6])))
-        XCTAssertFalse(p.menus.isOpen(try XCTUnwrap(p.views[5])))
+        XCTAssertFalse(p.menus.isOpen(outerPopover), "a native button without a target still stops outer activation")
+        p.menus.action("hidePopover", ["outer"])
+        inner.props["popovertarget"] = "inner"
+        control.performClick(nil)
+        XCTAssertEqual(presses, [2, 2])
+        XCTAssertTrue(p.menus.isOpen(innerPopover))
+        XCTAssertFalse(p.menus.isOpen(outerPopover))
     }
     func testInlinePressInvokesItsButtonUnlessItsAncestryContainsALink() throws {
         let p = try page(), paragraph = try XCTUnwrap(p.views[4]), inner = try XCTUnwrap(p.views[3])
