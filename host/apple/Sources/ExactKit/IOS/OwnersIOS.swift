@@ -209,7 +209,15 @@ final class OwnerBlocks {
     /// placement unless it is presented.
     private(set) var told: [UInt32: (block: HostBlock, placement: BlockPlacement?)] = [:]
     private var resetting = false, revealOwed = false
+    /// Each block's rectangle in its root's coordinates (`BatchOp.blockRect`),
+    /// as the last layout sent it: what an open popover is reported by.
+    private(set) var blockRects: [UInt32: CGRect] = [:]
     init(_ presenter: Presenter) { self.presenter = presenter }
+
+    /// The batch's `block` op.
+    func applied(_ op: BatchOp) {
+        if let rect = op.blockRect { blockRects[op.id] = rect }
+    }
 
     /// Every route a navigation holds, the primary stacks' first and each
     /// presentation's after, bottom to top; in each stack in its order, the
@@ -384,7 +392,8 @@ extension Presenter {
     /// The last modal boundary leaves only it and what is above it live.
     package var openTopLayer: (frames: [TopLayerFrame], modal: Int?) {
         let boxes = owners.presented + menus.sheets.presented + menus.presented.map {
-            TopLayerBox(view: $0, frame: ($0.id, $0.topLayerFrame(in: viewport), nil), modal: nil)
+            // Reported by its block, the viewport's (stage 14 B), as a dialog's sheet is.
+            TopLayerBox(view: $0, frame: ($0.id, $0.topLayerFrame(in: viewport, containingBlock: owners.blockRects[$0.id]), nil), modal: nil)
         }
         func path(_ view: UIView) -> [Int] {
             var path: [Int] = [], at = view

@@ -311,7 +311,8 @@ impl Kernel {
     }
 
     /// Each top-layer box's block made the viewport, and a box that left the
-    /// top layer (or became a root or an inline run) its own again: HTML's
+    /// top layer (or became a root or an inline run, or its host replaced
+    /// it whole) its own again: HTML's
     /// top layer, where `width: 50%` is half the viewport whatever box the
     /// popover was written in. Before each layout, after the viewport is
     /// the offer's; until a definite offer has given a viewport there is
@@ -332,7 +333,11 @@ impl Kernel {
         let wants: Vec<_> = slots
             .into_iter()
             .map(|slot| {
-                let boxed = !arena.is_root(slot) && !arena.is_inline_run(slot);
+                // One its host replaced whole (a closed popover, a Linux
+                // shell's menu) has no layout to lay out in it.
+                let boxed = !arena.is_root(slot)
+                    && !arena.is_inline_run(slot)
+                    && arena.cover(slot) != Some(super::HostCover::Whole);
                 (slot, viewport.filter(|_| lifted.contains(slot) && boxed))
             })
             .filter(|&(slot, want)| arena.blocks.implied(slot) != want)
@@ -378,6 +383,16 @@ impl Kernel {
     /// top-layer box the viewport, as of the last layout.
     pub fn host_block(&self, view: ViewId) -> Option<HostBlock> {
         self.arena.blocks.get(self.arena.slot_of(view)?)
+    }
+
+    /// Whether `view`'s block is the one the kernel implies (a top-layer
+    /// box's, the viewport), no host having given it one.
+    pub fn host_block_implied(&self, view: ViewId) -> bool {
+        let Some(slot) = self.arena.slot_of(view) else {
+            return false;
+        };
+        let held = self.arena.blocks.held(slot);
+        held.is_some_and(|b| b.given.is_none())
     }
 
     /// The used size of `view`'s block as last laid out: the given length
