@@ -881,7 +881,7 @@ package final class TextSelection {
         var paint = spec, changed = false
         for i in paint.runs.indices where !(keepsFixed && paint.runs[i].fixedInk) {
             let run = paint.runs[i]
-            guard run.underlined || !run.decoration.isEmpty else { continue }
+            guard run.underlined || !run.decoration.isEmpty || run.underlineColor != nil || run.strikeColor != nil else { continue }
             func opaque(_ color: [Double]?) -> [Double]? {
                 guard var color, color.count == 4, color[3] > 0, color[3] < 255 else { return color }
                 color[3] = 255; changed = true

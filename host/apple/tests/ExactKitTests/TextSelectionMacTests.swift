@@ -850,13 +850,21 @@ final class TextSelectionMacTests: XCTestCase {
             ("a colour from the asset catalogue", ["sys": "named:Brand", "c": [[0, 0, 153, 255], [153, 153, 255, 255]]] as [String: Any], false, true),
             ("a role", role, true, false),
             ("nothing written", nil, false, false),
+            ("an ancestor's underline", role, true, false),
+            ("an ancestor's strike", role, false, false),
         ]
         var ops: [[String: Any]] = []
         for (i, row) in rows.enumerated() {
             var style: [String: Any] = ["font_size": 16.0, "line_height": "20px"]
             if let color = row.color { style["text_color"] = color }
-            if row.underlined { style["text_decoration_line"] = "underline" }
+            if row.underlined && i < 6 { style["text_decoration_line"] = "underline" }
             ops.append(["op": "create", "id": 10 + i, "kind": "text", "props": ["text": "████ ████"], "style": style])
+            if i >= 6 {
+                ops.append(["op": "create", "id": 100 + i, "kind": "view",
+                            "style": ["text_color": role, "text_decoration_line": i == 6 ? "underline" : "line-through"]])
+                ops.append(["op": "children", "id": 100 + i, "ids": [10 + i]])
+                ops.append(["op": "frame", "id": 100 + i, "x": 0, "y": i * 30, "w": 380, "h": 20])
+            }
         }
         // One paragraph of three runs: a literal, a link in the link role, a pair.
         func run(_ id: Int, _ text: String, _ color: Any, href: String? = nil) -> [String: Any] {
@@ -867,15 +875,18 @@ final class TextSelectionMacTests: XCTestCase {
         ops.append(["op": "paragraph", "id": 20, "runs": [
             run(21, "██ ", [0, 128, 0, 255]), run(22, "██ ", link, href: "https://example.com/"), run(23, "██", [[153, 0, 0, 255], [255, 153, 153, 255]]),
         ]])
-        let ids = rows.indices.map { 10 + $0 } + [20]
+        let ids = rows.indices.map { $0 >= 6 ? 100 + $0 : 10 + $0 } + [20]
         ops.append(["op": "create", "id": 2, "kind": "view"])
         ops.append(["op": "children", "id": 2, "ids": ids])
         ops.append(["op": "roots", "ids": [2]])
         ops.append(["op": "frame", "id": 2, "x": 0, "y": 0, "w": 400, "h": 300])
-        for (i, id) in ids.enumerated() { ops.append(["op": "frame", "id": id, "x": 0, "y": Double(i * 30), "w": 380, "h": 20]) }
+        for (i, id) in ids.enumerated() {
+            ops.append(["op": "frame", "id": id, "x": 0, "y": Double(i * 30), "w": 380, "h": 20])
+            if i >= 6 && i < rows.count { ops.append(["op": "frame", "id": 10 + i, "x": 0, "y": 0, "w": 380, "h": 20]) }
+        }
         p.apply(wireBatch(ops))
         // A system colour as this kind of picture shows it, in the window's appearance.
-        let swatch = Swatch(frame: NSRect(x: 0, y: 250, width: 10, height: 10))
+        let swatch = Swatch(frame: NSRect(x: 0, y: 290, width: 10, height: 10))
         p.root.addSubview(swatch)
         func painted(_ color: NSColor) throws -> NSColor {
             swatch.color = color
@@ -906,6 +917,12 @@ final class TextSelectionMacTests: XCTestCase {
             XCTAssertEqual(ink.redComponent, dark ? 1 : 0, accuracy: 0.01, "AppKit's selected text is \(dark ? "white" : "black") in the \(dark ? "dark" : "light") appearance")
             for (i, row) in rows.enumerated() {
                 let node = try XCTUnwrap(p.views[UInt32(10 + i)]), name = "\(dark ? "dark" : "light"), \(row.name)"
+                if i >= 6 {
+                    let run = try XCTUnwrap(node.paragraphSpec().runs.first)
+                    XCTAssertFalse(run.underlined)
+                    XCTAssertTrue(run.decoration.isEmpty)
+                    XCTAssertNotNil(i == 6 ? run.underlineColor : run.strikeColor)
+                }
                 let first = try glyph(node, 1), space = try glyph(node, 4), last = try glyph(node, 6)
                 let baseline = node.paragraphBox().minY + (try XCTUnwrap(node.paragraphLayout())).baselines[0].rounded()
                 let own = try picture(node)(first, 10)
@@ -922,6 +939,10 @@ final class TextSelectionMacTests: XCTestCase {
                 XCTAssertTrue(near(shown(first, 10), wanted, by), "\(name): a selected glyph is \(shown(first, 10)), not \(wanted); its own ink is \(own)")
                 XCTAssertTrue(near(shown(space, 10), fill), "\(name): the fill between the words is \(shown(space, 10)), not \(fill)")
                 XCTAssertEqual(underline.contains { near($0, wanted, by) }, row.underlined, "\(name): the selected underline is the glyphs' colour: \(underline)")
+                if i == 7 {
+                    let strike = stride(from: baseline - 9, to: baseline - 3, by: 0.5).map { shown(space, $0) }
+                    XCTAssertTrue(strike.contains { near($0, wanted, by) }, "\(name): the selected strike is solid: \(strike)")
+                }
                 XCTAssertTrue(near(shown(last, 10), own), "\(name): a glyph outside the selection keeps its ink: \(shown(last, 10))")
                 p.selection.clear()
             }
