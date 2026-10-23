@@ -156,6 +156,9 @@ pub(crate) struct Mirror {
     field_content: Option<Box<crate::batch::ContentBox>>,
     field_cell: bool,
     block: Option<(f32, f32)>,
+    /// Whether the block is the kernel's (a popover's, the viewport): a
+    /// host that gives the popover its own is sent the used size again.
+    implied: bool,
 }
 
 /// One runner, one presenter.

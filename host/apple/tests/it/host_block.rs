@@ -50,7 +50,7 @@ fn used(batch: &str, id: u32) -> Option<(f32, f32)> {
     let marker = format!("\"op\":\"block\",\"id\":{id},\"w\":");
     let rest = &batch[batch.rfind(&marker)? + marker.len()..];
     let (w, rest) = rest.split_once(",\"h\":")?;
-    Some((w.parse().ok()?, rest[..rest.find('}')?].parse().ok()?))
+    Some((w.parse().ok()?, rest[..rest.find(',')?].parse().ok()?))
 }
 
 /// The ids the batch's `frame` ops name.
@@ -157,5 +157,32 @@ fn two_panes_and_a_sheet_of_one_page_lay_out_each_in_its_block() {
     assert!(
         gone.contains("\"error\":\"block: ") && frame_of(&gone, list).2 == 240.0,
         "{gone}"
+    );
+}
+
+/// Stage 14 B: a popover is laid out in the viewport, a block the kernel
+/// implies, whatever box it was written in. Its frame comes in that
+/// block's space, and its `block` op with the block's used size and where
+/// the popover sits in it (its margins): what the host reports it by.
+#[test]
+fn a_popover_comes_in_the_viewports_block() {
+    let plan = contract::compile(
+        r##"component Pins
+  view
+    column testId="page" width="100%" height="100%"
+      box testId="header" position="relative" width=100 height=40
+        column testId="pins" popover="manual" width="50%" margin=8
+          box height=30
+"##,
+    )
+    .unwrap();
+    let measurer = Box::new(MonospaceMeasurer::default());
+    let (host, batch) = Host::boot(&plan.encode(), NoData, measurer, 800.0, 600.0).unwrap();
+    let pins = view(&host, "pins");
+    assert_eq!(frame_of(&batch, pins), (8.0, 8.0, 400.0, 30.0));
+    let marker = format!("\"op\":\"block\",\"id\":{pins},");
+    assert!(
+        batch.contains(&format!("{marker}\"w\":416,\"h\":46,\"x\":8,\"y\":8}}")),
+        "{batch}"
     );
 }
