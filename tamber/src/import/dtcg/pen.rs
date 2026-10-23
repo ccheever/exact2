@@ -66,10 +66,11 @@ const SIDES: [&str; 8] = [
 /// nothing in one decides a kind.
 const OPAQUE: [&str; 3] = ["uniforms", "inputs", "metadata"];
 /// The other properties that take a variable (Pencil's schema names them:
-/// paints, opacity, rotation, `enabled`, the type longhands, an effect's
-/// colour and spread). A `$…` under any other key (an id, a layout enum, a
+/// paints, opacity, rotation, `enabled`, the type longhands and `content`,
+/// an ellipse's angles and ratio, a polygon's count, an icon's names and
+/// weight, a gradient stop's `position`). A `$…` under any other key (an id, a layout enum, a
 /// position, a `context`) binds nothing and decides no kind.
-const BINDABLE: [&str; 13] = [
+const BINDABLE: [&str; 19] = [
     "fill",
     "color",
     "opacity",
@@ -81,8 +82,14 @@ const BINDABLE: [&str; 13] = [
     "fontFamily",
     "content",
     "innerRadius",
+    "startAngle",
+    "sweepAngle",
+    "polygonCount",
+    "weight",
     "position",
-    "spread",
+    "icon",
+    "library",
+    "model",
 ];
 /// A variable's name, at most: Pencil's are short, and a report says one in
 /// every message about it.
