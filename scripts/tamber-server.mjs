@@ -770,19 +770,19 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   }
 
   /** `propose` through a dev loop whose pages write some tokens inline (the
-   * JS target, LLP 1121 stage 6): a `live` edit that moves one is `rebuild`
-   * there, since `class` is the serving loop's (LLP 1121 D13), so the tool
-   * says so before the gesture rather than failing a scrub. */
+   * JS target, LLP 1121 stage 6): its class is the serving loop's (D13), so the
+   * tool says so before the gesture rather than failing a scrub. */
   async function proposeHere(request) {
     const reply = await ask({ ...request, texts: true });
     if (!reply.ok) return reply;
-    const ok = { ...reply.ok };
-    if (ok.class === 'live' && ok.texts) {
-      const why = await scrub.inline(ok.texts).catch(e => `it could not be checked (${e?.message ?? e}): rebuild assumed`);
-      if (why) { ok.class = 'rebuild'; log(`tamber: propose is rebuild here: ${why}`); }
-    }
+    const ok = await servedClass({ ...reply.ok });
     if (request.texts !== true) delete ok.texts;
     return { ...reply, ok };
+  }
+  async function servedClass(ok) { // A `live` edit the loop's pages can't apply in place (`scrub.inline`, or one it can't check) is `rebuild`; a held one too.
+    const why = scrub?.inline && ok.class === 'live' && ok.texts ? await scrub.inline(ok.texts).catch(e => `it could not be checked (${e?.message ?? e}): rebuild assumed`) : null;
+    if (why) { ok.class = 'rebuild'; log(`tamber: propose is rebuild here: ${why}`); }
+    return ok;
   }
 
   /** `inspect` `{client, build?, on?, refresh?}` (LLP 1122 D4, D5): inspect
@@ -986,7 +986,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     }
     // Its import cancelled while it was planned (an import's `signal`): decided in the same turn as the insert, nothing evicted.
     if (signal?.aborted) return { status: 503, error: { message: 'the import was cancelled' } };
-    delete planned.ok.texts;
+    await servedClass(planned.ok); delete planned.ok.texts;
     const id = `prop-${epoch}-${++proposalCount}`;
     const base = Object.fromEntries(Object.entries(planned.ok.files).filter(([path]) => touched.has(path)));
     const expires = Date.now() + HOLD_MS;
