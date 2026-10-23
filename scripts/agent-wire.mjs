@@ -38,3 +38,17 @@ export function hangup({ what, pid = null, exit = null, reports = [], hostLines 
   const status = exit ? (exit.signal ? `killed by ${exit.signal}` : `exit code ${exit.code}`) : alive == null ? 'no pid known' : `pid ${pid} ${alive ? 'still running' : 'gone'}`;
   return [`${what} (${status})`, ...reports.slice(0, 1).flatMap((f) => crashSummary(f)), ...reports.slice(1).map((f) => `crash report: ${f}`), ...hostLines.slice(-20)].join('\n');
 }
+
+/** A native reply's deadline: past `clock settle`'s own 20 s bound, so only a wedged app reaches it (a phone has 45 s). */
+export const REPLY_MS = 120000;
+/** A refused boot; a format refusal usually means a host binary built before the plan's format changed. */
+export const bootRefusal = (error) => 'the app booted with an error: ' + error +
+  (/UnsupportedVersion|FormatDigestMismatch|KernelSchemaMismatch/.test(error) ? ' (the plan and the host binary were built from different formats: rebuild the host)' : '');
+
+// Release completed operations' deadlines so a closed driver does not wait for a losing timeout.
+export async function waitAtMost(operation, ms, onTimeout) {
+  let timer;
+  const deadline = new Promise(resolve => { timer = setTimeout(resolve, ms); }).then(onTimeout);
+  try { return await Promise.race([operation, deadline]); }
+  finally { clearTimeout(timer); }
+}
