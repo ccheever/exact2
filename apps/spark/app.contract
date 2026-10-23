@@ -49,21 +49,16 @@ fn verdict(x: number, y: number, vx: number, vy: number, at: number): number = (
 // after an undo); a thrown card flies out on an ease-out curve.
 fn cardTransition(pos: number, dragging: bool): string = (pos == -1 or not dragging) ? (pos == 0 ? "translate -exact-spring(260, 22, 1), rotate -exact-spring(260, 22, 1), scale 300ms ease-out, opacity 200ms ease-out" : "translate 420ms cubic-bezier(.2, .8, .2, 1), rotate 420ms cubic-bezier(.2, .8, .2, 1), scale 300ms ease-out, opacity 200ms ease-out") : "none"
 
-// The palette: the brand's pink, the page and its two inks. The verdict
-// colours (nope red, like green, super-like blue, undo gold) are written
-// where each is used, on its button and its stamp.
+// One pink accent; the page, controls and verdicts use platform roles.
 style Brand
-  color="#fd297b"
+  color="AccentColor"
 
 style Ink
-  color="#21262e"
-
-style Muted
-  color="#7c8591"
+  color="-exact-label"
 
 style Page
-  background-color="#f4f5f7"
-  color="#21262e"
+  background-color="-exact-grouped-background"
+  color="-exact-label"
 
 component Spark
   resource profiles = profiles() as shape Profile[]
@@ -163,7 +158,7 @@ component Spark
     // Full bleed, as an iPhone draws a web app with `viewport-fit=cover`:
     // the page's colour reaches under the status bar and home indicator,
     // and the content keeps inside the safe areas.
-    main testId="spark" viewport-fit="cover" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" position="relative" class=Page font-family="system-ui" padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" padding-left="env(safe-area-inset-left)"
+    main testId="spark" accent-color="light-dark(#fd297b, #ff6b9f)" viewport-fit="cover" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" position="relative" class=Page font-family="system-ui" padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" padding-left="env(safe-area-inset-left)"
       Header(likes=likes)
       column testId="stage" flex=1 min-height=0 position="relative"
         if index >= count
@@ -171,10 +166,10 @@ component Spark
         for p in deck key=p.id
           Card(p=p, pos=(p.n - index), x=x, y=y, dragging=dragging, photo=(p.n == index ? photo : (p.n == index - 1 ? flungPhoto : 0)), cardWidth=cardWidth, progress=progress, lastDir=lastDir, offX=offX, offY=offY, flungY=flungY, drag=drag, settle=settle, nextPhoto=nextPhoto, prevPhoto=prevPhoto)
       row testId="actions" flex-shrink=0 justify-content="center" align-items="center" gap=18 padding-top=10 padding-bottom=18
-        RoundButton(testId="btn-undo", label="Undo", size=48, glyph=24, color="#f5b83d", path="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z", off=(index == 0), press=undo)
-        RoundButton(testId="btn-nope", label="Nope", size=64, glyph=32, color="#ff4458", path="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z", off=(index >= count), press=settle(1, 0, 0))
-        RoundButton(testId="btn-super", label="Super like", size=48, glyph=24, color="#2ea8ff", path="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z", off=(index >= count), press=settle(3, 0, 0))
-        RoundButton(testId="btn-like", label="Like", size=64, glyph=32, color="#1fd18a", path="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z", off=(index >= count), press=settle(2, 0, 0))
+        RoundButton(testId="btn-undo", label="Undo", size=48, glyph=24, color="-exact-system-yellow", path="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z", off=(index == 0), press=undo)
+        RoundButton(testId="btn-nope", label="Nope", size=64, glyph=32, color="-exact-system-red", path="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z", off=(index >= count), press=settle(1, 0, 0))
+        RoundButton(testId="btn-super", label="Super like", size=48, glyph=24, color="-exact-system-blue", path="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z", off=(index >= count), press=settle(3, 0, 0))
+        RoundButton(testId="btn-like", label="Like", size=64, glyph=32, color="-exact-system-green", path="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z", off=(index >= count), press=settle(2, 0, 0))
       for p in profiles.filter((q) => q.n == matched) key=p.id
         MatchOverlay(p=p, keepSwiping=keepSwiping)
       head description="Swipe right to like, left to pass."
@@ -193,9 +188,9 @@ component Header
               stop offset=1 stop-color="#ff7854"
           path d="M12 1.5C13 6 19.5 8.5 19.5 14.5C19.5 19 16 22.5 12 22.5C8 22.5 4.5 19 4.5 14.5C4.5 11.5 6 9.5 8 8.5C8 10.5 8.5 12 9.5 12.5C9.5 8 10.5 4 12 1.5Z" fill="url(#brand-flame)"
         text "spark" testId="wordmark" font-size=28 font-weight=800 letter-spacing=-1 class=Brand
-      row testId="like-counter" align-items="center" gap=6 padding-left=12 padding-right=12 padding-top=6 padding-bottom=6 border-radius=999 background-color="#ffffff" box-shadow="0 2px 8px rgba(0, 0, 0, 0.08)"
+      row testId="like-counter" align-items="center" gap=6 padding-left=12 padding-right=12 padding-top=6 padding-bottom=6 border-radius=999 background-color="-exact-secondary-grouped-background" box-shadow="0 2px 8px rgba(0, 0, 0, 0.08)"
         svg width=16 height=16 viewBox="0 0 24 24"
-          path d="M12 1.5C13 6 19.5 8.5 19.5 14.5C19.5 19 16 22.5 12 22.5C8 22.5 4.5 19 4.5 14.5C4.5 11.5 6 9.5 8 8.5C8 10.5 8.5 12 9.5 12.5C9.5 8 10.5 4 12 1.5Z" fill="#fd297b"
+          path d="M12 1.5C13 6 19.5 8.5 19.5 14.5C19.5 19 16 22.5 12 22.5C8 22.5 4.5 19 4.5 14.5C4.5 11.5 6 9.5 8 8.5C8 10.5 8.5 12 9.5 12.5C9.5 8 10.5 4 12 1.5Z" fill="AccentColor"
         text `${likes}` testId="like-count" font-size=15 font-weight=700 class=Ink font-variant-numeric="tabular-nums"
 
 // One card of the deck. `pos` is its place relative to the top: -1 parked
@@ -227,15 +222,15 @@ component Card
   derive stampAt = cardWidth * 0.25
   derive shown = match first(p.photos.filter((u, i) => i == photo)) { case some(u) => u, case none => "" }
   view
-    column testId=(pos == 0 ? "card-top" : `card-${p.id}`) aria-label=`${p.name}, ${p.age}` position="absolute" top=8 bottom=8 left=`calc(50% - ${cardWidth / 2}px)` width=cardWidth display="flex" flex-direction="column" overflow="hidden" border-radius=18 background-color="#2b2f36" box-shadow="0 10px 28px rgba(20, 24, 31, 0.18)" translate=`${tx}px ${ty}px` rotate=tilt scale=(pos <= 0 ? 1 : (pos == 1 ? 0.94 + 0.06 * progress : 0.94)) opacity=(pos == 2 ? 0 : 1) transition=cardTransition(pos, dragging)
-      image shown aria-label=`Photo of ${p.name}` position="absolute" top=0 left=0 width="100%" height="100%" object-fit="cover" background-color="#2b2f36"
+    column color-scheme="dark" color="-exact-label" testId=(pos == 0 ? "card-top" : `card-${p.id}`) aria-label=`${p.name}, ${p.age}` position="absolute" top=8 bottom=8 left=`calc(50% - ${cardWidth / 2}px)` width=cardWidth display="flex" flex-direction="column" overflow="hidden" border-radius=18 background-color="-exact-tertiary-background" box-shadow="0 10px 28px rgba(20, 24, 31, 0.18)" translate=`${tx}px ${ty}px` rotate=tilt scale=(pos <= 0 ? 1 : (pos == 1 ? 0.94 + 0.06 * progress : 0.94)) opacity=(pos == 2 ? 0 : 1) transition=cardTransition(pos, dragging)
+      image shown aria-label=`Photo of ${p.name}` position="absolute" top=0 left=0 width="100%" height="100%" object-fit="cover" background-color="-exact-tertiary-background"
       column position="absolute" left=0 right=0 bottom=0 height="60%" background-image="linear-gradient(to bottom, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.55) 45%, rgba(0, 0, 0, 0.9))"
       row position="absolute" top=8 left=10 right=10 gap=4 testId=(pos == 0 ? "photo-pips" : `pips-${p.id}`)
         for u in p.photos key=u
-          column flex=1 height=4 border-radius=2 background-color="#ffffff" opacity=(shown == u ? 1 : 0.4)
-      Stamp(testId=(pos == 0 ? "stamp-like" : `like-${p.id}`), label="LIKE", color="#1fd18a", tilt=-16, shown=(pos == 0 ? (0 - y > magnitude(x) ? 0 : unit(x / stampAt)) : (pos == -1 and lastDir == 2 ? 1 : 0)), dragging=dragging, top=48, left=22)
-      Stamp(testId=(pos == 0 ? "stamp-nope" : `nope-${p.id}`), label="NOPE", color="#ff4458", tilt=16, shown=(pos == 0 ? (0 - y > magnitude(x) ? 0 : unit((0 - x) / stampAt)) : (pos == -1 and lastDir == 1 ? 1 : 0)), dragging=dragging, top=48, left=(cardWidth - 160))
-      Stamp(testId=(pos == 0 ? "stamp-super" : `super-${p.id}`), label="SUPER LIKE", color="#2ea8ff", tilt=-8, shown=(pos == 0 ? (0 - y > magnitude(x) ? unit((0 - y) / stampAt) : 0) : (pos == -1 and lastDir == 3 ? 1 : 0)), dragging=dragging, top=150, left=(cardWidth / 2 - 100))
+          column flex=1 height=4 border-radius=2 background-color="-exact-label" opacity=(shown == u ? 1 : 0.4)
+      Stamp(testId=(pos == 0 ? "stamp-like" : `like-${p.id}`), label="LIKE", color="-exact-system-green", tilt=-16, shown=(pos == 0 ? (0 - y > magnitude(x) ? 0 : unit(x / stampAt)) : (pos == -1 and lastDir == 2 ? 1 : 0)), dragging=dragging, top=48, left=22)
+      Stamp(testId=(pos == 0 ? "stamp-nope" : `nope-${p.id}`), label="NOPE", color="-exact-system-red", tilt=16, shown=(pos == 0 ? (0 - y > magnitude(x) ? 0 : unit((0 - x) / stampAt)) : (pos == -1 and lastDir == 1 ? 1 : 0)), dragging=dragging, top=48, left=(cardWidth - 160))
+      Stamp(testId=(pos == 0 ? "stamp-super" : `super-${p.id}`), label="SUPER LIKE", color="-exact-system-blue", tilt=-8, shown=(pos == 0 ? (0 - y > magnitude(x) ? unit((0 - y) / stampAt) : 0) : (pos == -1 and lastDir == 3 ? 1 : 0)), dragging=dragging, top=150, left=(cardWidth / 2 - 100))
       // The photo's halves page through the photos on a tap and drag the card
       // otherwise: `pan` and `press` on one node (LLP 1057.001 §1 rule 4), not
       // a press inside a panning card, which would keep the contact (rule 3).
@@ -246,14 +241,14 @@ component Card
         column testId=(pos == 0 ? "photo-right" : `right-${p.id}`) aria-label="Next photo" flex=1 touch-action="none" pan=drag panrelease=settle(0) press=nextPhoto(p.photos.length)
       column testId=(pos == 0 ? "card-info" : `info-${p.id}`) position="relative" flex-shrink=0 padding-left=18 padding-right=18 padding-bottom=18 padding-top=8 gap=6 touch-action="none" pan=drag panrelease=settle(0)
         row align-items="baseline" gap=10
-          text p.name testId=(pos == 0 ? "top-name" : `name-${p.id}`) font-size=32 font-weight=800 color="#ffffff" letter-spacing=-0.5
-          text `${p.age}` font-size=26 font-weight=400 color="#ffffff"
+          text p.name testId=(pos == 0 ? "top-name" : `name-${p.id}`) font-size=32 font-weight=800 color="-exact-label" letter-spacing=-0.5
+          text `${p.age}` font-size=26 font-weight=400 color="-exact-label"
         Detail(path="M10 2h4a2 2 0 0 1 2 2v2h4a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4V4a2 2 0 0 1 2-2zm4 4V4h-4v2h4z", label=p.job)
         Detail(path="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z", label=p.distance)
-        text p.bio font-size=15 line-height=1.35 color="rgba(255, 255, 255, 0.92)" line-clamp=2 text-overflow="ellipsis" overflow="hidden"
+        text p.bio font-size=15 line-height=1.35 color="-exact-label" line-clamp=2 text-overflow="ellipsis" overflow="hidden"
         row flex-wrap="wrap" gap=6 padding-top=4
           for tag in p.interests key=tag
-            text tag font-size=13 font-weight=600 color="#ffffff" padding-left=10 padding-right=10 padding-top=5 padding-bottom=5 border-radius=999 background-color="rgba(255, 255, 255, 0.18)" border-width=1 border-style="solid" border-color="rgba(255, 255, 255, 0.35)"
+            text tag font-size=13 font-weight=600 color="-exact-label" padding-left=10 padding-right=10 padding-top=5 padding-bottom=5 border-radius=999 background-color="-exact-fill" border-width=1 border-style="solid" border-color="-exact-separator"
 
 // A line of the card's details: a small glyph and its text.
 component Detail
@@ -263,10 +258,11 @@ component Detail
   view
     row align-items="center" gap=6
       svg width=15 height=15 viewBox="0 0 24 24" flex-shrink=0
-        path d=path fill="rgba(255, 255, 255, 0.85)"
-      text label font-size=15 color="rgba(255, 255, 255, 0.92)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+        path d=path fill="-exact-label"
+      text label font-size=15 color="-exact-label" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
 
-// LIKE, NOPE and SUPER LIKE: a rubber stamp that fades in with the drag.
+// LIKE, NOPE and SUPER LIKE fade in with the drag. A dark ground keeps
+// their verdict colours readable over a bright portrait.
 component Stamp
   props
     testId: string
@@ -278,9 +274,8 @@ component Stamp
     top: number
     left: number
   view
-    text label testId=testId position="absolute" top=top left=left width=(label == "SUPER LIKE" ? 200 : 138) box-sizing="border-box" text-align="center" font-size=(label == "SUPER LIKE" ? 30 : 38) font-weight=900 letter-spacing=2 color=color padding-top=2 padding-bottom=2 border-width=4 border-style="solid" border-color=color border-radius=10 rotate=tilt opacity=shown pointer-events="none" transition=(dragging ? "none" : "opacity 180ms ease-out")
+    text label testId=testId position="absolute" top=top left=left width=(label == "SUPER LIKE" ? 200 : 138) box-sizing="border-box" text-align="center" font-size=(label == "SUPER LIKE" ? 30 : 38) font-weight=900 letter-spacing=2 color=color background-color="-exact-background" padding-top=2 padding-bottom=2 border-width=4 border-style="solid" border-color=color border-radius=10 rotate=tilt opacity=shown pointer-events="none" transition=(dragging ? "none" : "opacity 180ms ease-out")
 
-// A round white button with a coloured glyph.
 component RoundButton
   props
     testId: string
@@ -292,9 +287,13 @@ component RoundButton
     off: bool
     press: action
   view
-    button testId=testId aria-label=label press=press disabled=off -exact-press-scale=0.9 width=size height=size flex-shrink=0 border-radius=999 border-width=0 padding=0 display="flex" align-items="center" justify-content="center" background-color="#ffffff" box-shadow="0 6px 18px rgba(20, 24, 31, 0.12)" opacity=(off ? 0.45 : 1) transition="opacity 200ms ease-out"
+    button testId=testId aria-label=label press=press disabled=off -exact-press-scale=0.9 width=size height=size flex-shrink=0 border-radius=999 border-width=0 padding=0 display="flex" align-items="center" justify-content="center" background-color="-exact-secondary-grouped-background" box-shadow="0 6px 18px rgba(20, 24, 31, 0.12)" opacity=(off ? 0.45 : 1) transition="opacity 200ms ease-out"
       svg width=glyph height=glyph viewBox="0 0 24 24"
         path d=path fill=color
+
+// The brand gradients keep their hues in both schemes. Their darker stops
+// keep white labels readable, including on the translucent match overlay.
+// The flame, photo shade and shadows are artwork, not page surfaces.
 
 // The end of the deck.
 component EmptyDeck
@@ -303,11 +302,11 @@ component EmptyDeck
   view
     column testId="empty-deck" position="absolute" top=0 left=0 right=0 bottom=0 align-items="center" justify-content="center" gap=14 padding=32
       svg width=64 height=64 viewBox="0 0 24 24"
-        path d="M12 1.5C13 6 19.5 8.5 19.5 14.5C19.5 19 16 22.5 12 22.5C8 22.5 4.5 19 4.5 14.5C4.5 11.5 6 9.5 8 8.5C8 10.5 8.5 12 9.5 12.5C9.5 8 10.5 4 12 1.5Z" fill="#ffd0dc"
+        path d="M12 1.5C13 6 19.5 8.5 19.5 14.5C19.5 19 16 22.5 12 22.5C8 22.5 4.5 19 4.5 14.5C4.5 11.5 6 9.5 8 8.5C8 10.5 8.5 12 9.5 12.5C9.5 8 10.5 4 12 1.5Z" fill="AccentColor"
       text "You've seen everyone nearby" font-size=20 font-weight=700 class=Ink text-align="center"
-      text "Check back later, or start over from the top of the deck." font-size=15 class=Muted text-align="center" max-width=260
-      button testId="start-over" press=restart -exact-press-scale=0.96 padding-left=28 padding-right=28 padding-top=13 padding-bottom=13 border-width=0 border-radius=999 background-image="linear-gradient(90deg, #fd297b, #ff655b)" box-shadow="0 6px 16px rgba(253, 41, 123, 0.3)"
-        text "Start over" font-size=16 font-weight=700 color="#ffffff"
+      text "Check back later, or start over from the top of the deck." font-size=15 class=Ink text-align="center" max-width=260
+      button testId="start-over" color-scheme="dark" press=restart -exact-press-scale=0.96 padding-left=28 padding-right=28 padding-top=13 padding-bottom=13 border-width=0 border-radius=999 background-image="linear-gradient(90deg, #c0175a, #b73242)" box-shadow="0 6px 16px rgba(253, 41, 123, 0.3)"
+        text "Start over" font-size=16 font-weight=700 color="-exact-label"
 
 keyframes pop
   from opacity=0 scale=0.85
@@ -321,10 +320,10 @@ component MatchOverlay
     p: Profile
     keepSwiping: action
   view
-    column testId="match-overlay" role="dialog" aria-label="It's a match" position="absolute" top=0 left=0 right=0 bottom=0 align-items="center" justify-content="center" gap=22 padding=32 background-image="linear-gradient(160deg, rgba(253, 41, 123, 0.94), rgba(255, 101, 91, 0.94) 55%, rgba(255, 138, 61, 0.94))" animation="fade 260ms ease-out 320ms both"
+    column testId="match-overlay" color-scheme="dark" role="dialog" aria-label="It's a match" position="absolute" top=0 left=0 right=0 bottom=0 align-items="center" justify-content="center" gap=22 padding=32 background-image="linear-gradient(160deg, rgba(192, 23, 90, 0.94), rgba(183, 50, 66, 0.94) 55%, rgba(166, 74, 36, 0.94))" animation="fade 260ms ease-out 320ms both"
       column align-items="center" gap=22 animation="pop 420ms cubic-bezier(.2, .9, .3, 1.2) 320ms both"
-        text "It's a match!" testId="match-title" font-size=44 font-weight=900 font-style="italic" letter-spacing=-1 color="#ffffff" text-align="center"
-        text `You and ${p.name} like each other.` font-size=17 color="#ffffff" text-align="center"
-        image (match first(p.photos) { case some(u) => u, case none => "" }) aria-label=`Photo of ${p.name}` width=168 height=168 border-radius=999 object-fit="cover" border-width=5 border-style="solid" border-color="#ffffff" box-shadow="0 12px 30px rgba(0, 0, 0, 0.25)" testId="match-photo"
-        button testId="keep-swiping" press=keepSwiping -exact-press-scale=0.96 padding-left=36 padding-right=36 padding-top=14 padding-bottom=14 border-radius=999 border-width=2 border-style="solid" border-color="#ffffff" background-color="rgba(255, 255, 255, 0.12)"
-          text "Keep swiping" font-size=17 font-weight=700 color="#ffffff"
+        text "It's a match!" testId="match-title" font-size=44 font-weight=900 font-style="italic" letter-spacing=-1 color="-exact-label" text-align="center"
+        text `You and ${p.name} like each other.` font-size=17 color="-exact-label" text-align="center"
+        image (match first(p.photos) { case some(u) => u, case none => "" }) aria-label=`Photo of ${p.name}` width=168 height=168 border-radius=999 object-fit="cover" border-width=5 border-style="solid" border-color="-exact-label" box-shadow="0 12px 30px rgba(0, 0, 0, 0.25)" testId="match-photo"
+        button testId="keep-swiping" press=keepSwiping -exact-press-scale=0.96 padding-left=36 padding-right=36 padding-top=14 padding-bottom=14 border-radius=999 border-width=2 border-style="solid" border-color="-exact-label" background-color="-exact-fill"
+          text "Keep swiping" font-size=17 font-weight=700 color="-exact-label"
