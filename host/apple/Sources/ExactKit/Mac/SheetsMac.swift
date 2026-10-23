@@ -106,10 +106,15 @@ extension NodeView {
     }
     var needsSheetMaterial: Bool { standsOnSheetGround && wrote("background_color") && !(superview is BlockView) }
 
+    private var hasGroupedCardFill: Bool {
+        guard case .object(let colour)? = style["background_color"] else { return false }
+        return colour["sys"]?.string == "exactGroupedCardColor"
+    }
+
     /// The subtree moved into a sheet's window, or out of it: its boxes on
     /// the window's ground are painted again, on the ground they now have.
     func sheetGroundChanged() {
-        if groundIsTheWindows { updateMaterial(); applyBoxLayer(); materialContent?.needsDisplay = true; needsDisplay = true }
+        if groundIsTheWindows || hasGroupedCardFill { updateMaterial(); applyBoxLayer(); materialContent?.needsDisplay = true; needsDisplay = true }
         for case let child as NodeView in container.subviews { child.sheetGroundChanged() }
     }
 }
