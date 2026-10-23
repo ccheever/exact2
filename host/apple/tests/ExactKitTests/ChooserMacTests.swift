@@ -423,7 +423,10 @@ final class ChooserMacTests: XCTestCase {
         XCTAssertTrue(p.menus.isMenuShaped(pop), "a row of an img and text is a menu row")
         let menu = p.menus.menu(of: pop)
         XCTAssertTrue(menu.items[0].isSectionHeader)
-        XCTAssertEqual(menu.items.map(\.title), ["Open location in", "Waze", "Cancel"])
+        XCTAssertEqual(menu.items.map(\.title), ["Open location in", "Waze"], "Escape cancels a native menu")
+        try XCTUnwrap(p.views[6]).handlers.insert("press")
+        XCTAssertEqual(p.menus.menu(of: pop).items.map(\.title), ["Open location in", "Waze", "Cancel"],
+                       "a Cancel action with a handler remains an item")
         let ctx = try XCTUnwrap(CGContext(data: nil, width: 64, height: 32, bitsPerComponent: 8, bytesPerRow: 0,
                                           space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         let image = MenuHost.rowImage(try XCTUnwrap(ctx.makeImage()))
