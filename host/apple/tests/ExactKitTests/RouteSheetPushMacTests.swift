@@ -48,6 +48,24 @@ final class RouteSheetPushMacTests: XCTestCase {
         """)
     }
 
+    func testAncestorExitKeepsThePushedSheetUntilDestroy() throws {
+        let f = try make()
+        defer { f.close() }
+        try f.press("open"); try f.press("push")
+        let root = try f.node("root"), detail = try f.node("detail"), window = try XCTUnwrap(detail.window)
+        f.presenter.apply(wireBatch([["op": "exit", "id": Int(root.id)]]))
+        XCTAssertNil(f.presenter.views[detail.id])
+        XCTAssertTrue(f.window.attachedSheet === window)
+        XCTAssertTrue(detail.window === window)
+        XCTAssertTrue(detail.inert)
+        XCTAssertTrue(detail.isAccessibilityHidden())
+        f.presenter.apply(wireBatch([]))
+        XCTAssertTrue(f.window.attachedSheet === window)
+        f.presenter.apply(wireBatch([["op": "destroy", "id": Int(root.id)]]))
+        XCTAssertNil(f.window.attachedSheet)
+        XCTAssertNil(detail.superview)
+    }
+
     func testHiddenAndHeaderlessNavigationBarsLayOutTheirBackRow() throws {
         for heading in [false, true] {
             for bar in [false, true] {

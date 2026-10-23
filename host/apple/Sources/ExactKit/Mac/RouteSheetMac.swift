@@ -314,6 +314,7 @@ extension DialogHost {
             routeSync.again = false
             var left = false
             for entry in entries.reversed() where entry.route {
+                if presenter.isLeaving(entry.routeBase ?? entry.dialog) || presenter.isLeaving(entry.dialog) { continue }
                 let wanted = presenter.navigation.sheets.contains { $0.base === entry.routeBase }
                 if !wanted || !live(entry.routeBase ?? entry.dialog) { close(entry.dialog); left = true }
             }
@@ -324,6 +325,7 @@ extension DialogHost {
             presenter.navigation.sheetsRead = false
             for wanted in presenter.navigation.sheets {
                 if let entry = entries.first(where: { $0.route && $0.routeBase === wanted.base }) {
+                    if presenter.isLeaving(entry.routeBase ?? entry.dialog) || presenter.isLeaving(entry.dialog) { continue }
                     if entry.dialog !== wanted.route { replace(entry, with: wanted.route, header: wanted.header) }
                     else if read { project(entry, wanted.header) }
                     continue
