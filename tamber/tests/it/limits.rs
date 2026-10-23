@@ -56,14 +56,15 @@ fn a_clamp_chain_is_refused_where_it_passes_the_bound() {
 /// function is made.
 #[test]
 fn a_nest_in_one_value_is_bounded_where_each_function_is_made() {
+    // Five levels in one value (364 atoms, about 3 KB): refused (Astra's
+    // round 1: the twelve this had were past the bytes, so never ran).
     let mut v = "base.gap".to_string();
-    for _ in 0..12 {
-        v = format!("clamp({v}, {v}, {v})");
+    for _ in 0..5 {
+        v = format!("clamp({v},{v},{v})");
     }
-    if v.len() <= MAX_VALUE_BYTES {
-        let (ids, _) = refused(&theme(&[format!("  deep = {v}")]));
-        assert!(ids.contains(&"tamber-length-size"), "{ids:?}");
-    }
+    assert!(v.len() <= MAX_VALUE_BYTES, "{}", v.len());
+    let (ids, _) = refused(&theme(&[format!("  deep = {v}")]));
+    assert!(ids.contains(&"tamber-length-size"), "{ids:?}");
     // As a chain of shorter values it is the length bound that says so.
     let mut lines = vec!["  a0 = calc(base.gap + 1px)".to_string()];
     for k in 1..8 {
@@ -141,11 +142,11 @@ fn a_value_past_its_bytes_is_refused_without_echoing_it() {
         .contains(&"tamber-value-depth"));
 }
 
-/// A chain of px tokens, however long, folds to a number and never meets
-/// the bound.
+/// A chain of px tokens within the depth folds to a number, however wide,
+/// and never meets the residual bound.
 #[test]
-fn a_px_chain_of_any_length_still_folds() {
-    let n = 300;
+fn a_px_chain_within_the_depth_still_folds() {
+    let n = 200;
     let mut lines: Vec<String> = (0..n)
         .map(|k| format!("  p{k} = clamp(p{0}, p{0}, p{0})", k + 1))
         .collect();
@@ -240,4 +241,165 @@ fn each_importer_refuses_a_value_past_the_bound_with_its_id() {
         dtcg::pen::import_with("big.pen", &pen, "pen", &empty, &vocab()),
         "pen",
     );
+}
+
+/// A sum of many lengths, each within the bound, stops as it passes it
+/// (both reviewers' round 1: the bound was checked only on the result).
+#[test]
+fn a_wide_sum_stops_as_it_passes_the_bound() {
+    let mut lines = Vec::new();
+    for k in 0..200 {
+        let terms: Vec<String> = (0..60)
+            .map(|j| format!("min(base.gap, {}px)", k * 100 + j + 1))
+            .collect();
+        lines.push(format!("  w{k} = calc({})", terms.join(" + ")));
+    }
+    let names: Vec<String> = (0..200).map(|k| format!("w{k}")).collect();
+    lines.push(format!("  all = calc({})", names.join(" + ")));
+    let (ids, took) = refused(&theme(&lines));
+    assert!(ids.contains(&"tamber-length-size"), "{ids:?}");
+    assert!(took < Duration::from_secs(2), "{took:?}");
+}
+
+/// A cycle read twice a level is no 2^n (Astra's round 1): refused as a
+/// cycle in moments.
+#[test]
+fn a_cycle_read_twice_a_level_is_refused_in_moments() {
+    let mut lines: Vec<String> = (0..30)
+        .map(|k| format!("  t{k} = calc(t{0} + t{0})", k + 1))
+        .collect();
+    lines.push("  t30 = t0".into());
+    let (ids, took) = refused(&theme(&lines));
+    assert!(ids.contains(&"tamber-cycle"), "{ids:?}");
+    assert!(took < Duration::from_secs(2), "{took:?}");
+}
+
+/// A chain of names past 256 is refused where it passes, not followed until
+/// the stack runs out (both reviewers' round 1).
+#[test]
+fn a_long_chain_of_names_is_refused_before_the_stack_runs_out() {
+    let n = 5000;
+    let mut lines: Vec<String> = (0..n).map(|k| format!("  a{k} = a{}", k + 1)).collect();
+    lines.push(format!("  a{n} = 4px"));
+    let (ids, took) = refused(&theme(&lines));
+    assert!(
+        ids.contains(&"tamber-reference-depth"),
+        "{:?}",
+        &ids[..ids.len().min(4)]
+    );
+    assert!(took < Duration::from_secs(5), "{took:?}");
+    // 500 deep folds, on a test thread's 2 MB stack: the bound is short of
+    // the stack, and past the importers' 256 links.
+    let ok: Vec<String> = (0..500)
+        .map(|k| format!("  b{k} = b{}", k + 1))
+        .chain(["  b500 = 4px".to_string()])
+        .collect();
+    assert_eq!(refused(&theme(&ok)).0, Vec::<&str>::new());
+    assert!(exact_tamber::MAX_REFERENCE_DEPTH > 500);
+}
+
+/// A platform colour's fallback is read again, and the reader counts its
+/// levels through it: an escaped quote that hides parentheses from the scan
+/// recurses no deeper (Astra's round 1).
+#[test]
+fn a_platform_colours_fallbacks_count_their_levels() {
+    let mut v = "red".to_string();
+    for _ in 0..60 {
+        v = format!("-exact-platform-color(ios \"x\\\"y\", {v})");
+    }
+    let began = Instant::now();
+    let (ids, _) = refused(&theme(&[format!("  p = {v}")]));
+    assert!(!ids.is_empty());
+    assert!(began.elapsed() < Duration::from_secs(1));
+}
+
+/// A number dial, a range end, an icon and a metadata word past the bound
+/// are refused with its id before anything reads them, never echoed (Astra's
+/// and Grok's round 1).
+#[test]
+fn every_kind_of_value_meets_the_bound_first() {
+    let big = "0".repeat(MAX_VALUE_BYTES + 1);
+    for src in [
+        format!("tamber t\n\ndials\n  d: number = {big}\n\ntheme\n  ink = #111111\n"),
+        format!("tamber t\n\ndials\n  d: number = 1 in 0..{big}\n\ntheme\n  ink = #111111\n"),
+        format!(
+            "tamber t\n\ntheme\n  ink = #111111\n\nicons\n  icon.x = icon(sf \"{}\")\n",
+            "a".repeat(MAX_VALUE_BYTES + 1)
+        ),
+        format!(
+            "tamber t\n\ntheme\n  ink = #111111 scheme={}\n",
+            "a".repeat(MAX_VALUE_BYTES + 1)
+        ),
+    ] {
+        let Err(d) = check(&src, &based()) else {
+            panic!("refused: {}", &src[..60])
+        };
+        assert_eq!(
+            d[0].id,
+            "tamber-value-size",
+            "{:?}",
+            d.iter().map(|d| d.id).collect::<Vec<_>>()
+        );
+        assert!(d.iter().all(|d| d.message.len() < 300), "no value echoed");
+    }
+}
+
+/// A shadow's pieces read alone keep the depth id (Grok's round 1).
+#[test]
+fn a_shadow_piece_nested_too_deep_keeps_the_depth_id() {
+    let deep = format!(
+        "{}1px{}",
+        "calc(".repeat(MAX_VALUE_DEPTH + 1),
+        ")".repeat(MAX_VALUE_DEPTH + 1)
+    );
+    let src = theme(&[format!(
+        "  s: box-shadow = 0px 0px 2px black, 0px {deep} 0px black"
+    )]);
+    let (ids, _) = refused(&src);
+    assert!(ids.contains(&"tamber-value-depth"), "{ids:?}");
+}
+
+/// The importers: two sides each within the bound are no refusal though
+/// their joined report is past it; a long name doesn't hide a long value;
+/// a Pencil theme's label isn't a value; a reimport refuses as an import
+/// does (both reviewers' round 1).
+#[test]
+fn importers_check_source_values_not_reports() {
+    use exact_tamber::import::{astryx, dtcg, shadcn};
+    use exact_tamber::parse;
+    let empty = parse("tamber app\n").unwrap();
+    let side = |v: &str| format!("{{\"--spacing-x\": \"{v}\"}}");
+    let (a, b) = (
+        format!("calc(1px{})", " + 1px".repeat(340)),
+        format!("calc(2px{})", " + 2px".repeat(340)),
+    );
+    assert!(a.len() < MAX_VALUE_BYTES && a.len() + b.len() > MAX_VALUE_BYTES);
+    let json = format!(
+        "{{\"source\": \"t\", \"core\": \"t\", \"light\": {}, \"dark\": {}}}",
+        side(&a),
+        side(&b)
+    );
+    assert!(astryx::import(&json, "astryx", &empty, &vocab()).is_ok());
+    let css = format!(
+        ":root {{ --{}: calc(1px{}); }}",
+        "n".repeat(300),
+        " + 1px".repeat(800)
+    );
+    let d = shadcn::import(&css, "shadcn", &empty, &vocab()).unwrap_err();
+    assert_eq!(d[0].id, "tamber-value-size", "{d:?}");
+    let pen = format!("{{\"version\": \"2.21\", \"variables\": {{\"c\": {{\"type\": \"color\", \"value\": [{{\"value\": \"#000000\", \"theme\": {{\"mode\": \"{}\"}}}}]}}}}}}", "m".repeat(5000));
+    assert!(
+        dtcg::pen::import_with("t.pen", &pen, "pen", &empty, &vocab())
+            .map(|_| ())
+            .map_err(|d| d[0].id)
+            != Err("tamber-value-size")
+    );
+    let design = "tamber t\n\ntheme\n  ink = #111111\n";
+    let folded = check(design, &vocab()).unwrap();
+    let export = exact_tamber::export::dtcg(&folded, &vocab()).unwrap();
+    let edited = export.replacen("#111111", &format!("calc(1px{})", " + 1px".repeat(800)), 1);
+    assert_ne!(edited, export);
+    let d =
+        exact_tamber::export::reimport_against(&edited, None, &[], design, &vocab()).unwrap_err();
+    assert_eq!(d[0].id, "tamber-value-size", "{d:?}");
 }

@@ -843,33 +843,18 @@ pub(crate) fn source_read(blocks: &[Block], deep: &[Deep]) -> Result<(), Vec<Dia
     )
 }
 
-/// Every `$value` string a DTCG document holds, with the token's path
-/// (`color.accent`), for [`source_bound`]: a reimport's source.
-pub(crate) fn dtcg_values<'a>(
-    v: &'a serde_json::Value,
-    path: &mut Vec<&'a str>,
-    out: &mut Vec<(String, &'a str)>,
-) {
-    let serde_json::Value::Object(o) = v else {
-        return;
-    };
-    for (k, child) in o {
-        if k == "$value" {
-            let mut strings = Vec::new();
-            json_strings(child, &mut strings);
-            out.extend(strings.into_iter().map(|s| (path.join("."), s)));
-        } else if !k.starts_with('$') {
-            path.push(k);
-            dtcg_values(child, path, out);
-            path.pop();
-        }
-    }
-}
-
-/// A DTCG document's `$value`s against the checker's bound
-/// ([`source_bound`]): a reimport's source.
-pub(crate) fn dtcg_bound(doc: &serde_json::Value) -> Result<(), Vec<Diagnostic>> {
-    let mut values = Vec::new();
-    dtcg_values(doc, &mut Vec::new(), &mut values);
-    source_bound(values.iter().map(|(name, v)| (name.as_str(), *v)))
+/// A reimport's source read as JSON (`refuse` saying why it isn't), its
+/// `$value`s against the checker's bound ([`source_bound`]): past it, the
+/// reimport is refused with the bound's id, as an import is.
+pub(crate) fn dtcg_doc(
+    text: &str,
+    refuse: &dyn Fn(String) -> Vec<Diagnostic>,
+) -> Result<serde_json::Value, Vec<Diagnostic>> {
+    let doc = serde_json::from_str(text).map_err(|e| refuse(format!("not JSON: {e}")))?;
+    // Every string it holds: an export keeps a mode's values in its
+    // `$extensions`, beside each `$value`.
+    let mut strings = Vec::new();
+    json_strings(&doc, &mut strings);
+    source_bound(strings.into_iter().map(|v| ("the reimported file", v)))?;
+    Ok(doc)
 }
