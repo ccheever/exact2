@@ -106,6 +106,35 @@ final class DialogSheetIOSTests: XCTestCase {
         try XCTUnwrap(controller.presentedViewController as? DialogSheetController, "the dialog's sheet")
     }
 
+    func testTheSheetsBlankGroundEndsEditing() throws {
+        let (p, controller, scene) = page()
+        guard scene else { throw missing("scene", "a sheet's editor needs its scene window") }
+        p.dialogCommand("showModal", "form")
+        settle { !p.menus.inTransition }
+        let sheet = try sheet(controller), field = try XCTUnwrap(p.views[3]?.field)
+        XCTAssertTrue(field.becomeFirstResponder())
+        let touch = SheetTouch(sheet.scroller, at: CGPoint(x: 2, y: 2))
+        sheet.scroller.touchesBegan([touch], with: nil)
+        sheet.scroller.touchesEnded([touch], with: nil)
+        XCTAssertFalse(field.isFirstResponder)
+    }
+
+    func testVoiceOverEscapeHonoursClosedbyAndFiresCancel() throws {
+        let (p, controller, scene) = page(dialog: ["closedby": "none"], handlers: ["cancel"])
+        guard scene else { throw missing("scene", "VoiceOver escape needs a presented sheet") }
+        var cancelled: [UInt32] = []
+        p.menus.sheets.onCancel = { cancelled.append($0) }
+        p.dialogCommand("showModal", "form")
+        settle { !p.menus.inTransition }
+        let sheet = try sheet(controller)
+        XCTAssertFalse(sheet.accessibilityPerformEscape())
+        XCTAssertTrue(p.menus.sheets.isOpen(try XCTUnwrap(p.views[2])))
+        p.views[2]?.props["closedby"] = "closerequest"
+        XCTAssertTrue(sheet.accessibilityPerformEscape())
+        settle { !p.menus.inTransition }
+        XCTAssertEqual(cancelled, [2])
+    }
+
     func testAnExitRetiresTheDialogsSheetSubtree() throws {
         let (p, controller, scene) = page()
         p.dialogCommand("showModal", "form")
@@ -1168,8 +1197,8 @@ final class DialogSheetIOSTests: XCTestCase {
 
     // MARK: the native fixture
 
-    private func boot() throws -> ExactSession {
-        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_FIXTURE_PLAN"], "build.mjs --test --ios compiles the fixture's plan")))
+    private func boot(planKey: String = "EXACT_FIXTURE_PLAN") throws -> ExactSession {
+        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment[planKey], "build.mjs --test --ios compiles the fixture's plan")))
         let session = ExactApp.shared.makeSession(label: "dialog-sheet")
         self.session = session
         let view = ExactView(session: session), host = UIViewController()
@@ -1189,6 +1218,22 @@ final class DialogSheetIOSTests: XCTestCase {
     }
     private func node(_ session: ExactSession, _ testId: String) throws -> NodeView {
         try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == testId }, testId)
+    }
+
+    func testADialogResolvesPercentagesAgainstItsSheetsContainingBlock() throws {
+        guard Self.scene else { throw missing("scene", "the sheet owns its layout while presented") }
+        let session = try boot(planKey: "EXACT_DIALOG_SHEET_READS_PLAN"), p = session.presenter
+        p.dialogCommand("showModal", "responsive")
+        settle { !p.menus.inTransition }
+        let sheet = try sheet(XCTUnwrap(window?.rootViewController))
+        let dialog = try XCTUnwrap(p.views.values.first { $0.props["id"] == "responsive" })
+        sheet.scroller.frame.size.width = 220
+        p.owners.publish()
+        XCTAssertEqual(dialog.bounds.width, 220, accuracy: 0.01)
+        XCTAssertNotNil(p.owners.told[dialog.id])
+        p.dialogCommand("close", "responsive")
+        settle { !p.menus.inTransition }
+        XCTAssertNil(p.owners.told[dialog.id], "closing returns the containing block")
     }
 
     /// The fixture's `native-dialog`, `dialog width=320 padding=16

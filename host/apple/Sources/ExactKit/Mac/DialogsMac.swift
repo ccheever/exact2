@@ -36,6 +36,7 @@ final class DialogHost {
         }
     }
     private(set) var entries: [Entry] = []
+    var onCancel: ((UInt32) -> Void)?
     /// Painted in the page, not AppKit's sheet: the driver's own chrome
     /// (`--chrome agent`), as it paints the header and the tablist. A test
     /// of the painted presentation says so.
@@ -379,7 +380,14 @@ final class DialogHost {
     /// `closedby="any"` sheet): a dialog closes; a modal route goes back as
     /// its stack goes, which the app decides (BackMac.swift).
     private func dismiss(_ dialog: NodeView) {
-        guard entry(ofRoute: dialog) != nil else { return close(dialog) }
+        guard entry(ofRoute: dialog) != nil else {
+            close(dialog)
+            if live(dialog), dialog.handlers.contains("cancel") {
+                if let onCancel { onCancel(dialog.id) }
+                else if let session = presenter?.session { session.apply(session.runtime.pickerCancel(dialog.id, now: session.now())) }
+            }
+            return
+        }
         if let refused = presenter?.navigation.dismiss(dialog) { presenter?.session?.log("modal dismissal refused: \(refused)") }
     }
     var observation: [String: Any]? {

@@ -19,7 +19,7 @@ import UIKit
 
 final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate {
     fileprivate weak var host: DialogSheets?
-    let scroller = UIScrollView()
+    let scroller = ScrollView()
     /// The dialog's box as the kernel laid it out: the sheet's height.
     private(set) var box = CGSize.zero
     private var backdropTap: UITapGestureRecognizer?
@@ -69,7 +69,13 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         place()
+        host?.containingBlockChanged()
     }
+    override var keyCommands: [UIKeyCommand]? {
+        [UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(escape))]
+    }
+    @objc private func escape() { host?.closeRequest(self) }
+    override func accessibilityPerformEscape() -> Bool { host?.closeRequest(self) ?? false }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         host?.appeared(self)
@@ -212,6 +218,17 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         return entries.filter { entry in !entry.closing && !entry.leaving && ancestors.contains { $0 === entry.dialog } }.map(\.controller)
     }
     var topDialog: NodeView? { entries.last { !$0.closing }?.dialog }
+    var containingBlocks: [(UInt32, HostBlock)] {
+        entries.compactMap { entry in
+            let scroller = entry.controller.scroller
+            guard scroller.window != nil, !scroller.bounds.isEmpty else { return nil }
+            let inset = scroller.adjustedContentInset
+            let size = CGSize(width: max(0, scroller.bounds.width - inset.left - inset.right),
+                              height: max(0, scroller.bounds.height - inset.top - inset.bottom))
+            return (entry.dialog.id, HostBlock(width: .size(size.width), height: .fit(size.height)))
+        }
+    }
+    fileprivate func containingBlockChanged() { presenter?.owners.publish() }
     var inTransition: Bool {
         !resuming.isEmpty || entries.contains { $0.closing || $0.controller.isBeingPresented || $0.controller.isBeingDismissed }
     }
@@ -400,6 +417,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         } else {
             dialog.removeFromSuperview()
         }
+        presenter?.owners.publish()
         // After the dialog is home: a popover anchored in it is placed from there.
         presenter?.menus.rehostPopovers()
         presenter?.menus.coverClosed()
@@ -427,9 +445,10 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         return entry.dialog.props["closedby"] == "any"
     }
     /// A close request the person made outside UIKit's own gesture.
-    func closeRequest(_ controller: DialogSheetController) {
-        guard let entry = entries.first(where: { $0.controller === controller }), !entry.closing, !refuses(entry.dialog) else { return }
+    @discardableResult func closeRequest(_ controller: DialogSheetController) -> Bool {
+        guard let entry = entries.first(where: { $0.controller === controller }), !entry.closing, !refuses(entry.dialog) else { return false }
         dismiss(entry, animated: !ExactEnv.agentFreezes, cancelled: true)
+        return true
     }
 
     // UIKit's own dismissal: the swipe down, and whatever else it gives a sheet.
