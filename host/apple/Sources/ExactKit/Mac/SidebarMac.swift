@@ -137,11 +137,8 @@ final class SidebarHost {
         // them, else the tablists mounted (the kernel may find one of them).
         let signature = [root.node.id] + (host.map { [$0.tablist.id] + $0.tabs.map(\.id) + [0] + $0.panels.map(\.id) }
             ?? [0] + presenter.carrying("role:tablist").map(\.id))
-        // The placement is read from the root's and the tablist's layout
-        // rows, which do not cross: a batch that writes either one's props
-        // or style, or that moves the root or a child of it (what a change
-        // of the root's direction does, and a resize), asks again. A list
-        // scrolling inside a tab does neither.
+        // Direction changes cross even when the sidebar covers the tablist
+        // and layout leaves every frame untouched.
         let level = Set(root.node.container.subviews.compactMap { ($0 as? NodeView)?.id } + [root.node.id])
         let placed = batch?.ops.contains { op in
             guard let id = op.nodeID else { return false }
