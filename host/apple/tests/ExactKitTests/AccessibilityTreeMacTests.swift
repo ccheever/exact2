@@ -43,7 +43,7 @@ final class AccessibilityTreeMacTests: XCTestCase {
     }
     private func elements(_ ax: [String: Any]) -> [[String: Any]] { ax["elements"] as? [[String: Any]] ?? [] }
 
-    func testHiddenAndInertSubtreesDoNotHoistTheirNativeCells() throws {
+    func testViewportWalkOmitsHiddenAndInertSubtreesAndNamesRestoredCells() throws {
         let p = try fixture()
         p.apply(wireBatch([
             ["op": "create", "id": 20, "kind": "view", "props": ["accessibilityElementsHidden": "true"]],
