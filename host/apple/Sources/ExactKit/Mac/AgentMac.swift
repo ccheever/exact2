@@ -284,7 +284,7 @@ extension Agent {
         var viewport: [String: Any] = ["w": Agent.r2(clip.bounds.width), "h": Agent.r2(clip.bounds.height)]
         if px != 0 { viewport["ox"] = Agent.r2(px) }
         if py != 0 { viewport["oy"] = Agent.r2(py) }
-        return ["layoutVersion": 2, "clock": session.now(), "viewport": viewport, "env": env, "nodes": nodes]
+        return ["clock": session.now(), "viewport": viewport, "env": env, "nodes": nodes]
     }
 
     /// `layout <node>` (LLP 1035.002 D1): the runner's rows and their sources
