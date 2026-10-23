@@ -147,3 +147,61 @@ fn a_records_field_is_typed_at_the_root() {
     let call = format!("{HEAD}{shape}fn pickOf(s: string): Pick = Pick(scale=s)\ncomponent App\n  state s = \"2\"\n  view\n    column\n      button \"Go\" -exact-press-scale=pickOf(s).scale\n      Card()\n");
     accepted("rows-bound-member-call", &call, zero(), &zeroed(), true);
 }
+
+/// A `match` whose subject isn't typed by its form (a call) leaves both arms
+/// to the build, the `none` arm too: the build lowers the `some` arm first,
+/// and a refusal judged only in the `none` arm would not be its first
+/// (Grok's round 1).
+#[test]
+fn a_match_over_an_untyped_subject_is_the_builds() {
+    let contract = format!("{HEAD}component App\n  state picks = [\"2\"]\n  state other = \"2\"\n  view\n    column\n      for s in picks key=s\n        match first(picks)\n          case some(p)\n            button \"A\" -exact-press-scale=p\n          case none\n            button \"B\" -exact-press-scale=other\n      Card()\n");
+    accepted("rows-bound-match-call", &contract, zero(), &zeroed(), true);
+}
+
+/// A record's field through a `for`'s item, typed by the field's own type
+/// (Astra's round 1): its string field in a number row is judged, its number
+/// field names no token and the write is accepted as the build accepts it.
+#[test]
+fn a_bound_records_field_has_its_own_type() {
+    let shape = "shape Pick\n  n: number\n  scale: string\n";
+    let row = |field: &str| {
+        format!("{HEAD}{shape}component App\n  state cards = [Pick(n=2, scale=\"2\")]\n  view\n    column\n      for c in cards key=c.scale\n        button \"Go\" -exact-press-scale=c.{field}\n      Card()\n")
+    };
+    same_words(
+        &reading("rows-bound-field-string"),
+        DESIGN,
+        &row("scale"),
+        zero(),
+        &zeroed(),
+    );
+    accepted(
+        "rows-bound-field-number",
+        &row("n"),
+        zero(),
+        &zeroed(),
+        false,
+    );
+}
+
+/// An `if` inside a region keeps the region's names (its arms push a frame
+/// binding nothing, as lowering's do), and a region inside an inlined
+/// component's instance is typed in that instance: both judged.
+#[test]
+fn an_if_in_a_region_and_a_region_in_an_instance_are_judged() {
+    let when = format!("{HEAD}component App\n  state on = true\n  state picks = [\"2\"]\n  view\n    column\n      for p in picks key=p\n        if on\n          button \"Go\" -exact-press-scale=p\n      Card()\n");
+    same_words(
+        &reading("rows-bound-when"),
+        DESIGN,
+        &when,
+        zero(),
+        &zeroed(),
+    );
+    let instance = format!("{HEAD}component App\n  state picks = [\"2\"]\n  view\n    column\n      Picks(picks=picks)\n      Card()\ncomponent Picks\n  props\n    picks: string[]\n  view\n    column\n      for p in picks key=p\n        button \"Go\" -exact-press-scale=p\n");
+    same_words(
+        &reading("rows-bound-instance"),
+        DESIGN,
+        &instance,
+        zero(),
+        &zeroed(),
+    );
+}
