@@ -205,6 +205,7 @@ final class RegionController {
             let batch = session.runtime.regionComplete(value)
             if let error = batch.error { refuse(error); return }
             session.apply(batch)
+        case .selection: break
         case .raster(let value):
             if submittedRaster == value.request.serial { submittedRaster = 0 }
             guard desiredRaster?.serial == value.request.serial,
@@ -230,6 +231,7 @@ final class RegionController {
             if desiredRaster?.serial == value.request.serial { desiredRaster = nil }
         case .refused(let job, let reason):
             switch job {
+            case .selection: break
             case .shape(let request):
                 if submitted == request.id { submitted = 0 }
                 if snapshot?.request == request.id && request.generation == generation { refuse(reason) }
