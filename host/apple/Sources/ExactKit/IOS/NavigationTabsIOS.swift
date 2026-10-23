@@ -186,6 +186,7 @@ extension NavigationHost {
             nav.removeFromParent()
         }
         primaryNavigation = nil
+        retireHeldRoot()
     }
 
     /// Each batch: every other tab's stack, the selected tab, its items.
