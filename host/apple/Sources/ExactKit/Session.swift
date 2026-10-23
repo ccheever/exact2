@@ -1027,7 +1027,7 @@ public final class ExactSession {
             holdingReports = true; landFill(); holdingReports = false
             guard state != .destroyed else { return }
         }
-        guard !ownerInFlight, changesNothing(batch) else { apply(batch); return }
+        guard !fillInFlight, !tickInFlight, !canvasInFlight, noticesInFlight == 0, changesNothing(batch) else { apply(batch); return }
         // Its transactions are reported once (LLP 1079 D3): account for them, at no presentation cost.
         sampler?.batch(batch.seq, ms: 0)
         if let q = batch.seq { natives.hatchClock.seq = q.1 } // its commits are the hatches' latest
