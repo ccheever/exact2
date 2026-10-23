@@ -140,9 +140,9 @@ fn unbound(at: &'static std::panic::Location<'static>) {
         first
     });
     if first {
-        eprintln!(
+        crate::diagnostic(format_args!(
             "exact: a role resolved at {at} with no session bound while several live on this thread: the newest installed one's (LLP 1121 stage 5)"
-        );
+        ));
     }
     debug_assert!(
         false,
