@@ -5,7 +5,7 @@
 //! §3.4). The web's page does it itself; a native host asks this.
 
 use super::Kernel;
-use crate::generated::{Overflow, PositionType};
+use crate::generated::{Direction, Overflow, PositionType, StyleId};
 use crate::id::{NodeKey, ViewId};
 use crate::layout::LayoutMirror;
 use crate::style::Dimension;
@@ -121,12 +121,13 @@ impl Kernel {
         let content = |slot: u32| {
             let l = tree.layout(arena.taffy(slot)?);
             let [x0, y0, x1, y1] = at(slot);
-            let (p, b) = (l.padding, l.border);
+            let (p, b, gutter) = (l.padding, l.border, l.scrollbar_size);
+            let rtl = arena.computed_source(slot, StyleId::Direction).direction == Direction::Rtl;
             Some([
-                x0 + b.left + p.left,
+                x0 + b.left + p.left + if rtl { gutter.width } else { 0.0 },
                 y0 + b.top + p.top,
-                x1 - b.right - p.right,
-                y1 - b.bottom - p.bottom,
+                x1 - b.right - p.right - if rtl { 0.0 } else { gutter.width },
+                y1 - b.bottom - p.bottom - gutter.height,
             ])
         };
         let margin = tree.layout(arena.taffy(slot)?).margin;
