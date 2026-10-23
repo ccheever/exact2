@@ -24,6 +24,9 @@ impl<D: DataSource> Host<D> {
         }
         batch.facts = self.facts_moved();
         batch.wakelock = self.wakelock_moved();
+        // A package view's displayed state, by the same rule, now the
+        // presenter's covers are set (LLP 1133.008 D8 item 2).
+        self.runner.report_views();
         batch.finish(
             self.runner.timer_due_ms(),
             !self.engine.quiescent(),

@@ -1022,7 +1022,7 @@ function rustSources(app) {
  * its class, and its source files. */
 export function appleImplementations(app, target) {
   const named = ['app.contract','app.ts'].map(f=>{ try { return readFileSync(join(app,f),'utf8'); } catch { return ''; } }).join('\n');
-  return moduleInterfaces(app).filter(i=>named.includes(`"${i.name}"`) || named.includes(`'${i.name}'`)).flatMap(i=>{
+  return moduleInterfaces(app).filter(i=>usesInterface(i,named)).flatMap(i=>{
     const impl=implementationFor(app,i,target);
     const files=impl?.json.platform==='apple' && impl.json.sources?.swift;
     if (!impl || !files?.length || !impl.json.class) return [];
@@ -1037,18 +1037,30 @@ export function appleImplementations(app, target) {
       for (const [,value] of rustSources(app).matchAll(new RegExp(`\\b${snake}\\s*:\\s*(?:Some\\()?"([^"]+)"`,'g'))) keys.add(value);
       return {key,keys:[...keys].sort()};
     }).filter(p=>p.keys.length);
-    return [{extension,module:'ExactPkg_'+extension.replace(/\W/g,'_'),className:impl.json.class,sources:files.map(f=>resolve(impl.dir,f)),plist}];
+    return [{extension,module:'ExactPkg_'+extension.replace(/\W/g,'_'),className:impl.json.class,sources:files.map(f=>resolve(impl.dir,f)),plist,views:packageViewTags(i,impl)}];
   });
+}
+
+/** The view tags an implementation serves (LLP 1133.001 D1): every view its interface declares, and its own. */
+function packageViewTags(iface, impl) {
+  const tags=v=>Array.isArray(v) ? v.filter(t=>typeof t==='string') : v && typeof v==='object' ? Object.keys(v) : [];
+  return [...new Set([...tags(iface.declaration.views), ...tags(impl?.json.views)])].sort();
+}
+
+/** Whether `app` uses interface `i`: names it in a `use` or an import, or places a view it declares. */
+function usesInterface(i, named) {
+  if (named.includes(`"${i.name}"`) || named.includes(`'${i.name}'`)) return true;
+  return packageViewTags(i, null).some(tag => new RegExp(`(^|[^\\w-])${tag}([^\\w-]|$)`).test(named));
 }
 
 /** The Kotlin implementations bound for Android (LLP 1133.001 D4) of the interfaces the app names: each extension,
  * its class, and its source directories, which join the APK's Kotlin. */
 export function androidImplementations(app) {
   const named = ['app.contract','app.ts'].map(f=>{ try { return readFileSync(join(app,f),'utf8'); } catch { return ''; } }).join('\n');
-  return moduleInterfaces(app).filter(i=>named.includes(`"${i.name}"`) || named.includes(`'${i.name}'`)).flatMap(i=>{
+  return moduleInterfaces(app).filter(i=>usesInterface(i,named)).flatMap(i=>{
     const impl=implementationFor(app,i,'android'), dirs=impl?.json.platform==='android' && impl.json.sources?.kotlin;
     if (!impl || !dirs?.length || !impl.json.class) return [];
-    return [{extension:i.name.split('/').at(-1),className:impl.json.class,dirs:dirs.map(d=>resolve(impl.dir,d))}];
+    return [{extension:i.name.split('/').at(-1),className:impl.json.class,dirs:dirs.map(d=>resolve(impl.dir,d)),views:packageViewTags(i,impl)}];
   });
 }
 

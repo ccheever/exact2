@@ -38,6 +38,7 @@ impl<D: DataSource> Runner<D> {
         if real.is_empty() && agent.is_empty() {
             return;
         }
+        self.retell_views(&[real, agent].concat());
         if !real.is_empty() {
             self.log(format!("modules bound here: {}", real.join(", ")));
         }

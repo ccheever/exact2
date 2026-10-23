@@ -1,9 +1,14 @@
 // The Swift that composes an app's module with its packages' implementations (LLP 1133.001 D5), which
 // host/apple/build.mjs writes beside the module's sources and never commits.
 
+/** The module side's fixed Swift, in `root`: the table, its view entries, the hatch bindings and the extensions. */
+export const moduleSeam = (resolve, root) => ['ExactNativeModule.swift', 'ExactNativeViews.swift', 'ExactTamber.swift', 'ExactExtensions.swift']
+  .map(f => resolve(root, 'host/apple/modules', f));
+
 /** The app's module composed with its packages' implementations: an adapter over each package's class (its shape,
  * host/apple/modules/ExactPackage.swift; the adapter's, ExactExtensions.swift) with that session's context, the table
- * that names them, and, for an app with no module of its own, an empty one. */
+ * that names them, each view a package serves (`views`) made by that session's adapter (LLP 1133.008 D8 item 1), and,
+ * for an app with no module of its own, an empty one. */
 export function composedModule(packages, ownModule) {
   const lines = ['// Written by host/apple/build.mjs (LLP 1133.001 D5); never edited.', ...(packages.length ? ['import ExactPackage'] : []), ...packages.map(p => `import ${p.module}`)];
   for (const p of packages) lines.push(
@@ -21,8 +26,25 @@ export function composedModule(packages, ownModule) {
     '    override func dispose(_ ids: [String]) { impl.dispose(ids) }',
     '    override func foreground(_ shown: Bool) { context.foreground = shown; impl.foreground(shown) }',
     '    override func destroy(_ done: @escaping () -> Void) { impl.destroy(done) }',
+    '    override func view(_ tag: String, id: String, props: [String: String], events: ExactNativeEvents) throws -> ExactNativeInstance {',
+    '        let sent = ExactPackageEvents(send: { kind, text in events.send(kind, text) }, size: { events.intrinsicSize($0) })',
+    '        return ExactPackageViewInstance(try impl.view(tag, id: id, props: props, events: sent), events: events)',
+    '    }',
+    '    override func displayed(_ id: String, _ shown: Bool, origin: String) { impl.displayed(id, shown, origin: origin) }',
+    '    override func bound(_ id: String, _ prop: String, origin: String) { impl.bound(id, prop, origin: origin) }',
+    '}');
+  if (packages.length) lines.push(
+    '/// A package\'s view as the table holds an instance.',
+    'final class ExactPackageViewInstance: ExactNativeInstance {',
+    '    let made: ExactPackageView',
+    '    init(_ made: ExactPackageView, events: ExactNativeEvents) { self.made = made; super.init(events: events) }',
+    '    override var view: ExactNativeView { made.view }',
+    '    override func setProps(_ props: [String: String]) throws { try made.setProps(props) }',
+    '    override func destroy() { made.destroy() }',
     '}');
   lines.push(`let exactExtensions: [String: (ExactModuleContext, String) -> ExactExtensionAdapter] = [${packages.map(p => `${JSON.stringify(p.extension)}: { ExactAdapter_${p.module}($0, session: $1) }`).join(', ') || ':'}]`);
+  const views = packages.flatMap(p => (p.views ?? []).map(tag => `${JSON.stringify(tag)}: ExactNativeFactory(package: { try ExactExtensions.view($0, ${JSON.stringify(p.extension)}, ${JSON.stringify(tag)}, id: $1, props: $2, events: $3) })`));
+  lines.push(`let exactPackageViews: [String: ExactNativeFactory] = [${views.join(', ') || ':'}]`);
   if (!ownModule) lines.push('final class ExactComposedModule: ExactModule {}', 'let exactModule: ExactModule.Type = ExactComposedModule.self');
   return lines.join('\n') + '\n';
 }

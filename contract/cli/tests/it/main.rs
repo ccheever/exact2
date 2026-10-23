@@ -94,6 +94,7 @@ mod midi;
 mod migrate;
 mod miswiring;
 mod module_seam;
+mod module_views;
 mod modules;
 mod motion_feel;
 mod mutation;
