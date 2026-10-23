@@ -13,7 +13,7 @@
 //! with no cursor, an event stream, a body past the ceiling. Forgetting the
 //! ticket aborts the request in flight and any wait.
 use super::super::{check_headers, failed, fetch_failure, fetch_request, Shared};
-use super::message;
+use super::{message, reply};
 use exact_runner::{FailureKind, LongPoll, Message, Outcome, Request, Response, Retrying};
 use ibex2::stdlib::abort::AbortController;
 use std::sync::{Arc, Condvar, Mutex};
@@ -82,13 +82,7 @@ pub(super) fn run(
             return failed(FailureKind::Refused, why);
         }
         // Each reply that is no event, as the runner counts it (`heldReplies`).
-        let replied = || {
-            let m = Message {
-                event: exact_runner::LONG_POLL_REPLY.into(),
-                ..Message::default()
-            };
-            message(shared, ticket, m)
-        };
+        let replied = || reply(shared, ticket);
         let mut url = request.url.clone();
         let mut failures: u32 = 0;
         loop {
@@ -152,7 +146,7 @@ pub(super) fn run(
                     } else {
                         error
                     };
-                    (backoff(ticket, &mut failures), Some(error))
+                    (backoff(ticket, &mut failures).max(floor()), Some(error))
                 }
             };
             // (a heartbeat's wait is no retry)
@@ -301,7 +295,7 @@ fn cursor_of(body: &[u8], from: &str) -> Result<Option<String>, &'static str> {
         // (`1e3` and `1.0` are whole numbers too, as a browser reads them)
         serde_json::Value::Number(n) => match n
             .as_i64()
-            .or_else(|| n.as_f64().filter(|f| f.fract() == 0.0 && f.abs() < 9e15).map(|f| f as i64))
+            .or_else(|| n.as_f64().filter(|f| f.fract() == 0.0 && f.abs() < 9_007_199_254_740_992.0).map(|f| f as i64))
             .filter(|n| n.unsigned_abs() < 1 << 53)
         {
             Some(n) => Ok(Some(n.to_string())),
@@ -519,6 +513,10 @@ mod tests {
             Ok(Some("-9007199254740991".into()))
         );
         assert_eq!(at(r#"{"seq":1e3}"#, "seq"), Ok(Some("1000".into())));
+        assert_eq!(
+            at(r#"{"seq":9e15}"#, "seq"),
+            Ok(Some("9000000000000000".into()))
+        );
         assert_eq!(at(r#"{"seq":null}"#, "seq"), Ok(None));
         assert_eq!(at("not json", "seq"), Ok(None));
         // What would not round-trip a browser, or would break a message's id, is refused.

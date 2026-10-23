@@ -180,7 +180,22 @@ fn read_socket(
 /// (forgotten, retired, ended). The newest undelivered message per ticket is
 /// kept and the ones it replaces are counted on it (LLP 1016.000 D4): display
 /// data coalesces, and a log sees the gap and re-asks from its cursor.
-fn message(shared: &Shared, ticket: u64, mut message: Message) -> bool {
+fn message(shared: &Shared, ticket: u64, message: Message) -> bool {
+    deliver(shared, ticket, message, false)
+}
+
+/// A long poll's reply that is no event (LLP 1016.000 D8): a message of the
+/// reserved event `LONG_POLL_REPLY`, which never takes an event's place nor
+/// counts as one dropped, and which an event that follows replaces.
+fn reply(shared: &Shared, ticket: u64) -> bool {
+    let m = Message {
+        event: exact_runner::LONG_POLL_REPLY.into(),
+        ..Message::default()
+    };
+    deliver(shared, ticket, m, true)
+}
+
+fn deliver(shared: &Shared, ticket: u64, mut message: Message, reply: bool) -> bool {
     let mut state = shared.state.lock().unwrap();
     if state.retired {
         return false;
@@ -201,17 +216,14 @@ fn message(shared: &Shared, ticket: u64, mut message: Message) -> bool {
     let waiting = state.completed[lane]
         .iter_mut()
         .find(|done| done.ticket == ticket && done.message);
-    let reply = message.event == exact_runner::LONG_POLL_REPLY;
     match waiting {
-        // A long poll's reply that is no event (LLP 1016.000 D8) never takes
-        // an event's place, nor counts as one dropped.
         Some(done) if reply => {
             done.elapsed_ms = elapsed_ms;
         }
-        Some(done) if matches!(&done.outcome, Outcome::Message(m) if m.event == exact_runner::LONG_POLL_REPLY) =>
-        {
+        Some(done) if done.reply => {
             done.outcome = Outcome::Message(message);
             done.elapsed_ms = elapsed_ms;
+            done.reply = false;
         }
         Some(done) => {
             if let Outcome::Message(older) = &done.outcome {
@@ -233,6 +245,7 @@ fn message(shared: &Shared, ticket: u64, mut message: Message) -> bool {
             stream: true,
             light: false,
             again: false,
+            reply,
         }),
     }
     if has_ready(&state) {

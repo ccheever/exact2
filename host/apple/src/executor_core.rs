@@ -96,6 +96,9 @@ struct Completed {
     light: bool,
     /// A re-ask's marker (counted in `agains`).
     again: bool,
+    /// A long poll's reply that is no event (LLP 1016.000 D8,
+    /// `LONG_POLL_REPLY`): an event that follows takes its place.
+    reply: bool,
 }
 /// A place behind the ordered barrier.
 enum Fenced {
@@ -963,6 +966,7 @@ fn settle_again(state: &mut State, ticket: u64) -> bool {
         stream: false,
         light: true,
         again: true,
+        reply: false,
     });
     true
 }
@@ -1065,6 +1069,7 @@ fn complete(shared: &Shared, ticket: u64, outcome: Outcome) {
         stream: run.stream,
         light: run.read,
         again: false,
+        reply: false,
     });
     if has_ready(&state) {
         wake(&mut state);

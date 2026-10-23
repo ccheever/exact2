@@ -1205,7 +1205,9 @@ resource go aborts the request held open, or the wait. TypeScript sources on
 every host take it, and Rust sources with `Request::long_poll(cursor, from)` on
 a stream's request. An older prelude would ignore it and open an event stream,
 so it moves `typescriptRuntime` to 3: a native app with a TypeScript data module
-needs a new binary once more.
+needs a new binary once more. A Rust source's long poll is a new kind on the
+module seam, so the Rust ABI moves to 4, and every app with Rust data sources
+needs a new binary once too.
 
 On the **web JS target and on macOS, iOS, Linux and Windows, TypeScript sources**
 receive `(event, socket)` for a WebSocket (LLP 1016.000 D7). Keep the handle by your resource's identity in

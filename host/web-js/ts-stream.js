@@ -144,7 +144,7 @@ export function open({ input, init, redirect }, conv, grantSet, deliver, control
     } finally { if (turn) answering.mapper = null; }
   };
   // A long poll's reply that is no event (`exact:reply`, LLP 1016.000 D8) reaches no mapper.
-  const message = m => m.event === 'exact:reply' ? undefined : deliver({ ...value({ type: m.event || 'message', data: m.data, lastEventId: m.id, coalesced: m.coalesced }, true), coalesced: m.coalesced });
+  const message = m => req.longPoll && m.event === 'exact:reply' ? undefined : deliver({ ...value({ type: m.event || 'message', data: m.data, lastEventId: m.id, coalesced: m.coalesced }, true), coalesced: m.coalesced });
   const timed = m => {
     const g = gate();
     if (!g) return message(m);
