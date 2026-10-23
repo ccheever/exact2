@@ -4,6 +4,27 @@
 import { crashSummary } from '../host/apple/devices.mjs';
 import { MalformedOperation } from './agent-keys.mjs';
 
+/** simctl can inherit a console FIFO left by an interrupted launch. Retry that exit once. */
+export function simulatorConsole(spawn, hostLines, onProcess) {
+  const launch = { process: null, done: false, exited: null };
+  let retried = false, output = '';
+  const start = () => {
+    launch.done = false; output = '';
+    const child = launch.process = spawn();
+    onProcess?.(child);
+    for (const stream of [child.stdout, child.stderr]) stream.on('data', data => {
+      output = (output + String(data)).slice(-8192);
+      for (const line of String(data).split('\n')) if (line && !/^com\.exact\.\w+: \d+$/.test(line)) hostLines.push('app: ' + line);
+    });
+    launch.exited = new Promise(resolve => child.on('close', (code, signal) => { launch.done = true; resolve({ code, signal }); }));
+  };
+  launch.retry = () => {
+    if (!launch.done || retried || !/Unable to establish FIFO[\s\S]*launch_console[\s\S]*File exists/i.test(output)) return false;
+    retried = true; start(); return true;
+  };
+  start(); return launch;
+}
+
 /** JSON lines over a duplex: each request is answered by the next line the app writes; unmatched lines are host output (`hostLines`). `fail` rejects every pending request (the app is gone). */
 export function jsonLines(readable, writable, hostLines) {
   const waiting = [];

@@ -34,7 +34,7 @@ import { pageAim, namedRefusal } from './agent-aim.mjs'; import { checkOp } from
 import { parseDrag, dragArguments, dragTap, duringAllowed, duringOp, heldDown, heldPhase, heldRead, holdTap, fileDrag, folderTree, driverFiles } from './agent-drag.mjs';
 import { peekLogs, takeWorldLogs, driveNotes, STORAGE_REFUSED, STORAGE_NOTE, runTests, nodeNamed, targetsIn, unopenedHint, refuseDisabled, reloadWeb, fetchOrigins, loopbackOrigins, faultRequest } from './agent-test.mjs';
 import { MalformedOperation, operationReply, inputJSON, keyArguments, validateKey, pointerArguments, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, tapArguments, pointerGap, chordModifiers, withChordModifiers, heldForClick, clockSlices, padOp, postCommand, postInto } from './agent-keys.mjs';
-import { jsonLines, hangup, waitAtMost, bootRefusal, REPLY_MS } from './agent-wire.mjs';
+import { jsonLines, hangup, waitAtMost, bootRefusal, simulatorConsole, REPLY_MS } from './agent-wire.mjs';
 import { openStdio } from './agent-stdio.mjs';
 import { heldClock, inFlightNote } from './agent-held.mjs';
 export { jsonLines, hangup };
@@ -528,20 +528,17 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
   const crashName = hostFixture ? 'ExactHostIOS' : executableName(a); let closing = false;
   const crashes = crashWatch(crashName, bundle, { bundleId: id, udid: dev.udid }), crashed = (why, died) => new Error([why, ...crashes(died ? 3000 : 0)].join('\n')); // `logs`, a failed launch: this build's crash here
   const hostLines = [];
-  let console_, consoleDone = false, consoleExited, pid = null, socket = null;
+  let launch, pid = null, socket = null;
   // The launch brings the app to the front: not while another drive reads this simulator's display (`simulatorDisplay`).
   await simulatorDisplay(dev.udid, async () => {
-    console_ = spawn('xcrun', ['simctl', 'launch', '--console', '--terminate-running-process', dev.udid, id ?? bundleId(a.crate('apple'))], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
-    onProcess?.(console_);
-    for (const stream of [console_.stdout, console_.stderr]) stream.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !/^com\.exact\.\w+: \d+$/.test(l)) hostLines.push('app: ' + l); });
-    consoleExited = new Promise((r) => console_.on('exit', (code, signal) => { consoleDone = true; r({ code, signal }); }));
+    launch = simulatorConsole(() => spawn('xcrun', ['simctl', 'launch', '--console', '--terminate-running-process', dev.udid, id ?? bundleId(a.crate('apple'))], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] }), hostLines, onProcess);
     // The app binds the socket once its first frame is applied: connect when it appears.
     const t = Date.now();
     while (!socket) {
-      if (consoleDone) { rmSync(dir, { recursive: true, force: true }); await touches?.close(); throw crashed('the simulator launch exited before opening its agent socket; ' + hostLines.join('\n'), true); }
+      if (launch.done && !launch.retry()) { rmSync(dir, { recursive: true, force: true }); await touches?.close(); throw crashed('the simulator launch exited before opening its agent socket; ' + hostLines.join('\n'), true); }
       if (Date.now() - t > 20000) {
-        try { console_.kill('SIGKILL'); } catch {}
-        await consoleExited;
+        try { launch.process.kill('SIGKILL'); } catch {}
+        await launch.exited;
         rmSync(dir, { recursive: true, force: true });
         await touches?.close();
         throw crashed('the app never opened its agent socket; ' + hostLines.join('\n'));
@@ -549,11 +546,11 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
       socket = await new Promise((ok) => { const s = connect(sock); s.once('connect', () => ok(s)); s.once('error', () => { s.destroy(); ok(null); }); });
       if (!socket) await sleep(50);
     }
-  }).catch(async (e) => { if (!console_) { rmSync(dir, { recursive: true, force: true }); await touches?.close(); } throw e; });
+  }).catch(async (e) => { if (!launch) { rmSync(dir, { recursive: true, force: true }); await touches?.close(); } throw e; });
   socket.on('error', () => {});
   const lines = jsonLines(socket, socket, hostLines);
   const exited = new Promise((r) => socket.on('close', async () => {
-    const exit = closing ? null : await waitAtMost(consoleExited, 1000);
+    const exit = closing ? null : await waitAtMost(launch.exited, 1000);
     lines.fail(closing ? 'the app was closed' : crashed(hangup({ what: 'the app hung up', pid, exit, hostLines }), exit != null).message); r(); // its report lands seconds after the exit
   }));
   const close = async () => {
@@ -563,10 +560,10 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
     let touchFailure = null;
     try { await touches?.close(); } catch (e) { touchFailure = e; }
     if (pid) { try { process.kill(pid, 'SIGKILL'); } catch {} }
-    if (!hungUp) await waitAtMost(consoleExited, 1000); // the socket closed as the app ended: `simctl launch` hears of it ~0.5 s later, with nothing to add
-    if (!consoleDone) {
-      try { console_.kill('SIGKILL'); } catch {}
-      await consoleExited;
+    if (!hungUp) await waitAtMost(launch.exited, 1000); // the socket closed as the app ended: `simctl launch` hears of it ~0.5 s later, with nothing to add
+    if (!launch.done) {
+      try { launch.process.kill('SIGKILL'); } catch {}
+      await launch.exited;
     }
     rmSync(dir, { recursive: true, force: true });
     if (touchFailure) throw touchFailure;
@@ -585,7 +582,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
     return {
       host: hostFixture ? 'host-ios' : 'ios', boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state, plan,
       touches, touch, crashes, udid: dev.udid, installNote: kept?.note,
-      springboard: request => springboard(touches, request, name => { if (socket.destroyed || consoleDone) throw crashed(`${name}: the app's agent socket is gone; the archive comparison lost its app session`); }),
+      springboard: request => springboard(touches, request, name => { if (socket.destroyed || launch.done) throw crashed(`${name}: the app's agent socket is gone; the archive comparison lost its app session`); }),
       ask, reveal: (id) => ask({ op: 'reveal', id }),
       async input(id, kind, opts) {
         if (kind === 'key') {
@@ -641,7 +638,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
       },
       close,
     };
-  } catch (e) { const died = consoleDone; // before close ends the launch
+  } catch (e) { const died = launch.done; // before close ends the launch
     try { await close(); } catch (failure) { e.message += `; ${failure.message}`; }
     throw /crash report:/.test(e.message) ? e : Object.assign(e, { message: crashed(e.message, died).message });
   }
