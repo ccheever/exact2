@@ -5,10 +5,13 @@ import CExact
 extension ExactSession {
     /// The initial view needs its layout policy before resources settle.
     var launchCoversViewport: Bool {
-        runtime.on(busy: false) {
+        if let cached = launchViewport, cached.plan == app.lastPlan { return cached.cover }
+        let cover = runtime.on(busy: false) {
             let length = app.lastPlan.map { runtime.write($0) } ?? 0
             return exact_plan_covers_viewport(runtime.rt, length) != 0
         }
+        launchViewport = (app.lastPlan, cover)
+        return cover
     }
 }
 #endif
