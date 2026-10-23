@@ -66,7 +66,7 @@ test('a media element with no source does not hold inflight', async () => {
   expect(inflight.n).toBe(start);
 });
 
-test('stalled releases a load that never becomes playable, and emptied only once its source is gone', async () => {
+test('stalled releases a load that never becomes playable; emptied does not, and retiring does', async () => {
   const stalled = element();
   const before = inflight.n;
   media(stalled, { src: 'clip.mp4' });
@@ -75,17 +75,15 @@ test('stalled releases a load that never becomes playable, and emptied only once
   stalled.fire('stalled');
   expect(inflight.n).toBe(before);
 
-  // An `emptied` while it still has a source is a load beginning (a changed source's): it holds on. Its source let
-  // go (a view retired), it releases.
+  // An `emptied` while it still has a source is a load beginning (a changed source's): it holds on. Retired
+  // (`removeMedia`, as onEnd does), it releases.
   const emptied = element();
   media(emptied, { src: 'other.mp4' });
   await flushed();
   expect(inflight.n).toBe(before + 1);
   emptied.fire('emptied');
   expect(inflight.n).toBe(before + 1);
-  delete emptied.exactMedia.props.src;
-  emptied.removeAttribute('src');
-  emptied.fire('emptied');
+  globalThis.exact.removeMedia(emptied);
   expect(inflight.n).toBe(before);
 
 });
