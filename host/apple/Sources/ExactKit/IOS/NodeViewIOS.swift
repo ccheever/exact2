@@ -929,7 +929,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             if passesThrough { return nil }
             guard bounds.contains(point) else { return nil }
             if kind == "native", presenter?.session?.natives.declined(self, at: point, with: event) == true { return nil }
-            if event?.type == .touches, isParagraph { touchedText() } // selectable text takes its interaction for this touch
+            if event?.type == .touches, isParagraph {
+                touchedText()
+                if let surface = presenter?.textSelection.text(for: self)?.document?.surface { return surface }
+            } // selectable text takes its interaction for this touch
             // Interactive glass (a pressable glass box) answers a finger
             // itself, swelling and lighting under it, only for touches that
             // reach its effect view. Its content view is the target; the
