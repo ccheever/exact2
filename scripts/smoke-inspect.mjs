@@ -173,3 +173,51 @@ export async function rebooted(carrier) {
   }
   throw new Error('the reloaded page did not boot within 30 s');
 }
+
+/** Messages' authored menu must work with the Mac's default key loop and UIKit's keyboard focus. */
+export async function messageMenuKeys(s, { host, check }) {
+  await s.tap('conversation-demo');
+  await s.clock('settle');
+  if (host === 'macos') check((await s.state()).focus.keyboardNavigation === false, 'Messages: Keyboard Navigation is off');
+  await s.type('composer', '');
+  const focused = async () => {
+    const id = (await s.state()).focus.logical;
+    return (await s.tree()).nodes.find(n => n.id === id);
+  };
+  let source;
+  for (let i = 0; i < 40; i++) {
+    const at = await focused();
+    if (!check(at != null, 'Messages: Tab has a focused starting point')) return;
+    await s.type(at.id, { key: 'Tab' });
+    const next = await focused();
+    if (next?.props.testId?.startsWith('message-actions-')) { source = next; break; }
+  }
+  if (!check(source != null, 'Messages: Tab reaches a message')) return;
+  const actions = ['reply', 'copy-message', 'read-message', 'delete-message', 'dismiss-context',
+    'react-heart', 'react-like', 'react-dislike', 'react-laugh', 'react-emphasis', 'react-question'];
+  for (const chord of ['ContextMenu', 'Shift+F10']) {
+    await s.type(source.id, { key: chord });
+    await s.clock('settle');
+    if (!check((await s.state()).slots.selected !== '', `Messages: ${chord} opens the menu`)) return;
+    if (!check((await focused())?.props.testId === 'reply', `Messages: ${chord} focuses Reply`)) return;
+    const reached = new Set();
+    for (let i = 0; i <= actions.length; i++) {
+      const at = await focused();
+      if (!check(actions.includes(at?.props.testId), `Messages: Tab stays in the menu, reached ${at?.props.testId}`)) return;
+      reached.add(at.props.testId);
+      await s.type(at.id, { key: 'Tab' });
+    }
+    check(actions.every(id => reached.has(id)), `Messages: Tab reaches every action: ${[...reached]}`);
+    await s.type((await focused()).id, { key: 'Escape' });
+    await s.clock('settle');
+    check((await s.state()).slots.selected === '', 'Messages: Escape dismisses the menu');
+    if (!check((await focused())?.id === source.id, 'Messages: Escape returns focus to the message')) return;
+  }
+  await s.type(source.id, { key: 'Shift+F10' });
+  await s.clock('settle');
+  const body = (await s.state()).slots.selectedBody;
+  await s.type((await focused()).id, { key: 'Space' });
+  const state = await s.state();
+  check(state.slots.selected === '' && state.slots.replyBody === body, 'Messages: Space on Reply selects this message');
+  check((await focused())?.props.testId === 'composer', 'Messages: Reply focuses the composer');
+}
