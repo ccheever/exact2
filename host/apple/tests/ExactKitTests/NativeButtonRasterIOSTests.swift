@@ -19,6 +19,47 @@ final class NativeButtonRasterIOSTests: XCTestCase {
         while !condition(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
         XCTAssertTrue(condition(), file: file, line: line)
     }
+    func testASkewedDecodeAndItsPlaceholderRenderThroughUIButtonConfiguration() throws {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let data = try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 401, height: 127), format: format).image { context in
+            UIColor.blue.setFill(); context.fill(CGRect(x: 0, y: 0, width: 401, height: 127))
+        }.pngData())
+        let p = Presenter(), loader = RasterLoader(), resolver = AssetResolver(root: URL(fileURLWithPath: NSTemporaryDirectory()))
+        defer { loader.shutdown() }
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 480, height: 220))
+        self.window = window
+        p.viewport.frame = window.bounds; window.addSubview(p.viewport); window.makeKeyAndVisible()
+        let seed = NodeView(id: 1, kind: "image", presenter: p)
+        p.views[1] = seed; p.viewport.addSubview(seed)
+        seed.frame = CGRect(x: 0, y: 0, width: 8, height: 8)
+        seed.applyStyle(["object_fit": "contain"])
+        loader.load(seed, source: "data:image/png;base64," + data.base64EncodedString(), resolver: resolver)
+        until { seed.raster != nil }
+        let lease = try XCTUnwrap(seed.raster), cg = lease.image.image
+        XCTAssertLessThan(cg.width, 401)
+        XCTAssertGreaterThan(abs(CGFloat(cg.height) * 401 / CGFloat(cg.width) - 127), 0.001, "exercise the rounded-aspect conversion")
+        var face = ButtonFace(); face.raster = true
+        face.image = .init(view: 2, source: "probe.png", size: CGSize(width: 401, height: 127))
+        let image = try XCTUnwrap(ButtonRasterIOS.image(face, lease: lease))
+        XCTAssertEqual(image.size, CGSize(width: 401, height: 127))
+        let button = UIButton(configuration: .plain())
+        button.frame = CGRect(x: 0, y: 0, width: 460, height: 180)
+        window.addSubview(button)
+        for candidate in [image, UIImage(cgImage: cg).withRenderingMode(.alwaysOriginal)] {
+            ButtonConfigurationIOS.apply(face, to: button, traits: button.traitCollection, accent: nil, raster: candidate)
+            button.setNeedsLayout(); button.layoutIfNeeded()
+            let context = try XCTUnwrap(CGContext(data: nil, width: 460, height: 180, bitsPerComponent: 8, bytesPerRow: 1840,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            button.layer.render(in: context)
+            let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+            XCTAssertEqual(Array(UnsafeBufferPointer(start: pixels + 90 * 1840 + 230 * 4, count: 4)), [0, 0, 255, 255], "UIButton must display the converted image as well as its CGImage control")
+        }
+        let placeholder = try XCTUnwrap(ButtonRasterIOS.image(face, lease: nil))
+        ButtonConfigurationIOS.apply(face, to: button, traits: button.traitCollection, accent: nil, raster: placeholder)
+        button.setNeedsLayout(); button.layoutIfNeeded()
+        XCTAssertEqual(button.imageView?.bounds.size, CGSize(width: 401, height: 127), "the transparent placeholder reserves the natural image size")
+    }
+
     func testANativeFaceDecodesForItsImageRatherThanItsInitialButtonBounds() throws {
         let format = UIGraphicsImageRendererFormat(); format.scale = 1
         let data = try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 1024, height: 256), format: format).image { context in
