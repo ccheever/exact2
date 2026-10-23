@@ -137,7 +137,12 @@ final class PressPaintTests: XCTestCase {
         v.pressed = false
         XCTAssertEqual(v.style["background_color"], ink(navy), "held")
         XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), -0.5, accuracy: 1e-6)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: PressFeedback.duration + 0.05))
+        // The held release runs on the main queue after `PressFeedback.duration`,
+        // which a loaded machine runs late: waited for, not slept past.
+        XCTAssertTrue(v.pressPaint.releaseHeld, "a quick tap's release waits")
+        let until = Date(timeIntervalSinceNow: 2)
+        while v.pressPaint.releaseHeld, Date() < until { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+        XCTAssertFalse(v.pressPaint.releaseHeld, "the release came")
         XCTAssertEqual(v.style["background_color"], ink(blue), "then let go")
         // The release eases back to rest: read where it settles, not the fade
         // in flight, which a run loop slept past (a loaded machine) finds
