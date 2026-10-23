@@ -1036,10 +1036,9 @@ fn style_json_shown(
     computed.background_color = Some(computed.background_color.unwrap_or(current));
     computed.tint_color = Some(computed.tint_color.unwrap_or(current));
     let (mut json, skipped) = style_json_sized(&computed, env, kept_geometry(node));
-    // A modal's top layer is positioned in the viewport by AppKit: its insets
-    // cross. A popover (by its area, or the web's default, `PositionArea.painted`)
-    // is placed by the host against its invoker, aligning its margin box: its
-    // margins cross too (a dialog used as one, both), `auto` and % read as 0.
+    // A modal dialog is placed in the viewport by AppKit: its insets cross. A popover (its area,
+    // or the web's default: `PositionArea.painted`) is placed by the host against its invoker by
+    // its margin box: its margins cross (a dialog used as one, both), `auto` and % read as 0.
     let placed = [
         StyleId::MarginTop,
         StyleId::MarginRight,
