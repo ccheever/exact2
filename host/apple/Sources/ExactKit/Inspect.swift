@@ -87,7 +87,8 @@ enum Inspect {
     }
 
     /// `{select: {up, levels, plan, from, instance}}` (tamber/1.16), as the web pages' (host/web/dev.js
-    /// `selectUp`): the selection moves up its call sites, as a tap on the node it lands on would select it.
+    /// `selectUp`): the selection moves up its call sites, reported as the node it lands on, with no click token
+    /// (the move is no press: its outline scrolls the copy into view, as the web pages' does).
     /// It lands in the first of `levels` (each enclosing copy's plan sites, nearest first, by the server's map
     /// for the selection at `from`, instance path `instance`, under `plan`) with a node above the selection,
     /// on the outermost there. A selection that moved since (another generation, plan, site or instance), or
@@ -107,7 +108,7 @@ enum Inspect {
         for level in levels {
             let want = Set(level.compactMap { ($0 as? NSNumber)?.intValue })
             // The outermost of the level: the last met, walking out.
-            if let found = above.last(where: { $0.site.map(want.contains) ?? false }) { return Inspect.select(s, id: found.view, clicked: true) }
+            if let found = above.last(where: { $0.site.map(want.contains) ?? false }) { return Inspect.select(s, id: found.view, clicked: false) }
         }
         return nil
     }
