@@ -28,6 +28,29 @@ final class NativeBarDetailsIOSTests: XCTestCase {
                        "an inherited tint leaves the tablist's accent")
     }
 
+    func testAnOwnTintEqualToTheAccentReplacesItsLiveResolver() throws {
+        let p = Presenter(), list = NodeView(id: 1, kind: "view", presenter: p)
+        let tab = NodeView(id: 2, kind: "button", presenter: p)
+        list.applyStyle(["accent_color": [0, 0, 255, 255], "written": ["accent_color"]])
+        list.addSubview(tab)
+        let nav = p.navigation, controller = UITabBarController()
+        nav.tabController = controller
+        nav.tabItemsSource = (NavigationTabs(tablist: list, tabs: [tab], panels: []), [])
+        nav.routerTab = 0
+        nav.tint(list)
+        tab.applyStyle(["tint_color": [0, 0, 255, 255], "written": ["tint_color"]])
+        nav.tint(list)
+        list.applyStyle(["accent_color": [255, 0, 0, 255], "written": ["accent_color"]])
+        XCTAssertEqual(controller.tabBar.tintColor.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)), .blue,
+                       "the selected tab owns the colour even when its channels matched the old accent")
+        list.applyStyle(["accent_color": [0, 0, 255, 255], "written": ["accent_color"]])
+        tab.applyStyle([:])
+        nav.tint(list)
+        list.applyStyle(["accent_color": [255, 0, 0, 255], "written": ["accent_color"]])
+        XCTAssertEqual(controller.tabBar.tintColor.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)), .red,
+                       "clearing an own tint reinstalls the live accent resolver even at equal channels")
+    }
+
     func testAHeadingRowsSealIsDrawnBesideTheTitle() throws {
         let p = Presenter()
         let header = NodeView(id: 1, kind: "view", presenter: p)
