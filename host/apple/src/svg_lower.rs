@@ -1121,7 +1121,13 @@ mod stepped_cost_tests {
             values: vec![Value::ZERO],
             curves: Vec::new(),
         };
+        let started = std::time::Instant::now();
         stepped_keys(&mut track, 0.0, 1.0, &easing, false, Value::scalar);
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_secs(3),
+            "the largest steps curve exceeded its 3 s construction budget: {elapsed:?}"
+        );
         assert_eq!(track.times.len(), 131071);
         assert_eq!(track.values.last(), Some(&Value::scalar(1.0)));
         assert!(track.times.windows(2).all(|w| w[0] < w[1]));
