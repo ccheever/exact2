@@ -1338,11 +1338,20 @@ fn value_props_and_injects_named_like_an_app_fn_refuse_expression_calls() {
 #[test]
 fn expression_binders_protect_calls_from_a_prop_named_like_an_app_fn() {
     let src = "fn pick(n: number): number = n + 1\ncomponent App\n  state v = 0\n  action choose(n: number)\n    v = n\n  view\n    Seg(pick=choose)\ncomponent Seg\n  props\n    pick: action\n  view\n    text `${EXPR}` testId=\"result\"\n";
-    for expr in [
-        "match some(7) { case some(pick) => pick(1), case none => 0 }",
-        "match [7].map(pick => pick(1)).at(0) { case some(n) => n, case none => 0 }",
-    ] {
-        assert_eq!(text_of(&boot(&src.replace("EXPR", expr)), "result"), "2");
+    let same_action = src.replace("choose", "pick");
+    let extra = src
+        .replace("Seg(pick=choose)", "Seg(pick=choose, extra=pick(3))")
+        .replace(
+            "    pick: action\n",
+            "    pick: action\n    extra: number\n",
+        );
+    for source in [src, &same_action, &extra] {
+        for expr in [
+            "match some(7) { case some(pick) => pick(1), case none => 0 }",
+            "match [7].map(pick => pick(1)).at(0) { case some(n) => n, case none => 0 }",
+        ] {
+            assert_eq!(text_of(&boot(&source.replace("EXPR", expr)), "result"), "2");
+        }
     }
     // The binder covers only the some arm, and ends with the expression.
     for expr in [
@@ -1364,4 +1373,27 @@ fn node_binders_do_not_protect_calls_from_a_prop_named_like_an_app_fn() {
     ] {
         assert_eq!(refused(&src.replace("BODY", body)).id, "type-prop-hides-fn");
     }
+}
+
+#[test]
+fn derive_binders_protect_calls_from_a_prop_named_like_an_app_fn() {
+    let src = "fn pick(n: number): number = n + 1\ncomponent App\n  state v = 0\n  action choose(n: number)\n    v = n\n  view\n    Seg(pick=choose)\ncomponent Seg\n  props\n    pick: action\n  derive shown = EXPR\n  view\n    text `${shown}` testId=\"result\"\n";
+    let no_props = src
+        .replace("Seg(pick=choose)", "Seg()")
+        .replace("  props\n    pick: action\n", "");
+    let same_derive = no_props.replace("shown", "pick");
+    for source in [src, &no_props, &same_derive] {
+        for expr in [
+            "match some(7) { case some(pick) => pick(1), case none => 0 }",
+            "match [7].map(pick => pick(1)).at(0) { case some(n) => n, case none => 0 }",
+        ] {
+            assert_eq!(text_of(&boot(&source.replace("EXPR", expr)), "result"), "2");
+        }
+    }
+}
+
+#[test]
+fn a_derive_named_like_an_app_fn_is_not_a_dependency_of_its_call() {
+    let src = "fn pick(n: number): number = n + 1\ncomponent App\n  view\n    Seg()\ncomponent Seg\n  derive pick = pick(1)\n  view\n    text `${pick}` testId=\"result\"\n";
+    assert_eq!(text_of(&boot(src), "result"), "2");
 }

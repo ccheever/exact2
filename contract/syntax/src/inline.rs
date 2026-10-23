@@ -30,7 +30,7 @@ mod tests;
 mod use_node;
 
 use derives::resolved_derives;
-use subst::{renamed_locals, subst_expr, subst_stmts, substituted, Subst};
+use subst::{renamed_locals, subst_expr, subst_stmts, Subst};
 
 fn err<T>(
     id: &'static str,

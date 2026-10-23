@@ -112,6 +112,18 @@ impl<'m, T: SubstitutionValue> Subst<'m, T> {
         self.map.get(name).map(SubstitutionValue::replacement)
     }
 
+    /// A value binder protects call heads from prop substitution but cannot
+    /// rename them. Freshening appends `@…`, retaining the authored name so
+    /// later substitutions can preserve that protection.
+    fn binds_call(&self, name: &str) -> bool {
+        self.binders.iter().any(|(bound, _)| {
+            bound == name
+                || bound
+                    .split_once('@')
+                    .is_some_and(|(authored, _)| authored == name)
+        })
+    }
+
     fn free(&self) -> &BTreeSet<String> {
         self.free.get_or_init(|| {
             let mut out = BTreeSet::new();
@@ -164,6 +176,7 @@ pub(super) fn renamed_locals(e: &Expr, map: &BTreeMap<String, String>) -> Expr {
 
 /// `e` with `map` substituted, for a one-off substitution; a call naming one
 /// of `records` keeps its head.
+#[cfg(test)]
 pub(super) fn substituted<T: SubstitutionValue>(
     e: &Expr,
     map: &BTreeMap<String, T>,
@@ -192,7 +205,7 @@ pub(super) fn subst_expr<T: SubstitutionValue>(e: &Expr, s: &mut Subst<'_, T>) -
         },
         Expr::Call(n, args, span) => {
             let args: Vec<Expr> = args.iter().map(|a| subst_expr(a, s)).collect();
-            if !s.calls || s.records.contains(n) {
+            if !s.calls || s.records.contains(n) || s.binds_call(n) {
                 return Expr::Call(n.clone(), args, *span);
             }
             match s.get(n) {
