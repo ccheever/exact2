@@ -72,8 +72,24 @@ test("a load or a seek in flight holds a settle until the element can play at re
   expect(done()).toBe(false); // seeking yet
   el.seeking = false; el.fire('seeked'); await turn();
   expect(done()).toBe(true);
-  // At rest with its loading suspended (a paused `preload="metadata"`): nothing held, or let go once it suspends.
+  // At rest with its loading suspended (a paused `preload="metadata"` with its metadata, a `preload="none"` with
+  // nothing): nothing held.
   expect(globalThis.exact.mediaHold(Object.assign(audio({ src: 'p.mp4' }, { readyState: 1 }), { networkState: 1, seeking: false }))).toBe(null);
+  expect(globalThis.exact.mediaHold(Object.assign(audio({ src: 'n.mp4' }, { readyState: 0 }), { networkState: 1, seeking: false, preload: 'none' }))).toBe(null);
+  // Idle with nothing decoded (its download done ahead of its decoding): held through the metadata and the seek
+  // bound to wait for it.
+  const early = Object.assign(audio({ src: 'd.mp4', currentTime: '0.5' }, { readyState: 0 }), { currentSrc: 'd.mp4', networkState: 1, seeking: false, preload: 'auto' });
+  const earlyHeld = globalThis.exact.mediaHold(early), earlyDone = settledOf(earlyHeld);
+  early.fire('suspend'); await turn();
+  expect(earlyDone()).toBe(false);
+  early.readyState = 1; early.seeking = true; early.fire('loadedmetadata'); await turn();
+  expect(earlyDone()).toBe(false);
+  early.readyState = 4; early.seeking = false; early.fire('seeked'); await turn();
+  expect(earlyDone()).toBe(true);
+  // Retired: nothing of it holds anything after, however late its glue attaches.
+  const late = Object.assign(audio({ src: 'r.mp4' }, { readyState: 0 }), { currentSrc: 'r.mp4', seeking: false });
+  globalThis.exact.removeMedia(late);
+  expect(globalThis.exact.mediaHold(late)).toBe(null);
   // Retired (the host's teardown keeps the props and drops the attribute: `removeMedia` lets go), a failure, a stall,
   // a suspended load: each lets go.
   for (const end of [(e) => globalThis.exact.removeMedia(e), (e) => { e.error = { code: 4 }; e.fire('error'); }, (e) => e.fire('stalled'), (e) => { e.readyState = 1; e.networkState = 1; e.fire('suspend'); }]) {
