@@ -149,7 +149,15 @@ mod tests {
     use super::*;
     #[test]
     fn a_raster_size_report_refreshes_the_native_button_face() {
-        let plan = contract::compile("component App\n  view\n    button appearance=\"auto\"\n      image \"photo.png\"\n      text \"Photo\"\n").unwrap();
+        let mut plan = contract::compile("component App\n  view\n    button appearance=\"auto\"\n      image \"symbol:sf/photo\"\n      text \"Photo\"\n").unwrap();
+        // The host protocol can represent a raster while portable authoring
+        // admission waits for every graphical host to paint one.
+        let source = plan
+            .strings
+            .iter()
+            .position(|s| s.starts_with("symbol:"))
+            .unwrap();
+        plan.strings.set(source, "photo.png");
         let (mut host, _) = crate::Host::boot(
             &plan.encode(),
             NoData,
