@@ -398,9 +398,9 @@ final class NavigationBarIOSTests: XCTestCase {
             ["op": "create", "id": 9, "kind": "text", "props": ["text": "Implied"]],
             ["op": "create", "id": 10, "kind": "button", "handlers": ["press"], "style": ["text_color": page]],
             ["op": "create", "id": 11, "kind": "image", "props": ["imageSource": "symbol:delete", "symbolName": "trash"],
-             "style": ["tint_color": red, "written": ["tint_color"]]],
+             "style": ["text_color": red, "written": ["text_color"]]],
             ["op": "create", "id": 12, "kind": "button", "handlers": ["press"], "style": ["text_color": page]],
-            ["op": "create", "id": 13, "kind": "image", "props": ["imageSource": "symbol:add", "symbolName": "plus"], "style": ["tint_color": [0, 122, 255, 255]]],
+            ["op": "create", "id": 13, "kind": "image", "props": ["imageSource": "symbol:add", "symbolName": "plus"], "style": ["text_color": [0, 122, 255, 255]]],
             ["op": "children", "id": 1, "ids": [2]],
             ["op": "children", "id": 3, "ids": [4]],
             ["op": "children", "id": 6, "ids": [7]],
@@ -420,8 +420,8 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertNil(try item(6).tint, "an inherited colour is UIKit's to draw")
         XCTAssertNil(try item(8).tint, "a colour the compiler implied is UIKit's to draw, though it differs from the page's")
         XCTAssertEqual(try item(10).symbol, "trash")
-        XCTAssertNotNil(try item(10).tint, "a tint its author wrote on the symbol")
-        XCTAssertNil(try item(12).tint, "a tint the symbol was only given (a sheet's) is UIKit's")
+        XCTAssertNotNil(try item(10).tint, "a color its author wrote on the symbol")
+        XCTAssertNil(try item(12).tint, "a color the symbol was only given (a sheet's) is UIKit's")
     }
 
     /// LLP 1075.003 §9.6: a button whose one child is a filled box is an
