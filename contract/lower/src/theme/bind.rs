@@ -70,9 +70,12 @@ pub(crate) fn profiles(
     loop {
         // A profile's colour is the default app tuple's, which is all the
         // plan carries until it carries the axes (stage 2, commit 3).
+        // (one past the checker's bounds is left as written, for the check
+        // to refuse as the design server's does: Astra's round 2)
         let found = design.tokens.iter().position(|t| {
             let text = t.value.value.trim();
-            !out.iter().any(|p| same(&p.name, &t.name.value))
+            tamber::within_bounds(&t.value.value)
+                && !out.iter().any(|p| same(&p.name, &t.name.value))
                 && (text.to_ascii_lowercase().starts_with("color(--") && parses(text)
                     || t.whens.is_empty() && out.iter().any(|p| same(&p.name, text)))
         });

@@ -195,6 +195,14 @@ pub struct Folding {
     dials: Vec<String>,
 }
 
+/// Whether `text` is within the design checker's bounds on a value (its
+/// bytes and nesting): a caller that rewrites values before the check (the
+/// compiler's profile colours) leaves one past them as written, so the
+/// check refuses it in the same words the design server's does.
+pub fn within_bounds(text: &str) -> bool {
+    css::over_limit(text).is_none()
+}
+
 /// Parse, check and fold a `.tamber` source.
 pub fn check(src: &str, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
     check_design(parse(src)?, vocab)

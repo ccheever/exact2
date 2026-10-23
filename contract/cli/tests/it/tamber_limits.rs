@@ -129,3 +129,20 @@ fn a_design_past_a_bound_on_disk_is_folded_in_moments() {
     assert_eq!(built.id, "tamber-length-size", "{built:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A profile's colour past the bound is left as written for the check, so
+/// the build refuses it with the bound's id, as the design server does,
+/// rather than rewriting it before the check (Astra's round 2).
+#[test]
+fn a_profile_colour_past_the_bound_is_refused_by_the_build_too() {
+    let dir = reading("limits-profile");
+    let padded = format!("color(--dci-p3 0 0 0{})", " ".repeat(5000));
+    std::fs::write(
+        dir.join("app.tamber"),
+        format!("tamber t\n\ntheme\n  ink = #111111\n  wide = {padded}\n"),
+    )
+    .unwrap();
+    let built = contract::compile_path(&dir.join("app.contract")).unwrap_err();
+    assert_eq!(built.id, "tamber-value-size", "{built:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
