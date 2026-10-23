@@ -6,9 +6,18 @@ import XCTest
 final class CoverBootIOSTests: XCTestCase {
     func testTheCoverRootUsesTheWholeViewInItsFirstSettlement() throws {
         let app = ExactApp.shared
-        app.installInitial(ExactGeneration(plan: try fixturePlan("COVER_SCROLL"), assets: app.resolver))
+        let plan = try fixturePlan("COVER_SCROLL")
+        let previous = app.lastPlan.map { ExactGeneration(plan: $0, assets: app.resolver, token: app.selectedToken, module: app.lastModule) }
+        app.installInitial(ExactGeneration(plan: plan, assets: app.resolver))
         let session = app.makeSession(label: "cover-boot")
-        defer { session.destroy() }
+        defer {
+            session.destroy()
+            if let previous { app.installInitial(previous) }
+            else {
+                app.installInitial(ExactGeneration(plan: plan, assets: app.resolver, token: 855))
+                XCTAssertTrue(app.fallBackFromInitial(reason: "cover boot test finished"))
+            }
+        }
         let view = ExactView(session: session), host = UIViewController()
         host.additionalSafeAreaInsets = UIEdgeInsets(top: 24, left: 0, bottom: 16, right: 0)
         let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
