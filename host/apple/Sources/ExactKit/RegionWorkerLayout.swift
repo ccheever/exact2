@@ -113,10 +113,7 @@ final class RegionWorkerLayout {
         let attributed = preparation.attributed
         let typesetter = preparation.typesetter
         let length = source.utf16Count
-        func extents(_ run: RegionTextRun) -> (CGFloat, CGFloat) {
-            (run.font.above, run.font.below)
-        }
-        let minimum = source.strut.map { ($0.above, $0.below) } ?? (0, 0)
+        let minimum = source.strut?.box ?? TextLineBox()
         var explicit = false
         var lineBottoms: [CGFloat] = []
         var lines: [CTLine] = []
@@ -206,15 +203,8 @@ final class RegionWorkerLayout {
             }
             // CSS inline boxes share a baseline. Include the paragraph strut
             // and only the runs on this line, preserving each font's half-leading.
-            var above = minimum.0, below = minimum.1
+            var box = minimum
             var lineInk = fontInk
-            var aboveExplicit = source.strutExplicit, belowExplicit = aboveExplicit
-            func include(_ a: CGFloat, _ b: CGFloat, explicit: Bool) {
-                if a > above { above = a; aboveExplicit = explicit }
-                else if a == above { aboveExplicit = aboveExplicit && explicit }
-                if b > below { below = b; belowExplicit = explicit }
-                else if b == below { belowExplicit = belowExplicit && explicit }
-            }
             for glyphRun in CTLineGetGlyphRuns(line) as! [CTRun] {
                 let range = CTRunGetStringRange(glyphRun)
                 let attributes = CTRunGetAttributes(glyphRun) as NSDictionary
@@ -228,27 +218,24 @@ final class RegionWorkerLayout {
                     if authored.lineHeight != nil {
                         // Explicit boxes use authored metrics; fallback ink
                         // can overflow without enlarging the inline box.
-                        let (a, b) = extents(authored)
-                        include(a, b, explicit: true)
+                        box.include(authored.font.box)
                     } else {
                         includesNormal = true
                     }
                 }
                 if !matched, source.strutExplicit {
-                    let (a, b) = minimum
-                    include(a, b, explicit: true)
+                    box.include(minimum)
                     continue
                 }
                 if matched && !includesNormal { continue }
                 // Normal line height includes the actual emoji/fallback face's
                 // line box, as the browser's does.
-                let (a, d) = CSSLineBox.extents(shapedFont, height: nil)
-                include(a, d, explicit: false)
+                box.include(TextLineBox(shapedFont, height: nil))
             }
-            explicit = explicit || aboveExplicit || belowExplicit
-            if retainHits || lineCount == 0 { baselines.append(y + above) }
-            lastBaseline = y + above
-            y += above + below
+            explicit = explicit || box.explicit
+            if retainHits || lineCount == 0 { baselines.append(y + box.baseline) }
+            lastBaseline = y + box.baseline
+            y += box.height
             if retainHits { lineBottoms.append(y) }
             maxWidth = max(maxWidth, w)
             if retainHits {
