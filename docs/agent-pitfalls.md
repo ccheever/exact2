@@ -1186,6 +1186,10 @@ The journal names a top level slower than 50 ms.
   refused app file fires `error`, without a successful `load`. This does
   not provide a portable fit-to-width PDF viewer or toolbar controls.
 
+- **`EXACT_MAC_BIN` overrides the bundled macOS launch and skips the freshness
+  check.** A bare executable named by this override has no bundled App Transport
+  Security policy.
+
 - **A bundled web page that works on the web can break on Apple if it reaches its
   parent, sets cookies or registers a service worker.** An `iframe` of an HTML page
   under `assets/` or `deck/` (a built web app: scripts, styles, fonts, chunks,
