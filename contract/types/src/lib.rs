@@ -477,7 +477,8 @@ impl Scope {
         self.push_region(Some((name.to_string(), Ref::Bound(0), ty)));
     }
 
-    /// A `match`'s `none` arm's frame, which binds nothing.
+    /// A region's frame that binds nothing: an `if`'s arms, a `match`'s
+    /// `none` arm.
     pub fn push_none(&mut self) {
         self.push_region(None);
     }
