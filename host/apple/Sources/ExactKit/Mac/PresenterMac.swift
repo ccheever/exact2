@@ -1103,6 +1103,7 @@ package final class Presenter {
             case .paragraph:
                 applyParagraph(id, op.runs)
             case .props:
+                if let view = views[id] { anchorChanges.noteProps(op, on: view) }
                 views[id]?.applyProps(set: op.props, clear: op.clear)
                 elements.propsChanged(id)
             case .flow:
