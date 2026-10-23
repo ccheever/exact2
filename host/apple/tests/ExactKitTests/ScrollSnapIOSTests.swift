@@ -42,5 +42,38 @@ final class ScrollSnapIOSTests: XCTestCase {
         XCTAssertEqual(rest(node, scroll, from: 120), 120)
         XCTAssertEqual(rest(node, scroll, from: 520), 600)
     }
+
+    func testAgentRevealAndWheelRestAtAPagesSnapPosition() throws {
+        let session = ExactApp.shared.makeSession(label: "snap-reveal")
+        defer { session.destroy() }
+        let p = session.presenter
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "style": ["overflow_x": "scroll", "overflow_y": "hidden", "scroll_snap_type": "x mandatory"]],
+            ["op": "create", "id": 10, "kind": "view", "style": ["scroll_snap_align": "start"]],
+            ["op": "create", "id": 11, "kind": "view", "style": ["scroll_snap_align": "start"]],
+            ["op": "create", "id": 20, "kind": "button", "handlers": ["press"]],
+            ["op": "children", "id": 1, "ids": [10, 11]], ["op": "children", "id": 11, "ids": [20]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 100, "w": 402, "h": 100],
+            ["op": "frame", "id": 10, "x": 0, "y": 0, "w": 402, "h": 100],
+            ["op": "frame", "id": 11, "x": 402, "y": 0, "w": 402, "h": 100],
+            ["op": "frame", "id": 20, "x": 12, "y": 20, "w": 30, "h": 44],
+            ["op": "content", "id": 1, "w": 804, "h": 100]
+        ]))
+        let scroll = try XCTUnwrap(p.views[1]?.scroll), agent = Agent(session: session)
+        XCTAssertNil(agent.reveal(["id": 20])["error"])
+        XCTAssertEqual(scroll.contentOffset.x, 402, accuracy: 0.01)
+        scroll.contentOffset.x = 388
+        XCTAssertNil(agent.reveal(["id": 20])["error"], "already visible, but between pages")
+        XCTAssertEqual(scroll.contentOffset.x, 402, accuracy: 0.01)
+        scroll.contentOffset.x = 0
+        Agent.scroll(from: scroll, dx: 388, dy: 0)
+        XCTAssertEqual(scroll.contentOffset.x, 402, accuracy: 0.01)
+    }
 }
 #endif

@@ -360,7 +360,8 @@ extension Agent {
     /// (`HeavyLeaves.hideFar`). A bar with a search field, whose rests were
     /// not measured, is left as `place` leaves it.
     static func rest(_ sv: UIScrollView, at want: CGPoint, x: Bool, y: Bool) {
-        place(sv, at: want, x: x, y: y)
+        let target = x ? (sv.superview as? NodeView)?.snappedOffset(want, in: sv) ?? want : want
+        place(sv, at: target, x: x, y: y)
         // tvOS has no large titles.
         #if os(iOS)
         let o = sv.contentOffset, top = -sv.adjustedContentInset.top, reach = min(sv.bounds.height, sv.window?.bounds.height ?? 0) / 2

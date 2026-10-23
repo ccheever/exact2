@@ -50,7 +50,6 @@ extension Agent {
         for case let sv as UIScrollView in sequence(first: v.superview, next: { $0?.superview }).compactMap({ $0 }) where sv.isScrollEnabled && !sv.isHidden {
             let frame = v.convert(v.bounds, to: sv), mid = CGPoint(x: frame.midX, y: frame.midY), i = sv.adjustedContentInset
             let port = visiblePort(sv)
-            if port.contains(mid) { continue }
             var o = sv.contentOffset
             if mid.y < port.minY || mid.y >= port.maxY { o.y += mid.y - port.midY }
             // Inline, only as far as it takes from the side its middle is on; a
@@ -60,6 +59,7 @@ extension Agent {
             }
             o.y = min(max(o.y, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height))
             o.x = min(max(o.x, -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width))
+            if let owner = sv.superview as? NodeView, owner.scrollView === sv { o = owner.snappedOffset(o, in: sv, revealing: v) }
             if o != sv.contentOffset { sv.contentOffset = o; scrolled = true }
         }
         return scrolled
