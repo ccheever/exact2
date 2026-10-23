@@ -1028,7 +1028,7 @@ extension NavigationHost {
         shown?.contentInsetAdjustmentBehavior = Self.transparentBar(c.node) ? .never : .automatic
         // …and is there before UIKit is handed it: a bar handed a
         // scroller that far from its top closes an open large title.
-        if atStart, let sv = shown, sv.contentOffset.y != -sv.adjustedContentInset.top { sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: -sv.adjustedContentInset.top), in: sv, clamped: false) }
+        if atStart, let sv = shown, sv.contentOffset.y != -sv.adjustedContentInset.top { sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: -sv.adjustedContentInset.top), in: sv) }
         c.setContentScrollView(shown ?? c.bandedTop, for: .top) // or the scroller its control bars are over (LLP 1131)
         // The scroller left behind gets the page's offsets back only once the
         // bar follows the new one: UIKit reads its inset taken away while the
@@ -1039,7 +1039,7 @@ extension NavigationHost {
             if old !== c.edgeScroll || sv !== old.scrollView { sv.contentInsetAdjustmentBehavior = .never }
             old.scrollOrigin = 0
             old.scrollCollapsed = 0
-            sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: top - old.scrollTopInset(sv)), in: sv, clamped: false)
+            sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: top - old.scrollTopInset(sv)), in: sv, clamped: !sv.isTracking && !sv.isDragging && !sv.isDecelerating)
         }
         // UIKit keeps a pushed route's large title inside the scroller the bar
         // follows and moves it only on the bar's next layout, which handing
@@ -1109,7 +1109,7 @@ extension NavigationHost {
         // offset by as much, scrolling its content out of its port.
         let atStart = shown.map { $0.contentOffset.y <= 0.5 - $0.adjustedContentInset.top } ?? false
         shown?.contentInsetAdjustmentBehavior = .automatic
-        if atStart, let sv = shown, sv.contentOffset.y != -sv.adjustedContentInset.top { sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: -sv.adjustedContentInset.top), in: sv, clamped: false) }
+        if atStart, let sv = shown, sv.contentOffset.y != -sv.adjustedContentInset.top { sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: -sv.adjustedContentInset.top), in: sv) }
         // tvOS has no bottom bar whose edge follows a scroller.
         #if !os(tvOS)
         c.setContentScrollView(shown ?? c.bandedBottom, for: .bottom)
