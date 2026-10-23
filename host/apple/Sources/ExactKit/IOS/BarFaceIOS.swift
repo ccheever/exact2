@@ -118,7 +118,7 @@ struct ChipFace: Equatable {
                 opacities.append(alpha)
                 lineHeights.append(child.wrote("line_height") ? child.usedLineHeight : nil)
             } else if child.kind == "image", let name = child.faceSymbol {
-                parts.append(.symbol(name, child.number("font_size", PageFacts.defaultRootFontSize), pair(child, "text_color")))
+                parts.append(.symbol(name, child.number("font_size", PageFacts.defaultRootFontSize), inked ? pair(child, "text_color") : nil))
                 opacities.append(alpha)
                 lineHeights.append(nil)
             } else if (child.presenter?.flats.children(of: child.id) ?? child.container.subviews.compactMap { ($0 as? NodeView)?.id }).isEmpty,
