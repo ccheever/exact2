@@ -63,11 +63,26 @@ pub(crate) fn over_limit(text: &str) -> Option<(&'static str, String)> {
     (deepest > MAX_VALUE_DEPTH).then(|| {
         (
             "tamber-value-depth",
-            format!(
-                "a value nests at most {MAX_VALUE_DEPTH} functions deep; this one nests {deepest}"
-            ),
+            format!("{}; this one nests {deepest}", depth_words()),
         )
     })
+}
+
+/// What a value nested past [`MAX_VALUE_DEPTH`] is refused with: the scan
+/// above says it with its depth; the reader, which also counts the levels it
+/// recurses (a platform colour's fallback is read again), says it alone.
+fn depth_words() -> String {
+    format!("a value nests at most {MAX_VALUE_DEPTH} functions deep")
+}
+
+/// The id of a value [`parse`] refused: the checker's bound's, else
+/// `tamber-syntax`.
+pub(crate) fn refusal_id(text: &str, why: &str) -> &'static str {
+    match over_limit(text) {
+        Some((id, _)) => id,
+        None if why.starts_with(&depth_words()) => "tamber-value-depth",
+        None => "tamber-syntax",
+    }
 }
 
 /// Read `text` as space-separated items, or say why it is not a value. A
@@ -77,10 +92,17 @@ pub(crate) fn parse(text: &str) -> Result<Vec<Item>, String> {
     if let Some((_, why)) = over_limit(text) {
         return Err(why);
     }
+    parse_at(text, 0)
+}
+
+/// [`parse`] of a part of a value already `depth` functions deep (a platform
+/// colour's fallback), the reader counting on from there.
+fn parse_at(text: &str, depth: usize) -> Result<Vec<Item>, String> {
     let mut p = Reader {
         s: text.as_bytes(),
         text,
         i: 0,
+        depth,
     };
     let items = p.items(false)?;
     if p.i < p.s.len() {
@@ -96,6 +118,8 @@ struct Reader<'a> {
     s: &'a [u8],
     text: &'a str,
     i: usize,
+    /// The functions and groups it is inside: never past [`MAX_VALUE_DEPTH`].
+    depth: usize,
 }
 
 fn ident_start(b: u8) -> bool {
@@ -250,6 +274,17 @@ impl Reader<'_> {
 
     /// `name(` at `self.i`, through its `)`.
     fn call(&mut self, start: usize, name: &str) -> Result<Item, String> {
+        // Counted as it recurses, whatever the scan before it saw.
+        if self.depth >= MAX_VALUE_DEPTH {
+            return Err(depth_words());
+        }
+        self.depth += 1;
+        let item = self.call_in(start, name);
+        self.depth -= 1;
+        item
+    }
+
+    fn call_in(&mut self, start: usize, name: &str) -> Result<Item, String> {
         self.i += 1;
         if name.eq_ignore_ascii_case("-exact-platform-color") {
             return self.platform(start, name);
@@ -309,7 +344,7 @@ impl Reader<'_> {
             .iter()
             .map(|p| vec![Item::Str(p.trim().to_string())])
             .collect();
-        args.push(parse(rest.trim())?);
+        args.push(parse_at(rest.trim(), self.depth)?);
         self.i = close + 1;
         Ok(Item::Func(
             name.to_ascii_lowercase(),
