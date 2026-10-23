@@ -219,7 +219,7 @@ takes files and folders of any type, and a paste carries its files
 (`ClipboardEvent.files`, pasted image data as a PNG), each a `doc:` handle
 (LLP 1069.010, "Files dropped or pasted").
 Specific `accept` types remain bounded as above. `capture` stays refused
-(the camera is a native module, §Components, 2026-10-02). Linux editing is v2
+(the camera is the `@exact/camera` package, §Components, 2026-10-23). Linux editing is v2
 (Charlie, 2026-09-21): web, iOS and macOS first; Linux reads.
 
 **Expanded (Charlie, 2026-09-21):** ship the full game engine from Black's
@@ -703,8 +703,9 @@ reading. Nothing that isn't HTML is added by it.
   orchestrator's waiver under the same delegation. Still out: synthesis,
   loops, fades and gain automation, effects, a handle to one voice, a stop
   at a future time, compressed formats, sound produced by a data module,
-  microphone input, and output on Linux and Windows (LLP 1096 §7; rate and
-  pan came in with LLP 1125 D10). No tag is added.
+  the microphone as a sound source (recording it to a file is LLP
+  1133.009's, §Components), and output on Linux and Windows (LLP 1096 §7;
+  rate and pan came in with LLP 1125 D10). No tag is added.
 - **Expanded (LLP 1125; Charlie, 2026-10-16: "once happy with it, go ahead
   and implement"):** a sequence (`sequence NAME when COND`, `play(tracks,
   bpm=, from=, countIn=, clock=, clockOut=, ended=)`) that the runner expands
@@ -773,6 +774,35 @@ reading. Nothing that isn't HTML is added by it.
   an agent substitute before the OS (LLP 1069.007). Unblocks taking a photo in an
   app, on the web, iOS and macOS first. Not a built-in tag. Video recording and
   barcode or document scanning stay out until a consumer asks.
+  **Expanded (Charlie, 2026-10-23, "Accept the take", on LLP 1133.008 §14
+  question 7):** the camera is the `@exact/camera` package, in place of the
+  app native module above, over `@exact/media-capture` (Media Capture's
+  `getUserMedia`, tracks, devices and permission facts, shared with
+  recording): a viewfinder (`exact-camera srcObject=`) and a photo by Image
+  Capture's `takePhoto`, on the web, iOS, macOS and Android, Android in a
+  fixture app; with the seam a package's view and an Android implementation's
+  Maven libraries need (LLP 1133.008 D8). Consumer: the photo editor, which
+  takes a photo and then edits it. Unblocks a photo in an app without app
+  Swift. Take: the photo editor's Android port moves to later. Still out,
+  each until a consumer asks (LLP 1133.008 §12): video recording, a camera
+  track in `video srcObject=` and frames to code, two cameras at once on
+  iOS, barcode and document scanning, constraint dictionaries, zoom on the
+  web, `input capture` and the system camera UI, and the Windows, Linux,
+  tvOS, visionOS and watchOS cells.
+- **Expanded (Charlie, 2026-10-23, "Expand, no take", on LLP 1133.009 §15
+  question 6):** recording the microphone to a file and reading its level,
+  by Media Capture's and MediaStream Recording's names (`getUserMedia(audio=)`
+  from `@exact/media-capture`; `startMediaRecorder`, `audioLevel` and the
+  rest from `@exact/recording`), on the web, iOS, macOS and Android, a
+  capture being a claim on the host's one audio session (LLP 1096 D8).
+  Consumer: the recorder, whose own module the package replaces. Unblocks a
+  recording without app Swift that leaves the app's own sounds playing.
+  Take: none; waived by that ruling. Still out, each until a consumer asks
+  (LLP 1133.009 §13): the microphone as a sound source, monitoring and
+  effects (the LLP 1096 entry's), data while recording, starting a capture
+  in the background, Android's background recording, constraint
+  dictionaries, two inputs at once, `getDisplayMedia`, and the Windows,
+  Linux, tvOS, visionOS and watchOS cells.
 - **Expanded (Daehyeon Mun, 2026-10-23; trade; LLP 1133.006):** the
   clipboard's `write([new ClipboardItem(…)])` from data code, by the
   Clipboard API's names, for `image/png` (the app converts other images
