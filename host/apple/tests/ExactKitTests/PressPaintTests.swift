@@ -88,6 +88,32 @@ final class PressPaintTests: XCTestCase {
         XCTAssertEqual(keeps.style["text_color"], ink(green))
     }
 
+    func testADroppedPressColourTakesTheHeldAncestorsColour() throws {
+        let (p, outer) = try fixture(["press_color": yellow])
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "view", "handlers": ["press"], "style": ["text_color": white, "press_color": green]],
+            ["op": "create", "id": 5, "kind": "text", "props": ["text": "Label"], "style": ["text_color": white]],
+            ["op": "children", "id": 4, "ids": [5]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4]],
+        ]))
+        let inner = try XCTUnwrap(p.views[4]), label = try XCTUnwrap(p.views[5])
+        outer.pressed = true
+        inner.pressed = true
+        XCTAssertEqual(inner.style["text_color"], ink(green))
+        XCTAssertEqual(label.style["text_color"], ink(green))
+        p.apply(wireBatch([["op": "style", "id": 4, "style": ["text_color": white]]]))
+        XCTAssertTrue(inner.pressed)
+        XCTAssertEqual(inner.style["text_color"], ink(yellow))
+        XCTAssertEqual(label.style["text_color"], ink(yellow))
+        outer.pressPaint.at -= 1
+        outer.pressed = false
+        XCTAssertEqual(inner.style["text_color"], ink(white))
+        XCTAssertEqual(label.style["text_color"], ink(white))
+        inner.pressPaint.at -= 1
+        inner.pressed = false
+        XCTAssertEqual(inner.style["text_color"], ink(white))
+    }
+
     /// The finger (the mouse) leaving the box lets the paint go; back inside it shows again.
     func testThePaintFollowsThePointer() throws {
         let (_, v) = try fixture(["press_background_color": navy])
