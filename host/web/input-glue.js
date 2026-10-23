@@ -157,12 +157,13 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     for (const el of root.querySelectorAll("button[aria-keyshortcuts]")) {
       if (modal && !modal.contains(el)) continue;
       if (activates && focus !== el && (event.key === "Enter" || event.key === " ") && !(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)) continue;
-      // A Back control the bar stands for is not shown, and keeps its shortcut (navigation.js `appBarBack`).
-      if (!el.isConnected || !(el.getClientRects().length || el.hasAttribute("data-exact-bar-back")) || inertAncestor(el) || getComputedStyle(el).visibility !== "visible") continue;
+      // A hidden Back control takes its shortcut through the visible bar button, in a header or in content.
+      const target = backButton(el) ?? el;
+      if (!target.isConnected || !(target.getClientRects().length || target.hasAttribute("data-exact-bar-back")) || inertAncestor(el) || getComputedStyle(target).visibility !== "visible") continue;
       if (!(el.getAttribute("aria-keyshortcuts") ?? "").split(/\s+/).some(matches)) continue;
       event.preventDefault();
       event.stopImmediatePropagation();
-      if (!event.repeat && !el.disabled) el.click();
+      if (!event.repeat && !el.disabled) target.click();
       return;
     }
   }, true);
@@ -937,6 +938,7 @@ const guestValue = (target) => "value" in target ? (target.type === "password" &
 // Both agents supply their modal-aware inert check; standalone callers default to DOM ancestry.
 export function reveal(el, id, inert = el => el.closest("[inert]")) {
   if (!el?.isConnected) return { error: `no view ${id}` };
+  el = backButton(el) ?? el;
   const middle = () => { const b = viewBox(el); return [b.left + b.width / 2, b.top + b.height / 2]; };
   const [x, y] = middle();
   let seen = x >= 0 && y >= 0 && x < innerWidth && y < innerHeight;
@@ -953,12 +955,23 @@ export function reveal(el, id, inert = el => el.closest("[inert]")) {
 // touch. A paragraph's inline runs are not `data-exact-text`; only the paragraph is.
 const folded = el => { const d = getComputedStyle(el).display; return d === "contents" || d === "inline" && el.hasAttribute("data-exact-text"); };
 
+// The visible Back that stands for a hidden route control. The hiding mark belongs only to bar items;
+// author-hidden controls keep their styles and use the same button for taps and shortcuts.
+export function backButton(el) {
+  if (!el?.id || el.checkVisibility?.({ visibilityProperty: true }) !== false) return null;
+  const route = el.closest("[navigationkey]"), nav = route?.parentElement?.closest("[navigationback]");
+  if (!nav || nav.getAttribute("navigationBack") !== el.id || nav.getAttribute("navigationKey") !== route.getAttribute("navigationKey")
+    || route.querySelector(`[id="${CSS.escape(el.id)}"]`) !== el) return null;
+  const back = route.querySelector(":scope > header")?.shadowRoot?.querySelector('button[part="back"]:not([hidden])');
+  return back?.checkVisibility({ visibilityProperty: true }) ? back : null;
+}
+
 // A view's box as the agent reports it. A folded text has no block box of its own: its box is the anonymous block its
 // text is, as a style-less block child's was — its line boxes along the main axis, and its box's content box across
 // when the box stretches its items (a block, or a flex or grid box that stretches). A Back control its route's bar
 // stands for (index.html) is where that bar's Back is, so a tap that names it presses that Back, as a person does.
 export function viewBox(el) {
-  const back = el.hasAttribute("data-exact-bar-back") && el.closest("[navigationkey] > header")?.shadowRoot?.querySelector('button[part="back"]:not([hidden])');
+  const back = backButton(el);
   if (back) return back.getBoundingClientRect();
   if (!folded(el)) return el.getBoundingClientRect();
   const range = document.createRange();
@@ -1064,5 +1077,5 @@ export function typeControl(el, request, inertAncestor, settleValue) {
   el.dispatchEvent(new Event("change", { bubbles: true }));
   return { typed: id, value: el.value, delivery: "recognized", handled: true };
 }
-export const agentInput = { guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll, typeControl };
+export const agentInput = { backButton, guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll, typeControl };
 if (globalThis.exact) Object.assign(globalThis.exact, { createInputHandlers, agentInput });
