@@ -917,6 +917,7 @@ package final class Presenter {
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
                 let color = v.style["text_color"], old = v.style
                 v.applyStyle(v.presented(op.style))
+                v.refreshPressInheritance()
                 anchorChanges.note(id, from: old, to: v.style, popover: v.props["popover"] != nil)
                 flats.styleChanged(id)
                 if v.surface != nil { v.applySurface() }

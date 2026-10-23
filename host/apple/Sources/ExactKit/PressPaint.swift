@@ -275,6 +275,14 @@ extension NodeView {
         return nil
     }
 
+    /// A style that removed this press's colour can expose an ancestor's
+    /// held colour. Re-ink after applying the style to avoid re-entering
+    /// `presented` while it is building that style.
+    func refreshPressInheritance() {
+        guard pressPaint.down, !showsOwnTextColor else { return }
+        liveLender()?.inkAgain()
+    }
+
     /// While pressed, its press colour on the views below that take it again.
     private func inkAgain() {
         guard let ink = Self.pressOverlay(style)["text_color"] else { return }
