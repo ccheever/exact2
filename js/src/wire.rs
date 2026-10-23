@@ -62,6 +62,7 @@ pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
             Some(_) => return Err("exactBodyFrom must be an app:/ path".into()),
         },
         redirect: Redirect::parse(j.get("redirect").and_then(Json::as_str))?,
+        held: j.get("held").and_then(Json::as_bool).unwrap_or(false),
     })
 }
 

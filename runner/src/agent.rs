@@ -22,6 +22,7 @@ use std::fmt::Write as _;
 
 mod lineage;
 mod looks;
+mod pending;
 mod row;
 /// A row's value as `node` prints it: the JS target's inspect table (LLP 1122 T2b) writes the same words.
 pub use row::row_json;
@@ -836,40 +837,9 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         }
         s.push('}');
     }
-    s.push_str(",\"pending\":[");
-    let in_flight = runner.in_flight();
-    for (i, (name, ticket)) in in_flight.iter().enumerate() {
-        if i > 0 {
-            s.push(',');
-        }
-        s.push_str("{\"name\":");
-        quote(name, &mut s);
-        let _ = write!(s, ",\"ticket\":{ticket}}}");
-    }
-    // Held device requests, after the network's (LLP 1069.007 D3): each
-    // with its capability and that capability's inspection summary.
-    let network = in_flight.len();
-    for (i, hold) in runner.device_holds().iter().enumerate() {
-        if i > 0 || network > 0 {
-            s.push(',');
-        }
-        s.push_str("{\"name\":");
-        quote(&hold.name, &mut s);
-        let _ = write!(
-            s,
-            ",\"ticket\":{},\"device\":{{\"capability\":",
-            hold.ticket
-        );
-        quote(&hold.capability, &mut s);
-        s.push_str(",\"args\":");
-        if hold.args.starts_with('{') && hold.args.ends_with('}') {
-            s.push_str(&hold.args);
-        } else {
-            s.push_str("{}");
-        }
-        s.push_str("}}");
-    }
-    s.push_str("],");
+    s.push(',');
+    pending::state(runner, &mut s);
+    s.push(',');
     streams::state(runner, &mut s);
     // Native modules, as the runner answers them (LLP 1133.002 §6).
     if let Some(extensions) = runner.extensions_json() {

@@ -192,6 +192,31 @@ fn independent_fetch_is_explicit_bounded_and_keeps_each_invocation() {
     }
 }
 
+/// LLP 1016.000 D9: `exactHeld: true` reaches the request as `held`, which
+/// the runner counts for no clock; beside a stream, or not a boolean, the
+/// fetch refuses before any request.
+#[test]
+fn a_held_fetch_marks_its_request_and_refuses_a_stream_or_a_non_boolean() {
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  resource result = held(\"true\") as shape string\n  view\n    text result\n").unwrap());
+    let mut s = store();
+    let request = later(m.answer(&mut s, "held", &[Value::str("true")]).unwrap());
+    assert!(request.held && request.is_held());
+    let plain = later(m.answer(&mut s, "held", &[Value::str("false")]).unwrap());
+    assert!(!plain.held);
+    for (arg, why) in [
+        (Value::str("stream"), "exactHeld: a stream is never held"),
+        (Value::str("yes"), "exactHeld is true or false"),
+        (Value::str("yes-stream"), "exactHeld is true or false"),
+    ] {
+        let refused = now(m.answer(&mut s, "held", &[arg]).unwrap());
+        assert!(
+            refused.as_str().is_some_and(|m| m.contains(why)),
+            "{refused:?}"
+        );
+    }
+}
+
 #[test]
 fn a_fetch_deadline_reaches_the_request_and_its_timeout_rejects_with_its_kind() {
     let mut m = module();
