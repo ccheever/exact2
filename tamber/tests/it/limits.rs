@@ -403,3 +403,124 @@ fn importers_check_source_values_not_reports() {
         exact_tamber::export::reimport_against(&edited, None, &[], design, &vocab()).unwrap_err();
     assert_eq!(d[0].id, "tamber-value-size", "{d:?}");
 }
+
+/// Tokens followed and the functions their values nest are counted
+/// together (both reviewers' round 2: 512 tokens of 32 functions each fit
+/// both bounds and overflowed a 2 MB stack): a chain of deeply nested values
+/// is refused where the count passes 512; a shorter one folds, on a test
+/// thread's 2 MB stack.
+#[test]
+fn tokens_and_the_functions_they_nest_count_together() {
+    let wrapped = |k: usize| {
+        format!(
+            "  c{k} = {}c{}{}",
+            "calc(".repeat(30),
+            k + 1,
+            ")".repeat(30)
+        )
+    };
+    let chain = |n: usize| {
+        let mut lines: Vec<String> = (0..n).map(wrapped).collect();
+        lines.push(format!("  c{n} = calc(base.gap + 1px)"));
+        lines
+    };
+    let (ids, took) = refused(&theme(&chain(40)));
+    assert!(
+        ids.contains(&"tamber-reference-depth"),
+        "{:?}",
+        &ids[..ids.len().min(4)]
+    );
+    assert!(took < Duration::from_secs(2), "{took:?}");
+    let (ids, _) = refused(&theme(&chain(10)));
+    assert!(!ids.contains(&"tamber-reference-depth"), "{ids:?}");
+}
+
+/// Text a parser or a check names before the bounds see it (an unknown
+/// kind, a malformed range) is never echoed whole: a kind past the bound is
+/// refused with its id, and every diagnostic's words stay short (both
+/// reviewers' round 2).
+#[test]
+fn nothing_said_echoes_text_past_the_bound() {
+    let long = "k".repeat(5000);
+    let Err(d) = check(
+        &format!("tamber t\n\ntheme\n  ink: {long} = #ffffff\n"),
+        &based(),
+    ) else {
+        panic!("refused")
+    };
+    assert_eq!(d[0].id, "tamber-value-size", "{d:?}");
+    let digits = "9".repeat(5000);
+    let Err(d) = check(
+        &format!("tamber t\n\ndials\n  d: number = 1 in {digits}\n\ntheme\n  ink = #111111\n"),
+        &based(),
+    ) else {
+        panic!("refused")
+    };
+    assert!(
+        d.iter().all(|d| d.message.len() <= 1100),
+        "{:?}",
+        d.iter().map(|d| d.message.len()).collect::<Vec<_>>()
+    );
+}
+
+/// A metadata word is measured alike on the wire and on disk (its name,
+/// `=`, its value unquoted), refused with one id and the same words (both
+/// reviewers' round 2).
+#[test]
+fn a_metadata_word_is_measured_alike_on_the_wire_and_on_disk() {
+    use exact_tamber::{apply, Op};
+    let (k, v) = ("k".repeat(2100), "v".repeat(2100));
+    let Err(disk) = check(
+        &format!("tamber t\n\ntheme\n  ink = #111111 {k}=\"{v}\"\n"),
+        &based(),
+    ) else {
+        panic!("refused")
+    };
+    let src = "tamber t\n\ntheme\n  ink = #111111\n";
+    let op = Op::AddToken {
+        name: "paper".into(),
+        kind: None,
+        value: "#ffffff".into(),
+        meta: vec![format!("{k}=\"{v}\"")],
+        whens: Vec::new(),
+        comment: None,
+        before: None,
+    };
+    let Err(wire) = apply(src, &op, &vocab()) else {
+        panic!("refused")
+    };
+    assert_eq!(
+        (disk[0].id, &disk[0].message),
+        (wire[0].id, &wire[0].message)
+    );
+    assert_eq!(disk[0].id, "tamber-value-size");
+}
+
+/// A reimport refuses a key past the bound (a context's) with the bound's
+/// id, never echoing it; a CSS name past its 256 bytes doesn't hide a value
+/// nested too deep; parentheses inside single quotes are no nesting (both
+/// reviewers' round 2).
+#[test]
+fn reimport_keys_long_names_and_single_quotes() {
+    use exact_tamber::import::shadcn;
+    use exact_tamber::parse;
+    let design = "tamber t\n\ntheme\n  ink = #111111\n";
+    let export = exact_tamber::export::dtcg(&check(design, &vocab()).unwrap(), &vocab()).unwrap();
+    let mut doc: serde_json::Value = serde_json::from_str(&export).unwrap();
+    doc["x".repeat(5000)] = serde_json::json!({"$ref": "#/nope"});
+    let d = exact_tamber::export::reimport_against(&doc.to_string(), None, &[], design, &vocab())
+        .unwrap_err();
+    assert_eq!(d[0].id, "tamber-value-size", "{d:?}");
+    assert!(d[0].message.len() < 200, "{}", d[0].message);
+    let deep = format!(
+        "{}1px{}",
+        "calc(".repeat(MAX_VALUE_DEPTH + 1),
+        ")".repeat(MAX_VALUE_DEPTH + 1)
+    );
+    let css = format!(":root {{ --{}: {deep}; }}", "n".repeat(300));
+    let d = shadcn::import(&css, "shadcn", &parse("tamber app\n").unwrap(), &vocab()).unwrap_err();
+    assert_eq!(d[0].id, "tamber-value-depth", "{d:?}");
+    let quoted = format!("'Odd {}'", "(".repeat(40));
+    let (ids, _) = refused(&theme(&[format!("  family.odd: family = {quoted}")]));
+    assert!(!ids.contains(&"tamber-value-depth"), "{ids:?}");
+}
