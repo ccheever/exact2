@@ -1,7 +1,8 @@
 // A request sent on to a design server or dev loop goes on a connection of its own (tamber-request.mjs `upstream`):
 // `tamber tool --via`'s proxy (scripts/tamber-server.mjs `forward`) and the tool tests' proxy
-// (design-tool-harness.mjs `proxied`) once reused a pooled one the server had just closed as idle, and the request met
-// a reset (QUEUE 2026-10-22, "commit refuses …" got an ECONNRESET from the proxied `tamber serve` once under load).
+// (design-tool-harness.mjs `proxied`) reused pooled ones, and one the server has just closed as idle meets a reset:
+// the likely cause of "commit refuses …"'s one ECONNRESET from the proxied `tamber serve` under load (QUEUE
+// 2026-10-22). The server here resets any reused connection, so the reuse is certain.
 import { expect, test } from 'bun:test';
 import { createServer } from 'node:http';
 import { createServer as tcpServer } from 'node:net';
