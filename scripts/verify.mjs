@@ -131,7 +131,7 @@ export const answering = (url) => fetch(url, { signal: AbortSignal.timeout(1000)
  * server this did not start is never stopped, nor written to. */
 export function heldLine(server) {
   const pid = spawnSync('lsof', ['-nP', `-iTCP:${server.port}`, '-sTCP:LISTEN', '-Fp'], { encoding: 'utf8' }).stdout?.match(/^p(\d+)/m)?.[1];
-  const command = pid ? spawnSync('ps', ['-o', 'command=', '-p', pid], { encoding: 'utf8' }).stdout?.trim().slice(0, 60) : '';
+  const command = pid ? commandLine(pid).slice(0, 60) : '';
   return `${server.url} already answers${pid ? ` (pid ${pid}${command ? `: ${command}` : ''})` : ''}, and the tests would ${server.database ? "write into that server's database" : 'change that server\'s state'}: stop it (${pid ? `kill ${pid}` : 'Ctrl-C where it runs'}) and run this again, which starts ${server.entry} itself${server.database ? ' on an empty one' : ''}`;
 }
 
@@ -193,6 +193,10 @@ async function started(dir, server, name, forward, give) {
 }
 
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+// A process's command line: `ps` has no Windows build, where CIM's Win32_Process reports it. Empty when neither answers.
+const commandLine = (pid) => (process.platform === 'win32'
+  ? spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `(Get-CimInstance Win32_Process -Filter 'ProcessId=${Number(pid)}').CommandLine`], { encoding: 'utf8' })
+  : spawnSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' })).stdout?.trim() ?? '';
 
 /** The app's server for one `agent` drive (LLP 1116.008 D1): null when the app has none, or the URL it calls already answers
  * (the builder's own, or another drive's: used, said nothing of); else started where app.ts calls it, on a database of the
@@ -218,7 +222,7 @@ export async function driveServer(dir, storage, say = (line) => console.error(li
     for (const [file, pid] of files('drive')) if (!alive(pid)) rmSync(file, { force: true });
     if (files('drive').length) return null;
     return files('server').map(([file, pid]) => { rmSync(file, { force: true }); return pid; })
-      .filter((pid) => alive(pid) && spawnSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' }).stdout.includes(server.entry));
+      .filter((pid) => alive(pid) && commandLine(pid).includes(server.entry));
   };
   const clean = () => {
     if (db) rmSync(lease, { recursive: true, force: true });
