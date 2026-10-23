@@ -70,6 +70,12 @@ enum ScrollAnchoring {
             let outOfFlow = { (s: NodeStyle) in ["absolute", "fixed"].contains(NodeView.layoutPosition(s, popover: popover)) }
             if outOfFlow(old) != outOfFlow(new) { positioned.insert(id) }
         }
+        mutating func noteProps(_ op: BatchOp, on view: NodeView) {
+            let old = view.props["popover"] != nil
+            let new = op.props["popover"] != nil || (old && !op.clear.contains("popover"))
+            let outOfFlow = { (popover: Bool) in ["absolute", "fixed"].contains(NodeView.layoutPosition(view.style, popover: popover)) }
+            if outOfFlow(old) != outOfFlow(new) { positioned.insert(view.id) }
+        }
         mutating func reset() { layout.removeAll(keepingCapacity: true); positioned.removeAll(keepingCapacity: true) }
     }
 

@@ -893,6 +893,7 @@ package final class Presenter {
                 applyParagraph(id, op.runs)
             case .props:
                 if flats.isFlat(id) { if flats.props(id, op) { continue }; flats.promote(id) }
+                if let view = views[id] { anchorChanges.noteProps(op, on: view) }
                 views[id]?.applyProps(set: op.props, clear: op.clear)
                 elements.propsChanged(id)
             case .flow:
