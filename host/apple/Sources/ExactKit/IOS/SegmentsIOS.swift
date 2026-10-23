@@ -156,7 +156,7 @@ private struct TabBarFace: Equatable {
         self.symbol = image.faceSymbol ?? ""
         title = label.accessibleText
         self.label = tab.props["accessibilityLabel"] ?? title
-        tint = image.ownUIColor("tint_color")
+        tint = image.symbolInk
     }
 }
 

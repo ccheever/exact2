@@ -22,7 +22,7 @@ extension NodeView {
             symbolKey = key; loadGeneration += 1
             let generation = loadGeneration
             // An icon with no SF Symbol draws its own path (D10, stage 9 A).
-            image = name.isEmpty ? iconPathImage(side: points) : symbolImage(name, symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight)))
+            image = name.isEmpty ? iconPathImage(side: points) : symbolImage(name, SymbolMeasure.configuration(points: points, weight: weight))
             symbolFound = image != nil; if points <= 0 { image = nil }
             if name.isEmpty, props["symbolPath"] == nil, !source.hasPrefix("symbol:sf/"), source != "symbol:", symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(source) refused: unknown symbol role") }
             if !name.isEmpty || source.hasPrefix("symbol:sf/") || source == "symbol:" { symbolRefusal = nil }
@@ -40,8 +40,8 @@ extension NodeView {
                 presenter.intrinsic(self.id, size)
             }
         }
-        // Paths and SF Symbols take an authored tint or colour, else the platform's ink.
-        symbolView?.contentTintColor = props["symbolPath"] != nil ? iconPathTint : symbolTint ?? symbolInk ?? unsaidSymbolTint
+        symbolView?.contentTintColor = symbolInk
+        symbolView?.symbolConfiguration = symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight))
         // A colour that comes or goes while its row is selected (TableInkMac.swift).
         symbolView?.cell?.backgroundStyle = symbolBackground(inEmphasizedRow)
         if let leaf = symbolView { applySymbolEffect(leaf) }

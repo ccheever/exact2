@@ -38,7 +38,7 @@ struct BadgeFace: Equatable {
         }
         walk(box)
         guard !text.isEmpty || symbol != nil else { return nil }
-        let key = symbol == nil ? "text_color" : "tint_color"
+        let key = "text_color"
         func colours(_ dark: Bool) -> [[Double]] {
             [box.channels("background_color", dark: dark) ?? [0, 0, 0, 0], ink?.channels(key, dark: dark) ?? (dark ? [1, 1, 1, 1] : [0, 0, 0, 1])]
         }
