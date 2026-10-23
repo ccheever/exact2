@@ -6,6 +6,7 @@
       "name": "exact2",
       "dependencies": {
         "@exact/actions": "workspace:*",
+        "@exact/browser": "workspace:*",
         "@exact/cards": "workspace:*",
         "@exact/geolocation": "workspace:*",
         "@exact/lists": "workspace:*",
@@ -24,6 +25,10 @@
     "packages/actions": {
       "name": "@exact/actions",
       "version": "0.1.0",
+    },
+    "packages/browser": {
+      "name": "@exact/browser",
+      "version": "1.0.0",
     },
     "packages/cards": {
       "name": "@exact/cards",
@@ -52,6 +57,8 @@
   },
   "packages": {
     "@exact/actions": ["@exact/actions@workspace:packages/actions"],
+
+    "@exact/browser": ["@exact/browser@workspace:packages/browser"],
 
     "@exact/cards": ["@exact/cards@workspace:packages/cards"],
 

@@ -117,7 +117,14 @@ pub const HOST_COMMANDS: &[&str] = &[
     "requestFullscreen",
     // `reload()`: the development host boots the app again, as its dev
     // menu's Reload does; a host without a dev menu refuses it.
+    // `reload(id)`, `reload(id, ignoreCache=true)`: that iframe's page
+    // again (LLP 1020.002 D3), as `close(id)` is a dialog's.
     "reload",
+    // @ref LLP 1020.002 D3 — an iframe's guest moved by the Navigation
+    // API's and WebDriver BiDi's names, by the frame's `id`.
+    "navigate",
+    "traverseHistory",
+    "stopLoading",
     "relaunch",
     "removeAllRanges",
     "selectText",

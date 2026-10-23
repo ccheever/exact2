@@ -16,6 +16,7 @@ mod field;
 mod fonts;
 pub mod foresee;
 pub use field::{FieldSelection, InputDetails, SelectionDirection};
+mod frame_navigation;
 mod host_kinds;
 mod pointer;
 pub use pointer::{DropEvent, PointerEvent, WheelEvent};

@@ -131,6 +131,10 @@ export function install(exact) {
       n.loading = el.exactAppFrame?.failed ? false : el.exactAppFrame && !el.exactAppFrame.url ? true : loaded.get(el) !== el.getAttribute('src');
       const guest = guestOutline(el);
       if (guest !== null) n.guest = guest;
+      // A browser shell's frame (LLP 1020.002 §10): its partition name, and what a person sees of its last navigation record.
+      if (el.$partition != null) n.partition = el.$partition;
+      const nav = el.exactNavigation?.last;
+      if (nav) n.navigation = { url: nav.url, title: nav.title, loading: nav.loading, controller: nav.controller, canGoBack: nav.canGoBack, canGoForward: nav.canGoForward };
     }
     return n;
   };

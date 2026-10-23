@@ -1071,6 +1071,12 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::SeekforwardOffset => "seekforwardOffset",
 
             PropId::Sandbox => "sandbox",
+            // @ref LLP 1020.002 D1, §9 — not honoured on the web: no DOM
+            // attribute a browser could read as its own.
+            PropId::Partition
+            | PropId::AppleAllowsBackForwardNavigationGestures
+            | PropId::AppleAllowsMagnification
+            | PropId::AppleInactiveSchedulingPolicy => continue,
             PropId::SemanticTag => continue,
             PropId::Checked => "checked",
             // A radio's group (x2apps survey #2): the browser's own exclusivity and arrows.

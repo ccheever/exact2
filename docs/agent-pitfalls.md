@@ -1219,6 +1219,14 @@ The journal names a top level slower than 50 ms.
   own URL, or under a `sandbox` without `allow-same-origin`. (LLP 1020.001 D5;
   Exact Draw, 2026-10-15.)
 
+- **A browser tab's title comes after its load.** On Apple a partitioned
+  `iframe`'s `navigatesuccess` usually carries the old or an empty `title`: WebKit
+  reports the new one a moment later, as its own `currententrychange`. Show the last
+  record's fields, not the ones `navigatesuccess` had. The commands (`navigate`,
+  `traverseHistory`, `reload(id)`, `stopLoading`) move only a frame with
+  `partition=` on Apple; without one they fire `navigateerror` with
+  `NotSupportedError`. (LLP 1020.002, stage 1, 2026-10-23.)
+
 - **A local server behind an `iframe` is loaded from the frame's parent, not the
   app.** On macOS an `iframe` of an `http(s)` URL with no `sandbox` is the web view's
   own document. With a `sandbox` on macOS, and always on iOS, it is the child of a

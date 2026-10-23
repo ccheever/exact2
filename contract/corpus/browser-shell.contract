@@ -1,0 +1,37 @@
+// Accept fixture: a browser shell's `iframe` (LLP 1020.002 D1–D3, D6, §9):
+// a partitioned top-level guest, the Navigation API's events with their
+// `FrameNavigation` record, and the four frame commands.
+component Shell
+  state address = ""
+  state title = ""
+  state loading = false
+  state failure = ""
+  state back = false
+  action moved(e: FrameNavigation)
+    address = e.url
+    title = e.title
+    back = e.canGoBack
+  action started(e: FrameNavigation)
+    loading = e.loading
+  action landed
+    loading = false
+  action failed(e: FrameNavigation)
+    failure = e.error
+    loading = false
+  action goBack
+    traverseHistory("tab", -1)
+  action go
+    navigate("tab", "https://example.com/next")
+  action again
+    reload("tab", ignoreCache=true)
+  action halt
+    stopLoading("tab")
+  view
+    column testId="root"
+      row
+        button "Back" testId="back" press=goBack disabled=(not back)
+        button "Go" testId="go" press=go
+        button "Reload" testId="reload" press=again
+        button "Stop" testId="stop" press=halt
+      iframe "https://example.com/" id="tab" partition="persist:work" zoom=1.5 color-scheme="dark" apple.allowsBackForwardNavigationGestures=true apple.inactiveSchedulingPolicy="throttle" navigate=started currententrychange=moved navigatesuccess=landed navigateerror=failed testId="tab" width=400 height=300
+      text address testId="address"

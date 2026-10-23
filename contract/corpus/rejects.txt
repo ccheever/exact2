@@ -1869,3 +1869,55 @@ component B
   view
     button "go" press=go("x")
 ---
+== lower-iframe-partition-sandbox
+# LLP 1020.002 D1: a partitioned guest is a top-level page, which WebKit
+# cannot sandbox; the host would have to fail open.
+component A
+  view
+    iframe "https://example.com" partition="persist:work" sandbox="allow-scripts"
+---
+== lower-iframe-partition-message
+# LLP 1020.002 D1: a partitioned guest has no message bridge.
+component A
+  action got(data: string)
+    let x = data
+  view
+    iframe "https://example.com" partition="persist:work" message=got
+---
+== lower-iframe-partition-message
+component A
+  action send
+    postMessage("hi", "tab")
+  view
+    iframe "https://example.com" id="tab" partition="work"
+    button "send" press=send
+---
+== lower-iframe-partition-src
+# LLP 1020.002 D1: a bundled or `app:/` page is the app's own; a
+# partitioned frame never reaches the `exact-app` scheme.
+component A
+  view
+    iframe "/deck/index.html" partition="persist:work"
+---
+== lower-frame-command
+# LLP 1020.002 D3: a literal id that names no iframe.
+component A
+  action back
+    traverseHistory("tab", -1)
+  view
+    iframe "https://example.com" id="page" partition="work"
+    button "back" press=back
+---
+== type-frame-command
+component A
+  action back
+    traverseHistory("tab", "back")
+  view
+    iframe "https://example.com" id="tab" partition="work"
+    button "back" press=back
+---
+== lower-attr-value
+component A
+  view
+    iframe "https://example.com" partition="work" apple.inactiveSchedulingPolicy="sometimes"
+---

@@ -37,6 +37,11 @@ pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
         }
         return out;
     }
+    // @ref LLP 1020.002 D3 — a frame's `reload(id, ignoreCache=)`: the id,
+    // then the flag (`none` for a plain reload). Bare `reload()` stays empty.
+    if name == "reload" && !args.is_empty() {
+        return vec![args.first(), named("ignoreCache")];
+    }
     if matches!(name, "showPopover" | "togglePopover") {
         return vec![args.first(), named("source")];
     }

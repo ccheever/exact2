@@ -120,6 +120,15 @@ pub const CONTEXTUAL: &[(&str, &str)] = &[
         "seekforwardOffset",
         "an `audio` or `video` with `metadata=`",
     ),
+    // @ref LLP 1020.002 D1, D2, D6, §9 — a browser shell's (`frames.rs`).
+    ("partition", "`iframe`"),
+    ("zoom", "`iframe`"),
+    ("currententrychange", "`iframe`"),
+    ("navigatesuccess", "`iframe`"),
+    ("navigateerror", "`iframe`"),
+    ("apple.allowsBackForwardNavigationGestures", "`iframe`"),
+    ("apple.allowsMagnification", "`iframe`"),
+    ("apple.inactiveSchedulingPolicy", "`iframe`"),
 ];
 
 /// The compiler and target emitters share the collection-edge refusal.

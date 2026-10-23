@@ -236,6 +236,7 @@ impl Lowerer<'_> {
         });
         let expanded = row_list.as_deref().unwrap_or(expanded);
         media::check_session(tag, expanded)?;
+        crate::frames::check(tag, positional, expanded)?;
         let audio = media::audio_rows(tag, expanded, *span)?;
         let expanded = audio.as_deref().unwrap_or(expanded);
         // @ref LLP 1074 T1 — a box that contains its absolutely positioned
@@ -283,8 +284,10 @@ impl Lowerer<'_> {
         let sheet_page = self.nav_place.sheet_page(expanded, *span);
         let expanded = sheet_page.as_deref().unwrap_or(expanded);
         let nav_place = self.nav_place.enter(tag, expanded, children, *span)?;
-        // @ref LLP 1038 D8 — only the first root selects navigation.
-        if has(&["navigate"])
+        // @ref LLP 1038 D8 — only the first root selects navigation; an
+        // iframe's `navigate` is its guest's (LLP 1020.002 D2).
+        if tag != "iframe"
+            && has(&["navigate"])
             && (parent_tag.is_some()
                 || arm.is_some()
                 || order != 0
