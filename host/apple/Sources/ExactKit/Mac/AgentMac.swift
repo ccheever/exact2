@@ -108,7 +108,8 @@ extension Agent {
 
     /// Diagnostic tap {resize:[w,h]} (LLP 1041 §8). Resize the containing
     /// NSWindow: its page height and full content width, including a sidebar.
-    /// A cover page includes the titlebar; other pages start below the bars.
+    /// A cover or controls-overlay page includes the titlebar; other pages
+    /// start below the bars.
     /// ExactView's ordinary fit/inset path follows AppKit's geometry.
     /// This is repeated programmatic window resize,
     /// not a simulated titlebar drag or a physical frame-presentation receipt.
@@ -117,7 +118,7 @@ extension Agent {
         guard let window = presenter.viewport.window, let content = window.contentView else {
             return ["error": "no window to resize"]
         }
-        let cover = presenter.viewportFit == "cover"
+        let cover = presenter.viewportFit == "cover" || session.view?.controlsOverlay == true
         window.setContentSize(size)
         let initial = window.contentRect(forFrameRect: window.frame).size
         let allowance = cover ? 0 : size.height - window.contentLayoutRect.height
