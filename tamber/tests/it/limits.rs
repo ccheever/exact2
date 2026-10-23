@@ -524,3 +524,24 @@ fn reimport_keys_long_names_and_single_quotes() {
     let (ids, _) = refused(&theme(&[format!("  family.odd: family = {quoted}")]));
     assert!(!ids.contains(&"tamber-value-depth"), "{ids:?}");
 }
+
+/// Icon aliases are followed once each (Astra's round 2: a pass per alias,
+/// each scanning every icon, was cubic in a chain written backwards).
+#[test]
+fn an_icon_alias_chain_resolves_in_moments() {
+    let n = 20_000;
+    let mut lines = vec!["tamber t\n\ntheme\n  ink = #111111\n\nicons".to_string()];
+    for k in 0..n {
+        lines.push(format!("  icon.a{k} = icon.a{}", k + 1));
+    }
+    lines.push(format!("  icon.a{n} = icon(sf \"house\")"));
+    let began = Instant::now();
+    let folded = check(&(lines.join("\n") + "\n"), &based());
+    assert!(
+        began.elapsed() < Duration::from_secs(5),
+        "{:?}",
+        began.elapsed()
+    );
+    let folded = folded.unwrap_or_else(|d| panic!("{:?}", &d[..d.len().min(3)]));
+    assert_eq!(folded.icons.len(), n + 1);
+}
