@@ -475,7 +475,7 @@ const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed
  * `atStep(s, { name, line, op })` runs on the session after each input step (and `reload`) lands; returning 'stop' ends
  * that test there, 'done' every test from there (verify's tour of the screens the tests pass through).
  */
-export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent', scale, atEnd, atStep, port } = {}) {
+export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, formatLocale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent', scale, atEnd, atStep, port } = {}) {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
   if (host === 'web' && !url) await backendPreflight(resolveApp(app), resolve(webDist ?? defaultWebDist()));
   // A fetch prefix outside every grant fails nothing (sb4 farm wave 4, lane 070: an origin moved in app.ts only).
@@ -517,7 +517,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     const store = base || host !== 'web' ? `${storage}${tag}.t${n}` : storage, fresh = { ...(env ?? {}), EXACT_AGENT_STORAGE_FRESH: '1' };
     // A test's launch lines lead its steps and override the drive's flags (habits F7).
     // The drive's `--fail-fetch` is every test's, with its own leading `fail fetch` lines added (LLP 1103 D3).
-    const facts = { size, seed, locale, timeZone, epoch, failFetch };
+    const facts = { size, seed, locale, formatLocale, timeZone, epoch, failFetch };
     const lines = [];
     let beforeData = false, leading = 0, reset = null;
     // `fail fetch` lines that lead the steps are armed before the app's first data load (LLP 1103 D3).
