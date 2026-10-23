@@ -588,7 +588,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if let blur = materialView as? NSVisualEffectView {
             let sheetGround = requested == nil && needsSheetMaterial
             blur.blendingMode = sheetGround ? .behindWindow : .withinWindow
-            blur.state = sheetGround ? .active : .followsWindowActiveState
+            blur.state = .followsWindowActiveState
         }
         syncMaterialVisibility()
         applyMaterialRadius()
