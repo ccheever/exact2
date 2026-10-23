@@ -1,10 +1,13 @@
 # A video shows a blank box until AVPlayer draws its first frame
 
-**Status:** Fixed (2026-10-21)
+**Status:** Closed
+**Resolution:** Fixed 2026-10-21: see the ticket's fix section.
 **Systems:** native views, docs (`docs/recipes/native-views.md`), Apple host
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from the Brooks four-way port's device measurements
 **Date:** 2026-10-21
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed (2026-10-21)
 
 ## Symptom
 

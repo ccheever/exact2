@@ -1,10 +1,12 @@
 # There is `swiperight` but no `swipeleft`
 
-**Status:** Open (an ask)
+**Status:** Open
 **Systems:** gestures (runner, every host)
 **Severity:** P3
 **Author:** Claude (Opus 5.5), from Excord's stage 1 transcript lane (`apps/excord/llp/0001-excord.rfc.md`)
 **Date:** 2026-10-22
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): an ask
 
 ## Symptom
 

@@ -726,8 +726,13 @@ screen, 2026-10-16.)
 maps its whole catalog when the bundle loads. In `app.ts` that top level runs after
 first pixel, and every answer waits for it: Brooks' `catalog.products.map(product)`
 over a 2 MB JSON catalog took 314 ms in Hermes on an iPhone 17 Pro Max, where Bun
-takes 60 ms. Shape what a source answers in that source, or once on its first call.
-The journal names a top level slower than 50 ms.
+takes 60 ms. 220 ms of that was a derived list built for every product at load (`completeTheLook`, about
+250,000 regex matches), where the original computes it for one product when its page opens.
+Shape what a source answers in that source, or once on its first call, and check the first
+answer's cost too, so the work is not just moved there. The journal (`agent.mjs ios logs`
+after launch) names a top level slower than 50 ms. Where the top level cannot be made cheap,
+`"typescript": {"placement": "worker"}` in `app.json` evaluates it on its own thread, at a
+price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1).
 
 ## Actions
 
