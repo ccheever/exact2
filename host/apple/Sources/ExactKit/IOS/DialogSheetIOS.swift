@@ -274,8 +274,8 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
             guard !entry.closing, !controller.isBeingDismissed,
                   let view = controller.viewIfLoaded, view.window != nil else { return nil }
             let scroller = controller.scroller
-            let clip = NativeGeometry.convert(scroller.bounds, from: scroller, to: presenter.viewport)
-                .intersection(NativeGeometry.convert(view.bounds, from: view, to: presenter.viewport))
+            let clip = NativeGeometry.bounds(of: scroller, in: presenter.viewport)
+                .intersection(NativeGeometry.bounds(of: view, in: presenter.viewport))
             return TopLayerBox(view: entry.dialog,
                                frame: (entry.dialog.id, entry.dialog.topLayerFrame(in: presenter.viewport), presenter.viewportPoints(clip)),
                                modal: controller)
