@@ -260,7 +260,7 @@ mod tests {
             (
                 "grouped-card-fill",
                 Text("light-dark(#ffffff, #1c1c1e)"),
-                Text("light-dark(#f9f9f9, #272727)"),
+                Text("light-dark(#f9f9f9, rgba(255, 255, 255, 0.03))"),
             ),
             (
                 "grouped-destructive-color",
