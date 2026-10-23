@@ -1152,7 +1152,7 @@ fn planned(
         if unused.contains(&i) || names.contains_key(&d.path) || collided.contains_key(&d.path) {
             continue;
         }
-        crate::budget::spend(2 * d.path.len() as u64)
+        crate::budget::spend(2 * (prefix.len() + d.path.len()) as u64)
             .map_err(|m| refuse("tamber-import-source", m))?;
         let name = std::iter::once(prefix.to_string())
             .chain(d.path.split('.').map(segment))
