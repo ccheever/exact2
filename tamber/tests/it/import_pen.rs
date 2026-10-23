@@ -910,3 +910,145 @@ fn round_3_recheck_7_a_refusal_carried_down_a_long_chain_is_one_charged_walk() {
         );
     }
 }
+
+/// The lead's sweep (2026-10-23): one hostile file for each pass that walks or folds the design or keeps in
+/// proportion to its input, each under the wire's 1 MiB. Through the real budget each is done or refused within
+/// a bound of time; through a budget of a few times its own size each is refused, and at once: no pass runs
+/// uncharged past what it was given.
+#[test]
+fn every_pass_over_a_hostile_file_is_charged_to_the_budget() {
+    let axes = |n: usize| {
+        (0..n)
+            .map(|i| format!(r#""a{i}":["x","y"]"#))
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let scheme = r#""mode":["light","dark"]"#;
+    let themed = |name: &str, kind: &str, a: &str, b: &str| {
+        format!(
+            r#""{name}":{{"type":"{kind}","value":[{{"value":{a}}},{{"value":{b},"theme":{{"a0":"y","mode":"dark"}}}}]}}"#
+        )
+    };
+    let file = |themes: String, vars: Vec<String>, children: &str| {
+        format!(
+            r#"{{"version":"2.21","themes":{{{themes}}},"variables":{{{}}},"children":[{children}]}}"#,
+            vars.join(",")
+        )
+    };
+    let mut files: Vec<(&str, String, exact_tamber::Design)> = Vec::new();
+    let empty = parse(EMPTY).unwrap();
+    // Winners, resolution and lines: many variables in every one of 128 tuples.
+    files.push((
+        "wide",
+        file(
+            format!("{scheme},{}", axes(6)),
+            (0..8000)
+                .map(|i| {
+                    themed(
+                        &format!("c{i}"),
+                        "color",
+                        r##""#000000""##,
+                        r##""#ffffff""##,
+                    )
+                })
+                .collect(),
+            "",
+        ),
+        empty.clone(),
+    ));
+    // Values of another kind, long, kept in every tuple.
+    let long = format!(r#""{}""#, "Inter ".repeat(1500));
+    files.push((
+        "strings",
+        file(
+            format!("{scheme},{}", axes(6)),
+            (0..50)
+                .map(|i| themed(&format!("s{i}"), "string", &long, &long))
+                .collect(),
+            "",
+        ),
+        empty.clone(),
+    ));
+    // Alias chains: every link walked, past 256 too.
+    files.push((
+        "chain",
+        file(
+            format!("{scheme},{}", axes(6)),
+            std::iter::once(r##""c0":{"type":"color","value":"#000000"}"##.to_string())
+                .chain(
+                    (1..12000)
+                        .map(|i| format!(r#""c{i}":{{"type":"color","value":"$c{}"}}"#, i - 1)),
+                )
+                .collect(),
+            "",
+        ),
+        empty.clone(),
+    ));
+    // Numbers, their kinds by use: many nodes binding many of them.
+    let nodes = (0..6000)
+        .map(|i| {
+            format!(
+                r#"{{"type":"frame","gap":"$n{}","opacity":"$n{}"}}"#,
+                i % 2000,
+                (i + 1) % 2000
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    files.push((
+        "uses",
+        file(
+            axes(4),
+            (0..2000)
+                .map(|i| format!(r#""n{i}":{{"type":"number","value":{i}}}"#))
+                .collect(),
+            &nodes,
+        ),
+        empty.clone(),
+    ));
+    // Landing: the design's own token of an imported name, a chain naming it.
+    let named = parse("tamber app\n\ntheme\n  pen.c0: length = 8px\n").unwrap();
+    files.push((
+        "landing",
+        file(
+            axes(6),
+            std::iter::once(r##""c0":{"type":"color","value":"#000000"}"##.to_string())
+                .chain(
+                    (1..6000)
+                        .map(|i| format!(r#""c{i}":{{"type":"color","value":"$c{}"}}"#, i - 1)),
+                )
+                .collect(),
+            "",
+        ),
+        named,
+    ));
+    for (what, text, design) in &files {
+        assert!(text.len() < 1 << 20, "{what}: {} bytes", text.len());
+        let t = std::time::Instant::now();
+        let _ = pen::import_within("x.pen", text, "pen", design, &vocab(), IMPORT);
+        assert!(
+            t.elapsed() < std::time::Duration::from_secs(20),
+            "{what}: {:?} on the real budget",
+            t.elapsed()
+        );
+        // A budget of three times the file: done or refused, and either quickly (what is cheap, like strings
+        // nothing reads, is done; what multiplies is refused).
+        let t = std::time::Instant::now();
+        let small = pen::import_within(
+            "x.pen",
+            text,
+            "pen",
+            design,
+            &vocab(),
+            3 * text.len() as u64,
+        );
+        let took = t.elapsed();
+        assert!(
+            took < std::time::Duration::from_secs(2),
+            "{what}: {took:?} on a small budget"
+        );
+        if *what != "strings" {
+            assert!(small.is_err(), "{what}: done within three times its size");
+        }
+    }
+}
