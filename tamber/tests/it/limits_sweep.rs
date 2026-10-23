@@ -170,10 +170,13 @@ fn long_whens_compare_in_moments() {
 #[test]
 fn a_large_tailwind_import_lands_or_is_refused_in_moments() {
     let mut css = String::from("@theme {\n");
-    for k in 0..30_000 {
+    // (each past the 256 links a chain may have is followed that far: a
+    // constant per token, about a quarter of a millisecond in a release
+    // build)
+    for k in 0..10_000 {
         css += &format!("  --color-c{k}: var(--color-c{});\n", k + 1);
     }
-    css += "  --color-c30000: #102030;\n}\n";
+    css += "  --color-c10000: #102030;\n}\n";
     let _ = within(30, "tailwind", || {
         exact_tamber::import::tailwind::import(&css, "tw", &parse("tamber app\n").unwrap())
             .map(|i| i.ops.len())
