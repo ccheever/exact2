@@ -47,9 +47,6 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
         await Bun.sleep(100);
       }
     };
-    // Real time in one step, not several: a jump that crosses one of the tool's timers first waits on what
-    // is in flight, up to 20 s (the agent's bound; the server holds the tool's changes poll 25 s), and a
-    // `+N real` step counts that wait as time passed.
     const wait = ['clock +4000 real', 'clock data'];
     const drive = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', ...DRIVEN.args, '--url', url, '--storage', `design-tool-scrub-${process.pid}`, '--json',
       'type name Ada', 'tap save-name', 'clock data', ...wait,
@@ -205,7 +202,9 @@ async function kindsOnTheJsLoop() {
       // The length, by its amount field: proposed live, then scrubbed.
       'tap cell-space.card-0-light', 'clock data', 'type part-amount-field 14', 'clock data', 'state', 'tree typed', 'clock +6000 real',
       'tap scrub-start', 'clock data', 'type part-amount-field 16', 'clock data', 'state', 'tree scrub', 'clock +6000 real',
-      'tap scrub-keep', 'clock data', ...wait, 'state', 'tree undo-bar', 'clock +2000 real',
+      // Kept, the file's change and then the rebuilt frame's registration reach the tool on its poll: `clock held`
+      // waits for each push (`clock +1` runs the follow task that asks the next).
+      'tap scrub-keep', 'clock data', 'clock +1', 'clock held', 'clock +1', 'clock held', ...wait, 'state', 'tree undo-bar', 'clock +2000 real',
       // The motion token: Rebuilds before the gesture, and no scrub.
       'tap cell-duration.card-0-light', 'clock data', 'type branch-value 300ms', 'type branch-value key Enter', 'clock data', 'state', 'tree branch', 'clock +2000 real',
       // The font-weight token: inline on the JS target.

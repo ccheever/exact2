@@ -105,8 +105,9 @@ export function wire(api: string, ownerOf: (id: string) => string | null = () =>
    * never with another, so it cannot reach whatever server holds the port
    * since: that is a refusal, the server restarted. A paired client revoked
    * or expired (401) is told so, a write in flight then too, and sends
-   * nothing more. */
-  async function call(path: string, body: unknown, timeout = 15000, bound?: string): Promise<{ error: string; reply: Reply; used: string }> {
+   * nothing more. `held`: the server holds the reply until something changes (the changes poll), so no
+   * agent clock waits on it (`exactHeld`, LLP 1016.000 D9). */
+  async function call(path: string, body: unknown, timeout = 15000, bound?: string, held = false): Promise<{ error: string; reply: Reply; used: string }> {
     for (let attempt = 0; attempt < 2; attempt++) {
       const got = bound ? { token: tokens.get(bound) ?? null, error: RESTARTED } : await tokenOf();
       if (!got.token) return { error: got.error, reply: {}, used: '' };
@@ -118,7 +119,7 @@ export function wire(api: string, ownerOf: (id: string) => string | null = () =>
       const over = paired ? above(scope, needOf(path, body, ownerOf), String((body as { method?: unknown })?.method ?? path)) : '';
       if (over) return { error: over, reply: {}, used: '' };
       try {
-        const res = await fetch(`${base}${path}`, { method: 'POST', exactTimeout: timeout, redirect: 'error', body: JSON.stringify(body),
+        const res = await fetch(`${base}${path}`, { method: 'POST', exactTimeout: timeout, exactHeld: held, redirect: 'error', body: JSON.stringify(body),
           headers: { 'content-type': 'application/json', 'x-exact-tamber-token': got.token } });
         const reply = (await res.json().catch(() => ({}))) as Reply;
         // (A 401 to an older pairing's token ends that one, not the session since.)
