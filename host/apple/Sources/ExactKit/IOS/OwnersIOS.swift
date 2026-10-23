@@ -277,7 +277,7 @@ final class OwnerBlocks {
         var boxes = presenter.modals.navigations.flatMap { nav in
             routes(of: nav, presented: true).filter(\.shown).map { route in
                 TopLayerBox(view: route.view,
-                            frame: (route.route.node.id, presenter.viewportPoints(route.view.convert(route.block, to: presenter.viewport)), nil),
+                            frame: (route.route.node.id, presenter.viewportPoints(NativeGeometry.convert(route.block, from: route.view, to: presenter.viewport)), nil),
                             modal: nav === top ? nav : nil)
             }
         }
@@ -293,6 +293,7 @@ final class OwnerBlocks {
     /// what is current, and the ones behind it what changed since: none.
     func publish() {
         guard !resetting else { return }
+        presenter.nativeGeometry.changed()
         if presenter.applying {
             presenter.afterBatch { [weak self] in self?.publish() }
             return
@@ -363,7 +364,7 @@ final class OwnerBlocks {
     /// itself. None while the owner is not in the window.
     private func placement(of route: RouteController, block: CGRect, in view: UIView) -> BlockPlacement? {
         guard let owner = presenter.navigation.container, owner.window != nil, owner.window === view.window else { return nil }
-        return BlockPlacement(rect: view.convert(block, to: owner), within: owner.id)
+        return BlockPlacement(rect: NativeGeometry.convert(block, from: view, to: owner), within: owner.id)
     }
 
     /// The runtime is being replaced: the routes `teardown` takes down were
