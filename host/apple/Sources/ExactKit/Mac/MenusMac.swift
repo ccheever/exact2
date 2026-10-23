@@ -548,8 +548,8 @@ final class MenuHost: NSObject {
             entry.layer.frame = entry.layer.superview?.bounds ?? presenter.viewport.bounds
             let anchor: NSRect = entry.source.map { self.anchor($0, in: entry.layer, run: entry.run) } ?? .zero
             var box = entry.frame
-            // The page scrolls under a layer in its own window; a sheet's layer is its own extent.
-            let document = presenter.viewport.documentView.flatMap { $0.window != nil && $0.window === entry.layer.window ? $0 : nil }
+            // The page scrolls under a layer in it; a sheet's or a split pane's layer is its own extent.
+            let document = presenter.viewport.documentView.flatMap { $0.window != nil && entry.layer.isDescendant(of: presenter.viewport) ? $0 : nil }
             let page = document.map { $0.convert($0.bounds, to: entry.layer) } ?? entry.layer.bounds
             box.origin = PositionArea.origin(PositionArea.of(entry.popover), anchor: anchor, size: box.size,
                                              margins: PositionArea.margins(of: entry.popover),
@@ -577,7 +577,7 @@ final class MenuHost: NSObject {
         // A sheet's window and a popover's hold this session's nodes alone.
         if window !== viewport.window {
         } else if let owner = focusOwner(window) {
-            guard owner === viewport || owner.isDescendant(of: viewport) else { return false }
+            guard owner === viewport || owner.isDescendant(of: viewport) || presenter?.navigation.split.holdsFocus(owner) == true else { return false }
         } else if presenter?.session?.view?.ownsShortcutFocus() == false { return false }
         guard let last = entries.last(where: { $0.value != "manual" }),
               (window.firstResponder as? NSTextInputClient)?.hasMarkedText() != true else { return false }
