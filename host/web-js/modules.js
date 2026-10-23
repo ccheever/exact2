@@ -131,11 +131,23 @@ export function modules(rows, bound = {}) {
     const p = preferred.get(row.key);
     return errorCode(p) ? p : overlay(structuredClone(json), p);
   };
-  const viaImplementation = (row, args) => implementation(row)?.then(impl => {
+  // A Contract reader's (`reader`, its resource's name) arguments, by live source: once the implementation has a
+  // reader's new arguments, the group no reader asks with any longer is released, `releaseArgs(name, args)` (LLP
+  // 1133.009 D10 item 12). A group data code asks for is released only with the whole name.
+  const readers = new Map(), groups = new Map();
+  const viaImplementation = (row, args, reader) => implementation(row)?.then(impl => {
     const name = row.key.slice(row.key.indexOf(".") + 1);
     if (!impl?.[name]) return { error: "NotSupportedError" };
     if (row.live) live.add(row.key);
-    return Promise.resolve(impl[name](args ?? {}, route(row) === "agent" ? { preferred: preferred.get(row.key) } : undefined)).then(json => overlaid(row, json));
+    const answered = Promise.resolve(impl[name](args ?? {}, route(row) === "agent" ? { preferred: preferred.get(row.key) } : undefined));
+    if (row.live && reader) {
+      const by = readers.get(row.key) ?? new Map(), told = groups.get(row.key) ?? new Map();
+      readers.set(row.key, by.set(reader, JSON.stringify(args ?? {})));
+      groups.set(row.key, told.set(JSON.stringify(args ?? {}), args ?? {}));
+      const current = new Set(by.values());
+      for (const [group, was] of [...told]) if (!current.has(group)) { told.delete(group); say(`release ${row.key} ${group}: no reader asks with it`); impl.releaseArgs?.(name, was); }
+    }
+    return answered.then(json => overlaid(row, json));
   });
   // Admission (LLP 1133.002 D14): why the call is refused, or null.
   const admit = (row, args, origin) => {
@@ -171,6 +183,8 @@ export function modules(rows, bound = {}) {
       const row = byKey.get(key);
       if (Resources.some(r => r.source === row.source) || (globalThis.exact?.moduleReaders?.(key) ?? []).length) continue;
       live.delete(key);
+      readers.delete(key);
+      groups.delete(key);
       implementation(row)?.then(impl => impl?.release?.(key.slice(key.indexOf(".") + 1)));
     }
   });
@@ -179,8 +193,9 @@ export function modules(rows, bound = {}) {
     reserved[row.source] = (_, args, name) => {
       const given = args?.[0] !== undefined ? object(args[0], row.options) : {};
       const timeout = row.send ? timeoutOf(row, args) : null, d = admitted(row, given, "app", row.send, timeout);
-      if (d.forward) return viaImplementation(row, given).then(json => answer(row, json));
-      if (d.hold) return hold(row, d.hold, name, false, timeout, route(row) === "agent" ? () => viaImplementation(row, given) : null);
+      const reader = row.send ? null : name;
+      if (d.forward) return viaImplementation(row, given, reader).then(json => answer(row, json));
+      if (d.hold) return hold(row, d.hold, name, false, timeout, route(row) === "agent" ? () => viaImplementation(row, given, reader) : null);
       return answer(row, d.now);
     };
   }
@@ -233,8 +248,6 @@ export function modules(rows, bound = {}) {
     value(filled(row, v), row.type, row.key);
     return v;
   };
-  // A data-code call's reader, for `state.extensions`: the resource whose answer read it.
-  const readers = new Map(); // key -> Set of resource names
   (globalThis.exact ??= {}).extensions = {
     // `state.extensions` (LLP 1133.002 §6), as the runner's `extensions_json` writes it.
     state() {

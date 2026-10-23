@@ -68,6 +68,12 @@ pub(super) struct Extensions {
     agent: BTreeSet<String>,
     /// The bound live sources that have had a reader, until released.
     live: BTreeSet<String>,
+    /// Each bound live source's Contract readers, by resource, with the
+    /// arguments each last asked with (`bound.rs`).
+    readers: BTreeMap<String, BTreeMap<usize, String>>,
+    /// The argument groups each bound live source's implementation was
+    /// asked for and not yet told are gone.
+    groups: BTreeMap<String, BTreeSet<String>>,
     /// Who each call comes from (`admit.rs`).
     origins: Origins,
 }
@@ -207,10 +213,14 @@ impl<D: DataSource> Runner<D> {
             Target::Resource(i) => format!("query {}", self.plan.str(self.plan.resources[i].name)),
             Target::Mutation(m) => format!("send {}", self.plan.str(self.plan.mutations[m].name)),
         };
+        let reader = match target {
+            Target::Resource(i) => Some(i),
+            Target::Mutation(_) => None,
+        };
         match decision {
             Decision::Forward => {
                 self.log(format!("{what}: {key} (native)"));
-                Ok(Answer::Later(self.bound_request(&row, args)))
+                Ok(Answer::Later(self.bound_request(&row, args, reader)))
             }
             Decision::Now(json) => {
                 let how = if route == Route::Substitute {
@@ -222,7 +232,8 @@ impl<D: DataSource> Runner<D> {
                 self.answer_json(ty, &key, &json).map(Answer::Now)
             }
             Decision::Hold(waits) => {
-                let forward = (route == Route::Agent).then(|| self.forward_body(&row, args));
+                let forward =
+                    (route == Route::Agent).then(|| self.forward_body(&row, args, reader));
                 Ok(Answer::Later(self.hold_module(
                     target, source, waits, timeout, forward, origin,
                 )))
@@ -639,7 +650,7 @@ impl<D: DataSource> Runner<D> {
                 if !send {
                     self.bound_read(&key);
                 }
-                let body = self.forward_body(&row, args);
+                let body = self.forward_body(&row, args, None);
                 Some(self.to_implementation(body))
             }
             Decision::Now(answer) => {
@@ -659,7 +670,7 @@ impl<D: DataSource> Runner<D> {
                 let deadline = timeout
                     .filter(|_| waits == Waits::Value)
                     .map(|t| self.now_ms + t);
-                let forward = (route == Route::Agent).then(|| self.forward_body(&row, args));
+                let forward = (route == Route::Agent).then(|| self.forward_body(&row, args, None));
                 self.extensions.held.push(Held {
                     token,
                     reply: Some(slot.clone()),

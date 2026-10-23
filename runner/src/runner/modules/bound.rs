@@ -21,6 +21,7 @@ use super::super::{DataSource, Runner};
 use super::{Decision, Json, ModulesRow, Route};
 use crate::request::{Reply, Request};
 use serde_json::json;
+use std::collections::BTreeSet;
 
 impl<D: DataSource> Runner<D> {
     /// The host's implementations answer `real` as in production, and
@@ -99,17 +100,28 @@ impl<D: DataSource> Runner<D> {
         self.native_slot().sync(table);
     }
 
-    /// A bound name's read or send, for the native slot: a live source's
-    /// reader is counted, so its release can be said.
-    pub(in crate::runner) fn bound_request(&mut self, row: &ModulesRow, args: Json) -> Request {
-        Request::native(self.forward_body(row, args))
+    /// A bound name's read or send, for the native slot.
+    pub(in crate::runner) fn bound_request(
+        &mut self,
+        row: &ModulesRow,
+        args: Json,
+        reader: Option<usize>,
+    ) -> Request {
+        Request::native(self.forward_body(row, args, reader))
     }
 
     /// The body of a call of `row` for its implementation, `{"extension",
     /// "source"|"send", "args"}`; under the agent with the preferred value
     /// the agent set for it, as `preferred` (LLP 1133.009 D10 item 11). A
-    /// live source's reader is counted, so its release can be said.
-    pub(in crate::runner) fn forward_body(&mut self, row: &ModulesRow, args: Json) -> Vec<u8> {
+    /// live source's reader is counted, so its release can be said, and a
+    /// Contract reader (`reader`, its resource) with its arguments, so each
+    /// argument group's can.
+    pub(in crate::runner) fn forward_body(
+        &mut self,
+        row: &ModulesRow,
+        args: Json,
+        reader: Option<usize>,
+    ) -> Vec<u8> {
         let verb = if row.send { "send" } else { "source" };
         // An option the call omits is left out, so it stays the platform's (D2).
         let mut args = args;
@@ -122,6 +134,16 @@ impl<D: DataSource> Runner<D> {
             }
         }
         if row.live && !row.send {
+            if let Some(i) = reader {
+                let group = body["args"].to_string();
+                let readers = self.extensions.readers.entry(key.clone()).or_default();
+                readers.insert(i, group.clone());
+                self.extensions
+                    .groups
+                    .entry(key.clone())
+                    .or_default()
+                    .insert(group);
+            }
             self.extensions.live.insert(key);
         }
         body.to_string().into_bytes()
@@ -171,23 +193,58 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Each bound live source no answer reads any longer: released, once
-    /// (after a commit).
+    /// (after a commit), `{"extension", "release": name}`. Before that, each
+    /// argument group no Contract reader asks with any longer, `{"extension",
+    /// "release": name, "args"}` (LLP 1133.009 D10 item 12): only once no
+    /// request of the source is in flight, so the implementation has a
+    /// reader's new arguments before it hears the old ones are gone. A
+    /// group data code asks for is released only with the whole name.
     pub(in crate::runner) fn release_idle(&mut self) {
-        let idle: Vec<String> = (self.extensions.live.iter())
-            .filter(|key| !self.read_by_any(key))
-            .cloned()
-            .collect();
-        for key in idle {
-            self.extensions.live.remove(&key);
+        let live: Vec<String> = self.extensions.live.iter().cloned().collect();
+        let handler = self.native_slot().handler();
+        let release = |body: Json| {
+            if let Some(handler) = &handler {
+                handler(body.to_string().into_bytes(), Reply::new(|_| {}));
+            }
+        };
+        for key in live {
             let Some((extension, name)) = key.split_once('.') else {
                 continue;
             };
-            self.log(format!("release {key}: no reader is left"));
-            if let Some(handler) = self.native_slot().handler() {
-                let body = json!({ "extension": extension, "release": name });
-                handler(body.to_string().into_bytes(), Reply::new(|_| {}));
+            if !self.read_by_any(&key) {
+                self.extensions.live.remove(&key);
+                self.extensions.readers.remove(&key);
+                self.extensions.groups.remove(&key);
+                self.log(format!("release {key}: no reader is left"));
+                release(json!({ "extension": extension, "release": name }));
+                continue;
+            }
+            if self.asking(&key) {
+                continue;
+            }
+            let resources = &self.resources;
+            let readers = self.extensions.readers.entry(key.clone()).or_default();
+            readers.retain(|i, _| resources.get(*i).is_some_and(Option::is_some));
+            let current: BTreeSet<String> = readers.values().cloned().collect();
+            let told = self.extensions.groups.entry(key.clone()).or_default();
+            let gone: Vec<String> = told.difference(&current).cloned().collect();
+            told.retain(|g| current.contains(g));
+            for group in gone {
+                self.log(format!("release {key} {group}: no reader asks with it"));
+                let args: Json = serde_json::from_str(&group).unwrap_or_default();
+                release(json!({ "extension": extension, "release": name, "args": args }));
             }
         }
+    }
+
+    /// Whether a request of `key` is in flight.
+    fn asking(&self, key: &str) -> bool {
+        (self.pending.iter()).any(|p| {
+            (p.keepable.as_ref())
+                .and_then(|r| self.module_topic(&r.body))
+                .as_deref()
+                == Some(key)
+        })
     }
 
     /// Whether any resource reads `key`: its source's own reader, an answer
