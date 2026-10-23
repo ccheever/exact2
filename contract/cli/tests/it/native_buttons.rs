@@ -238,6 +238,17 @@ fn face_diagnostics_name_images_and_give_rasters_a_custom_layout() {
 }
 
 #[test]
+fn a_coloured_symbol_is_told_its_tint_not_a_custom_button() {
+    // LLP 1141.001 D11: two ports' builders read "write a custom `button`" here and drew
+    // their own circle where the original floats iOS's glass.
+    let (_, message) = refused(
+        "button buttonStyle=\"glass\" aria-label=\"Bookmark\"\n  image \"symbol:sf/bookmark\" color=\"red\"",
+    );
+    assert!(message.contains("-exact-tint-color"), "{message}");
+    assert!(message.contains("buttonStyle=\"glass\""), "{message}");
+}
+
+#[test]
 fn its_face_is_a_title_a_symbol_or_both() {
     boot(&app("button appearance=\"auto\" press=go aria-label=\"Add\"\n  image (busy ? \"symbol:close\" : \"symbol:add\")"));
     // A role by Apple's name for it or an alias (LLP 1116.007 D3.1).
@@ -526,7 +537,6 @@ fn every_refused_face_row_names_the_custom_button() {
         "height=24",
         "object-fit=\"contain\"",
         "padding=2",
-        "color=\"red\"",
     ] {
         let (id, message) = refused(&format!(
             "button appearance=\"auto\"\n  image \"symbol:send\" {row}\n  text \"Go\""

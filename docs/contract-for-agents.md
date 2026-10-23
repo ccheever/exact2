@@ -1420,6 +1420,10 @@ iOS, a push button on macOS, bordered on the web. Say what the action is:
 `buttonStyle="filled"` on the screen's main action, `"bordered"` on one that
 must read as a button, nothing on a secondary or inline one; and
 `destructive=true` on one that deletes, which iOS draws in the system red.
+A round control that floats over content (a search or compose button in a corner, a
+bookmark over a card) is `buttonStyle="glass"`, or `"prominent-glass"` filled with
+the accent, with its symbol coloured by `-exact-tint-color`: iOS 26's own glass, not a
+custom circle.
 `buttonStyle` needs a native button; on a default button that comes out bare,
 `lower-button-style` names the first reason and says to remove it or write
 `appearance="none"` without `buttonStyle`. It is a styleable host-policy prop;

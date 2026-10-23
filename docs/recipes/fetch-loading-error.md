@@ -34,6 +34,11 @@ component App
                 text p testId=`post-${i}`
 ```
 
+In a native `list` the same states keep out of its rows: a first load is the
+`progress` beside the list while it has no rows, a reload is the list's own
+`refresh=` control, and an error is a text above it. A `progress` in a `row`
+draws a spinner inside a cell, which a hand-built iOS list never shows.
+
 The build-time placeholder cannot read `account`; `empty()` gives `owner` the
 value `""`. Account IDs here must be nonempty. The view shows rows only when
 `feed.owner == account`, so they remain visible during a refresh or failure. A
