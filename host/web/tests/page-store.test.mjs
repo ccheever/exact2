@@ -79,9 +79,12 @@ test('an inaccessible localStorage retains writes and removals; a nameless drive
   blocked = true; apply(write(null)); apply(write('latest'));
   blocked = false; apply();
   expect(storage.getItem('exact.secret.token')).toBe('latest');
-  blocked = true;
-  const memory = host(() => { throw new Error('must not open storage'); }, [], false);
+  let reads = 0;
+  const memoryWarnings = [];
+  const memory = host(() => { reads++; throw new Error('must not open storage'); }, memoryWarnings, false);
   memory(write('private')); memory();
+  expect(reads).toBe(0);
+  expect(memoryWarnings).toEqual([]);
 });
 
 test('a durable write the quota refuses forgets the kept answers and is written', () => {
