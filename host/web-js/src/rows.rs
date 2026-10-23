@@ -265,11 +265,10 @@ impl Em<'_> {
             let _ = write!(self.out, "{p}({e},\"data-x-pin\",{f});");
             return Ok(());
         }
-        // @ref LLP 1084 D7 — what the page's sheet reads to give a grouped
-        // row's separator way (index.html): a bound edge or background image
-        // its author wrote, while it holds a value, and a row's bound
-        // `display`, while it hides the row. A literal one is said by the
-        // element's own marks (`data-exact-said`, `data-exact-hidden`).
+        // Mark bound rows while they hold a value: grouped separators yield to
+        // authored edges and images (LLP 1084 D7), and a native button's floor
+        // yields to authored size and padding. Literal rows use data-exact-said.
+        let button = kind == NodeType::Control && parts.props.contains_key("data-button-style");
         let mark = match id {
             StyleId::BorderWidthTop if b.written => Some("data-exact-top-width"),
             StyleId::BorderStyleTop if b.written => Some("data-exact-top-style"),
@@ -282,6 +281,12 @@ impl Em<'_> {
             {
                 Some("data-exact-hidden")
             }
+            StyleId::Width if b.written && button => Some("data-exact-width"),
+            StyleId::Height if b.written && button => Some("data-exact-height"),
+            StyleId::PaddingTop if b.written && button => Some("data-exact-padding-top"),
+            StyleId::PaddingRight if b.written && button => Some("data-exact-padding-right"),
+            StyleId::PaddingBottom if b.written && button => Some("data-exact-padding-bottom"),
+            StyleId::PaddingLeft if b.written && button => Some("data-exact-padding-left"),
             _ => None,
         };
         if let Some(name) = mark {
