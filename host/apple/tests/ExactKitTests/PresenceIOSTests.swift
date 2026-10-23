@@ -88,6 +88,23 @@ final class PresenceIOSTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(control.segmentViews.first).accessibilityTraits.contains(.notEnabled))
     }
 
+    func testAnUnstyledTabSymbolLeavesTheBarsNativeTint() throws {
+        let p = tabBarFixture()
+        defer { p.reset(); window.isHidden = true }
+        p.apply(wireBatch([["op": "props", "id": 11, "set": ["accessibilitySelected": "true"]]]))
+        let bar = try XCTUnwrap(p.views[10]?.subviews.first { $0 is UITabBar } as? UITabBar)
+        let native = UITabBar()
+        window.addSubview(native)
+        XCTAssertEqual(bar.tintColor, native.tintColor)
+        let pink: [Double] = [240, 40, 120, 255]
+        p.apply(wireBatch([["op": "style", "id": 13, "style": ["text_color": pink]]]))
+        XCTAssertEqual(bar.tintColor, native.tintColor, "inherited page ink leaves UIKit's accent")
+        p.apply(wireBatch([["op": "style", "id": 13, "style": ["text_color": pink, "written": ["text_color"]]]]))
+        XCTAssertEqual(bar.tintColor?.cgColor.components, TextEngine.color(pink).cgColor.components)
+        p.apply(wireBatch([["op": "style", "id": 13, "style": ["text_color": pink]]]))
+        XCTAssertEqual(bar.tintColor, native.tintColor, "removing authored ink restores UIKit's accent")
+    }
+
     func testTabBarReportsItsHeightAndAlwaysFillsTheKernelBox() throws {
         let p = tabBarFixture()
         var reports: [CGSize?] = []
