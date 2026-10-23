@@ -1014,7 +1014,8 @@ package final class Presenter {
         let bar = toolbar.concerns(batch)
         if bar { toolbar.prepare() }
         anchorChanges.reset()
-        for id in scrollers where !collections.owns(id) { views[id]?.captureScrollPosition() }
+        let anchorFocus = scrollers.isEmpty ? nil : focusedNode
+        for id in scrollers where !collections.owns(id) { views[id]?.captureScrollPosition(focused: anchorFocus) }
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
         if let text = session?.text {
             // SVG text shapes with the session's fonts (LLP 1055.000 D11).
