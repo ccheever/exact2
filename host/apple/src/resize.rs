@@ -24,6 +24,7 @@ impl<D: DataSource> Host<D> {
         }
         let (mut batch, error) = self.commit_tree(&advanced.receipts, error, batch);
         let arrange = self.arrange_after_commit(&mut batch);
+        self.group_after_commit(&mut batch);
         self.persist();
         self.emit_language(&mut batch);
         self.emit_transform_drags(&mut batch);
