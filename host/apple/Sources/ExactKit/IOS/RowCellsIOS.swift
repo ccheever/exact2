@@ -207,12 +207,16 @@ final class RowCells {
             view.removeFromSuperview()
             lines[id] = nil
         }
-        // A row gone, or no longer a list's, takes its line with it.
-        for (key, entry) in rowLines where entry.row.value?.rowCell == nil || entry.row.value?.window == nil {
+        // A row gone, or no longer a list's, takes its line with it. One out
+        // of the window keeps it: the line is on the row's own layer, and a
+        // screen a push covered comes back with its rows unchanged.
+        for (key, entry) in rowLines where entry.row.value?.rowCell == nil {
             entry.layer.removeFromSuperlayer()
             rowLines[key] = nil
         }
-        if let held = shown, presenter.views[held.row.id] !== held.row || held.row.window == nil { drop() } else if let held = shown { held.ground.frame = held.row.frame }
+        // The selected row stays so under the screen it pushed, out of the
+        // window, for its fade as that screen pops (`appearing`).
+        if let held = shown, presenter.views[held.row.id] !== held.row { drop() } else if let held = shown { held.ground.frame = held.row.frame }
         // The margins first, so a list's separators end at the one it now has.
         let moved = tell()
         for (id, list) in presenter.listViews where list.hasRowCells && (changed?.contains(id) != false || lines[id] == nil || moved.contains(id)) { draw(list) }

@@ -229,6 +229,36 @@ final class RowCellsIOSTests: XCTestCase {
         }
     }
 
+    /// A screen a push covers is out of the window; a batch then keeps its
+    /// rows' lines, which come back with it, and its selected row.
+    func testACoveredScreenKeepsItsLinesAndItsSelectedRowThroughABatch() throws {
+        let p = try fixture()
+        let row = try XCTUnwrap(p.views[11])
+        let screen = UIViewController()
+        p.viewport.removeFromSuperview()
+        screen.view.addSubview(p.viewport)
+        let stack = UINavigationController(rootViewController: screen)
+        window.rootViewController = stack
+        window.layoutIfNeeded()
+        let lines = separators(p)
+        XCTAssertFalse(lines.isEmpty)
+        stack.pushViewController(UIViewController(), animated: false)
+        window.layoutIfNeeded()
+        XCTAssertNil(row.window, "the push took the list's screen out of the window")
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["testId": "covered"]]]))
+        stack.popViewController(animated: false)
+        window.layoutIfNeeded()
+        XCTAssertEqual(separators(p), lines, "the lines came back with the screen")
+        // Selected, pushed over, and a batch while it is covered.
+        XCTAssertNotNil(p.rowCells.select(row))
+        let before = p.rowCells.screen(of: row)
+        stack.pushViewController(UIViewController(), animated: false)
+        window.layoutIfNeeded()
+        p.rowCells.ran(row, on: before)
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["testId": "covered again"]]]))
+        XCTAssertEqual(p.rowCells.observation(row)?["ground"] as? String, "selected", "still selected under the pushed screen")
+    }
+
     func testATappedRowStaysSelectedUnderTheScreenItPushedAndLetsGoOnTheWayBack() throws {
         let p = try fixture()
         let row = try XCTUnwrap(p.views[11]), route = try XCTUnwrap(p.views[1])
