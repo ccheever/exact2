@@ -603,6 +603,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         dropTextRaster()
         loadGeneration += 1
         presenter?.session?.rasters.cancel(id)
+        buttonRasterView = nil
         raster = nil
         imageSource = nil
         clearSymbol()
