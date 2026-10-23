@@ -13,7 +13,9 @@ final class OneColorCoverageIOSTests: XCTestCase {
         let box = CGRect(x: 8, y: 8, width: 160, height: paragraph.height)
         let size = CGSize(width: 180, height: paragraph.height + 16)
         let job = TextRasterJob(source: engine.attributed(spec), ranges: geometry.ranges,
-            baselines: geometry.baselines, flush: 0, box: box, size: size, scale: 1, tints: true)
+            baselines: geometry.baselines, flush: 0, box: box, size: size, scale: 1, tints: true,
+            measuredGlyphs: try XCTUnwrap(MeasuredGlyphs(paragraph, spec: spec, width: 160)),
+            measuredColor: TextEngine.color(spec.color).cgColor)
         let result = try XCTUnwrap(job.render())
         XCTAssertTrue(result.image.isMask, "Core Graphics publishes the alpha-only bitmap as a coverage mask")
         XCTAssertEqual(result.image.bitsPerPixel, 8)

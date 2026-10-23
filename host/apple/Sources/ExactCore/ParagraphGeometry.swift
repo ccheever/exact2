@@ -270,3 +270,66 @@ extension Spec {
         emergencyBreaks = emergencyHyphens ? inserted : []
     }
 }
+
+/// Glyph values can cross the owner/paint boundary; CoreText layout objects
+/// cannot. CTFont is immutable and shared, as Apple's Core Text threading
+/// guidance permits: https://developer.apple.com/documentation/coretext
+package struct MeasuredGlyphs {
+    package struct Run {
+        package let font: CTFont
+        package let glyphs: [CGGlyph]
+        package let positions: [CGPoint]
+    }
+    package struct Line {
+        package let runs: [Run]
+        package let origin: CGFloat
+        package let ink: CGRect
+        package let box: CGRect
+    }
+    package let lines: [Line]
+    package var bytes: Int {
+        lines.reduce(32) { total, line in
+            total + MemoryLayout<Line>.stride + line.runs.reduce(32) {
+                $0 + MemoryLayout<Run>.stride + 256 + $1.glyphs.count * (MemoryLayout<CGGlyph>.stride + MemoryLayout<CGPoint>.stride)
+            }
+        }
+    }
+    package init?(_ paragraph: Paragraph, spec: Spec, width: CGFloat) {
+        guard spec.reusesMeasuredGlyphs, spec.runs.reduce(0, { $0 + $1.text.utf16.count }) <= 1024 else { return nil }
+        var lines: [Line] = []
+        for (index, line) in paragraph.lines.enumerated() {
+            var runs: [Run] = []
+            for run in CTLineGetGlyphRuns(line) as! [CTRun] {
+                let attributes = CTRunGetAttributes(run) as NSDictionary
+                let font = attributes[kCTFontAttributeName] as! CTFont
+                guard !CTFontGetSymbolicTraits(font).contains(.traitColorGlyphs), CTRunGetTextMatrix(run).isIdentity else { return nil }
+                let count = CTRunGetGlyphCount(run)
+                var glyphs = [CGGlyph](repeating: 0, count: count)
+                var positions = [CGPoint](repeating: .zero, count: count)
+                if count > 0 {
+                    CTRunGetGlyphs(run, CFRange(), &glyphs)
+                    CTRunGetPositions(run, CFRange(), &positions)
+                }
+                // CTFontDrawGlyphs differs from CTLineDraw for cursive attachment
+                // with vertical offsets. Keep that ink on CoreText's line path.
+                guard positions.allSatisfy({ $0.y == 0 }) else { return nil }
+                runs.append(Run(font: font, glyphs: glyphs, positions: positions))
+            }
+            var ascent: CGFloat = 0, descent: CGFloat = 0
+            let advance = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, nil))
+            lines.append(Line(runs: runs, origin: paragraph.origin(index, align: spec.align, width: width),
+                              ink: CTLineGetBoundsWithOptions(line, .useGlyphPathBounds),
+                              box: CGRect(x: 0, y: -ascent, width: advance, height: ascent + descent)))
+        }
+        self.lines = lines
+    }
+}
+
+extension Spec {
+    package var reusesMeasuredGlyphs: Bool {
+        lineClamp == 0 && !ellipsis && align != 3 && shadow == nil && runs.allSatisfy {
+            !$0.hidden && !$0.fixedInk && ($0.color == nil || $0.color == color) && $0.decoration.isEmpty
+                && $0.underlineColor == nil && $0.strikeColor == nil && $0.background == nil && $0.shadow == nil && $0.stroke == nil && $0.href.isEmpty
+        }
+    }
+}

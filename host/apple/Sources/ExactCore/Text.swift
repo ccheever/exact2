@@ -521,7 +521,7 @@ package enum FontRegistry {
 /// This one paints, on main; its `measurer` answers the kernel's
 /// measurements on the owner thread. Each keeps its own fonts, shaped text
 /// and caches; what painting reuses from measuring crosses as plain values
-/// (`TextAnswers`): each measured paragraph's metrics and line breaks.
+/// (`TextAnswers`): metrics, line breaks and optional glyph copies with immutable fonts.
 package final class TextEngine {
     package let presentation: TextPresentation?
     /// The engine the kernel measures with, on the owner thread; nil in the
@@ -545,9 +545,9 @@ package final class TextEngine {
     package func accepted(_ paragraph: Paragraph) { residency.accepted(paragraph) }
     /// Under memory pressure, shaped text no view holds is dropped, as the
     /// raster loader drops its cold images.
-    package func dropCold() { residency.dropCold() }
+    package func dropCold() { residency.dropCold(); answers?.discardGlyphs() }
     /// At rest (`ExactSession.rest`): shaped text no view holds goes.
-    package func dropColdShaped() { residency.dropColdShaped() }
+    package func dropColdShaped() { residency.dropColdShaped(); answers?.discardGlyphs() }
     /// A screen shows about `visibleParagraphs` paragraphs: cold shaped
     /// text is held to two screens of them (`TextResidency.fitShaped`).
     package func fitShaped(visibleParagraphs: Int) { residency.fitShaped(visibleParagraphs: visibleParagraphs) }
@@ -959,7 +959,13 @@ package final class TextEngine {
 
     /// The measurer's answer for `identity` at an offer, for both engines.
     private func publish(_ identity: TextIdentity, offer: UInt64, _ p: Paragraph, lines: LineGeometry?) {
-        publish(identity, offer: offer, ExactMetrics(width: Float(p.width), height: Float(p.height), baseline: Float(p.firstBaseline)), lines: lines)
+        guard publishes, let answers else { return }
+        let hash = TextAnswerKey.write(identity.geometry, into: &answerKey)
+        guard answers.metrics(hash: hash, key: answerKey, offer: offer) == nil else { return }
+        let width = CGFloat(Double(bitPattern: offer))
+        answers.put(hash: hash, key: answerKey, offer: offer,
+                    metrics: ExactMetrics(width: Float(p.width), height: Float(p.height), baseline: Float(p.firstBaseline)),
+                    lines: lines, glyphs: MeasuredGlyphs(p, spec: identity.geometry, width: width))
     }
     private func publish(_ identity: TextIdentity, offer: UInt64, _ metrics: ExactMetrics, lines: LineGeometry?) {
         guard publishes, let answers else { return }
@@ -971,6 +977,12 @@ package final class TextEngine {
         guard let answers else { return nil }
         let hash = TextAnswerKey.write(identity.geometry, into: &answerKey)
         return answers.lines(hash: hash, key: answerKey, width: width)
+    }
+
+    package func measuredGlyphs(_ spec: Spec, width: CGFloat) -> MeasuredGlyphs? {
+        guard spec.reusesMeasuredGlyphs, let answers else { return nil }
+        let hash = TextAnswerKey.write(spec, into: &answerKey)
+        return answers.takeGlyphs(hash: hash, key: answerKey, width: width)
     }
 
     /// Wrap the complete source synchronously. Views/checkpoints keep accepted
