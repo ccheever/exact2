@@ -1037,11 +1037,6 @@ sits on that list carries the trade it would take.
   - Toasts have no warning style; a child component can't hold a resource; `agent` can't hold a
     fetch, so loading states can't be staged; no leftward swipe (`swiperight` only); no `exp`
     function; no hit slop.
-- **A dotted deep link whose last label is a file extension** (2026-10-13): the web servers
-  answer a navigation to `/profile/jay.bsky.team` with the app's document, but `/profile/photos.zip`
-  (`.zip` is a TLD) is taken for a missing file (`FILE_EXTENSIONS`, `scripts/origin.mjs`). Telling
-  them apart needs the app's routes on the server: answer the document when the path matches a
-  declared route template. External static hosts need their own rewrite either way.
 - **macOS `scrollend` and trackpad momentum, unverified** (2026-10-13): `ScrollEndMac.swift` ends a
   live scroll at `NSScrollView.didEndLiveScrollNotification`, taken to come after the momentum
   (AppKit's 10.9 notes say it waits for an animation such as rubber banding, and do not name
