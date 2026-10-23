@@ -279,7 +279,7 @@ extension Agent {
         // the touch (r5 weather). A header button UIKit's bar draws under
         // `--chrome platform`: its bar item (r5 weather, mood journal).
         if target === v, let (control, segment) = presenter.segments.drawn(v) { target = control; region = segment }
-        var barred = false
+        var barred = presenter.navigation.barSegment(v) != nil
         if target === v, let field = presenter.navigation.drawnSearch(v) {
             guard field.window === win, !field.isHidden, field.bounds.width > 0, field.bounds.height > 0 else {
                 return ["error": "tap #\(v.id): UIKit's search field is not shown; scroll to the top and `clock settle` first"]

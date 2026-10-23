@@ -619,6 +619,11 @@ final class NavigationBarIOSTests: XCTestCase {
         _ = press.perform(NSSelectorFromString(action), with: control)
         until("the tab pressed") { state(session, "segment") as? String == "missed" }
         until("the selection follows aria-selected") { control.selectedSegmentIndex == 1 }
+        let tapped = Agent(session: session).tap(["id": Int(try node(session, "segment-all").id)])
+        XCTAssertNil(tapped["error"], "\(tapped)")
+        XCTAssertEqual(tapped["native"] as? String, "segmented-control")
+        until("the agent presses the header projection") { state(session, "segment") as? String == "all" && control.selectedSegmentIndex == 0 }
+
         // LLP 1115.000 D11.6: the title takes its own width, the size UIKit
         // fits it to. Exact held each segment to 90 points at least, so two
         // short titles made a control 180 wide.
