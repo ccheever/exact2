@@ -271,6 +271,8 @@ fn readers(v: &Value, at: At, out: &mut BTreeMap<String, Uses>) -> Result<(), St
                 .then(|| m.get("type").and_then(Value::as_str))
                 .flatten();
             let gradient = at.gradient || ty == Some("gradient");
+            // (a node's overrides, a `descendants` map's value, hold properties as a typed node does)
+            let holder = ty.or((at.key == Some("descendants") && !at.ids).then_some("override"));
             // (a map of the author's names only as a typed object's property: a descendant's id is none)
             let opaque =
                 at.opaque || (at.holder.is_some() && at.key.is_some_and(|p| OPAQUE.contains(&p)));
@@ -289,7 +291,7 @@ fn readers(v: &Value, at: At, out: &mut BTreeMap<String, Uses>) -> Result<(), St
                 let inner = At {
                     key: if at.ids { Some("descendants") } else { Some(k) },
                     parent: at.key,
-                    holder: ty,
+                    holder,
                     outer: at.holder,
                     gradient,
                     opaque,
