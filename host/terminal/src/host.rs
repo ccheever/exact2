@@ -488,13 +488,13 @@ impl<D: DataSource> Host<D> {
             }
         }
         if trace {
-            eprintln!(
+            crate::term::diagnostic(format_args!(
                 "commit: layout {:?}, focus {:?}, walks {:?}, nodes {}",
                 t_layout,
                 t_focus - t_layout,
                 t0.elapsed() - t_focus,
                 self.runner.kernel().live_count()
-            );
+            ));
         }
     }
 
