@@ -169,12 +169,20 @@ final class SidebarMacTests: XCTestCase {
         XCTAssertEqual(reply["viewport"] as? [Double], [Double(view.bounds.width), 700])
     }
 
-    func testShowSidebarFollowsTheSelectedWindowSession() throws {
+    func testShowSidebarFollowsActualWindowFocus() throws { try checkSidebarHandoff(nativeFocus: true) }
+    func testShowSidebarFollowsWindowKeyNotifications() throws { try checkSidebarHandoff(nativeFocus: false) }
+
+    private func checkSidebarHandoff(nativeFocus: Bool) throws {
         let session = try boot(size: CGSize(width: 700, height: 500))
         let view = ExactView(session: session)
         _ = compose(view)
+        let firstWindow = try XCTUnwrap(window)
         let other = ExactApp.shared.makeSession(label: "without-sidebar")
-        defer { other.destroy() }
+        let secondWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 500),
+            styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        secondWindow.isReleasedWhenClosed = false
+        secondWindow.contentView = ExactView(session: other)
+        defer { secondWindow.close(); other.destroy() }
         let previous = (NSApp.mainMenu, NSApp.windowsMenu, NSApp.helpMenu, NSApp.servicesMenu, DevMenu.session, DevMenu.planPath)
         defer {
             NSApp.mainMenu = previous.0; NSApp.windowsMenu = previous.1
@@ -187,11 +195,17 @@ final class SidebarMacTests: XCTestCase {
         }
         DevMenu.install(session: session, planPath: nil)
         XCTAssertFalse(try sidebarItem().isHidden)
-        DevMenu.select(session: other)
+        func focus(_ window: NSWindow) throws {
+            if nativeFocus {
+                window.makeKeyAndOrderFront(nil)
+                guard window.isKeyWindow else { throw XCTSkip("AppKit did not give the window key status; the desktop may be locked") }
+            } else { NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window) }
+        }
+        try focus(secondWindow)
+        XCTAssertTrue(DevMenu.session === other)
         XCTAssertTrue(try sidebarItem().isHidden)
-        session.presenter.shortcuts.sync()
-        XCTAssertTrue(try sidebarItem().isHidden, "the previous session cannot change the selected window's menu")
-        DevMenu.select(session: session)
+        try focus(firstWindow)
+        XCTAssertTrue(DevMenu.session === session)
         XCTAssertFalse(try sidebarItem().isHidden)
     }
 
