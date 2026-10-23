@@ -126,7 +126,7 @@ structure Subst where
   binders : List (String × Option String) := []
   /-- Whether a call's head is replaced too. -/
   calls : Bool := true
-  /-- Derives replace value reads only, including those whose bodies are calls. -/
+  /-- States and derives replace value reads only, including derives whose bodies are calls. -/
   valueOnly : List String := []
   /-- Record constructors: a call naming one keeps its head. -/
   records : List String := []
@@ -851,10 +851,11 @@ def baseMap (s : Subst) (c : CComponent) (args provides : List (String × Expr))
   pure (insertAll (insertAll (insertAll [] pa) ia) (c.states.map fun st => (st.name, .var (lifted st.name n))))
 
 /-- The derives, each resolved expression substituted against `m`, inserted
-as value-only bindings. -/
-def withDerives (records : List String) (m : SMap) (derives : List (String × Expr)) : Subst :=
-  { map := insertAll m (derives.map fun (d, e) => (d, substExpr { map := m, records } e)),
-    valueOnly := derives.map (·.1), records }
+as value-only bindings. States also leave call heads intact while resolving them. -/
+def withDerives (records states : List String) (m : SMap) (derives : List (String × Expr)) : Subst :=
+  let valueOnly := states ++ derives.map (·.1)
+  { map := insertAll m (derives.map fun (d, e) => (d, substExpr { map := m, records, valueOnly } e)),
+    valueOnly, records }
 
 /-- Enter arm `arm` of the region tagged `tag`. -/
 def inArm {α} (tag arm : Nat) (m : ExM α) : ExM α := do
@@ -968,7 +969,8 @@ def inlineNode (p : CProgram) : Nat → Subst → CNode → ExM (List Node)
       let derives ← match resolvedDerives c with
         | .ok ds => pure ds
         | .error e => refuse e
-      let cs := withDerives p.records child derives
+      let stateNames := c.states.map (·.name)
+      let cs := withDerives p.records stateNames child derives
       let owner' : Option (Nat × Nat) := match owner with
         | .arm t a => Option.some (t, a)
         | _ => Option.none
@@ -982,7 +984,7 @@ def inlineNode (p : CProgram) : Nat → Subst → CNode → ExM (List Node)
           if src != "" then act := act.insert src (.var param)
         for st in c.states do
           act := act.insert st.name (.var (nameOf st.name))
-        let mut asub := withDerives p.records act derives
+        let mut asub := withDerives p.records stateNames act derives
         for (q, _) in a.params do
           asub := { asub with map := asub.map.erase q }
         let body := callMarked called
