@@ -376,6 +376,14 @@ final class PushedTitleIOSTests: XCTestCase {
         XCTAssertNotNil(find("swap-reason"), "the reason shows between the header and the scroller")
         XCTAssertEqual(nav.navigationBar.frame.height, expanded, accuracy: 0.5, "nothing collapses the title now, and it stays")
         XCTAssertTrue(largeTitleShows("swap"), "in sight, not left in the scroller below the reason")
+        // The reason goes: the scroller, the route's bottom-edge scroller all
+        // along and so inset by UIKit throughout, gets the bar back at its top.
+        try tap("swap-fail", in: nav, depth: 2)
+        XCTAssertNil(find("swap-reason"))
+        swap = try state(nav, "swap", "swap-first", top: "swap-first-top")
+        XCTAssertEqual(swap.scrolled, 0, accuracy: 0.5, "back at its top, not scrolled by the bar's inset")
+        XCTAssertEqual(swap.bar, expanded, accuracy: 0.5, "the title stays open")
+        XCTAssertEqual(swap.below, 0, accuracy: 0.5, "its first line just below the title")
     }
 }
 #endif
