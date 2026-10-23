@@ -50,6 +50,44 @@ test('different portraits differ, and nothing answers an unknown host or path', 
   expect(answer('api.realworld.show', 'GET', '/elsewhere')).toBeNull();
 });
 
+test('a server portrait override stays local through a consumer cleanup failure', async () => {
+  const normal = await startNet();
+  let failed;
+  const ask = (net, path) => fetch(`https://randomuser.me${path}`, {
+    proxy: `http://${net.proxy}`, tls: { rejectUnauthorized: false },
+  });
+  const path = '/api/portraits/women/1.jpg';
+  try {
+    failed = await startNet(undefined, {
+      'randomuser.me': () => ({ status: 404, body: 'Portrait unavailable' }),
+    });
+    const [missing, portrait] = await Promise.all([ask(failed, path), ask(normal, path)]);
+    expect(missing.status).toBe(404);
+    expect(await missing.text()).toBe('Portrait unavailable');
+    expect(portrait.status).toBe(200);
+    const bytes = Buffer.from(await portrait.arrayBuffer());
+    expect(bytes).toEqual(answer('randomuser.me', 'GET', path).body);
+    expect(bytes).not.toEqual(answer('randomuser.me', 'GET', '/api/portraits/men/2.jpg').body);
+    const articles = await fetch('https://api.realworld.show/api/articles?limit=1', {
+      proxy: `http://${failed.proxy}`, tls: { rejectUnauthorized: false },
+    });
+    expect(articles.status).toBe(200);
+    await articles.arrayBuffer();
+    await expect((async () => {
+      await failed.close();
+      throw new Error('injected cleanup failure');
+    })()).rejects.toThrow('injected cleanup failure');
+    const stillNormal = await ask(normal, path);
+    expect(stillNormal.status).toBe(200);
+    expect(Buffer.from(await stillNormal.arrayBuffer())).toEqual(bytes);
+    expect(answer('randomuser.me', 'GET', path).status).toBe(200);
+    expect(normal.unanswered).toEqual([]);
+    expect(failed.unanswered).toEqual([]);
+  } finally {
+    await Promise.all([normal.close(), failed?.close()]);
+  }
+});
+
 test('the proxy tunnels HTTPS and refuses and records other ports', async () => {
   const net = await startNet();
   try {

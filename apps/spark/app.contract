@@ -276,6 +276,7 @@ component Stamp
   view
     text label testId=testId position="absolute" top=top left=left width=(label == "SUPER LIKE" ? 200 : 138) box-sizing="border-box" text-align="center" font-size=(label == "SUPER LIKE" ? 30 : 38) font-weight=900 letter-spacing=2 color=color background-color="-exact-background" padding-top=2 padding-bottom=2 border-width=4 border-style="solid" border-color=color border-radius=10 rotate=tilt opacity=shown pointer-events="none" transition=(dragging ? "none" : "opacity 180ms ease-out")
 
+// A round button with a coloured glyph.
 component RoundButton
   props
     testId: string
@@ -291,10 +292,6 @@ component RoundButton
       svg width=glyph height=glyph viewBox="0 0 24 24"
         path d=path fill=color
 
-// The brand gradients keep their hues in both schemes. Their darker stops
-// keep white labels readable, including on the translucent match overlay.
-// The flame, photo shade and shadows are artwork, not page surfaces.
-
 // The end of the deck.
 component EmptyDeck
   props
@@ -305,6 +302,7 @@ component EmptyDeck
         path d="M12 1.5C13 6 19.5 8.5 19.5 14.5C19.5 19 16 22.5 12 22.5C8 22.5 4.5 19 4.5 14.5C4.5 11.5 6 9.5 8 8.5C8 10.5 8.5 12 9.5 12.5C9.5 8 10.5 4 12 1.5Z" fill="AccentColor"
       text "You've seen everyone nearby" font-size=20 font-weight=700 class=Ink text-align="center"
       text "Check back later, or start over from the top of the deck." font-size=15 class=Ink text-align="center" max-width=260
+      // The brand gradient stays dark enough for white labels in either appearance.
       button testId="start-over" color-scheme="dark" press=restart -exact-press-scale=0.96 padding-left=28 padding-right=28 padding-top=13 padding-bottom=13 border-width=0 border-radius=999 background-image="linear-gradient(90deg, #c0175a, #b73242)" box-shadow="0 6px 16px rgba(253, 41, 123, 0.3)"
         text "Start over" font-size=16 font-weight=700 color="-exact-label"
 
@@ -320,7 +318,8 @@ component MatchOverlay
     p: Profile
     keepSwiping: action
   view
-    column testId="match-overlay" color-scheme="dark" role="dialog" aria-label="It's a match" position="absolute" top=0 left=0 right=0 bottom=0 align-items="center" justify-content="center" gap=22 padding=32 background-image="linear-gradient(160deg, rgba(192, 23, 90, 0.94), rgba(183, 50, 66, 0.94) 55%, rgba(166, 74, 36, 0.94))" animation="fade 260ms ease-out 320ms both"
+    // The dark brand artwork also sits behind the status bar on a phone.
+    column testId="match-overlay" color-scheme="dark" status-bar-style="auto" role="dialog" aria-label="It's a match" position="absolute" top=0 left=0 right=0 bottom=0 align-items="center" justify-content="center" gap=22 padding=32 background-image="linear-gradient(160deg, rgba(192, 23, 90, 0.94), rgba(183, 50, 66, 0.94) 55%, rgba(166, 74, 36, 0.94))" animation="fade 260ms ease-out 320ms both"
       column align-items="center" gap=22 animation="pop 420ms cubic-bezier(.2, .9, .3, 1.2) 320ms both"
         text "It's a match!" testId="match-title" font-size=44 font-weight=900 font-style="italic" letter-spacing=-1 color="-exact-label" text-align="center"
         text `You and ${p.name} like each other.` font-size=17 color="-exact-label" text-align="center"
