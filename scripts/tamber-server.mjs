@@ -1313,7 +1313,7 @@ export async function toolAnswers(origin = TOOL_ORIGIN, tries = 1) { // `{app, e
     let got; for (let i = 1; !got; i++) try { got = await upstream(`${origin}/__tamber/token`, { redirect: 'error', signal: AbortSignal.timeout(2000) }); } catch (e) { if (e?.name !== 'TimeoutError' || i >= tries) throw e; }
     if (!got.ok) return { app: null };
     const { token } = await got.json();
-    const hello = await (await fetch(`${origin}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}', signal: AbortSignal.timeout(tries > 1 ? 120_000 : 10_000) })).json(); // (a loop that gave its token is up: one loaded starts its design server late)
+    const hello = await (await upstream(`${origin}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}', signal: AbortSignal.timeout(tries > 1 ? 120_000 : 10_000) })).json(); // (a loop that gave its token is up: one loaded starts its design server late)
     return { app: hello.ok?.app ?? null, epoch: hello.ok?.epoch ?? null };
   } catch { return null; }
 }
