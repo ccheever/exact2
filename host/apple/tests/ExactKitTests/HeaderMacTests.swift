@@ -301,6 +301,21 @@ final class HeaderMacTests: XCTestCase {
         }
     }
 
+    func testPaintedReadoutRetainsAuthoredTabularDigits() throws {
+        let p = fixture(extra: view(16, "text", ["text": "1111", "accessibilityRole": "status"])
+            + [["op": "style", "id": 16, "style": ["font_size": 24, "font_variant_numeric": 1, "written": ["font_size", "font_variant_numeric"]]],
+               children(10, [11, 12, 16, 13, 14])])
+        session = ExactApp.shared.makeSession(label: "bar-numeric")
+        p.session = session
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        let readout = try XCTUnwrap(p.toolbar.items[16]?.view as? NSImageView)
+        let font = try XCTUnwrap(session?.text.font(size: 24, weight: 400, family: 0, italic: false, numeric: 1))
+        let first = try XCTUnwrap(readout.image).size.width
+        XCTAssertEqual(first, ceil(("1111" as NSString).size(withAttributes: [.font: font]).width))
+        p.apply(wireBatch([["op": "props", "id": 16, "set": ["text": "8888"]]]))
+        XCTAssertEqual(try XCTUnwrap(readout.image).size.width, first, "changing digits retain their spacing")
+    }
+
     func testAuthoredDotAndFontKeepTheirToolbarFace() throws {
         let p = fixture(extra: view(130) + view(131, "text", ["text": "Clock"])
             + [["op": "style", "id": 130, "style": ["width": 8, "height": 8, "background_color": [20, 200, 40, 255]]],

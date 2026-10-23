@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import CoreText
 
 /// The bounded bar face UIKit's ChipFace draws: text, symbols and sized dots.
 /// Read styles because a projected header has no laid-out page geometry.
@@ -27,10 +28,15 @@ struct MacBarFace {
                 let text = child.accessibleText
                 guard !text.isEmpty else { return }
                 typed = typed || fonted
-                let font = fonted ? child.text?.font(size: child.number("font_size", PageFacts.defaultRootFontSize),
+                var font = fonted ? child.text?.font(size: child.number("font_size", PageFacts.defaultRootFontSize),
                     weight: Int(child.number("font_weight", 400)), family: Int(child.number("font_family")),
                     italic: child.style["font_style"]?.string == "italic") ?? NSFont.systemFont(ofSize: child.number("font_size", 13))
                     : NSFont.systemFont(ofSize: NSFont.systemFontSize)
+                if Int(child.number("font_variant_numeric")) & 1 != 0 {
+                    let settings = [[kCTFontOpenTypeFeatureTag: "tnum", kCTFontOpenTypeFeatureValue: 1]] as CFArray
+                    let descriptor = CTFontDescriptorCreateWithAttributes([kCTFontFeatureSettingsAttribute: settings] as CFDictionary)
+                    font = CTFontCreateCopyWithAttributes(font as CTFont, font.pointSize, nil, descriptor) as NSFont
+                }
                 let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: ink(child, "text_color", authored: inked)]
                 let size = (text as NSString).size(withAttributes: attrs)
                 parts.append((CGSize(width: ceil(size.width), height: ceil(size.height)), alpha,
