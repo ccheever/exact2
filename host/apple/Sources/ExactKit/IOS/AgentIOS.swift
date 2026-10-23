@@ -635,7 +635,10 @@ extension Agent {
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
            tapHitsControl(node, request: req),
            let activated = presenter.controls.activate(node) {
-            if let unsupported = presenter.controls.unopened(node) { return unsupported }
+            if var unsupported = presenter.controls.unopened(node) {
+                unsupported["reason"] = (unsupported["reason"] as? String ?? "") + "; use --touch platform for a real touch"
+                return unsupported
+            }
             return activated ? delivered(["tapped": id, "delivery": "host-activation", "native": "control"], node)
                 : ["error": "control #\(id) is disabled, inert or not shown"]
         }
@@ -924,6 +927,7 @@ extension Agent {
     /// A plain tap's point for `v` (`AgentAddressedTap.swift`): `b` is its
     /// box in the viewport, the answer a point there, or the refusal.
     func addressedPoint(_ v: NodeView, box b: CGRect, in win: UIWindow) -> AddressedAim {
+        if let native = nativeControlPoint(v, box: b, in: win) { return native }
         let vp = presenter.viewport
         let seen = b.intersection(presenter.reach(of: v))
         let window = { (q: CGPoint) in vp.convert(CGPoint(x: q.x + vp.pageOrigin.x, y: q.y + vp.pageOrigin.y), to: nil) }

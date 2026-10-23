@@ -14,6 +14,37 @@ const byTestId = (t, id) => t.nodes.find((n) => n.props.testId === id);
 const box = (l, id) => l.nodes.find((n) => n.testId === id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+export async function formControlsSmoke({ host, open, check }) {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-form-controls-')), root = resolve(import.meta.dir, '..'), plan = resolve(dir, 'controls.plan');
+  let s;
+  try {
+    const compiled = spawnSync(resolve(root, 'target', HOST_DEV, 'contract'), ['build', resolve(root, 'scripts/fixtures/form-controls.contract'), '-o', plan], { encoding: 'utf8' });
+    if (!check(compiled.status === 0, `${host} form controls compile: ${compiled.stderr ?? compiled.error}`)) return;
+    s = await open({ host, plan });
+    if (host === 'ios') for (const target of ['fruit', 'level', 'day']) {
+      const r = await s.tap(target);
+      check(r.delivery === 'unsupported' && r.reason?.includes('--touch platform'), `ios ${target}: a programmatic tap names the real-touch alternative: ${JSON.stringify(r)}`);
+    }
+    for (const [target, value] of [['fruit', 'pear'], ['level', '75'], ['day', '2026-11-05'], ['time', '13:45'],
+      ['moment', '2026-11-05T13:45']]) {
+      await s.type(target, value);
+      const actual = (await s.state()).slots[target];
+      check(String(actual) === value, `${host} ${target}: type changes its bound value to ${value}, got ${JSON.stringify(actual)}`);
+    }
+    const refused = await s.type('fruit', 'unavailable').then(r => r.error ?? '', e => e.message);
+    check(/disabled|no enabled option/.test(refused) && (await s.state()).slots.fruit === 'pear', `${host} select refuses its disabled option: ${refused}`);
+    await s.close(); s = null;
+    if (host === 'ios') for (const target of ['fruit', 'day']) {
+      s = await open({ host, plan, touch: 'platform' });
+      const before = await s.screenshot(resolve(dir, `${target}-closed.png`), true);
+      const tap = await s.tap(target), after = await s.screenshot(resolve(dir, `${target}-open.png`), true);
+      check(tap.delivery === 'platform' && !before.presented && !!after.presented, `ios ${target}: a real tap presents its UIKit chooser: ${JSON.stringify({ delivery: tap.delivery, before: before.presented, after: after.presented })}`);
+      await s.close(); s = null;
+    }
+  } catch (error) { check(false, `${host} form controls: ${error.message}`); }
+  finally { await s?.close(); rmSync(dir, { recursive: true, force: true }); }
+}
+
 // An HTTP guest must not become mixed content merely because the native
 // host supplies a wrapper (#106). Loopback IP needs no ATS exception, so
 // the existing smoke app can exercise the WebKit path without changing
