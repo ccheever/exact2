@@ -76,14 +76,15 @@ final class SidebarMacTests: XCTestCase {
 
     """
 
-    private func boot(size: CGSize) throws -> ExactSession {
+    private func boot(size: CGSize, scrollingTabs: Bool = false) throws -> ExactSession {
         _ = NSApplication.shared
         let dir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent("../../target/sidebar-test-" + UUID().uuidString).standardizedFileURL
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let contract = dir.appendingPathComponent("app.contract"), plan = dir.appendingPathComponent("app.plan")
-        try app.write(to: contract, atomically: true, encoding: .utf8)
+        let source = scrollingTabs ? app.replacingOccurrences(of: "row role=\"tablist\"", with: "row overflow-x=\"auto\" role=\"tablist\"") : app
+        try source.write(to: contract, atomically: true, encoding: .utf8)
         let compiler = Process(), said = Pipe()
         compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"]))
         compiler.arguments = ["build", contract.path, "-o", plan.path]
@@ -132,6 +133,27 @@ final class SidebarMacTests: XCTestCase {
     private func choose(_ split: ExactSidebarController, _ row: Int) {
         // A person's choice of a row, as the table asks its delegate on the way down.
         XCTAssertEqual(split.table.delegate?.tableView?(split.table, shouldSelectRow: row), false, "the table never selects by itself")
+    }
+
+    func testAScrollingTablistLeavesLayoutWhileTheSidebarReplacesIt() throws {
+        let session = try boot(size: CGSize(width: 700, height: 500), scrollingTabs: true)
+        let view = ExactView(session: session)
+        let split = compose(view)
+        let tabs = try node("tabs"), panels = try node("panels")
+        let scroll = try XCTUnwrap(tabs.scroll)
+        for style in [NSScroller.Style.overlay, .legacy, .overlay] {
+            scroll.scrollerStyle = style
+            scroll.tile()
+            XCTAssertTrue(tabs.isHidden)
+            XCTAssertEqual(session.presenter.covers.delivered[tabs.id], .whole)
+            XCTAssertEqual(panels.frame.size, view.bounds.size)
+        }
+        try press("authored-today")
+        XCTAssertFalse(session.presenter.sidebar.installed)
+        XCTAssertFalse(tabs.isHidden)
+        XCTAssertEqual(session.presenter.covers.delivered[tabs.id], .gutter(right: 0, bottom: 0))
+        XCTAssertGreaterThan(tabs.frame.height, 0)
+        split.release()
     }
 
     func testANativeTabsChangedFaceReachesItsSidebarRow() throws {
