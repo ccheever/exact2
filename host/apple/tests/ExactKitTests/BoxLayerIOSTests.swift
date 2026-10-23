@@ -11,6 +11,39 @@ import XCTest
 /// what the layer cannot say still draws. UIKit, so a simulator runs it:
 ///   bun host/apple/build.mjs --test --ios
 final class BoxLayerIOSTests: XCTestCase {
+    func testAnUnevenImageBackgroundStaysBehindItsDrawnPixels() throws {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let png = try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 80, height: 40), format: format).image { context in
+            UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 40, height: 40))
+        }.pngData())
+        let p = Presenter(), loader = RasterLoader(), resolver = AssetResolver(root: URL(fileURLWithPath: NSTemporaryDirectory()))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        defer { loader.shutdown(); window.isHidden = true }
+        p.viewport.frame = window.bounds; window.addSubview(p.viewport); window.makeKeyAndVisible()
+        let image = NodeView(id: 1, kind: "image", presenter: p)
+        p.views[1] = image; p.viewport.addSubview(image)
+        image.frame = CGRect(x: 0, y: 0, width: 80, height: 40)
+        image.loadGeneration = 1
+        loader.load(image, source: "data:image/png;base64," + png.base64EncodedString(), resolver: resolver)
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while image.raster == nil, Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+        XCTAssertNotNil(image.raster)
+        for alpha in [255, 128] {
+            image.applyStyle(["background_color": [0, 0, 255, .number(Double(alpha))],
+                "border_radius_top_left": 18, "border_radius_top_right": 18,
+                "border_radius_bottom_left": 18, "border_radius_bottom_right": 4])
+            image.layer.displayIfNeeded()
+            let context = try XCTUnwrap(CGContext(data: nil, width: 80, height: 40, bitsPerComponent: 8, bytesPerRow: 320,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            image.layer.render(in: context)
+            let bytes = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+            func pixel(_ x: Int, _ y: Int) -> [UInt8] { Array(UnsafeBufferPointer(start: bytes + y * 320 + x * 4, count: 4)) }
+            XCTAssertEqual(pixel(20, 20), [255, 0, 0, 255], "the background must not cover or tint the opaque image")
+            XCTAssertEqual(pixel(60, 20), [0, 0, UInt8(alpha), UInt8(alpha)], "the transparent image leaves the background visible")
+            XCTAssertEqual(pixel(0, 0), [0, 0, 0, 0], "the corner remains transparent")
+        }
+    }
+
     func testPercentageRadiusUsesBothAxesAndFollowsResize() {
         var style: NodeStyle = ["background_color": [36, 104, 172, 255]]
         for corner in ["top_left", "top_right", "bottom_right", "bottom_left"] {
