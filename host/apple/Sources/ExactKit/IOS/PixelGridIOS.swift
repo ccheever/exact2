@@ -83,7 +83,12 @@ package enum PixelGrid {
     /// onto the grid inward: a scroll offset UIKit will not clamp off it.
     package static func clamp(_ v: CGFloat, _ low: CGFloat, _ high: CGFloat, scale s: CGFloat) -> CGFloat {
         let k = CGFloat(scale(s))
-        let lo = (low * k).rounded(.up) / k, hi = max(lo, (high * k).rounded(.down) / k)
+        // Native inset sums can miss an integral pixel by a few ULP.
+        func pixels(_ value: CGFloat) -> CGFloat {
+            let value = value * k, nearest = value.rounded()
+            return abs(value - nearest) <= max(1e-9, value.ulp * 8) ? nearest : value
+        }
+        let lo = pixels(low).rounded(.up) / k, hi = max(lo, pixels(high).rounded(.down) / k)
         return min(max(round(v, scale: s), lo), hi)
     }
 

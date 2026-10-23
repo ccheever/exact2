@@ -135,6 +135,14 @@ final class PixelGridIOSTests: XCTestCase {
         }
     }
 
+    func testNativePixelBoundsDoNotLoseAPixelToArithmeticNoise() {
+        for scale in [2, 3] as [CGFloat] {
+            let low = -499 / scale, high = 1000 / scale
+            XCTAssertEqual(PixelGrid.clamp(low, low.nextUp, high, scale: scale), low, accuracy: 1e-9)
+            XCTAssertEqual(PixelGrid.clamp(high, low, high.nextDown, scale: scale), high, accuracy: 1e-9)
+        }
+    }
+
     func testEachEdgeRoundsHalfUpAndTheSizeIsBetweenThem() {
         // At 3x, x = 10.1667 is 30.5 device pixels and rounds up to 31; its
         // right edge, 90.5, to 91. A 0.5 pt height from 0 is 0 to 1.5: 0 to 2.
