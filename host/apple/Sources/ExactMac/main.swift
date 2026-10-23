@@ -446,7 +446,6 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
-        DevMenu.select(session: session)
         if !stamped, label == "main" { stamped = true; ExactEnv.stamp("windowDidBecomeKey") }
         agentReady()
     }
