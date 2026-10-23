@@ -1,0 +1,35 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/media-capture@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {
+    "AndroidTrack": {
+      "isClientSilenced": "bool"
+    },
+    "AndroidMicrophoneStatus": {
+      "shouldShowRationale": "bool",
+      "permanentlyDenied": "bool"
+    }
+  },
+  "options": {
+    "getUserMedia": {
+      "audioSource": "enum<mic|camcorder|voiceRecognition|voiceCommunication|unprocessed|voicePerformance>",
+      "privacySensitive": "bool"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "audioRecordBuilder"
+  ],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "artifacts": [],
+  "class": "exact.mediacapture.MediaCaptureModule"
+}

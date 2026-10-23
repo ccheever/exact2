@@ -1,0 +1,27 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/recording@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {},
+  "options": {
+    "startMediaRecorder": {
+      "formatID": "enum<aac|alac|linearPCM|opus>",
+      "audioQuality": "enum<min|low|medium|high|max>",
+      "bitRateStrategy": "enum<constant|longTermAverage|variableConstrained|variable>"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "swift": [
+      "Recording.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "RecordingModule"
+}
