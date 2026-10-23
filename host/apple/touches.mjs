@@ -528,7 +528,7 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
       if (ids.length > 1) throw new Error(`${what}: ambiguous: ${ids.length} touches after seq ${a.seq}: ${JSON.stringify(log.slice(0, 8))}`);
       if (!ids.length) return null;
       const began = log.find((e) => e.touch === ids[0] && e.phase === 'began');
-      return { lifted: log.some((e) => e.touch === ids[0] && e.phase === 'ended'), reports: began.reports === true, reached: reached.includes(ids[0]) };
+      return { began: began.t, lifted: log.some((e) => e.touch === ids[0] && e.phase === 'ended'), reports: began.reports === true, reached: reached.includes(ids[0]) };
     };
     const early = `${what}: the touch lifted before the ops during it`;
     try {
@@ -544,14 +544,17 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
         // A still finger on a view that reports it (a node, a native button): its ops wait for its `touchesBegan`
         // (`reached`), so what they read is what a person holding it sees. A touch some recognizer keeps from the view
         // runs them at the bound, or, with `drag.reach` (a held contact's reads), fails before them.
-        for (const by = Date.now() + REACH_MS; ops.length && !moves && touch.reports && !touch.reached && !touch.lifted && Date.now() < by;) {
+        const initialStill = legs ? !legs[0].dx && !legs[0].dy : !moves;
+        const initialReads = legs ? checkpoints[0].ops.length : ops.length;
+        const checkpointEnd = legs ? touch.began + checkpoints[0].end / 1000 : Infinity;
+        for (const by = Date.now() + REACH_MS; initialReads && initialStill && touch.reports && !touch.reached && !touch.lifted && Date.now() < by && (!legs || hostNow < checkpointEnd);) {
           await new Promise((r) => setTimeout(r, 16));
           touch = ours(await entries());
         }
         if (touch.lifted && !ops.length) return;
         if (touch.lifted) throw new Error(`${early} began; lengthen hold`);
-        if (ops.length && !moves && touch.reports) reachedIn = touch.reached ? Date.now() - seen : false;
-        if (drag.reach && reachedIn === false) throw new Error(`${what}: the touch did not reach the view it landed on within ${REACH_MS} ms (a recognizer kept it), so nothing inside it ran`);
+        if (initialReads && initialStill && touch.reports) reachedIn = touch.reached ? Date.now() - seen : false;
+        if ((drag.reach || legs && initialReads && initialStill) && reachedIn === false) throw new Error(`${what}: the touch did not reach the view it landed on within ${legs ? Math.min(REACH_MS, checkpoints[0].end) : REACH_MS} ms (a recognizer kept it), so nothing inside it ran`);
         if (legs) {
           const began = (await entries()).find(e => e.phase === 'began');
           if (!Number.isFinite(hostNow)) throw new Error(`${what}: rebuild the iOS app for checkpoint timestamps`);
