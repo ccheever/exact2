@@ -9,7 +9,13 @@ impl<D: DataSource> Bridge<D> {
         {
             return Some(self.refuse_pending());
         }
-        if candidate.carried_from != self.host.as_ref().map(Host::carry) {
+        let current = self.host.as_ref().map(Host::carry);
+        let matches = match (&candidate.carried_from, &current) {
+            (Some(before), Some(now)) => same_carried(before, now),
+            (None, None) => true,
+            _ => false,
+        };
+        if !matches {
             self.discard_plan();
             return Some(self.emit("{\"ops\":[],\"pending\":true}".into()));
         }
@@ -24,4 +30,53 @@ impl<D: DataSource> Bridge<D> {
         self.preparation_refusal()
             .unwrap_or_else(|| self.emit("{\"ops\":[]}".into()))
     }
+}
+
+/// Value's language equality merges signed zeros; a reload must preserve
+/// every distinction expressions can observe, including nested values.
+fn same_carried(a: &exact_runner::Carried, b: &exact_runner::Carried) -> bool {
+    use exact_runner::{
+        compare::{equivalent, equivalent_all},
+        Carried,
+    };
+    let Carried {
+        router,
+        data_revision,
+        keeps_answers,
+        slots,
+        panels,
+        resources,
+        store_readers,
+        now_ms,
+        store,
+        forgot_waiting,
+        faults,
+        modes,
+    } = a;
+    router == &b.router
+        && data_revision == &b.data_revision
+        && keeps_answers == &b.keeps_answers
+        && store_readers == &b.store_readers
+        && now_ms.to_bits() == b.now_ms.to_bits()
+        && store == &b.store
+        && forgot_waiting == &b.forgot_waiting
+        && faults == &b.faults
+        && modes == &b.modes
+        && slots.len() == b.slots.len()
+        && slots
+            .iter()
+            .zip(&b.slots)
+            .all(|((an, av), (bn, bv))| an == bn && equivalent(av, bv))
+        && panels.len() == b.panels.len()
+        && panels
+            .iter()
+            .zip(&b.panels)
+            .all(|((ap, an, av), (bp, bn, bv))| ap == bp && an == bn && equivalent(av, bv))
+        && resources.len() == b.resources.len()
+        && resources
+            .iter()
+            .zip(&b.resources)
+            .all(|((an, asrc, aa, av), (bn, bsrc, ba, bv))| {
+                an == bn && asrc == bsrc && equivalent_all(aa, ba) && equivalent(av, bv)
+            })
 }
