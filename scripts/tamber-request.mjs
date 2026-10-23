@@ -89,7 +89,8 @@ export const viaDoor = access => access?.local === true || access?.remote === tr
  * meets a reset (ECONNRESET, "the socket connection was closed unexpectedly"). That is the likely cause of the
  * design-tool test split's one ECONNRESET under load (QUEUE 2026-10-22), where the time before this side sees the
  * close is long enough to land in; tamber-upstream.test.mjs makes the reuse certain. A loopback connect costs next
- * to nothing. */
+ * to nothing. (`keepalive: false` turns pooling off in Bun's fetch, which runs these; Node's and a browser's read it
+ * otherwise.) */
 export const upstream = (url, init = {}) => {
   // (A `connection: keep-alive` passed on from the client would put the socket back in the pool all the same.)
   const headers = new Headers(init.headers);
