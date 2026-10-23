@@ -879,6 +879,7 @@ component Banner
   props
     banner: string
     fallback: string
+    backup: string
     plain: bool
     icon: string
   parts
@@ -886,7 +887,7 @@ component Banner
   view
     column part="band"
       image `${banner}` width=20 height=20
-      image (plain ? fallback : `${fallback}`) width=20 height=20
+      image (plain ? fallback : `${backup}`) width=20 height=20
       image `symbol:${icon}` width=20 height=20
 "#;
 
@@ -897,7 +898,7 @@ component App
     column
       Pic(src="a.png", label="a")
       Face(avatar="b.png", name="b")
-      Banner(banner="c.png", fallback="d.png", plain=false, icon="star")
+      Banner(banner="c.png", fallback="d.png", backup="e.png", plain=false, icon="star")
 "#;
 
 /// A string prop shown as an image's source, directly or through a
@@ -937,6 +938,7 @@ fn a_string_shown_as_an_image_gets_a_neutral_picture_and_text_keeps_its_name() {
         .expect("a Banner cell");
     assert!(banner.contains(&format!("banner={neutral}")), "{banner}");
     assert!(banner.contains(&format!("fallback={neutral}")), "{banner}");
+    assert!(banner.contains(&format!("backup={neutral}")), "{banner}");
     assert!(!banner.contains(&format!("icon={neutral}")), "{banner}");
     // Sized by itself, as a browser sizes an SVG without a size, for native readers.
     assert!(text.contains("width='150' height='150'"), "{banner}");
