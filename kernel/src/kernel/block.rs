@@ -436,6 +436,16 @@ impl Kernel {
         let node = self.node(view)?;
         let (s, f, env) = (node.style, node.frame, self.arena.env());
         let used = self.host_block_size(view)?;
+        // The end margins as laid out: the used size clamps a negative one.
+        let tree = self.layout.as_deref().and_then(LayoutMirror::tree_ref);
+        let laid = self.arena.taffy(node.key.index).zip(tree);
+        let ends = laid.map_or(
+            (used.0 - f.x - f.width, used.1 - f.y - f.height),
+            |(n, t)| {
+                let margin = t.layout(n).margin;
+                (margin.right, margin.bottom)
+            },
+        );
         let length = |d: crate::Dimension, basis: f32| {
             (d.resolve(env) != crate::Dimension::Auto).then(|| d.at_basis(env, basis))
         };
@@ -459,10 +469,9 @@ impl Kernel {
                     margin: [crate::Dimension; 2],
                     at: f32,
                     size: f32,
-                    used: f32,
+                    end_margin: f32,
                     room: f32,
                     across: bool| {
-            let end_margin = used - at - size;
             let from_end = |end: f32| room - end - end_margin - size;
             match (length(inset[0], room), length(inset[1], room)) {
                 (Some(start), Some(end)) => match (auto(margin[0]), auto(margin[1])) {
@@ -489,7 +498,7 @@ impl Kernel {
             [s.margin_left, s.margin_right],
             f.x,
             f.width,
-            used.0,
+            ends.0,
             width,
             true,
         );
@@ -498,7 +507,7 @@ impl Kernel {
             [s.margin_top, s.margin_bottom],
             f.y,
             f.height,
-            used.1,
+            ends.1,
             height,
             false,
         );

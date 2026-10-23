@@ -390,4 +390,9 @@ fn a_popovers_insets_place_it_by_the_css_rules() {
     let rtl = [(StyleId::Direction, t("rtl"))];
     let (x, _) = place(&rtl, &both, OFFER);
     assert_eq!(x, 720.0, "right to left, the right one");
+    // Its right margin as laid out, though a negative left one makes its
+    // margin box narrower than nothing (Astra's re-check).
+    let pulled = [both.as_slice(), &[(StyleId::MarginLeft, n(-100.0))]].concat();
+    let (x, _) = place(&rtl, &pulled, OFFER);
+    assert_eq!(x, 720.0, "the right inset and margin, not a clamped width");
 }
