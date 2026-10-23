@@ -113,6 +113,16 @@ enum Inspect {
         return nil
     }
 
+    /// A JSON value as JavaScript's `if` reads it.
+    static func truthy(_ value: Any) -> Bool {
+        switch value {
+        case is NSNull: false
+        case let s as String: !s.isEmpty
+        case let n as NSNumber: n.doubleValue != 0 && !n.doubleValue.isNaN
+        default: true
+        }
+    }
+
     /// Whether an outline answers a click of this inspect session: then it
     /// scrolls nothing (the copy clicked is under the finger).
     static func answersClick(_ frame: [String: Any]) -> Bool {
@@ -149,9 +159,12 @@ extension ExactApp {
     /// channel (BuildChannel.swift).
     func inspectCommand(_ frame: [String: Any]) {
         if frame["kind"] as? String == "outline" { InspectHost.outline(self, frame); return }
-        // `select: {up, levels, plan, from, instance}` (tamber/1.16): the selection moves up its call sites.
-        if let select = frame["select"] as? [String: Any] {
-            DispatchQueue.main.async { [weak self] in self?.selectUp(select) }
+        // `select: {up, levels, plan, from, instance}` (tamber/1.16): the selection moves up its call sites. Any
+        // other `select` the web pages take too (JavaScript's truthy: not null, false, 0 or "") is no move: the
+        // selection said as it is, inspect mode left on, never read as `on` missing.
+        if let select = frame["select"], Inspect.truthy(select) {
+            let ask = select as? [String: Any] ?? [:]
+            DispatchQueue.main.async { [weak self] in self?.selectUp(ask) }
             return
         }
         if frame["refresh"] as? Bool == true {
