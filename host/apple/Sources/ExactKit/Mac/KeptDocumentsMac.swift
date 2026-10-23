@@ -152,7 +152,7 @@ public enum KeptDocuments {
         toNote = nil
         waiting.urls.forEach(controller.noteNewRecentDocumentURL)
         guard tries == 0 else { return }
-        late = (waiting.urls, generation)
+        late = (Array(waiting.urls.suffix(controller.maximumRecentDocumentCount)), generation)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { watchLate() }
     }
 
@@ -160,14 +160,16 @@ public enum KeptDocuments {
     /// one of those (still on disk) is not listed, they are all noted again,
     /// oldest first, so the app's latest note stays newest. Every 250 ms for
     /// 10 s, and not past a Clear Menu or another forget's clear (`generation`).
-    static func watchLate(tries: Int = 40) {
-        guard let watched = late, watched.generation == generation else { return }
+    static func watchLate(tries: Int = 40, of started: Int? = nil) {
+        // (A look scheduled for another watch, or past a clear since, does nothing.)
+        let started = started ?? generation
+        guard let watched = late, watched.generation == started, started == generation else { return }
         guard tries > 0 else { late = nil; return }
         let controller = NSDocumentController.shared, listed = Set(controller.recentDocumentURLs.map(file))
         if watched.urls.contains(where: { !listed.contains(file($0)) && FileManager.default.fileExists(atPath: $0.path) }) {
             watched.urls.forEach(controller.noteNewRecentDocumentURL)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { watchLate(tries: tries - 1) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { watchLate(tries: tries - 1, of: started) }
     }
 
     /// The library's hook, set once.
