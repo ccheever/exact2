@@ -494,6 +494,7 @@ extension Agent {
             contactFlags = named
             let hit = win.contentView?.hitTest(toWindow(p))
             contactButton = sequence(first: hit, next: { $0?.superview }).compactMap { $0 as? NativeButtonMac }.first
+            contactButton?.beginHeldContact()
             contactTracksNative = contactButton != nil
             contactWindow = win
             contact = p
@@ -536,7 +537,7 @@ extension Agent {
         case "cancel":
             guard let p = contact else { return ["error": "no contact is down"] }
             contactClock += 1.0 / 60
-            contactButton?.cancelsHeldContact = true
+            contactButton?.cancelHeldContact()
             // End AppKit's tracking loop outside the button's bounds.
             let release = contactTracksNative ? CGPoint(x: -10000, y: -10000) : p
             if contactTracksNative { send(.leftMouseDragged, release) }
