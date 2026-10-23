@@ -1002,10 +1002,6 @@ impl<D: DataSource> Host<D> {
             for r in self.runner.take_requests() {
                 self.emit_request(r, &mut batch, &mut immediate);
             }
-            // What the runner refused itself (a long poll no host may run, LLP 1016.000 D8) settles here.
-            while let Some(refused) = self.runner.take_admission_refusal(true) {
-                immediate.push(refused);
-            }
             for (token, dispatch) in self.runner.release_work() {
                 if let Some(r) = self.parked.remove(&token) {
                     self.emit_dispatch(r, dispatch, &mut batch, &mut immediate);
