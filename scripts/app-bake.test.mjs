@@ -601,3 +601,59 @@ test('game web, release and unwired gpu-dev bakes never open registry generation
     assert.equal(result.status,0,result.stderr);
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
+
+// The cache boundary needs real Cargo: a script rerun recompiles its crate,
+// even when the script leaves the generated Rust file unchanged.
+test.skipIf(!process.env.EXACT_RUST_BAKE_TEST)('a linked Rust bake changes its plan without compiling its archive', async () => {
+  const { bakeOutside, linkedBakeDir, linkable } = await import('./linked-plan.mjs');
+  const root = resolve(import.meta.dir, '..'), dir = mkdtempSync(resolve(tmpdir(), 'exact-linked-rust-'));
+  const write = (name, bytes) => { mkdirSync(dirname(resolve(dir, name)), {recursive:true}); writeFileSync(resolve(dir, name), bytes); };
+  try {
+    write('rust-toolchain.toml', readFileSync(resolve(root, 'rust-toolchain.toml')));
+    write('Cargo.lock', readFileSync(resolve(root, 'Cargo.lock')));
+    write('Cargo.toml', `[package]\nname="linked-rust-fixture"\nversion="0.1.0"\nedition="2024"\n[workspace]\n[patch.crates-io]\ntaffy={path=${JSON.stringify(resolve(root, 'vendor/taffy'))}}\n[build-dependencies]\nexact-bake={path=${JSON.stringify(resolve(root, 'bake'))}}\n`);
+    write('data/Cargo.toml', '');
+    write('src/lib.rs', 'include!(concat!(env!("OUT_DIR"), "/entry.rs"));');
+    write('app.contract', 'first');
+    write('build.rs', `fn main() {
+      if exact_bake::take_linked(&["entry.rs"]).unwrap() { return; }
+      println!("cargo:rerun-if-changed=app.contract");
+      println!("cargo:rerun-if-env-changed=FIXTURE_BINARY");
+      let out=std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+      std::fs::write(out.join("app.plan"), std::fs::read("app.contract").unwrap()).unwrap();
+      std::fs::write(out.join("compat.json"), "{}").unwrap();
+      std::fs::write(out.join("app.hbc"), []).unwrap();
+      let entry=format!("pub const VALUE: &str = {:?};", std::env::var("FIXTURE_BINARY").unwrap());
+      if std::fs::read(out.join("entry.rs")).ok().as_deref()!=Some(entry.as_bytes()) {
+        std::fs::write(out.join("entry.rs"), entry).unwrap();
+      }
+    }`);
+    const app = { dir, target: resolve(root, 'target'), name: 'linked-rust-fixture' };
+    const pkg = { targets: [{kind:['custom-build'],src_path:resolve(dir,'build.rs')},{kind:['lib'],src_path:resolve(dir,'src/lib.rs')}] };
+    assert.equal(linkable(app, pkg), true);
+    const target = spawnSync('rustc',['-vV'],{encoding:'utf8'}).stdout.match(/^host: (.*)$/m)[1];
+    const env = {...process.env, EXACT_BAKE_OUTPUT:resolve(dir,'bakes'), FIXTURE_BINARY:'one'};
+    env.EXACT_BAKED = linkedBakeDir(env,'macos',target);
+    const cargo = () => {
+      const result=spawnSync('cargo',['build','--offline','--manifest-path',resolve(dir,'Cargo.toml'),'--target-dir',app.target,'--message-format=json','-vv'],{cwd:dir,env,encoding:'utf8',maxBuffer:64*1024*1024});
+      assert.equal(result.status,0,result.stderr);
+      return {...result.stdout.split('\n').filter(line=>line.startsWith('{')).map(line=>JSON.parse(line)).find(row=>row.reason==='compiler-artifact'&&row.target.name==='linked_rust_fixture'), diagnostic: result.stderr};
+    };
+    const first=cargo(), library=first.filenames.find(name=>name.endsWith('.rlib'));
+    // The bootstrap creates a watched file during Cargo's first invocation;
+    // settle that first watch before measuring a warm edit.
+    bakeOutside(app,'macos',target,env);
+    cargo();
+    const initial=statSync(library,{bigint:true}).mtimeNs;
+    write('app.contract','second');
+    bakeOutside(app,'macos',target,env);
+    assert.equal(readFileSync(resolve(env.EXACT_BAKED,'app.plan'),'utf8'),'second');
+    const unchanged=cargo();
+    assert.equal(unchanged.fresh,true,unchanged.diagnostic);
+    assert.equal(statSync(library,{bigint:true}).mtimeNs,initial);
+    env.FIXTURE_BINARY='two';
+    bakeOutside(app,'macos',target,env);
+    assert.equal(cargo().fresh,false,'a generated Rust change must still compile');
+    assert.match(readFileSync(resolve(env.EXACT_BAKED,'entry.rs'),'utf8'),/two/);
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+},300000);
