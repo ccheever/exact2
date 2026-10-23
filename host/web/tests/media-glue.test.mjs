@@ -72,8 +72,11 @@ test("a load or a seek in flight holds a settle until the element can play at re
   expect(done()).toBe(false); // seeking yet
   el.seeking = false; el.fire('seeked'); await turn();
   expect(done()).toBe(true);
-  // No source (a view retired: its source let go), a failure, a stall: each lets go.
-  for (const end of [(e) => { e.currentSrc = ''; e.exactMedia.props.src = undefined; e.fire('emptied'); }, (e) => { e.error = { code: 4 }; e.fire('error'); }, (e) => e.fire('stalled')]) {
+  // At rest with its loading suspended (a paused `preload="metadata"`): nothing held, or let go once it suspends.
+  expect(globalThis.exact.mediaHold(Object.assign(audio({ src: 'p.mp4' }, { readyState: 1 }), { networkState: 1, seeking: false }))).toBe(null);
+  // Retired (the host's teardown keeps the props and drops the attribute: `removeMedia` lets go), a failure, a stall,
+  // a suspended load: each lets go.
+  for (const end of [(e) => globalThis.exact.removeMedia(e), (e) => { e.error = { code: 4 }; e.fire('error'); }, (e) => e.fire('stalled'), (e) => { e.readyState = 1; e.networkState = 1; e.fire('suspend'); }]) {
     const m = audio({ src: 'c.mp4' }, { readyState: 0 });
     m.currentSrc = 'c.mp4'; m.seeking = false;
     const h = globalThis.exact.mediaHold(m), d = settledOf(h);
