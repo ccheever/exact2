@@ -206,6 +206,9 @@ check('only the innermost pressable shows the press, and only while inside', asy
     expect([await opacity('card'), await scale('card')]).toEqual(['1', 1]);
     expect(await vibrations()).toBe('12');
     await mouse('mouseReleased', await centre('plain'));
+    // Released, the dim holds a moment and fades back, as on iOS.
+    expect(await opacity('plain')).toBe('0.65');
+    await evaluate('document.getAnimations().forEach((a) => a.finish())');
     expect(await opacity('plain')).toBe('1');
     // A disabled button gives nothing either; its card is not pressed through it, and its haptic is silent.
     await mouse('mousePressed', await centre('off'));
@@ -432,6 +435,8 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     expect(await keyed('custom', 'Space', 'custom')).toBe('0.65');
     expect(await shown('custom')).toBe('1');
     expect(await keyed('box', 'Space', 'box')).toBe('0.65');
+    // Released, the dim holds a moment and fades back (the engine test times it).
+    await evaluate('document.getAnimations().forEach((a) => a.finish())');
     expect([await shown('box'), await marked('box', 'data-pressed')]).toEqual(['1', false]);
     expect(await keyed('box', 'Enter', 'box')).toBe('1');
     expect(await keyed('row', 'Space', 'row')).toBe('1'); // a row from the keyboard is still its cell
@@ -443,6 +448,7 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     await key('keyUp', 'Enter');
     expect(await marked('box', 'data-pressed')).toBe(true);
     await evaluate(`document.getElementById('custom').focus()`);
+    await evaluate('document.getAnimations().forEach((a) => a.finish())');
     expect([await marked('box', 'data-pressed'), await shown('box')]).toEqual([false, '1']);
     await key('keyUp', 'Space');
 
@@ -532,6 +538,17 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a nativ
         await page.waitForFunction((id) => !document.getElementById(id).hasAttribute('data-exact-released'), id);
         expect([at, await page.evaluate((id) => { const b = document.getElementById(id); b.disabled = true; getComputedStyle(b).backgroundColor; b.disabled = false; return [getComputedStyle(b).backgroundColor, b.getAnimations({ subtree: true }).length]; }, id)]).toEqual([at, [rest, 0]]);
       }
+      // A pressable that declares no feedback keeps its dim at least 0.1 s from the press and fades it back over
+      // 0.2 s, ease-out, as the iOS host does (PressFeedback.swift `dimHold`, `dimFade`).
+      if (finger) await page.tap('#box'); else await page.click('#box');
+      const dim = await page.evaluate(() => {
+        const box = document.getElementById('box'), fade = box.getAnimations().find((a) => !a.transitionProperty);
+        if (!fade) return null;
+        const { duration } = fade.effect.getTiming(), at = (t) => { fade.pause(); fade.currentTime = t; return Number(getComputedStyle(box).opacity); };
+        return [at(0), duration > 200 && duration <= 300, at(duration - 1) > 0.95];
+      });
+      expect([engine, finger, dim]).toEqual([engine, finger, [0.65, true, true]]);
+      await page.evaluate(() => document.getAnimations().forEach((a) => a.finish()));
       if (finger) {
         // A pressable that is no native button is pressed under a finger but never marked released.
         await page.evaluate(() => { window.marks = []; new MutationObserver((records) => marks.push(...records.map((r) => r.attributeName))).observe(document.getElementById('box'), { attributeFilter: ['data-pressed', 'data-exact-released'] }); });
