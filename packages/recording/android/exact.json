@@ -1,0 +1,25 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/recording@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {},
+  "options": {
+    "startMediaRecorder": {
+      "outputFormat": "enum<mpeg4|ogg|webm>",
+      "audioEncoder": "enum<aac|heAac|opus>"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "artifacts": [],
+  "class": "exact.recording.RecordingModule"
+}

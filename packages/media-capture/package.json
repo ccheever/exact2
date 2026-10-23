@@ -1,0 +1,12 @@
+{
+  "name": "@exact/media-capture",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Media Capture's getUserMedia, tracks and devices, shared by recording and the camera (LLP 1133.009 D3).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json",
+    "./web": "./web/exact.json"
+  }
+}
