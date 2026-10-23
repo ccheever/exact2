@@ -305,7 +305,7 @@ extension Agent {
         // its svg): the runner's rows, and that nothing was mounted for it.
         guard let v = presenter.textHost(UInt32(id)) else { return Self.unmounted(node, into: reply, now: session.now()) }
         MainActor.assumeIsolated { if let held = HeldState.rows(for: UInt32(id), in: presenter) { node["held"] = held } } // what is held on it (LLP 1122 D8)
-        if presenter.inlineText(UInt32(id)) == nil {
+        if presenter.inlineText(UInt32(id)) == nil, presenter.toolbar.observation(v) == nil {
             node["radii"] = v.cornerSizes(in: v.bounds).map { [Double($0.width), Double($0.height)] }
         }
         let host = v.paragraphOwner

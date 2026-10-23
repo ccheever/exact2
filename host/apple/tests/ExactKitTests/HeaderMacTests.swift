@@ -971,6 +971,12 @@ final class HeaderMacTests: XCTestCase {
         XCTAssertEqual(page.frame.minY, 0, "the page starts where the header did")
         XCTAssertEqual(page.frame.height, view.bounds.height, "and has the route's whole height")
         let add = try XCTUnwrap(p.toolbar.items[try named("add").id])
+        let agent = Agent(session: session), addNode = try named("add")
+        let row = try XCTUnwrap((agent.layout()["nodes"] as? [[String: Any]])?.first { $0["id"] as? Int == Int(addNode.id) })
+        XCTAssertNil(row["radii"], "a system-owned toolbar item has no observable corner geometry")
+        let target = try XCTUnwrap(agent.layout(["id": Int(addNode.id)])["node"] as? [String: Any])
+        XCTAssertNil(target["radii"], "targeted layout agrees with the native substitute in the list")
+
         XCTAssertEqual(add.label, "Add Book")
         XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(add.action), to: add.target, from: add))
         XCTAssertEqual(try named("added").accessibleText, "added 1")
