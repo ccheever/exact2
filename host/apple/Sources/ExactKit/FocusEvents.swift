@@ -39,12 +39,7 @@ extension Presenter {
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated { HeldState.focusMoved(to: self?.focusedNode) }
             #if os(iOS)
-            // The focused node unmounted and nothing took the focus: the
-            // session's view holds it again, as at mount, so a hardware
-            // keyboard's keys still reach the shortcuts and the first root
-            // (`ExactView`), as HTML's focus fixup leaves keys to `<body>`.
-            if let self, self.views[id] == nil, let view = self.session?.view, view.window?.isKeyWindow == true,
-               FirstResponder.current == nil { _ = view.becomeFirstResponder() }
+            self?.session?.view?.syncKeyboardFocus()
             #endif
         }
     }
