@@ -2,6 +2,8 @@
 // first message under its author's avatar and name, the rest of the group
 // indented under it; a date divider at a day change; the New divider at the
 // first unread message (Excord LLP 0001 §3.2, §3.15).
+// A row's testIds name its message's id (a send's nonce until Discord confirms
+// it); its identity in the list is its key, which a confirmation keeps.
 
 use Run, Block, Media, Embed, Reaction, ReplyRef, Message from "./shapes.contract"
 use Badge from "exact:content"
@@ -33,9 +35,9 @@ component MessageRow
   derive dayChange = m.prevAt == 0 or formatDate(m.at, offset, "iso") != formatDate(m.prevAt, offset, "iso")
   derive leads = not m.grouped or dayChange or isNew or m.reply.length > 0
   view
-    column id=`message-${m.key}` testId=`message-${m.key}` padding-top=(leads ? 14 : 1) padding-bottom=1
+    column id=`message-${m.key}` testId=`message-${m.id}` padding-top=(leads ? 14 : 1) padding-bottom=1
       if dayChange
-        row align-items="center" gap=8 padding="6px 16px 4px" testId=`day-${m.key}`
+        row align-items="center" gap=8 padding="6px 16px 4px" testId=`day-${m.id}`
           view flex=1 height="-exact-hairline" background-color="-exact-separator"
           text formatDate(m.at, offset, "medium") font="-exact-caption1" font-weight=600 color="-exact-secondary-label"
           view flex=1 height="-exact-hairline" background-color="-exact-separator"
@@ -48,7 +50,7 @@ component MessageRow
           image "symbol:forward" font="-exact-subheadline" color="-exact-system-green" margin-left=12
           text m.system font="-exact-subheadline" color="-exact-secondary-label" flex=1 min-width=0
       else
-        row position="relative" padding="2px 16px" gap=12 align-items="flex-start" testId=`row-${m.key}`
+        row position="relative" padding="2px 16px" gap=12 align-items="flex-start" testId=`row-${m.id}`
           background-color=(m.mentionsMe ? "-exact-tertiary-fill" : "transparent")
           translate=`${0 - swipeX}px 0px` transition=(dragging ? "none" : "translate -exact-spring(300, 30, 1)")
           pan=swipe(m.key) panrelease=swipeEnd(m.id, m.author) touch-action="pan-y"
@@ -65,11 +67,11 @@ component MessageRow
             // hold yet loads when tapped.
             for r in m.reply key=r.id
               if r.state == "deleted"
-                row gap=6 align-items="center" min-width=0 testId=`reply-to-${m.key}`
+                row gap=6 align-items="center" min-width=0 testId=`reply-to-${m.id}`
                   text "↱" color="-exact-tertiary-label"
                   text "Original message was deleted" font="-exact-footnote" font-style="italic" color="-exact-secondary-label"
               else
-                button appearance="none" press=jump(r.id) testId=`reply-to-${m.key}` aria-label=(r.state == "unknown" ? "Replying to an earlier message" : `Replying to ${r.author}: ${r.preview}`)
+                button appearance="none" press=jump(r.id) testId=`reply-to-${m.id}` aria-label=(r.state == "unknown" ? "Replying to an earlier message" : `Replying to ${r.author}: ${r.preview}`)
                   row gap=6 align-items="center" min-width=0
                     text "↱" color="-exact-tertiary-label"
                     if r.state == "unknown"
@@ -79,7 +81,7 @@ component MessageRow
                       text r.preview font="-exact-footnote" color="-exact-secondary-label" flex="0 100 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
             if leads
               row gap=6 align-items="baseline" flex-wrap="wrap"
-                text m.author font-weight=600 testId=`author-${m.key}`
+                text m.author font-weight=600 testId=`author-${m.id}`
                 if m.bot
                   Badge(label="APP", tint=some("AccentColor"))
                 text formatDay(m.at, clock, offset, "day-time") font="-exact-caption1" color="-exact-secondary-label"
@@ -102,11 +104,11 @@ component MessageRow
                         text x.emoji
                       text `${x.count}` font="-exact-footnote" font-weight=600 font-variant-numeric="tabular-nums" color=(x.me ? "AccentColor" : "-exact-secondary-label")
             if m.state == "failed"
-              row gap=12 align-items="center" testId=`failed-${m.key}`
+              row gap=12 align-items="center" testId=`failed-${m.id}`
                 text "Not sent." font="-exact-footnote" color="-exact-system-red"
-                button press=retry(m.key) testId=`retry-${m.key}`
+                button press=retry(m.key) testId=`retry-${m.id}`
                   text "Retry"
-                button press=discard(m.key) destructive=true testId=`discard-${m.key}`
+                button press=discard(m.key) destructive=true testId=`discard-${m.id}`
                   text "Delete"
           if swipeX > 0
             image "symbol:reply" width=22 height=22 position="absolute" right=-36 top=8 opacity=(swipeX >= 56 ? 1 : swipeX / 56) color="-exact-secondary-label"

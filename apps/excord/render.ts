@@ -1,19 +1,34 @@
+// A store row (a Discord message, `discord/store.ts`) as the transcript's `Message` (shapes.contract):
+// Markdown parsed and flattened into blocks of runs, mentions resolved, images in their declared box.
 import { parse, jumbo } from './discord/markdown';
 import type { Block as MarkdownBlock, Inline, Mark } from './discord/markdown';
+import { cmpId } from './discord/ids';
 import type { Result } from './app.contract.d.ts';
-import type { Attachment, Message, Page, User } from './world';
-import { emojiPath } from './fixture';
 
 export type Row = Result<'loadWindow'>['rows'][number];
 type Block = Row['blocks'][number];
 type Run = Block['runs'][number];
 type Media = Row['media'][number];
+type Embed = Row['embeds'][number];
+// A Discord message as the store keeps it: its `key` (the nonce of a send from here) and `status`.
+export type Stored = Record<string, any> & { id: string | null; key: string; channel_id: string; status: string };
+export interface User { id: string; username?: string; global_name?: string | null; bot?: boolean }
+
 export interface Directories {
-  me(): User; user(id: string): User | undefined; channelName(id: string): string; roleName(id: string): string;
-  message(channel: string, id: string): Message | undefined; deleted(channel: string, id: string): boolean;
+  me(): string;
+  user(id: string): User | null;
+  channelName(id: string): string;
+  roleName(id: string): string;
+  message(channel: string, id: string): Stored | undefined;
+  deleted(channel: string, id: string): boolean;
+  emoji(id: string, animated: boolean): string;
 }
 interface Context { dirs: Directories; block: number; spoiler: number; mentionsMe: boolean }
-const displayName = (u: User): string => u.global_name || u.username;
+const displayName = (u: User | undefined | null, fallback = ''): string => u?.global_name || u?.username || fallback;
+// An author's avatar hue, the same on every row: the id modulo 8 (its low bits, so users made in the
+// same millisecond still differ).
+const tintOf = (id: string): number => [...id].reduce((r, d) => (r * 10 + (d.charCodeAt(0) - 48)) % 8, 0);
+export const timeOf = (m: Stored): number => (m.timestamp ? Date.parse(m.timestamp) : m.createdAtMs ?? 0);
 
 function block(ctx: Context, kind: string, quote: boolean, level = 0, marker = ''): Block {
   return { id: `b${ctx.block++}`, kind, level, marker, quote, lang: '', text: '', runs: [] };
@@ -22,20 +37,6 @@ function run(id: string, kind: string, text: string, marks: Mark[], spoiler: str
   return { id, kind, text, bold: marks.includes('bold'), italic: marks.includes('italic'),
     underline: marks.includes('underline'), strike: marks.includes('strike'), spoiler,
     href: '', at: 0, format: '', self: false };
-}
-
-// Fixture slugs are not snowflakes; the parser accepts only numeric Discord ids.
-function symbolic(inline: Inline): Inline[] {
-  if (inline.kind !== 'text') return [inline];
-  const result: Inline[] = [], pattern = /<(@!?|#|@&)([A-Za-z][\w-]*)>/g;
-  let start = 0, match: RegExpExecArray | null;
-  while ((match = pattern.exec(inline.text))) {
-    if (match.index > start) result.push({ ...inline, text: inline.text.slice(start, match.index) });
-    result.push({ kind: match[1] === '#' ? 'channel' : match[1] === '@&' ? 'role' : 'user', id: match[2], marks: inline.marks });
-    start = match.index + match[0].length;
-  }
-  if (start < inline.text.length) result.push({ ...inline, text: inline.text.slice(start) });
-  return result;
 }
 
 function inlines(nodes: Inline[], b: Block, ctx: Context): void {
@@ -54,18 +55,18 @@ function inlines(nodes: Inline[], b: Block, ctx: Context): void {
     }
     const marks = [...new Set([...inherited, ...node.marks])];
     if (node.kind === 'link') {
-      for (const child of node.children) for (const part of symbolic(child)) visit(part, node.url, marks);
+      for (const child of node.children) visit(child, node.url, marks);
     } else if (node.kind === 'text' || node.kind === 'code') {
       emit(href ? 'link' : node.kind, node.text, marks, { href });
     } else if (node.kind === 'user') {
-      const u = ctx.dirs.user(node.id), self = node.id === ctx.dirs.me().id;
+      const u = ctx.dirs.user(node.id), self = node.id === ctx.dirs.me();
       if (self) ctx.mentionsMe = true;
-      emit('user', `@${u ? displayName(u) : node.id}`, marks, { self });
+      emit('user', `@${displayName(u, node.id)}`, marks, { self });
     } else if (node.kind === 'channel') emit('channel', `#${ctx.dirs.channelName(node.id)}`, marks);
     else if (node.kind === 'role') emit('role', `@${ctx.dirs.roleName(node.id)}`, marks);
     else if (node.kind === 'everyone') {
       ctx.mentionsMe = true; emit('everyone', `@${node.which}`, marks);
-    } else if (node.kind === 'emoji') emit('emoji', `:${node.name}:`, marks, { href: emojiPath(node.name) });
+    } else if (node.kind === 'emoji') emit('emoji', `:${node.name}:`, marks, { href: ctx.dirs.emoji(node.id, node.animated) });
     else {
       const at = node.unix * 1000, date = new Date(at);
       // A run's text is its plain form (Copy Text, a reply's preview); the view draws the instant.
@@ -80,7 +81,7 @@ function inlines(nodes: Inline[], b: Block, ctx: Context): void {
       } else emit('time', node.style === 't' || node.style === 'T' ? time : day, marks, { at, format: formats[node.style] ?? 'date-long' });
     }
   }
-  for (const node of nodes) for (const part of symbolic(node)) visit(part);
+  for (const node of nodes) visit(node);
 }
 
 function flatten(nodes: MarkdownBlock[], ctx: Context, quote = false, depth = 0): Block[] {
@@ -111,16 +112,33 @@ function plain(blocks: Block[]): string {
   return blocks.map(b => (b.marker ? `${b.marker} ` : '') + (b.kind === 'code' ? b.text : b.runs
     .filter(r => r.kind !== 'edited').map(r => r.text).join(''))).join('\n');
 }
-function media(a: Attachment): Media {
-  const width = a.width ?? 0, height = a.height ?? 0;
+interface Picture { url?: string; proxy_url?: string; width?: number; height?: number }
+function media(id: string, p: Picture, alt: string, spoiler: boolean): Media {
+  const width = p.width ?? 0, height = p.height ?? 0;
   const scale = width > 0 && height > 0 ? Math.min(1, 320 / width, 320 / height) : 0;
-  return { id: a.id, src: a.url, width, height, fitWidth: width * scale, fitHeight: height * scale,
-    alt: a.filename, spoiler: a.spoiler };
+  return { id, src: p.url ?? p.proxy_url ?? '', width, height, fitWidth: width * scale, fitHeight: height * scale, alt, spoiler };
 }
+const isImage = (a: Record<string, any>): boolean =>
+  String(a.content_type ?? '').startsWith('image/') || /\.(png|jpe?g|gif|webp)$/i.test(String(a.filename ?? ''));
 function context(dirs: Directories): Context { return { dirs, block: 0, spoiler: 0, mentionsMe: false }; }
 
-export function renderMessage(m: Message, previous: Message | undefined, dirs: Directories): Row {
-  const ctx = context(dirs), parsed = parse(m.content), isJumbo = jumbo(parsed);
+function replyOf(m: Stored, dirs: Directories): Row['reply'] {
+  if (!m.message_reference?.message_id || m.type !== 19) return [];
+  const id = String(m.message_reference.message_id);
+  const held = dirs.message(m.channel_id, id);
+  // Discord sends the original with the reply (`referenced_message`), null when it was deleted.
+  const ref = held ?? (m.referenced_message || undefined);
+  const gone = m.referenced_message === null || dirs.deleted(m.channel_id, id);
+  if (!ref || (gone && !held)) return [{ id, author: '', tint: 0, preview: '', state: gone ? 'deleted' : 'unknown' }];
+  return [{ id, author: displayName(dirs.user(ref.author?.id) ?? ref.author), tint: tintOf(String(ref.author?.id ?? '')),
+    preview: plain(flatten(parse(String(ref.content ?? '')), context(dirs))).replace(/\s+/g, ' ').trim().slice(0, 100),
+    state: 'present' }];
+}
+
+const SYSTEM: Record<number, (who: string) => string> = { 6: who => `${who} pinned a message.`, 7: who => `${who} joined the server.` };
+
+export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Directories): Row {
+  const ctx = context(dirs), content = String(m.content ?? ''), parsed = parse(content), isJumbo = jumbo(parsed);
   let blocks = flatten(parsed, ctx);
   const text = plain(blocks);
   if (isJumbo && blocks.some(b => b.runs.some(r => r.kind === 'emoji'))) {
@@ -129,50 +147,55 @@ export function renderMessage(m: Message, previous: Message | undefined, dirs: D
     blocks = [custom];
     if (unicode.runs.some(r => r.text.trim())) blocks.push(unicode);
   }
-  const edited = m.edited_timestamp !== null;
+  const edited = m.edited_timestamp != null;
   if (edited) {
     if (blocks[blocks.length - 1]?.kind !== 'paragraph') blocks.push(block(ctx, 'paragraph', false));
     const last = blocks[blocks.length - 1];
     last.runs.push(run(`${last.id}.r${last.runs.length}`, 'edited', ' (edited)', [], ''));
   }
-  const mentionsMe = ctx.mentionsMe;
-  const embeds: Row['embeds'] = m.embeds.map((e, i) => {
-    const image = (kind: 'image' | 'thumbnail'): Media[] => e[kind] ? [media({ id: `e${i}.${kind}`,
-      ...e[kind], filename: e.title ?? '', spoiler: false })] : [];
-    return { id: `e${i}`, color: e.color === undefined ? '' : `#${(e.color & 0xffffff).toString(16).padStart(6, '0')}`,
+  const me = dirs.me(), authorId = String(m.author?.id ?? '');
+  const mentionsMe = ctx.mentionsMe || (authorId !== me && (m.mention_everyone === true
+    || (m.mentions ?? []).some((u: User) => u.id === me)));
+  const embeds: Embed[] = (m.embeds ?? []).map((e: Record<string, any>, i: number) => {
+    const image = (kind: 'image' | 'thumbnail'): Media[] => e[kind] ? [media(`e${i}.${kind}`, e[kind], e.title ?? '', false)] : [];
+    // An image or video link's embed is its picture alone, as Discord draws it.
+    const bare = e.type === 'image' || e.type === 'gifv' || e.type === 'video';
+    return { id: `e${i}`, color: e.color == null ? '' : `#${(e.color & 0xffffff).toString(16).padStart(6, '0')}`,
       provider: e.provider?.name ?? '', author: e.author?.name ?? '', title: e.title ?? '', url: e.url ?? '',
-      description: flatten(parse(e.description ?? ''), ctx), image: image('image'), thumbnail: image('thumbnail') };
+      description: flatten(parse(e.description ?? ''), ctx),
+      image: bare ? (e.image ? image('image') : image('thumbnail')) : image('image'), thumbnail: bare ? [] : image('thumbnail') };
   });
-  const reply: Row['reply'] = [];
-  if (m.message_reference) {
-    const id = m.message_reference.message_id, ref = dirs.message(m.channel_id, id);
-    reply.push({ id, author: ref ? displayName(ref.author) : '', tint: ref?.author.tint ?? 0,
-      preview: ref ? plain(flatten(parse(ref.content), context(dirs))).replace(/\s+/g, ' ').trim().slice(0, 100) : '',
-      state: ref ? 'present' : dirs.deleted(m.channel_id, id) ? 'deleted' : 'unknown' });
-  }
-  const author = displayName(m.author), system = m.type === 7 ? `${author} joined the server.` : '';
-  const delta = previous ? m.timestamp - previous.timestamp : 0;
-  return { key: m.nonce || m.id, id: m.id, authorId: m.author.id, author, tint: m.author.tint,
-    initials: author.trim().split(/\s+/).slice(0, 2).map(s => Array.from(s)[0]).join('').toUpperCase(),
-    bot: m.author.bot, at: m.timestamp, prevAt: previous?.timestamp ?? 0,
-    grouped: !!previous && previous.author.id === m.author.id && delta >= 0 && delta < 7 * 60000 &&
-      previous.type === 0 && m.type === 0 && !m.message_reference && previous.state !== 'failed',
-    edited, mine: m.author.id === dirs.me().id, state: m.state, mentionsMe, jumbo: isJumbo,
-    system, plain: system || text, source: m.content, isNew: false, blocks, media: m.attachments.map(media), embeds,
-    reactions: m.reactions.map(r => ({ id: r.emoji.id || r.emoji.name, emoji: r.emoji.id ? '' : r.emoji.name,
-      src: r.emoji.id ? emojiPath(r.emoji.name) : '', name: r.emoji.name, count: r.count, me: r.me })), reply };
+  const author = displayName(dirs.user(authorId) ?? m.author, authorId);
+  const system = SYSTEM[m.type]?.(author) ?? '';
+  const at = timeOf(m), prevAt = previous ? timeOf(previous) : 0, delta = previous ? at - prevAt : 0;
+  return { key: m.key, id: m.id ?? m.key, authorId, author, tint: tintOf(authorId),
+    initials: author.trim().split(/\s+/).slice(0, 2).map(s => Array.from(s)[0] ?? '').join('').toUpperCase(),
+    bot: m.author?.bot === true, at, prevAt,
+    grouped: !!previous && String(previous.author?.id) === authorId && delta >= 0 && delta < 7 * 60000 &&
+      (previous.type ?? 0) === 0 && (m.type ?? 0) === 0 && previous.status !== 'failed',
+    edited, mine: authorId === me, state: m.status, mentionsMe, jumbo: isJumbo,
+    system, plain: system || text, source: content, isNew: false, blocks,
+    media: (m.attachments ?? []).filter(isImage).map((a: Record<string, any>) =>
+      media(String(a.id), a, String(a.filename ?? ''), String(a.filename ?? '').startsWith('SPOILER_'))),
+    embeds,
+    reactions: (m.reactions ?? []).map((r: Record<string, any>) => ({ id: r.emoji.id || r.emoji.name,
+      emoji: r.emoji.id ? '' : r.emoji.name, src: r.emoji.id ? dirs.emoji(r.emoji.id, r.emoji.animated === true) : '',
+      name: r.emoji.name, count: r.count, me: r.me === true })),
+    reply: replyOf(m, dirs) };
 }
 
-export function createRenderer(dirs: Directories): (m: Message, previous?: Message) => Row {
-  const cache = new Map<string, { signature: string; row: Row }>();
+/** A renderer that redraws a row only when its message, its predecessor or its reply's original changed:
+ * the store replaces a row's object whenever it changes it. */
+export function createRenderer(dirs: Directories): (m: Stored, previous?: Stored) => Row {
+  const cache = new Map<string, { m: Stored; previous?: Stored; ref?: Stored; row: Row }>();
   return (m, previous) => {
-    const ref = m.message_reference ? dirs.message(m.channel_id, m.message_reference.message_id) : undefined;
-    const key = `${m.channel_id}:${m.id}`;
-    const signature = `${m.revision}/${previous?.id}/${previous?.revision}/${ref?.id}/${ref?.revision}`;
-    const found = cache.get(key);
-    if (found?.signature === signature) return found.row;
+    const refId = m.message_reference?.message_id;
+    const ref = refId ? dirs.message(m.channel_id, String(refId)) : undefined;
+    const key = `${m.channel_id}:${m.key}`, found = cache.get(key);
+    if (found && found.m === m && found.previous === previous && found.ref === ref) return found.row;
     const row = renderMessage(m, previous, dirs);
-    cache.set(key, { signature, row });
+    cache.delete(key);
+    cache.set(key, { m, previous, ref, row });
     if (cache.size > 1200) cache.delete(cache.keys().next().value!);
     return row;
   };
@@ -180,24 +203,27 @@ export function createRenderer(dirs: Directories): (m: Message, previous?: Messa
 
 export type Window = Result<'loadWindow'>;
 const HALF = 100;
+export interface Slice { rows: Stored[]; previous?: Stored; hasBefore: boolean; hasAfter: boolean }
+export interface Unread { count: number; more: boolean; at: number }
 
-// The transcript's window from a store's page. A row is drawn only with the
-// message before it in hand, so its group and day divider are decided once: a
-// first message whose predecessor the store does not hold is left out until a
-// page holds both. `since` is the read position the channel opened at ("" for
-// none): the first message after it carries the New divider.
-export function windowOf(page: Page, channel: string, anchor: string, since: string,
-  render: (m: Message, previous?: Message) => Row): Window {
-  const whole = !!page.previous || !page.hasBefore;
-  const held = whole ? page.messages : page.messages.slice(1);
-  const before = whole ? page.previous : page.messages[0];
+// The transcript's window from a run of the store. A row is drawn only with the message before it
+// in hand, so its group and day divider are decided once: a first message whose predecessor the
+// store does not hold is left out until a page holds both. `since` is the read position the channel
+// opened at ("" for none): the first message after it carries the New divider.
+export function windowOf(slice: Slice, channel: string, anchor: string, since: string, unread: Unread,
+  render: (m: Stored, previous?: Stored) => Row): Window {
+  const whole = !!slice.previous || !slice.hasBefore;
+  const held = whole ? slice.rows : slice.rows.slice(1);
+  const before = whole ? slice.previous : slice.rows[0];
   const rows = held.map((m, i) => {
     const previous = i ? held[i - 1] : before;
     const row = render(m, previous);
-    const isNew = since !== '' && m.id > since && (!previous || previous.id <= since);
+    const isNew = since !== '' && m.id !== null && cmpId(m.id, since) > 0
+      && (!previous || previous.id === null || cmpId(previous.id, since) <= 0);
     return isNew ? { ...row, isNew } : row;
   });
-  return { channel, anchor, rows, hasBefore: page.hasBefore, hasAfter: page.hasAfter,
+  return { channel, anchor, rows, hasBefore: slice.hasBefore, hasAfter: slice.hasAfter,
     firstId: rows[0]?.id ?? '', lastId: rows[rows.length - 1]?.id ?? '',
-    pin: anchor || rows[Math.max(0, rows.length - HALF)]?.id || '' };
+    pin: anchor || rows[Math.max(0, rows.length - HALF)]?.id || '',
+    unread: unread.count, unreadMore: unread.more, unreadAt: unread.at };
 }
