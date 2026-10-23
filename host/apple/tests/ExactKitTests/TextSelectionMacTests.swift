@@ -801,6 +801,27 @@ final class TextSelectionMacTests: XCTestCase {
         XCTAssertEqual(p.selection.selectedText(), "", "a click with no `all` anywhere is still a caret")
     }
 
+    func testSelectedRoleDecorationsKeepExclusionFragments() throws {
+        let text = String(repeating: "The river leaves room for the light. ", count: 12)
+        let (session, node) = laidOut(text)
+        defer { session.destroy() }
+        node.frame.size = NSSize(width: 300, height: 600)
+        node.style = ["font_size": 16.0, "line_height": "24px", "text_decoration_line": "underline",
+                      "text_color": ["sys": "secondaryLabelColor", "c": [[60, 60, 67, 153], [235, 235, 245, 153]]]]
+        session.presenter.apply(wireBatch([
+            ["op": "flow", "id": 1, "shapes": [["kind": "Circle", "cx": 150.0, "cy": 150.0, "r": 125.0]]],
+        ]))
+        let paragraph = try XCTUnwrap(node.paragraphLayout())
+        let plain = session.text.paragraph(node.paragraphSpec(), width: node.paragraphBox().width)
+        XCTAssertGreaterThan(paragraph.lines.count, plain.lines.count)
+        XCTAssertFalse(paragraph.fragments.isEmpty)
+        let p = session.presenter
+        p.selection.begin(node, event: mouse(.leftMouseDown, node.convert(NSPoint(x: 5, y: 10), to: nil), clicks: 3))
+        XCTAssertEqual(p.selection.range(node), NSRange(location: 0, length: (text as NSString).length - 1))
+        XCTAssertNotNil(Capture.picture(of: node), "selection paints every original exclusion fragment")
+        XCTAssertTrue(node.paragraphLayout() === paragraph, "painting preserves the measured geometry")
+    }
+
     /// LLP 1115.000 D7.9: which selected glyphs take AppKit's colour for text
     /// on the selection's fill is as an `NSTextView` has it (measured on
     /// macOS 27.0, a key window and one that is not alike). Dark: every one,
