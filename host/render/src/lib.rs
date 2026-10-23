@@ -867,6 +867,10 @@ fn hand_out<D: DataSource>(runner: &mut Runner<D>, executor: &Executor, held: &m
             run(executor, held, r, dispatch);
         }
     }
+    // What the runner refused itself (a long poll no host may run, LLP 1016.000 D8) keeps its placeholder.
+    while let Some((ticket, _)) = runner.take_admission_refusal(true) {
+        held.refused.insert(ticket);
+    }
     // Again for what this batch put behind a refusal with nothing earlier
     // in flight: no completion would come to lift it.
     lift(executor, held);
