@@ -1253,15 +1253,17 @@ final class TextSelectionMacTests: XCTestCase {
         // Each wait is for its event; the bound only stops one that never comes.
         func until(_ seconds: TimeInterval, _ done: () -> Bool) {
             let hang = Date(timeIntervalSinceNow: seconds)
-            while !done() && Date() < hang { RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001)) }
+            while !done() && Date() < hang { RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
         }
         until(300) { reader.raster != nil }
         let height: CGFloat = try XCTUnwrap(reader.accepted?.metadata.height)
         var menus: [String] = []
+        let opened = (1...3).map { expectation(description: "text menu \($0) began tracking") }
         let center = NotificationCenter.default
         let observer = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
             guard let menu = note.object as? NSMenu else { return }
             menus.append(menu.items.first?.title ?? "")
+            if menus.count <= opened.count { opened[menus.count - 1].fulfill() }
             RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTracking() }
         }
         defer { center.removeObserver(observer) }
@@ -1275,16 +1277,16 @@ final class TextSelectionMacTests: XCTestCase {
                                                      context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!)
         }
         XCTAssertNil(rightClick(0.5), "nothing is known yet to open a menu over")
-        until(60) { menus.count == 1 }
+        wait(for: [opened[0]], timeout: 30)
         let word = p.selection.selectedText(), first = p.selection.range(node)
         XCTAssertTrue(["reader", "scroll", "ahead", "words"].contains(word), "the word the worker placed it on, not \"\(word)\"")
         XCTAssertEqual(menus, ["Look Up “\(word)”"], "its menu opens once it is placed")
         XCTAssertNil(rightClick(0.5))
-        until(60) { menus.count == 2 }
+        wait(for: [opened[1]], timeout: 30)
         XCTAssertEqual(p.selection.range(node), first, "inside the selection it stays")
         XCTAssertEqual(menus.last, "Look Up “\(word)”")
         XCTAssertNil(rightClick(0.75), "the selection elsewhere opens no menu for itself")
-        until(60) { menus.count == 3 }
+        wait(for: [opened[2]], timeout: 30)
         let second = try XCTUnwrap(p.selection.range(node))
         XCTAssertGreaterThan(second.location, NSMaxRange(try XCTUnwrap(first)), "the word under the later point")
         XCTAssertEqual(menus.last, "Look Up “\(p.selection.selectedText())”")

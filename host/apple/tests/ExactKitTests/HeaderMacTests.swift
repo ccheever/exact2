@@ -798,8 +798,12 @@ final class HeaderMacTests: XCTestCase {
 
         // The caret goes to it AppKit's way, by name or by an action's `focus()`; its `focus` is the input's.
         XCTAssertEqual(p.toolbar.activate(node), true)
-        let limit = Date().addingTimeInterval(5)
-        while field.currentEditor() == nil, Date() < limit { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
+        // AppKit posts textDidBeginEditing only once editing changes text;
+        // attaching the field editor has no notification of its own.
+        let limit = Date(timeIntervalSinceNow: 30)
+        while field.currentEditor() == nil, Date() < limit {
+            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+        }
         let editor = try XCTUnwrap(field.currentEditor())
         XCTAssertTrue(editor is FieldEditor, "it edits in the session's editor, as in the page")
         XCTAssertTrue(p.keyTarget(window.firstResponder) === node)
