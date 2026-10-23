@@ -29,6 +29,8 @@ mod inline_tests;
 mod intersection;
 #[cfg(test)]
 mod modal_tests;
+#[cfg(test)]
+mod top_layer_tests;
 pub(crate) use intersection::intersection;
 
 use exact_kernel::{

@@ -43,7 +43,13 @@ impl Derived {
                     stack.push(b)
                 }
             } else {
-                stack.extend(arena.children(s).iter().rev().copied());
+                stack.extend(
+                    arena
+                        .children(s)
+                        .iter()
+                        .rev()
+                        .filter(|&&c| !arena.blocks.holds(c)),
+                );
             }
         }
         for &s in &slots {
@@ -217,7 +223,9 @@ impl Derived {
                 }
             } else {
                 for &c in arena.children(s).iter().rev() {
-                    stack.push((c, frame.x, frame.y, next_parent, hidden))
+                    if !arena.blocks.holds(c) {
+                        stack.push((c, frame.x, frame.y, next_parent, hidden))
+                    }
                 }
             }
         }
@@ -314,8 +322,11 @@ pub(super) fn shell(
             height_measured: tree.height_measured(n),
         });
         if s != cut {
+            // A subtree with a block is laid out in it, after the region.
             for &c in arena.children(s).iter().rev() {
-                stack.push((c, frame.x, frame.y, hidden))
+                if !arena.blocks.holds(c) {
+                    stack.push((c, frame.x, frame.y, hidden))
+                }
             }
         }
     }
