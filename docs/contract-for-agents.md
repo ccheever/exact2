@@ -1550,6 +1550,8 @@ column navigationKey=`${e.id}` navigationScroll="inbox-list" position="absolute"
       text "New Message"
   // Pull to refresh: a `refresh` handler on the scroller; `refreshing` holds the
   // spinner until the reload settles. A row's `delete=` is its swipe to delete.
+  // A first load is a `progress` beside the list while it has no rows, never in a
+  // row: a spinner inside a cell is something a hand-built iOS list never shows.
   list id="inbox-list" refresh=reload refreshing=pending(items) flex=1 min-height=0
     for m in items key=m.id
       button press=open(m.id) delete=remove(m.id)
