@@ -41,7 +41,22 @@ final class PositionAreaTests: XCTestCase {
                        CGPoint(x: 6, y: 0), "no option fits: the margin box is shifted down to the top edge")
         let low = CGRect(x: 380, y: 570, width: 20, height: 30)
         XCTAssertEqual(PositionArea.origin("none", anchor: low, size: size, margins: .init(right: 5, bottom: 5), in: layer),
-                       CGPoint(x: 275, y: 535), "held at the bottom and right edges, its margins inside them")
+                       CGPoint(x: 280, y: 510), "no area: the web's default flips above and leftward, off its invoker, margins flipped too")
+    }
+
+    /// No authored area takes the web's UA default (neutral.css): below from
+    /// the inline start, flipping above where that doesn't fit, so a popover
+    /// at the bottom-left (Harmony's emoji button) opens above its invoker
+    /// instead of being held over it; when nothing fits it is shifted into
+    /// the bounds, as an authored area is.
+    func testNoAreaFlipsAsTheWebsDefault() {
+        let emoji = CGRect(x: 12, y: 560, width: 30, height: 30), picker = CGSize(width: 300, height: 200)
+        XCTAssertEqual(PositionArea.origin("none", anchor: emoji, size: picker, in: layer), CGPoint(x: 12, y: 360), "above, from its left edge")
+        XCTAssertEqual(PositionArea.origin("none", anchor: emoji, size: picker, rtl: true, in: layer), CGPoint(x: 12, y: 360),
+                       "right to left: spanning left from its inline start doesn't fit, so it flips inline too")
+        let huge = CGSize(width: 300, height: 700)
+        XCTAssertEqual(PositionArea.origin("none", anchor: emoji, size: huge, in: layer).y, 0, "nothing fits: held in the bounds from the top")
+        XCTAssertEqual(PositionArea.origin("none", anchor: anchor, size: size, in: layer), CGPoint(x: 100, y: 230), "room below: as before")
     }
     func testOrderedFlipsAtEveryEdgeAndNoFittingFallback() {
         let viewport = CGRect(x: 0, y: 0, width: 420, height: 600)
