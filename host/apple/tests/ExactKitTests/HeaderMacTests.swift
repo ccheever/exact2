@@ -331,14 +331,23 @@ final class HeaderMacTests: XCTestCase {
     func testAuthoredDotAndFontKeepTheirToolbarFace() throws {
         let p = fixture(extra: view(130) + view(131, "text", ["text": "Clock"])
             + [["op": "style", "id": 130, "style": ["width": 8, "height": 8, "background_color": [20, 200, 40, 255]]],
-               ["op": "style", "id": 131, "style": ["font_size": 12, "font_family": 2, "written": ["font_family", "font_size"]]],
+               ["op": "style", "id": 131, "style": ["font_size": 28, "font_family": 5, "written": ["font_family", "font_size"]]],
                children(13, [130, 131])])
+        session = ExactApp.shared.makeSession(label: "bar-authored-font")
+        p.session = session
         XCTAssertTrue(p.toolbar.attach(to: window))
         XCTAssertTrue(try node(p, 10).isHidden)
         let item = try XCTUnwrap(p.toolbar.items[13])
         let image = try XCTUnwrap(item.image)
         XCTAssertFalse(image.isTemplate)
-        XCTAssertGreaterThan(image.size.width, 8)
+        let font = try XCTUnwrap(session?.text.font(size: 28, weight: 400, family: 5, italic: false))
+        let textWidth = ceil(("Clock" as NSString).size(withAttributes: [.font: font]).width)
+        XCTAssertEqual(image.size.width, 8 + textWidth)
+        XCTAssertNotEqual(textWidth, ceil(("Clock" as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 28)]).width))
+        let bitmap = try pixels(image, appearance: .aqua)
+        let dot = try XCTUnwrap(bitmap.colorAt(x: 3, y: bitmap.pixelsHigh / 2)?.usingColorSpace(.sRGB))
+        XCTAssertEqual(dot.greenComponent, 200 / 255, accuracy: 0.01)
+        XCTAssertEqual(dot.redComponent, 20 / 255, accuracy: 0.01)
         XCTAssertEqual(item.title, "")
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
