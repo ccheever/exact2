@@ -1247,7 +1247,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     func fitScroll() {
         guard let scroll, let document = scroll.documentView else { return }
         let visible = scroll.contentView.bounds.size
-        let size = CGSize(width: max(content.width, visible.width), height: max(content.height, visible.height))
+        let origin = scroll.kernelDocumentOrigin
+        let size = CGSize(width: max(content.width - origin.x, visible.width), height: max(content.height - origin.y, visible.height))
         if document.frame.size != size { document.setFrameSize(size) }
     }
 
