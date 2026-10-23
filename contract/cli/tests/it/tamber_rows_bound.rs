@@ -205,3 +205,31 @@ fn an_if_in_a_region_and_a_region_in_an_instance_are_judged() {
         &zeroed(),
     );
 }
+
+/// The stated limit (round 2, both reviewers): a row the check can't type (a
+/// call) that the build refuses first leaves the check's first refusal at a
+/// later row, which the build refuses too, in the same words. Never a false
+/// refusal: the build of the written design fails.
+#[test]
+fn a_row_left_to_the_build_before_a_judged_one_is_the_stated_limit() {
+    let contract = format!("{HEAD}fn same(x: string): string = x\ncomponent App\n  state pick = \"2\"\n  view\n    column\n      button \"A\" -exact-press-scale=same(pick)\n      button \"B\" -exact-press-scale=pick\n      Card()\n");
+    let dir = reading("rows-bound-limit");
+    std::fs::write(dir.join("app.tamber"), DESIGN).unwrap();
+    std::fs::write(dir.join("app.contract"), &contract).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+    let w = transaction(&mut s, &dir, zero());
+    drop(s);
+    let d = &w["error"]["diagnostics"][0];
+    assert!(d.is_object(), "refused: {w}");
+    std::fs::write(dir.join("app.tamber"), zeroed()).unwrap();
+    let built = contract::compile_path(&dir.join("app.contract")).unwrap_err();
+    // The build's first is A's call (line 7); the check's is B's name (line 8).
+    assert_eq!(
+        (built.span.line, d["line"].as_u64().unwrap()),
+        (7, 8),
+        "{w}"
+    );
+    assert_eq!(d["id"], built.id);
+    let _ = std::fs::remove_dir_all(&dir);
+}
