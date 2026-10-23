@@ -249,6 +249,7 @@ final class HeaderTitleView: UIControl {
     init(host: NavigationHost) {
         self.host = host
         super.init(frame: CGRect(x: 0, y: 0, width: 200, height: 44))
+        title.textColor = .label
         title.font = .preferredFont(forTextStyle: .headline)
         subtitle.font = .preferredFont(forTextStyle: .footnote)
         retheme()
@@ -322,7 +323,7 @@ final class HeaderTitleView: UIControl {
         return out
     }
 
-    private static func titleLine(_ group: HeaderTitle, text: String, font: UIFont) -> NSAttributedString {
+    private static func titleLine(_ group: HeaderTitle, text: String, font: UIFont, colour: UIColor) -> NSAttributedString {
         let out = NSMutableAttributedString()
         func append(_ glyph: HeaderTitle.TitleGlyph) {
             guard let image = FaceSymbol.image(glyph.name, points: font.pointSize,
@@ -332,27 +333,30 @@ final class HeaderTitleView: UIControl {
                 attachment.bounds = CGRect(x: 0, y: (font.capHeight - image.size.height) / 2, width: image.size.width, height: image.size.height)
             }
             let symbol = NSMutableAttributedString(attachment: attachment)
+            symbol.addAttribute(.foregroundColor, value: colour, range: NSRange(location: 0, length: symbol.length))
             if let light = glyph.light, let dark = glyph.dark {
                 symbol.addAttribute(.foregroundColor, value: UIColor { TextEngine.color($0.userInterfaceStyle == .dark ? dark : light) },
                     range: NSRange(location: 0, length: symbol.length))
             }
             out.append(symbol)
         }
-        for glyph in group.titleGlyphs where glyph.before { append(glyph); out.append(NSAttributedString(string: "\u{2009}")) }
-        out.append(NSAttributedString(string: text))
-        for glyph in group.titleGlyphs where !glyph.before { out.append(NSAttributedString(string: "\u{2009}")); append(glyph) }
+        for glyph in group.titleGlyphs where glyph.before { append(glyph); out.append(NSAttributedString(string: "\u{2009}", attributes: [.foregroundColor: colour])) }
+        out.append(NSAttributedString(string: text, attributes: [.foregroundColor: colour]))
+        for glyph in group.titleGlyphs where !glyph.before { out.append(NSAttributedString(string: "\u{2009}", attributes: [.foregroundColor: colour])); append(glyph) }
         out.addAttribute(.font, value: font, range: NSRange(location: 0, length: out.length))
         return out
     }
 
     private var shown: (HeaderTitle, String)?
+    private var shownInk: UIColor?
 
     func update(_ group: HeaderTitle, title text: String) {
         // Every batch projects the routes again: an unchanged title is left
         // alone, since invalidating its size relaid the whole navigation
         // bar out each time (~1 ms a batch, a fling's every frame).
-        if let shown, shown.0 == group, shown.0.testId == group.testId, shown.1 == text { return }
+        if let shown, shown.0 == group, shown.0.testId == group.testId, shown.1 == text, shownInk?.isEqual(title.textColor) == true { return }
         shown = (group, text)
+        shownInk = title.textColor
         #if EXACT_INSPECT
         groupId = group.id
         #endif
@@ -361,7 +365,7 @@ final class HeaderTitleView: UIControl {
         avatar.isHidden = group.avatar == nil
         avatarWidth.constant = group.avatar?.size ?? 0
         avatarHeight.constant = group.avatar?.size ?? 0
-        title.attributedText = group.titleGlyphs.isEmpty ? nil : Self.titleLine(group, text: text, font: title.font)
+        title.attributedText = group.titleGlyphs.isEmpty ? nil : Self.titleLine(group, text: text, font: title.font, colour: title.textColor)
         if group.titleGlyphs.isEmpty { title.text = text }
         subtitle.attributedText = Self.line(group, font: subtitle.font, colour: subtitle.textColor)
         subtitle.isHidden = group.subtitle.isEmpty
@@ -496,6 +500,7 @@ extension NavigationHost {
             return
         }
         let view = c.titleView ?? HeaderTitleView(host: self)
+        view.title.textColor = shape.heading?.ownUIColor("text_color") ?? .label
         view.update(group, title: shape.title)
         if c.titleView !== view {
             c.titleView = view
