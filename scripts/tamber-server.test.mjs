@@ -1022,6 +1022,43 @@ test("an import is held as proposals: the tokens as one, each role override apar
   stream.close();
 }, 120_000);
 
+test("past 1024 operations: a held import's accept and revert are the server's own, and a re-hold of a held proposal passes only within it (theme2's ruling on tamber-ops-size)", async () => {
+  gitIn('checkout', '--', 'app.tamber');
+  const n = 1500;
+  const css = `@theme {\n${Array.from({ length: n }, (_, k) => `  --color-c${k}: #${(k + 0x100000).toString(16).slice(-6)};`).join('\n')}\n}\n`;
+  const imported = await post({ method: 'import', kind: 'tailwind', client: 'big', source: css });
+  expect(imported.status, JSON.stringify(imported).slice(0, 400)).toBe(200);
+  const held = imported.ok;
+  expect(held.ops.length).toBeGreaterThan(1024);
+  const ops = held.ops.map(o => o.op);
+  const rehold = (body, client = 'big') => post({ method: 'propose', hold: true, client, review: { ...held.review, from: held.proposal }, ...body });
+  // One value edited, the rest as held: the server planned this size, so it passes the count.
+  const edited = ops.map((op, i) => (i === 0 ? { ...op, value: '#010203' } : op));
+  const one = await rehold({ ops: edited });
+  expect(one.error?.id).not.toBe('tamber-ops-size');
+  expect(one.status, JSON.stringify(one).slice(0, 400)).toBe(200);
+  // A target the held proposal doesn't have, past 1024: refused.
+  const added = await rehold({ ops: [...ops.slice(0, 1100), { op: 'add-token', name: 'stranger', value: '#000000' }] });
+  expect([added.status, added.error?.id]).toEqual([400, 'tamber-ops-size']);
+  // More operations than the held proposal: refused.
+  const more = await rehold({ ops: [...ops, ops[0]] });
+  expect([more.status, more.error?.id]).toEqual([400, 'tamber-ops-size']);
+  // Naming no held proposal: refused.
+  const none = await post({ method: 'propose', hold: true, client: 'big', review: { ...held.review, from: 'nope' }, ops });
+  expect([none.status, none.error?.id]).toEqual([400, 'tamber-ops-size']);
+  // The held import accepted whole: the server applies its 1500 operations.
+  const accepted = await post({ method: 'accept', client: 'person', proposal: one.ok.proposal });
+  expect(accepted.status, JSON.stringify(accepted).slice(0, 400)).toBe(200);
+  expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toContain('tw.c1499 = ');
+  // And reverted: the server holds the revert's operations, past 1024 too.
+  gitIn('add', 'app.tamber');
+  gitIn('commit', '-q', '-m', 'a large import');
+  const reverted = await post({ method: 'revert', client: 'person', commit: gitIn('rev-parse', 'HEAD').stdout.trim() });
+  expect(reverted.status, JSON.stringify(reverted).slice(0, 400)).toBe(200);
+  expect(reverted.ok.ops.length).toBeGreaterThan(1024);
+  gitIn('reset', '-q', '--hard', 'HEAD~1');
+}, 300_000);
+
 // LLP 1122 T1's server additions (`tamber/1.1`): `history`, `revert`,
 // `import`, and the design tool's files.
 test('the design tool is served to a local request only, its base at its path', async () => {

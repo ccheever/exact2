@@ -542,16 +542,18 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // Nested past 64 levels: refused before anything of it is kept, since a
     // value kept (a held proposal's review) is sent on to every stream.
     if (request && tooDeep(request)) { json(res, 400, { error: { message: 'a request is nested at most 64 levels deep' } }); return true; }
-    // A client's transaction is at most OPS_LIMIT operations (tamber/1.17,
-    // `tamber-ops-size`), refused before any is read. Operations the server
-    // applies itself (a held import's, a revert's) are no client's request.
-    if (request && Array.isArray(request.ops) && request.ops.length > OPS_LIMIT) { json(res, 400, { error: { id: 'tamber-ops-size', message: `a transaction is at most ${OPS_LIMIT} operations; this one has ${request.ops.length}` } }); return true; }
     // Revoked or expired while its body came: refused before anything it asks runs.
     if (who.client && !pairs.live(who.client)) { json(res, 401, { error: { message: GONE } }); return true; }
     // A paired client is the client its token names, whatever its body says.
     // A local client may not name itself as a paired one (`remote:`).
     if (request && who.client) request.client = who.client;
     else if (request && !(url.pathname === '/__tamber' && request.method === 'revoke') && typeof request.client === 'string' && request.client.startsWith(REMOTE)) { json(res, 400, { error: { message: `a client named \`${REMOTE}…\` is a paired client's; name yours otherwise` } }); return true; }
+    // A client's transaction is at most OPS_LIMIT operations (tamber/1.17,
+    // `tamber-ops-size`), refused before any is read. Operations the server
+    // applies itself (a held import's accept, a revert's) are no client's
+    // request; a re-hold of a held proposal (`reholds`) is a size the
+    // server planned.
+    if (request && Array.isArray(request.ops) && request.ops.length > OPS_LIMIT && !reholds(request, scope)) { json(res, 400, { error: { id: 'tamber-ops-size', message: `a transaction is at most ${OPS_LIMIT} operations; this one has ${request.ops.length}` } }); return true; }
     if (url.pathname === '/__tamber/subscribe') {
       if (down) { json(res, 503, { error: { message: who.local ? down : scrubText(down) } }); return true; }
       const snapshot = namedPaths({ event: 'subscribed', seq, epoch, files: Object.fromEntries(known), proposals: held(), builds: channel.list() }, appDir);
@@ -951,6 +953,21 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   /** The proposals held now, as a reconnecting client reads them. */
   // A paired client past its deadline is shown as revoked before its end runs.
   const held = () => [...proposals].map(([id, p]) => (gone(p.client) && !p.shown.revoked ? { ...p.shown, revoked: true } : p.shown));
+  /** Whether `request` re-holds a held proposal past OPS_LIMIT (theme2's
+   * 20:5x ruling): a `propose` with `hold` naming the proposal it derives
+   * from (`review.from`), with at most that proposal's operations, every one
+   * on a target (its kind and its token's or param's name) the proposal has,
+   * by a client that may replace it (its own, or one with write scope).
+   * Every value is still checked as any write's is. */
+  function reholds(request, scope) {
+    const from = request.review?.from, p = typeof from === 'string' ? proposals.get(from) : undefined;
+    if (request.method !== 'propose' || request.hold !== true || !p || request.ops.length > p.ops.length) return false;
+    if (p.client !== request.client && !allows(scope, 'write')) return false;
+    const target = op => JSON.stringify([op?.op, op?.name ?? null]);
+    const targets = new Set(p.ops.map(target));
+    return request.ops.every(op => targets.has(target(op)));
+  }
+
   async function hold(client, ops, files, replaces, review, requires, scope = 'write', signal = undefined, restoring = false, editedBy = undefined) {
     expire();
     // A state part's write without a `file` is any Contract source's (as a write's `prepare`).
