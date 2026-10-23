@@ -8,7 +8,8 @@ untouched greeting becomes a typed query and mutation explorer with `--online`.
 `snapback --port <n>` records an ignored local backend selection.
 At bake, `.exact/backend-origin` overrides `app.ts`'s `origin` constant.
 `EXACT_BACKEND_ORIGIN` or `test web --backend <url>` selects the origin and matching
-grant at bake time without editing authored source or tests. Password sign-in, stored sessions and refresh with Contract time are
+grants (its `net.fetch` line, and a `net.websocket` line naming the socket at its host,
+`ws:` for `http:` and `wss:` for `https:`) at bake time without editing authored source or tests. Password sign-in, stored sessions and refresh with Contract time are
 in [the adapter guide](../snapback4/README.md#personas-and-password-accounts).
 For a server-only schema, add `--online`; `snapback` and `update` preserve it.
 On a plain scaffold, `snapback --port <n>` adds the origin and fetch/storage

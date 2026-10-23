@@ -35,7 +35,10 @@ export function backendOriginWarning(code, selection, parse) {
   if (!literal || literal.replace(/\/+$/,'')===selection.origin) return null;
   return `.exact/backend-origin selects ${selection.origin}, overriding the app.ts origin literal ${JSON.stringify(literal)}. Edit or remove .exact/backend-origin to use the changed literal; EXACT_BACKEND_ORIGIN overrides both.`;
 }
-/** Rewrite only the top-level literal origin and its exact net.fetch grant literals in the captured copy. */
+/** The socket origin at an http(s) origin's host: ws for http, wss for https. */
+const socketOrigin = (origin) => origin.replace(/^http/, 'ws');
+/** Rewrite only the top-level literal origin and its exact net.fetch grant literals, and the net.websocket
+ * literals naming the socket at that origin's host, in the captured copy. */
 export function injectBackendOrigin(code, origin, parse) {
   if (origin===null) return code;
   const parsed=parse('app.ts',code);
@@ -49,12 +52,13 @@ export function injectBackendOrigin(code, origin, parse) {
     throw new Error('EXACT_BACKEND_ORIGIN: app.ts needs one top-level literal const origin; use it in net.fetch ${origin}');
   const edits=[[init.start,init.end,JSON.stringify(origin)]];
   const previous=literal.replace(/\/+$/,'');
-  const replace=value=>value.split('\n').map(line=>line===`net.fetch ${previous}` || line===`net.fetch ${previous}/` ? `net.fetch ${origin}` : line).join('\n');
+  const replace=value=>value.split('\n').map(line=>line===`net.fetch ${previous}` || line===`net.fetch ${previous}/` ? `net.fetch ${origin}`
+    : line===`net.websocket ${socketOrigin(previous)}` || line===`net.websocket ${socketOrigin(previous)}/` ? `net.websocket ${socketOrigin(origin)}` : line).join('\n');
   const walk=node=>{
     if (!node || typeof node!=='object') return;
     if (node.type==='Literal' && typeof node.value==='string') { const next=replace(node.value); if(next!==node.value) edits.push([node.start,node.end,JSON.stringify(next)]); return; }
     if (node.type==='TemplateLiteral' && !node.expressions.length) { const next=replace(node.quasis[0].value.cooked); if(next!==node.quasis[0].value.cooked) edits.push([node.start,node.end,JSON.stringify(next)]); return; }
-    if (node.type==='TemplateElement') { if(replace(node.value.cooked)!==node.value.cooked) throw new Error('EXACT_BACKEND_ORIGIN: use net.fetch ${origin} in an interpolated grants template'); return; }
+    if (node.type==='TemplateElement') { if(replace(node.value.cooked)!==node.value.cooked) throw new Error('EXACT_BACKEND_ORIGIN: use net.fetch ${origin} in an interpolated grants template, and write a net.websocket line at its host as a string of its own'); return; }
     for(const child of Object.values(node)) if(Array.isArray(child)) child.forEach(walk); else if(child && typeof child==='object') walk(child);
   };
   declarations.filter(d=>d.id.type==='Identifier' && d.id.name==='grants').forEach(d=>walk(d.init));
@@ -750,8 +754,9 @@ export function snapbackMutationTypes(declarations) {
 /** `appId`, `grants` and the export names of the module `code` (app.ts),
  * read from its syntax: no build runs app or package code to learn them. Each
  * of `appId` and `grants` is a constant: a string, a template, `+` or an
- * array's `.join(…)` of constants, or a top-level `const` holding one; any
- * other is refused by name and place. An absent one is `undefined`. */
+ * array's `.join(…)` of constants, `a === b ? x : y` (or `!==`) over
+ * constants, or a top-level `const` holding one; any other is refused by
+ * name and place. An absent one is `undefined`. */
 export function staticFacts(code, parse) {
   const parsed=parse('app.ts',code);
   if (parsed.errors?.length) return { appId: undefined, grants: undefined, exported: [] };
@@ -772,11 +777,14 @@ export function staticFacts(code, parse) {
     const seen=new Set();
     const constant=(node)=>{
       node=bare(node);
-      const refuse=()=>{ throw new Error(`app.ts:${at(node?.start ?? 0)}: ${name} must be a constant the build reads without running the module: a string, a template or + of constants, an array of them .join('\\n'), or a top-level const holding one`); };
+      const refuse=()=>{ throw new Error(`app.ts:${at(node?.start ?? 0)}: ${name} must be a constant the build reads without running the module: a string, a template or + of constants, an array of them .join('\\n'), a === b ? x : y over constants, or a top-level const holding one`); };
       if (!node) refuse();
       if (node.type==='Literal' && ['string','number'].includes(typeof node.value)) return String(node.value);
       if (node.type==='TemplateLiteral') return node.quasis.map((q,i)=>q.value.cooked+(i<node.expressions.length ? constant(node.expressions[i]) : '')).join('');
       if (node.type==='BinaryExpression' && node.operator==='+') return constant(node.left)+constant(node.right);
+      // A choice by the backend selection: `origin === DISCORD ? a : b`.
+      if (node.type==='ConditionalExpression' && node.test.type==='BinaryExpression' && ['===','!=='].includes(node.test.operator))
+        return (constant(node.test.left)===constant(node.test.right))===(node.test.operator==='===') ? constant(node.consequent) : constant(node.alternate);
       if (node.type==='Identifier' && consts.has(node.name) && !seen.has(node.name)) { seen.add(node.name); const v=constant(consts.get(node.name)); seen.delete(node.name); return v; }
       if (node.type==='CallExpression' && node.arguments.length<=1 && propertyName(bare(node.callee))==='join' && bare(bare(node.callee).object)?.type==='ArrayExpression')
         return bare(bare(node.callee).object).elements.map(constant).join(node.arguments.length ? constant(node.arguments[0]) : ',');
