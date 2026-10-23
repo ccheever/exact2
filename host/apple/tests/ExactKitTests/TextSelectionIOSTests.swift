@@ -57,6 +57,21 @@ final class TextSelectionIOSTests: XCTestCase {
         return held.textInputView.convert(CGPoint(x: rect.midX, y: rect.midY), to: node)
     }
 
+    func testCaretAndSelectionFollowThePaintedFractionalBaseline() throws {
+        let p = mounted([text(1, "Hxg", style: ["font_size": 13.0, "line_height": "normal", "user_select": "text"], handlers: ["contextmenu"]),
+                         ["op": "roots", "ids": [1]], frame(1, 0)])
+        let node = try node(p, 1)
+        node.traitOverrides.displayScale = 3; node.updateTraitsIfNeeded()
+        let input = try XCTUnwrap(p.textSelection.install(node)), paragraph = try XCTUnwrap(node.paragraphLayout())
+        var above: CGFloat = 0
+        _ = CTLineGetTypographicBounds(try XCTUnwrap(paragraph.lines.first), &above, nil, nil)
+        let baseline = node.paragraphBox().minY + 37.0 / 3
+        let caret = input.textInputView.convert(input.caretRect(for: SelectablePosition(0)), to: node)
+        XCTAssertEqual(caret.minY + above, baseline, accuracy: 1e-6)
+        let rect = try XCTUnwrap(input.selectionRects(for: SelectableRange(NSRange(location: 0, length: 3))).first)
+        XCTAssertEqual(input.textInputView.convert(rect.rect, to: node).minY + above, baseline, accuracy: 1e-6)
+    }
+
     /// A page: `prose` holds two paragraphs its author made selectable, a
     /// pressable row holds one it made selectable and one it did not, and a
     /// label, a button's label and an opted-out paragraph stand beside them.
