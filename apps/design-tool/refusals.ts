@@ -52,6 +52,7 @@ export const restoreRefusals = (builds: Map<string, Refusing>, kept: ReturnType<
 export const stepping = new Set<string>(), cantStep = new Set<string>();
 export const stepRefused = (id: string, detail?: unknown, b?: Refusing) => {
   if (!stepping.delete(id)) return false;
+  // (The words an older web or Apple build answers `select` with: no shipped page says them now.)
   // (Counted, so the move ends whether or not this tool still inspects there to say it.)
   if (!/cannot move its selection up/.test(String(detail ?? ''))) { if (b) b.refusalSeq = (b.refusalSeq ?? 0) + 1; return false; }
   cantStep.add(id); return true;
