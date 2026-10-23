@@ -872,6 +872,7 @@ package final class Presenter {
         if node.isButton, !node.handlers.contains("press") { dispatchButtonAncestor(node, click: click ?? pressClick) }
         else if (command == nil && popover == nil) || node.handlers.contains("press") { pressClick = click ?? pressClick; onPress?(id); pressClick = nil }
         guard views[node.id] === node else { return }
+        guard node !== menus.invocationOwner else { return }
         dialogs.command(node, fromNativeMenu: fromNativeMenu, bubbled: bubbled)?()
         menus.command(node, fromNativeMenu: fromNativeMenu, bubbled: bubbled)?()
     }
