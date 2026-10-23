@@ -50,11 +50,17 @@ export const restoreRefusals = (builds: Map<string, Refusing>, kept: ReturnType<
  * staleness: the move ends, the refusal is said as any is, and the control stays (theme2 06:05). A selection from
  * it ends the while. */
 export const stepping = new Set<string>(), cantStep = new Set<string>();
-export const stepRefused = (id: string, detail?: unknown) => {
-  if (!stepping.delete(id) || !/cannot move its selection up/.test(String(detail ?? ''))) return false;
+export const stepRefused = (id: string, detail?: unknown, b?: Refusing) => {
+  if (!stepping.delete(id)) return false;
+  // (Counted, so the move ends whether or not this tool still inspects there to say it.)
+  if (!/cannot move its selection up/.test(String(detail ?? ''))) { if (b) b.refusalSeq = (b.refusalSeq ?? 0) + 1; return false; }
   cantStep.add(id); return true;
 };
-/** The server's list read: a build gone, or registered again (its status reset, as `refusalOf` reads it), may step. */
+/** The server's list read: a build gone, or registered again (as `refusalOf` reads it: its status reset, or none and no
+ * refusal of inspect recorded), may step. */
 export const stepsAgain = (list: any[], was: Map<string, Refusing>) => {
-  for (const id of cantStep) { const b = list.find(x => String(x.id) === id); if (!b || (b.status == null && was.get(id)?.status != null)) cantStep.delete(id); }
+  for (const id of cantStep) {
+    const b = list.find(x => String(x.id) === id);
+    if (!b || (b.status == null && (was.get(id)?.status != null || b.unsupported?.what !== 'inspect'))) cantStep.delete(id);
+  }
 };
