@@ -419,7 +419,9 @@ public final class ExactSession {
     // frame's tick, a timer, a reply, an intrinsic size, a report) waits on
     // main instead, and runs after the slice lands, in order.
     private(set) var fillInFlight = false
-    private var afterFill: [(generation: Int, work: () -> Void, cancelled: (() -> Void)?)] = []
+    private typealias IdleWork = (views: Int?, work: () -> Void, cancelled: (() -> Void)?)
+    private var afterFill: [IdleWork] = []
+    private var viewsEpoch = 0
     private let published = NSLock()
     /// What the owner committed without main waiting.
     enum Published { case fill(UInt32), tick, canvas, notice }
@@ -553,21 +555,6 @@ public final class ExactSession {
 
     deinit { destroy() }
 
-    /// Scrolling has settled (iOS: `ScrollPump.restDelay`): the decoded
-    /// images, shaped text and text pixels no view shows go, the tree's
-    /// storage comes back to its live nodes, and the allocator returns the
-    /// pages they leave. What shows keeps its own.
-    func rest() {
-        runtime.trim()
-        rasters.trimCold()
-        text.dropColdShaped()
-        if let m = text.measurer { Owner.shared.post { m.dropColdShaped() } }
-        #if os(iOS) || os(tvOS)
-        presenter.textRasters.dropKept()
-        #endif
-        DispatchQueue.global(qos: .utility).async { malloc_zone_pressure_relief(nil, 0) }
-    }
-
     /// A request's reply is in (LLP 1016 D2): the executor's thread says so;
     /// the pump runs on the main thread, where the runner lives. `ctx` is
     /// the handle; a session that is gone is a stranger, dropped.
@@ -587,9 +574,14 @@ public final class ExactSession {
     /// The app's clock: what events, timers, motion, and canvases see.
     public func now() -> Double { clock ?? ExactEnv.wall() }
 
-    /// Run `work` now, or after the slice in flight lands (LLP 1072 §3).
-    package func whenIdle(_ work: @escaping () -> Void, cancelled: (() -> Void)? = nil) {
-        if fillInFlight { afterFill.append((generation, work, cancelled)) } else { work() }
+    /// View reports expire after reset; executor work survives a plan commit.
+    package func whenIdle(bound: Bool = false, _ work: @escaping () -> Void, cancelled: (() -> Void)? = nil) {
+        idle((bound ? viewsEpoch : nil, work, cancelled))
+    }
+    private func idle(_ item: IdleWork) {
+        if state == .destroyed || (item.views != nil && item.views != viewsEpoch) { item.cancelled?() }
+        else if fillInFlight { afterFill.append(item) }
+        else { item.work() }
     }
 
     /// Send a build-only slice to the owner; its batch comes back published.
@@ -661,13 +653,7 @@ public final class ExactSession {
             case .notice: noticesInFlight -= 1
             }
             guard state != .destroyed, next.generation == generation else {
-                // A replaced runtime's slice: its waiters go, the current runtime's run
-                guard case .fill = next.kind else { continue }
-                let waiting = afterFill
-                afterFill.removeAll()
-                for entry in waiting {
-                    if state != .destroyed && entry.generation == generation { entry.work() } else { entry.cancelled?() }
-                }
+                if case .fill(let view) = next.kind { landedFill(view, stale: true) }
                 continue
             }
             let batch = next.batch
@@ -677,10 +663,18 @@ public final class ExactSession {
             // A draw owed while this one ran, or one a tick left owed.
             if canvasOwed { askCanvasDraw() }
             guard case .fill(let view) = next.kind else { continue }
-            presenter.collections.landed(view, at: ProcessInfo.processInfo.systemUptime)
-            let waiting = afterFill
-            afterFill.removeAll()
-            for entry in waiting { entry.work() }
+            landedFill(view)
+        }
+    }
+
+    /// A stale slice can land inside a commit, before its replacement tree.
+    private func landedFill(_ view: UInt32, stale: Bool = false) {
+        let waiting = afterFill; afterFill.removeAll()
+        if state != .destroyed { presenter.collections.landed(view, at: ProcessInfo.processInfo.systemUptime) }
+        guard stale else { for item in waiting { idle(item) }; return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { waiting.forEach { $0.cancelled?() }; return }
+            for item in waiting { idle(item) }
         }
     }
 
@@ -747,10 +741,10 @@ public final class ExactSession {
         presenter.selectOptions = { [unowned self] id in runtime.selectOptions(id) }
         presenter.controls.radioGroup = { [unowned self] id in runtime.radioGroup(id) }
         presenter.buttonFace = { [unowned self] id in runtime.buttonFace(id) }
-        presenter.onIntrinsic = { [unowned self] sizes in whenIdle { [unowned self] in apply(runtime.intrinsics(sizes)) } }
+        presenter.onIntrinsic = { [unowned self] sizes in whenIdle(bound: true) { [unowned self] in apply(runtime.intrinsics(sizes)) } }
         // @ref LLP 1075.003 §3.5, Q3 (c) — what a bar covers reaches layout as an intrinsic
         // size does, on AppKit too (LLP 1115.002 D8.1); the hatches replay once the module connects.
-        presenter.onCovers = { [unowned self] covers in whenIdle { [unowned self] in apply(runtime.covers(covers)) } }
+        presenter.onCovers = { [unowned self] covers in whenIdle(bound: true) { [unowned self] in apply(runtime.covers(covers)) } }
         #if os(iOS) || os(tvOS)
         natives.onHatchesConnected = { [weak self] in
             self?.presenter.navigation.replayHatches()
@@ -847,7 +841,7 @@ public final class ExactSession {
             // A fresh boot over a running app (the dev menu's reload from the baked plan) starts the views over; the library already replaced its host.
             routerOp = nil
             generation += 1
-            if booted { awaitingTree = true; presenter.reset(); forgetAppearances(); presenter.launchAutofocusReleased = false } // a fresh boot's autofocus waits again
+            if booted { awaitingTree = true; presenter.reset(); viewsEpoch += 1; forgetAppearances(); presenter.launchAutofocusReleased = false } // a fresh boot's autofocus waits again
             booted = true; app.liveBooted(self)
             text.commitFonts()
             appFileRoots = AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
@@ -951,7 +945,7 @@ public final class ExactSession {
         let restart = booted, kept = keptFocus
         keptFocus = nil
         awaitingTree = true // the tint a reset gives back is reported with the new tree
-        presenter.reset()
+        presenter.reset(); viewsEpoch += 1
         forgetAppearances()
         booted = true; app.liveBooted(self)
         app.lifecycle?.generationStarted(app, token: updateToken)
@@ -1047,6 +1041,9 @@ public final class ExactSession {
     #if DEBUG
     /// Tests: a tick's slice the owner published, not yet landed.
     func publishTickForTests(_ batch: Batch) { tickInFlight = true; publish(.tick, batch, generation) }
+    func holdFillForTests() { fillInFlight = true }
+    func commitForTests() { generation += 1; viewsEpoch += 1 }
+    func publishFillForTests(_ view: UInt32, _ batch: Batch, generation: Int) { fillInFlight = true; publish(.fill(view), batch, generation) }
     func oweColorsForTests() { colorsOwed = true }
     #endif
 
@@ -1482,7 +1479,7 @@ public final class ExactSession {
         #if os(macOS)
         colorObserver.map(NotificationCenter.default.removeObserver)
         #endif
-        presenter.reset()
+        presenter.reset(); viewsEpoch += 1
         ExactSession.live.removeValue(forKey: runtime.rt)
         forgetDocuments()
         rasters.shutdown(); sound.shutdown(); midi.shutdown() // the sound arm stopped and let go, its session claim given back (LLP 1096 D8)
