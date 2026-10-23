@@ -5,11 +5,59 @@ import XCTest
 
 /// HTML's empty date field on iOS (bench t7-wizard, 2026-10-08; LLP
 /// 1115.000 D13.1): a `UIDatePicker` always holds a date, so while the bound
-/// value is "" its content is faded under the platform's pill, which holds
+/// value is "" its content is masked under the platform's pill, which holds
 /// the author's `placeholder` and, with none, no words: never today's date,
 /// and never a browser's `mm/dd/yyyy`. It still takes the tap that opens it.
 /// UIKit, so a simulator runs it: bun host/apple/build.mjs --test --ios
 final class DatesIOSTests: XCTestCase {
+    func testEmptyDateValuesReachTheElementsVoiceOverActuallyReads() throws {
+        guard Presenter.axRuntimeLoaded else { throw missing("accessibility", "UIKit's accessibility runtime is not loaded") }
+        let p = Presenter()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        defer { window.isHidden = true }
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        var ops: [[String: Any]] = [["op": "create", "id": 1, "kind": "view"]]
+        for (i, kind) in ["date", "time", "datetime-local"].enumerated() {
+            let id = i + 2
+            ops += [["op": "create", "id": id, "kind": "control", "props": ["type": kind, "value": "", "placeholder": "Add a date", "testId": kind]],
+                ["op": "frame", "id": id, "x": 20, "y": 20 + 60 * i, "w": 300, "h": 34]]
+        }
+        ops += [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 400]]
+        p.apply(wireBatch(ops))
+        window.layoutIfNeeded()
+        func elements(_ id: Int) -> [[String: Any]] {
+            (p.axElements(roots: [p.viewport])["elements"] as? [[String: Any]] ?? []).filter { ($0["id"] as? UInt32) == UInt32(id) }
+        }
+        for id in 2...4 {
+            let rows = elements(id)
+            XCTAssertFalse(rows.isEmpty, "the native picker is exposed")
+            XCTAssertTrue(rows.allSatisfy { $0["value"] as? String == "Add a date" }, "\(rows)")
+        }
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["placeholder": "Choose a day"]]]))
+        window.layoutIfNeeded()
+        XCTAssertEqual(elements(2).compactMap { $0["value"] as? String }, ["Choose a day"])
+        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["placeholder"]]]))
+        window.layoutIfNeeded()
+        XCTAssertEqual(elements(2).count, 1)
+        XCTAssertTrue(elements(2).allSatisfy { $0["value"] == nil }, "no placeholder means no date value")
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["value": "2026-01-02"]]]))
+        window.layoutIfNeeded()
+        let dateRows = elements(2)
+        XCTAssertFalse(dateRows.isEmpty)
+        XCTAssertTrue(dateRows.allSatisfy { ($0["value"] as? String)?.contains("2026") == true }, "a bound date restores UIKit's value: \(dateRows)")
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["value": "", "placeholder": "Add again"]]]))
+        window.layoutIfNeeded()
+        XCTAssertEqual(elements(2).compactMap { $0["value"] as? String }, ["Add again"])
+        let picker = try XCTUnwrap(p.controls.controls[2] as? UIDatePicker)
+        picker.setDate(try XCTUnwrap(DateValue.parse("date", "2026-01-02")), animated: false)
+        picker.sendActions(for: .valueChanged)
+        window.layoutIfNeeded()
+        XCTAssertTrue(elements(2).allSatisfy { ($0["value"] as? String)?.contains("2026") == true }, "a user choice restores UIKit's value")
+    }
+
     func testDateTimeAndDatetimeAlignTheirCompactControlWithinTheAuthoredWidth() throws {
         let p = Presenter(), window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
         defer { window.isHidden = true }
@@ -96,7 +144,7 @@ final class DatesIOSTests: XCTestCase {
         XCTAssertGreaterThan(shown.frame.height, 0)
         XCTAssertEqual(picker.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize), fitted,
                        "the placeholder takes no part in the picker's measured size")
-        XCTAssertEqual(picker.accessibilityValue, "", "VoiceOver hears no date")
+        XCTAssertEqual(picker.accessibilityValue, picker.placeholder, "VoiceOver hears the placeholder")
         XCTAssertFalse(picker.subviews.isEmpty)
         for view in picker.subviews {
             XCTAssertNotNil(view.layer.mask, "today's date is masked out whole")
