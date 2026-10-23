@@ -171,13 +171,23 @@ extension NodeView {
         return CGFloat(radius)
     }
 
+    /// The corners actually painted, including the platform's unsaid popover surface.
+    func effectiveCornerSizes(in rect: CGRect) -> [CGSize] {
+        #if os(iOS) || os(tvOS)
+        if materialView != nil, !writesCorner, let radius = defaultSurfaceRadius {
+            return BorderPaint.reduced(Array(repeating: CGSize(width: radius, height: radius), count: 4), in: rect)
+        }
+        #endif
+        return cornerSizes(in: rect)
+    }
+
     #if os(iOS) || os(tvOS)
     /// A scrolling popover's children are its scroll view's, not the glass's
     /// content view's: the scroll view takes the default surface's corner
     /// while that applies, and gives it up when it no longer does.
     func syncDefaultSurfaceScroll() {
         // The corner the glass has: the author's (one circle) or the default's.
-        let corner = materialView == nil || defaultSurfaceRadius == nil ? nil : writesCorner ? cornerSizes(in: bounds).first?.width : defaultSurfaceRadius
+        let corner = materialView == nil || defaultSurfaceRadius == nil ? nil : effectiveCornerSizes(in: bounds).first?.width
         guard let scroll, corner != nil || scrollCornered else { return }
         scroll.layer.cornerRadius = corner ?? 0
         scroll.layer.cornerCurve = corner == nil ? .circular : .continuous
