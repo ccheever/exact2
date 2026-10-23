@@ -170,6 +170,18 @@ final class InlineContextIOSTests: XCTestCase {
         XCTAssertEqual(heard, [2])
     }
 
+    func testARoundedParagraphKeepsTheInlinePreviewOnItsRun() throws {
+        let p = try presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        let node = try XCTUnwrap(p.views[2])
+        node.layer.cornerRadius = 12
+        let interaction = try XCTUnwrap(node.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
+        let rect = try XCTUnwrap(node.inlineRects(try XCTUnwrap(p.inlineText(10))).first)
+        let config = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configurationForMenuAtLocation: CGPoint(x: rect.midX, y: rect.midY)))
+        let preview = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, previewForHighlightingMenuWithConfiguration: config))
+        XCTAssertEqual(try XCTUnwrap(preview.parameters.visiblePath).bounds, rect)
+    }
+
     func testPlainAndInertRunsDoNotOpenTheInlineMenu() throws {
         let p = try presenter()
         defer { p.menus.reset(); window.isHidden = true }
