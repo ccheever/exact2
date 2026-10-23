@@ -85,7 +85,10 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
         host?.containingBlockChanged()
         host?.geometryChanged()
     }
-    func scrollViewDidScroll(_ scrollView: UIScrollView) { host?.geometryChanged() }
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        host?.geometryChanged()
+        host?.contentMoved()
+    }
     override var keyCommands: [UIKeyCommand]? {
         [UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(escape))]
     }
@@ -139,7 +142,7 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
     /// wide, not the sheet's whole width: UIKit adds the side insets around
     /// it (`.always`), so content as wide as the sheet would scroll sideways
     /// by them (a phone in landscape, the iPhone Duo's status column).
-    private func place() {
+    fileprivate func place() {
         guard isViewLoaded, let dialog = scroller.subviews.lazy.compactMap({ $0 as? NodeView }).first else { return }
         let inset = scroller.adjustedContentInset
         let width = max(box.width, scroller.bounds.width - inset.left - inset.right)
@@ -149,7 +152,11 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
                              y: PixelGrid.round((box.height - size.height) / 2, scale: s))
         let center = CGPoint(x: origin.x + size.width / 2, y: origin.y + size.height / 2)
         if dialog.center != center { dialog.center = center }
-        let content = CGSize(width: width, height: box.height)
+        // A dialog its sheet's height caps (`HostBlock.Axis.fit`) overflows
+        // its box, and the sheet scrolls the overflow, as the web's modal
+        // dialog (`overflow: auto` under its `max-height`) scrolls itself.
+        let overflow = dialog.scrollView != nil ? 0 : dialog.container.subviews.lazy.compactMap { $0 as? NodeView }.map(\.laidOutFrame.maxY).max() ?? 0
+        let content = CGSize(width: width, height: max(box.height, origin.y + overflow))
         if scroller.contentSize != content { scroller.contentSize = content }
     }
 }
@@ -245,7 +252,10 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
             return (entry.dialog.id, HostBlock(width: .size(size.width), height: .fit(size.height)))
         }
     }
-    fileprivate func containingBlockChanged() { presenter?.owners.publish() }
+    fileprivate func containingBlockChanged() { presenter?.owners.publish(); contentMoved() }
+    /// A popover over a sheet is in its presentation container, outside
+    /// the scroller: it follows its opener as the sheet's content moves.
+    fileprivate func contentMoved() { presenter?.menus.rehostPopovers() }
     var inTransition: Bool {
         !resuming.isEmpty || entries.contains { $0.closing || $0.controller.isBeingPresented || $0.controller.isBeingDismissed }
     }
@@ -576,6 +586,8 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
                 dismiss(entry, animated: false, cancelled: false)
             } else {
                 assign(entry.controller, \.isModalInPresentation, refuses(dialog))
+                // Its children's frames came after its own: the overflow the sheet scrolls.
+                entry.controller.place()
             }
         }
         // A destroyed dialog leaves a closing sheet at once: its view may be reused.
