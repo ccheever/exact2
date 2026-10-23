@@ -31,6 +31,34 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         XCTAssertNil((button["states"] as? [String: Any])?["pressed"])
     }
 
+    func testUnjoinedTogglesUseTheirControlRoleAndDoNotInventPressedState() throws {
+        let p = try fixture()
+        let toggle = UISwitch(frame: CGRect(x: 200, y: 250, width: 60, height: 40))
+        toggle.isOn = true
+        toggle.isAccessibilityElement = true
+        toggle.accessibilityLabel = "Native switch"
+        toggle.accessibilityValue = "1"
+        p.viewport.addSubview(toggle)
+        let unknown = UIView(frame: CGRect(x: 200, y: 300, width: 60, height: 40))
+        unknown.isAccessibilityElement = true
+        unknown.accessibilityTraits = .toggleButton
+        unknown.accessibilityLabel = "Unknown toggle"
+        unknown.accessibilityValue = "2"
+        p.viewport.addSubview(unknown)
+        let ax = p.axElements(roots: [p.viewport])
+        let native = try XCTUnwrap(elements(ax).first { $0["name"] as? String == "Native switch" })
+        XCTAssertTrue(native["id"] is NSNull)
+        XCTAssertEqual(native["role"] as? String, "switch")
+        let state = native["states"] as? [String: Any] ?? [:]
+        XCTAssertEqual(state["checked"] as? Bool, true)
+        XCTAssertNil(state["pressed"])
+        let other = try XCTUnwrap(elements(ax).first { $0["name"] as? String == "Unknown toggle" })
+        XCTAssertTrue(other["id"] is NSNull)
+        let unknownState = other["states"] as? [String: Any] ?? [:]
+        XCTAssertNil(unknownState["checked"])
+        XCTAssertNil(unknownState["pressed"])
+    }
+
     /// Two buttons (one named, one an image with no name) and a column.
     private func fixture() throws -> Presenter {
         let p = Presenter()

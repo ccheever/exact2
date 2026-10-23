@@ -435,9 +435,10 @@ extension Presenter {
             : names.contains("button") ? "button" : names.contains("image") ? "image" : names.contains("adjustable") ? "adjustable"
             : names.contains("tabBar") ? "tablist" : names.contains("staticText") ? "text" : "unknown")
         // UIKit uses the same toggle trait for checkboxes, switches and pressed buttons.
-        // The joined view identifies the role; the platform's value supplies its state.
-        if forced == nil, names.contains("toggleButton") || Self.isSwitch(obj) {
-            let role = id.flatMap({ views[$0] }).flatMap(Self.toggleRole) ?? "button"
+        // The joined view or native class identifies the role; the platform's value supplies its state.
+        if forced == nil, names.contains("toggleButton") || Self.isSwitch(obj),
+           let role = id.flatMap({ views[$0] }).flatMap(Self.toggleRole)
+                ?? (Self.isSwitch(obj) ? "switch" : obj is ExactCheckbox ? "checkbox" : names.contains("button") ? "button" : nil) {
             e["role"] = role
             let state = role == "button" ? "pressed" : "checked"
             if value == "2" { states[state] = "mixed" }
