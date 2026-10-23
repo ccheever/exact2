@@ -34,7 +34,7 @@ import { BINARYEN } from '../host/web/stages.mjs';
 import { SHELL_SOURCES } from '../host/web/look.mjs';
 import { createHash } from 'node:crypto';
 import { nativeSource, prepareRustBundle } from './rust.mjs';
-import { bakeOutside, linkable } from './linked-plan.mjs';
+import { bakeOutside, linkable, recordRustBake } from './linked-plan.mjs';
 import { throwContractErrors } from './contract-diagnosis.mjs';
 import { filesystem, installedModules, removePrivateTree, withHostDeployment } from './filesystem.mjs';
 import { startSweep } from './sweep.mjs';
@@ -1285,6 +1285,7 @@ export function buildBake(app, platform, target, options = {}) {
     if(archive&&options.link&&!env.EXACT_RUST_BUNDLE&&linkable(app,pkg))env.EXACT_BAKED=bakeOutside(app,platform,target,env);else delete env.EXACT_BAKED; // `link`: the bake's plan is carried by the linker
     const result=buildCommand('cargo',args,app,env,'inherit');
     const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name});
+    if (archive && env.EXACT_BAKED) recordRustBake(env);
     if (gpuPackage(pkg) && platform !== 'web') {
       const product = output.filter(m => m.reason === 'compiler-artifact' && m.package_id === pkg.id)
         .flatMap(m => m.filenames).find(path => /\.(so|dylib|dll)$/.test(path));

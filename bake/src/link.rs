@@ -126,16 +126,27 @@ pub fn take_linked(files: &[&str]) -> Result<bool, String> {
                 )
         })
         .collect();
-    let registration = serde_json::to_vec(&serde_json::json!({
+    let mut registration = serde_json::json!({
         "executable": executable, "cwd": env::current_dir().map_err(|e| e.to_string())?,
         "env": variables, "sha256": format!("{:x}", Sha256::digest(fs::read(&executable).map_err(|e| e.to_string())?)),
-    })).map_err(|e| e.to_string())?;
+    });
     fs::create_dir_all(&baked).map_err(|e| e.to_string())?;
     let registry = baked.join("rust-baker.json");
-    if fs::read(&registry).ok().as_deref() != Some(&registration)
+    let mut previous: serde_json::Value = fs::read(&registry)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default();
+    if let Some(object) = previous.as_object_mut() {
+        object.remove("started");
+    }
+    if previous != registration
         || !baked.join("compat.json").exists()
         || files.iter().any(|file| !baked.join(file).exists())
     {
+        registration["started"] = serde_json::json!(std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_millis());
         let result = Command::new(&executable)
             .env("EXACT_RUST_BAKE", "1")
             .env("OUT_DIR", &baked)
@@ -146,7 +157,7 @@ pub fn take_linked(files: &[&str]) -> Result<bool, String> {
             return Err(format!("Rust bake failed: {}", result.status));
         }
         fs::write(baked.join("rust-output.txt"), &result.stdout).map_err(|e| e.to_string())?;
-        fs::write(&registry, registration).map_err(|e| e.to_string())?;
+        fs::write(&registry, registration.to_string()).map_err(|e| e.to_string())?;
     }
     for line in fs::read_to_string(baked.join("rust-output.txt"))
         .map_err(|e| e.to_string())?
