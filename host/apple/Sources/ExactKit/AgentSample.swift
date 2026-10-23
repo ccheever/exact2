@@ -28,7 +28,8 @@ extension Agent {
         #if os(iOS) || os(tvOS)
         let size = view.pageSize // the page's area, a box's space (LLP 1130)
         #else
-        let size = view.bounds.size
+        let area = presenter.navigation.split.agentCaptureArea
+        let size = area.size
         #endif
         let (w, h) = (Int(size.width.rounded(.up)), Int(size.height.rounded(.up)))
         guard w > 0, h > 0, let space = CGColorSpace(name: CGColorSpace.extendedLinearSRGB),
@@ -54,6 +55,11 @@ extension Agent {
             layer.render(in: ctx)
         }
         #else
+        ctx.translateBy(x: -area.minX, y: -area.minY)
+        if presenter.navigation.split.active, !view.isFlipped {
+            ctx.translateBy(x: 0, y: view.bounds.height)
+            ctx.scaleBy(x: 1, y: -1)
+        }
         layer.render(in: ctx)
         #endif
         let px = data.assumingMemoryBound(to: Float.self)
