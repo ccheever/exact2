@@ -467,7 +467,9 @@ impl Kernel {
         profile: crate::region::RegionProfile,
     ) -> Result<bool, KernelError> {
         self.mirror();
-        if binding.is_some() && self.arena.blocks.any() {
+        // A popover in the region has left its trial (`holds_absolute`).
+        self.imply_blocks();
+        if binding.is_some() && self.arena.blocks.any_given() {
             return Err(LayoutError::HostBlock("no content region beside a block").into());
         }
         if binding.is_some() && engine(&mut self.layout).has_presented_height() {
@@ -523,6 +525,7 @@ impl Kernel {
             return Err(LayoutError::NotARoot(root).into());
         }
         self.replace_env(self.arena.env().with_viewport(offer))?;
+        self.imply_blocks();
         let region = self
             .region
             .as_mut()
@@ -543,7 +546,9 @@ impl Kernel {
         if result.is_ok() && region.provisional_chrome {
             self.provisional_layouts += 1;
         }
-        Ok(result?)
+        let mut result = result?;
+        self.lay_out_blocks(slot, &mut result.shell)?;
+        Ok(result)
     }
 
     /// Bounded kernel-owned source/offer retention, separately from native heap.
@@ -615,6 +620,7 @@ impl Kernel {
             }
         }
         self.replace_env(self.arena.env().with_viewport(offer))?;
+        self.imply_blocks();
         engine(&mut self.layout).present_heights(&self.arena, presented);
         // The root, then each subtree a host gave a block (LLP 1115.002 D8.2).
         let result = match self.lay_out_roots(slot, offer) {
@@ -680,6 +686,7 @@ impl Kernel {
         if owners.is_empty() {
             return Ok(Vec::new());
         }
+        self.imply_blocks();
         let previous = engine(&mut self.layout).height_samples(self.epoch);
         engine(&mut self.layout).present_heights(&self.arena, &[]);
         let measure = |kernel: &mut Self| {
@@ -1071,6 +1078,8 @@ mod block_tests;
 mod cover_tests;
 #[cfg(test)]
 mod presented_height_tests;
+#[cfg(test)]
+mod top_layer_tests;
 
 #[cfg(test)]
 mod paragraph_domain_tests {

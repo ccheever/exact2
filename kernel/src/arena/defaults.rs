@@ -76,6 +76,13 @@ impl NodeArena {
         } else {
             self.sticky_slots.remove(slot);
         }
+        // What moves a box in or out of sticky moves it out of or into the
+        // top layer: its block follows at the next layout.
+        if crate::style::top_layer::lifted(self, slot) {
+            self.top_layer_slots.insert(slot);
+        } else {
+            self.top_layer_slots.remove(slot);
+        }
     }
 
     pub(crate) fn is_neutral_header(&self, slot: u32) -> bool {
