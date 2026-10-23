@@ -857,6 +857,19 @@ final class SplitMacTests: XCTestCase {
             while !p.menus.isOpen(pop), Date() < end { settle() }
             XCTAssertTrue(p.menus.isOpen(pop), painted ? "painted" : "AppKit's popover")
             if !painted { XCTAssertEqual(p.menus.windowed.count, 1) }
+            if painted {
+                // In the pane's own layer, beside its invoker: not clamped into the list.
+                let pane = try XCTUnwrap(p.navigation.split.pane(holding: opener))
+                XCTAssertTrue(pop.isDescendant(of: pane))
+                let shown = pop.convert(pop.bounds, to: nil), invoker = opener.convert(opener.bounds, to: nil)
+                XCTAssertEqual(shown.minX, invoker.minX, accuracy: 1, "\(shown) under \(invoker)")
+                // Escape closes it with the keyboard still in the pane.
+                XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(try node("field-a").field)))
+                let escape = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
+                XCTAssertTrue(p.menus.key(escape))
+                XCTAssertFalse(p.menus.isOpen(pop), "Escape from the pane's field")
+            }
             session.destroy(); self.session = nil; window.close(); self.window = nil
         }
     }
