@@ -728,6 +728,7 @@ pub fn reimport_against(
     let _work = crate::budget::Work::begin(crate::budget::REIMPORT);
     let doc: Value =
         serde_json::from_str(incoming).map_err(|e| refuse(format!("not JSON: {e}")))?;
+    crate::import::dtcg_bound(&doc)?; // (past the checker's bound: refused, as an import is)
     let cur = crate::check(current, vocab)?;
     let fresh = dtcg(&cur, vocab)?;
     let baseline = match explicit {
