@@ -567,6 +567,7 @@ pub(crate) fn hand_over_paths(kernel: &Kernel, engine: &mut Engine, live: bool) 
     }
     let moving: Vec<u64> = engine
         .running_transitions()
+        .chain(engine.played_transitions())
         .filter(|(_, p)| *p == Property::D)
         .map(|(node, _)| node)
         .collect();
@@ -615,6 +616,10 @@ pub(crate) fn hand_over_paths(kernel: &Kernel, engine: &mut Engine, live: bool) 
         if playable {
             for node in nodes {
                 engine.play_transition(node, Property::D);
+            }
+        } else {
+            for node in nodes {
+                engine.reclaim_transition(node, Property::D);
             }
         }
     }
