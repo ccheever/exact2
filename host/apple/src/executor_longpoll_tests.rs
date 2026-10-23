@@ -598,45 +598,43 @@ fn a_long_poll_on_a_real_connection_asks_with_each_cursor_and_closes_when_droppe
 
 #[test]
 fn a_long_poll_on_other_work_is_refused_at_admission_and_fences_ordered_work() {
-    // As a deadline the work can't keep: refused before any path, an ordered one raising the barrier.
+    // As a deadline the work can't keep: refused before any path, an ordered one raising the barrier. The
+    // request after it is one the script records if it is sent (its accept is the script's).
     for request in [
         Request::native(b"x".to_vec()).long_poll("since", "seq"),
         Request::storage(b"{}".to_vec()).long_poll("since", "seq"),
         Request::continuation(7).long_poll("since", "seq"),
     ] {
-        let (core, script, _woke) = setup(vec![]);
-        let refused = core.run_owned(
-            RequestOut {
-                ticket: 1,
-                target: "live".into(),
-                request,
-                forced: false,
-            },
-            None,
-        );
+        let (core, script, _woke) = setup(vec![Reply::Is(200, vec![JSON], r#"{"other":1}"#)]);
+        let ordered = request.is_ordered();
+        let first = RequestOut {
+            ticket: 1,
+            target: "live".into(),
+            request,
+            forced: false,
+        };
+        let refused = core.run_owned(first, None);
         assert!(
             refused
                 .as_ref()
                 .is_err_and(|why| why.starts_with("exactLongPoll")),
             "{refused:?}"
         );
-        // The ordered request after it is held behind the refusal, not sent.
-        let next = Request::get("https://example.test/changes?since=0");
-        assert!(core
-            .run_owned(
-                RequestOut {
-                    ticket: 2,
-                    target: "read".into(),
-                    request: next,
-                    forced: false
-                },
-                None
-            )
-            .is_ok());
-        std::thread::sleep(Duration::from_millis(50));
-        assert!(
+        let next = Request::get("https://example.test/changes?since=0")
+            .header("accept", "application/json");
+        let second = RequestOut {
+            ticket: 2,
+            target: "read".into(),
+            request: next,
+            forced: false,
+        };
+        assert!(core.run_owned(second, None).is_ok());
+        std::thread::sleep(Duration::from_millis(100));
+        // Behind an ordered refusal it waits; after an independent one (native work) it goes.
+        assert_eq!(
             script.asked.lock().unwrap().is_empty(),
-            "held behind the refusal"
+            ordered,
+            "ordered: {ordered}"
         );
     }
 }
