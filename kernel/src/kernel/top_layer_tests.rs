@@ -6,10 +6,12 @@ use crate::{BlockAxis, HostBlock, StyleValue};
 
 const OFFER: Offer = Offer::definite(800.0, 600.0);
 
+/// The rows as the author's (`written`), as a page's CSS is.
 fn style(id: ViewId, rows: &[(StyleId, StyleValue)]) -> Op {
     let mut patch = StyleProps::default();
     for (row, value) in rows {
         patch.set_dynamic(*row, value).unwrap();
+        patch.written.set(*row);
     }
     Op::SetStyle {
         id,
