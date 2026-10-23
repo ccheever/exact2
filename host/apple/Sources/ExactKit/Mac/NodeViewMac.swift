@@ -1085,7 +1085,6 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 presenter?.collections.userIntent(id, travel: true)
             }
             sv.drawsBackground = false
-            sv.scrollerStyle = .overlay
             sv.hasVerticalScroller = true
             sv.hasHorizontalScroller = true
             sv.autohidesScrollers = true
@@ -1113,6 +1112,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             }
             observeLiveScroll(nil, replacing: sv)
             scroll = nil
+            presenter?.covers.report("scroller-\(id)", [:])
             presenter?.scrollers.remove(id)
         }
         scroll?.scrollsX = (ox == "scroll" || ox == "auto")
@@ -1245,8 +1245,9 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     func fitScroll() {
-        guard let document = scroll?.documentView else { return }
-        let size = CGSize(width: max(content.width, bounds.width), height: max(content.height, bounds.height))
+        guard let scroll, let document = scroll.documentView else { return }
+        let visible = scroll.contentView.bounds.size
+        let size = CGSize(width: max(content.width, visible.width), height: max(content.height, visible.height))
         if document.frame.size != size { document.setFrameSize(size) }
     }
 
