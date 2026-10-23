@@ -151,15 +151,17 @@ globalThis.exact.installMedia = (el, send) => {
 // (`release` lets go at once; `removeMedia` releases a retired element's), `then` run as it does, at once (the JS
 // target counts `inflight` so); null when nothing is in flight. An `emptied` a load with a source fires is that load beginning, not its end: it once let a changed
 // source's opening seek go unheld.
-const holds = new WeakMap(); // element -> its hold's release
+const holds = new WeakMap(), gone = new WeakSet(); // element -> its hold's release; the retired
 globalThis.exact.mediaHold = (el, then = () => {}) => {
   const source = () => el.currentSrc || el.getAttribute?.('src') || el.exactMedia?.props?.src || '';
   // (`networkState` 1, NETWORK_IDLE: a source chosen and nothing being fetched, as a paused `preload` of
-  // `metadata` or `none` rests.)
-  const ready = () => !!el.error || (el.seeking !== true && (el.readyState >= 3 || el.networkState === 1 || !source()));
-  if (ready()) return null;
+  // `metadata` rests once its metadata is in, and one of `none` before any. Idle with nothing decoded yet is a
+  // download done ahead of its decoding: the metadata, and a seek bound to wait for it, are still to come.)
+  const idle = () => el.networkState === 1 && (el.readyState >= 1 || el.preload === 'none');
+  const ready = () => !!el.error || (el.seeking !== true && (el.readyState >= 3 || idle() || !source()));
+  if (gone.has(el) || ready()) return null; // (retired: nothing of it holds anything)
   let release;
-  const names = ['seeked', 'canplay', 'error', 'emptied', 'stalled', 'suspend'];
+  const names = ['seeked', 'canplay', 'error', 'emptied', 'stalled', 'suspend', 'loadedmetadata', 'loadeddata'];
   const done = new Promise(resolve => {
     const check = ev => { if (ev?.type === 'stalled' || ready()) release(); };
     let gone = false;
@@ -171,6 +173,7 @@ globalThis.exact.mediaHold = (el, then = () => {}) => {
 };
 
 globalThis.exact.removeMedia = el => {
+  gone.add(el);
   holds.get(el)?.();
   const state = states.get(el);
   if (state) { state.retired = true; state.observer?.disconnect(); states.delete(el); }
