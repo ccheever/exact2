@@ -554,7 +554,8 @@ export function install(exact) {
         // One whose answer awaits a fetch the server holds is marked `held` (LLP 1016.000 D9).
         const held = new Set((exact.heldAsks?.() ?? []).map(h => h.ticket));
         // A resource whose region ended (`gone`) has let its request go, as the runner's forget path does.
-        const pending = [...exact.resources.filter(r => r.ticket && !r.ticket.messages && !r.gone).map(r => ({ name: r.name, ticket: r.ticket.id, ...(held.has(r.ticket.id) ? { held: true } : {}) })),
+        // (a long poll past its first event is held still, LLP 1016.000 D8, and named)
+        const pending = [...exact.resources.filter(r => r.ticket && (!r.ticket.messages || held.has(r.ticket.id)) && !r.gone).map(r => ({ name: r.name, ticket: r.ticket.id, ...(held.has(r.ticket.id) ? { held: true } : {}) })),
           ...(exact.mutations ?? []).filter(m => held.has(m.ticket?.id)).map(m => ({ name: m.name, ticket: m.ticket.id, held: true })), ...holds()];
         const streams = exact.resources.filter(r => r.ticket?.ctl).map(r => ({ name: r.name, ticket: r.ticket.id, messages: r.ticket.messages, coalesced: r.ticket.coalesced, ...(r.ticket.ctl.grant ? { grant: r.ticket.ctl.grant } : {}), ...(r.ticket.ctl.socket ? { readyState: r.ticket.ctl.socket.readyState, bufferedAmount: r.ticket.ctl.socket.bufferedAmount, sent: r.ticket.ctl.socket.sent } : {}), ...(r.ticket.ctl.retrying ? { retrying: { attempt: r.ticket.ctl.retrying.attempt, inMs: Math.max(0, Math.round(r.ticket.ctl.retrying.at - performance.now())), error: r.ticket.ctl.retrying.error } } : {}) }));
         // The painted surface of views with presence rows, exit ghosts included (glue.js `st.presence`).
