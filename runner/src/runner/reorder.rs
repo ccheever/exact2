@@ -227,6 +227,10 @@ impl<D: DataSource> Runner<D> {
         self.set_phase(token, ReorderPhase::Settling);
         let view = self.kernel.node_by_key(token.list).unwrap().id;
         let result = self.dispatch(view, Event::ReorderDrop { item, before });
+        self.edit_reorder(token.list, |c, _, _| {
+            c.settle_drop_anchor(result.is_err());
+            Ok(())
+        })?;
         if result.is_err() {
             // Action validation/data refusal may precede apply. Do not leak its
             // queued style operations into a later unrelated user action.
@@ -244,7 +248,12 @@ impl<D: DataSource> Runner<D> {
         let Some(c) = self.reorder_collection(token.list) else {
             return Ok(None);
         };
-        if !c.preview_active(token) {
+        let active = c.preview_active(token);
+        self.edit_reorder(token.list, |c, _, _| {
+            c.cancel_drop_anchor(token);
+            Ok(())
+        })?;
+        if !active {
             return Ok(None);
         }
         if self.is_grouped(token) {

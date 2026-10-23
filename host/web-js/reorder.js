@@ -6,7 +6,7 @@
 // by the motion piece when a plan has a reorder drag, so a list without one
 // carries none of it.
 import { inertAncestor } from './navigation.js';
-import { clock, every, commit, journal } from "./rt.js";
+import { clock, every, commit, journal, refused } from "./rt.js";
 import { dragTarget } from './drag-target.js';
 
 // The runner's journal line (rt.js `say`).
@@ -78,20 +78,30 @@ export function install({ internals: { Collection, Lists, Views, find, minEpoch,
       this.endPreview();
       return drop;
     },
+    settleDropAnchor(failed) {
+      const p = this.preview;
+      if (!p?.dropped) return;
+      const at = this.index.pos.get(p.source);
+      if (failed || at === undefined || (this.index.order[at + 1] ?? null) === p.before) p.dropped = false;
+    },
     dropAnchor() {
       const p = this.preview, g = this.geometry;
-      if (!p || !(p.dropped || p.holding) || !g) return null;
-      return { source:p.source, anchor:this.index.anchor(this.anchorOffset(g.offset), g.port_main, this.follows(), p.source) };
+      if (!p || !p.dropped || !g) return null;
+      return { source:p.source, before:p.before, anchor:this.index.anchor(this.anchorOffset(g.offset), g.port_main, this.follows(), p.source) };
     },
     committedAnchor(ordinary, drop) {
       if (!drop) return ordinary;
-      const order = drop.anchor.order, now = this.index.pos.get(drop.source), old = order.indexOf(drop.source);
-      if (now === undefined || old < 0) return ordinary; // deletion keeps the neighbour fallback (index.rs)
+      const order = drop.anchor.order, now = this.index.pos.get(drop.source);
+      if (now !== undefined && (this.index.order[now + 1] ?? null) !== drop.before) return ordinary;
+      this.settleDropAnchor(false);
+      // Updates that do not move a surviving source keep the ordinary anchor.
+      if (now === undefined || order === this.index.order) return ordinary;
+      const old = order.indexOf(drop.source);
+      if (old < 0) return ordinary;
       let before, after;
       for (let i = old - 1; i >= 0 && before === undefined; i--) before = this.index.pos.get(order[i]);
       for (let i = old + 1; i < order.length && after === undefined; i++) after = this.index.pos.get(order[i]);
       if (!(before > now || after < now)) return ordinary;
-      if (this.preview) this.preview.dropped = false;
       return drop.anchor;
     },
     // A hold is ended only by its own endings (LLP 1094 D8, `endHold`).
@@ -203,13 +213,13 @@ export function install({ internals: { Collection, Lists, Views, find, minEpoch,
       const p = this.preview;
       if (!p || p.terminal || p.holding || !(p.stepped || p.certified && GEOMETRY.every(k => p.certified[k] === g[k]))) return null;
       if (!this.index.pos.has(p.source) || (p.before !== null && !this.index.pos.has(p.before))) return null;
-      p.holding = true; p.certified = null;
+      p.holding = true; p.dropped = true; p.certified = null;
       return [p.source.slice(2), p.before === null ? null : p.before.slice(2)];
     },
     holdOutgoing() { if (this.preview) { this.preview.holding = true; this.preview.certified = null; } },
     endHold(instant) {
       const p = this.preview;
-      if (p) { p.holding = false; p.terminal = true; p.certified = null; }
+      if (p) { p.holding = false; p.dropped = false; p.terminal = true; p.certified = null; }
       const was = this.instant; this.instant = instant; this.emitPreview(); this.instant = was;
     },
     setHidden(ident) { this.hidden = ident; this.emitPreview(); if (ident == null) delete this.hidden; },
@@ -314,6 +324,18 @@ export function install({ internals: { Collection, Lists, Views, find, minEpoch,
     if (!hasReorder(s.token)) { endSession(s, null, false); return; }
     if (s.target !== s.source && Lists.get(s.target.view) !== s.target) { s.source.setOutgoing(false); s.target = s.source; }
   }
+  // A handler's writes can be refused after it returns, during settlement.
+  let pendingDrop = null;
+  function dispatchDrop(target, args, session = null) {
+    const drop = pendingDrop = { owner:ReorderOwner, session };
+    try { target.el.$reorderdrop(...args); }
+    catch (error) {
+      pendingDrop = null;
+      drop.owner.settleDropAnchor(true);
+      if (session) endSession(session, null, false);
+      throw error;
+    }
+  }
   const Reorder = {
     binding: reorderBinding,
     geometry: view => Lists.get(view)?.reorderGeometry() ?? null,
@@ -335,10 +357,15 @@ export function install({ internals: { Collection, Lists, Views, find, minEpoch,
       if (!hasReorder(token) || !sameGeometry(ReorderOwner.reorderGeometry(), geometry)) return false;
       const drop = ReorderOwner.previewDrop(geometry);
       if (!drop) return false;
-      ReorderOwner.el.$reorderdrop(drop[0], drop[1]);
+      dispatchDrop(ReorderOwner, drop);
       return true;
     },
-    cancel(token) { const p = ReorderOwner?.preview; if (p && p.token === token && !p.terminal && p.pinOwned) ReorderOwner.endPreview(); },
+    cancel(token) {
+      const p = ReorderOwner?.preview;
+      if (!p || p.token !== token || p.holding) return;
+      p.dropped = false;
+      if (!p.terminal && p.pinOwned) ReorderOwner.endPreview();
+    },
     frame(token) {
       const f = ReorderOwner?.previewFrame(token) ?? null, s = Session;
       if (!f || !s || s.token !== token) return f;
@@ -434,7 +461,7 @@ export function install({ internals: { Collection, Lists, Views, find, minEpoch,
       s.phase = "holding"; s.deadline = clock.now + HOLD_MS;
       every(HOLD_MS, () => { if (Session === s && s.phase === "holding") return commit(() => { say("reorderdrop: the move did not show within 1 s"); endSession(s, "timeout", false); }, "reorderdrop hold"); return true; }, true);
       s.timer = clock.timers.at(-1);
-      t.el.$reorderdrop(item, before, [listId(s.source), listId(t)]);
+      dispatchDrop(t, [item, before, [listId(s.source), listId(t)]], s);
       return true;
     },
     cancelGroup(token) { const s = grouped(token); if (s && s.phase === "active") endSession(s, null, false); },
@@ -450,6 +477,12 @@ export function install({ internals: { Collection, Lists, Views, find, minEpoch,
   };
   // A preview whose binding is gone ends (runner reconcile_reorder).
   After.push(() => {
+    if (pendingDrop) {
+      const {owner, session} = pendingDrop;
+      pendingDrop = null;
+      owner.settleDropAnchor(!!refused());
+      if (refused() && session && Session === session && session.phase === "holding") endSession(session, null, false);
+    }
     if (ReorderOwner && !Lists.has(ReorderOwner.view)) { ReorderOwner = null; Session = null; return; }
     if (Session?.group) return; // the motion piece's flush asks first (`reconcileGroup`)
     const p = ReorderOwner?.preview;
