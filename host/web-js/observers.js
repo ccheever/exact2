@@ -27,12 +27,20 @@ export function onResize(e, f) {
     .catch(err => { say(`resize: ${err.message}`); landed(); });
 }
 let Intersects = null;
+// As a first size: the observer's first entry (one always comes, intersecting or not) is in flight until it is
+// delivered, so a settle (conform's boot step) reads the state it made however late a loaded machine delivers it;
+// one gone first holds nothing, any other 2 s at most (the wasm host's twin, host/web/glue.js).
 export function onIntersect(e, f) {
   if (globalThis.__exactRender) return;
-  let gone = false, stop;
-  onEnd(() => { gone = true; stop?.(); });
+  let gone = false, stop, first = true, bound = null;
+  const landed = () => { if (first) { first = false; clearTimeout(bound); inflight.n--; } };
+  onEnd(() => { gone = true; stop?.(); landed(); });
   inflight.n++;
   (Intersects ??= new Promise(r => requestAnimationFrame(r)).then(() => import("./intersect-glue.js")))
-    .then(m => { if (!gone && e.isConnected) stop = m.observeIntersect(e, r => { if (!gone) f([r.isIntersecting, r.intersectionRatio]); }); })
-    .catch(err => say(`intersect: ${err.message}`)).finally(() => inflight.n--);
+    .then(m => {
+      if (gone || !e.isConnected) { landed(); return; }
+      stop = m.observeIntersect(e, r => { try { if (!gone) f([r.isIntersecting, r.intersectionRatio]); } finally { landed(); } });
+      if (first) bound = setTimeout(landed, globalThis.__exactFirstSizeBound ?? FIRST_MS);
+    })
+    .catch(err => { say(`intersect: ${err.message}`); landed(); });
 }
