@@ -15,6 +15,16 @@ struct CustomLook {
 }
 
 extension GroupedListView {
+    /// Its cells, headers and separators follow the list's direction, as
+    /// UIKit mirrors its own lists; a view's `semanticContentAttribute`
+    /// reaches no subview, a trait does.
+    func followDirection() {
+        let direction: UISemanticContentAttribute = owner.style["direction"]?.string == "rtl" ? .forceRightToLeft : .forceLeftToRight
+        guard collection.semanticContentAttribute != direction else { return }
+        collection.semanticContentAttribute = direction
+        collection.traitOverrides.layoutDirection = direction == .forceRightToLeft ? .rightToLeft : .leftToRight
+    }
+
     /// Marks the custom row `id`'s leading symbol and notes its line, as
     /// it is carried into its cell; a mark it no longer has is cleared, and
     /// a line that moved lays the list out again after the update (or,
@@ -70,19 +80,18 @@ extension GroupedListView {
         return image
     }
 
-    /// Where the custom row `id`'s line starts from its cell's left edge,
+    /// Where the custom row `id`'s line starts from its cell's leading edge,
     /// read live, so a row not yet carried has it too: at its content box
     /// (the row's inset, past a leading symbol), the row at the place it is
     /// carried to (`carry`), as the kernel places the line where the sheet
-    /// draws it (`Kernel::grouped_separator`). Right to left, none: the
-    /// sheet's insets are physical and the row's views are not mirrored,
-    /// so UIKit's own line stays (QUEUE).
+    /// draws it (`Kernel::grouped_separator`). Right to left the leading
+    /// edge is the right, where the kernel mirrors the sheet's insets.
     func lineStart(_ id: UInt32) -> CGFloat? {
         guard let row = host.presenter.views[id] else { return nil }
-        let traits: UIUserInterfaceLayoutDirection = collection.traitCollection.layoutDirection == .rightToLeft ? .rightToLeft : .leftToRight
-        if UIView.userInterfaceLayoutDirection(for: collection.semanticContentAttribute, relativeTo: traits) == .rightToLeft { return nil }
         let x = row.grid.map { PixelGrid.round($0.layout.minX, scale: host.presenter.gridScale) } ?? carried[id]?.frame.minX ?? row.frame.minX
-        return x + row.contentBox().offsetBy(dx: -row.bounds.minX, dy: 0).minX
+        let box = row.contentBox().offsetBy(dx: -row.bounds.minX, dy: 0)
+        if collection.effectiveUserInterfaceLayoutDirection == .rightToLeft { return row.bounds.width - box.maxX - x }
+        return x + box.minX
     }
 }
 #endif

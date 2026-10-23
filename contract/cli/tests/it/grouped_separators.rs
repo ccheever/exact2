@@ -108,6 +108,45 @@ fn a_full_width_row_stays_in_its_card_and_its_separator_is_decoration() {
     assert_eq!(next, [false, false, false, true, false, false, false]);
 }
 
+/// Right to left the sheet's insets mirror, as UIKit's list does: the
+/// leading symbol and the text after it are at the right, and the line runs
+/// from the card's edge to the text's. An inset the author wrote stays on
+/// the side it was written.
+#[test]
+fn right_to_left_a_rows_insets_and_its_separator_mirror() {
+    let r = boot(
+        "list appearance=\"auto\" direction=\"rtl\" flex=1
+  section
+    row testId=\"full\"
+      image \"symbol:sf/star\" testId=\"symbol\"
+      text \"Custom\" testId=\"title\"
+    row padding-left=30 testId=\"own\"
+      text \"Own inset\"
+    row testId=\"last\"
+      text \"Last\"",
+    );
+    let k = r.kernel();
+    let frame = |t: &str| k.node(id(&r, t)).unwrap().frame;
+    assert_eq!((frame("full").x, frame("full").width), (16.0, 370.0));
+    let (symbol, title) = (frame("symbol"), frame("title"));
+    assert!(
+        symbol.x > title.x,
+        "the symbol leads, at the right: {symbol:?} {title:?}"
+    );
+    let line = k.grouped_separator(id(&r, "full")).unwrap().rect;
+    assert_eq!(
+        (line.x, line.width),
+        (0.0, 315.0),
+        "from the card's edge to the text after the symbol"
+    );
+    let own = k.node(id(&r, "own")).unwrap().key;
+    assert_eq!(
+        k.resolved_padding(own).unwrap().0,
+        30.0,
+        "the author's left inset stays left"
+    );
+}
+
 /// The row after a row is the next one shown, as UIKit's list has it: a
 /// hidden row is no neighbour, and a row followed only by hidden ones is
 /// the card's last. A row that is shown but invisible draws none. A
