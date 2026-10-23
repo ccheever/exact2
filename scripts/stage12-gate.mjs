@@ -701,7 +701,7 @@ export function slotRendered(opts) {
  * not move). `axis` says which way a terminal cell rounds it (none for a
  * size). */
 const POST_CARDS = ['pc-base', 'pc-inthread', 'pc-lineabove', 'pc-linebelow', 'sample-pc-pinned', 'sample-pc-reposted'];
-const ACTION_ROWS = ['ar-base', 'ar-big', 'ar-haptics', 'ar-reposted', 'ar-liked', 'sample-ar-replydisabled', 'sample-ar-saved'];
+const ACTION_ROWS = ['ar-base', 'ar-big', 'ar-haptics', 'ar-reposted', 'ar-liked', 'sample-ar-replydisabled', 'ar-saved'];
 const POST_BUTTONS = ['pb-base', 'sample-pb-reply', 'sample-pb-disabled'];
 export const RESTYLE = [
   {
