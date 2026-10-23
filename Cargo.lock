@@ -1224,6 +1224,7 @@ dependencies = [
  "exact-color",
  "exact-data",
  "exact-kernel",
+ "exact-logic",
  "exact-markdown",
  "exact-markdown-editor",
  "exact-motion",

@@ -282,6 +282,20 @@ package final class Runtime {
         }
     }
     package func commitPlan() -> Batch { islands(on { read(exact_commit_plan(rt)) }) }
+    /// The owner excludes replies between the final freshness check and every
+    /// commit. The durable callback runs on main through the usual T5 door.
+    package static func commitTogether(_ runtimes: [Runtime], commit: () -> Bool) -> (batches: [Batch]?, pending: Bool, requests: Bool) {
+        let result: (batches: [Batch]?, pending: Bool, requests: Bool) = Owner.shared.sync({
+            let checks = runtimes.map { $0.read(exact_check_prepared($0.rt)) }
+            guard checks.allSatisfy({ $0.error == nil && !$0.pending }) else {
+                return (nil, checks.contains { $0.pending || $0.requests }, checks.contains { $0.requests })
+            }
+            guard Owner.shared.callMain(commit) else { return (nil, false, false) }
+            return (runtimes.map { $0.read(exact_commit_plan($0.rt)) }, false, false)
+        }, busy: (nil, false, false))
+        guard let batches = result.batches else { return result }
+        return (zip(runtimes, batches).map { $0.islands($1) }, false, false)
+    }
     /// `letGo`: the dev loop's, past its settle window: requests in flight do not refuse it (LLP 1007 §6).
     package func prepareModule(_ plan: Data, module: ExactModule, token: UInt64 = 0, width: CGFloat, height: CGFloat, letGo: Bool = false) -> Batch {
         return on {
