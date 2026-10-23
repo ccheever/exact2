@@ -569,9 +569,10 @@ final class MenuHost: NSObject {
             // The page scrolls under a layer in its own window; a sheet's layer is its own extent.
             let document = presenter.viewport.documentView.flatMap { $0.window != nil && $0.window === entry.layer.window ? $0 : nil }
             let page = document.map { $0.convert($0.bounds, to: entry.layer) } ?? entry.layer.bounds
-            box.origin = PositionArea.origin(PositionArea.of(entry.popover), anchor: anchor, size: box.size,
+            let placed = PositionArea.painted(entry.popover, rtl: presenter.documentDirection == "rtl")
+            box.origin = PositionArea.origin(placed.area, anchor: anchor, size: box.size,
                                              margins: PositionArea.margins(of: entry.popover),
-                                             fallbacks: entry.popover.style["position_try_fallbacks"]?.string ?? "none",
+                                             fallbacks: placed.fallbacks,
                                              overflow: PositionArea.overflow(of: entry.popover, page: page),
                                              rtl: presenter.documentDirection == "rtl",
                                              history: &entry.placement, in: entry.layer.bounds)

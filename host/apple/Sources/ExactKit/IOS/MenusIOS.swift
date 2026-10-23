@@ -762,9 +762,10 @@ final class MenuHost {
         // A bar item's popover opens from the item, not its hidden button (`agentOpen(barItem:)`).
         if case .success(let (bar, item))? = presenter.navigation.barItem(source) { anchor = bar.convert(item, to: entry.layer) }
         let size = pop.bounds.size
-        let at = PositionArea.origin(PositionArea.of(pop), anchor: anchor, size: size,
+        let placed = PositionArea.painted(pop, rtl: presenter.documentDirection == "rtl")
+        let at = PositionArea.origin(placed.area, anchor: anchor, size: size,
                                     margins: PositionArea.margins(of: pop),
-                                    fallbacks: pop.style["position_try_fallbacks"]?.string ?? "none",
+                                    fallbacks: placed.fallbacks,
                                     // The page's document less the bands past its area (status bar, home indicator).
                                     overflow: PositionArea.overflow(of: pop, page: presenter.viewport.convert(CGRect(origin: .zero, size: presenter.viewport.contentSize).inset(by: presenter.pageMargins), to: entry.layer)),
                                     rtl: presenter.documentDirection == "rtl",
