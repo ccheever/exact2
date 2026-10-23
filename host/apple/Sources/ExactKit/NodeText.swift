@@ -88,7 +88,9 @@ extension NodeView {
         // Worker surfaces encode ordinary lines only. Clear their key before
         // changing eligibility, including when an exclusion is removed.
         dropTextRaster()
+        let wasEmpty = flowShapes.isEmpty
         flowShapes = wire.compactMap(TextFlowShape.init)
+        if wasEmpty != flowShapes.isEmpty { cachedTextSpec = nil }
         cachedTextLayout = nil
         #if os(macOS)
         needsDisplay = true
@@ -216,7 +218,7 @@ extension NodeView {
         }
         var spec = TextStyle.spec(runs: runs, style: style, props: props, strut: strut,
                                   color: ink,
-                                  language: presenter?.documentLanguage ?? "")
+                                  language: presenter?.documentLanguage ?? "", flow: !flowShapes.isEmpty)
         // One shadow over the paragraph when its runs agree (LLP 1077 D3).
         spec.gatherShadows()
         cachedTextSpec = spec

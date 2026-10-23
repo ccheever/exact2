@@ -10,6 +10,51 @@ final class TextFlowTests: XCTestCase {
         Spec(runs: [Run(text: text, size: 16, weight: 400, family: family, italic: false,
                         lineHeight: 24, letterSpacing: 0)], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
     }
+    #if os(iOS)
+    func testManualTextKeepsWholeWordsWhenAnExclusionIsPresent() throws {
+        let session = ExactApp.shared.makeSession(label: "manual-flow")
+        defer { session.destroy() }
+        let p = session.presenter
+        let word = "antidisestablishmentarianism", text = "Work " + word
+        let room = engine.paragraph(spec(word), width: .infinity).width + 1
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "text", "props": ["text": text],
+             "style": ["font_size": 16.0, "overflow_wrap": "break-word"]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": Double(room), "h": 200],
+        ]))
+        let node = try XCTUnwrap(p.views[1])
+        XCTAssertFalse(node.paragraphSpec().emergencyBreaks.isEmpty)
+        node.applyFlow([["kind": "Circle", "cx": 0, "cy": 1000, "r": 10]])
+        let manual = node.paragraphSpec()
+        XCTAssertEqual(manual.runs[0].text, text, "the walker must not see synthetic ordinary opportunities")
+        XCTAssertTrue(manual.emergencyBreaks.isEmpty)
+        let laid = try XCTUnwrap(node.paragraphLayout())
+        let first = CTLineGetStringRange(try XCTUnwrap(laid.lines.first))
+        XCTAssertEqual((manual.runs[0].text as NSString).substring(with: NSRange(location: first.location, length: first.length)), "Work")
+        XCTAssertEqual(laid.fragments.first?.utf16_end, 5, "the fragment consumes the following space without painting it")
+        XCTAssertEqual(node.sourceOffset(text.utf16.count), text.utf16.count)
+        node.applyFlow([])
+        XCTAssertFalse(node.paragraphSpec().emergencyBreaks.isEmpty, "ordinary layout regains emergency hyphens")
+
+        let bytes = Array(text.utf8)
+        bytes.withUnsafeBufferPointer { buffer in
+            var run = ExactTextRun()
+            run.text = buffer.baseAddress; run.len = buffer.count
+            run.font_size = 16; run.font_weight = 400; run.font_stretch = 100
+            withUnsafePointer(to: &run) { runs in
+                var exclusion = ExactFlowShape(kind: 0, x: 0, y: 1000, a: 10, b: 0, radius: 0, pairs: nil, count: 0)
+                withUnsafePointer(to: &exclusion) { shapes in
+                    var request = ExactMeasureRequest()
+                    request.runs = runs; request.count = 1; request.strut = runs.pointee
+                    request.overflow_wrap = 1; request.exclusions = shapes; request.exclusion_count = 1
+                    XCTAssertEqual(engine.requestSpec(request).runs[0].text, text, "the measurer and painter keep the same opportunities")
+                }
+            }
+        }
+    }
+    #endif
+
     func testFixedMixedFontLinesKeepSharedBaselineExtents() {
         let base = Run(text: "", size: 20, weight: 400, family: 0, italic: false, lineHeight: 20, letterSpacing: 0)
         var child = base; child.text = "Larger"; child.size = 40

@@ -1426,7 +1426,7 @@ package final class TextEngine {
         if made.automaticHyphens, let lang = request.lang {
             made.language = String(decoding: UnsafeBufferPointer(start: lang, count: request.lang_len), as: UTF8.self)
         }
-        made.hyphenateAuto()
+        made.hyphenateAuto(allowEmergency: request.exclusion_count == 0)
         return made
     }
 
