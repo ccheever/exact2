@@ -224,7 +224,8 @@ final class RegionReaderParagraph {
         let focused = PageFacts.hasFocus(node.window)
         let selected = selection.length > 0 ? TextSelection.rasterColors(focused: focused, in: node.effectiveAppearance, space: .sRGB) : nil
         let next = RegionRasterRequest(serial: serial + 1, publication: artifact.id, generation: 0,
-            rows: [RegionPaintRow(artifact: artifact.id, box: box, selection: selection)],
+            rows: [RegionPaintRow(artifact: artifact.id, box: box, selection: selection,
+                selectionRanges: node.presenter?.selection.rectangleRanges(node) ?? [])],
             scroll: CGPoint(x: -32, y: band.y), size: CGSize(width: width, height: band.height), scale: scale,
             profile: profile, format: RegionRasterRequest.compositedFormat,
             // The existing view owns CSS backgrounds, including rounded corners
@@ -298,6 +299,7 @@ final class RegionReaderParagraph {
             raster = value; self.image = image
             imageFrame = CGRect(origin: value.request.scroll, size: value.request.size)
             wantedRaster = nil
+            if !value.selectionSnapshots.isEmpty { node.presenter?.selection.readerGeometryReady() }
             publishing = true
             if changed, let session = node.presenter?.session {
                 session.apply(session.runtime.textReady(index: index, generation: generation, revision: revision))
@@ -399,6 +401,11 @@ final class RegionReaderParagraph {
             (label as NSString).draw(at: CGPoint(x: box.minX, y: max(box.minY, dirty.minY)),
                 withAttributes: [.font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.secondaryLabelColor])
         }
+    }
+
+    func selectionRects(_ range: NSRange) -> [CGRect]? {
+        guard let accepted, let raster, raster.request.publication == accepted.id else { return nil }
+        return raster.selectionSnapshots.first { $0.artifact == accepted.id && $0.range == range }?.rects
     }
 
     func offset(at point: CGPoint, node: NodeView) -> Int? {
