@@ -58,7 +58,11 @@ fn judged_on(base: &str, folding: Folding, members: &[&[Op]], vocab: &Vocab) -> 
 fn take(at: &mut Judged, members: &[(usize, &[Op])], vocab: &Vocab) {
     let mut members: Vec<(usize, &[Op])> = members.to_vec();
     loop {
-        if members.is_empty() {
+        // Each round a check of the whole design, charged to the
+        // re-import's budget (theme2's ruling on the batch's time): past it,
+        // nothing more is judged, and the re-import is refused in the
+        // budget's words, applying nothing (`reimport_against`).
+        if members.is_empty() || crate::budget::spend(at.text.len() as u64).is_err() {
             return;
         }
         let ops: Vec<Op> = members
@@ -508,5 +512,100 @@ mod tests {
             .join()
             .unwrap();
         assert_eq!(refused, n);
+    }
+
+    /// A chain past the re-import's budget stops being judged, and the
+    /// budget says so (theme2's ruling: a named refusal, nothing applied).
+    #[test]
+    fn a_chain_past_the_budget_stops_and_the_budget_says_so() {
+        let (base, members) = chain(5_000);
+        let began = std::time::Instant::now();
+        let spent = std::thread::Builder::new()
+            .stack_size(2 << 20)
+            .spawn(move || {
+                let _work = crate::budget::Work::begin(crate::budget::REIMPORT);
+                let _ = refused(&base, &members);
+                crate::budget::spent()
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        assert!(spent.is_some_and(|w| w.contains("expands past")));
+        assert!(
+            began.elapsed() < std::time::Duration::from_secs(60),
+            "{:?}",
+            began.elapsed()
+        );
+    }
+
+    /// 17,000 edits with a few refused on their own lines take two rounds,
+    /// well within the budget.
+    #[test]
+    fn many_edits_with_a_few_refusals_pass_within_the_budget() {
+        let n = 17_000;
+        let mut base = String::from("tamber t\n\ntheme\n");
+        for k in 0..n {
+            base += &format!("  t{k} = #111111\n");
+        }
+        let members: Vec<Vec<Op>> = (0..n)
+            .map(|k| match k % 6_000 {
+                0 => vec![Op::SetToken {
+                    name: format!("t{k}"),
+                    when: vec![("nope".into(), "x".into())],
+                    value: "#222222".into(),
+                    at: None,
+                    comment: None,
+                }],
+                _ => vec![set(&format!("t{k}"), "#222222")],
+            })
+            .collect();
+        let began = std::time::Instant::now();
+        let _work = crate::budget::Work::begin(crate::budget::REIMPORT);
+        let (refused, text) = refused(&base, &members);
+        assert!(crate::budget::spent().is_none());
+        assert_eq!(refused.len(), 3);
+        assert_eq!(text.matches("#222222").count(), n - 3);
+        assert!(
+            began.elapsed() < std::time::Duration::from_secs(60),
+            "{:?}",
+            began.elapsed()
+        );
+    }
+
+    /// Below the budget, the answers are the unbounded loop's.
+    #[test]
+    fn below_the_budget_the_answers_are_the_unbounded_loops() {
+        for n in [2, 5, 13, 40] {
+            let (base, members) = chain(n);
+            let free = refused(&base, &members);
+            let _work = crate::budget::Work::begin(crate::budget::REIMPORT);
+            assert_eq!(refused(&base, &members), free, "{n}");
+            assert!(crate::budget::spent().is_none());
+        }
+    }
+
+    /// A chain of `n` members, each exposed only when the one after it is
+    /// refused (the last refused on its own line).
+    fn chain(n: usize) -> (String, Vec<Vec<Op>>) {
+        let mut base = String::from("tamber t\n\ntheme\n");
+        for k in 0..n {
+            base += &format!("  t{k} = 4px\n");
+        }
+        let mut members: Vec<Vec<Op>> = (0..n - 1)
+            .map(|k| {
+                vec![set(
+                    &format!("t{k}"),
+                    &format!("light-dark(t{}, #000000)", k + 1),
+                )]
+            })
+            .collect();
+        members.push(vec![Op::SetToken {
+            name: format!("t{}", n - 1),
+            when: vec![("nope".into(), "x".into())],
+            value: "#ffffff".into(),
+            at: None,
+            comment: None,
+        }]);
+        (base, members)
     }
 }
