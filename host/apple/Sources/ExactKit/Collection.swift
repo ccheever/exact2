@@ -108,6 +108,8 @@ struct CollectionSnapshot {
         let epoch: UInt64
         /// Logical position; -1 when a snapshot omits it.
         let index: Int
+        let size: Double?
+        let measured: Bool
     }
     struct Correction {
         let sequence: UInt64
@@ -143,7 +145,8 @@ struct CollectionSnapshot {
         for item in rawRows {
             guard let id = Self.viewID(item["view"]), let root = Self.viewID(item["root"]),
                   let epoch = Self.uint(item["epoch"]), seen.insert(id).inserted else { return nil }
-            rows.append(Row(view: id, root: root, epoch: epoch, index: Self.uint(item["index"]).map { Int(clamping: $0) } ?? -1))
+            rows.append(Row(view: id, root: root, epoch: epoch, index: Self.uint(item["index"]).map { Int(clamping: $0) } ?? -1,
+                            size: Self.number(item["size"]), measured: item["measured"] as? Bool ?? false))
         }
         var correction: Correction?
         if let raw = value["correction"], !(raw is NSNull) {
@@ -199,7 +202,6 @@ package final class CollectionHost {
         var cursor = CollectionCursor()
         var lastFacts: CollectionFacts?
         var lastSequence: UInt64?
-        var measuredRevision: UInt64?
         /// The limit the last report carried: a slice that may build more
         /// reports again with the same facts (a rescue just reported them,
         /// building only what shows).
@@ -690,15 +692,16 @@ package final class CollectionHost {
                 if entry.lastFacts != facts || entry.lastSequence != entry.cursor.sequence
                     || (entry.snapshot.pending && limit != 0) || further || retireLimit != nil {
                     var report = facts
-                    // A new snapshot may invalidate heights without moving
-                    // their views. Within one revision only changed heights
-                    // need to cross the feedback wire again.
-                    if entry.measuredRevision == entry.snapshot.revision, entry.lastSequence != nil,
-                       let previous = entry.lastFacts, previous.cross == facts.cross {
-                        let known = Dictionary(uniqueKeysWithValues: previous.measurements.map { ($0.view, $0) })
+                    // A sent report may be rejected atomically. Only the
+                    // runner's measured snapshot acknowledges a height;
+                    // invalidated or unacknowledged sizes are sent again.
+                    if let previous = entry.lastFacts, previous.cross == facts.cross {
+                        let known = Dictionary(uniqueKeysWithValues: entry.snapshot.rows.compactMap { row -> (UInt32, CollectionMeasurement)? in
+                            guard row.measured, let size = row.size else { return nil }
+                            return (row.view, CollectionMeasurement(view: row.view, epoch: row.epoch, size: size))
+                        })
                         report.measurements.removeAll { known[$0.view] == $0 }
                     }
-                    entry.measuredRevision = entry.snapshot.revision
                     entry.lastFacts = facts
                     entry.lastSequence = entry.cursor.sequence
                     entry.lastLimit = limit
