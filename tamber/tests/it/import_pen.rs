@@ -779,3 +779,32 @@ fn round_3_recheck_4_a_failing_colour_chain_walked_from_every_link_is_charged() 
     let refused = within(&chain, 2 * high + 1_000_000).unwrap_err();
     assert!(refused[0].message.contains("expands past"), "{refused:?}");
 }
+
+#[test]
+fn round_3_recheck_5_each_tuple_s_copy_of_a_prefixed_name_is_charged() {
+    let design = parse(EMPTY).unwrap();
+    let axes: Vec<String> = (0..6).map(|i| format!(r#""a{i}":["x","y"]"#)).collect();
+    let mut vars = vec![r##""base":{"type":"color","value":"#000000"}"##.to_string()];
+    vars.extend((0..500).map(|i| format!(r#""c{i:03}":{{"type":"color","value":"$base"}}"#)));
+    let text = format!(
+        r#"{{"version":"2.21","themes":{{{}}},"variables":{{{}}}}}"#,
+        axes.join(","),
+        vars.join(",")
+    );
+    let within = |prefix: &str, limit: u64| {
+        pen::import_within("x.pen", &text, prefix, &design, &vocab(), limit).is_ok()
+    };
+    let (mut low, mut high) = (0, IMPORT);
+    while high - low > 1000 {
+        let mid = (low + high) / 2;
+        if within("p", mid) {
+            high = mid;
+        } else {
+            low = mid;
+        }
+    }
+    // 500 aliases in 64 tuples, each holding its 384-byte name twice: some 24 million more.
+    let long = "€".repeat(128);
+    assert!(!within(&long, high + 1_000_000), "the copies are charged");
+    assert!(within(&long, IMPORT));
+}

@@ -315,8 +315,7 @@ fn tokens(file: &str, tree: &Value) -> Result<Vec<Def>, String> {
             return Err(format!("`{}` nests deeper than 64", path.join(".")));
         }
         crate::budget::spend(1)?;
-        // A whole-token `$ref`: to a token, a `$value` or anything not a
-        // group, it is an alias.
+        // A whole-token `$ref`: to a token, a `$value` or anything not a group, it is an alias.
         if let Some(r) = map.get("$ref").and_then(Value::as_str) {
             let to_group = target(root, r).is_some_and(|t| t.is_object() && !token_like(root, t));
             if !map.contains_key("$value") && !to_group {
@@ -480,8 +479,7 @@ fn read(files: &[(String, String)]) -> Result<Read, String> {
     {
         return resolver(name, doc, &parsed);
     }
-    // Figma's `<Collection>.<Mode>.json`, each file on its own; any other
-    // file is the base.
+    // Figma's `<Collection>.<Mode>.json`, each file on its own; any other file is the base.
     let mut out = Read::default();
     let mut collections: BTreeMap<String, Vec<(String, &Value, String)>> = BTreeMap::new();
     let mut plain: Vec<(&String, &Value)> = Vec::new();
@@ -983,8 +981,12 @@ impl Resolve<'_> {
                     }),
             }
         };
-        // A colour found holds; a failure may be a cycle in progress, kept
-        // only from the top.
+        // A colour found holds, its names charged (once returned, once kept); a failure may be a
+        // cycle in progress, kept only from the top.
+        let size = found.as_ref().map_or(0, |(a, b, c)| {
+            a.len() + b.len() + c.as_ref().map_or(0, String::len)
+        });
+        crate::budget::spend(2 * size as u64)?;
         if found.is_ok() || visiting.len() <= 1 {
             self.memo.insert(path.to_string(), found.clone());
         }
@@ -1294,10 +1296,9 @@ fn planned(
             }
         }
     }
-    // (a walk the budget ran out in is the import's refusal, not a value's)
+    // A walk the budget ran out in is the import's refusal, not a value's. A reference to a token
+    // not made is written as its colour; one round a cycle of tokens too.
     crate::budget::spend(1).map_err(|m| refuse("tamber-import-source", m))?;
-    // A reference to a token not made is written as its colour; one round a
-    // cycle of tokens too.
     let made: BTreeSet<&str> = values.keys().copied().collect();
     let mut graph: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
     for (path, per) in values.iter_mut() {
