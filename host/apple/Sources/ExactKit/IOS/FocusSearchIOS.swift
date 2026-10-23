@@ -56,6 +56,16 @@ final class Viewport: ScrollView {
     var pageMargins = UIEdgeInsets.zero
     /// The control bars over its page's scrollers, each by its edge (`ControlBars.sync`, LLP 1131).
     var controlBars: [ObjectIdentifier: ControlBars.Weak] = [:]
+    #if os(iOS)
+    // The page's own scroller takes the keyboard down with a drag that
+    // reaches it, as a scroller's unsaid `keyboardDismissMode` does
+    // (`NodeView.keyboardDismissal`, LLP 1115.000 D9.1).
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        keyboardDismissMode = .interactive
+    }
+    required init?(coder: NSCoder) { nil }
+    #endif
     // tvOS focuses exact2's own nodes (RemoteTVOS), so its search sees every view.
     #if !os(tvOS)
     override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self, in: rect) }
