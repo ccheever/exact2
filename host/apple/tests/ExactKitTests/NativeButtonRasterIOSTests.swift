@@ -6,6 +6,8 @@ import XCTest
 final class NativeButtonRasterIOSTests: XCTestCase {
     private var session: ExactSession?
     private var window: UIWindow?
+    private var face = ButtonFace()
+    private var reportedImages: [UInt32: CGSize] = [:]
     override func tearDown() {
         session?.destroy()
         window?.isHidden = true
@@ -56,34 +58,49 @@ final class NativeButtonRasterIOSTests: XCTestCase {
     }
 
     func testARasterFaceLoadsChangesSizeAndColourAndReleasesWhenRemoved() throws {
-        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_BUTTON_RASTER_PLAN"])))
+        let red = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAUCAYAAADskT9PAAAAJUlEQVR4nO3OIQEAAAwEoetfeovxBoGnq1tKQEBAQEBAQEBgHXhQmvs9CPiiZwAAAABJRU5ErkJggg=="
+        let blue = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAYAAAC8/X7cAAAAP0lEQVR4nO3PsQ0AMAjAMP5/mh7BYFXKkN2Zmd2/44AGNKABDWhAAxrQgAY0oAENaEADGtCABjSgAQ1oQANuPW9i93nzNlyCAAAAAElFTkSuQmCC"
         let session = ExactApp.shared.makeSession(label: "button-raster")
         self.session = session
-        let view = ExactView(session: session), controller = UIViewController()
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
-        window.rootViewController = controller
-        window.makeKeyAndVisible()
-        controller.view.addSubview(view)
-        self.window = window
-        XCTAssertNil(session.boot(plan: plan, size: window.bounds.size).error)
-        view.frame = controller.view.bounds
-        view.layoutIfNeeded()
         let p = session.presenter
-        let owner = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "photo" })
-        let button = try XCTUnwrap(p.controls.controls[owner.id] as? NativeButtonIOS)
-        until { button.configuration?.image != nil && p.controls.face(owner.id).image?.size == CGSize(width: 32, height: 20) }
+        face.title = "Photo"; face.subtitle = "Choose a picture"; face.raster = true
+        face.image = .init(view: 2, source: red, size: nil)
+        p.buttonFace = { [weak self] _ in self?.face ?? ButtonFace() }
+        // Native face data is tested at the host boundary; portable Contract
+        // authoring refuses raster faces until all graphical hosts paint them.
+        p.onIntrinsic = { [weak self, weak p] sizes in
+            guard let self else { return }
+            for (id, size) in sizes where id == face.image?.view {
+                reportedImages[id] = size
+                face.image?.size = size
+                p?.controls.sync()
+            }
+        }
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        self.window = window
+        p.viewport.frame = window.bounds; window.addSubview(p.viewport); window.makeKeyAndVisible()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "control", "props": ["type": "button"], "style": [:]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 60.0],
+        ]))
+        let owner = try XCTUnwrap(p.views[1]), button = try XCTUnwrap(p.controls.controls[1] as? NativeButtonIOS)
+        until { button.configuration?.image != nil && self.reportedImages[2] == CGSize(width: 32, height: 20) }
         XCTAssertEqual(button.configuration?.subtitle, "Choose a picture")
         XCTAssertEqual(button.configuration?.image?.size, CGSize(width: 32, height: 20))
         XCTAssertEqual(try pixel(button), [255, 0, 0, 255])
         let before = button.naturalSize
-        p.press(try XCTUnwrap(p.views.values.first { $0.props["testId"] == "swap" }).id)
-        until { p.controls.face(owner.id).image?.size == CGSize(width: 48, height: 24) && button.configuration?.image?.size == CGSize(width: 48, height: 24) }
+        face.image = .init(view: 3, source: blue, size: nil)
+        p.controls.sync()
+        until { self.reportedImages[3] == CGSize(width: 48, height: 24) && button.configuration?.image?.size == CGSize(width: 48, height: 24) }
         XCTAssertEqual(try pixel(button), [0, 0, 255, 255])
         XCTAssertGreaterThan(button.naturalSize.width, before.width)
-        p.press(try XCTUnwrap(p.views.values.first { $0.props["testId"] == "remove" }).id)
-        until { button.configuration?.image == nil }
+        face.image = nil; face.raster = false
+        p.controls.sync()
+        XCTAssertNil(button.configuration?.image)
         XCTAssertNil(owner.raster)
         XCTAssertNil(owner.imageSource)
+        XCTAssertEqual(session.rasters.diagnostics["subscribers"] as? UInt64, 0)
     }
     private func pixel(_ button: UIButton) throws -> [UInt8] {
         let image = try XCTUnwrap(button.configuration?.image)
