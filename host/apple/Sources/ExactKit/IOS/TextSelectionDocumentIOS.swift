@@ -54,6 +54,12 @@ final class SelectionDocument {
         surface.isAccessibilityElement = false
         surface.layer.zPosition = -1e6
         owner.container.insertSubview(surface, at: 0)
+        let pointer = PointerRecognizer(target: nil, action: nil)
+        pointer.selection = self
+        pointer.cancelsTouchesInView = false
+        pointer.delaysTouchesBegan = false
+        pointer.delaysTouchesEnded = false
+        surface.addGestureRecognizer(pointer)
     }
     func contains(_ node: NodeView) -> Bool { parts.contains { $0.node === node } }
     func settle(host: TextSelectionHost) -> Bool {
