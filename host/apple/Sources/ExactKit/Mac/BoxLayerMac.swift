@@ -71,7 +71,7 @@ extension NodeView {
         // CGColors straight from the rows: an NSColor's `cgColor` is made
         // anew on each call, and this runs for every repaint.
         // In a sheet, the window's background is the sheet's own ground, which AppKit draws (SheetsMac.swift).
-        p.fill = standsOnSheetGround || standsOnSplitGround ? nil : (cgColor("background_color") ?? fieldGround).flatMap { $0.alpha > 0 ? $0 : nil }
+        p.fill = materialContent != nil || standsOnSheetGround || standsOnSplitGround ? nil : (cgColor("background_color") ?? fieldGround).flatMap { $0.alpha > 0 ? $0 : nil }
         let uniform = number("border_width")
         let sides = ["top", "right", "bottom", "left"]
         p.widths = sides.map { number("border_width_" + $0, uniform) }
@@ -241,7 +241,7 @@ extension NodeView {
     /// layer holds, with the box's one radius; a box `draw(_:)` paints
     /// paints its gradient there instead.
     private func applyGradientLayer(_ p: BoxPlan) {
-        guard let layer, layerBoxEligible, !(hasBoxPaint && p.drawn), surface == nil, !cssVisibilityHidden, let gradient = Gradient(style["background_image"]), !gradient.needsDrawing else {
+        guard materialContent == nil, let layer, layerBoxEligible, !(hasBoxPaint && p.drawn), surface == nil, !cssVisibilityHidden, let gradient = Gradient(style["background_image"]), !gradient.needsDrawing else {
             boxGradient?.removeFromSuperlayer(); boxGradient = nil; return
         }
         CATransaction.begin(); CATransaction.setDisableActions(true)
