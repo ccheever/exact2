@@ -948,7 +948,7 @@ export function reveal(el, id, inert = el => el.closest("[inert]")) {
     const cs = getComputedStyle(a), b = a.getBoundingClientRect();
     if ((cs.overflowX !== "visible" || cs.overflowY !== "visible") && !(x >= b.left && x < b.right && y >= b.top && y < b.bottom)) seen = false;
   }
-  if (seen || ["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // nor what its tap refuses (hidden or inert): a refusal leaves the page as it was
+  if (seen || ["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // A hidden stand-in must not scroll the page.
   (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
   return { revealed: id, scrolled: true, from: [x, y], to: middle() };
 }
@@ -958,11 +958,11 @@ export function reveal(el, id, inert = el => el.closest("[inert]")) {
 const folded = el => { const d = getComputedStyle(el).display; return d === "contents" || d === "inline" && el.hasAttribute("data-exact-text"); };
 
 // The visible Back that stands for a hidden route control. The hiding mark belongs only to bar items;
-// author-hidden controls keep their styles and use the same button for taps and shortcuts.
-export function backButton(el) {
+// author-hidden controls keep their styles. Input uses only the selected route; geometry can read a covered route.
+export function backButton(el, selectedOnly = true) {
   if (!el?.id || el.checkVisibility?.({ visibilityProperty: true }) !== false) return null;
   const route = el.closest("[navigationkey]"), nav = route?.parentElement?.closest("[navigationback]");
-  if (!nav || nav.getAttribute("navigationBack") !== el.id
+  if (!nav || nav.getAttribute("navigationBack") !== el.id || (selectedOnly && nav.getAttribute("navigationKey") !== route.getAttribute("navigationKey"))
     || route.querySelector(`[id="${CSS.escape(el.id)}"]`) !== el) return null;
   const back = route.querySelector(":scope > header")?.shadowRoot?.querySelector('button[part="back"]:not([hidden])');
   return back?.checkVisibility({ visibilityProperty: true }) ? back : null;
@@ -973,7 +973,7 @@ export function backButton(el) {
 // when the box stretches its items (a block, or a flex or grid box that stretches). A Back control its route's bar
 // stands for (index.html) is where that bar's Back is, so a tap that names it presses that Back, as a person does.
 export function viewBox(el) {
-  const back = backButton(el);
+  const back = backButton(el, false);
   if (back) return back.getBoundingClientRect();
   if (!folded(el)) return el.getBoundingClientRect();
   const range = document.createRange();
