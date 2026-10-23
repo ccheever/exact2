@@ -125,8 +125,8 @@ const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationK
 const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
 // Agent launch facts belong to the carrier, not the router's typed URL. Keep
 // them on every History entry so a browser reload retains its agent adapter.
-const agentParameters = ['agent', 'seed', 'locale', 'timeZone', 'epoch', 'storage', 'failFetch'];
-function historyURL(path) {
+const agentParameters = ['agent', 'seed', 'locale', 'formatLocale', 'timeZone', 'epoch', 'storage', 'failFetch'];
+export function historyURL(path) { // (exported for its test)
   if (!AGENT_ADMITTED) return location.origin + path;
   const facts = launched();
   if (!facts.has('agent')) return location.origin + path;
