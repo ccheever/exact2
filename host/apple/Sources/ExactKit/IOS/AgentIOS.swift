@@ -184,7 +184,7 @@ extension Agent {
                   let property = path.split(separator: ".").first else { return false }
             return ["bounds", "position", "transform", "sublayerTransform", "anchorPoint", "zPosition"].contains(String(property))
         }
-        var pending = [presenter.viewport] + presenter.presentations(includingRetiring: true)
+        var pending = [presenter.viewport, presenter.documentMount] + presenter.presentations(includingRetiring: true)
         let now = CACurrentMediaTime()
         var moving = false
         Agent.pruneUnbegun(now: now)
@@ -422,7 +422,7 @@ extension Agent {
         }
         // The viewport's scrolling, or none: a presentation's mount does not scroll (LLP 1123 D2)
         let popoverLayer = PopoverLayer.containing(host)
-        let inViewport = popoverLayer.map { $0.isDescendant(of: vp) } ?? (presenter.port(of: host) === vp)
+        let inViewport = popoverLayer.map { $0.isDescendant(of: vp) || $0.isDescendant(of: presenter.documentMount) } ?? (presenter.port(of: host) === vp)
         var scroll: [[String: Any]] = [inViewport ? ["viewport": true, "sx": Agent.r2(vp.contentOffset.x), "sy": Agent.r2(vp.contentOffset.y)].merging(Agent.range(of: vp)) { a, _ in a }
                                                   : ["presentation": true, "sx": 0.0, "sy": 0.0, "rx": 0.0, "ry": 0.0]]
         scroll.append(contentsOf: chain.reversed())
@@ -1221,7 +1221,7 @@ extension Agent {
         // A film's frames keep one size.
         let presented = req["film"] as? Bool == true ? nil : presentedOverApp()
         let wholeWindow = req["window"] as? Bool == true || presented != nil
-        let captureView: UIView = wholeWindow ? (vp.window ?? vp) : (presenter.root.superview ?? vp)
+        let captureView: UIView = wholeWindow ? (vp.window ?? vp) : vp
         // The page's picture is its area, whose top-left is a box's (0, 0), not the bands it is drawn past (LLP 1130).
         let margins = wholeWindow ? .zero : presenter.pageMargins
         let size = captureView.bounds.inset(by: margins).size
@@ -1252,7 +1252,10 @@ extension Agent {
             $0.window != nil && !$0.isHidden && $0.bounds.width > 0 && $0.bounds.height > 0
         }
         let png = UIGraphicsImageRenderer(size: size, format: format).pngData { _ in
-            captureView.drawHierarchy(in: CGRect(origin: CGPoint(x: -margins.left, y: -margins.top), size: captureView.bounds.size), afterScreenUpdates: true)
+            let drawn = CGRect(origin: CGPoint(x: -margins.left, y: -margins.top), size: captureView.bounds.size)
+            captureView.drawHierarchy(in: drawn, afterScreenUpdates: true)
+            // The document standing beside the viewport, in its space (`mountDocument`)
+            if captureView === vp, presenter.documentPort !== vp { presenter.documentMount.drawHierarchy(in: drawn, afterScreenUpdates: true) }
             UIColor.systemRed.setStroke()
             for node in unshown {
                 let r = node.convert(node.bounds, to: captureView).insetBy(dx: -1, dy: -1).offsetBy(dx: -captureView.bounds.minX - margins.left, dy: -captureView.bounds.minY - margins.top)

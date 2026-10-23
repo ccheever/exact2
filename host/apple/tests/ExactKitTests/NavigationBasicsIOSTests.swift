@@ -129,6 +129,39 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertTrue(presenter.mounts(root))
     }
 
+    /// A popover over a stationary document is in the document's mount, above
+    /// the document, and follows it into the viewport and back with its field's focus.
+    func testAPopoverFollowsTheDocumentBetweenItsMounts() throws {
+        let session = try fixture("stationary-popover")
+        let presenter = session.presenter
+        XCTAssertTrue(presenter.root.superview === presenter.documentMount)
+        try tapNode(session, "open-native-popover")
+        spin(0.5)
+        let layer = try XCTUnwrap(PopoverLayer.containing(try node(session, "native-popover")))
+        func above() throws -> Bool {
+            let order = presenter.documentPort.subviews
+            return try XCTUnwrap(order.firstIndex(of: layer)) > XCTUnwrap(order.firstIndex(of: presenter.root))
+        }
+        XCTAssertTrue(layer.superview === presenter.documentMount)
+        XCTAssertTrue(try above())
+        let field = try XCTUnwrap(try node(session, "popover-search").field)
+        XCTAssertTrue(field.isFirstResponder, "the popover's autofocus field")
+        let content = try XCTUnwrap(presenter.root.subviews.first), original = content.frame
+        content.frame.size.height = presenter.viewportSize.height + 300
+        presenter.fitDocument()
+        XCTAssertTrue(layer.superview === presenter.viewport)
+        XCTAssertTrue(try above())
+        XCTAssertTrue(field.isFirstResponder, "the move into the viewport keeps the focus")
+        content.frame = original
+        presenter.fitDocument()
+        XCTAssertTrue(layer.superview === presenter.documentMount)
+        XCTAssertTrue(try above())
+        XCTAssertTrue(field.isFirstResponder, "the move out of the viewport keeps the focus")
+        XCTAssertTrue(presenter.mounts(field))
+        XCTAssertTrue(presenter.endEditing())
+        XCTAssertFalse(field.isFirstResponder, "the session's blur reaches the mount")
+    }
+
     func testDeclaredProtocolCarriesColdAndWarmURLsThroughTheRouter() throws {
         let session = try fixture("protocol", plan: "EXACT_NAVIGATION_BARS_PLAN", launch: "exacttest://auth/start#cold")
         func state() -> String { session.agent(#"{"op":"state"}"#) }
