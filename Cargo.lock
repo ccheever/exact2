@@ -1812,6 +1812,7 @@ dependencies = [
  "contract",
  "contract-lower",
  "exact-bake",
+ "exact-data",
  "exact-kernel",
  "exact-motion",
  "exact-num",
