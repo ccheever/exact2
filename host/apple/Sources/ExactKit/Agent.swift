@@ -1017,20 +1017,22 @@ public final class Agent {
         return true
     }
 
-    /// How many requests the runner has in flight (`state.pending`).
-    func pendingCount() -> Int {
+    /// Runner requests whose replies can still change the tree. A held device
+    /// observation is excluded: it waits for the person, rather than I/O.
+    func pendingRequests() -> [[String: Any]] {
         guard let d = session.agent("{\"op\":\"state\"}").data(using: .utf8),
-              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return 0 }
-        // A Canvas 2D image being decoded is a reply still to come (LLP 1056 D9).
-        // A held device request is not I/O in flight (LLP 1069.007 D3).
-        let inFlight = (o["pending"] as? [[String: Any]])?.filter { $0["device"] == nil }.count ?? 0
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return [] }
+        return (o["pending"] as? [[String: Any]] ?? []).filter { $0["device"] == nil }
+    }
+
+    /// How many requests the runner and the presenter's pictures have in flight.
+    func pendingCount() -> Int {
         #if os(iOS) || os(tvOS)
-        // A filtered SVG picture being drawn off the main thread (LLP 1055.000 D14).
         let pictures = SvgFilterLive.inFlight
         #else
         let pictures = 0
         #endif
-        return inFlight + session.presenter.canvas2d.loadingCount + pictures
+        return pendingRequests().count + session.presenter.canvas2d.loadingCount + pictures
     }
 
     /// `clock settle`'s bound on requests in flight: a network's worth.

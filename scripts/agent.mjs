@@ -882,6 +882,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const input = req.op === 'tap' || req.op === 'type';
       if (input && req.target !== undefined) throw new MalformedOperation(`op: the wire's ${req.op} addresses a view by \`id\`, not \`target\`; s.${req.op}(${JSON.stringify(req.target)}, …) finds a target and delivers the input as a person would`);
       const r = await operationReply(carrier, req);
+      if (req.op === 'tree') s.pendingRequests = r.pending ?? [];
       // A web page's own tap or type acts only for an iframe guest, history, a list's row or a control's value:
       // the carrier's browser input is the rest, which only the methods reach.
       if (input && carrier.host === 'web' && req.resize === undefined && !['tapped', 'typed', 'handled', 'history', 'into', 'resized', 'guest', 'value', 'delivery', 'phase', 'aimed'].some((k) => r[k] != null && r[k] !== false))
@@ -976,10 +977,9 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (!node && required) throw new Error(`no view matches ${target} by testId, label or text${targetsIn(nodes)}${unopenedHint(nodes)}; tree lists live targets, and a virtualized list's row outside its window comes in by key: \`tap <list> into <key>\` (feed F10)${await s.inFlight()}${s.keptStore ? `; this drive kept the store \`${s.keptStore}\` from earlier drives, so the screen can show what they saved (a \`persist\` state): --reset-storage starts it empty` : ''}`);
       return node;
     },
-    /** For a miss: the requests still in flight, whose answers may bring the view (authoring bench: a drive's first op ran before a stored list loaded). */
     async inFlight() {
-      if (host !== 'web') return ''; // a native read on the error path could time out and close the transport
-      const st = await s.op({ op: 'state' }).catch(() => null);
+      // Native misses use the tree's snapshot; another transport read could time out.
+      const st = s.host === 'web' ? await s.op({ op: 'state' }).catch(() => null) : {pending:s.pendingRequests};
       const pending = (st?.pending ?? []).map((p) => p.name).filter(Boolean);
       return pending.length ? `; ${pending.length} request${pending.length === 1 ? ' is' : 's are'} still in flight (${[...new Set(pending)].join(', ')}): \`clock data\` waits for data, and \`state\` shows what is still pending` : '';
     },
