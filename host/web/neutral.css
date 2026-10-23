@@ -358,6 +358,10 @@
      the shell's heading reset (`margin: 0`) and wins by coming after it. */
   :where(#exact-root [navigationPresentation="modal"] > header:not([data-exact-said~="justify-content"])) > :is(h1, h2, h3, h4, h5, h6),
   :where(#exact-root [navigationPresentation="modal"] > header:not([data-exact-said~="justify-content"]) > [role="heading"]) { margin-inline: auto; text-align: center; }
+  /* A sheet bar's title is one line, as UIKit's is: it ends in an ellipsis where it does not fit, and where the
+     bar's buttons leave it no room it is clipped away (UIKit hides it then), never spilling over a neighbour.
+     Unsaid only: an author's own `white-space`, `overflow` or `text-overflow` wins. */
+  :where(#exact-root [navigationPresentation="modal"] > header) :where(h1, h2, h3, h4, h5, h6, [role="heading"]) { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* Replace a sheet bar's symbol-only button with its accessible name (LLP 1116.020 D2). Size it to that word,
      preserving the look's padding even when the symbol had an authored width. UIKit leaves 16 points on each
      side (measured on iOS 27), matching 1em at the web's 16 px body. A word that cannot fit ends in an ellipsis,
