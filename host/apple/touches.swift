@@ -275,9 +275,15 @@ enum Synthesizer {
 
     /// All legs share one pointer path and one lift. Every hold ends with the same resting samples as a straight drag.
     static func path(from: CGPoint, legs: [(CGPoint, Double, Double)], press: Double, display: Int?, bounds: CGSize?) -> Outcome {
+        // A stationary leg extends the preceding hold, including its resting samples before the lift.
+        var segments: [(CGPoint, Double, Double)] = []
+        for (to, travel, hold) in legs {
+            if let last = segments.last, to == last.0, travel == 0 { segments[segments.count - 1].2 += hold }
+            else { segments.append((to, travel, hold)) }
+        }
         var moves: [(CGPoint, Double)] = press > 0 ? [(from, press)] : []
         var start = from, offset = press
-        for (index, leg) in legs.enumerated() {
+        for (index, leg) in segments.enumerated() {
             let (to, travel, hold) = leg
             let distance = Double(hypot(to.x - start.x, to.y - start.y))
             let moved = offset + travel, lift = moved + hold, step = 1.0 / 30, still = max(moved, lift - 0.15)
@@ -290,7 +296,7 @@ enum Synthesizer {
                 for t in stride(from: still + step, through: lift - 1.5 * step + 0.001, by: 2 * step) { moves += [(across, t), (to, t + step)] }
             }
             // A following move must start after the hold, rather than stretching back to the previous sample.
-            if hold > 0 && index < legs.count - 1 { moves.append((to, lift)) }
+            if hold > 0 && index < segments.count - 1 { moves.append((to, lift)) }
             start = to; offset = lift
         }
         return touch(from, moves: moves, lift: offset, display: display, within: 5 + offset)

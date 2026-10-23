@@ -99,6 +99,23 @@ for (const timing of ['agent', 'platform']) {
       `${timing}: held reversal did not keep one touch and move back: ${JSON.stringify({reversed, checkpoints})}`);
     console.log(`${timing}: held reversal checkpoints ${JSON.stringify(checkpoints)}, travel ${JSON.stringify(reversed.touch?.travel)}`);
 
+    const stationary = [];
+    const held = await s.tap('stations-screen', { drag: {
+      dx: 0, dy: -120, over: 300,
+      path: [{ dx: 0, dy: 0, hold: 500, during: [async () => {
+        await s.clock('+50 real');
+        stationary.push(await row());
+        await s.clock('+200 real');
+        stationary.push(await row());
+      }] }],
+    } });
+    const lifted = await row();
+    await s.clock('settle');
+    const rested = await row();
+    check(held.delivery === 'platform' && Math.abs(stationary[1] - stationary[0]) < 3 && Math.abs(rested - lifted) < 3,
+      `${timing}: a final stationary leg holds and releases at rest: ${JSON.stringify({stationary, lifted, rested})}`);
+    console.log(`${timing}: stationary hold ${JSON.stringify(stationary)}, release ${lifted} → ${rested}`);
+
     await s.type('station-search', 'Palo');
     await tap('station-paloalto');
     if (timing === 'platform') await s.clock('settle');
