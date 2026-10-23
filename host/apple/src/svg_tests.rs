@@ -473,3 +473,62 @@ fn a_played_morph_is_sampled_again_when_its_scene_gains_markers_or_paint_servers
         );
     }
 }
+
+#[test]
+fn an_unrelated_commit_does_not_rebuild_a_played_morphs_scene() {
+    let plan = contract::compile(r##"component App
+  state up = false
+  state count = 0
+  action go
+    up = true
+  action unrelated
+    count = count + 1
+  view
+    column
+      button press=go testId="go"
+        text "Go"
+      button press=unrelated testId="unrelated"
+        text `${count}` testId="count"
+      svg width=100 height=100
+        path testId="path" d=(up ? "M0 0 L100 0" : "M0 50 L100 50") stroke="#000" transition="d 10000ms linear"
+"##).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.,
+        844.,
+    )
+    .unwrap();
+    let id = |host: &Host<NoData>, name: &str| {
+        let k = host.runner.kernel();
+        k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
+    };
+    let go = id(&host, "go");
+    host.dispatch_at(go, exact_runner::Event::Press, 0.);
+    let key = exact_kernel::motion::motion_node(host.runner.kernel().find_by_test_id("path")[0]);
+    let played = host
+        .engine
+        .played_path(key)
+        .expect("the render server plays the morph");
+    let builds = host.svg.scene_builds;
+    let unrelated = id(&host, "unrelated");
+    let batch = host.dispatch_at(unrelated, exact_runner::Event::Press, 500.);
+    let k = host.runner.kernel();
+    assert_eq!(
+        k.node_by_key(k.find_by_test_id("count")[0])
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text),
+        Some("1")
+    );
+    assert_eq!(
+        host.svg.scene_builds, builds,
+        "the unchanged scene stays clean: {batch}"
+    );
+    assert_eq!(
+        host.engine.played_path(key).unwrap(),
+        played,
+        "the original morph continues"
+    );
+}
