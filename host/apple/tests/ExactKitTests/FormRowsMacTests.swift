@@ -115,7 +115,7 @@ final class FormRowsMacTests: XCTestCase {
     /// taking no click of its own. A row that says nothing has none, and the
     /// bezel follows its title's width.
     func testADestructiveFormRowIsAPushButtonRoundItsTitle() throws {
-        let row: [String: Any] = ["appearance": "auto", "padding_left": 12.0, "padding_top": 10.0, "padding_bottom": 10.0]
+        let row: [String: Any] = ["appearance": "auto", "padding_left": 12.0, "padding_top": 10.0, "padding_bottom": 10.0, "press_scale": 0.97]
         let p = form([
             ["op": "create", "id": 2, "kind": "button", "handlers": ["press"], "props": ["testId": "remove"], "style": row],
             ["op": "create", "id": 3, "kind": "text", "props": ["text": "Remove from Library"]],
@@ -143,6 +143,25 @@ final class FormRowsMacTests: XCTestCase {
         XCTAssertEqual((remove.rowBezelObservation?["frame"] as? [Double]) ?? [], [0, 10, 150, 24])
         XCTAssertNotNil(remove.hitTest(NSPoint(x: 30, y: 20)))
         XCTAssertNil(remove.hitTest(NSPoint(x: 300, y: 20)), "only the button's bezel takes a click")
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        func event(_ type: NSEvent.EventType, _ x: CGFloat) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: remove.convert(NSPoint(x: x, y: 20), to: nil), modifierFlags: [],
+                               timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        }
+        remove.mouseDown(with: event(.leftMouseDown, 30))
+        XCTAssertEqual(remove.press.to, 0.97)
+        remove.mouseDragged(with: event(.leftMouseDragged, 300))
+        XCTAssertEqual(remove.press.to, 1, "the unused row area releases the bezel's feedback")
+        remove.mouseUp(with: event(.leftMouseUp, 300))
+        XCTAssertTrue(pressed.isEmpty, "releasing outside the visible button cancels its action")
+        pressed.removeAll()
+        remove.mouseDown(with: event(.leftMouseDown, 30))
+        remove.mouseDragged(with: event(.leftMouseDragged, 300))
+        remove.mouseDragged(with: event(.leftMouseDragged, 30))
+        XCTAssertEqual(remove.press.to, 0.97, "returning inside restores feedback")
+        remove.mouseUp(with: event(.leftMouseUp, 30))
+        XCTAssertEqual(pressed, [remove.id])
         // A longer title, and the bezel is as much longer.
         p.apply(wireBatch([["op": "frame", "id": 3, "x": 12.0, "y": 14.0, "w": 160.0, "h": 16.0]]))
         remove.layoutSubtreeIfNeeded()
