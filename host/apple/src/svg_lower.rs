@@ -1080,7 +1080,22 @@ fn box_eligible(
     if turns
         && (!s.transform_origin.centred()
             || !s.rare.layout_transition.0.is_empty()
-            || subtree_any(kernel, n.id, interactive))
+            || subtree_any(kernel, n.id, &|id| {
+                interactive(id)
+                    || kernel.node(id).is_some_and(|node| {
+                        matches!(
+                            node.node_type,
+                            NodeType::Control
+                                | NodeType::Pressable
+                                | NodeType::TextInput
+                                | NodeType::ScrollView
+                                | NodeType::List
+                                | NodeType::WebView
+                                | NodeType::NativeView
+                                | NodeType::Video
+                        ) || node.props.link().is_some()
+                    })
+            }))
     {
         return false;
     }
