@@ -523,7 +523,7 @@ export class Coordination {
       if (!Array.isArray(proof.retainedDevices) || !proof.retainedDevices.length || proof.retainedDevices.length > 2 ||
           !Array.isArray(proof.inventory)) fail('retained pool and Shutdown inventory required');
       const entries = [{ expected: proof.expectedDevice, identity: proof.identity }, ...proof.retainedDevices];
-      const records = [], keys = new Set();
+      const records = [], keys = new Set(), paths = new Set(), identities = new Set();
       let parent;
       for (const { expected, identity } of entries) {
         const key = `${expected?.host}:${expected?.udid}`, device = s.devices[key];
@@ -536,6 +536,9 @@ export class Coordination {
         noLinks(identity.path);
         const stat = lstatSync(identity.path), dir = dirname(identity.path);
         if (!stat.isDirectory() || stat.dev !== identity.dev || stat.ino !== identity.ino || (parent && dir !== parent)) fail('local simulator directory identity changed');
+        const path = resolve(identity.path), inode = `${stat.dev}:${stat.ino}`;
+        if (paths.has(path) || identities.has(inode)) fail('distinct local simulator directories required');
+        paths.add(path); identities.add(inode);
         parent = dir;
         const inventory = proof.inventory.filter(d => d?.host === device.host && d?.udid === device.udid);
         if (inventory.length !== 1 || inventory[0].state !== 'Shutdown') fail('fresh exact Shutdown inventory required');
