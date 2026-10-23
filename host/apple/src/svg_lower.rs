@@ -139,9 +139,33 @@ fn stepped_keys(
             })
             .collect(),
     };
-    let curve = Easing::PiecewiseLinear(stops.clone());
+    // Keys visit inputs in order, including the hair before a jump.
+    let mut cursor = 0;
+    let mut progress = |x: f64| {
+        if stops.is_empty() {
+            return x;
+        }
+        while cursor + 1 < stops.len() && stops[cursor + 1].input <= x {
+            cursor += 1;
+        }
+        if stops.len() == 1 || stops[cursor].input == x {
+            return stops[cursor].output;
+        }
+        let (a, b) = if x < stops[0].input {
+            (stops[0], stops[1])
+        } else if cursor + 1 < stops.len() {
+            (stops[cursor], stops[cursor + 1])
+        } else {
+            (stops[stops.len() - 2], stops[stops.len() - 1])
+        };
+        if a.input == b.input {
+            b.output
+        } else {
+            a.output + (b.output - a.output) * (x - a.input) / (b.input - a.input)
+        }
+    };
     let span = to - from;
-    begin(t, from, value(curve.progress(0.0)));
+    begin(t, from, value(progress(0.0)));
     // Each input in (0, 1], ascending, and whether stops share it (a jump):
     // a stop's, or a colour's sixteenth.
     let mut inputs: Vec<(f64, bool)> = Vec::new();
@@ -168,9 +192,9 @@ fn stepped_keys(
     for (x, jump) in inputs {
         if jump {
             let at = x - HAIR.min((x - prev) / 2.0);
-            push(t, from + span * at, value(curve.progress(at)), LINEAR);
+            push(t, from + span * at, value(progress(at)), LINEAR);
         }
-        push(t, from + span * x, value(curve.progress(x)), LINEAR);
+        push(t, from + span * x, value(progress(x)), LINEAR);
         prev = x;
     }
 }
@@ -772,7 +796,7 @@ pub(crate) fn transition_specs(
         let Some((t, _)) = engine.transition(key, p) else {
             continue;
         };
-        let (duration, track) = match &t.curve {
+        let (duration, mut track) = match &t.curve {
             PlayedCurve::Easing { easing, duration } => {
                 let end = |offset: f64, v: Value| Keyframe {
                     offset,
@@ -793,6 +817,15 @@ pub(crate) fn transition_specs(
                 (*duration, track)
             }
         };
+        // Backwards fill holds the uneased value through a transition's delay.
+        // Keep the eased start just inside the active interval, as at a jump.
+        if track.values[0] != t.from && track.times.len() > 1 {
+            track.times[0] = HAIR * track.times[1];
+            track.values[0] = track.values[0].lerp(track.values[1], HAIR);
+            track.times.insert(0, 0.0);
+            track.values.insert(0, t.from);
+            track.curves.insert(0, LINEAR);
+        }
         let path = if p == Property::Opacity {
             "opacity"
         } else {
@@ -1071,4 +1104,26 @@ fn subtree_any(
         || kernel
             .node(id)
             .is_some_and(|n| n.children().into_iter().any(|c| subtree_any(kernel, c, f)))
+}
+
+#[cfg(test)]
+mod stepped_cost_tests {
+    use super::*;
+
+    #[test]
+    fn the_largest_steps_curve_keeps_every_jump() {
+        let easing = Easing::Steps {
+            count: 65535,
+            position: exact_motion::StepPosition::JumpEnd,
+        };
+        let mut track = Track {
+            times: vec![0.0],
+            values: vec![Value::ZERO],
+            curves: Vec::new(),
+        };
+        stepped_keys(&mut track, 0.0, 1.0, &easing, false, Value::scalar);
+        assert_eq!(track.times.len(), 131071);
+        assert_eq!(track.values.last(), Some(&Value::scalar(1.0)));
+        assert!(track.times.windows(2).all(|w| w[0] < w[1]));
+    }
 }
