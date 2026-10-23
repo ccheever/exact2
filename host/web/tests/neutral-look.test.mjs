@@ -131,11 +131,11 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'mark-dot': `radial-gradient(circle closest-side, currentColor ${percent('mark-dot')},`,
     'mark-disabled-alpha': `:disabled { opacity: ${alpha('mark-disabled-alpha')}; }`,
     'button-tint-alpha': `{ background-color: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-tint-alpha')}, transparent); }`,
-    'button-hover-tinted': `:hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-tint-alpha')}, transparent); background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-hover-tinted')}, transparent) 0 0); }`,
+    'button-hover-tinted': `:hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-tint-alpha')}, transparent); background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-hover-tinted')}, transparent); }`,
     'button-hover-filled': `:hover { background-color: var(--exact-accent, AccentColor); background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-hover-filled')}, transparent) 0 0); }`,
-    'button-pressed-tinted': `[data-button-style="bordered-tinted"])[data-pressed]:not(:disabled) { background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-pressed-tinted')}, transparent) 0 0); }`,
+    'button-pressed-tinted': `[data-button-style="bordered-tinted"])[data-pressed]:not(:disabled) { background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-pressed-tinted')}, transparent); }`,
     'button-pressed-alpha': [`{ background-color: light-dark(color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-pressed-alpha')}, transparent),`, `& > :not(img), &::after { opacity: ${alpha('button-pressed-alpha')}; }`, `& > img { --exact-tint: color-mix(in srgb, currentColor ${percent('button-pressed-alpha')}, transparent); }`],
-    'button-pressed-lighten': [`color-mix(in srgb, var(--exact-accent, AccentColor), #fff ${percent('button-pressed-lighten')})); background-image: none; }`, `{ background-image: linear-gradient(color-mix(in srgb, #fff ${percent('button-pressed-lighten')}, transparent) 0 0); }`],
+    'button-pressed-lighten': [`color-mix(in srgb, var(--exact-accent, AccentColor), #fff ${percent('button-pressed-lighten')})); background-image: none; }`, `{ background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, #fff ${percent('button-pressed-lighten')}, transparent); }`],
     'bar-hover-alpha': `{ opacity: var(--exact-hover-dim, ${alpha('bar-hover-alpha')}); }`,
     'select-line-height-coarse': `--exact-control-line-height: ${value.get('select-line-height-coarse')};`,
     'switch-thumb': `radial-gradient(circle closest-side, currentColor ${percent('switch-thumb')},`,
@@ -392,6 +392,24 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       // own keeps it.
       const OWN = [[52, 199, 89, 1], '1'], [inks, heldInks] = (await highlight('translucent')).map((seen) => seen[4]);
       expect([at('symbols'), inks, heldInks]).toEqual([at('symbols'), [[inks[0][0], '1'], OWN, OWN], [[[...inks[0][0].slice(0, 3), 0.75], '1'], OWN, OWN]]);
+      // Released (the input glue marks it), a button eases out of its press over a quarter second: a filled button's
+      // fill, a face, a symbol in the button's ink, a sheet's word and a wash; a symbol in a colour of its own has
+      // nothing to ease.
+      const released = (id) => page.evaluate((id) => {
+        const b = document.getElementById(id);
+        b.setAttribute('data-pressed', '');
+        getComputedStyle(b).opacity;
+        b.removeAttribute('data-pressed');
+        b.setAttribute('data-exact-released', '');
+        // (WebKit eases an `::after` that draws nothing too.)
+        const eases = b.getAnimations({ subtree: true }).filter((a) => !a.effect.pseudoElement || getComputedStyle(a.effect.target, a.effect.pseudoElement).content !== 'none');
+        const seen = eases.map((a) => `${a.effect.target.id || a.effect.target.localName}${a.effect.pseudoElement ?? ''} ${a.transitionProperty} ${a.effect.getTiming().duration} ${a.effect.getTiming().easing}`).sort();
+        for (const a of eases) a.finish();
+        b.removeAttribute('data-exact-released');
+        return seen;
+      }, id);
+      const EASED = { translucent: ['span opacity', 'translucent background-color', 'unsaid background-color'], 'sheet-cancel': ['sheet-cancel::after opacity'], glass: ['glass --exact-wash', 'span opacity'], bordered: ['bordered --exact-wash'], gray: ['gray --exact-wash'], tinted: ['tinted --exact-wash'] };
+      for (const [id, eased] of Object.entries(EASED)) expect([at('released'), id, await released(id)]).toEqual([at('released'), id, eased.map((ease) => `${ease} 250 ease-in-out`)]);
       // A tinted button held shows its stronger wash under a pointer too.
       await page.hover('#tinted');
       expect([at('tinted hovered'), (await highlight('tinted')).map((seen) => seen[1][3])]).toEqual([at('tinted hovered'), [0.08, 0.16]]);
