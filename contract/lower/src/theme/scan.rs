@@ -629,9 +629,16 @@ impl Said {
                     };
                     stack.extend(children.iter().map(|c| (c, inner.clone())));
                 }
+                // An `if`'s arms push a frame binding nothing, as lowering's do.
                 Node::When {
                     then, otherwise, ..
-                } => stack.extend(then.iter().chain(otherwise).map(|c| (c, around.clone()))),
+                } => {
+                    let arm = Around {
+                        typing: here.as_ref().map(|t| t.pushed(|s| s.push_none())),
+                        ..around.clone()
+                    };
+                    stack.extend(then.iter().chain(otherwise).map(|c| (c, arm.clone())))
+                }
                 // A `for`'s item, and its position when named, typed as
                 // lowering types them from the list's type; a `match`'s
                 // binding in its `some` arm, and the frame its `none` arm
