@@ -53,6 +53,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// (moved, out of the window, disabled, made inert): a captured agent
     /// press (`PressPath`) ends there too, even if the change is undone.
     var pressEpoch: UInt64 = 0
+    var pressCancellationEpoch: UInt64 = 0
+    weak var recognizedPress: RecognizedPress?
     // Twice the kernel rank; transients never overwrite the authored answer.
     var rank: Int64 = 0
     weak var paintParent: PaintView?

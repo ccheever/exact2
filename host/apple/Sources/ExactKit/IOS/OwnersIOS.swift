@@ -5,24 +5,36 @@ import UIKit
 /// Every node a press traversed, with the inertness rule from that side of
 /// the first presentation crossing. Held identities survive no pool reuse.
 struct PressPath {
-    private var nodes: [(held: HeldNode, crossed: Bool, epoch: UInt64, inWindow: Bool)] = []
+    private var nodes: [(held: HeldNode, crossed: Bool, epoch: UInt64, cancellation: UInt64, inWindow: Bool)] = []
     private var openings: [() -> Bool] = []
     private let reachedTarget: Bool
     let bubbled: Bool
     var presentationsOpen: Bool { openings.allSatisfy { $0() } }
 
-    init(from source: UIView, to target: UIView, presenter: Presenter) {
+    init(from source: UIView, to target: UIView? = nil, presenter: Presenter, trackOpenings: Bool = true) {
         var at: UIView? = source, crossed = false
         while let view = at {
-            if let node = view as? NodeView { nodes.append((HeldNode(node), crossed, node.pressEpoch, node.window != nil)) }
+            if let node = view as? NodeView { nodes.append((HeldNode(node), crossed, node.pressEpoch, node.pressCancellationEpoch, node.window != nil)) }
             if view === target { break }
-            if let open = presenter.menus.pressLifetime(of: view) { openings.append(open) }
+            if trackOpenings, let open = presenter.menus.pressLifetime(of: view) { openings.append(open) }
             let parent = presenter.listenerParent(of: view)
             crossed = crossed || parent !== view.superview
             at = parent
         }
-        reachedTarget = at === target
+        reachedTarget = target == nil || at === target
         bubbled = crossed
+    }
+
+    func holdFeedback(_ feedback: RecognizedPress) {
+        for entry in nodes { entry.held.node?.recognizedPress = feedback }
+    }
+
+    /// Focus may reparent a contact, but cannot undo a disable or inert cancellation.
+    func survivesFocus(in presenter: Presenter) -> Bool {
+        reachedTarget && presentationsOpen && nodes.allSatisfy { entry in
+            guard let node = entry.held.live(in: presenter) else { return false }
+            return node.pressCancellationEpoch == entry.cancellation && !node.disabled && !(entry.crossed ? node.authoredInert : node.inert)
+        }
     }
 
     func isLive(in presenter: Presenter) -> Bool {
