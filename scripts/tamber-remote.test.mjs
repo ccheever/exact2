@@ -228,6 +228,9 @@ test('the events GET long poll through the TLS door: a paired read token gets it
     const body = JSON.parse(first.text);
     expect(body.cursor).toBe(`${body.seq}.${body.held}`);
     expect(first.headers['retry-after']).toBeUndefined();
+    // A slash in a query value is a value (a client's name), not a path: only the path is held to the door's rules.
+    expect((await send(true, port, { path: '/__tamber/events?client=agent%2Fcodex', headers: { 'x-exact-tamber-token': paired } })).status).toBe(200);
+    expect((await send(true, port, { path: '/__tamber%2Fevents?client=laptop', headers: { 'x-exact-tamber-token': paired } })).status).toBe(404);
     // The local token is no token here; another page's origin is refused; plaintext is nothing.
     expect((await send(true, port, { path: '/__tamber/events', headers: { 'x-exact-tamber-token': token } })).status).toBe(404);
     expect((await send(true, port, { path: '/__tamber/events', headers: { 'x-exact-tamber-token': paired, origin: 'https://evil.example' } })).status).toBe(403);
