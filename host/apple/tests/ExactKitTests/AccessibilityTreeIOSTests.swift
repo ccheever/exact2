@@ -53,6 +53,58 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "props", "id": 20, "set": ["accessibilityRole": "progressbar"]]]))
         XCTAssertFalse(image.accessibilityTraits.contains(.image))
         XCTAssertEqual(image.accessibilityValue, image.rangeValueText)
+        p.apply(wireBatch([
+            ["op": "create", "id": 21, "kind": "text", "props": ["id": "caption", "text": "Download progress"]],
+            ["op": "children", "id": 4, "ids": [5, 20, 21]],
+            ["op": "props", "id": 20, "set": ["accessibilityLabelledBy": "caption"]],
+        ]))
+        XCTAssertEqual(image.accessibilityLabel, "Download progress")
+        XCTAssertFalse(image.accessibilityTraits.contains(.image))
+        XCTAssertEqual(image.accessibilityValue, image.rangeValueText)
+    }
+
+    func testImageExposureFollowsItsReferencedCaptionsArrivalAndRemoval() throws {
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 20, "kind": "image", "props": ["accessibilityLabelledBy": "caption"]],
+            ["op": "children", "id": 4, "ids": [5, 20]],
+            ["op": "frame", "id": 20, "x": 110.0, "y": 0.0, "w": 60.0, "h": 60.0],
+        ]))
+        let image = try XCTUnwrap(p.views[20])
+        XCTAssertFalse(image.isAccessibilityElement)
+        XCTAssertFalse(image.accessibilityTraits.contains(.image))
+        p.apply(wireBatch([
+            ["op": "create", "id": 21, "kind": "text", "props": ["id": "caption", "text": "Station map"]],
+            ["op": "children", "id": 4, "ids": [5, 20, 21]],
+            ["op": "frame", "id": 21, "x": 180.0, "y": 0.0, "w": 100.0, "h": 30.0],
+        ]))
+        XCTAssertEqual(image.accessibilityLabel, "Station map")
+        XCTAssertTrue(image.isAccessibilityElement)
+        XCTAssertTrue(image.accessibilityTraits.contains(.image))
+        p.apply(wireBatch([
+            ["op": "create", "id": 22, "kind": "image", "props": ["accessibilityLabelledBy": "caption"]],
+            ["op": "children", "id": 4, "ids": [5, 20, 21, 22]],
+            ["op": "frame", "id": 22, "x": 110.0, "y": 65.0, "w": 60.0, "h": 60.0],
+        ]))
+        let alreadyNamed = try XCTUnwrap(p.views[22])
+        XCTAssertTrue(alreadyNamed.isAccessibilityElement)
+        p.apply(wireBatch([["op": "props", "id": 21, "set": ["text": ""]]]))
+        XCTAssertFalse(image.isAccessibilityElement)
+        XCTAssertFalse(image.accessibilityTraits.contains(.image))
+        XCTAssertFalse(alreadyNamed.isAccessibilityElement)
+        XCTAssertFalse(alreadyNamed.accessibilityTraits.contains(.image))
+        p.apply(wireBatch([["op": "props", "id": 21, "set": ["text": "Updated map"]]]))
+        XCTAssertEqual(image.accessibilityLabel, "Updated map")
+        XCTAssertTrue(image.isAccessibilityElement)
+        XCTAssertTrue(image.accessibilityTraits.contains(.image))
+        p.apply(wireBatch([
+            ["op": "children", "id": 4, "ids": [5, 20, 22]],
+            ["op": "destroy", "id": 21],
+        ]))
+        XCTAssertFalse(image.isAccessibilityElement)
+        XCTAssertFalse(image.accessibilityTraits.contains(.image))
+        XCTAssertFalse(alreadyNamed.isAccessibilityElement)
+        XCTAssertFalse(alreadyNamed.accessibilityTraits.contains(.image))
     }
 
     func testToggleButtonsReportFalseTrueAndMixedFromThePlatform() throws {

@@ -1155,10 +1155,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             accessibilityTraits.remove(.image)
             accessibilityValue = rangeValueText
         } else if kind == "image" || props["accessibilityRole"] == "img" {
-            // A labelled image is one element; an unlabelled image is decoration.
-            isAccessibilityElement = authoredLabel != nil
-            if authoredLabel != nil { accessibilityTraits.insert(.image) } else { accessibilityTraits.remove(.image) }
-            accessibilityValue = nil
+            updateImageAccessibility()
         }
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil {
