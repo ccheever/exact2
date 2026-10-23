@@ -622,10 +622,16 @@ pub(crate) fn hand_over_paths(kernel: &Kernel, engine: &mut Engine, live: bool) 
 
 /// The properties whose transitions Core Animation plays for a box
 /// ([`hand_over_transitions`]).
-const BOX_PLAYED: [Property; 2] = [Property::Opacity, Property::BackgroundColor];
+const BOX_PLAYED: [Property; 5] = [
+    Property::Opacity,
+    Property::BackgroundColor,
+    Property::Translate,
+    Property::Scale,
+    Property::Rotate,
+];
 
 /// LLP 1055.001 §3 — on iOS each running opacity transition of a box, and
-/// each background-colour one its layer paints, goes to Core Animation
+/// each eligible transform or background-colour one, goes to Core Animation
 /// ([`Engine::play_transition`]) as LLP 1055.001 lowers a box's keyframes:
 /// the engine presents the target, the box's specs carry the transition
 /// ([`transition_specs`]), and nothing samples it, so a fade keeps no
@@ -640,6 +646,7 @@ pub(crate) fn hand_over_transitions(
     kernel: &Kernel,
     engine: &mut Engine,
     skip: &dyn Fn(exact_kernel::ViewId) -> bool,
+    interactive: &dyn Fn(exact_kernel::ViewId) -> bool,
     new: bool,
 ) -> Vec<exact_kernel::ViewId> {
     let played: Vec<(u64, Property)> = engine
@@ -653,14 +660,16 @@ pub(crate) fn hand_over_transitions(
     let mut views = Vec::new();
     let node = |key: u64| kernel.node_by_key(exact_kernel::motion::node_key(key));
     for (key, p) in played {
-        if (!new || !playable(kernel, engine, key, p, skip)) && engine.reclaim_transition(key, p) {
+        if (!new || !playable(kernel, engine, key, p, skip, interactive))
+            && engine.reclaim_transition(key, p)
+        {
             views.extend(node(key).map(|n| n.id));
         }
     }
     for (key, p) in moving.into_iter().filter(|_| new) {
         let waits = engine.transition_ends(key, p).is_none_or(|t| t.waits);
         if !waits
-            && playable(kernel, engine, key, p, skip)
+            && playable(kernel, engine, key, p, skip, interactive)
             && engine.play_transition(key, p).is_some()
         {
             views.extend(node(key).map(|n| n.id));
@@ -682,6 +691,7 @@ fn playable(
     key: u64,
     p: Property,
     skip: &dyn Fn(exact_kernel::ViewId) -> bool,
+    interactive: &dyn Fn(exact_kernel::ViewId) -> bool,
 ) -> bool {
     let Some(n) = kernel.node_by_key(exact_kernel::motion::node_key(key)) else {
         return false;
@@ -700,13 +710,17 @@ fn playable(
     }
     match p {
         Property::Opacity => !in_glass_group(kernel, &n),
-        _ => {
+        Property::Translate | Property::Scale | Property::Rotate => {
+            box_eligible(kernel, &n, &[p], interactive)
+        }
+        Property::BackgroundColor => {
             layer_paints_background(&n)
                 && background_on_layer(kernel, &n)
                 && engine
                     .transition_ends(key, p)
                     .is_some_and(|t| t.from.w == t.to.w)
         }
+        _ => false,
     }
 }
 
@@ -768,6 +782,13 @@ fn background_on_layer(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
         && shown
 }
 
+#[derive(Debug)]
+pub(crate) struct PlayedSpec {
+    ends: exact_motion::TransitionEnds,
+    size: (f32, f32),
+    text: String,
+}
+
 /// A box's played transitions ([`hand_over_transitions`]) as specs, one
 /// iteration of each transition's curve from when it starts moving, holding
 /// its start through a delay (a backwards fill); after it ends, the target
@@ -777,7 +798,8 @@ fn background_on_layer(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
 pub(crate) fn transition_specs(
     engine: &Engine,
     key: u64,
-    made: &mut std::collections::BTreeMap<(u64, usize), (exact_motion::TransitionEnds, String)>,
+    size: (f32, f32),
+    made: &mut std::collections::BTreeMap<(u64, usize), PlayedSpec>,
 ) -> Vec<String> {
     let mut out = Vec::new();
     for p in BOX_PLAYED {
@@ -789,8 +811,11 @@ pub(crate) fn transition_specs(
             made.remove(&slot);
             continue;
         };
-        if let Some((_, spec)) = made.get(&slot).filter(|(kept, _)| *kept == ends) {
-            out.push(spec.clone());
+        if let Some(spec) = made
+            .get(&slot)
+            .filter(|kept| kept.ends == ends && kept.size == size)
+        {
+            out.push(spec.text.clone());
             continue;
         }
         let Some((t, _)) = engine.transition(key, p) else {
@@ -826,17 +851,36 @@ pub(crate) fn transition_specs(
             track.values.insert(0, t.from);
             track.curves.insert(0, LINEAR);
         }
-        let path = if p == Property::Opacity {
-            "opacity"
-        } else {
-            "backgroundColor"
+        let parts: &[(usize, &str)] = match p {
+            Property::Translate => &[
+                (0, "transform.translation.x"),
+                (1, "transform.translation.y"),
+            ],
+            Property::Scale => &[(0, "transform.scale")],
+            Property::Rotate => &[(0, "transform.rotation.z")],
+            Property::Opacity => &[(0, "opacity")],
+            _ => &[(0, "backgroundColor")],
         };
-        let (times, values, curves) = track_json(&track, p, 1.0, 0, None);
-        let spec = format!(
-            "{{\"id\":\"transition#{path}\",\"k\":\"{path}\",\"s\":{},\"dl\":0,\"d\":{duration},\"n\":1,\"t\":[{times}],\"v\":[{values}],\"c\":[{curves}],\"fill\":2,\"h\":null}}",
-            t.start,
+        let scale = if p == Property::Rotate {
+            std::f64::consts::PI / 180.0
+        } else {
+            1.0
+        };
+        let specs: Vec<String> = parts.iter().map(|(axis, path)| {
+            let (times, values, curves) = track_json(&track, p, scale, *axis, Some((size.0 as f64, size.1 as f64)));
+            format!(
+                "{{\"id\":\"transition#{path}\",\"k\":\"{path}\",\"s\":{},\"dl\":0,\"d\":{duration},\"n\":1,\"t\":[{times}],\"v\":[{values}],\"c\":[{curves}],\"fill\":2,\"h\":null}}", t.start,
+            )
+        }).collect();
+        let spec = specs.join(",");
+        made.insert(
+            slot,
+            PlayedSpec {
+                ends,
+                size,
+                text: spec.clone(),
+            },
         );
-        made.insert(slot, (ends, spec.clone()));
         out.push(spec);
     }
     out

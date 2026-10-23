@@ -883,3 +883,72 @@ fn a_delayed_stepped_transition_fills_with_its_uneased_start() {
         assert_eq!(played["t"][0], 0.0);
     }
 }
+
+#[test]
+fn box_transform_transitions_play_without_sampling_and_reclaim_for_the_agent() {
+    let app = r##"component A
+  state on = false
+  action go
+    on = not on
+  view
+    column
+      button press=go testId="go"
+        text "Go"
+      box testId="move" width=100 height=40 translate=(on ? "50% 10px" : "0px 0px") transition="translate 1s linear"
+      box testId="turn" width=40 height=40 rotate=(on ? 180 : 0) transition="rotate 1s linear"
+      box testId="grow" width=40 height=40 scale=(on ? 2 : 1) transition="scale -exact-spring(200, 20, 1)"
+      box testId="hit" width=40 height=40 press=go translate=(on ? "40px 0px" : "0px 0px") transition="translate 1s linear"
+      box testId="corner" width=40 height=40 transform-origin="0% 0%" rotate=(on ? 180 : 0) transition="rotate 1s linear"
+"##;
+    let plan = contract::compile(app).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    host.svg.box_motion = true;
+    host.svg.play_transitions = true;
+    host.engine.set_lowered_properties(&svg::lowered(true));
+    host.start_on_frame(true, 0.0);
+    host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
+    let batch = host.tick_at(112.0, 116.0);
+    let key = |host: &Host<NoData>, name| {
+        exact_kernel::motion::motion_node(host.runner.kernel().find_by_test_id(name)[0])
+    };
+    for (name, property, path) in [
+        ("move", Property::Translate, "transform.translation.x"),
+        ("turn", Property::Rotate, "transform.rotation.z"),
+        ("grow", Property::Scale, "transform.scale"),
+    ] {
+        assert!(
+            host.engine.is_played(key(&host, name), property),
+            "{name}: {batch}"
+        );
+        assert_eq!(spec(&batch, id(&host, name))["k"], path);
+    }
+    assert_eq!(
+        spec(&batch, id(&host, "move"))["v"],
+        serde_json::json!([0, 50])
+    );
+    let radians = spec(&batch, id(&host, "turn"))["v"][1].as_f64().unwrap();
+    assert!((radians - std::f64::consts::PI).abs() < 1e-5);
+    for (name, property) in [("hit", Property::Translate), ("corner", Property::Rotate)] {
+        assert!(
+            !host.engine.is_played(key(&host, name), property),
+            "{name} must sample"
+        );
+    }
+    host.start_on_frame(false, 300.0);
+    host.tick_at(300.0, 300.0);
+    assert!(!host
+        .engine
+        .is_played(key(&host, "move"), Property::Translate));
+    let x = host
+        .engine
+        .value(key(&host, "move"), Property::Translate)
+        .unwrap();
+    assert!((x.z - 9.2).abs() < 1e-4, "{x:?}");
+}
