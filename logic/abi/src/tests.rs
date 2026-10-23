@@ -389,6 +389,25 @@ fn a_body_from_a_file_is_refused_at_the_module_seam() {
     ));
 }
 
+/// A held mark (LLP 1016.000 D9) has no encoding at the seam: refused, never
+/// silently turned into a request a clock waits on.
+#[test]
+fn a_held_request_is_refused_at_the_module_seam() {
+    let mut encoded = Writer::default();
+    encode_result(
+        &mut encoded,
+        Ok(Answer::Later(
+            Request::get("https://example.test/changes").held(),
+        )),
+    );
+    let bytes = encoded.into_vec();
+    let mut reader = Reader::new(&bytes);
+    assert!(matches!(
+        read_result(&mut reader).unwrap(),
+        Err(DataError::Unavailable(s)) if s == "a held request cannot cross the Rust module seam yet"
+    ));
+}
+
 /// A source that draws one surface, `dot`, translating once per draw: the
 /// transform persists within a generation, as a canvas's state does.
 struct Painter;

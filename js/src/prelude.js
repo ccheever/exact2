@@ -714,15 +714,15 @@
       return Promise.reject(new TypeError("exactStream maps each event to the answer: (event) => value"));
     if (stream && call.stream) return Promise.reject(new Error("an answer streams one request"));
     if (stream && ceiling === undefined) ceiling = 1048576;
-    // A deadline for the whole exchange (headers and body), in milliseconds:
-    // the host cancels the request when it passes and the fetch rejects with
-    // a FetchError of kind "Timeout". A stream has none.
-    var timeout = init ? init.exactTimeout : undefined;
+    // A deadline for the whole exchange (headers and body), in milliseconds: the host cancels the request
+    // when it passes and the fetch rejects with a FetchError of kind "Timeout". A stream has none.
+    var timeout = init ? init.exactTimeout : undefined, held = init ? init.exactHeld : undefined;
     if (timeout !== undefined) {
       if (!Number.isInteger(timeout) || timeout < 1 || timeout > 3600000)
         return Promise.reject(new TypeError("exactTimeout must be an integer number of milliseconds from 1 to 3600000"));
       if (stream) return Promise.reject(new TypeError("exactTimeout: a stream has no timeout"));
     }
+    if ((held !== undefined && held !== true && held !== false) || (held && stream)) return Promise.reject(new TypeError(held === true ? "exactHeld: a stream is never held; it stops counting at its first message" : "exactHeld is true or false")); // `exactHeld`: the server may hold the reply, and no clock waits on it (LLP 1016.000 D9)
     // `redirect` (Fetch §5.4, the Request constructor): read and checked once,
     // before the signal, and a throw rejects. Rust follows redirects, checking
     // each hop's grant, so "manual" answers with the 3xx and its Location.
@@ -742,7 +742,7 @@
     var ticket = nextTicket++;
     // A WebSocket stream owns a two-way socket (LLP 1016.000 D7); an HTTP one's body that is not events is bytes.
     var socket = stream && /^wss?:/i.test(String(url));
-    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, bytes: stream && !socket ? true : undefined, timeout_ms: timeout, body_from: bodyFrom, redirect: redirect }));
+    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, bytes: stream && !socket ? true : undefined, timeout_ms: timeout, body_from: bodyFrom, redirect: redirect, held: held ? true : undefined }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;

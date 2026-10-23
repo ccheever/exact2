@@ -173,6 +173,7 @@ fn request_json(request: &Request) -> Json {
         "timeout_ms": request.timeout_ms,
         "body_from": request.body_from,
         "redirect": (request.redirect != Redirect::Follow).then(|| request.redirect.name()),
+        "held": request.held.then_some(true),
     })
 }
 
@@ -237,6 +238,7 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
         },
         redirect: Redirect::parse(json["redirect"].as_str())
             .map_err(|_| unavailable("turn reply: an invalid redirect mode"))?,
+        held: json["held"].as_bool().unwrap_or(false),
     })
 }
 
