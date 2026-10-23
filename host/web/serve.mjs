@@ -541,6 +541,64 @@ function planAppId(bytes) {
   return bytes.subarray(36, 36 + idLen).toString('utf8');
 }
 
+// The schema is the wire authority; no table offsets or row sizes are mirrored here.
+const planFormat = JSON.parse(readFileSync(new URL('../../plan/tables/format.json', import.meta.url), 'utf8'));
+const planFormatDigest = createHash('sha256').update('EXACT.PLAN.FORMAT.SHA256.V1\0').update(canonicalBytes(planFormat)).digest().subarray(0, 8);
+const routePlans = new Map();
+function planRoutes(bytes) {
+  const digest = sha256(bytes);
+  if (routePlans.has(digest)) return routePlans.get(digest);
+  let routes = [];
+  try {
+    if (bytes.subarray(0, 4).toString() !== 'EXPL' || bytes.readUInt32LE(4) !== planFormat.formatVersion
+      || !bytes.subarray(8, 16).equals(planFormatDigest)) throw new Error('unknown plan format');
+    let at = 32;
+    const take = n => { const start = at; at += n; if (at > bytes.length) throw new Error('truncated plan'); return start; };
+    const u32 = () => bytes.readUInt32LE(take(4));
+    const decoder = new TextDecoder('utf-8', { fatal: true });
+    const string = () => { const n = u32(); return decoder.decode(bytes.subarray(take(n), at)); };
+    for (const field of planFormat.header) {
+      if (field.codec === 'string') string(); else take(4);
+    }
+    const count = u32(), strings = [];
+    for (let i = 0; i < count; i++) strings.push(string());
+    take(u32()); // code pool
+    take(u32()); // data pool
+    const width = codec => {
+      const kind = codec.split(':')[0];
+      if (['u8', 'bool', 'enum'].includes(kind)) return 1;
+      if (kind === 'u16') return 2;
+      if (['u32', 'i32', 'str', 'idx', 'opt'].includes(kind)) return 4;
+      if (['f64', 'range', 'code', 'bytes'].includes(kind)) return 8;
+      throw new Error('unknown plan codec');
+    };
+    for (const table of planFormat.tables) {
+      const count = u32(), size = table.fields.reduce((n, field) => n + width(field.codec), 0);
+      const start = take(count * size);
+      if (table.name !== 'routes') continue;
+      for (let i = 0; i < count; i++) {
+        let offset = start + i * size;
+        const row = {};
+        for (const field of table.fields) {
+          if (field.name === 'pattern') row.pattern = strings[bytes.readUInt32LE(offset)];
+          if (field.name === 'notfound') { const value = bytes[offset]; if (value > 1) throw new Error('invalid route'); row.notfound = !!value; }
+          offset += width(field.codec);
+        }
+        if (typeof row.pattern !== 'string') throw new Error('invalid route pattern');
+        routes.push(row);
+      }
+    }
+    if (at !== bytes.length) throw new Error('trailing plan bytes');
+  } catch { routes = []; } // An absent or unfinished build admits no additional document paths.
+  if (routePlans.size >= 32) routePlans.delete(routePlans.keys().next().value);
+  routePlans.set(digest, routes);
+  return routes;
+}
+function buildRoutes(root) {
+  try { return planRoutes(readStaticCandidate(root, 'app.plan')); }
+  catch { return []; }
+}
+
 /** Whether the complete build at `dist` belongs to `app`. The completion
  * marker, public envelope, and named plan must all agree with the requested
  * manifest identity before dev starts that app's resident compiler. */
@@ -700,7 +758,9 @@ export function buildTreeFile(dist, pathname, accept = '') {
     const was = buildRoot(dist);
     if (!was) continue;
     const { root } = was, prefix = root.endsWith(sep) ? root : root + sep;
-    for (const route of [path, path.replace(/\/?$/, '/index.html'), ...(appDocumentPath(pathname, acceptsHTML(accept)) ? ['/index.html'] : [])]) {
+    for (const [i, route] of [path, path.replace(/\/?$/, '/index.html'), '/index.html'].entries()) {
+      if (i === 2 && !appDocumentPath(pathname, acceptsHTML(accept))
+        && !(acceptsHTML(accept) && appDocumentPath(pathname, true, buildRoutes(root)))) break;
       const file = resolve(root, '.' + route);
       try { if (file.startsWith(prefix) && realpathSync(file) === file && statSync(file).isFile()) return { path: file, route }; } catch { /* next */ }
     }
@@ -896,9 +956,17 @@ export async function readWebRequest(dist, pathname, accept = '') {
   if (!webRequestURL(pathname)) return { found: null, index: false };
   let route = pathname;
   let found = await readStaticFileAsync(dist, route);
-  if (!found && appDocumentPath(route, acceptsHTML(accept))) {
-    route = '/index.html';
-    found = await readStaticFileAsync(dist, route);
+  if (!found) {
+    const navigation = acceptsHTML(accept), ordinary = appDocumentPath(route, navigation);
+    const plan = !ordinary && navigation ? await readStaticFileAsync(dist, '/app.plan') : null;
+    if (ordinary || appDocumentPath(route, navigation, plan ? planRoutes(plan.body) : [])) {
+      route = '/index.html';
+      // A published route table belongs to that immutable release, even if
+      // another publish moves the head before the document is read.
+      const document = plan?.published ? '/' + relative(resolve(dist), resolve(dirname(plan.path), 'index.html')).split(sep).join('/') : route;
+      found = await readStaticFileAsync(dist, document);
+      if (found && plan?.published) found = {...found, immutable: false};
+    }
   }
   const index = route === '/' || route === '/index.html' || found?.route === '/index.html';
   if (index && accept.includes('application/vnd.exact.envelope+json')) {
