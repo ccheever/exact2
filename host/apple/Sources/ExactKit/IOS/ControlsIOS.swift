@@ -371,10 +371,12 @@ final class ControlHost: NSObject {
     }
 
     /// The agent's `tap` (LLP 1069.001 D9): the control's own activation.
-    func activate(_ node: NodeView) -> Bool? {
+    func activate(_ node: NodeView, before: (CGPoint?) -> Bool = { _ in true }) -> Bool? {
         // A native button takes the ordinary tap path (LLP 1069.011 D10).
         guard let control = controls[node.id], !(control is NativeButtonIOS) else { return nil }
         guard control.window != nil, control.isEnabled, !node.inert else { return false }
+        let point = control.convert(CGPoint(x: control.bounds.midX, y: control.bounds.midY), to: nil)
+        guard before(point), controls[node.id] === control, control.isEnabled, !node.disabled else { return false }
         // A radio's tap, the host's own (x2apps survey #2).
         if control is ExactRadio { radioTapped(control); return true }
         #if os(tvOS)
