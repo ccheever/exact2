@@ -28,13 +28,19 @@ final class RegionArtifact: Sendable {
     }
     deinit { service.retire(id) }
 }
+struct RegionSelectionRequest: Sendable, Equatable {
+    let artifact: UInt64
+    let ranges: [NSRange]
+}
 enum RegionJob: Sendable {
     case shape(RegionShapeRequest)
     case raster(RegionRasterRequest)
+    case selection(RegionSelectionRequest)
 }
 enum RegionAnswer: Sendable {
     case shape(RegionArtifact)
     case raster(RegionRaster)
+    case selection(RegionSelectionRequest, [RegionSelectionSnapshot])
     case abandoned(id: UInt64, generation: Int)
     case pixelsBusy(RegionRasterRequest)
     case refused(RegionJob, String)
@@ -215,6 +221,12 @@ final class RegionService: @unchecked Sendable {
                     }
                     return .shape(RegionArtifact(id: request.id, sourceID: request.sourceID, metadata: layout.metadata,
                                                  generation: request.generation, service: self))
+                case .selection(let request):
+                    guard let layout = layouts[request.artifact]?.layout else { return .refused(job, "missing selection artifact") }
+                    let box = CGRect(x: 0, y: 0, width: layout.metadata.offeredWidth, height: layout.metadata.height)
+                    return .selection(request, request.ranges.map {
+                        RegionSelectionSnapshot(artifact: request.artifact, range: $0, rects: layout.selectionRects($0, in: box))
+                    })
                 case .raster(let request):
                     if paint?.publication != request.publication {
                         paint = try RegionPaintIndex(request: request, lookup: { self.layouts[$0]?.layout }, account: ink)

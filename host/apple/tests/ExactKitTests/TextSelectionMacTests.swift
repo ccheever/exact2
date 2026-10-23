@@ -1210,6 +1210,8 @@ final class TextSelectionMacTests: XCTestCase {
         XCTAssertGreaterThan(rect.height, 0)
         XCTAssertFalse(try XCTUnwrap(reader.accepted).metadata.shapedOnMainThread)
         XCTAssertNil(node.paragraphLayout(), "the UI never constructs the reader's paragraph")
+        scroll.frame.origin.y = 1000
+        XCTAssertTrue(p.textScrollportRect(node).isEmpty, "the entire paragraph is outside the viewport")
         expectedText = "delta"
         let length = (node.paragraphText as NSString).length
         p.selection.set(node, FieldSelection(start: length - 6, end: length - 1))
