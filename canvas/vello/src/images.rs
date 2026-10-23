@@ -2,7 +2,7 @@
 use std::collections::{BTreeMap, HashMap};
 use vello::peniko::ImageData;
 
-pub(crate) type Key = (usize, u32, u32);
+pub(crate) type Key = (u64, u32, u32);
 const BUDGET: usize = 32 * 1024 * 1024;
 // Charge the two indexes and their allocation overhead as well as pixels,
 // so a stream of tiny images cannot retain millions of cache entries.

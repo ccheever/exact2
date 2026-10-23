@@ -6,12 +6,19 @@ unsafe extern "C" fn image(
     len: usize,
     width: *mut u32,
     height: *mut u32,
+    identity: *mut u64,
 ) -> *const u8 {
     // SAFETY: this test supplies live buffers and writable dimensions.
     let images = unsafe { &*ctx.cast::<Vec<Vec<u8>>>() };
     let source = unsafe { std::slice::from_raw_parts(src, len) };
-    let index: usize = std::str::from_utf8(source).unwrap().parse().unwrap();
+    let replacement = source == b"replacement";
+    let index: usize = if replacement {
+        399
+    } else {
+        std::str::from_utf8(source).unwrap().parse().unwrap()
+    };
     unsafe {
+        *identity = if replacement { 1000 } else { index as u64 + 1 };
         *width = 256;
         *height = 256;
     }
@@ -62,5 +69,16 @@ fn hundreds_of_decoded_images_have_a_cost_bound_and_live_scenes_keep_their_pixel
         held.data.data()[0],
         0,
         "trimming leaves a live scene valid too"
+    );
+    // Reuse the same allocation for different pixels and a new host identity.
+    let previous = host.image("399").unwrap();
+    pixels[399].fill(123);
+    let replacement = host.image("replacement").unwrap();
+    assert_eq!(replacement.data.data()[0], 123);
+    assert_ne!(replacement.data.id(), previous.data.id());
+    assert_ne!(
+        previous.data.data()[0],
+        123,
+        "live scenes keep the old pixels"
     );
 }
