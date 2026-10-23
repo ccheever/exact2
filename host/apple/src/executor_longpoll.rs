@@ -422,7 +422,15 @@ fn http_date_ms(v: &str) -> Option<u64> {
     let named = weekday.len() == 4
         && weekday.ends_with(',')
         && weekday.bytes().take(3).all(|b| b.is_ascii_alphabetic());
-    if !named || !digits(day, 2) || !digits(year, 4) || time.len() != 8 {
+    let clock = time.len() == 8
+        && time.bytes().enumerate().all(|(i, b)| {
+            if i == 2 || i == 5 {
+                b == b':'
+            } else {
+                b.is_ascii_digit()
+            }
+        });
+    if !named || !digits(day, 2) || !digits(year, 4) || !clock {
         return None;
     }
     let months = [
