@@ -79,6 +79,8 @@ pub(crate) struct SvgState {
     elements: IdMap<ViewId, ViewId>,
     /// Scenes to rebuild.
     dirty: IdSet<ViewId>,
+    #[cfg(test)]
+    pub(crate) scene_builds: usize,
     /// The last scene sent per `svg`, and its content box.
     sent: IdMap<ViewId, (String, Rect)>,
     /// Environment used by the cached scenes, including the window unit basis.
@@ -259,6 +261,10 @@ impl SvgState {
                 continue;
             };
             let bx = content_box(kernel, &node);
+            #[cfg(test)]
+            {
+                self.scene_builds += 1;
+            }
             let scene = scene(kernel, engine, &self.pressable, &node, bx);
             if self.sent.get(&root).is_none_or(|(s, _)| *s != scene) {
                 batch.svg(root, &scene);

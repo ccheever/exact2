@@ -615,7 +615,9 @@ pub(crate) fn hand_over_paths(kernel: &Kernel, engine: &mut Engine, live: bool) 
     for (playable, nodes) in scenes.into_values() {
         if playable {
             for node in nodes {
-                engine.play_transition(node, Property::D);
+                if !engine.is_played(node, Property::D) {
+                    engine.play_transition(node, Property::D);
+                }
             }
         } else {
             for node in nodes {
