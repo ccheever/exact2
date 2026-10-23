@@ -10,6 +10,10 @@ enum PositionArea {
         var top: CGFloat = 0, right: CGFloat = 0, bottom: CGFloat = 0, left: CGFloat = 0
     }
 
+    /// The fallbacks a popover with no authored area tries: the web's UA
+    /// sheet's (`neutral.css`: flip-block, flip-inline, then both).
+    static let defaultFallbacks = "flip-block, flip-inline, flip-block flip-inline"
+
     /// The row's value on a popover (`none` when it has none).
     static func of(_ popover: NodeView) -> String { popover.style["position_area"]?.string ?? "none" }
     /// The popover's margins as the kernel resolved them: points; `auto`
@@ -62,7 +66,15 @@ enum PositionArea {
             || history.mode != overflow.mode || history.rtl != rtl {
             history = History(area: area, fallbacks: fallbacks, size: size, margins: margins, mode: overflow.mode, rtl: rtl)
         }
-        let axes = axes(area)
+        // No authored area: the web's UA default for a popover (neutral.css),
+        // under the invoker from its inline start, flipping where that doesn't
+        // fit, so the same contract opens alike everywhere and a popover near
+        // an edge doesn't cover its invoker. When none fits it is shifted into
+        // its overflow limit as an authored area is.
+        let native = area == "none"
+        var axes = axes(area)
+        if native && rtl { axes.x = -1 }
+        let fallbacks = native && fallbacks == "none" ? Self.defaultFallbacks : fallbacks
         struct Option { var point: CGPoint, box: CGRect, x: Int, y: Int }
         func attempt(_ x: Int, _ y: Int, _ m: Margins) -> Option {
             let outer = CGSize(width: size.width + m.left + m.right, height: size.height + m.top + m.bottom)
@@ -75,13 +87,8 @@ enum PositionArea {
                 default: return Swift.max(min, Swift.min((low + high - length) / 2, max - length))
                 }
             }
-            var point = CGPoint(x: at(x, anchor.minX, anchor.maxX, outer.width, bounds.minX, bounds.maxX),
+            let point = CGPoint(x: at(x, anchor.minX, anchor.maxX, outer.width, bounds.minX, bounds.maxX),
                                 y: at(y, anchor.minY, anchor.maxY, outer.height, bounds.minY, bounds.maxY))
-            // No authored area keeps D2's native default placement.
-            if area == "none" {
-                point.x = max(bounds.minX, min(point.x, bounds.maxX - outer.width))
-                point.y = max(bounds.minY, min(point.y, bounds.maxY - outer.height))
-            }
             return Option(point: CGPoint(x: point.x + m.left, y: point.y + m.top), box: CGRect(origin: point, size: outer), x: x, y: y)
         }
         let options = ["none"] + fallbacks.split(separator: ",").map(String.init)
@@ -104,7 +111,7 @@ enum PositionArea {
             return attempt(x, y, m)
         }
         let current = selected(history.choice)
-        if bounds.contains(current.box) || area == "none" { return current.point }
+        if bounds.contains(current.box) { return current.point }
         for index in options.indices where index != history.choice {
             let candidate = selected(index)
             if bounds.contains(candidate.box) {
