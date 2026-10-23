@@ -132,7 +132,8 @@ public enum KeptDocuments {
         assert(Thread.isMainThread, "Open Recent's bookkeeping is the main thread's")
         if let waiting = toNote { toNote = (waiting.cleared, waiting.urls.filter { file($0) != file(url) } + [url]); return }
         NSDocumentController.shared.noteNewRecentDocumentURL(url)
-        if let watched = late { late = (watched.urls.filter { file($0) != file(url) } + [url], watched.generation) }
+        // (No more than the list keeps: one it let go as the oldest is not missing.)
+        if let watched = late { late = (Array((watched.urls.filter { file($0) != file(url) } + [url]).suffix(NSDocumentController.shared.maximumRecentDocumentCount)), watched.generation) }
     }
 
     /// AppKit empties the list a turn or more after `clearRecentDocuments`,
