@@ -35,8 +35,8 @@
 //!
 //! A written shorthand or `flex` row is expanded by lowering's own
 //! `shorthands::component` or `values::flex_component`, and each longhand
-//! judged in row order, the first refusal the build's first (theme2's
-//! ruling on the shorthand plan).
+//! judged in row order, the row's own refusal the build's of that row
+//! (theme2's ruling on the shorthand plan).
 //!
 //! Not checked here, and still caught by the build after a miss: a
 //! computed row whose type its scope doesn't give by its form (a call, an
@@ -47,11 +47,12 @@
 //! applying it leaves to the build (lowering rewrites its class rows first,
 //! it chooses between styles, or the `for` or `match` around it isn't typed:
 //! `scan::Said::of`); and refusals outside a style row (an SVG attribute, a
-//! canvas). Where the build refuses such a row first, the first refusal the
-//! check says is a later one of the build's: every refusal it says is still
-//! the build's, in its words and place, and none is false (the limit theme2
-//! accepted for shorthand rows at the style rows' sign-off, the same for a
-//! row this check can't type beside one it can).
+//! canvas). Where the build would refuse one of those first, the first
+//! refusal the check says is the build's second: every refusal said is
+//! still the build's, in its words and place, and none is false (theme2's
+//! limit, accepted at the style rows' sign-off and again for stage 14 E's
+//! rows the check can't type; pinned by `tamber_rows_bound`'s
+//! `a_row_left_to_the_build_before_a_judged_one_is_the_stated_limit`).
 
 use super::{bind, fold, profiles, scan, Origin, Refusals, Sink, ThemeEntry};
 use crate::{DeclaredFont, LowerError};
