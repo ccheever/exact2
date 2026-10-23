@@ -132,8 +132,10 @@ pub(crate) fn placement(
         .iter()
         .all(|d| *d == Dimension::Auto);
     if !auto {
-        return match scene.kernel.host_block_size(layer) {
-            Some(used) => inset_at(&scene.env, &n, used, cols, rows),
+        // In the viewport's block: by its insets in the grid.
+        let grid = (cols as f32 * COLUMN, rows as f32 * ROW);
+        return match scene.kernel.top_layer_origin(layer, grid) {
+            Some((x, y)) => (f.x - x, f.y - y),
             None => (0.0, dy),
         };
     }
@@ -141,47 +143,6 @@ pub(crate) fn placement(
     let gx = ((cols as f32 - w) / 2.0).floor().max(0.0);
     let gy = ((rows as f32 - h) / 2.0).floor().max(0.0);
     (f.x - gx * COLUMN, f.y - gy * ROW)
-}
-
-/// A block's root by its insets in the `cols` × `rows` grid, as a fixed box
-/// is in the viewport: a side's inset from that side of the grid, its
-/// margin past it (`used` is its block: the border box and margins, which
-/// it sits in at its frame); a side with neither inset at its margin. Both
-/// insets with both margins `auto` centre it between them, as CSS does.
-/// What `placement` subtracts from the frame to paint it there.
-pub(crate) fn inset_at(
-    env: &exact_kernel::Env,
-    n: &exact_kernel::NodeRef<'_>,
-    used: (f32, f32),
-    cols: usize,
-    rows: usize,
-) -> (f32, f32) {
-    let (s, f) = (n.style, n.frame);
-    let length = |d: Dimension, basis: f32| {
-        (d.resolve(env) != Dimension::Auto).then(|| d.at_basis(env, basis))
-    };
-    let (width, height) = (cols as f32 * COLUMN, rows as f32 * ROW);
-    let axis = |inset: [Dimension; 2],
-                margin: [Dimension; 2],
-                at: f32,
-                size: f32,
-                used: f32,
-                grid: f32| {
-        let auto = margin.iter().all(|m| *m == Dimension::Auto);
-        match (length(inset[0], grid), length(inset[1], grid)) {
-            (Some(start), Some(end)) if auto => {
-                start + ((grid - start - end - size) / 2.0).max(0.0)
-            }
-            (Some(start), _) => start + at,
-            (None, Some(end)) => grid - end - (used - at - size) - size,
-            (None, None) => at,
-        }
-    };
-    let across = [s.margin_left, s.margin_right];
-    let x = axis([s.left, s.right], across, f.x, f.width, used.0, width);
-    let down = [s.margin_top, s.margin_bottom];
-    let y = axis([s.top, s.bottom], down, f.y, f.height, used.1, height);
-    (f.x - x, f.y - y)
 }
 
 /// A pixel edge to the nearest cell boundary.

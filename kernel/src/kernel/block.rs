@@ -392,6 +392,64 @@ impl Kernel {
         self.arena.blocks.get(self.arena.slot_of(view)?)
     }
 
+    /// Where a top-layer box laid out in the viewport's block sits in a
+    /// viewport `width` by `height`, as a fixed box does by its authored
+    /// insets (the block unset them, so its frame is at its margins): a
+    /// side's inset from that side, its margin past it; both insets with
+    /// both margins `auto` centre it between them; no inset on an axis, at
+    /// its margin. Its border box's origin; `None` when the kernel implies
+    /// no block for `view`. What a host that draws the top layer itself
+    /// places it by (the terminal), and where the runner reads one no host
+    /// has said it shows.
+    pub fn top_layer_origin(
+        &self,
+        view: ViewId,
+        (width, height): (f32, f32),
+    ) -> Option<(f32, f32)> {
+        if !self.host_block_implied(view) {
+            return None;
+        }
+        let node = self.node(view)?;
+        let (s, f, env) = (node.style, node.frame, self.arena.env());
+        let used = self.host_block_size(view)?;
+        let length = |d: crate::Dimension, basis: f32| {
+            (d.resolve(env) != crate::Dimension::Auto).then(|| d.at_basis(env, basis))
+        };
+        let auto = |m: [crate::Dimension; 2]| m.iter().all(|m| *m == crate::Dimension::Auto);
+        let axis = |inset: [crate::Dimension; 2],
+                    margin,
+                    at: f32,
+                    size: f32,
+                    used: f32,
+                    room: f32| {
+            match (length(inset[0], room), length(inset[1], room)) {
+                (Some(start), Some(end)) if auto(margin) => {
+                    start + ((room - start - end - size) / 2.0).max(0.0)
+                }
+                (Some(start), _) => start + at,
+                (None, Some(end)) => room - end - (used - at - size) - size,
+                (None, None) => at,
+            }
+        };
+        let x = axis(
+            [s.left, s.right],
+            [s.margin_left, s.margin_right],
+            f.x,
+            f.width,
+            used.0,
+            width,
+        );
+        let y = axis(
+            [s.top, s.bottom],
+            [s.margin_top, s.margin_bottom],
+            f.y,
+            f.height,
+            used.1,
+            height,
+        );
+        Some((x, y))
+    }
+
     /// Whether `view`'s block is the one the kernel implies (a top-layer
     /// box's, the viewport), no host having given it one.
     pub fn host_block_implied(&self, view: ViewId) -> bool {
