@@ -146,3 +146,50 @@ fn a_profile_colour_past_the_bound_is_refused_by_the_build_too() {
     assert_eq!(built.id, "tamber-value-size", "{built:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A param's name past the bound is refused before the wire resolves it,
+/// never echoed (Astra's round 3: `set-param` quoted it whole).
+#[test]
+fn a_long_param_name_is_refused_before_it_is_resolved() {
+    let dir = reading("limits-param");
+    let mut s = Serve::start(&dir, &[]);
+    let name = format!("Map.{}", "p".repeat(900_000));
+    let w = transaction(
+        &mut s,
+        &dir,
+        json!({"op": "set-param", "name": name, "value": "#abcdef"}),
+    );
+    drop(s);
+    let said = w.to_string();
+    assert!(
+        said.contains("tamber-value-size"),
+        "{}",
+        &said[..said.len().min(400)]
+    );
+    assert!(said.len() < 2000, "the reply echoes no name");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Profile colours are taken in one pass over the design: 3,000 written
+/// backwards, each naming the next, build in moments (Astra's round 3: a
+/// scan of the design per profile, each against every profile so far).
+#[test]
+fn many_profile_colours_are_taken_in_moments() {
+    let dir = reading("limits-profiles");
+    let n = 3000;
+    let mut src = String::from("tamber t\n\ntheme\n  ink = #111111\n");
+    for k in (1..n).rev() {
+        src += &format!("  p{k} = p{}\n", k - 1);
+    }
+    src += "  p0 = color(--dci-p3 0 0 0)\n";
+    std::fs::write(dir.join("app.tamber"), &src).unwrap();
+    let began = Instant::now();
+    let built = contract::compile_path(&dir.join("app.contract"));
+    assert!(
+        began.elapsed() < Duration::from_secs(20),
+        "{:?}",
+        began.elapsed()
+    );
+    assert!(built.is_ok(), "{:?}", built.err());
+    let _ = std::fs::remove_dir_all(&dir);
+}

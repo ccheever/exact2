@@ -92,7 +92,9 @@ impl Diagnostic {
 /// kind), so past this the words keep their start and say their length.
 const MAX_WORDS: usize = 1024;
 
-fn bounded_words(words: String) -> String {
+/// `words` within [`MAX_WORDS`]: a diagnostic's, or a refusal's a caller
+/// words itself (the wire's).
+pub fn bounded_words(words: String) -> String {
     if words.len() <= MAX_WORDS {
         return words;
     }
@@ -202,6 +204,13 @@ pub struct Folding {
 /// check refuses it in the same words the design server's does.
 pub fn within_bounds(text: &str) -> bool {
     css::over_limit(text).is_none()
+}
+
+/// A name past the checker's bound (`tamber-value-size`), in the words a
+/// design's or an edit's name is refused in: for a caller that reads a name
+/// before the checker does (the wire's param names).
+pub fn over_name(name: &str) -> Option<(&'static str, String)> {
+    css::over_bytes("a name", name)
 }
 
 /// Parse, check and fold a `.tamber` source.

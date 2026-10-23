@@ -20,6 +20,20 @@ pub(crate) struct Walk {
     pub(crate) deep: Option<usize>,
 }
 
+impl Walk {
+    /// One level deeper, for token `i`'s walk: a name followed or a function
+    /// entered. Past [`MAX_REFERENCE_DEPTH`] it isn't (`deep` names `i`); a
+    /// caller that enters leaves with `depth -= 1`.
+    pub(crate) fn enter(&mut self, i: usize) -> bool {
+        if self.depth >= MAX_REFERENCE_DEPTH {
+            self.deep.get_or_insert(i);
+            return false;
+        }
+        self.depth += 1;
+        true
+    }
+}
+
 /// The deepest a chain of tokens naming one another may go (the checker's
 /// own bound, beside a value's bytes and nesting): each name followed is a
 /// level of recursion, so a longer one is refused before it would overflow
