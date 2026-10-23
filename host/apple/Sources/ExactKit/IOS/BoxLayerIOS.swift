@@ -260,7 +260,11 @@ extension NodeView {
         let sideColor = drawn.first.map { colors[$0] }
         let edges = !patterned && !oneBorder && !own && radii.allSatisfy { $0 == 0 } && drawn.allSatisfy { colors[$0] == sideColor }
         let shapedRadii = !oneRadius && shape == nil && oneBorder
-        boxDrawn = !away && (patterned || !((oneBorder || edges) && (oneRadius || shapedRadii) && (shape == nil || continuous)) || gradientDraws || backgroundClip != "border-box") && (fill != nil || gradient || widths.contains { $0 > 0 })
+        // Sublayers sit above a backing store. A shaped fill must draw with
+        // content painted there, or it covers the image or text.
+        let paintsContent = (kind == "image" && symbolView == nil && raster != nil) || (isParagraph && !canRasterText)
+            || (Capture.capturing && (kind == "canvas" || Capture.web[id] != nil))
+        boxDrawn = !away && ((shapedRadii && paintsContent) || patterned || !((oneBorder || edges) && (oneRadius || shapedRadii) && (shape == nil || continuous)) || gradientDraws || backgroundClip != "border-box") && (fill != nil || gradient || widths.contains { $0 > 0 })
         let onLayer = !boxDrawn
         var corners: CACornerMask = []
         let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
