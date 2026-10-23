@@ -63,6 +63,9 @@ final class ContextMenuKeyboardIOSTests: XCTestCase {
         XCTAssertFalse(p.keyDown(at: message, "F10", held: "Shift+Meta+"))
         XCTAssertFalse(p.keyUp(at: message, "ContextMenu"))
         XCTAssertEqual(heard, 0)
+        XCTAssertTrue(p.keyDown(at: message, "ContextMenu"))
+        XCTAssertTrue(p.keyDown(at: message, "F10", held: "Shift+"))
+        XCTAssertEqual(heard, 2, "the unmodified chords still open the menu")
     }
 
     func testTheMenuUsesTheFocusAfterTheKeyHandlerAndFindsItsAncestor() throws {
@@ -84,10 +87,15 @@ final class ContextMenuKeyboardIOSTests: XCTestCase {
         p.onClipboard = { _, _, _ in heard += 1 }
         p.onKey = { _, _ in message.applyProps(set: ["inert": "true"], clear: []) }
         XCTAssertFalse(p.keyDown(at: message, "ContextMenu"))
+        XCTAssertEqual(heard, 0)
         message.applyProps(set: [:], clear: ["inert"])
+        p.onKey = nil
+        XCTAssertTrue(message.becomeFirstResponder())
+        XCTAssertTrue(p.keyDown(at: message, "ContextMenu"))
+        XCTAssertEqual(heard, 1, "the same source works while eligible")
         p.onKey = { _, _ in p.apply(wireBatch([["op": "destroy", "id": 2]])) }
         XCTAssertFalse(p.keyDown(at: message, "ContextMenu"))
-        XCTAssertEqual(heard, 0)
+        XCTAssertEqual(heard, 1)
     }
 
     func testAnEditorsMenuStaysWithTheEditor() throws {
@@ -104,7 +112,13 @@ final class ContextMenuKeyboardIOSTests: XCTestCase {
         XCTAssertFalse(p.keyDown(at: editor, "ContextMenu"))
         XCTAssertFalse(p.keyDown(at: editor, "F10", held: "Shift+"))
         XCTAssertEqual(heard, 0)
+        let message = try XCTUnwrap(p.views[2])
+        XCTAssertTrue(message.becomeFirstResponder())
+        XCTAssertTrue(p.keyDown(at: message, "ContextMenu"))
+        XCTAssertTrue(p.keyDown(at: message, "F10", held: "Shift+"))
+        XCTAssertEqual(heard, 2, "leaving the editor restores the ancestor's menu")
     }
+
     func testMenuKeysPresentThePopoverWithAgentModeOff() throws {
         guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else {
             throw missing("scene", "a keyboard menu must present in a real window scene")
