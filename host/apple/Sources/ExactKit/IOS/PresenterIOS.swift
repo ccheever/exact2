@@ -1378,7 +1378,6 @@ package final class Presenter {
         let color = first?.color("background_color", .platformBackground(in: root)) ?? .platformBackground(in: root)
         if viewport.backgroundColor != color { viewport.backgroundColor = color; onCanvasColor?(color) }
     }
-
     /// An op touched a node (LLP 1014 D4 a): every canvas it is painted
     /// through captures again at the end of the batch — the canvas above
     /// it, and itself for its own `children` op.
@@ -1394,7 +1393,6 @@ package final class Presenter {
         if let c = start.paragraphOwner.canvasAbove { c.needsCapture = true }
     }
 }
-
 /// Pixels a view's subtree was painted into: premultiplied RGBA, rows
 /// top-down, `width * 4` bytes per row, owned by the context.
 package struct Bitmap {
