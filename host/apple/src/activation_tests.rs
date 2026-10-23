@@ -794,10 +794,8 @@ fn failed_persistence_is_reported_and_retried_without_another_value_change() {
     };
     let failed = act("step");
     assert!(
-        failed["error"]
-            .as_str()
-            .is_some_and(|s| s.contains("injected storage full")),
-        "{failed}"
+        failed["error"].is_null(),
+        "committed work is accepted: {failed}"
     );
     refusing.store(false, Ordering::SeqCst);
     let retried = act("keep");
@@ -825,4 +823,72 @@ fn failed_persistence_is_reported_and_retried_without_another_value_change() {
             .as_slice(),
         "a newer value supersedes the pending write; success clears it"
     );
+}
+
+#[test]
+fn persistence_failure_does_not_refuse_navigation_or_completed_activation() {
+    let plan = contract::compile(
+        r#"routes nav
+  home "/"
+  next "/next"
+component App
+  state count = 0 persist
+  action step
+    count = count + 1
+  action go
+    nav = push(nav, "/next")
+  view
+    text top(nav).name
+"#,
+    )
+    .unwrap()
+    .encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        ChangingReader {
+            asks: Arc::new(AtomicUsize::new(0)),
+        },
+        Box::new(MonospaceMeasurer::default()),
+        300.,
+        200.,
+    )
+    .unwrap();
+    host.runner.take_store_writes();
+    host.secrets = Some(Box::new(RefusedWrite {
+        refusing: Arc::new(AtomicBool::new(true)),
+        attempts: Arc::new(Mutex::new(Vec::new())),
+    }));
+    for name in ["step", "go"] {
+        let receipt = host.runner.act(name, vec![]).unwrap();
+        let batch: serde_json::Value =
+            serde_json::from_str(&host.commit(&[Timed { at_ms: 0., receipt }], None)).unwrap();
+        assert!(batch["error"].is_null(), "{name} committed: {batch}");
+    }
+    assert!(host
+        .runner
+        .journal()
+        .any(|s| s.contains("injected storage full")));
+    assert_eq!(host.pending_store_writes.len(), 1);
+
+    let plan = contract::compile("shape Text\n  value: string\ncomponent App\n  resource favourite = favourite() as shape Text\n  view\n    text favourite.value\n").unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        DeferredChangingReader {
+            asks: Arc::new(AtomicUsize::new(0)),
+            ready: false,
+        },
+        Box::new(MonospaceMeasurer::default()),
+        300.,
+        200.,
+    )
+    .unwrap();
+    host.secrets = Some(Box::new(RefusedWrite {
+        refusing: Arc::new(AtomicBool::new(true)),
+        attempts: Arc::new(Mutex::new(Vec::new())),
+    }));
+    let batch: serde_json::Value = serde_json::from_str(&host.activate_data()).unwrap();
+    assert!(batch["error"].is_null(), "data_ready succeeded: {batch}");
+    assert_eq!(batch["storeActivationPending"], false);
+    assert_eq!(batch["storeReadPending"], false);
+    assert!(!host.pending_store_writes.is_empty());
 }
