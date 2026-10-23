@@ -74,9 +74,13 @@ extension CollectionHost {
             measurements: [], focus: nil, interaction: nil, paddingStart: Double(start), paddingEnd: Double(end))
     }
     /// A smooth correction's native targets move with a page band's inset
-    /// (LLP 1130 D3), as the offset itself does (`NodeView.setPageBand`).
+    /// (LLP 1130 D3), as the offset itself does (`NodeView.setPageBand`), and
+    /// so does where the batch found the port: its offset counts the band as
+    /// padding before the first row, so the top of a list the band grew
+    /// under mid-batch is the new band's top.
     func offsetsMoved(_ id: UInt32, by dy: CGFloat) {
         animationTargets[id]?.y += dy; owedTargets[id]?.y += dy
+        entries[id]?.batchStart? += Double(dy)
         offsetDrivers[id]?.moveOffsets(by: dy)
     }
     /// The insets UIKit adjusts the list's port by, at its start edges. A

@@ -43,6 +43,15 @@ final class CollectionPageBandIOSTests: XCTestCase {
         p.collections.endBatch()
         XCTAssertEqual(scroll.contentOffset.y, rest - 20, "a growing band keeps the content's resting place")
         XCTAssertEqual(try XCTUnwrap(p.collections.geometry(1)).offset, -100)
+        // A band that grows while another inset goes (a route pushed under
+        // control bars: the bar's inset leaves as the band takes its place)
+        // keeps the list at its top, the new band's.
+        p.collections.beginBatch(wireBatch([]))
+        node.setPageBand(UIEdgeInsets(top: 120, left: 0, bottom: 30, right: 0))
+        scroll.contentInset.top -= 10
+        p.collections.endBatch()
+        XCTAssertEqual(scroll.contentOffset.y, -scroll.adjustedContentInset.top, "at the top, not 40 points into the list")
+        XCTAssertEqual(try XCTUnwrap(p.collections.geometry(1)).offset, -140)
     }
 }
 #endif
