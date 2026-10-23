@@ -145,7 +145,7 @@ enum TouchLog {
         let oldest = entries.first.map { $0["seq"] as! Int } ?? seq + 1
         let after = entries.filter { ($0["seq"] as! Int) > s }
         // `lost`: entries after `s` fell out of the ring before this read.
-        return ["log": Array(after.prefix(32)), "next": seq, "dropped": dropped, "reached": reached.sorted(),
+        return ["now": CACurrentMediaTime(), "log": Array(after.prefix(32)), "next": seq, "dropped": dropped, "reached": reached.sorted(),
                 "lost": s + 1 < oldest, "truncated": after.count > 32]
     }
 }
