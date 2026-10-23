@@ -1,10 +1,12 @@
 # A test cannot wait for a socket's handshake: `clock data` stops at its first message
 
-**Status:** Open (an ask)
+**Status:** Open
 **Systems:** the agent's `clock data` and an authored test's launch wait (`scripts/agent-test.mjs`, the runner's stream settlement, LLP 1016.000 D5), every host
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from Excord's wiring lane (`apps/excord/llp/0001-excord.rfc.md` §4.2)
 **Date:** 2026-10-22
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): an ask
 
 ## Symptom
 
