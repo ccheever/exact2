@@ -57,7 +57,8 @@ final class AgentAppearanceMacTests: XCTestCase {
         XCTAssertEqual(scheme(session)?.id, light.id, "a page fact leaves the scheme's subtree mounted")
     }
 
-    func testTheFirstCaptureAfterSettlingUsesThePreferredBodyColour() throws {
+    /// Characterizes a simple light-dark fill; QUEUE 1581's Caltrain timing failure remains unreproduced.
+    func testCharacterizationOfThePreferredBodyColourAfterSettlement() throws {
         NSApp.appearance = nil
         Agent.systemAppearance = Agent.launchAppearance()
         let session = ExactApp.shared.makeSession(label: "agent-appearance-picture")
