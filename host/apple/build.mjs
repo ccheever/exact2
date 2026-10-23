@@ -188,10 +188,10 @@ export function appleArtifacts(app, { destination = 'macos', composition, trust 
       : resolve(products, `${executable}.app`),
     embed: resolve(namespace, 'embed') };
 }
-/** Drives use the app's Info.plist, including ATS, as a normal launch does. */
+/** App drives use the shipped bundle's transport policy; the sample host is a bare build product. */
 export function appleRunBinary(app, host = false) {
   const paths = appleArtifacts(app, { host });
-  return resolve(paths.bundle, 'Contents/MacOS', paths.executable);
+  return host ? paths.binary : resolve(paths.bundle, 'Contents/MacOS', paths.executable);
 }
 /** Both bare product directories resolve @executable_path/../Frameworks here. */
 export function publishMacFramework(framework, namespace, identity) {
