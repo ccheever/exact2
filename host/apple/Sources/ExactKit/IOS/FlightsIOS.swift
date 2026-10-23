@@ -359,7 +359,7 @@ extension Presenter {
                 offset.y += nearest(r.minY, r.maxY, visible.minY, visible.maxY)
                 offset.x = min(max(offset.x, -inset.left), max(-inset.left, sv.contentSize.width - sv.bounds.width + inset.right))
                 offset.y = min(max(offset.y, -inset.top), max(-inset.top, sv.contentSize.height - sv.bounds.height + inset.bottom))
-                if offset != sv.contentOffset { sv.setContentOffset(offset, animated: false) }
+                if offset != sv.contentOffset { sv.setContentOffset(PixelGrid.offset(offset, in: sv), animated: false) }
             }
             if current === root { break }
             ancestor = current.superview

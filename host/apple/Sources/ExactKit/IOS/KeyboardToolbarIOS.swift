@@ -105,7 +105,7 @@ final class KeyboardToolbars {
         let atEnd = sv.contentOffset.y >= maximum() - 1
         sv.contentInset.bottom += delta
         sv.verticalScrollIndicatorInsets.bottom += delta
-        if atEnd { sv.contentOffset.y = maximum() }
+        if atEnd { sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: maximum()), in: sv) }
     }
 }
 #endif
