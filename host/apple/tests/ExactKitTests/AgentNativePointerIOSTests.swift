@@ -167,6 +167,23 @@ final class AgentNativePointerIOSTests: XCTestCase {
     }
 }
 final class AgentGroupedPointerIOSTests: GroupedListFixture {
+    func testADisabledRowIsNotReportedAsChangedDuringPointerHandlers() throws {
+        let session = ExactApp.shared.makeSession(label: "disabled-grouped-pointer")
+        defer { session.destroy(); window?.isHidden = true }
+        var model = self.model()
+        model.sections[0].rows[0].disabled = true
+        let p = presenter(on: session.presenter) { model }
+        p.apply(wireBatch([["op": "props", "id": 10, "set": ["disabled": "true"]],
+                           ["op": "props", "id": 13, "set": ["disabled": "true"]]]))
+        _ = try cell(p, 10); _ = try cell(p, 12)
+        for (id, reason) in [(UInt32(10), "the row is disabled or not a button"), (UInt32(13), "the switch is disabled")] {
+            var called = false
+            let reply = host(p).activate(try XCTUnwrap(p.views[id]), before: { _ in called = true; return true })
+            XCTAssertFalse(called, "an already disabled target runs no pointer handler")
+            XCTAssertEqual(reply?["error"] as? String, "tap #\(id): \(reason)")
+        }
+    }
+
     func testAProjectedRowBubblesPointersBeforePress() throws {
         let session = ExactApp.shared.makeSession(label: "grouped-pointer")
         defer { session.destroy(); window?.isHidden = true }
