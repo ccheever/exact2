@@ -49,10 +49,8 @@ extension Presenter {
         guard let ended = leaving.removeValue(forKey: id) else { return false }
         ended.view.setGhost(false)
         for member in ended.members {
-            if navigation.split.holds(member) {
-                member.setGhost(false)
-                navigation.split.retire(member)
-            }
+            member.setGhost(false)
+            if navigation.split.holds(member) { navigation.split.retire(member) }
             member.forget()
         }
         ended.view.removeFromSuperview()
