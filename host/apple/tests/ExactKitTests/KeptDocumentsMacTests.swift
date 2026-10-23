@@ -171,5 +171,43 @@ final class KeptDocumentsMacTests: XCTestCase {
             }
         }
     }
+
+    /// While a late clear is watched for, a document forgotten stays gone,
+    /// and one reopened is no sign the old list is still there. Driven by
+    /// hand: the late clear has landed, the watch not yet looked.
+    func testALateWatchKeepsAForgottenDocumentGoneAndTakesAReopenedOneAsNew() throws {
+        _ = NSApplication.shared
+        let controller = NSDocumentController.shared
+        func listed(_ want: [String]) -> [String] {
+            let end = Date().addingTimeInterval(3)
+            while controller.recentDocumentURLs.map(\.lastPathComponent) != want, Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+            return controller.recentDocumentURLs.map(\.lastPathComponent)
+        }
+        func clear() { if !controller.recentDocumentURLs.isEmpty { controller.clearRecentDocuments(nil); _ = listed([]) } }
+        let saved = controller.recentDocumentURLs
+        defer {
+            KeptDocuments.late = nil
+            clear()
+            saved.reversed().forEach(controller.noteNewRecentDocumentURL)
+        }
+        let urls = try ["a.md", "b.md", "c.md"].map { try write($0, $0) }
+        let cleared = Set(urls.map(KeptDocuments.file))
+        // Forgotten meanwhile: a.md, which the fallback had noted.
+        clear()
+        KeptDocuments.late = (cleared, [urls[0], urls[2]], KeptDocuments.generation)
+        let a = try XCTUnwrap(KeptDocuments.identity(urls[0].path))
+        KeptDocuments.forgotten(device: a.device, inode: a.inode)
+        KeptDocuments.watchLate()
+        let came = listed(["c.md"])
+        try XCTSkipUnless(!came.isEmpty, "this test host keeps no recent documents: \(came)")
+        XCTAssertEqual(came, ["c.md"])
+        // Reopened meanwhile: c.md, one the old list had too.
+        clear()
+        KeptDocuments.late = (cleared, [urls[0], urls[2]], KeptDocuments.generation)
+        KeptDocuments.note(urls[2])
+        KeptDocuments.watchLate()
+        XCTAssertEqual(listed(["c.md", "a.md"]), ["c.md", "a.md"])
+        XCTAssertNil(KeptDocuments.late)
+    }
 }
 #endif
