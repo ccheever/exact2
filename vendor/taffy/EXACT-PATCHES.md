@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61 and 62 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62 and 63 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1972,6 +1972,26 @@ block and flex styles no longer carry the grid vectors and placements inline:
 with Exact's features on 64-bit hosts, `Style` falls from 600 to 256 bytes
 (`RcInner<Style>`: 272). The kernel adapter keeps their rare group absent.
 Layout inputs are unchanged.
+
+## Patch 63: calculated lengths participate in automatic grid repetition
+
+`TrackSizingFunction::has_fixed_component` includes calc handles: they are
+length-percentage values, so a calculated minimum can size an `auto-fill` or
+`auto-fit` repetition. The existing resolver supplies the value against the
+container's content box. See [CSS Grid 2 §7.2.3](https://www.w3.org/TR/css-grid-2/#auto-repeat).
+
+`FromCss` and `CssParseResult` are exported so Exact can extend the generic
+`GridTemplateTracks` parser with its existing calculation parser. Taffy still
+parses line names, ordinary breadths and repetition counts; Exact owns the
+calculation representation and evaluator. Calculated `fit-content()` limits
+remain unsupported.
+
+**Held by** `style::grid::expand_tests::track_sizing_function_calc_round_trips` and
+Exact's `calculated_grid_tracks` parser, wire and layout tests. The layout
+cases were measured in Chrome 151 on Linux on 2026-10-23: automatic repetition
+at 150px and 650px, `auto-fit`, percentage arithmetic, clamped rows, negative
+results and indefinite percentage bases. The kernel retains floating-point
+coordinates; comparisons allow Chrome's 1/64px layout quantization.
 
 ## Cargo workspace boundary
 

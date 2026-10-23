@@ -917,6 +917,8 @@ fn tag_json(name: &str, t: &Tag) -> Value {
     doc
 }
 
+const GRID_TRACKS: &str = "CSS track lists: none, px, %, fr, auto, min-content, max-content, named lines, fit-content(px or %), minmax(), and repeat() with a count, auto-fill or auto-fit. Lengths accept calc(), min(), max() and clamp() over px and %, including in minmax() and valid repetitions. Percentages use the grid's content box in that axis; negative calculated results clamp to zero. Example: repeat(auto-fill, minmax(min(100%, 200px), 1fr)). Calculated fit-content(), other length units, var() and env() are unsupported; grid-auto-columns/rows are not yet attributes.";
+
 const TEXT_PX_WIDTH: &str = "A fixed ceiling from width or max-width (a number, px, pt, absolute calc(), or em against an authored absolute font), after min-width wins any conflict, can constrain scalable text at accessibility sizes (lower-text-px-width). Express the width and its bounds in rem (width=\"3rem\" or max-width=\"3rem\"), or let content determine the width. A minimum alone supplies no ceiling. The lint is deliberately conservative: it stays silent for unresolved classes, uncertain visibility or sizing, flex sizing that can supersede width without a fixed maximum, and minimum bounds that may grow past the ceiling. Text in absolute or fixed positioning, popovers and dialogs is checked inside that subtree, without counting against enclosing boxes. Text inherits the platform root font. Native Apple controls use the Apple control font, which can scale with Dynamic Type; web controls inherit, and Linux control defaults are fixed. An absolute font size stops scaling within that boundary; inherit and unset use the parent font even on controls. The warning checks layout boxes containing text runs or text fields, including HTML inside SVG foreignObject. It reads lowering’s parent layout, grouped-list typography and known styles. A computed width can still have a fixed maximum; computed fonts remain unknown.";
 
 fn attr_json(name: &str, a: &AttrTarget) -> Value {
@@ -971,6 +973,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     }
     if matches!(name, "width" | "font-size") {
         doc["note"] = TEXT_PX_WIDTH.into();
+    }
+    if matches!(name, "grid-template-columns" | "grid-template-rows") {
+        doc["note"] = GRID_TRACKS.into();
     }
     if name == "buttonStyle" {
         doc["note"] = vocab::BUTTON_DEFAULT_NOTE.into();
@@ -1085,6 +1090,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             }
             if matches!(name, "width" | "font-size") {
                 lines.push(TEXT_PX_WIDTH.into());
+            }
+            if matches!(name, "grid-template-columns" | "grid-template-rows") {
+                lines.push(GRID_TRACKS.into());
             }
             if name == "font-family" {
                 lines.push("CSS family list: literal lists and literal choices work on every host; a string from state or data names installed or generic families on web, macOS, iOS and Linux. Invalid lists leave the row unset. Bundled faces use a `font` declaration".into());
