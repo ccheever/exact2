@@ -227,16 +227,23 @@ final class PageEdgesIOSTests: XCTestCase {
         XCTAssertGreaterThan(list.pageBand.top, 0)
         let top = try node(session, "list-top")
         XCTAssertEqual(top.convert(top.bounds, to: nil).minY, filter.convert(filter.bounds, to: nil).maxY + 8, accuracy: 1)
+        let beforeDrag = sv.contentOffset.y + list.scrollTopInset(sv)
         Agent.rest(sv, at: CGPoint(x: 0, y: sv.contentOffset.y + 30), x: false, y: true)
         nav.view.layoutIfNeeded()
         let turn = expectation(description: "bar covers delivered")
         DispatchQueue.main.async { turn.fulfill() }
         wait(for: [turn], timeout: 5)
-        XCTAssertTrue(nav.navigationBar.bounds.height < 65 || nav.navigationBar.bounds.height >= expanded - 0.5,
-                      "a released short drag leaves a snapped title, not one held halfway by an offset rewrite")
+        let shortDragHeight = nav.navigationBar.bounds.height
+        let shortDragTop = sv.contentOffset.y + list.scrollTopInset(sv)
+        XCTAssertGreaterThan(shortDragTop, beforeDrag, "the released drag must move content")
         Agent.rest(sv, at: CGPoint(x: 0, y: 300 - sv.adjustedContentInset.top), x: false, y: true)
         nav.view.layoutIfNeeded()
         XCTAssertLessThan(nav.navigationBar.bounds.height, 65)
+        let collapsed = nav.navigationBar.bounds.height
+        XCTAssertEqual(min(abs(shortDragHeight - expanded), abs(shortDragHeight - collapsed)), 0, accuracy: 0.5,
+                       "the short drag rests at an exact native title height")
+        XCTAssertEqual(shortDragTop, beforeDrag + expanded - collapsed, accuracy: 0.5,
+                       "the offset follows the same native snap instead of returning to the top")
         XCTAssertEqual(filter.convert(filter.bounds, to: route.view).minY, route.view.safeAreaInsets.top + 8, accuracy: 1)
     }
 
