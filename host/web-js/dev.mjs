@@ -336,8 +336,6 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       // For the builds' copy: the date this build gave it, while it still has
       // it (not on a filesystem that keeps a coarser one: the debug compiler).
       tool.built = tool.ready && mtimeMs(tool.path) === started.getTime() ? started.getTime() : null;
-      // (Said once it is: until then a live proposal is taken as a rebuild, dev-inline.mjs.)
-      if (tool.ready) console.log('the design reader is built: proposals here read their true class');
       const stale = !tool.ready && !signal && !cleaned && !stopping ? staleCrates(err, workspace()) : [];
       if (stale.length) {
         cleaned = true;
@@ -354,7 +352,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
         return;
       }
       if (!tool.ready && !signal) console.log(`the design reader did not build (design edits take the full build):\n${readerFailure(err)}`);
-      if (tool.ready) console.log('design reader ready');
+      if (tool.ready) console.log('design reader ready'); // (until then a live proposal is taken as a rebuild, dev-inline.mjs)
     });
   };
   // Ready, and built from the compiler's sources as they are (a compiler
