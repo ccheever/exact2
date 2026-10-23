@@ -290,6 +290,49 @@ extension TextGeometryTests {
         print("W822 raster p50 before=\(before[before.count / 2]) after=\(after[after.count / 2]) ms; cases=\(before.count)")
     }
 
+    func testFreshGlyphsRemainPaintableAfterTheAnswerCacheFills() throws {
+        let painter = TextEngine(resolve: { _ in nil }), measurer = TextEngine(resolve: { _ in nil })
+        let budget = 64 * 1024
+        painter.connect(measurer: measurer, answerBytes: budget)
+        func value(_ i: Int) -> Spec {
+            var value = spec("Row \(i): One short paragraph for a list.")
+            value.strut = value.runs[0]
+            return value
+        }
+        for i in 0..<512 { withBorrowedRequest(value(i)) { request in Owner.shared.sync { _ = measurer.measure(request) } } }
+        XCTAssertLessThan(painter.answers!.observation.paragraphs, 512, "the scalar budget is saturated")
+        var misses = 0, paint: [Double] = []
+        for i in 512..<768 {
+            let value = value(i)
+            withBorrowedRequest(value) { request in Owner.shared.sync { _ = measurer.measure(request) } }
+            let geometry = try XCTUnwrap(painter.measuredBreaks(value, width: 160))
+            let glyphs = painter.measuredGlyphs(value, width: 160)
+            if glyphs == nil { misses += 1 }
+            let height = (geometry.baselines.last ?? 0) + 30
+            var job = TextRasterJob(source: painter.attributed(value), ranges: geometry.ranges,
+                baselines: geometry.baselines, flush: 0, box: CGRect(x: 0, y: 0, width: 160, height: height),
+                size: CGSize(width: 160, height: height), scale: 2, crop: false)
+            if let glyphs {
+                job.measuredGlyphs = glyphs
+                job.measuredColor = TextEngine.color(value.color).cgColor
+                job.source = NSAttributedString(string: "")
+            }
+            let began = ProcessInfo.processInfo.systemUptime
+            XCTAssertNotNil(job.render())
+            paint.append((ProcessInfo.processInfo.systemUptime - began) * 1000)
+            XCTAssertLessThanOrEqual(painter.answers!.observation.bytes, budget)
+        }
+        paint.sort()
+        print("W822 saturated: glyph misses=\(misses)/256; raster p50=\(paint[128]) ms, p95=\(paint[243]) ms")
+        XCTAssertEqual(misses, 0, "fresh copies survive scalar-answer eviction")
+        let last = value(900)
+        for width in 120..<128 { withBorrowedRequest(last, width: Float(width)) { _ = measurer.measure($0) } }
+        XCTAssertNotNil(painter.measuredGlyphs(last, width: 127), "one paragraph's older offers must not evict its newest glyph copy")
+        painter.dropColdShaped()
+        for _ in 0..<100 { painter.answers!.discardGlyphs() }
+        XCTAssertLessThanOrEqual(painter.answers!.observation.bytes, budget)
+    }
+
     func testMeasuredGlyphsDeclinePaintThatNeedsCoreTextAndExpireWithAnswers() throws {
         let painter = TextEngine(resolve: { _ in nil }), measurer = TextEngine(resolve: { _ in nil })
         painter.connect(measurer: measurer, answerBytes: TextAnswers.defaultLimit)
