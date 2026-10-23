@@ -317,7 +317,16 @@ final class ControlHost: NSObject {
                 #else
                 let width = control is UISlider ? box.width : natural.width
                 #endif
-                let x = box.midX - width / 2
+                var x = box.midX - width / 2
+                #if os(iOS)
+                if control is UIDatePicker {
+                    switch valueAlignment(owner) {
+                    case .left: x = box.minX
+                    case .right: x = box.maxX - width
+                    default: break
+                    }
+                }
+                #endif
                 assign(control, \.frame, CGRect(x: x, y: box.midY - natural.height / 2,
                                                 width: width, height: natural.height))
             }

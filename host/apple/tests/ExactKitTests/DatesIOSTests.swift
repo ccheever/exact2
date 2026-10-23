@@ -10,6 +10,29 @@ import XCTest
 /// and never a browser's `mm/dd/yyyy`. It still takes the tap that opens it.
 /// UIKit, so a simulator runs it: bun host/apple/build.mjs --test --ios
 final class DatesIOSTests: XCTestCase {
+    func testDateTimeAndDatetimeAlignTheirCompactControlWithinTheAuthoredWidth() throws {
+        let p = Presenter(), window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        defer { window.isHidden = true }
+        p.viewport.frame = window.bounds; window.addSubview(p.viewport); window.makeKeyAndVisible()
+        for (i, kind) in ["date", "time", "datetime-local"].enumerated() {
+            let id = i + 1
+            p.apply(wireBatch([
+                ["op": "create", "id": id, "kind": "control", "props": ["type": kind], "style": [:]],
+                ["op": "roots", "ids": Array(1...id)],
+                ["op": "frame", "id": id, "x": 20.0, "y": Double(i * 80), "w": 340.0, "h": 60.0],
+            ]))
+            let control = try XCTUnwrap(p.controls.controls[UInt32(id)] as? UIDatePicker)
+            for (alignment, direction, edge) in [("left", "ltr", "left"), ("right", "ltr", "right"),
+                                                 ("start", "rtl", "right"), ("end", "rtl", "left"), ("center", "ltr", "center")] {
+                p.apply(wireBatch([["op": "style", "id": id, "style": ["text_align": alignment, "direction": direction, "written": ["text_align"]]]]))
+                let owner = try XCTUnwrap(p.views[UInt32(id)]), box = owner.contentBox()
+                let x = edge == "left" ? box.minX : edge == "right" ? box.maxX - control.frame.width : box.midX - control.frame.width / 2
+                XCTAssertEqual(control.frame.minX, x, accuracy: 0.5, "\(kind) \(alignment) \(direction)")
+                XCTAssertEqual(control.frame.midY, box.midY, accuracy: 0.5)
+            }
+        }
+    }
+
     func testAnEmptyDateShowsItsAuthorsPlaceholderOrNoWordsNeverToday() throws {
         let p = Presenter()
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
