@@ -575,7 +575,7 @@ const WRAP = 'wrap the row: flex-wrap="wrap" with a flex-basis in rem on its ite
 /** The remedy for a finding at the largest size: never a smaller or fixed font. A text in a list's row (`inRow`) is cut by
  * the row, which wrapping the row does not change: at the accessibility sizes UIKit's cells wrap a label and grow taller,
  * never truncating it, so a `line-clamp` there reads as a tell (round 22's book-club and contacts took one from this
- * remedy). A grouped list's row already hyphenates as a cell's label does. Elsewhere a UILabel wraps at words and breaks
+ * remedy). A grouped list's standard cell already hyphenates as its label does. Elsewhere a UILabel wraps at words and breaks
  * between syllables only a word longer than its line (iOS 27), so `hyphens="auto"` is the remedy for a text of one word;
  * on a heading or sentence it hyphenates words a UILabel keeps whole, which round 26's graders named a tell. */
 export function largeRemedy(f, { inRow = false } = {}) {
