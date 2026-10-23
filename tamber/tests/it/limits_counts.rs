@@ -35,5 +35,32 @@ fn many_params_lay_in_moments() {
     let took = began.elapsed();
     assert!(took < Duration::from_secs(5), "{took:?}");
     assert_eq!(out.tokens.len(), n + 1);
-    assert!(out.tokens.iter().all(|t| t.name.value == "ink" || t.value.value == "2px"));
+    assert!(out
+        .tokens
+        .iter()
+        .all(|t| t.name.value == "ink" || t.value.value == "2px"));
+}
+
+/// A dial's probes refold only the tokens it moves: 2,000 dials beside
+/// 20,000 tokens each reading one (2,000 x 2,000 took 35 s in a release
+/// build, refolding every token for every dial).
+#[test]
+fn many_dials_probe_only_what_they_move() {
+    let (d, n) = (2_000, 20_000);
+    let mut src = String::from("tamber t\n\ndials\n");
+    for k in 0..d {
+        src += &format!("  d{k}: number = 0.1  in 0..0.5\n");
+    }
+    src += "\ntheme\n  ink = #111111\n";
+    for k in 0..n {
+        src += &format!("  t{k} = oklch(from #3366cc calc(l + d{}) c h)\n", k % d);
+    }
+    let began = Instant::now();
+    let folded = exact_tamber::check(&src, &crate::common::vocab());
+    let took = began.elapsed();
+    assert!(took < Duration::from_secs(20), "{took:?}");
+    let folded = folded.unwrap_or_else(|e| panic!("{:?}", &e[..e.len().min(2)]));
+    // Each token moves with its own dial, and only it.
+    let t = folded.tokens.iter().find(|t| t.name == "t2001").unwrap();
+    assert_eq!(t.dials, ["d1"]);
 }
