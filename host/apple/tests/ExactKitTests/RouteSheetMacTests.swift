@@ -200,6 +200,15 @@ final class RouteSheetMacTests: XCTestCase {
         return taken
     }
 
+    func testInitialModalRoutePresentsWhenItsWindowArrives() throws {
+        let f = try SheetFixture(page: Self.page.replacingOccurrences(of: "state screen = \"home\"", with: "state screen = \"add\""), settleOnMount: false)
+        fixture = f
+        let route = try f.node("add")
+        let sheet = try XCTUnwrap(f.window.attachedSheet)
+        XCTAssertTrue(route.window === sheet)
+        XCTAssertEqual((sheet.contentView as? RouteChrome)?.title.stringValue, "New Book")
+    }
+
     func testExitingTheNavigationRootRetiresItsFocusedSheetRoute() throws {
         let f = try make()
         try f.press("open-add")
