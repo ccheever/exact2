@@ -182,10 +182,10 @@ extension NodeView {
     /// `background-attachment: fixed` (LLP 1066 D7) on iOS is always the
     /// gradient layer: anything above the node scrolling re-aims it
     /// (`reaimFixedGradient`), a few points set on a layer, where a drawn
-    /// gradient would repaint the box every frame. Over a box `draw(_:)`
-    /// paints the layer is
-    /// masked to the outline, over the drawn fill — and over a drawn
-    /// border, which is owed. Several layers, a conic or repeating one, or another
+    /// gradient would repaint the box every frame. Over a box painted by
+    /// `draw(_:)`, the gradient layer is masked to the outline. It composites
+    /// above the drawn fill and, currently, above a drawn border.
+    /// Several layers, a conic or repeating one, or another
     /// `background-clip` draw as before, unfixed.
     var gradientLayered: Bool { gradientFixed && !gradientDraws && backgroundClip == "border-box" }
 
