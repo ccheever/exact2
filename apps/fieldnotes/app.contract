@@ -175,6 +175,7 @@ component Fieldnotes
     send status = deleteNote(editingId)
     session = nextSession("", session)
 
+  // Apple keeps AccentColorText white; filled controls name ink for both schemes.
   view
     main testId="fieldnotes" accent-color="light-dark(#31554a, #a3c9b5)" display="flex" flex-direction="column" width="100%" height="100%" box-sizing="border-box" overflow-y="scroll" background-color="-exact-grouped-background" color="-exact-label" padding=16 gap=16
       row justify-content="space-between" align-items="center" gap=12 flex-wrap="wrap" flex-shrink=0
@@ -184,8 +185,8 @@ component Fieldnotes
         row gap=8 align-items="center"
           button press=newNote disabled=(dirty or busy) testId="new-note" aria-label="New note" aria-keyshortcuts="Meta+N Control+N" padding=10 background-color="AccentColor" border-radius=8
             row gap=6 align-items="center"
-              image "symbol:add" font-size=13 font-weight=600 -exact-tint-color="AccentColorText"
-              text "New note" color="AccentColorText" font-weight=600 font-size=13
+              image "symbol:add" font-size=13 font-weight=600 -exact-tint-color="light-dark(#ffffff, #000000)"
+              text "New note" color="light-dark(#ffffff, #000000)" font-weight=600 font-size=13
           button press=beginSearch testId="find-notes" aria-label="Find notes" aria-keyshortcuts="Meta+F Control+F" padding=10 border-style="solid" border-width=1 border-color="-exact-separator" border-radius=8 background-color="-exact-grouped-background"
             text "Find" font-size=13 color="AccentColor"
           button press=showBackups testId="backups" aria-keyshortcuts=(backups ? "Escape" : "") padding=10 border-style="solid" border-width=1 border-color="-exact-separator" border-radius=8 background-color="-exact-grouped-background"
@@ -213,7 +214,7 @@ component Fieldnotes
           text "Save a backup on this device, or copy the backup text somewhere safe. Restoring replaces all current notes." font-size=14 color="-exact-secondary-label"
           row gap=10 flex-wrap="wrap"
             button press=backup disabled=(busy or dirty) testId="save-backup" padding=12 background-color="AccentColor" border-radius=7
-              text "Save backup" color="AccentColorText"
+              text "Save backup" color="light-dark(#ffffff, #000000)"
             button press=readBackup disabled=busy testId="read-backup" padding=12 background-color="-exact-fill" border-radius=7
               text "Show saved backup" color="AccentColor"
           input id="export-file" testId="export-file" display="none" change=exported cancel=exportCancelled
@@ -232,8 +233,8 @@ component Fieldnotes
           if confirmRestore
             row gap=12 align-items="center" flex-wrap="wrap"
               text (importName == "" ? "Replace all notes with this backup?" : `Replace all notes with ${importName}?`) font-size=14 testId="restore-question"
-              button press=restore disabled=(busy or dirty) testId="confirm-restore" padding=10 accent-color="-exact-system-red" background-color="AccentColor" border-radius=7
-                text "Replace notes" color="AccentColorText"
+              button press=restore disabled=(busy or dirty) testId="confirm-restore" padding=10 background-color="light-dark(#a34336, #ff4245)" border-radius=7
+                text "Replace notes" color="light-dark(#ffffff, #000000)"
               button appearance="none" press=cancelRestore testId="cancel-restore" padding=10
                 text "Cancel"
           else
@@ -273,7 +274,7 @@ component Fieldnotes
             textarea appearance="none" id="note-body" font-family="sans-serif" value=(pending(opened) ? "" : fields.body) readonly=(pending(opened) or not openedReady) input=changeBody placeholder="What's on your mind?" aria-label="Note body" testId="note-body" width="100%" flex=1 min-height=160 box-sizing="border-box" padding=10 font-size=16 line-height="24px" border-width=0 background-color="-exact-secondary-grouped-background"
             row gap=10 align-items="center" flex-wrap="wrap" flex-shrink=0
               button press=save disabled=(busy or not openedReady or not dirty or (fields.title == "" and fields.body == "")) testId="save-note" aria-keyshortcuts="Meta+S Control+S" padding=12 background-color="AccentColor" border-radius=7
-                text "Save note" color="AccentColorText" font-weight=600
+                text "Save note" color="light-dark(#ffffff, #000000)" font-weight=600
               if dirty
                 button appearance="none" press=discard disabled=busy testId="discard" padding=12
                   text "Discard changes" color="-exact-secondary-label"
