@@ -861,7 +861,6 @@ package final class Presenter {
     private var hoverTransition: UInt64 = 0
     var hoveredInline: UInt32?
     var inlineHoverTransition: UInt64 = 0
-
     /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
     var pressHeld = ""
     /// The click being sent as a press, given by the mouse paths only (`pressMount`, FocusMac.swift).
