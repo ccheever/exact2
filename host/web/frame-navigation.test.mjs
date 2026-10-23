@@ -16,7 +16,7 @@ function serve() {
     if (path === '/g/b') return guest('B');
     if (path === '/g/redirect') return Response.redirect(`http://127.0.0.1:${SAME}/g/b`, 302);
     if (path === '/g/slow') { await Bun.sleep(3000); return guest('Slow'); }
-    if (path === '/g/probe') return html(`<!doctype html><script>parent.postMessage({dark: matchMedia('(prefers-color-scheme: dark)').matches, width: innerWidth, ratio: devicePixelRatio}, '*')</script>`);
+    if (path === '/g/probe') return html(`<!doctype html><script>requestAnimationFrame(() => parent.postMessage({dark: matchMedia('(prefers-color-scheme: dark)').matches, width: innerWidth, ratio: devicePixelRatio}, '*'))</script>`);
     if (path.startsWith('/i/') || path === '/favicon.ico') return new Response('', { status: 404 });
     return html(`<!doctype html><main id="exact-root"></main><script type="module">
       import * as nav from '/frame-navigation.js';

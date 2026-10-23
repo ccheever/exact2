@@ -1203,8 +1203,7 @@ pub fn input_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
 /// `none`), whose `select` carries the field's `InputEvent`; or
 /// `Some("markdown")` for a textarea that may be the editor, whose `select`
 /// carries its `MarkdownSelection` and whose other field events are a text
-/// field's, over its source (LLP 1045 D6). What a handler's payload is
-/// typed by.
+/// field's, over its source (LLP 1045 D6). What a handler's payload is typed by.
 pub fn payload_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
     match tag {
         "iframe" => Some("iframe"), // its `navigate=` is the guest's (LLP 1020.002 D2)
