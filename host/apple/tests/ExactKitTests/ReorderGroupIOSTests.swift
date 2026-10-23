@@ -77,6 +77,8 @@ final class ReorderGroupIOSTests: XCTestCase {
             let inner = try XCTUnwrap(p.views[1]?.scroll), outer = try XCTUnwrap(p.views[9]?.scroll)
             for scroll in [inner, outer] {
                 scroll.traitOverrides.displayScale = scale
+                scroll.updateTraitsIfNeeded()
+                XCTAssertEqual(scroll.traitCollection.displayScale, scale)
                 scroll.contentInsetAdjustmentBehavior = .never
                 scroll.contentInset.bottom = 0.3
             }
