@@ -653,7 +653,9 @@ impl Kernel {
     /// Measure current authored border-box heights without publishing layout.
     /// Active presentations are temporarily removed for this pass and restored
     /// before returning, including after failure. Frames, overflow, flags,
-    /// authored styles, receipts and epoch remain unchanged. Results are used
+    /// authored styles, receipts and epoch remain unchanged, but for what the
+    /// next layout at `offer` would set first: the viewport, and each
+    /// popover's block in it (`imply_blocks`). Results are used
     /// border-box sizes after constraints, not unconstrained CSS intrinsic sizes.
     ///
     /// Call when a target's content or offer changes, not on every motion tick.
@@ -686,6 +688,9 @@ impl Kernel {
         if owners.is_empty() {
             return Ok(Vec::new());
         }
+        // The offer's viewport, as the layout that follows will have it: a
+        // popover's block is that viewport (`imply_blocks`).
+        self.replace_env(self.arena.env().with_viewport(offer))?;
         self.imply_blocks();
         let previous = engine(&mut self.layout).height_samples(self.epoch);
         engine(&mut self.layout).present_heights(&self.arena, &[]);

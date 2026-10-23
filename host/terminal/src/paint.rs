@@ -108,7 +108,13 @@ pub fn paint(scene: &Scene<'_>, roots: &[ViewId], cols: usize, rows: usize, top:
 /// grid when it names no inset (as the Mac host centres a dialog). A
 /// popover laid out in the viewport's block (stage 14 B) is placed by its
 /// insets in the grid, which stays put as the document scrolls.
-fn placement(scene: &Scene<'_>, layer: ViewId, cols: usize, rows: usize, dy: f32) -> (f32, f32) {
+pub(crate) fn placement(
+    scene: &Scene<'_>,
+    layer: ViewId,
+    cols: usize,
+    rows: usize,
+    dy: f32,
+) -> (f32, f32) {
     let Some(n) = scene.kernel.node(layer) else {
         return (0.0, dy);
     };
@@ -127,7 +133,7 @@ fn placement(scene: &Scene<'_>, layer: ViewId, cols: usize, rows: usize, dy: f32
         .all(|d| *d == Dimension::Auto);
     if !auto {
         return match scene.kernel.host_block_size(layer) {
-            Some(used) => inset_at(scene, &n, used, cols, rows),
+            Some(used) => inset_at(&scene.env, &n, used, cols, rows),
             None => (0.0, dy),
         };
     }
@@ -140,29 +146,41 @@ fn placement(scene: &Scene<'_>, layer: ViewId, cols: usize, rows: usize, dy: f32
 /// A block's root by its insets in the `cols` × `rows` grid, as a fixed box
 /// is in the viewport: a side's inset from that side of the grid, its
 /// margin past it (`used` is its block: the border box and margins, which
-/// it sits in at its frame); a side with neither inset at its margin.
-fn inset_at(
-    scene: &Scene<'_>,
+/// it sits in at its frame); a side with neither inset at its margin. Both
+/// insets with both margins `auto` centre it between them, as CSS does.
+/// What `placement` subtracts from the frame to paint it there.
+pub(crate) fn inset_at(
+    env: &exact_kernel::Env,
     n: &exact_kernel::NodeRef<'_>,
     used: (f32, f32),
     cols: usize,
     rows: usize,
 ) -> (f32, f32) {
-    let (s, f, env) = (n.style, n.frame, &scene.env);
+    let (s, f) = (n.style, n.frame);
     let length = |d: Dimension, basis: f32| {
         (d.resolve(env) != Dimension::Auto).then(|| d.at_basis(env, basis))
     };
     let (width, height) = (cols as f32 * COLUMN, rows as f32 * ROW);
-    let axis = |start: Dimension, end: Dimension, at: f32, size: f32, used: f32, grid: f32| match (
-        length(start, grid),
-        length(end, grid),
-    ) {
-        (Some(start), _) => start + at,
-        (None, Some(end)) => grid - end - (used - at - size) - size,
-        (None, None) => at,
+    let axis = |inset: [Dimension; 2],
+                margin: [Dimension; 2],
+                at: f32,
+                size: f32,
+                used: f32,
+                grid: f32| {
+        let auto = margin.iter().all(|m| *m == Dimension::Auto);
+        match (length(inset[0], grid), length(inset[1], grid)) {
+            (Some(start), Some(end)) if auto => {
+                start + ((grid - start - end - size) / 2.0).max(0.0)
+            }
+            (Some(start), _) => start + at,
+            (None, Some(end)) => grid - end - (used - at - size) - size,
+            (None, None) => at,
+        }
     };
-    let x = axis(s.left, s.right, f.x, f.width, used.0, width);
-    let y = axis(s.top, s.bottom, f.y, f.height, used.1, height);
+    let across = [s.margin_left, s.margin_right];
+    let x = axis([s.left, s.right], across, f.x, f.width, used.0, width);
+    let down = [s.margin_top, s.margin_bottom];
+    let y = axis([s.top, s.bottom], down, f.y, f.height, used.1, height);
     (f.x - x, f.y - y)
 }
 
