@@ -359,6 +359,7 @@ test('relative corrections and drop eligibility survive later commits', async ()
         const {token} = grouped ? reorder.beginGroup(binding, geometry, false) : reorder.begin(binding, geometry);
         reorder.preview(token, geometry, mode.startsWith('same-slot') ? 200 : 300);
         const accepted = rt.commit(() => grouped ? reorder.dropGroup(token, geometry, 0) : reorder.drop(token, geometry));
+        if (grouped && mode.startsWith('refuse')) results.push({mode:mode + '-hold', phase:reorder.session().phase, ending:reorder.session().ending});
         if (mode === 'refuse-cancel' || mode === 'pending-cancel') reorder.cancel(token);
         if (mode === 'landed-group') {
           results.push({mode, offset:c.geometry.offset, pending:!!c.dropAnchor()});
@@ -390,7 +391,9 @@ test('relative corrections and drop eligibility survive later commits', async ()
     {mode:'refuse', accepted:false, first:280},
     {mode:'refuse-cancel', accepted:false, first:280},
     {mode:'refuse-write', accepted:false, first:280},
+    {mode:'refuse-group-hold', phase:'settling', ending:null},
     {mode:'refuse-group', accepted:false, first:280},
+    {mode:'refuse-write-group-hold', phase:'settling', ending:null},
     {mode:'refuse-write-group', accepted:false, first:280},
     {mode:'pending-cancel', accepted:true, first:280},
     {mode:'pending', accepted:true, first:220, landed:200},
