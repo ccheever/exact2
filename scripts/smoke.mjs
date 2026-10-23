@@ -565,9 +565,7 @@ try {
   // 2a. The iframe parity oracle and Apple arm (@ref LLP 1020 M1/M2): load
   // and message enter the runner, the guest joins tree/input, and the
   // screenshot carries its pixels. Loading is host I/O, so poll it. The
-  // deck lab is Caltrain's fixture — a driven app without it (EXACT_APP_DIR)
-  // skips these steps instead of dying at the tap; unlike the check()
-  // assertions above, a missing tap target throws.
+  // Caltrain requires the deck entry; apps without the fixture skip it.
   if (host === 'macos' && caltrainFixture) check(!!byTestId(tree, 'open-deck'), 'Caltrain fixture missing testId open-deck');
   if ((host === 'web' || apple) && byTestId(tree, 'open-deck')) {
     await s.tap('open-deck');
