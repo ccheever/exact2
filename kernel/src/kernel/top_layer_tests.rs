@@ -287,3 +287,52 @@ fn heights_are_measured_in_the_popovers_block_at_the_offers_viewport() {
     assert_eq!(measured, frame(&k, 3).height);
     assert!(measured > wide, "{measured} wraps more than {wide}");
 }
+
+/// A popover whose ancestors move out from under a box its host replaced
+/// whole is styled again: no longer hidden with that box, it is laid out.
+#[test]
+fn a_popover_moved_out_from_under_a_replaced_box_is_laid_out() {
+    let mut k = Kernel::with_monospace();
+    let mut ops = vec![];
+    for id in 1..=5 {
+        ops.push(Op::CreateView {
+            id,
+            node_type: NodeType::View,
+        });
+    }
+    ops.push(style(
+        5,
+        &[(StyleId::Width, t("50%")), (StyleId::Height, n(30.0))],
+    ));
+    ops.push(popover(5));
+    ops.push(Op::SetChildren {
+        id: 4,
+        children: vec![5],
+    });
+    ops.push(Op::SetChildren {
+        id: 2,
+        children: vec![4],
+    });
+    ops.push(Op::SetChildren {
+        id: 1,
+        children: vec![2, 3],
+    });
+    ops.push(Op::AttachRoot { id: 1 });
+    k.apply(0, 1, &ops).unwrap();
+    k.set_host_cover(2, Some(crate::HostCover::Whole)).unwrap();
+    k.compute_layout(1, OFFER).unwrap();
+    assert_eq!(frame(&k, 5).width, 0.0, "hidden with the replaced box");
+    let moved = [
+        Op::SetChildren {
+            id: 2,
+            children: vec![],
+        },
+        Op::SetChildren {
+            id: 3,
+            children: vec![4],
+        },
+    ];
+    k.apply(1, 2, &moved).unwrap();
+    k.compute_layout(1, OFFER).unwrap();
+    assert_eq!(frame(&k, 5).width, 400.0);
+}
