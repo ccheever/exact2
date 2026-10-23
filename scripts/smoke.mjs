@@ -568,6 +568,7 @@ try {
   // deck lab is Caltrain's fixture — a driven app without it (EXACT_APP_DIR)
   // skips these steps instead of dying at the tap; unlike the check()
   // assertions above, a missing tap target throws.
+  if (host === 'macos' && caltrainFixture) check(!!byTestId(tree, 'open-deck'), 'Caltrain fixture missing testId open-deck');
   if ((host === 'web' || apple) && byTestId(tree, 'open-deck')) {
     await s.tap('open-deck');
     await s.clock('settle');
@@ -599,6 +600,7 @@ try {
       let cyan = 0;
       for (let i = 0; i < region.data.length; i += 4) if (region.data[i] < 190 && region.data[i + 1] > 150 && region.data[i + 2] > 190) cyan++;
       check(cyan > 5, `the iframe screenshot has ${cyan} guest-blue pixels in ${region.width}×${region.height}`);
+      if (host === 'macos') console.log(`macos deck: ${cyan} guest-blue pixels in ${region.width}×${region.height}`);
     } catch (error) {
       failures.push(`the iframe parity oracle stopped: ${error.message}`);
     } finally {
