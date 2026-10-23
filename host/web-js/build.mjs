@@ -564,9 +564,10 @@ const scopedModule = (code, id, lower = false) => {
   if (!inside(id, tsStage) && generatedRoots.some(root => inside(id, root))) return null;
   if (implementationRoots.some(root => inside(id, root) || inside(realpathSync(id), root))) return null;
   // And the clock, timers and Math.random refused by name (LLP 1027.000 D3),
-  // and the browser's own I/O, as the wasm target's realm refuses it.
+  // the scheduler's yield (LLP 1141.001 D10), and the browser's own I/O, as
+  // the wasm target's realm refuses it.
   const bound = ['fetch', 'Date', 'Math', 'Intl', 'setTimeout', 'setInterval', 'requestAnimationFrame', 'requestIdleCallback',
-    'clearTimeout', 'clearInterval', 'cancelAnimationFrame', 'cancelIdleCallback', 'performance', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'crypto'];
+    'clearTimeout', 'clearInterval', 'cancelAnimationFrame', 'cancelIdleCallback', 'performance', 'scheduler', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'crypto'];
   // The DOM and Node's globals are absent, as on Hermes (js/bake/src/typescript.mjs `packageRefusals`).
   const absent = ['window', 'self', 'frames', 'parent', 'top', 'opener', 'document', 'navigator', 'location', 'history', 'localStorage', 'sessionStorage',
     'indexedDB', 'HTMLElement', 'Element', 'getComputedStyle', 'customElements', 'alert', 'process', 'Buffer', 'global'];
