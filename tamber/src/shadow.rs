@@ -217,7 +217,7 @@ pub(crate) fn fold(value: &str, text: bool, names: &mut dyn Names) -> Result<Sha
     let mut list = Vec::new();
     for part in parts {
         let items = crate::css::parse(part).map_err(|m| FoldError {
-            id: "tamber-syntax",
+            id: crate::css::refusal_id(part, &m),
             message: m,
         })?;
         list.push(one(&items, text, names)?);
