@@ -206,7 +206,9 @@ extension NodeView {
             svgPressed = nil
             // The element has no view of its own: the `svg`'s view stands for it.
             if !inert, presenter?.svg.target(id, at: local(event.locationInWindow)) == target {
-                presenter?.pressHeld = KeyCodes.held(event.modifierFlags); presenter?.onPress?(target); presenter?.pressHeld = ""
+                presenter?.menus.activating(from: self, pressing: nil) {
+                    presenter?.pressHeld = KeyCodes.held(event.modifierFlags); presenter?.onPress?(target); presenter?.pressHeld = ""
+                }
             }
             return
         }
@@ -225,7 +227,9 @@ extension NodeView {
         pressed = false
         if pressInside(event.locationInWindow) {
             let canvas = inputCanvas, ownerWindow = window
-            presenter?.press(id, held: KeyCodes.held(event.modifierFlags), click: event)
+            presenter?.menus.activating(from: presenter?.mouseChain.pressSource ?? self, pressing: self) {
+                presenter?.press(id, held: KeyCodes.held(event.modifierFlags), click: event)
+            }
             finishPress(canvas: canvas, window: ownerWindow, pointer: true)
         }
     }

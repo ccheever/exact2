@@ -102,6 +102,33 @@ extension Presenter {
 
 
 extension Presenter {
+    /// HTML chooses the first button, whether or not it names a target.
+    /// Inline links and native controls own their activation before that button.
+    func activationButton(from source: NodeView, inline id: UInt32? = nil) -> NodeView? {
+        if let id {
+            var run = inlineText(id)
+            while let current = run {
+                if !(current.props["href"] ?? "").isEmpty { return nil }
+                run = inlineText(current.parent)
+            }
+        }
+        guard !source.inert else { return nil }
+        var at: KeyPlatformView? = source
+        while let view = at {
+            if let node = view as? NodeView {
+                if node.disabled || node.authoredInert || !(node.props["href"] ?? "").isEmpty { return nil }
+                if node.isButton { return node }
+                if node.kind == "control" || node.field != nil || node.textArea != nil { return nil }
+            }
+            #if os(macOS)
+            at = eventParent(of: view)
+            #else
+            at = listenerParent(of: view) ?? view.superview
+            #endif
+        }
+        return nil
+    }
+
     func dispatchPressHandler(_ id: UInt32, from original: NodeView?) {
         if let original, original.isButton, !original.handlers.contains("press") {
             if let listener = buttonPressListener(above: original) { onPress?(listener.id) }
