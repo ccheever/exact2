@@ -445,6 +445,37 @@ impl Scope {
         }));
     }
 
+    /// A `for`'s frame over a list typed `list`: its item the `t` of `[t]`,
+    /// not known for any other type, and its position when named. Lowering
+    /// and the design server's write check push it alike.
+    pub fn push_each_of(&mut self, item: &str, index: Option<&str>, list: Ty) {
+        let ty = match list {
+            Ty::List(t) => *t,
+            _ => Ty::Unknown,
+        };
+        self.push_each(item, index, ty);
+    }
+
+    /// A `match`'s `some` arm's frame over a subject typed `subject`: its
+    /// binding the `t` of `t?`, not known for any other type.
+    pub fn push_some_of(&mut self, name: &str, subject: Ty) {
+        let ty = match subject {
+            Ty::Option(t) => *t,
+            _ => Ty::Unknown,
+        };
+        self.push_region(Some((name.to_string(), Ref::Bound(0), ty)));
+    }
+
+    /// A `match`'s `none` arm's frame, which binds nothing.
+    pub fn push_none(&mut self) {
+        self.push_region(None);
+    }
+
+    /// A `let`'s frame: its name, the local `index`, typed `ty`.
+    pub fn push_let(&mut self, name: &str, index: u32, ty: Ty) {
+        self.push(vec![(name.to_string(), Ref::Local(index), ty)]);
+    }
+
     /// The one value name in scope `name` most plausibly misspells. Actions
     /// are the driver's to suggest (it knows the handler's position), and a
     /// generated name (`count#2`, `x@1`) is never offered.

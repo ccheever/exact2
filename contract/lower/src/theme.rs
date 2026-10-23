@@ -318,7 +318,7 @@ impl Lowerer<'_> {
             self.declared_fonts.clone(),
             self.font_files.clone(),
         ));
-        let mut said = Said::of(file, root, &design, &declared, &typing, &scope);
+        let mut said = Said::of(file, root, &design, &declared, &typing);
         // The rows a design server's write check reads again (`rows`).
         rows::note(std::mem::take(&mut said.rows));
         // D7's retention, left for the design server before the design is
