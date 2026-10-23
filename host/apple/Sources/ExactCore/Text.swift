@@ -318,15 +318,7 @@ package enum CSSLineBox {
         let (ascent, descent) = content(font)
         guard let height else {
             let gap = CTFontGetLeading(font).rounded()
-            #if canImport(UIKit)
-            // Keep the web's line advance and UIKit's unsaid glyph placement.
-            // Rounding this ascent to points moves SFUI ink by up to two pixels
-            // at 3x; the painter and selection snap it to device pixels instead.
-            let nativeAscent = CTFontGetAscent(font)
-            return (nativeAscent, ascent + descent + gap - nativeAscent)
-            #else
             return (ascent + floor(gap / 2), descent + ceil(gap / 2))
-            #endif
         }
         guard height.isFinite else { return (ascent, descent) }
         let above = ascent + floor((height - ascent - descent) / 2)
@@ -1029,10 +1021,10 @@ package final class TextEngine {
         let spec = shape.spec, typesetter = shape.typesetter, insets = shape.lineInsets
         let length = shape.identity.utf16Count
         let strut = spec.strut ?? spec.runs.first
-        func extents(_ run: Run) -> (CGFloat, CGFloat) { CSSLineBox.extents(font(run) as CTFont, height: run.lineHeight) }
-        let minimum = strut.map(extents) ?? (0, 0)
+        func extents(_ run: Run) -> TextLineBox { TextLineBox(font(run) as CTFont, height: run.lineHeight) }
+        let minimum = strut.map(extents) ?? TextLineBox()
         var explicit = false
-        func authoredExtents(_ run: Run) -> (CGFloat, CGFloat) {
+        func authoredExtents(_ run: Run) -> TextLineBox {
             // Reuse only this layout's exact strut metrics. Font keys preserve
             // signed zero; nonfinite inputs keep their original computation.
             guard let strut, let height = run.lineHeight, let strutHeight = strut.lineHeight,
@@ -1130,14 +1122,7 @@ package final class TextEngine {
             }
             // CSS inline boxes share a baseline. Include the paragraph strut
             // and only the runs on this line, preserving each font's half-leading.
-            var above = minimum.0, below = minimum.1
-            var aboveExplicit = strut?.lineHeight != nil, belowExplicit = aboveExplicit
-            func include(_ a: CGFloat, _ b: CGFloat, explicit: Bool) {
-                if a > above { above = a; aboveExplicit = explicit }
-                else if a == above { aboveExplicit = aboveExplicit && explicit }
-                if b > below { below = b; belowExplicit = explicit }
-                else if b == below { belowExplicit = belowExplicit && explicit }
-            }
+            var box = minimum
             for glyphRun in CTLineGetGlyphRuns(line) as! [CTRun] {
                 let range = CTRunGetStringRange(glyphRun)
                 var first = 0, last = runEnds.count
@@ -1157,15 +1142,13 @@ package final class TextEngine {
                     if authored.lineHeight != nil {
                         // Explicit boxes use authored metrics; fallback ink
                         // can overflow without enlarging the inline box.
-                        let (a, b) = authoredExtents(authored)
-                        include(a, b, explicit: true)
+                        box.include(authoredExtents(authored))
                     } else {
                         includesNormal = true
                     }
                 }
                 if !matched, let strut, strut.lineHeight != nil {
-                    let (a, b) = extents(strut)
-                    include(a, b, explicit: true)
+                    box.include(extents(strut))
                     continue
                 }
                 if matched && !includesNormal { continue }
@@ -1173,12 +1156,11 @@ package final class TextEngine {
                 let shapedFont = attributes[kCTFontAttributeName] as! CTFont
                 // Normal line height includes the actual emoji/fallback face's
                 // line box, as the browser's does.
-                let (a, d) = CSSLineBox.extents(shapedFont, height: nil)
-                include(a, d, explicit: false)
+                box.include(TextLineBox(shapedFont, height: nil))
             }
-            explicit = explicit || aboveExplicit || belowExplicit
-            baselines.append(y + above)
-            y += above + below
+            explicit = explicit || box.explicit
+            baselines.append(y + box.baseline)
+            y += box.height
             lineBottoms.append(y)
             maxWidth = max(maxWidth, w)
             glyphCount += CTLineGetGlyphCount(line)
