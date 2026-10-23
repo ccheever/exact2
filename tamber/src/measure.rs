@@ -372,31 +372,46 @@ fn func(
     text: &str,
     names: &mut dyn Names,
 ) -> Result<Quantity, FoldError> {
-    // Each function's result is bounded where it is made, so a nest of
-    // them, or a chain of tokens naming one another, never builds one
-    // larger than its arguments' bounded copies.
-    match func_unbounded(f, args, text, names)? {
-        Quantity::Base(r) if r.atoms() > MAX_RESIDUAL_ATOMS => fail(
-            "tamber-length-size",
-            format!(
-                "this length over base names expands to {} terms, more than {MAX_RESIDUAL_ATOMS}: the tokens it names name others more than once",
-                r.atoms()
-            ),
-        ),
-        q => Ok(q),
+    // Bounded as it is made: each argument (a sum, bounded term by term),
+    // the arguments together before any pick or clamp copies them, and the
+    // result. A nest of functions, a chain of tokens naming one another, or
+    // a sum of many such tokens never builds one past the bound.
+    let mut each = Vec::with_capacity(args.len());
+    let mut atoms = 0;
+    for a in args {
+        let q = sum(a, text, names)?;
+        if let Quantity::Base(r) = &q {
+            atoms += r.atoms();
+            if atoms > MAX_RESIDUAL_ATOMS {
+                return too_large();
+            }
+        }
+        each.push(q);
+    }
+    bounded(func_of(f, each, text)?)
+}
+
+/// `q`, or the refusal when it is a length over base names past
+/// [`MAX_RESIDUAL_ATOMS`].
+fn bounded(q: Quantity) -> Result<Quantity, FoldError> {
+    match &q {
+        Quantity::Base(r) if r.atoms() > MAX_RESIDUAL_ATOMS => too_large(),
+        _ => Ok(q),
     }
 }
 
-fn func_unbounded(
-    f: &str,
-    args: &[Vec<Item>],
-    text: &str,
-    names: &mut dyn Names,
-) -> Result<Quantity, FoldError> {
-    let mut each = args
-        .iter()
-        .map(|a| sum(a, text, names))
-        .collect::<Result<Vec<_>, _>>()?;
+/// A length over base names past [`MAX_RESIDUAL_ATOMS`], said without its
+/// size: it is refused as it passes the bound, before it is all built.
+fn too_large() -> Result<Quantity, FoldError> {
+    fail(
+        "tamber-length-size",
+        format!(
+            "this length over base names expands to more than {MAX_RESIDUAL_ATOMS} terms: the tokens it names name others more than once"
+        ),
+    )
+}
+
+fn func_of(f: &str, mut each: Vec<Quantity>, text: &str) -> Result<Quantity, FoldError> {
     if each.is_empty() {
         return fail("tamber-syntax", format!("`{text}` is empty"));
     }
@@ -482,7 +497,9 @@ fn sum(items: &[Item], text: &str, names: &mut dyn Names) -> Result<Quantity, Fo
                 let (Some(a), Some(b)) = (a.residual(), b.residual()) else {
                     unreachable!("two lengths")
                 };
-                based(a.plus(b, sign))
+                // Bounded term by term: a sum of many such lengths stops
+                // as it passes the bound.
+                bounded(based(a.plus(b, sign)))?
             }
             _ => {
                 return fail(
