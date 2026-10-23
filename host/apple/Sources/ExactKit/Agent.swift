@@ -79,6 +79,7 @@ public final class Agent {
     var contactFlags: NSEvent.ModifierFlags = []
     /// A native button's nested tracking loop consumes queued drag/up events.
     var contactTracksNative = false
+    weak var contactButton: NativeButtonMac?
     #endif
     weak var canvasContact: NodeView?
     /// The last point the agent's pointer sent its canvas (iOS), for its motion.
