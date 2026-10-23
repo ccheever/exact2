@@ -507,8 +507,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     func loadImage(_ source: String) {
         let previousSource = imageSource, previousGeneration = loadGeneration
         imageSource = source
-        loadGeneration += 1
         if source.hasPrefix("symbol:") { presenter?.session?.rasters.cancel(id); raster = nil; updateSymbol(); return }
+        loadGeneration += 1
         clearSymbol(); image = nil
         if previousSource?.hasPrefix("symbol:") == true { presenter?.queueIntrinsicSize(self, generation: loadGeneration, nil) }
         guard let session = presenter?.session else { return }
