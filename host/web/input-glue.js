@@ -938,6 +938,8 @@ const guestValue = (target) => "value" in target ? (target.type === "password" &
 // Both agents supply their modal-aware inert check; standalone callers default to DOM ancestry.
 export function reveal(el, id, inert = el => el.closest("[inert]")) {
   if (!el?.isConnected) return { error: `no view ${id}` };
+  // The shadow button does not carry the route control's inert ancestry.
+  if (inert(el)) return { revealed: id, scrolled: false };
   el = backButton(el) ?? el;
   const middle = () => { const b = viewBox(el); return [b.left + b.width / 2, b.top + b.height / 2]; };
   const [x, y] = middle();
@@ -946,7 +948,7 @@ export function reveal(el, id, inert = el => el.closest("[inert]")) {
     const cs = getComputedStyle(a), b = a.getBoundingClientRect();
     if ((cs.overflowX !== "visible" || cs.overflowY !== "visible") && !(x >= b.left && x < b.right && y >= b.top && y < b.bottom)) seen = false;
   }
-  if (seen || inert(el) || ["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // nor what its tap refuses (hidden or inert): a refusal leaves the page as it was
+  if (seen || ["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // nor what its tap refuses (hidden or inert): a refusal leaves the page as it was
   (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
   return { revealed: id, scrolled: true, from: [x, y], to: middle() };
 }
@@ -960,7 +962,7 @@ const folded = el => { const d = getComputedStyle(el).display; return d === "con
 export function backButton(el) {
   if (!el?.id || el.checkVisibility?.({ visibilityProperty: true }) !== false) return null;
   const route = el.closest("[navigationkey]"), nav = route?.parentElement?.closest("[navigationback]");
-  if (!nav || nav.getAttribute("navigationBack") !== el.id || nav.getAttribute("navigationKey") !== route.getAttribute("navigationKey")
+  if (!nav || nav.getAttribute("navigationBack") !== el.id
     || route.querySelector(`[id="${CSS.escape(el.id)}"]`) !== el) return null;
   const back = route.querySelector(":scope > header")?.shadowRoot?.querySelector('button[part="back"]:not([hidden])');
   return back?.checkVisibility({ visibilityProperty: true }) ? back : null;
