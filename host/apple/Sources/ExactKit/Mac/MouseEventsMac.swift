@@ -22,7 +22,7 @@ import AppKit
 import UniformTypeIdentifiers
 
 extension Presenter {
-    /// Keyboard access to the focused message's actions, after key handlers.
+    /// Invoke the focused node's contextmenu or contextPopover after key handlers.
     func contextMenuKey(_ event: NSEvent, in owner: NSWindow? = nil) -> Bool {
         let name = NodeView.keyName(event), held = KeyCodes.held(event.modifierFlags)
         guard event.type == .keyDown, (name == "ContextMenu" && held.isEmpty || name == "F10" && held == "Shift+"),
