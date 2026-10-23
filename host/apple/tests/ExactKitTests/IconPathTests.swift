@@ -11,8 +11,7 @@ import ExactCore
 /// Stage 9 A (LLP 1121 D10): an icon token with no `sf` source and a
 /// template SVG draws its own path on Apple, from the commands the Rust side
 /// sends (`symbolPath`, `symbolViewBox`), as a template image that takes the
-/// node's `-exact-tint-color` where written, else its `color`; an `sf` still
-/// draws its symbol.
+/// node's computed `color`; an `sf` still draws its symbol.
 ///   bun host/apple/build.mjs --test --ios   (and --test for the Mac)
 final class IconPathTests: XCTestCase {
     #if os(iOS)
@@ -72,7 +71,7 @@ final class IconPathTests: XCTestCase {
         #endif
     }
 
-    @MainActor func testAnSvgOnlyIconDrawsItsPathTintedByItsTintElseItsColour() throws {
+    @MainActor func testAnSvgOnlyIconDrawsItsPathInItsComputedColour() throws {
         let p = presenter(icon(2, ["tint_color": [52, 199, 89, 255]]) + icon(3, ["text_color": [232, 28, 36, 255]]))
         let tinted = try XCTUnwrap(p.views[2]), coloured = try XCTUnwrap(p.views[3])
         let image = try XCTUnwrap(tinted.image, "the path drawn, no SF Symbol needed")
@@ -83,13 +82,13 @@ final class IconPathTests: XCTestCase {
         XCTAssertTrue(image.isTemplate, "it takes the tint")
         #endif
         XCTAssertTrue(tinted.symbolFound)
-        XCTAssertEqual(rgb(tint(tinted)), [52, 199, 89], "`-exact-tint-color`")
+        XCTAssertEqual(rgb(tint(tinted)), rgb(tinted.symbolInk), "raster tint does not color a symbol")
         XCTAssertEqual(rgb(tint(coloured)), [232, 28, 36], "no tint written: its `color`")
-        // A tint that names the accent follows the accent, live, as an SF Symbol's does.
-        let accent = presenter(icon(4, ["tint_color": ["sys": "@tint"]]))
+        // A color that names the accent follows it, as an SF Symbol's does.
+        let accent = presenter(icon(4, ["text_color": ["sys": "@tint"]]))
         XCTAssertEqual(rgb(tint(accent.views[4])), rgb(accent.views[4]?.inheritedTint), "the accent")
-        // A new tint (a token's retheme reaches it as any row) tints it again.
-        p.apply(wireBatch([["op": "style", "id": 2, "style": ["font_size": 24.0, "tint_color": [0, 122, 255, 255]]]]))
+        // A token retheme changes its computed color.
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["font_size": 24.0, "text_color": [0, 122, 255, 255]]]]))
         XCTAssertEqual(rgb(tint(tinted)), [0, 122, 255])
     }
 
