@@ -178,13 +178,22 @@ class SizeIndex {
     return { order: this.order, row, within, follows };
   }
   anchorAt(key, within) { const i = this.pos.get(key); return i === undefined ? null : { order: this.order, row: i, within, follows: false }; }
+  anchorPosition(a) {
+    if (a.row === null) return null;
+    let i = this.pos.get(a.order[a.row]);
+    if (i === undefined) for (const k of [...a.order.slice(a.row + 1), ...a.order.slice(0, a.row).reverse()]) if ((i = this.pos.get(k)) !== undefined) break;
+    return i === undefined ? null : this.prefix(i) + a.within;
+  }
+  keptRow(a, port) {
+    const offset = this.anchorPosition(a);
+    return !a.follows && offset !== null && offset >= -this.leading && offset <= this.maxOffset(port);
+  }
   restoreAnchor(a, port) {
     const max = this.maxOffset(port);
     if (a.follows) return max;
     if (a.row === null) return this.clamp(a.within, port);
-    let i = this.pos.get(a.order[a.row]);
-    if (i === undefined) for (const k of [...a.order.slice(a.row + 1), ...a.order.slice(0, a.row).reverse()]) if ((i = this.pos.get(k)) !== undefined) break;
-    return i === undefined ? 0 : Math.min(Math.max(this.prefix(i) + a.within, -this.leading), max);
+    const offset = this.anchorPosition(a);
+    return offset === null ? 0 : Math.min(Math.max(offset, -this.leading), max);
   }
 }
 
@@ -328,7 +337,7 @@ class Collection {
       // (mod.rs `restore`): from where the anchor was taken, or from where
       // an unacknowledged one began.
       const was = this.correction;
-      const kept = !a.follows && a.row !== null && c > -this.index.leading + 0.01 && c < this.index.maxOffset(g.port_main) - 0.01;
+      const kept = this.index.keptRow(a, g.port_main);
       const from = !kept ? undefined : was ? (was.scrollSequence === g.scroll_sequence ? was.from : undefined) : g.offset;
       this.correction = from === undefined ? { scrollSequence: g.scroll_sequence, offset: c }
         : { scrollSequence: g.scroll_sequence, offset: c, from };

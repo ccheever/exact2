@@ -105,6 +105,8 @@ pub(crate) struct SizeIndex {
     leading: f64,
     #[cfg(test)]
     rebuilds: usize,
+    #[cfg(test)]
+    anchor_key_visits: std::cell::Cell<usize>,
 }
 
 /// How far short of a fractional end a port at its end may report, in CSS
@@ -132,6 +134,8 @@ impl SizeIndex {
             leading: 0.0,
             #[cfg(test)]
             rebuilds: 0,
+            #[cfg(test)]
+            anchor_key_visits: std::cell::Cell::new(0),
         })
     }
 
@@ -637,10 +641,17 @@ impl SizeIndex {
     /// A drop moved a surviving key past an old neighbour. Insertions and
     /// deletions alone do not change its order among surviving rows.
     pub(crate) fn moved_since(&self, anchor: &Anchor, key: &str) -> bool {
+        if Rc::ptr_eq(&self.order, &anchor.order) {
+            return false;
+        }
         let Some(now) = self.position(key) else {
             return false;
         };
-        let Some(old) = anchor.order.iter().position(|k| k.as_ref() == key) else {
+        let Some(old) = anchor.order.iter().position(|k| {
+            #[cfg(test)]
+            self.anchor_key_visits.set(self.anchor_key_visits.get() + 1);
+            k.as_ref() == key
+        }) else {
             return false;
         };
         anchor.order[..old]
@@ -671,39 +682,43 @@ impl SizeIndex {
         anchor.follows_end
     }
 
+    /// Whether restoration preserves the row's position without clamping.
+    /// An offset exactly on either boundary still preserves relative travel.
+    pub(crate) fn kept_row(&self, anchor: &Anchor, viewport: f64) -> bool {
+        !anchor.follows_end
+            && self
+                .anchor_position(anchor)
+                .is_some_and(|offset| (-self.leading..=self.max_offset(viewport)).contains(&offset))
+    }
+
     /// O(log N) while the anchor survives. Deletion fallback scans the old order
     /// only after structural edits (which already permit an index rebuild).
     /// Drop/recapture the anchor after applying the correction; retaining many old
     /// anchors would retain their old O(N) key snapshots too.
-    /// Whether `restore_anchor` put `anchor`'s row where it was, so the
-    /// offset moved by just what the rows before it did: not the end it
-    /// follows, the start, or an offset the end clamped.
-    pub(crate) fn kept_row(&self, anchor: &Anchor, viewport: f64, restored: f64) -> bool {
-        !anchor.follows_end
-            && anchor.row.is_some()
-            && restored > -self.leading + 0.01
-            && restored < self.max_offset(viewport) - 0.01
+    fn anchor_position(&self, anchor: &Anchor) -> Option<f64> {
+        let old = anchor.row?;
+        self.position(&anchor.order[old])
+            .or_else(|| {
+                anchor.order[old + 1..]
+                    .iter()
+                    .chain(anchor.order[..old].iter().rev())
+                    .find_map(|key| self.position(key))
+            })
+            .map(|i| self.tree.prefix(i) + anchor.within)
     }
+
     pub(crate) fn restore_anchor(&self, anchor: &Anchor, viewport: f64) -> Result<f64, IndexError> {
         valid_geometry(viewport)?;
         let max = self.max_offset(viewport);
         if anchor.follows_end {
             return Ok(max);
         }
-        let Some(old) = anchor.row else {
+        if anchor.row.is_none() {
             return self.clamp_offset(anchor.within, viewport);
-        };
-        let row = self.position(&anchor.order[old]).or_else(|| {
-            anchor.order[old + 1..]
-                .iter()
-                .chain(anchor.order[..old].iter().rev())
-                .find_map(|key| self.position(key))
-        });
-        Ok(row.map_or(0.0, |i| {
-            (self.tree.prefix(i) + anchor.within)
-                .max(-self.leading)
-                .min(max)
-        }))
+        }
+        Ok(self
+            .anchor_position(anchor)
+            .map_or(0.0, |offset| offset.max(-self.leading).min(max)))
     }
 
     fn band(&self, start: f64, end: f64) -> Range<usize> {
