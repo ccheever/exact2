@@ -13,6 +13,8 @@ struct Scripted {
     reopen_on_gap: bool,
     /// Its stream is a long poll (LLP 1016.000 D8).
     long_poll: bool,
+    /// … and asked of native work, which no host may run as one.
+    native: bool,
 }
 
 impl DataSource for Scripted {
@@ -24,6 +26,11 @@ impl DataSource for Scripted {
         Ok(match (source, args.first()) {
             ("busy", Some(v)) => Answer::Now(v.clone()),
             (_, Some(Value::Number(n))) if *n == 0. => Answer::Now(Value::Number(-1.)),
+            (_, Some(Value::Number(_))) if self.native => Answer::Later({
+                let mut r = crate::Request::native(b"x".to_vec()).long_poll("since", "seq");
+                r.stream = true;
+                r
+            }),
             (_, Some(Value::Number(n))) if self.long_poll => Answer::stream(
                 crate::Request::get(&format!("https://example.test/changes?wave={n}"))
                     .long_poll("since", "seq"),
@@ -314,6 +321,22 @@ fn a_long_poll_s_replies_hold_it_and_each_counts() {
     let mut r = boot();
     let ticket = one_stream(&mut r);
     assert!(r.fulfill(ticket, reply).is_err() || r.held_replies().is_empty());
+}
+
+/// A long poll no host may run (here native work's) is refused by the runner:
+/// no host is asked, and the refusal settles as a host's admission refusal.
+#[test]
+fn a_long_poll_of_other_host_work_is_refused_before_any_host() {
+    let mut r = boot_with(Scripted {
+        native: true,
+        ..Scripted::default()
+    });
+    assert!(r.take_requests().is_empty(), "no host is asked");
+    let (_, refused) = r.take_request_refusal(true).expect("refused");
+    assert!(
+        matches!(&refused, Outcome::Failed { kind: crate::FailureKind::Refused, message } if message.starts_with("exactLongPoll")),
+        "{refused:?}"
+    );
 }
 
 #[test]
