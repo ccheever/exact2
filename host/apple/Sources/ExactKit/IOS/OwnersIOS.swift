@@ -301,6 +301,7 @@ final class OwnerBlocks {
             return
         }
         var now: [UInt32: (block: HostBlock, placement: BlockPlacement?)] = [:]
+        for (id, block) in presenter.menus.sheets.containingBlocks { now[id] = (block, nil) }
         for (route, view, block, shown, presented) in routes {
             let id = route.node.id
             guard shown else {

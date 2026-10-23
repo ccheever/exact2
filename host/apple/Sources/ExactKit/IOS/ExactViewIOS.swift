@@ -397,7 +397,8 @@ public final class ExactView: UIView {
         let whole = cover || presenter.navigation.wantsWholeView
         var frame = whole ? bounds : bounds.inset(by: safe)
         var insets = cover ? safe : .zero
-        if presenter.keyboardPolicy == "resizes-content" {
+        if presenter.menus.sheets.top != nil { presenter.keyboardInset = 0 }
+        if presenter.keyboardPolicy == "resizes-content", presenter.menus.sheets.top == nil {
             let top: CGFloat
             // The session view's own keyboard layout guide, while a sheet is up
             // or an editor holds focus (a sheet's routes read the sheet's
