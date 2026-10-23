@@ -19,7 +19,7 @@ final class CoverBootIOSTests: XCTestCase {
             }
         }
         let view = ExactView(session: session), host = UIViewController()
-        host.additionalSafeAreaInsets = UIEdgeInsets(top: 24, left: 0, bottom: 16, right: 0)
+        host.additionalSafeAreaInsets = UIEdgeInsets(top: 24, left: 12, bottom: 16, right: 18)
         let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
         let frame = scene?.screen.bounds ?? CGRect(x: 0, y: 0, width: 402, height: 874)
         let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: frame)
@@ -40,6 +40,16 @@ final class CoverBootIOSTests: XCTestCase {
         XCTAssertGreaterThan(view.safeAreaInsets.top + view.safeAreaInsets.bottom, 0)
         XCTAssertEqual(try XCTUnwrap(initial), view.bounds.size, "viewport-dependent resources must never see a safe-area-sized cover root")
         XCTAssertEqual(session.viewportSize, view.bounds.size)
+        let env = try XCTUnwrap(Agent(session: session).layout()["env"] as? [String: Any])
+        XCTAssertEqual(try XCTUnwrap(env["safe-area-inset-bottom"] as? Double), Double(view.safeAreaInsets.bottom), accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(env["safe-area-inset-left"] as? Double), Double(view.safeAreaInsets.left), accuracy: 0.01)
+        let navigation = session.presenter.navigation
+        let route = try XCTUnwrap(navigation.activeRoute)
+        route.navigationController?.view.layoutIfNeeded()
+        route.view.layoutIfNeeded()
+        navigation.reportCovers()
+        XCTAssertGreaterThan(route.view.safeAreaInsets.bottom, 0)
+        XCTAssertEqual(route.bottomClearance, 0, "the document already clears the window's bottom safe area")
     }
 }
 #endif
