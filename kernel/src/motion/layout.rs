@@ -51,8 +51,16 @@ impl LayoutMotion {
                     if let Some(value) = kernel.layout_box(*key) {
                         observe_box(engine, *key, value);
                     }
+                    // In the space that old box was in: crossing is from there.
+                    let blocked = kernel
+                        .node_by_key(*key)
+                        .is_some_and(|n| kernel.host_block(n.id).is_some());
+                    if blocked {
+                        self.blocked.insert(*key);
+                    }
                 }
             } else if self.tracked.remove(key) {
+                self.blocked.remove(key);
                 engine.remove_property(motion_node(*key), Property::Layout);
                 retired.push(*key);
             }

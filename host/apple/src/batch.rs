@@ -752,6 +752,12 @@ impl Batch {
         ));
     }
 
+    /// `{"op":"block","id":…}` — the subtree has no block any more (a
+    /// popover out of the top layer): its block's rectangle is forgotten.
+    pub fn unblock(&mut self, id: u32) {
+        self.ops.push(format!("{{\"op\":\"block\",\"id\":{id}}}"));
+    }
+
     /// `{"op":"content","id":…,"w":…,"h":…}` — natural scrollable extent;
     /// the platform presenter applies its client-size minimum.
     pub fn content(&mut self, id: u32, w: f32, h: f32) {

@@ -398,9 +398,12 @@ impl<D: DataSource> Host<D> {
             }
             let implied = kernel.host_block_implied(id);
             if m.block != block || m.implied != implied || (framed && block.is_some()) {
+                let had = m.block.is_some();
                 (m.block, m.implied) = (block, implied);
-                if let Some(size) = block {
-                    batch.block(id, size, (rel.0, rel.1));
+                match block {
+                    Some(size) => batch.block(id, size, (rel.0, rel.1)),
+                    None if had => batch.unblock(id),
+                    None => {}
                 }
             }
             if let Some(c) = content {
