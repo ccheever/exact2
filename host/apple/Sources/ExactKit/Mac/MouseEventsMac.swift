@@ -22,11 +22,10 @@ import AppKit
 import UniformTypeIdentifiers
 
 extension Presenter {
-    /// Chrome on macOS opens an unmodified ContextMenu keydown at the
-    /// current focus, after its key handlers; Shift+F10 has no such default.
+    /// Keyboard access to the focused message's actions, after key handlers.
     func contextMenuKey(_ event: NSEvent, in owner: NSWindow? = nil) -> Bool {
-        guard event.type == .keyDown, NodeView.keyName(event) == "ContextMenu",
-              event.modifierFlags.intersection([.shift, .control, .option, .command]).isEmpty,
+        let name = NodeView.keyName(event), held = KeyCodes.held(event.modifierFlags)
+        guard event.type == .keyDown, (name == "ContextMenu" && held.isEmpty || name == "F10" && held == "Shift+"),
               let window = owner ?? event.window, hosts(window),
               (window.firstResponder as? NSTextInputClient)?.hasMarkedText() != true else { return false }
         if let run = window.firstResponder as? InlineKeyView, run.owner?.inlineContextMenu(run.id) == true { return true }

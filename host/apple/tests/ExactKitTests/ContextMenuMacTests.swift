@@ -532,7 +532,7 @@ final class ContextMenuMacTests: XCTestCase {
         XCTAssertNil(p.menus.observation, "the menu's popover closed")
     }
 
-    func testContextMenuHonorsKeyCancellationAndOnlyTheUnmodifiedKeyDown() throws {
+    func testContextMenuHonorsKeyCancellationAndKeyboardMenuChords() throws {
         let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
         source.props.removeValue(forKey: "contextPopover")
         source.handlers.insert("key")
@@ -544,12 +544,16 @@ final class ContextMenuMacTests: XCTestCase {
         XCTAssertEqual(heard, 0, "a key handler cancelled the default")
         prevent = false
         XCTAssertFalse(p.routeKey(contextKey(window, type: .keyUp), focused: true))
-        XCTAssertFalse(p.routeKey(contextKey(window, code: 109, flags: .shift), focused: true), "Shift+F10")
         XCTAssertFalse(p.routeKey(contextKey(window, flags: .control), focused: true))
         XCTAssertFalse(p.routeKey(contextKey(window), focused: false), "another session has the focus")
         XCTAssertEqual(heard, 0)
         XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
         XCTAssertEqual(heard, 1)
+        XCTAssertTrue(p.routeKey(contextKey(window, code: 109, flags: .shift), focused: true), "Shift+F10")
+        XCTAssertEqual(heard, 2)
+        prevent = true
+        XCTAssertTrue(p.routeKey(contextKey(window, code: 109, flags: .shift), focused: true))
+        XCTAssertEqual(heard, 2, "a key handler can cancel Shift+F10 too")
         XCTAssertFalse(p.defaultPrevented, "the context action's flag cannot leak into another event")
     }
 
