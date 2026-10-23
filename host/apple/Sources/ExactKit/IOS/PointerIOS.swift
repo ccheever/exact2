@@ -502,7 +502,8 @@ extension NodeView {
         contact.cancelled = true
         setInvokerLook(contact, nil)
         inlinePressed = nil; linkPressed = nil; svgPressed = nil
-        if contact.ownsPress { pressed = overlayHoldsPress } else { contact.destination?.touchesCancelled(touches, with: event) }
+        pressed = overlayHoldsPress
+        if !contact.ownsPress { contact.destination?.touchesCancelled(touches, with: event) }
     }
 
     /// A press delivered by the rule a touch gets: to this node when it has
