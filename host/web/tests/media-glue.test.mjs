@@ -12,7 +12,7 @@ function audio(props, { readyState = 4, error = null, handlers = ['error', 'seek
   const listeners = {}, el = {
     localName: 'audio', readyState, error, isConnected: true, paused: true, seeks: position == null ? [] : [position], loads: 0, plays: 0, attrs: new Set(),
     exactMedia: { props, handlers }, duration, played: { length: played },
-    set currentTime(t) { this.seeks.push(t); }, get currentTime() { return this.seeks.at(-1) ?? 0; },
+    set currentTime(t) { this.seeks.push(t); this.seeking = true; }, get currentTime() { return this.seeks.at(-1) ?? 0; }, // (seeking at once, as HTML's seek)
     addEventListener(name, f) { (listeners[name] ??= []).push(f); },
     removeEventListener(name, f) { listeners[name] = (listeners[name] ?? []).filter((g) => g !== f); },
     toggleAttribute(name, on) { if (on) this.attrs.add(name); else this.attrs.delete(name); },
@@ -68,6 +68,8 @@ test("a load or a seek in flight holds a settle until the element can play at re
   const held = globalThis.exact.mediaHold(el), done = settledOf(held);
   el.fire('emptied'); await turn();
   expect(done()).toBe(false);
+  el.readyState = 1; el.fire('loadedmetadata'); await turn(); // the glue makes the bound seek now
+  expect(el.seeks.at(-1)).toBe(0.5);
   el.readyState = 4; el.seeking = true; el.fire('canplay'); await turn();
   expect(done()).toBe(false); // seeking yet
   el.seeking = false; el.fire('seeked'); await turn();
@@ -82,7 +84,10 @@ test("a load or a seek in flight holds a settle until the element can play at re
   const earlyHeld = globalThis.exact.mediaHold(early), earlyDone = settledOf(earlyHeld);
   early.fire('suspend'); await turn();
   expect(earlyDone()).toBe(false);
-  early.readyState = 1; early.seeking = true; early.fire('loadedmetadata'); await turn();
+  // (Readiness moves before its queued `loadedmetadata`: a `suspend` between, its bound seek not yet made, holds on.)
+  early.readyState = 1; early.fire('suspend'); await turn();
+  expect(earlyDone()).toBe(false);
+  early.fire('loadedmetadata'); await turn(); // the glue makes the bound seek: seeking
   expect(earlyDone()).toBe(false);
   early.readyState = 4; early.seeking = false; early.fire('seeked'); await turn();
   expect(earlyDone()).toBe(true);
