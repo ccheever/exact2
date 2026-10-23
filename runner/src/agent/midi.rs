@@ -3,7 +3,7 @@
 //! queued (or the whole record when the request asks `"midi":"all"`, what
 //! `expect midi` reads) with their states, the last 64 messages the inputs
 //! delivered, and clock out's ticks. Only for a plan that keeps a MIDI queue
-//! (`crate::uses::keeps_midi`); the JS target's midi.js writes the same.
+//! (`Runner::keeps_midi`); the JS target's midi.js writes the same.
 
 use crate::agent::{field_str, num, quote};
 use crate::midi::{hex, Port};
@@ -32,7 +32,7 @@ fn ports(list: &[Port], s: &mut String) {
 
 /// `,"midi":{…}`.
 pub(super) fn state<D: DataSource>(runner: &Runner<D>, request: &str, s: &mut String) {
-    if !crate::uses::keeps_midi(runner.plan()) {
+    if !runner.keeps_midi() {
         return;
     }
     let m = runner.midi();

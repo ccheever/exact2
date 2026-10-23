@@ -122,8 +122,9 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
     const key = createHash('sha256').update(JSON.stringify([catalogs, icons, app.manifest.background_color ?? null, app.manifest.background_color_dark ?? null, launch, launchImage,
       app.manifest.host?.[sourcePlatform]?.minimumOS ?? null, platform, device, catalog, kept.stamp,
       // What the compile itself writes: a cache from before `--accent-color` named no accent,
-      // one from before `ExactLaunchImageSource` no launch image's source or digest
-      'accent-color', 'launch-image-source', 'launch-image-digest'])).digest('hex').slice(0, 16);
+      // one from before `ExactLaunchImageSource` no launch image's source or digest,
+      // one from before `digest` launch assets under fixed names
+      'accent-color', 'launch-image-source', 'launch-image-digest', 'launch-names-digest'])).digest('hex').slice(0, 16);
     const made = resolve(kept.dir, `assets-${platform}-${key}`);
     if (!existsSync(resolve(made, 'keys.json'))) {
       const making = `${made}.${process.pid}.tmp`;
@@ -200,7 +201,7 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
  * the bake's `launchBackground`, LLP 1116.011 D2.3), `systemGroupedBackground`,
  * which the system shows as #F2F2F7 and black. That is a colour set of its own
  * (a reference to the system colour compiles to its light value alone), so the
- * window under the first frame (`ExactLaunch`, read by the presenter) is the
+ * window under the first frame (`ExactLaunch-…`, read by the presenter) is the
  * same grey and nothing lighter shows between the launch screen and the first
  * frame (stopwatch, round 13: "blank white screen for ~1 s").
  * `UILaunchScreen` names colours and images only from an asset catalog, so
@@ -214,7 +215,8 @@ function launchScreen(app, catalog, launch = 'system', picture = null) {
   const dark = named ? app.manifest.background_color_dark : launch === 'grouped' ? '#000000' : undefined;
   const keys = {};
   if (picture) {
-    const set = resolve(catalog, 'ExactLaunchImage.imageset');
+    keys.UIImageName = `ExactLaunchImage-${digest([picture.sha256, picture.width])}`;
+    const set = resolve(catalog, `${keys.UIImageName}.imageset`);
     mkdirSync(set, { recursive: true });
     const images = [1, 2, 3].map(scale => {
       const filename = `launch@${scale}x.png`;
@@ -222,7 +224,6 @@ function launchScreen(app, catalog, launch = 'system', picture = null) {
       return { idiom: 'universal', filename, scale: `${scale}x` };
     });
     writeFileSync(resolve(set, 'Contents.json'), JSON.stringify({ images, info: { author: 'exact', version: 1 } }));
-    keys.UIImageName = 'ExactLaunchImage';
   }
   // The plan's name for the picture and its bytes' SHA-256, so an image of
   // those bytes decodes from the catalog (`RasterInput.catalog`) and loads no
@@ -238,10 +239,18 @@ function launchScreen(app, catalog, launch = 'system', picture = null) {
   };
   const colors = [{ idiom: 'universal', color: components(light, 'background_color') }];
   if (dark) colors.push({ idiom: 'universal', appearances: [{ appearance: 'luminosity', value: 'dark' }], color: components(dark, 'background_color_dark') });
-  mkdirSync(resolve(catalog, 'ExactLaunch.colorset'), { recursive: true });
-  writeFileSync(resolve(catalog, 'ExactLaunch.colorset', 'Contents.json'), JSON.stringify({ colors, info: { author: 'exact', version: 1 } }));
-  return { UILaunchScreen: { UIColorName: 'ExactLaunch', ...keys }, ...source };
+  const name = `ExactLaunch-${digest(colors)}`;
+  mkdirSync(resolve(catalog, `${name}.colorset`), { recursive: true });
+  writeFileSync(resolve(catalog, `${name}.colorset`, 'Contents.json'), JSON.stringify({ colors, info: { author: 'exact', version: 1 } }));
+  return { UILaunchScreen: { UIColorName: name, ...keys }, ...source };
 }
+
+/** A launch asset's name ends in a digest of what it draws: iOS keeps the launch
+ * screen it drew for an app's `UILaunchScreen` and draws it again while those keys
+ * are the same, through a reinstall of a new build of the same version, so a new
+ * colour or picture under an unchanged name launched on the old one (the euxy
+ * port's `background_color`, white on a simulator that had launched a white build). */
+const digest = (content) => createHash('sha256').update(JSON.stringify(content)).digest('hex').slice(0, 8);
 
 const NESTED_BUNDLE = /\.(app|appex|bundle|framework|plugin|xpc|systemextension)$/;
 

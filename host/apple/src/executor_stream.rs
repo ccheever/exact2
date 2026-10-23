@@ -11,6 +11,8 @@
 //! is sent: the request's method, headers and body are not used, as a
 //! browser's `WebSocket` could not send them either. A request that says
 //! `socket` owns a two-way socket instead (LLP 1016.000 D7; `socket.rs`).
+//! A request that says `bytes` reads a 2xx body that is not
+//! `text/event-stream` as a byte stream instead of one answer (`bytes.rs`).
 use super::{
     check_headers, complete, failed, fetch_failure, fetch_request, has_ready, wake, Completed,
     Shared, MAX_BODY,
@@ -25,7 +27,10 @@ use ibex2::stdlib::{
 /// What a stream opened as.
 enum Opened {
     Events(StreamingResponse, usize),
-    Socket(Box<dyn MessageSource>),
+    Bytes(StreamingResponse, usize),
+    Socket(Box<dyn MessageSource>, usize),
+    /// A long poll (LLP 1016.000 D8), asked by its own loop: its first request and per-reply ceiling.
+    LongPoll(Request, usize),
 }
 pub(super) use socket::{close as close_sockets, release, Socket};
 
@@ -67,6 +72,15 @@ pub(super) fn run(
                 .map_err(|e| format!("the app's grants did not parse: {e}"))
         });
         match bindings {
+            Ok(b) if request.long_poll.is_some() => {
+                let limit = match request.http {
+                    HttpScheduling::Ordered => MAX_BODY,
+                    HttpScheduling::Independent { max_response_bytes } => {
+                        max_response_bytes as usize
+                    }
+                };
+                Ok((Opened::LongPoll(request.clone(), limit), b))
+            }
             Ok(b) if is_socket(&request.url) => open_socket(&b, request, &abort).map(|s| (s, b)),
             // A body from an app file, read as the stream opens (LLP 1108 D6 R2).
             Ok(b) => {
@@ -77,7 +91,7 @@ pub(super) fn run(
                         .then(|| failed(FailureKind::Aborted, "native request aborted"))
                 })
                 .and_then(|()| open(Ok(&b), request, forced, &abort))
-                .map(|(r, limit)| (Opened::Events(r, limit), b))
+                .map(|opened| (opened, b))
             }
             Err(message) => Err(failed(FailureKind::Refused, message)),
         }
@@ -88,10 +102,16 @@ pub(super) fn run(
         Ok((Opened::Events(response, limit), _bindings)) => {
             read_events(shared, ticket, response, limit, abort)
         }
-        Ok((Opened::Socket(socket), _bindings)) if two_way => {
-            socket::read(shared, ticket, socket, abort)
+        Ok((Opened::Bytes(response, limit), _bindings)) => {
+            bytes::read(shared, ticket, response, limit, abort)
         }
-        Ok((Opened::Socket(socket), _bindings)) => read_socket(shared, ticket, socket, abort),
+        Ok((Opened::Socket(socket, limit), _bindings)) if two_way => {
+            socket::read(shared, ticket, socket, limit, abort)
+        }
+        Ok((Opened::Socket(socket, _), _bindings)) => read_socket(shared, ticket, socket, abort),
+        Ok((Opened::LongPoll(request, limit), bindings)) => {
+            long_poll::run(shared, ticket, request, forced, &bindings, limit, abort)
+        }
         Err(outcome) => complete(shared, ticket, outcome),
     }
 }
@@ -108,7 +128,7 @@ fn open_socket(
     };
     b.websocket
         .open(&request.url, limit, &abort.signal())
-        .map(Opened::Socket)
+        .map(|socket| Opened::Socket(socket, limit))
         .map_err(|e| fetch_failure(e, abort))
 }
 
@@ -160,7 +180,22 @@ fn read_socket(
 /// (forgotten, retired, ended). The newest undelivered message per ticket is
 /// kept and the ones it replaces are counted on it (LLP 1016.000 D4): display
 /// data coalesces, and a log sees the gap and re-asks from its cursor.
-fn message(shared: &Shared, ticket: u64, mut message: Message) -> bool {
+fn message(shared: &Shared, ticket: u64, message: Message) -> bool {
+    deliver(shared, ticket, message, false)
+}
+
+/// A long poll's reply that is no event (LLP 1016.000 D8): a message of the
+/// reserved event `LONG_POLL_REPLY`, which never takes an event's place nor
+/// counts as one dropped, and which an event that follows replaces.
+fn reply(shared: &Shared, ticket: u64) -> bool {
+    let m = Message {
+        event: exact_runner::LONG_POLL_REPLY.into(),
+        ..Message::default()
+    };
+    deliver(shared, ticket, m, true)
+}
+
+fn deliver(shared: &Shared, ticket: u64, mut message: Message, reply: bool) -> bool {
     let mut state = shared.state.lock().unwrap();
     if state.retired {
         return false;
@@ -182,6 +217,14 @@ fn message(shared: &Shared, ticket: u64, mut message: Message) -> bool {
         .iter_mut()
         .find(|done| done.ticket == ticket && done.message);
     match waiting {
+        Some(done) if reply => {
+            done.elapsed_ms = elapsed_ms;
+        }
+        Some(done) if done.reply => {
+            done.outcome = Outcome::Message(message);
+            done.elapsed_ms = elapsed_ms;
+            done.reply = false;
+        }
         Some(done) => {
             if let Outcome::Message(older) = &done.outcome {
                 message.coalesced = message
@@ -202,6 +245,7 @@ fn message(shared: &Shared, ticket: u64, mut message: Message) -> bool {
             stream: true,
             light: false,
             again: false,
+            reply,
         }),
     }
     if has_ready(&state) {
@@ -220,16 +264,17 @@ pub fn socket_closed(code: u16, reason: &str) -> String {
     }
 }
 
-/// Open `request` as a stream. `Ok` is an event stream to read, with its
-/// per-message ceiling; anything else is the stream's one answer, whole:
-/// a status that is not 2xx, a body that is not `text/event-stream`, or
-/// the failure that kept it from opening.
+/// Open `request` as a stream. `Ok` is an event stream to read, or a byte
+/// stream when the request says `bytes`, with its per-message ceiling;
+/// anything else is the stream's one answer, whole: a status that is not
+/// 2xx, a body that is not `text/event-stream` (unless `bytes`), or the
+/// failure that kept it from opening.
 fn open(
     bindings: Result<&ibex2::host::Bindings, &str>,
     request: Request,
     forced: bool,
     abort: &AbortController,
-) -> Result<(StreamingResponse, usize), Outcome> {
+) -> Result<Opened, Outcome> {
     if abort.signal().aborted() {
         return Err(failed(FailureKind::Aborted, "native request aborted"));
     }
@@ -238,6 +283,9 @@ fn open(
         HttpScheduling::Ordered => MAX_BODY,
         HttpScheduling::Independent { max_response_bytes } => max_response_bytes as usize,
     };
+    // A response with no body (Fetch's null body status, or to a `HEAD`) is
+    // the one answer, as the web's, whose `response.body` is null for it.
+    let as_bytes = request.bytes && !request.method.eq_ignore_ascii_case("HEAD");
     let mut req = fetch_request(request, forced);
     if !req.headers.has("accept") {
         req.headers.set("accept", "text/event-stream");
@@ -256,7 +304,10 @@ fn open(
                 .is_some_and(|t| t.trim().eq_ignore_ascii_case("text/event-stream"))
         });
     if events {
-        return Ok((r, limit));
+        return Ok(Opened::Events(r, limit));
+    }
+    if as_bytes && r.ok() && !matches!(r.status, 204 | 205) {
+        return Ok(Opened::Bytes(r, limit));
     }
     let (status, headers) = (r.status, r.headers.entries().to_vec());
     let mut body = r.body;
@@ -430,6 +481,10 @@ impl EventStream {
     }
 }
 
+#[path = "executor_bytes.rs"]
+mod bytes;
+#[path = "executor_longpoll.rs"]
+mod long_poll;
 #[path = "executor_socket.rs"]
 mod socket;
 

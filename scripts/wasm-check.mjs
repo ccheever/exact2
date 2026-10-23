@@ -42,15 +42,16 @@ export function changedSince(root, base = 'origin/main') {
   return [...diff.split('\0'), ...untracked.split('\0')].filter(Boolean);
 }
 
-/** The workspace's library crates in the wasm32 graph of its web apps (`apps/<app>/web`), the apps and vendored
+/** The workspace's library crates in the wasm32 graph of its web apps (`apps/<app>/web`, or `apps/<app>/app/web`
+ * for an app beside its Snapback backend, Harmony's layout), the apps and vendored
  * crates aside; and Cargo's target directory. Throws rather than answering none. */
 export function wasmCrates(root) {
   const meta = JSON.parse(run(root, 'cargo', ['metadata', '--no-deps', '--offline', '--format-version', '1']).stdout);
   const top = meta.workspace_root.replaceAll('\\', '/'), members = new Set(meta.workspace_members);
   const rel = (p) => p.manifest_path.replaceAll('\\', '/').slice(top.length + 1, -'/Cargo.toml'.length);
   const local = meta.packages.filter((p) => members.has(p.id)).map((p) => ({ name: p.name, dir: rel(p), p }));
-  const apps = local.filter(({ dir }) => /^apps\/[^/]+\/web$/.test(dir));
-  if (!apps.length) throw new Error('no apps/<app>/web crate in the workspace');
+  const apps = local.filter(({ dir }) => /^apps\/[^/]+(\/app)?\/web$/.test(dir));
+  if (!apps.length) throw new Error('no apps/<app>/web (or apps/<app>/app/web) crate in the workspace');
   const tree = run(root, 'cargo', ['tree', ...apps.flatMap((a) => ['-p', a.name]), '--target', TARGET, '-e', 'normal', '--prefix', 'none', '--offline', '--locked']);
   const named = new Set(tree.stdout.split('\n').map((l) => /^(\S+) v/.exec(l)?.[1]).filter(Boolean));
   const gone = LIBS.filter((name) => !local.some((c) => c.name === name));
@@ -61,7 +62,7 @@ export function wasmCrates(root) {
   const bins = BINS.filter(([pkg, bin]) => meta.packages.some((p) => members.has(p.id) && p.name === pkg && p.targets.some((t) => t.name === bin)));
   if (bins.length !== BINS.length) throw new Error(`a wasm leaf is gone: ${BINS.filter((b) => !bins.includes(b)).map(([p, b]) => `${p} --bin ${b}`).join(', ')}`);
   const dirs = local.filter(({ name }) => crates.includes(name) || bins.some(([pkg]) => pkg === name)).map(({ dir }) => dir + '/');
-  return { crates, bins, dirs, target: meta.target_directory };
+  return { crates, bins, dirs, roots: apps.map(({ dir }) => dir), target: meta.target_directory };
 }
 
 /** Whether `build` (Cargo's build directory: the target directory, unless `CARGO_BUILD_BUILD_DIR` names another)

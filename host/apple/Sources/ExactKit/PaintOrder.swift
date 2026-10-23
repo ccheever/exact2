@@ -12,8 +12,13 @@ private var paintRanksKey: UInt8 = 0
 private var paintForegroundKey: UInt8 = 0
 private final class DensePaintRanks {
     var positions: [Int64: CGFloat] = [0: 0]
+    /// The highest depth a child was placed at.
+    var top: CGFloat = 0
+    static func existing(_ parent: PaintView) -> DensePaintRanks? {
+        objc_getAssociatedObject(parent, &paintRanksKey) as? DensePaintRanks
+    }
     static func of(_ parent: PaintView) -> DensePaintRanks {
-        if let ranks = objc_getAssociatedObject(parent, &paintRanksKey) as? DensePaintRanks { return ranks }
+        if let ranks = existing(parent) { return ranks }
         let ranks = DensePaintRanks()
         objc_setAssociatedObject(parent, &paintRanksKey, ranks, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         return ranks
@@ -116,11 +121,17 @@ extension NodeView {
         // Zero is the origin even when no child has rank zero. Native
         // decoration/content layers remain there as well.
         let distinct = Set(children.map(\.siblingPaintRank)).union([0])
-        let dense = DensePaintRanks.of(parent)
-        if distinct != Set(dense.positions.keys) {
+        // Most parents' children are all at the origin: they get no table
+        // (an object, a dictionary and an associated object each) until one is not.
+        let dense = distinct == [0] ? DensePaintRanks.existing(parent) : DensePaintRanks.of(parent)
+        if let dense, distinct != Set(dense.positions.keys) {
             let ranks = distinct.sorted()
             let zero = ranks.firstIndex(of: 0)!
             dense.positions = Dictionary(uniqueKeysWithValues: ranks.enumerated().map { ($0.element, CGFloat($0.offset - zero) * 0.001) })
+        }
+        let position = { (rank: Int64) -> CGFloat? in
+            guard let dense else { return rank == 0 ? 0 : nil }
+            return dense.positions[rank]
         }
         // A document-plane view (a navigation container) takes rank ½ (the
         // encoded 1: positioned or stacking, `z-index` auto or 0), as the
@@ -130,15 +141,24 @@ extension NodeView {
         // A control bar over its scroller (LLP 1131 D3) goes half a step above the scroller's place: over it and
         // its equals, under the next rank.
         #if os(macOS)
-        let place = { (child: PaintView) in dense.positions[child.siblingPaintRank]! }
+        let place = { (child: PaintView) in position(child.siblingPaintRank)! }
         #else
         let place = { (child: PaintView) -> CGFloat in
-            let own = dense.positions[child.siblingPaintRank]!
-            guard let over = (child as? NodeView)?.bandOver, let under = dense.positions[over] else { return own }
+            let own = position(child.siblingPaintRank)!
+            guard let over = (child as? NodeView)?.bandOver, let under = position(over) else { return own }
             return max(own, under + 0.0005)
         }
         #endif
-        for child in children { child.setPaintPosition(place(child)) }
+        var top: CGFloat = 0
+        for child in children {
+            let z = place(child)
+            child.setPaintPosition(z)
+            top = max(top, z)
+        }
+        dense?.top = top
+        #if os(iOS) || os(tvOS)
+        (parent as? ScrollView)?.keepPlatformViewsOver()
+        #endif
     }
 
     /// Live children may reorder around an exit, but the ghost keeps its
@@ -238,6 +258,27 @@ extension NSView {
 #endif
 
 #if os(iOS) || os(tvOS)
+extension ScrollView {
+    /// UIKit hangs a scroller's edge effect (iOS 26) in a view after its
+    /// content, at depth 0, to draw over it. A child ranked above 0 (one
+    /// holding a native button, a `position: relative` card, a `z-index`)
+    /// would paint over the effect and run sharp under the bar, so each
+    /// view of UIKit's after the last ranked child goes to the top child's
+    /// depth, where its later place puts it over them. One with a depth of
+    /// its own (the indicators' 1000, a view sent behind) keeps it. After a
+    /// ranking, and after UIKit's layout, which adds and moves its views.
+    /// Not the viewport, whose children are the host's document and
+    /// presentations.
+    func keepPlatformViewsOver() {
+        guard !(self is Viewport), let top = DensePaintRanks.existing(self)?.top, top > 0 else { return }
+        for view in subviews.reversed() {
+            if view is NodeView || view is FlightClip || view.paintForeground { return }
+            let z = view.layer.zPosition
+            if z >= 0, z < top { view.layer.zPosition = top }
+        }
+    }
+}
+
 /// A leaf has no UIView, but it still occludes siblings for input. Runs
 /// retain each border box: the gaps between their shapes remain hittable.
 final class FlatHit {

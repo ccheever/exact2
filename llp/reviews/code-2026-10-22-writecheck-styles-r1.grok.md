@@ -1,0 +1,23 @@
+# Code review: The write check judges a style's rows where an element applies it (stage 13 D QUEUE), round 1, 2026-10-22 (grok)
+
+- **Family:** xAI. Grok via `grok -p`, reasoning effort xhigh, Edit and Write denied, a throwaway worktree at `4f214a52b9`.
+- **Method:** one brief (sha256 `1c48f9b05e117a57d996482695c0dab4a2fe0d6b12ea925622d7f6d34ea60442`), blind to the other reviewer; 3 rounds (theme2's 02:08 ruling), then narrow re-checks until clean. The author (Claude, reload1) is not a reviewer.
+- **Transcription:** the final message, unedited but for the worktree path prefix.
+
+I'll review commit `4f214a52b9` against the theme2 ruling and how lowering actually expands and judges class rows. First I'll read the review guidance and the commit itself.This is a read-only review of that one commit. I'll inspect the diff and then compare the write check against how lowering expands and judges class rows.The diff is in the write check and the scan. Next I’ll read how lowering expands class rows and which rewrites happen before those rows are judged.Auto-compacting conversation (83% full)...
+Conversation compacted.
+The review is ready to write once the cited lines match the commit. I’ll re-read the write-check exclusions and the lowering paths they are supposed to mirror.The write check can refuse a style row in words the build never emits, on two paths this commit judges and lowering does not.
+
+**[P1] Exclude a button's class rows, or run them through the native-button check — `contract/lower/src/theme/scan.rs:438`**
+
+`class_left` drops SVG, grouped lists, and `audio`, and never a `button`. `button_appearance` runs before any style-value check (`contract/lower/src/nodes.rs:72`) and, for `appearance="auto"`, returns from `check_native_button` (`contract/lower/src/buttons.rs:98`). A style `Danger` with `background = ink` and `padding = gap` on `button class=Danger appearance="auto"` already fails the build with "a native button draws its own `background`". Changing `gap` from `8px` to a color makes this check refuse `padding` through `check_style_value`, which that button never reaches. The same split hits a native keyword the style check allows (`align-items` "center" to "start": this check accepts, the build says only `center`). `seen_failed` hides it only after the background build has already failed. Add `tag == "button"` to `class_left`.
+
+**[P2] Treat a grouped-list refusal as excluded, not as an ordinary list — `contract/lower/src/theme/scan.rs:149`**
+
+`grouped_list` is true only for `Ok(Some(_))`. `grouped::style` returns `Err` for a non-literal `appearance` or for `listStyle` without `appearance="auto"`, and `prepare_element` aborts on that `Err` (`contract/lower/src/nodes.rs:189`) before value-checking. `style Pad / padding = gap` on `list class=Pad listStyle="grouped"` is already refused as a grouped list; changing `gap` from `8px` to a color makes this check refuse `padding` instead. `prepared` already treats its own `Err` as left to the build. Do the same here: exclude on `Err`, not only on `Ok(Some)`.
+
+The per-element key and the dedupe do not merge distinct build refusals. Dedupe collapses only the same style-row span, the same relocated error span, and the same message, which is the one-refusal rule. Different messages and different choice-arm literals stay. Own rows use `Span::default()`, so their key is still the attribute span and existing pass-before-fail behavior is unchanged. Component bodies are not walked (`Node::Use` at `scan.rs:531`), so `Place::element` cannot collide across instances; a style used only inside a component stays unchecked, as own rows already were.
+
+`prepared` (`scan.rs:207`) joins class rows with the original attributes, so a class `translate` beside an element `transform` is excluded before the later filter. That filter joins the already-rewritten box (`scan.rs:315`, `scan.rs:457`) and only drops rows when a transform rewrites, which is the allowed whole-element exclusion. Animation and transition names take the same whole-element path. Symbol ink, painted radio groups, sheet marks, and state parts do not produce a false refusal: state parts are skipped because the name is not a style-row key, and the rest do not rewrite a class row the check still judges.
+
+The two-element test (`contract/cli/tests/it/tamber_rows_style.rs:67`) says each element has its own `font-family`; the fixture has none. `built.dedup()` then compares only `got[0]` (`:93`), and `same_words` (`contract/cli/tests/it/tamber_rows_check.rs:29`) only checks `diagnostics[0]`, so the `for` test (`tamber_rows_style.rs:135`) would still pass if the row inside the loop were refused as well. No test covers a native button or a grouped list that `grouped::style` refuses.

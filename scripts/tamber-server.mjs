@@ -90,21 +90,21 @@ import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { developmentGate, installBrowserOrigins } from './install-page.mjs';
 import { stageTool, TOOL_DIST, TOOL_ORIGIN, TOOL_PORT } from './tamber-tool-port.mjs';
 export { stageTool, TOOL_DIST, TOOL_ORIGIN, TOOL_PORT } from './tamber-tool-port.mjs';
-import { buildChannel, navigateRequest } from './tamber-builds.mjs';
+import { buildChannel, navigateRequest, selectRequest } from './tamber-builds.mjs';
 import { scrubSessions } from './tamber-scrub.mjs';
-import { correspondingSite, current, join, paramsOf, published, sitesAt, staleMap } from './tamber-inspect.mjs';
+import { correspondingSite, current, join, levelsUp, paramsOf, published, sitesAt, staleMap } from './tamber-inspect.mjs';
 import { designSession } from './tamber-commit.mjs';
 import { designCommit, designLog } from './tamber-history.mjs';
 import { openRemote, pluginOnLoopback, remoteArgs } from './tamber-remote.mjs';
 import { planAlone, stopImports } from './tamber-isolate.mjs';
 import { designPath, manifestTamber } from './tamber-design-path.mjs'; export { designPath };
 import { importReview, marked } from './tamber-import-review.mjs'; export { importTheme } from './tamber-import-review.mjs';
-import { canvasGateway } from './tamber-canvas.mjs';
+import { canvasGateway } from './tamber-canvas.mjs'; import { answerCanvasCheck, canvasCheck, canvasLine } from './tamber-frame.mjs';
 import { packageDesigns } from './tamber-package-designs.mjs';
 import { serveTool } from './tamber-tool-files.mjs';
 export { serveTool, serveToolFiles } from './tamber-tool-files.mjs';
 import { allows, needs, pairing, PAIR_TTL_MS, parseDuration, refusal } from './tamber-pairing.mjs';
-import { earlyAnswer, readBody, parseRequest as parse, tooDeep, viaDoor } from './tamber-request.mjs';
+import { earlyAnswer, readBody, parseRequest as parse, tooDeep, upstream, viaDoor } from './tamber-request.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 // The server's own line limit, less room for the id this adds and an import's `recognised` digests (64, stage 10b).
@@ -770,19 +770,19 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   }
 
   /** `propose` through a dev loop whose pages write some tokens inline (the
-   * JS target, LLP 1121 stage 6): a `live` edit that moves one is `rebuild`
-   * there, since `class` is the serving loop's (LLP 1121 D13), so the tool
-   * says so before the gesture rather than failing a scrub. */
+   * JS target, LLP 1121 stage 6): its class is the serving loop's (D13), so the
+   * tool says so before the gesture rather than failing a scrub. */
   async function proposeHere(request) {
     const reply = await ask({ ...request, texts: true });
     if (!reply.ok) return reply;
-    const ok = { ...reply.ok };
-    if (ok.class === 'live' && ok.texts) {
-      const why = await scrub.inline(ok.texts).catch(() => null);
-      if (why) { ok.class = 'rebuild'; log(`tamber: propose is rebuild here: ${why}`); }
-    }
+    const ok = await servedClass({ ...reply.ok });
     if (request.texts !== true) delete ok.texts;
     return { ...reply, ok };
+  }
+  async function servedClass(ok) { // A `live` edit the loop's pages can't apply in place (`scrub.inline`, or one it can't check) is `rebuild`; a held one too.
+    const why = scrub?.inline && ok.class === 'live' && ok.texts ? await scrub.inline(ok.texts).catch(e => `it could not be checked (${e?.message ?? e}): rebuild assumed`) : null;
+    if (why) { ok.class = 'rebuild'; log(`tamber: propose is rebuild here: ${why}`); }
+    return ok;
   }
 
   /** `inspect` `{client, build?, on?, refresh?}` (LLP 1122 D4, D5): inspect
@@ -792,6 +792,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
    * (`selections`), asking no build again, since a build's answer outlines
    * on the developer's screens. */
   function inspect(request, scope) {
+    // (tamber/1.16 `select`, tamber-builds.mjs: the sites n call sites up from the last selection, by its map; write, as `on` is.)
+    if (request.select !== undefined) return !allows(scope, 'write') ? refusal('inspect', scope, 'write') : selectRequest(channel, request, (id, up) => { const s = lastSelection.get(id), plan = channel.list().find(b => b.id === id)?.planDigest, map = plan ? mapOf(plan) : null; return map && Number.isSafeInteger(s?.site) ? { levels: levelsUp(map, s.site, up), plan, from: s.site, instance: s.instance ?? [] } : null; });
     if (!allows(scope, 'write')) {
       const build = request.build ?? null;
       if (build !== null && typeof build !== 'string') return { status: 400, error: { message: '`build` is a registered build\'s id' } };
@@ -983,8 +985,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       }
     }
     // Its import cancelled while it was planned (an import's `signal`): decided in the same turn as the insert, nothing evicted.
-    if (signal?.aborted) return { status: 503, error: { message: 'the import was cancelled' } };
-    delete planned.ok.texts;
+    await servedClass(planned.ok); // (before the cancellation guard: an import that left while it was checked holds nothing)
+    if (signal?.aborted) return { status: 503, error: { message: 'the import was cancelled' } }; delete planned.ok.texts;
     const id = `prop-${epoch}-${++proposalCount}`;
     const base = Object.fromEntries(Object.entries(planned.ok.files).filter(([path]) => touched.has(path)));
     const expires = Date.now() + HOLD_MS;
@@ -1308,10 +1310,10 @@ async function buildTool() {
  * and that server run's epoch. */
 export async function toolAnswers(origin = TOOL_ORIGIN, tries = 1) { // `{app, epoch}`, or null; a token probe that times out is tried again, `tries` in all (a loaded dev loop answers late), one refused never
   try {
-    let got; for (let i = 1; !got; i++) try { got = await fetch(`${origin}/__tamber/token`, { redirect: 'error', signal: AbortSignal.timeout(2000) }); } catch (e) { if (e?.name !== 'TimeoutError' || i >= tries) throw e; }
+    let got; for (let i = 1; !got; i++) try { got = await upstream(`${origin}/__tamber/token`, { redirect: 'error', signal: AbortSignal.timeout(2000) }); } catch (e) { if (e?.name !== 'TimeoutError' || i >= tries) throw e; }
     if (!got.ok) return { app: null };
     const { token } = await got.json();
-    const hello = await (await fetch(`${origin}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}', signal: AbortSignal.timeout(10_000) })).json();
+    const hello = await (await upstream(`${origin}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}', signal: AbortSignal.timeout(tries > 1 ? 120_000 : 10_000) })).json(); // (a loop that gave its token is up: one loaded starts its design server late)
     return { app: hello.ok?.app ?? null, epoch: hello.ok?.epoch ?? null };
   } catch { return null; }
 }
@@ -1372,7 +1374,7 @@ export async function toolCommand(argv) {
     try { same = upstream?.app != null && realpathSync(upstream.app) === realpathSync(dir); } catch { /* gone */ }
     if (!same) { console.error(`tamber tool: ${target} ${upstream ? `serves ${upstream.app ? `the design of ${upstream.app}` : 'no design server'}` : 'does not answer'}, not ${dir}'s`); return 1; }
     if (!(await listenOn(port, () => listen({ host: '127.0.0.1', port, handle: (req, res, url, access) => forward(req, res, url, access, target), stop: async () => {} })))) return 1;
-    console.log(`${url}\n  (the design tool, through the dev loop at ${target}; ctrl-c to stop)`);
+    console.log(`${url}\n  (the design tool, through the dev loop at ${target}; ctrl-c to stop)`); tellCanvas(await canvasCheck(target, TOOL_ORIGIN));
   } else {
     // The design server up (or refused) before the port is taken, so a
     // refusal leaves nothing listening.
@@ -1396,6 +1398,8 @@ export async function toolCommand(argv) {
   await new Promise(() => {});
 }
 
+// Whether the loop's page lets this tool frame it, said on the terminal once each time it starts refusing (tamber-frame.mjs).
+let canvasSaid = ''; const tellCanvas = check => { const { line, said } = canvasLine(check, TOOL_ORIGIN, canvasSaid); canvasSaid = said; if (line) console.error(line); };
 /** `listening()`, false and said when the tool's port is another's. */
 async function listenOn(port, listening) {
   try { await listening(); return true; } catch (e) {
@@ -1416,6 +1420,7 @@ async function listenOn(port, listening) {
  * the dev loop at `target` as it came (the token only to a local request,
  * which the loop judges again by this request from loopback). */
 export async function forward(req, res, url, access, target) {
+  if (url.pathname === '/__tamber/tool/canvas-check') { await answerCanvasCheck(req, res, access, target, TOOL_ORIGIN, tellCanvas); return true; }
   if (url.pathname === '/__tamber/tool' || url.pathname.startsWith('/__tamber/tool/')) { serveTool(req, res, url, access); return true; }
   if (url.pathname !== '/__tamber' && !url.pathname.startsWith('/__tamber/')) return false;
   if (!access.local) { notFound(res); return true; }
@@ -1427,7 +1432,7 @@ export async function forward(req, res, url, access, target) {
     // A body within the server's own limit, read here (its bytes) before it is sent on; over it, answered 413 first.
     const bytes = await readBody(req, BODY_LIMIT, res, true); // a GET's or a HEAD's too (none is sent on), whatever its content-length
     if (bytes == null) { if (bytes === null && !res.destroyed) json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); return true; } // (undefined: the client left)
-    const answer = await fetch(`${target}${url.pathname}`, { method: req.method, headers, redirect: 'error', signal: gone.signal, ...(req.method === 'GET' || req.method === 'HEAD' ? {} : { body: bytes }) });
+    const answer = await upstream(`${target}${url.pathname}`, { method: req.method, headers, redirect: 'error', signal: gone.signal, ...(req.method === 'GET' || req.method === 'HEAD' ? {} : { body: bytes }) });
     res.writeHead(answer.status, { 'content-type': answer.headers.get('content-type') ?? 'application/json', 'cache-control': 'no-store' });
     for await (const chunk of answer.body ?? []) {
       if (!res.write(chunk)) await new Promise(ok => {

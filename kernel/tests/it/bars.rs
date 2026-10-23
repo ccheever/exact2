@@ -17,6 +17,7 @@ fn ops(node: &Node, out: &mut Vec<Op>) {
     for (prop, value) in node.2 {
         let value = match (*prop, value.parse::<i64>()) {
             (PropId::AccessibilityHeadingLevel, Ok(level)) => PropValue::Int(level),
+            (PropId::Disabled, _) => PropValue::Bool(*value == "true"),
             _ => PropValue::Str((*value).into()),
         };
         out.push(Op::SetProp {
@@ -480,6 +481,60 @@ fn a_header_button_wrapping_a_popover_with_a_heading_is_an_item_not_the_titles_t
     ));
     let shape = tree.header_shape(10, None, true, &pressed).unwrap();
     assert_eq!((shape.tap, shape.items), (None, vec![41]));
+}
+
+/// A disabled button is UIKit's disabled bar item, shown dimmed, whether or
+/// not anything would press it (the euxy port's "● Clock" as one); a button
+/// that presses nothing and is not disabled is still no item.
+#[test]
+fn a_disabled_header_button_is_an_item_though_nothing_presses_it() {
+    const NATIVE: Props = &[
+        (PropId::Type, "button"),
+        (PropId::AccessibilityRole, "button"),
+    ];
+    const DISABLED: Props = &[
+        (PropId::Type, "button"),
+        (PropId::AccessibilityRole, "button"),
+        (PropId::Disabled, "true"),
+    ];
+    const BARE: Props = &[
+        (PropId::AccessibilityRole, "button"),
+        (PropId::Disabled, "true"),
+    ];
+    const ENABLED: Props = &[
+        (PropId::Type, "button"),
+        (PropId::AccessibilityRole, "button"),
+        (PropId::Disabled, "false"),
+    ];
+    let tree = kernel(view(
+        10,
+        vec![Node(
+            11,
+            NodeType::View,
+            HEADER,
+            vec![
+                text(12, H1),
+                Node(51, NodeType::Control, DISABLED, vec![]),
+                Node(52, NodeType::Control, NATIVE, vec![]),
+                Node(53, NodeType::Pressable, BARE, vec![]),
+                Node(54, NodeType::Control, ENABLED, vec![]),
+            ],
+        )],
+    ));
+    let shape = tree.header_shape(10, None, true, &pressed).unwrap();
+    assert_eq!((shape.items, shape.trailing), (vec![51, 53], vec![51, 53]));
+    // One around the heading is no item and no tap: the heading in it is the title.
+    let tree = kernel(view(
+        10,
+        vec![Node(
+            11,
+            NodeType::View,
+            HEADER,
+            vec![Node(51, NodeType::Control, DISABLED, vec![text(12, H1)])],
+        )],
+    ));
+    let shape = tree.header_shape(10, None, true, &pressed).unwrap();
+    assert_eq!((shape.heading, shape.tap, shape.items), (12, None, vec![]));
 }
 
 #[test]

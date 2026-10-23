@@ -1,0 +1,13 @@
+component GroupedRTL
+  view
+    main width="100%" height="100%" direction="rtl"
+      list appearance="auto" listStyle="inset-grouped" width="100%" height="100%" testId="list"
+        section
+          row testId="standard"
+            image "symbol:sf/person.circle"
+            text "Profile"
+            image "symbol:forward-chevron"
+          row testId="custom"
+            image "symbol:sf/person.circle" testId="custom-symbol"
+            text "Profile" flex=1 testId="custom-title"
+            view width=12 height=12 background-color="-exact-fill"

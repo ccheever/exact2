@@ -7,8 +7,12 @@ driver, generated operations and device. The origin defaults to 4400.
 untouched greeting becomes a typed query and mutation explorer with `--online`.
 `snapback --port <n>` records an ignored local backend selection.
 At bake, `.exact/backend-origin` overrides `app.ts`'s `origin` constant.
-`EXACT_BACKEND_ORIGIN` or `test web --backend <url>` selects the origin and matching
-grant at bake time without editing authored source or tests. Password sign-in, stored sessions and refresh with Contract time are
+`EXACT_BACKEND_ORIGIN` or `test web --backend <url>` selects the origin at bake
+time without editing authored source or tests. Plain-string grants move their
+matching `net.fetch` line and a `net.websocket` line at the same host (`ws:` for
+`http:`, `wss:` for `https:`). For grants keyed by origin, the selected origin
+must have its own entry; see [keyed grants](../reference.md#bake-and-deliver-a-typescript-module).
+Password sign-in, stored sessions and refresh with Contract time are
 in [the adapter guide](../snapback4/README.md#personas-and-password-accounts).
 For a server-only schema, add `--online`; `snapback` and `update` preserve it.
 On a plain scaffold, `snapback --port <n>` adds the origin and fetch/storage

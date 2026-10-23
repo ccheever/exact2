@@ -7,6 +7,7 @@
   "workspaces": ["packages/*"],
   "devDependencies": {
     "@sqlite.org/sqlite-wasm": "3.53.4-build1",
+    "fflate": "0.8.3",
     "playwright-core": "1.64.1",
     "rolldown": "1.2.9",
     "snapback4": "0.4.33",
@@ -18,6 +19,7 @@
   "dependencies": {
     "@exact/scale-fixture-cards": "workspace:*",
     "@exact/actions": "workspace:*",
+    "@exact/lists": "workspace:*",
     "@exact/cards": "workspace:*",
     "@exact/geolocation": "workspace:*",
     "@exact/scale-fixture-notes": "workspace:*",

@@ -15,21 +15,39 @@ struct Leaving {
 extension Presenter {
     func beginExit(_ id: UInt32) {
         guard let view = views[id] else { return }
-        landFlights(inside: view) // a flying view leaves with its subtree (LLP 1013.000)
-        var members: [NodeView] = []
-        var stack: [NSView] = [view]
+        let held = (blocks.shown.filter { navigation.split.holds($0) } + dialogs.entries.filter(\.route).map(\.dialog)).filter {
+            views[$0.id] === $0 && !$0.isDescendant(of: view) && logicallyWithin($0, view)
+        }
+        // Native containers hold these routes outside their authored ancestors.
+        for leaving in [view] + held { landFlights(inside: leaving) }
+        var members: [NodeView] = [], seen = Set<UInt32>()
+        var stack: [NSView] = [view] + held
         while let next = stack.popLast() {
-            if let node = next as? NodeView, views[node.id] === node { members.append(node) }
+            if let node = next as? NodeView, views[node.id] === node {
+                guard seen.insert(node.id).inserted else { continue }
+                members.append(node)
+            }
             stack.append(contentsOf: next.subviews)
         }
-        if let responder = view.window?.firstResponder as? NSView, responder.isDescendant(of: view) {
-            view.window?.makeFirstResponder(nil)
+        for leaving in [view] + held {
+            guard let window = leaving.window, let responder = dialogs.focusOwner(window),
+                  responder === leaving || responder.isDescendant(of: leaving) else { continue }
+            window.makeFirstResponder(nil)
         }
         for member in members { member.holdGone() } // a held node that starts to leave is gone (HeldState.swift)
+        // AppKit discards cells on reload. Move only the row root; a nested
+        // exit must keep its ancestors' opacity, transforms and clipping.
+        if let cell = view.superview as? TableRowCell, cell.row === view, let home = cell.feed?.home {
+            let frame = home.convert(view.frame, from: cell)
+            home.addSubview(view, positioned: .above, relativeTo: cell.feed?.table)
+            view.frame = frame
+        }
         for member in members { release(member.id, forget: false) }
-        view.routeInert = true
-        view.setAccessibilityHidden(true)
-        view.setGhost(true)
+        for root in [view] + held {
+            root.routeInert = true
+            root.setAccessibilityHidden(true)
+            root.setGhost(true)
+        }
         leaving[id] = Leaving(view: view, members: members)
     }
 
@@ -37,14 +55,18 @@ extension Presenter {
     func endExit(_ id: UInt32) -> Bool {
         guard let ended = leaving.removeValue(forKey: id) else { return false }
         ended.view.setGhost(false)
-        for member in ended.members { member.forget() }
+        for member in ended.members {
+            member.setGhost(false)
+            if navigation.split.holds(member) { navigation.split.retire(member) }
+            member.forget()
+        }
         ended.view.removeFromSuperview()
         return true
     }
 
     func isLeaving(_ view: NSView) -> Bool {
         guard let node = view as? NodeView else { return false }
-        return leaving[node.id]?.view === node
+        return leaving.values.contains { $0.members.contains { $0 === node } }
     }
 
     /// Presented surface boxes and opacity, including ghosts absent from `tree`.

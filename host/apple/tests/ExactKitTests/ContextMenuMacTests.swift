@@ -90,6 +90,64 @@ final class ContextMenuMacTests: XCTestCase {
         XCTAssertEqual(heard, [1, 1, 1, 1], "inert still suppresses the menu")
     }
 
+    /// HTML nests a popover shown with a source inside an open popover in
+    /// that popover: a context menu asked for in one leaves it open, and
+    /// the menu's close leaves it open too.
+    func testAContextMenuInAnOpenPopoverLeavesThatPopoverOpen() throws {
+        let p = presenter(), window = try XCTUnwrap(windows.last)
+        defer { p.menus.reset() }
+        p.apply(wireBatch([["op": "create", "id": 20, "kind": "view", "props": ["popover": "auto", "id": "list"]],
+                           ["op": "children", "id": 20, "ids": [1]], ["op": "children", "id": 9, "ids": [20, 2]],
+                           ["op": "frame", "id": 20, "x": 0, "y": 0, "w": 200, "h": 100]]))
+        let source = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[2]), outer = try XCTUnwrap(p.views[20])
+        window.orderFrontRegardless()
+        p.menus.show(outer, from: nil)
+        // A manual popover above it, which no auto popover closes.
+        p.apply(wireBatch([["op": "create", "id": 22, "kind": "view", "props": ["popover": "manual", "id": "note"]],
+                           ["op": "children", "id": 9, "ids": [20, 2, 22]], ["op": "frame", "id": 22, "x": 250, "y": 0, "w": 100, "h": 40]]))
+        let manual = try XCTUnwrap(p.views[22])
+        p.menus.show(manual, from: nil)
+        XCTAssertEqual([p.menus.isOpen(outer), p.menus.isOpen(manual)], [true, true])
+        var openWhileTracking: Bool?, ended = 0
+        let center = NotificationCenter.default
+        // Closed without AppKit's fade, and waited for until its window has
+        // left the screen: a fading menu window outlives the test and is
+        // what a later case measuring a menu's window would find.
+        let began = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu else { return }
+            openWhileTracking = p.menus.isOpen(outer)
+            RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTrackingWithoutAnimation() }
+        }
+        let end = center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { _ in ended += 1 }
+        defer { center.removeObserver(began); center.removeObserver(end) }
+        func closed(after count: Int) {
+            guard !ExactEnv.agentMode else { return turn() }
+            let deadline = Date(timeIntervalSinceNow: 10)
+            while (ended <= count || menuFrame() != nil) && Date() < deadline {
+                RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            }
+            XCTAssertGreaterThan(ended, count, "the menu tracked and ended")
+            XCTAssertNil(menuFrame(), "no menu window is left on screen")
+            turn()
+        }
+        p.menus.context(source, at: .zero)
+        closed(after: 0)
+        if ExactEnv.agentMode {
+            XCTAssertEqual([p.menus.isOpen(outer), p.menus.isOpen(pop)], [true, true], "the painted menu nests in the open popover")
+            p.menus.close(pop)
+        } else {
+            XCTAssertEqual(openWhileTracking, true, "the popover holding the source stays open under its menu")
+        }
+        XCTAssertEqual([p.menus.isOpen(outer), p.menus.isOpen(pop), p.menus.isOpen(manual)], [true, false, true], "the menu's close leaves it open")
+        // A source outside it closes it, as a click outside would; the manual one stays.
+        p.apply(wireBatch([["op": "create", "id": 21, "kind": "view", "handlers": ["contextmenu"], "props": ["contextPopover": "m"]],
+                           ["op": "children", "id": 9, "ids": [20, 2, 22, 21]], ["op": "frame", "id": 21, "x": 300, "y": 300, "w": 80, "h": 30]]))
+        p.menus.context(try XCTUnwrap(p.views[21]), at: .zero)
+        closed(after: 1)
+        if ExactEnv.agentMode { p.menus.close(pop) }
+        XCTAssertEqual([p.menus.isOpen(outer), p.menus.isOpen(manual)], [false, true])
+    }
+
     func testTheContextMenuIsItsPopoversItemsWithoutThePreview() throws {
         let p = presenter()
         let pop = try XCTUnwrap(p.views[2])
@@ -249,11 +307,11 @@ final class ContextMenuMacTests: XCTestCase {
     }
 
     /// The menu a right press opens takes the button's release: the view
-    /// never hears its `rightMouseUp`. The press's hold ends as the menu
-    /// closes, with `pointerup` to the ancestor that heard its down, and
+    /// never hears its `rightMouseUp`. The press's hold ends when the menu
+    /// starts tracking, with `pointerup` to the ancestor that heard its down, and
     /// hover follows the pointer again. A hold left behind kept every row's
     /// hover from following until a left click (realinput-1017l, failure 3).
-    func testTheHoldOfTheRightPressThatOpenedAMenuEndsAsItCloses() throws {
+    func testTheHoldOfTheRightPressEndsWhenItsMenuStartsTracking() throws {
         try XCTSkipIf(ExactEnv.agentMode, "the agent presents painted popovers")
         let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
         p.apply(wireBatch([
@@ -272,6 +330,8 @@ final class ContextMenuMacTests: XCTestCase {
         let center = NotificationCenter.default
         let began = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
             guard let menu = note.object as? NSMenu else { return }
+            XCTAssertFalse(p.pointerHolds, "native tracking takes ownership of the contact")
+            XCTAssertEqual(heard, ["9 down", "9 up"])
             RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTracking() }
         }
         let ended = center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { _ in closed = true }
@@ -294,6 +354,46 @@ final class ContextMenuMacTests: XCTestCase {
         p.viewport.mouseMoved(with: moved)
         XCTAssertEqual(heard.last, "hover 20 true", "hover follows the pointer once the menu has closed")
     }
+    func testAPointerUpThatInvalidatesTheMenuPreventsNativeTracking() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent presents painted popovers")
+        for change in ["hide", "remove", "retarget"] {
+            let p = presenter(), window = try XCTUnwrap(windows.last)
+            let source = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[2])
+            defer { p.menus.reset() }
+            source.handlers.formUnion(["pointerdown", "pointerup"])
+            window.orderFrontRegardless()
+            var released = false, tracked = false, finished = false
+            p.onPointer = { _, phase, _ in
+                guard phase == .up else { return }
+                released = true
+                switch change {
+                case "hide": p.menus.action("hidePopover", ["m"])
+                case "remove": p.apply(wireBatch([["op": "children", "id": 9, "ids": [1]], ["op": "destroy", "id": 2]]))
+                default: p.apply(wireBatch([["op": "props", "id": 1, "set": ["contextPopover": "other"]]]))
+                }
+            }
+            let center = NotificationCenter.default
+            let observer = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+                guard let menu = note.object as? NSMenu else { return }
+                tracked = true
+                RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTracking() }
+            }
+            defer { center.removeObserver(observer) }
+            let down = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: source.convert(NSPoint(x: 10, y: 10), to: nil),
+                modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                eventNumber: 1, clickCount: 1, pressure: 1))
+            source.rightMouseDown(with: down)
+            RunLoop.main.perform(inModes: [.common]) { finished = true }
+            let deadline = Date(timeIntervalSinceNow: 5)
+            while !finished && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+            XCTAssertTrue(finished)
+            XCTAssertTrue(released)
+            XCTAssertFalse(tracked, "pointerup must be allowed to \(change) the pending menu")
+            XCTAssertFalse(p.menus.isOpen(pop))
+            XCTAssertTrue(source.window === window, "the source survived the callback")
+        }
+    }
+
     /// The frame, in screen points, of this process's open menu. AppKit's
     /// menu window is not in `NSApp.windows`; the window server lists it at
     /// the pop-up menu level, from the primary screen's top left.
@@ -432,7 +532,7 @@ final class ContextMenuMacTests: XCTestCase {
         XCTAssertNil(p.menus.observation, "the menu's popover closed")
     }
 
-    func testContextMenuHonorsKeyCancellationAndOnlyTheUnmodifiedKeyDown() throws {
+    func testContextMenuHonorsKeyCancellationAndKeyboardMenuChords() throws {
         let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
         source.props.removeValue(forKey: "contextPopover")
         source.handlers.insert("key")
@@ -444,12 +544,16 @@ final class ContextMenuMacTests: XCTestCase {
         XCTAssertEqual(heard, 0, "a key handler cancelled the default")
         prevent = false
         XCTAssertFalse(p.routeKey(contextKey(window, type: .keyUp), focused: true))
-        XCTAssertFalse(p.routeKey(contextKey(window, code: 109, flags: .shift), focused: true), "Shift+F10")
         XCTAssertFalse(p.routeKey(contextKey(window, flags: .control), focused: true))
         XCTAssertFalse(p.routeKey(contextKey(window), focused: false), "another session has the focus")
         XCTAssertEqual(heard, 0)
         XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
         XCTAssertEqual(heard, 1)
+        XCTAssertTrue(p.routeKey(contextKey(window, code: 109, flags: .shift), focused: true), "Shift+F10")
+        XCTAssertEqual(heard, 2)
+        prevent = true
+        XCTAssertTrue(p.routeKey(contextKey(window, code: 109, flags: .shift), focused: true))
+        XCTAssertEqual(heard, 2, "a key handler can cancel Shift+F10 too")
         XCTAssertFalse(p.defaultPrevented, "the context action's flag cannot leak into another event")
     }
 

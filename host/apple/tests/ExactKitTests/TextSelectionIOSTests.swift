@@ -7,7 +7,7 @@ import XCTest
 
 /// LLP 1115.000 D11.6: `user-select="text"` on UIKit. Text its author made
 /// selectable takes UIKit's own text interaction when a finger first lands
-/// on it and answers it from the paragraph's own lines; text nobody made
+/// on it and answers it from the paragraphs' own lines; text nobody made
 /// selectable takes nothing. UIKit synthesizes no touch for a unit test, so
 /// a gesture's result is asked for as the driver asks (`selectWord`).
 /// Real long presses, double taps and handles need simulator coordinate
@@ -51,9 +51,25 @@ final class TextSelectionIOSTests: XCTestCase {
         let range = shaped.range(of: word)
         XCTAssertNotEqual(range.location, NSNotFound, word)
         let held = try XCTUnwrap(node.presenter?.textSelection.install(node))
-        let rect = held.firstRect(for: try XCTUnwrap(held.textRange(from: try XCTUnwrap(held.position(from: held.beginningOfDocument, offset: range.location)),
-                                                                   to: try XCTUnwrap(held.position(from: held.beginningOfDocument, offset: NSMaxRange(range))))))
-        return CGPoint(x: rect.midX, y: rect.midY)
+        let base = held.document?.parts.first { $0.node === node }?.start ?? 0
+        let rect = held.firstRect(for: try XCTUnwrap(held.textRange(from: try XCTUnwrap(held.position(from: held.beginningOfDocument, offset: base + range.location)),
+                                                                   to: try XCTUnwrap(held.position(from: held.beginningOfDocument, offset: base + NSMaxRange(range))))))
+        return held.textInputView.convert(CGPoint(x: rect.midX, y: rect.midY), to: node)
+    }
+
+    func testCaretAndSelectionFollowThePaintedFractionalBaseline() throws {
+        let p = mounted([text(1, "Hxg", style: ["font_size": 13.0, "line_height": "normal", "user_select": "text"], handlers: ["contextmenu"]),
+                         ["op": "roots", "ids": [1]], frame(1, 0)])
+        let node = try node(p, 1)
+        node.traitOverrides.displayScale = 3; node.updateTraitsIfNeeded()
+        let input = try XCTUnwrap(p.textSelection.install(node)), paragraph = try XCTUnwrap(node.paragraphLayout())
+        var above: CGFloat = 0
+        _ = CTLineGetTypographicBounds(try XCTUnwrap(paragraph.lines.first), &above, nil, nil)
+        let baseline = node.paragraphBox().minY + 37.0 / 3
+        let caret = input.textInputView.convert(input.caretRect(for: SelectablePosition(0)), to: node)
+        XCTAssertEqual(caret.minY + above, baseline, accuracy: 1e-6)
+        let rect = try XCTUnwrap(input.selectionRects(for: SelectableRange(NSRange(location: 0, length: 3))).first)
+        XCTAssertEqual(input.textInputView.convert(rect.rect, to: node).minY + above, baseline, accuracy: 1e-6)
     }
 
     /// A page: `prose` holds two paragraphs its author made selectable, a
@@ -140,6 +156,28 @@ final class TextSelectionIOSTests: XCTestCase {
         let at = { (offset: Int) in held.position(from: held.beginningOfDocument, offset: offset)! }
         held.selectedTextRange = held.textRange(from: at(10), to: at(12))
         XCTAssertEqual(held.selectedText, "/tmp/work")
+    }
+
+    func testUserSelectAllExpandsAcrossItsParagraphsFromEitherEnd() throws {
+        for nested in [false, true] {
+            let p = mounted([
+                box(1, style: ["user_select": nested ? "text" : "all"]),
+                box(4, style: ["user_select": "all"]), box(5, style: ["user_select": "text"]),
+                text(2, "First paragraph"), text(3, "Second paragraph"), text(6, "Outside paragraph"),
+                ["op": "children", "id": 1, "ids": [4, 6]], ["op": "children", "id": 4, "ids": [5, 3]],
+                ["op": "children", "id": 5, "ids": [2]], ["op": "roots", "ids": [1]],
+                frame(1, 0, h: 200, w: 400), frame(4, 0, h: 130), frame(5, 0, h: 60),
+                frame(2, 30, x: 20), frame(3, 80, x: 20), frame(6, 150, x: 20)
+            ])
+            let expected = nested ? "First paragraph\nSecond paragraph" : "First paragraph\nSecond paragraph\nOutside paragraph"
+            for id: UInt32 in [2, 3] {
+                let paragraph = try node(p, id)
+                p.textSelection.clear()
+                XCTAssertNotNil(p.textSelection.selectWord(in: paragraph, at: try point(in: paragraph, of: "paragraph")))
+                let input = try XCTUnwrap(p.textSelection.text(for: paragraph))
+                XCTAssertEqual(input.selectedText, expected, "starting in paragraph \(id), nested \(nested)")
+            }
+        }
     }
 
     func testAWordIsSelectedFromTheParagraphsOwnLinesAndCopied() throws {
@@ -259,10 +297,11 @@ final class TextSelectionIOSTests: XCTestCase {
     /// A touch whose hit view the test names (UIKit makes none for a test).
     private final class Touch: UITouch {
         let hit: UIView
+        var point: CGPoint?
         init(_ hit: UIView) { self.hit = hit; super.init() }
         override var view: UIView? { hit }
         override var window: UIWindow? { hit.window }
-        override func location(in view: UIView?) -> CGPoint { hit.convert(CGPoint(x: hit.bounds.midX, y: hit.bounds.midY), to: view) }
+        override func location(in view: UIView?) -> CGPoint { hit.convert(point ?? CGPoint(x: hit.bounds.midX, y: hit.bounds.midY), to: view) }
     }
 
     private final class Hold: UILongPressGestureRecognizer {
@@ -407,9 +446,11 @@ final class TextSelectionIOSTests: XCTestCase {
         for (id, size) in [(3, 17.0), (4, 34.0)] as [(UInt32, Double)] {
             let node = try node(p, id)
             let input = p.textSelection.install(node)
-            input.selectedTextRange = input.textRange(from: input.beginningOfDocument, to: input.endOfDocument)
+            let base = input.document?.parts.first { $0.node === node }?.start ?? 0
+            input.selectedTextRange = input.textRange(from: try XCTUnwrap(input.position(from: input.beginningOfDocument, offset: base)),
+                                                     to: try XCTUnwrap(input.position(from: input.beginningOfDocument, offset: base + (long as NSString).length)))
             XCTAssertEqual(p.textSelection.selection?.text, long, "font-size \(size)")
-            let rects = input.selectionRects(for: try XCTUnwrap(input.selectedTextRange)).map(\.rect)
+            let rects = input.selectionRects(for: try XCTUnwrap(input.selectedTextRange)).map { input.textInputView.convert($0.rect, to: node) }
             let paragraph = try XCTUnwrap(node.paragraphLayout())
             XCTAssertEqual(rects.count, paragraph.lines.count, "font-size \(size)")
             XCTAssertGreaterThan(rects.count, size > 20 ? 3 : 1, "font-size \(size)")
@@ -420,8 +461,8 @@ final class TextSelectionIOSTests: XCTestCase {
             }
             // A point on the last line is a caret on the last line.
             let last = rects[rects.count - 1]
-            let caret = try XCTUnwrap(input.closestPosition(to: CGPoint(x: last.midX, y: last.midY)))
-            XCTAssertEqual(input.caretRect(for: caret).midY, last.midY, accuracy: 1, "font-size \(size)")
+            let caret = try XCTUnwrap(input.closestPosition(to: node.convert(CGPoint(x: last.midX, y: last.midY), to: input.textInputView)))
+            XCTAssertEqual(input.textInputView.convert(input.caretRect(for: caret), to: node).midY, last.midY, accuracy: 1, "font-size \(size)")
         }
     }
 
@@ -454,7 +495,7 @@ final class TextSelectionIOSTests: XCTestCase {
             return mounted(ops)
         }
         func count(_ p: Presenter) -> (views: Int, interactions: Int, recognizers: Int) {
-            let nodes = (0..<400).compactMap { p.views[UInt32(100 + $0)] }
+            let nodes: [UIView] = (0..<400).compactMap { p.views[UInt32(100 + $0)] } + p.textSelection.texts.compactMap { $0.document?.surface }
             var views = 0
             func walk(_ view: UIView) { views += 1; view.subviews.forEach(walk) }
             walk(p.root)
@@ -478,21 +519,174 @@ final class TextSelectionIOSTests: XCTestCase {
         XCTAssertEqual(said.interactions, 0); XCTAssertEqual(said.recognizers, 0)
         spent = clock.measure { p.views[100]?.touchedText() }
         let one = count(p)
-        XCTAssertEqual(one.views, said.views, "UIKit's interaction is on the paragraph's own view")
+        XCTAssertEqual(one.views, said.views + 1, "one shared surface, added on the first touch")
         XCTAssertGreaterThan(one.interactions, 0); XCTAssertGreaterThan(one.recognizers, 0)
         for i in 1..<400 { p.views[UInt32(100 + i)]?.touchedText() }
         let all = count(p)
-        XCTAssertEqual(p.textSelection.texts.count, TextSelectionHost.kept)
-        XCTAssertEqual(all.interactions, one.interactions * TextSelectionHost.kept)
-        XCTAssertEqual(all.recognizers, one.recognizers * TextSelectionHost.kept)
-        XCTAssertEqual(all.views, said.views)
+        XCTAssertEqual(p.textSelection.texts.count, 1)
+        XCTAssertEqual(all.interactions, one.interactions)
+        XCTAssertEqual(all.recognizers, one.recognizers)
+        XCTAssertEqual(all.views, one.views)
         print("text selection cost, 400 paragraphs made selectable: \(said.views) views, \(said.interactions) interactions, \(said.recognizers) recognizers; after one touch: \(one.interactions) interactions, \(one.recognizers) recognizers (\(spent) to add them); after a touch on each of the 400: \(all.interactions) interactions, \(all.recognizers) recognizers on \(p.textSelection.texts.count) paragraphs, \(all.views) views")
         // A selection is not taken away to make room.
         let chosen = try node(p, 399)
         _ = try XCTUnwrap(p.textSelection.selectWord(in: chosen, at: CGPoint(x: 30, y: 11)))
         for i in 0..<20 { p.views[UInt32(100 + i)]?.touchedText() }
         XCTAssertNotNil(p.textSelection.text(for: chosen)?.selectedTextRange)
-        XCTAssertEqual(p.textSelection.texts.count, TextSelectionHost.kept)
+        XCTAssertEqual(p.textSelection.texts.count, 1)
     }
+    func testAnAgentTapClearsASelectionWithoutPressingTheRow() throws {
+        let p = page()
+        let paragraph = try node(p, 7)
+        let point = try point(in: paragraph, of: "Selectable")
+        XCTAssertNotNil(p.textSelection.selectWord(in: paragraph, at: point))
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        let reply = Agent(session: try XCTUnwrap(session)).tap(["id": 7])
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertNil(p.textSelection.selection)
+        XCTAssertTrue(presses.isEmpty)
+    }
+
+    func testOneTextInputSelectsAcrossParagraphsAndKeepsTheirSourceRanges() throws {
+        let p = mounted([
+            box(1, style: ["user_select": "text"]),
+            text(2, "First paragraph", handlers: ["selectionchange"]),
+            text(3, "Second paragraph", handlers: ["selectionchange"]),
+            ["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]],
+            frame(1, 0, h: 180, w: 400), frame(2, 30, x: 20), frame(3, 80, x: 20)
+        ])
+        let first = try node(p, 2), second = try node(p, 3)
+        p.textSelection.touched(first)
+        let input = try XCTUnwrap(p.textSelection.text(for: first))
+        let range = try XCTUnwrap(input.textRange(from: input.beginningOfDocument, to: input.endOfDocument))
+        XCTAssertEqual(input.text(in: range), "First paragraph\nSecond paragraph")
+        var heard: [String] = []
+        p.onSelectionChange = { id, text, start, end, _ in heard.append("\(id):\(text):\(start):\(end)") }
+        input.selectedTextRange = range
+        XCTAssertEqual(input.selectedText, "First paragraph\nSecond paragraph")
+        XCTAssertEqual(heard, ["2:First paragraph:0:15", "3:Second paragraph:0:16"])
+        let rects = input.selectionRects(for: range)
+        XCTAssertEqual(rects.count, 2)
+        XCTAssertTrue(rects.first?.containsStart == true)
+        XCTAssertTrue(rects.last?.containsEnd == true)
+        XCTAssertEqual(input.caretRect(for: range.end).midY,
+                       second.convert(CGPoint(x: 0, y: second.bounds.midY), to: input.textInputView).y, accuracy: 3)
+        let pasteboard = UIPasteboard.withUniqueName()
+        defer { UIPasteboard.remove(withName: pasteboard.name) }
+        p.textSelection.pasteboard = pasteboard
+        first.copy(nil)
+        XCTAssertEqual(pasteboard.string, "First paragraph\nSecond paragraph")
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["text": "Changed"]]]))
+        XCTAssertNil(p.textSelection.selection)
+    }
+
+    private final class TextTouchEvent: UIEvent {
+        override var type: UIEvent.EventType { .touches }
+    }
+
+    func testInlineContextMenusKeepTheirParagraphOnTheTextTouchPath() throws {
+        let p = mounted([
+            box(1, style: ["user_select": "text"]),
+            text(2, "First paragraph"), text(3, "Second paragraph"),
+            ["op": "paragraph", "id": 2, "runs": [
+                ["id": 21, "parent": 2, "paint": true, "props": ["text": "First"], "handlers": ["contextmenu"]],
+                ["id": 22, "parent": 2, "paint": true, "props": ["text": " paragraph"]]
+            ]],
+            ["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]],
+            frame(1, 0, h: 180, w: 400), frame(2, 30, x: 20), frame(3, 80, x: 20)
+        ])
+        let first = try node(p, 2)
+        let at = try point(in: first, of: "First")
+        XCTAssertNotNil(first.inlineContextTarget(at: at))
+        let recognizer = try XCTUnwrap(first.contextRecognizer)
+        let hit = try XCTUnwrap(first.hitTest(at, with: TextTouchEvent()))
+        XCTAssertTrue(hit === first, "a menu's paragraph must receive UIKit's text touch")
+        XCTAssertTrue(sequence(first: hit, next: { $0.superview }).contains { view in
+            view.gestureRecognizers?.contains { $0 === recognizer } == true
+        }, "UIKit delivers the long press along this physical path")
+        XCTAssertNil(p.textSelection.text(for: first)?.document, "context-menu prose keeps its paragraph input")
+    }
+
+    func testSharedTextTouchesDeliverPointerEventsThroughTheParagraph() throws {
+        let p = mounted([
+            box(1, style: ["user_select": "text"], handlers: ["pointerdown", "pointerup"]),
+            text(2, "First paragraph", handlers: ["pointerdown", "pointermove", "pointerup"]),
+            text(3, "Second paragraph"),
+            ["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]],
+            frame(1, 0, h: 180, w: 400), frame(2, 30, x: 20), frame(3, 80, x: 20)
+        ])
+        let first = try node(p, 2), event = TextTouchEvent()
+        let hit = try XCTUnwrap(first.hitTest(CGPoint(x: 30, y: 10), with: event))
+        let touch = Touch(hit)
+        touch.point = first.convert(CGPoint(x: 30, y: 10), to: hit)
+        // UIKit sends recognizer events only up the hit view's physical ancestry.
+        let observers = sequence(first: hit, next: { $0.superview }).flatMap { view in
+            (view.gestureRecognizers ?? []).compactMap { $0 as? PointerRecognizer }
+        }
+        var heard: [String] = []
+        p.onPointer = { id, kind, _ in heard.append("\(id):\(kind)") }
+        observers.forEach { $0.touchesBegan([touch], with: event) }
+        observers.forEach { $0.touchesMoved([touch], with: event) }
+        observers.forEach { $0.touchesEnded([touch], with: event) }
+        XCTAssertEqual(heard, ["2:down", "1:down", "2:move", "2:up", "1:up"])
+        first.handlers = []
+        first.syncPointerRecognizer()
+        heard = []
+        observers.forEach { $0.reset() }
+        let next = Touch(hit)
+        next.point = touch.point
+        observers.forEach { $0.touchesBegan([next], with: event) }
+        observers.forEach { $0.touchesEnded([next], with: event) }
+        XCTAssertEqual(heard, ["1:down", "1:up"], "an ancestor already on the physical touch path hears it once")
+        first.handlers = ["pointermove"]
+        first.syncPointerRecognizer()
+        heard = []
+        observers.forEach { $0.reset() }
+        let moved = Touch(hit)
+        moved.point = touch.point
+        observers.forEach { $0.touchesBegan([moved], with: event) }
+        observers.forEach { $0.touchesMoved([moved], with: event) }
+        observers.forEach { $0.touchesEnded([moved], with: event) }
+        XCTAssertEqual(heard, ["1:down", "2:move", "1:up"], "a move-only paragraph still owns the observer")
+    }
+
+    func testTheSharedInputTakesTextTouchesAndForwardsAPress() throws {
+        let p = mounted([
+            box(1, style: ["user_select": "text"]),
+            text(2, "First paragraph", style: ["user_select": "text"], handlers: ["press"]),
+            text(3, "Second paragraph"),
+            ["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]],
+            frame(1, 0, h: 180, w: 400), frame(2, 30, x: 20), frame(3, 80, x: 20)
+        ])
+        let first = try node(p, 2), second = try node(p, 3)
+        let event = TextTouchEvent()
+        let hit = try XCTUnwrap(first.hitTest(CGPoint(x: 30, y: 10), with: event))
+        let input = try XCTUnwrap(p.textSelection.text(for: first))
+        XCTAssertTrue(hit === input.textInputView)
+        XCTAssertTrue(second.hitTest(CGPoint(x: 30, y: 10), with: event) === hit)
+        XCTAssertTrue(hit.interactions.contains { $0 === input.interaction })
+        XCTAssertLessThan(hit.layer.zPosition, first.layer.zPosition, "the highlight is below the paragraph's ink")
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        let touch = Touch(hit)
+        touch.point = first.convert(CGPoint(x: 30, y: 10), to: hit)
+        hit.touchesBegan([touch], with: event)
+        hit.touchesEnded([touch], with: event)
+        XCTAssertEqual(presses, [2])
+        for clearsBeforeLift in [false, true] {
+            XCTAssertNotNil(p.textSelection.selectWord(in: first, at: try point(in: first, of: "paragraph")))
+            let selectedTouch = Touch(hit)
+            selectedTouch.point = touch.point
+            hit.touchesBegan([selectedTouch], with: event)
+            XCTAssertFalse(first.pressed, "a selection-clearing tap does not arm a paragraph press")
+            if clearsBeforeLift { input.clear() }
+            hit.touchesEnded([selectedTouch], with: event)
+            XCTAssertEqual(presses, [2], "selection clearing wins before or after touchesEnded")
+            XCTAssertFalse(first.pressed)
+            input.clear()
+        }
+    }
+
 }
 #endif

@@ -198,23 +198,24 @@ function standIns(stall) {
   mkdirSync(join(dir, 'app'), { recursive: true });
   return { dir, pids: () => readFileSync(pids, 'utf8').split('\n').filter(Boolean).map(Number) };
 }
-const fakeRes = () => ({ writeHead() {}, write() {}, end() {} });
+const fakeRes = () => { const handlers = {}; return { writeHead() {}, write() {}, end() {}, on: (e, f) => { handlers[e] = f; }, close: () => handlers.close?.() }; };
 const fakeReq = () => { const handlers = {}; return { method: 'GET', headers: {}, on: (e, f) => { handlers[e] = f; }, close: () => handlers.close?.() }; };
 
 test('every process the gallery starts, a child of its generator or its builder included, stops with it: at stop, at either stage, and when its last page has been gone a while', async () => {
   const { galleryLoop } = await import('./dev-gallery.mjs');
-  for (const stage of ['generate', 'build']) {
+  // ('build, res only': its page gone with only the response's close, as under Bun on a handed-off socket.)
+  for (const [stage, by] of [['generate', null], ['build', 'req'], ['build', 'res']]) {
     const s = standIns(stage);
     const loop = galleryLoop({ app: { dir: join(s.dir, 'app'), id: `life-${stage}` }, root: join(s.dir, 'root'), appDist: join(s.dir, 'dist'), env: { ...process.env, CARGO_TARGET_DIR: join(s.dir, 'target') }, client: () => '', log: () => {}, idleMs: 200 });
     rmSync(loop.cache, { recursive: true, force: true });
-    const req = fakeReq();
-    await loop.handle(req, fakeRes(), new URL('http://x/__dev/gallery/stream'));
+    const req = fakeReq(), res = fakeRes();
+    await loop.handle(req, res, new URL('http://x/__dev/gallery/stream'));
     await until(() => s.pids().length >= 2, 30_000);
     const started = s.pids();
     expect(started.every(alive)).toBe(true);
     if (stage === 'generate') await loop.stop();
     // Its last page gone: after the quiet period, its processes stopped with it.
-    else { req.close(); await until(() => !started.some(alive), 10_000); }
+    else { (by === 'req' ? req : res).close(); await until(() => !started.some(alive), 10_000); }
     await until(() => !started.some(alive), 10_000);
     expect(started.filter(alive)).toEqual([]);
     rmSync(loop.cache, { recursive: true, force: true });

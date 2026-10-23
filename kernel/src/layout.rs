@@ -1173,7 +1173,7 @@ impl LayoutTree {
                     };
                     // @ref LLP 1093 D1 — a multi-column `text` breaks its
                     // lines at the column width; its height is the columns'.
-                    let width = match (style.multicol, known.width) {
+                    let width = match (style.rare.multicol, known.width) {
                         (Some(m), Some(u)) => AxisOffer::Definite(m.columns(u).1),
                         _ => width,
                     };
@@ -1274,7 +1274,7 @@ impl LayoutTree {
                         metrics
                     };
                     let mut metrics = metrics;
-                    if let Some(h) = style.multicol.and_then(|m| m.used_height) {
+                    if let Some(h) = style.rare.multicol.and_then(|m| m.used_height) {
                         metrics.height = h;
                     }
                     if arena.node_type(slot) == NodeType::TextInput

@@ -97,6 +97,7 @@ mod apply;
 mod live_time;
 pub mod midi;
 mod modules;
+pub use modules::CallOrigin;
 mod split;
 mod surface_record;
 mod text_axes;
@@ -328,6 +329,11 @@ struct PendingReq {
     /// A mutation's: the write it carries (`writes.rs`), which only its
     /// reply lands or ends.
     write: Option<u64>,
+    /// Held (LLP 1016.000 D9, [`Request::is_held`]): pending, but no clock waits on it. A long poll (D8),
+    /// `replied` once it has a reply of any kind, is held and named too.
+    held: bool,
+    long_poll: bool,
+    replied: bool,
 }
 
 /// An open stream's messages so far, and those the host coalesced away
@@ -344,8 +350,14 @@ pub struct StreamCount {
 
 impl PendingReq {
     /// In flight: every request, and a stream until its first message.
+    /// What `pending(…)` reads, held requests included.
     fn in_flight(&self) -> bool {
         self.stream.is_none_or(|s| s.messages == 0)
+    }
+
+    /// Waited on by a clock (a jump, `clock settle`, `clock data`): in flight, not held (D8, D9).
+    fn waited(&self) -> bool {
+        self.in_flight() && !self.held && !self.replied
     }
 }
 
@@ -374,6 +386,8 @@ pub struct Runner<D: DataSource> {
     strings: vm::Strings,
     sites: crate::instance::SiteIndex,
     inspection_digest: std::cell::OnceCell<String>,
+    /// [`Runner::keeps_midi`], made at the first agent read.
+    keeps_midi: std::cell::OnceCell<bool>,
     action_binding_origin: std::rc::Rc<()>,
     detached_focus: Vec<(ViewId, FocusPath)>,
     data: D,
@@ -462,6 +476,8 @@ pub struct Runner<D: DataSource> {
     sockets: Vec<crate::SocketSend>,
     /// The host's live count of a socket's buffered bytes (D7), if it has one.
     socket_reader: Option<sockets::SocketReader>,
+    /// The host's live view of its long polls' backoff waits (D8), if it has one.
+    retry_reader: Option<crate::RetryReader>,
     mutation_requests: u64,
     /// Resources an action asked to re-request; consumed by the next settle
     /// that can ask them (LLP 1054.000.000 D2).
@@ -552,6 +568,8 @@ pub struct Runner<D: DataSource> {
     faults: faults::Faults,
     /// Device requests held for the agent (LLP 1069.007 D3): not I/O.
     device_holds: Vec<device::Hold>,
+    /// Replies landed for held requests, by target (LLP 1016.000 D9): `clock held`'s evidence.
+    held_replies: Vec<(String, u64)>,
     /// Notifications the app posted under the agent (`state.notifications`):
     /// the agent's substitute for the system's (`crate::notify`).
     notifications: Vec<crate::notify::Notice>,
@@ -858,6 +876,7 @@ impl<D: DataSource> Runner<D> {
             midi: crate::runner::midi::queue(&plan, &data),
             plan,
             inspection_digest: std::cell::OnceCell::new(),
+            keeps_midi: std::cell::OnceCell::new(),
             action_binding_origin: std::rc::Rc::new(()),
             detached_focus: Vec::new(),
             data,
@@ -918,6 +937,7 @@ impl<D: DataSource> Runner<D> {
             requests: Vec::new(),
             sockets: Vec::new(),
             socket_reader: None,
+            retry_reader: None,
             mutation_requests: 0,
             refresh_next: Vec::new(),
             writes: writes::Writes::default(),
@@ -956,6 +976,7 @@ impl<D: DataSource> Runner<D> {
             journal: std::collections::VecDeque::new(),
             faults: faults::Faults::from_env(),
             device_holds: Vec::new(),
+            held_replies: Vec::new(),
             notifications: Vec::new(),
             auth: Default::default(),
             device_links: DeviceLinks::CORE,
@@ -1260,6 +1281,16 @@ impl<D: DataSource> Runner<D> {
             .and_then(|i| self.derives[i].as_ref())
     }
 
+    /// The plan's `i`th slot and derive, for a walk of all of them (the
+    /// agent's `state`): looking each up by name is quadratic in the slots.
+    pub(crate) fn slot_at(&self, i: usize) -> Option<&Value> {
+        self.slots.get(i)
+    }
+
+    pub(crate) fn derive_at(&self, i: usize) -> Option<&Value> {
+        self.derives.get(i).and_then(Option::as_ref)
+    }
+
     /// Each resource whose last request failed, by name, with why: what
     /// `failed(x)` reads, for the agent's `state.failed`.
     pub fn failed_resources(&self) -> Vec<(&str, &str)> {
@@ -1462,5 +1493,7 @@ impl<D: DataSource> Runner<D> {
         Ok(vm::eval(self.plan.code(code), &env, &[])?.value)
     }
 }
+#[cfg(test)]
+mod held_tests;
 #[cfg(test)]
 mod stream_tests;

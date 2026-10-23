@@ -74,6 +74,22 @@ final class BarReadoutIOSTests: XCTestCase {
         XCTAssertTrue(shape.group?.glyphs.isEmpty ?? true)
     }
 
+    /// A disabled button is UIKit's disabled bar item, shown dimmed, though
+    /// nothing presses it (the euxy port's "● Clock" written as one); one
+    /// neither pressed nor disabled is still the page's.
+    func testADisabledButtonIsADisabledItemThoughNothingPressesIt() throws {
+        let button = { (id: Int, props: [String: String]) -> [String: Any] in
+            ["op": "create", "id": id, "kind": "control", "props": ["type": "button", "accessibilityRole": "button"].merging(props) { $1 }]
+        }
+        let p = route([button(4, ["disabled": "true", "accessibilityLabel": "Clock"]), button(5, ["accessibilityLabel": "Idle"]),
+                       button(6, ["disabled": "false", "accessibilityLabel": "Enabled"])], kids: [4, 5, 6])
+        let shape = try XCTUnwrap(HeaderShape(route: try XCTUnwrap(p.views[1]), back: nil, projected: true))
+        XCTAssertEqual(shape.trailing.map(\.id), [4])
+        XCTAssertTrue(shape.trailing.first?.disabled ?? false)
+        XCTAssertTrue(shape.placed.contains { $0.id == 4 })
+        XCTAssertFalse(shape.placed.contains { $0.id == 5 || $0.id == 6 })
+    }
+
     /// With no `aria-label` a readout says the words it shows: a hidden
     /// text in it is not spoken.
     func testItsWordsAreTheOnesItShows() throws {

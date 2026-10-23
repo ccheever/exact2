@@ -58,7 +58,7 @@ impl NodeInst {
     /// Whether `view` is this node's or a descendant's (a pin in a row).
     pub(super) fn contains(&self, view: ViewId) -> bool {
         self.view == view
-            || self.collection.as_ref().is_some_and(|c| c.contains(view))
+            || self.collection().is_some_and(|c| c.contains(view))
             || contains(&self.children, view)
     }
 }
@@ -96,7 +96,7 @@ impl Tree {
             if target == view {
                 return Some((n.node, frames));
             }
-            match &n.collection {
+            match n.collection() {
                 Some(collection) => {
                     let row = collection.row_by_wrapper(targets.next()?)?;
                     frames.push(row.frame.clone());

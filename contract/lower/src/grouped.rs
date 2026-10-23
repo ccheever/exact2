@@ -21,20 +21,23 @@
 //! the sheet asks for (`groupedRowSeparator`) and each host draws
 //! (`Kernel::grouped_separator`, the web's page sheet).
 
-mod actions;
+pub(crate) mod actions;
+mod cell;
 mod inputs;
 mod lines;
 mod messages;
+pub(crate) use messages::folds;
 mod native;
 mod title;
 mod value;
 
+use cell::{lines as cell_lines, standard, text_lines, text_stack};
 use inputs::{column_row, field_beside_label, field_kind, hidden, switch, text_field, Field};
 use native::native_row;
 pub(crate) use native::{margins_said, native_rows};
 
 use crate::{err, swipe_rows, LowerError};
-use contract_syntax::{Attr, Expr, Node, Span};
+use contract_syntax::{Attr, Expr, Node, Span, TemplatePart};
 
 /// `listStyle`'s names (D2), UIKit's three list appearances.
 pub(crate) const STYLES: &[&str] = &["inset-grouped", "grouped", "plain"];
@@ -224,7 +227,7 @@ pub(crate) fn split(attrs: &[Attr]) -> (Vec<Attr>, Option<Vec<Attr>>) {
         .partition(|a| a.name.starts_with(MARK));
     let sheet = sheet
         .into_iter()
-        .filter(|a| a.name != BUTTON_CONTEXT && a.name != SEPARATED)
+        .filter(|a| ![BUTTON_CONTEXT, SEPARATED, actions::ACTION_MARK].contains(&a.name.as_str()))
         .map(|a| Attr {
             name: a.name[MARK.len()..].to_owned(),
             ..a
@@ -638,7 +641,14 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
     })
 }
 
-/// A literal `symbol:` image source's Apple name, as the kernel names it.
+/// A symbol a prop or an expression names (`symbol:${name}`, a library
+/// row's): a symbol, which one known only when it runs, so no accessory (a
+/// row writes its chevron or checkmark literally). Its Apple name stands
+/// for any.
+const NAMED_SYMBOL: &str = "symbol";
+
+/// A `symbol:` image source's Apple name, as the kernel names it; a source
+/// a template writes (`symbol:${name}`) is [`NAMED_SYMBOL`].
 fn symbol(node: &Node) -> Option<&str> {
     let Node::Element {
         tag, positional, ..
@@ -658,6 +668,10 @@ fn symbol(node: &Node) -> Option<&str> {
                 other => other.strip_prefix("sf/").unwrap_or(other),
             })
         }
+        ("image", Some(Expr::Template(parts, _))) => match parts.first() {
+            Some(TemplatePart::Text(text)) if text.starts_with("symbol:") => Some(NAMED_SYMBOL),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -834,8 +848,11 @@ fn styled(node: &Node, separated: bool, swiped: bool) -> Node {
     // a symbol before it at most, nothing at its trailing edge) is in the
     // platform's action ink: the tint in UIKit's list, as SwiftUI's
     // `List { Button }` and a hand-built action cell draw it. The kernel
-    // reads the same shape (`GroupedRow::action`).
-    let ink = if tag == "button" && action_cell(children) {
+    // reads the same shape (`GroupedRow::action`). A row that says whether
+    // it is selected is a choice, whose mark comes and goes: never one.
+    let choice = attrs.iter().any(|a| a.name == "aria-selected");
+    let acting = tag == "button" && !choice && action_cell(children);
+    let ink = if acting {
         mv("action-color", span)
     } else {
         label()
@@ -885,7 +902,7 @@ fn styled(node: &Node, separated: bool, swiped: bool) -> Node {
     // line). One or two texts are the subtitle cell's lines, which the kernel
     // reads as one; anything else is the author's own layout.
     if column_row(tag, attrs) {
-        let stack = text_lines(children).is_some_and(|(low, high)| low >= 1 && high <= 2);
+        let stack = cell_lines(children);
         let mut rows = context;
         rows.extend([
             s("display", "flex", span),
@@ -900,7 +917,7 @@ fn styled(node: &Node, separated: bool, swiped: bool) -> Node {
             m("padding-bottom", "stack-padding-block", span),
             s("font-size", BODY, span),
             attr("color", tint(label()), span),
-            s("text-align", "left", span),
+            s("text-align", "start", span),
         ]);
         rows.extend(separator(separated, span));
         rows.extend(attrs.iter().cloned());
@@ -961,15 +978,18 @@ fn styled(node: &Node, separated: bool, swiped: bool) -> Node {
         m("padding-bottom", "row-padding-block", span),
         s("font-size", BODY, span),
         attr("color", tint(ink), span),
-        s("text-align", "left", span),
-        // A cell's labels hyphenate (UIListContentConfiguration's text has a
-        // hyphenationFactor of 1, iOS 27): a word that does not fit its line
-        // breaks between syllables ("Alice Ander-son"), and one with no
-        // syllable that fits breaks anywhere rather than running over the
-        // value beside it.
-        s("hyphens", "auto", span),
+        s("text-align", "start", span),
+        // A word longer than its line breaks rather than running over the
+        // value beside it, as a UILabel's does.
         s("overflow-wrap", "break-word", span),
     ];
+    // The standard cell's labels hyphenate (UIListContentConfiguration's
+    // text has a hyphenationFactor of 1, iOS 27: "Alice Ander-son"). An
+    // author's own content is a custom cell's, whose UILabel's factor is 0,
+    // as SwiftUI's `Text` is: CSS's `manual`.
+    if standard(children) {
+        sheet.push(s("hyphens", "auto", span));
+    }
     if field.is_some() {
         sheet.push(s("flex-wrap", "wrap", span));
     }
@@ -1016,6 +1036,7 @@ fn styled(node: &Node, separated: bool, swiped: bool) -> Node {
     }
     // A card-less section's rows draw no separator (§6.2).
     sheet.extend(separator(separated, span));
+    sheet.extend(actions::mark(tag == "button", acting, span));
     // The title grows to push a value to the far edge; a push button's is
     // as wide as its words.
     let title_grow = || {
@@ -1399,68 +1420,6 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
         ),
         _ => child.clone(),
     }
-}
-
-/// Whether a row's parts are a leading symbol, one `column` of one or two
-/// texts and a trailing accessory at most: the subtitle cell the kernel
-/// reads. A `column` in any other row is the author's.
-fn text_stack(children: &[Node]) -> bool {
-    // What the kernel reads at a row's ends, or a condition between it and
-    // nothing (a checkmark shown by an `if`).
-    fn either(node: &Node, part: &dyn Fn(&Node) -> bool) -> bool {
-        match node {
-            Node::When {
-                then, otherwise, ..
-            } => [then, otherwise]
-                .iter()
-                .all(|arm| matches!(arm.as_slice(), [] | [_]) && arm.iter().all(part)),
-            other => part(other),
-        }
-    }
-    let leading = |n: &Node| symbol(n).is_some_and(|s| accessory(s).is_none());
-    let trailing = |n: &Node| match n {
-        Node::Element { tag, children, .. } => match tag.as_str() {
-            "image" => symbol(n).is_some_and(|s| accessory(s).is_some()),
-            // A checkbox or switch, as the kernel's toggle is.
-            "input" => matches!(n, Node::Element { attrs, .. }
-                if attrs.iter().any(|a| a.name == "type" && matches!(&a.value, Expr::Str(v, _) if v.eq_ignore_ascii_case("checkbox")))),
-            "button" => {
-                matches!(children.as_slice(), [only] if symbol(only).is_some_and(|s| s == "info.circle" || s == "info.circle.fill"))
-            }
-            _ => false,
-        },
-        _ => false,
-    };
-    let visible: Vec<Node> = children.iter().filter(|c| !hidden(c)).cloned().collect();
-    let mut rest = &visible[..];
-    if let Some((first, after)) = rest.split_first() {
-        if either(first, &leading) {
-            rest = after;
-        }
-    }
-    if let Some((last, before)) = rest.split_last() {
-        if either(last, &trailing) {
-            rest = before;
-        }
-    }
-    matches!(rest, [Node::Element { tag, children, .. }]
-        if tag == "column" && text_lines(children).is_some_and(|(low, high)| low >= 1 && high <= 2))
-}
-
-/// How many texts `nodes` show, fewest and most, an `if` showing one of
-/// them included; `None` when anything else is among them.
-fn text_lines(nodes: &[Node]) -> Option<(usize, usize)> {
-    nodes.iter().try_fold((0, 0), |(low, high), c| match c {
-        Node::Element { tag, .. } if tag == "text" && hidden(c) => Some((low, high)),
-        Node::Element { tag, .. } if tag == "text" => Some((low + 1, high + 1)),
-        Node::When {
-            then, otherwise, ..
-        } => {
-            let (a, b) = (text_lines(then)?, text_lines(otherwise)?);
-            Some((low + a.0.min(b.0), high + a.1.max(b.1)))
-        }
-        _ => None,
-    })
 }
 
 /// Whether the author wrote how wide `node` is in its row.

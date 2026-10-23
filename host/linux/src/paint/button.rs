@@ -141,6 +141,7 @@ fn face_layout(
     rows: &ButtonFaceStyle,
     width: AxisOffer,
     filled: bool,
+    bordered: bool,
 ) -> FaceLayout {
     let neutral = look::neutral();
     let tab_root = rows.neutral_tab_root;
@@ -230,6 +231,12 @@ fn face_layout(
     let em = title_style.font_size;
     let said = |id| (neutral || filled) && rows.button.written.has(id);
     let (said_width, said_height) = (said(StyleId::Width), said(StyleId::Height));
+    let padding_block = neutral
+        && !rows.neutral_role_floor
+        && (said(StyleId::PaddingTop) || said(StyleId::PaddingBottom));
+    let padding_inline = neutral
+        && !rows.neutral_role_floor
+        && (said(StyleId::PaddingLeft) || said(StyleId::PaddingRight));
     let lone_symbol =
         (face.symbol.is_some() || face.raster) && face.title.is_none() && face.subtitle.is_none();
     let inline = if tab_root.is_some() {
@@ -276,6 +283,15 @@ fn face_layout(
         (StyleId::PaddingLeft, rows.button.padding_left, 9.0, inline),
     ]
     .map(|(id, d, default, look)| {
+        let edge = if !bordered
+            && match id {
+                StyleId::PaddingTop | StyleId::PaddingBottom => padding_block,
+                _ => padding_inline,
+            } {
+            0.0
+        } else {
+            edge
+        };
         edge + if rows.button.mask.has(id) || (tab_root.is_some() && rows.button.written.has(id)) {
             points(d)
         } else if neutral || filled {
@@ -332,7 +348,7 @@ fn face_layout(
     };
     let min_width = match filled && !said_width {
         true => material_dp(metric::FILLED_BUTTON_MIN_WIDTH) * scale,
-        false => floor(said_width),
+        false => floor(said_width || padding_inline),
     };
     let min_height = if tab_root.is_some() {
         if declared(&rows.button, StyleId::MinHeight) {
@@ -341,7 +357,7 @@ fn face_layout(
             tab_length(metric::TABBAR_HEIGHT, em)
         }
     } else {
-        floor(said_height)
+        floor(said_height || padding_block)
     };
     let natural = [
         (face.title.as_deref(), Some(&title_style)),
@@ -402,7 +418,14 @@ fn face_layout(
 
 pub(crate) fn measure(engine: &mut TextEngine, request: &ButtonMeasureRequest) -> ButtonMeasure {
     let filled = material_filled(request.button_style.as_deref());
-    let face = face_layout(engine, &request.face, &request.style, request.width, filled);
+    let face = face_layout(
+        engine,
+        &request.face,
+        &request.style,
+        request.width,
+        filled,
+        request.button_style.as_deref().unwrap_or("bordered") == "bordered",
+    );
     ButtonMeasure {
         width: face.width,
         height: face.height,
@@ -423,7 +446,8 @@ impl Painter {
     /// on it; `soft` and `text` are the accent as ink, on a tint of it or on
     /// nothing. A destructive button's accent is the red. Where a pointer
     /// hovers a wash of the ink lies over the fill, and a stronger one while
-    /// pressed; disabled, the ink is the grey and an accent fill a neutral.
+    /// pressed, but for `fill`, which shows UIKit's highlight (neutral.css);
+    /// disabled, the ink is the grey and an accent fill a neutral.
     fn neutral_face(
         &mut self,
         node: &NodeRef<'_>,
@@ -477,13 +501,19 @@ impl Painter {
         let line = look::px(metric::CONTROL_LINE, super::neutral::em(node));
         let (fill, edge, wash, ink) = match style {
             "fill" if disabled => (Some(role("-exact-tertiary-fill", dark)), None, None, label),
+            "fill" if pressed => {
+                let alpha = number(metric::BUTTON_PRESSED_ALPHA);
+                let ink = fade(look::ink_on(accent), alpha);
+                if dark {
+                    let white = fade([255; 4], number(metric::BUTTON_PRESSED_LIGHTEN));
+                    (Some(accent), None, Some(white), ink)
+                } else {
+                    (Some(fade(accent, alpha)), None, None, ink)
+                }
+            }
             "fill" => {
                 let ink = look::ink_on(accent);
-                let wash = ink_wash(
-                    ink,
-                    metric::BUTTON_PRESSED_FILLED,
-                    metric::BUTTON_HOVER_FILLED,
-                );
+                let wash = hover.then(|| fade(ink, number(metric::BUTTON_HOVER_FILLED)));
                 (Some(accent), None, wash, ink)
             }
             "soft" if disabled => (Some(role("-exact-tertiary-fill", dark)), None, None, label),
@@ -704,6 +734,7 @@ impl Painter {
             rows,
             AxisOffer::Definite(rect.2),
             filled,
+            name == "bordered",
         );
         let (x, y, w, h) = rect;
         let [pt, pr, pb, pl] = layout.padding;
@@ -857,6 +888,7 @@ mod tests {
             },
             style: ButtonFaceStyle {
                 neutral_tab_root: None,
+                neutral_role_floor: false,
                 title: StyleProps::default(),
                 subtitle: None,
                 symbol: StyleProps::default(),

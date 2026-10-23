@@ -12,6 +12,12 @@ import { iosAssets, entitlements, infoPlist, macInfoPlist, documentTypes, import
 import { useXcode } from '../host/apple/devices.mjs';
 import { macReleaseEntitlements, launchImageInventory } from '../host/apple/assets.mjs';
 
+test('the Apple build rejects --phone before selecting a simulator or resolving an app', () => {
+  const result = spawnSync(process.execPath, ['host/apple/build.mjs', '--ios', '--phone', 'other-lane', 'no-such-app'], { encoding: 'utf8' });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /--phone needs --device; for a simulator use --sim/);
+});
+
 // These cases run cargo (the filesystem tool, bakes, locks). A shell whose PATH
 // omits rustup's bin directory still finds it there; without cargo, say so.
 const cargoBin = resolve(process.env.CARGO_HOME ?? resolve(homedir(), '.cargo'), 'bin');
@@ -120,16 +126,17 @@ test.skipIf(process.platform !== 'darwin')('iOS distribution assets retain the i
       host: { ios: { launchImage: { src: 'icon.png', width: 40 } } } } };
     const keys = iosAssets(app, bundle, true, { catalog: true });
     assert.equal(keys.CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName, 'AppIcon');
-    assert.equal(keys.UILaunchScreen.UIColorName, 'ExactLaunch');
-    assert.equal(keys.UILaunchScreen.UIImageName, 'ExactLaunchImage', 'the picture the launch screen centres on its colour');
+    const { UIColorName: colour, UIImageName: image } = keys.UILaunchScreen;
+    assert.match(colour, /^ExactLaunch-[0-9a-f]{8}$/);
+    assert.match(image, /^ExactLaunchImage-[0-9a-f]{8}$/, 'the picture the launch screen centres on its colour');
     assert.equal(keys.ExactLaunchImageSource, 'icon.png', 'an image of the picture decodes from the catalog');
     assert.equal(keys.ExactLaunchImageSHA256, launchImageInventory(app).sha256, 'only for the bytes the catalog was made from');
     const result = spawnSync('xcrun', ['assetutil', '--info', resolve(bundle, 'Assets.car')], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     const assets = JSON.parse(result.stdout);
     assert.ok(assets.some(asset => asset.Name === 'AppIcon'), 'Assets.car must retain AppIcon');
-    assert.equal(assets.filter(asset => asset.Name === 'ExactLaunch').length, 2);
-    const launch = assets.filter(asset => asset.Name === 'ExactLaunchImage');
+    assert.equal(assets.filter(asset => asset.Name === colour).length, 2);
+    const launch = assets.filter(asset => asset.Name === image);
     assert.ok(launch.length >= 1, 'Assets.car holds the launch image');
     assert.ok(launch.every(asset => asset.PixelWidth === 40 * asset.Scale), `40 points wide at each scale: ${JSON.stringify(launch)}`);
     // The launch image is a binary input: packaging draws the bytes the bake
@@ -137,7 +144,14 @@ test.skipIf(process.platform !== 'darwin')('iOS distribution assets retain the i
     const baked = launchImageInventory(app);
     assert.equal(baked.sha256.length, 64);
     const again = resolve(dir, 'Again.app'); mkdirSync(again);
-    assert.equal(iosAssets(app, again, true, { expectedLaunchImage: baked }).UILaunchScreen.UIImageName, 'ExactLaunchImage');
+    assert.deepEqual(iosAssets(app, again, true, { expectedLaunchImage: baked }).UILaunchScreen, keys.UILaunchScreen, 'the same content, the same names');
+    // iOS draws the launch screen it kept for unchanged `UILaunchScreen` keys (the euxy port's white launch):
+    // another colour or picture is another name.
+    const darker = { ...app, manifest: { ...app.manifest, background_color: '#08080a' } };
+    assert.equal(iosAssets(darker, again, true).UILaunchScreen.UIImageName, image);
+    assert.notEqual(iosAssets(darker, again, true).UILaunchScreen.UIColorName, colour);
+    const wider = { ...app, manifest: { ...app.manifest, host: { ios: { launchImage: { src: 'icon.png', width: 41 } } } } };
+    assert.notEqual(iosAssets(wider, again, true).UILaunchScreen.UIImageName, image);
     assert.throws(() => iosAssets(app, again, true, { expectedLaunchImage: null }), /launch image changed after the bake/);
     writeFileSync(resolve(dir, 'icon.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'));
     assert.notEqual(launchImageInventory(app).sha256, baked.sha256);
@@ -727,7 +741,7 @@ test('Mac shared-core rebuild replaces an existing versioned XCFramework slice',
     const runApple = (command, args) => {
       if (command !== 'swift') return run(command, args);
       if (args.includes('--show-bin-path')) return { stdout: bin };
-      if (args.includes('ExactCore')) run('xcrun', ['clang', '-dynamiclib', source, '-o', resolve(bin, 'libExactCore.dylib')]);
+      if (args.includes('ExactCore')) run('xcrun', ['clang', '-dynamiclib', source, '-o', resolve(bin, 'libExactCore.dylib'), ...args.flatMap((arg,i)=>arg==='-Xlinker'?['-Xlinker',args[i+1]]:[])]);
       return { stdout: '' };
     };
     const slice = resolve(prepared.xcframework, `macos-${process.arch === 'arm64' ? 'arm64' : 'x86_64'}/ExactCore.framework`);
@@ -747,6 +761,26 @@ test('Mac shared-core rebuild replaces an existing versioned XCFramework slice',
       const executable = resolve(dir, `Fixture${version}`), frameworks = resolve(slice, '..');
       run('xcrun', ['clang', resolve(dir, 'app.c'), '-F', frameworks, '-framework', 'ExactCore', '-Wl,-rpath,' + frameworks, '-o', executable]);
       run(executable, []);
+    }
+    // A plan edit relinks the shared image even when its Rust archive stays.
+    const planDir=resolve(dir,'plan'); mkdirSync(planDir);
+    writeFileSync(resolve(planDir,'compat.json'),'{}');
+    writeFileSync(resolve(planDir,'app.hbc'),'');
+    writeFileSync(source, `#include <mach-o/getsect.h>
+      extern const struct mach_header_64 __dso_handle;
+      const unsigned char *exact_plan_bytes(unsigned long *size) {
+        return getsectiondata(&__dso_handle,"__TEXT","__exact_plan",size);
+      }`);
+    for (const text of ['first plan','second plan']) {
+      writeFileSync(resolve(planDir,'app.plan'),text);
+      sharedWidgetCore({app:{id:'com.exact.test',manifest:{}},prepared,libDir:dir,crate:'fixture',env:process.env,runApple,linkedPlan:{dir:planDir,digest:text}});
+      const executable=resolve(dir,'ReadPlan');
+      writeFileSync(resolve(dir,'read.c'), `#include <string.h>
+        extern const unsigned char *exact_plan_bytes(unsigned long *size);
+        int main(void) { unsigned long size=0; const unsigned char *bytes=exact_plan_bytes(&size);
+          return bytes && size==${text.length} && !memcmp(bytes,"${text}",size) ? 0 : 1; }`);
+      run('xcrun',['clang',resolve(dir,'read.c'),'-F',resolve(slice,'..'),'-framework','ExactCore','-Wl,-rpath,'+resolve(slice,'..'),'-o',executable]);
+      run(executable,[]);
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

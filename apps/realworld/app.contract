@@ -92,21 +92,21 @@ style Btn
 style BtnSm
   padding-top=4 padding-bottom=4 padding-left=8 padding-right=8 border-radius=6 border-style="solid" border-width=1 font-size=14 line-height=1.25
 style BtnLg
-  padding-top=12 padding-bottom=12 padding-left=24 padding-right=24 border-radius=10 border-style="solid" border-width=1 font-size=20 line-height=1.25 background-color="#33aa44" border-color="#33aa44" color="#ffffff" align-self="flex-end"
+  padding-top=12 padding-bottom=12 padding-left=24 padding-right=24 border-radius=10 border-style="solid" border-width=1 font-size=20 line-height=1.25 background-color="AccentColor" border-color="AccentColor" color="AccentColorText" align-self="flex-end"
 style Field
-  width="100%" box-sizing="border-box" padding-top=8 padding-bottom=8 padding-left=12 padding-right=12 font-size=16 line-height=1.25 color="#55595c" background-color="#ffffff" border-style="solid" border-width=1 border-color="#eeeeee" border-radius=8 margin-bottom=16
+  width="100%" box-sizing="border-box" padding-top=8 padding-bottom=8 padding-left=12 padding-right=12 font-size=16 line-height=1.25 color="FieldText" background-color="Field" border-style="solid" border-width=1 border-color="-exact-separator" border-radius=8 margin-bottom=16
 style FieldLg
-  width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=24 padding-right=24 font-size=20 line-height=1.25 color="#55595c" background-color="#ffffff" border-style="solid" border-width=1 border-color="#eeeeee" border-radius=10 margin-bottom=16
+  width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=24 padding-right=24 font-size=20 line-height=1.25 color="FieldText" background-color="Field" border-style="solid" border-width=1 border-color="-exact-separator" border-radius=10 margin-bottom=16
 style Tag
-  padding-top=5.6 padding-bottom=5.6 padding-left=12 padding-right=12 margin-right=8 margin-bottom=8 border-radius=100 border-style="solid" border-width=1 border-color="#eeeeee" font-size=12.8 line-height=1.1
+  padding-top=5.6 padding-bottom=5.6 padding-left=12 padding-right=12 margin-right=8 margin-bottom=8 border-radius=100 border-style="solid" border-width=1 border-color="-exact-separator" font-size=12.8 line-height=1.1
 style Banner
-  border-top-style="solid" border-bottom-style="solid" border-top-width=1 border-bottom-width=1 border-color="#eeeeee" padding=32 margin-bottom=32 box-sizing="border-box"
+  border-top-style="solid" border-bottom-style="solid" border-top-width=1 border-bottom-width=1 border-color="-exact-separator" padding=32 margin-bottom=32 box-sizing="border-box"
 style Avatar
   width=32 height=32 border-radius=30 object-fit="cover"
 style Tabs
-  display="flex" flex-direction="row" flex-wrap="wrap" border-bottom-style="solid" border-bottom-width=1 border-color="#eeeeee"
+  display="flex" flex-direction="row" flex-wrap="wrap" border-bottom-style="solid" border-bottom-width=1 border-color="-exact-separator"
 style Error
-  color="#b85c5c" font-weight=700 padding-left=40 margin-bottom=16
+  color="-exact-system-red" font-weight=700 padding-left=40 margin-bottom=16
 
 component RealWorld
   derive current = top(nav)
@@ -243,8 +243,9 @@ component RealWorld
       font-family="sans-serif"
       font-size=16
       line-height=1.5
-      color="#373a3c"
-      background-color="#ffffff"
+      accent-color="light-dark(#238136, #5fcf70)"
+      color="-exact-label"
+      background-color="-exact-background"
       head title="Conduit" description="A place to share your knowledge."
       // `/` and `/tag/:tag` are one page, outside the stack's rows, as React
       // keeps one <Home> mounted: going to a tag changes the feed and the
@@ -351,28 +352,28 @@ component Header
           margin-right=32
           font-family="serif"
           font-size=24
-          color="#222222"
+          color="-exact-label"
           text "conduit"
         row margin-left="auto" align-items="center" flex-wrap="wrap"
           link href="/" press=go("/")
             class=NavLink
-            color=(current.name == "home" ? "#000000cc": "#0000004d")
+            color=(current.name == "home" ? "-exact-label": "-exact-secondary-label")
             testId="nav-home"
             text "Home"
           if me.signedIn
             link href="/editor" press=go("/editor")
               class=NavLink
-              color=(current.name == "editor" ? "#000000cc": "#0000004d")
+              color=(current.name == "editor" ? "-exact-label": "-exact-secondary-label")
               testId="nav-editor"
               text "✎ New Article"
             link href="/settings" press=go("/settings")
               class=NavLink
-              color=(current.name == "settings" ? "#000000cc": "#0000004d")
+              color=(current.name == "settings" ? "-exact-label": "-exact-secondary-label")
               testId="nav-settings"
               text "⚙ Settings"
             link href=`/profile/${encodeURIComponent(me.username)}` press=go(`/profile/${encodeURIComponent(me.username)}`)
               class=NavLink
-              color=((current.name == "profile" and current.params.username == me.username) ? "#000000cc": "#0000004d")
+              color=((current.name == "profile" and current.params.username == me.username) ? "-exact-label": "-exact-secondary-label")
               testId="nav-profile"
               row align-items="center" gap=5
                 image me.avatar width=26 height=26 border-radius=50 object-fit="cover" aria-label=""
@@ -380,12 +381,12 @@ component Header
           else
             link href="/login" press=go("/login")
               class=NavLink
-              color=(current.name == "login" ? "#000000cc": "#0000004d")
+              color=(current.name == "login" ? "-exact-label": "-exact-secondary-label")
               testId="nav-login"
               text "Sign in"
             link href="/register" press=go("/register")
               class=NavLink
-              color=(current.name == "register" ? "#000000cc": "#0000004d")
+              color=(current.name == "register" ? "-exact-label": "-exact-secondary-label")
               testId="nav-register"
               text "Sign up"
 
@@ -398,13 +399,13 @@ component Footer
       padding-bottom=16
       border-top-style="solid"
       border-top-width=1
-      border-color="#eeeeee"
+      border-color="-exact-separator"
       row class=Container align-items="baseline"
-        link href="/" press=go("/") font-family="serif" color="#222222"
+        link href="/" press=go("/") font-family="serif" color="-exact-label"
           text "conduit"
         text "An interactive learning project. Code & design licensed under MIT." margin-left=10
           font-size=12.8
-          color="#bbbbbb"
+          color="-exact-secondary-label"
           font-weight=300
 
 component Meta
@@ -419,9 +420,9 @@ component Meta
       column margin-left=8 margin-right=24 line-height=1
         link href=`/profile/${encodeURIComponent(author.username)}` press=go(`/profile/${encodeURIComponent(author.username)}`)
           font-weight=500
-          color="#33aa44"
+          color="AccentColor"
           text author.username
-        text date font-size=12.8 color="#bbbbbb" margin-top=2
+        text date font-size=12.8 color="-exact-secondary-label" margin-top=2
 
 // A preview's ♥.
 component Heart
@@ -434,9 +435,9 @@ component Heart
     button press=favorite(slug, not on, n)
       class=BtnSm
       margin-left="auto"
-      border-color="#33aa44"
-      color=(on ? "#ffffff": "#33aa44")
-      background-color=(on ? "#33aa44": "#ffffff")
+      border-color="AccentColor"
+      color=(on ? "AccentColorText": "AccentColor")
+      background-color=(on ? "AccentColor": "-exact-background")
       testId=`favorite-${slug}`
       text `♥ ${n}`
 component Previews
@@ -455,7 +456,7 @@ component Previews
           padding-bottom=24
           border-top-style="solid"
           border-top-width=1
-          border-color="#eeeeee"
+          border-color="-exact-separator"
           testId="feed-loading"
       else
         if feed.message != ""
@@ -463,14 +464,14 @@ component Previews
             padding-bottom=24
             border-top-style="solid"
             border-top-width=1
-            border-color="#eeeeee"
+            border-color="-exact-separator"
             testId="feed-empty"
       for a in feed.articles key = a.slug
         article padding-top=24
           padding-bottom=24
           border-top-style="solid"
           border-top-width=1
-          border-color="#eeeeee"
+          border-color="-exact-separator"
           testId=`preview-${a.slug}`
           row align-items="center" margin-bottom=16
             Meta(author=a.author, date=a.date, go=go)
@@ -482,29 +483,29 @@ component Previews
               link href="/register" press=go("/register")
                 class=BtnSm
                 margin-left="auto"
-                border-color="#33aa44"
-                color="#33aa44"
-                background-color="#ffffff"
+                border-color="AccentColor"
+                color="AccentColor"
+                background-color="-exact-background"
                 testId=`favorite-${a.slug}`
                 text `♥ ${a.favoritesCount}`
           link href=`/article/${encodeURIComponent(a.slug)}` press=go(`/article/${encodeURIComponent(a.slug)}`)
-            color="#373a3c"
+            color="-exact-label"
             testId=`open-${a.slug}`
             text a.title font-size=24 font-weight=600 line-height=1.1 margin-bottom=3
-            text a.description font-weight=300 color="#999999" margin-bottom=15 line-height="20.8px"
+            text a.description font-weight=300 color="-exact-secondary-label" margin-bottom=15 line-height="20.8px"
           row align-items="center" justify-content="space-between" flex-wrap="wrap"
             link href=`/article/${encodeURIComponent(a.slug)}` press=go(`/article/${encodeURIComponent(a.slug)}`)
               font-size=12.8
               font-weight=300
-              color="#bbbbbb"
+              color="-exact-secondary-label"
               text "Read more..."
             row flex-wrap="wrap" justify-content="flex-end" max-width="50%"
               for t in a.tags key = t
                 link href=`/tag/${encodeURIComponent(t)}` press=go(`/tag/${encodeURIComponent(t)}`)
                   class=Tag
-                  color="#aaaaaa"
+                  color="-exact-secondary-label"
                   font-weight=300
-                  background-color="#ffffff"
+                  background-color="-exact-background"
                   text t
       if feed.pages.length > 0
         row flex-wrap="wrap" margin-top=16 margin-bottom=16 testId="pagination"
@@ -517,9 +518,9 @@ component Previews
               margin-left=- 1
               border-style="solid"
               border-width=1
-              border-color="#eeeeee"
-              color=(p.n == page ? "#222222": "#33aa44")
-              background-color=(p.n == page ? "#eeeeee": "#ffffff")
+              border-color="-exact-separator"
+              color=(p.n == page ? "-exact-label": "AccentColor")
+              background-color=(p.n == page ? "-exact-fill": "-exact-background")
               testId=`page-${p.n}`
               text `${p.n}`
 
@@ -545,7 +546,7 @@ component HomePage
           line-height=1.1
           padding-bottom=8
           text-align="center"
-        text "A place to share your knowledge." font-weight=300 color="#999999" text-align="center"
+        text "A place to share your knowledge." font-weight=300 color="-exact-secondary-label" text-align="center"
       row class=Container flex-wrap="wrap" gap=30
         column flex=3 min-width=300
           // The tabs are links, as React's are: Your Feed and Global Feed
@@ -559,9 +560,9 @@ component HomePage
                 padding-right=16
                 border-bottom-style="solid"
                 border-bottom-width=2
-                border-color=(following ? "#33aa44": "#ffffff")
-                color=(following ? "#33aa44": "#aaaaaa")
-                background-color="#ffffff"
+                border-color=(following ? "AccentColor": "transparent")
+                color=(following ? "AccentColor": "-exact-secondary-label")
+                background-color="-exact-background"
                 testId="tab-feed"
                 text "Your Feed"
             link href="/" press=go("/")
@@ -571,9 +572,9 @@ component HomePage
               padding-right=16
               border-bottom-style="solid"
               border-bottom-width=2
-              border-color=((tag == "" and not following) ? "#33aa44": "#ffffff")
-              color=((tag == "" and not following) ? "#33aa44": "#aaaaaa")
-              background-color="#ffffff"
+              border-color=((tag == "" and not following) ? "AccentColor": "transparent")
+              color=((tag == "" and not following) ? "AccentColor": "-exact-secondary-label")
+              background-color="-exact-background"
               testId="tab-global"
               text "Global Feed"
             if tag != ""
@@ -584,9 +585,9 @@ component HomePage
                 padding-right=16
                 border-bottom-style="solid"
                 border-bottom-width=2
-                border-color="#33aa44"
-                color="#33aa44"
-                background-color="#ffffff"
+                border-color="AccentColor"
+                color="AccentColor"
+                background-color="-exact-background"
                 testId="tab-tag"
                 text `# ${tag}`
           Previews(
@@ -602,17 +603,17 @@ component HomePage
           column padding-left=20
             border-left-style="solid"
             border-left-width=1
-            border-color="#eeeeee"
+            border-color="-exact-separator"
             testId="sidebar"
             text "Popular Tags" margin-bottom=3
             if tagsLoading and tags.length == 0
-              text "Loading tags..." color="#999999"
+              text "Loading tags..." color="-exact-secondary-label"
             row flex-wrap="wrap"
               for t in tags key = t
                 link href=`/tag/${encodeURIComponent(t)}` press=go(`/tag/${encodeURIComponent(t)}`)
                   class=Tag
-                  color="#222222"
-                  background-color="#ffffff"
+                  color="-exact-label"
+                  background-color="-exact-background"
                   testId=`tag-${t}`
                   text t
 
@@ -655,7 +656,7 @@ component AuthPage
           margin-bottom=8
           text-align="center"
         link href=(signup ? "/login": "/register") press=go(signup ? "/login": "/register")
-          color="#33aa44"
+          color="AccentColor"
           align-self="center"
           margin-bottom=16
           text(signup ? "Have an account?": "Need an account?")
@@ -787,13 +788,13 @@ component SettingsPage
           margin-bottom=16
           border-top-style="solid"
           border-top-width=1
-          border-color="#eeeeee"
+          border-color="-exact-separator"
         button press=logout
           class=Btn
           align-self="flex-start"
-          border-color="#b85c5c"
-          color="#b85c5c"
-          background-color="#ffffff"
+          border-color="-exact-system-red"
+          color="-exact-system-red"
+          background-color="-exact-background"
           testId="logout"
           text "Or click here to logout."
 
@@ -868,12 +869,12 @@ component EditorPage
             row class=Tag
               align-items="center"
               gap=4
-              background-color="#818a91"
-              border-color="#818a91"
-              color="#ffffff"
+              background-color="-exact-fill"
+              border-color="-exact-separator"
+              color="-exact-label"
               button appearance="none" press=removeTag(t)
                 aria-label=`Remove ${t}`
-                color="#ffffff"
+                color="-exact-label"
                 testId=`remove-tag-${t}`
                 text "×"
               text t
@@ -900,16 +901,16 @@ component ArticleActions
       if me.signedIn and me.username == post.author.username
         button press=go(`/editor/${encodeURIComponent(post.slug)}`)
           class=BtnSm
-          border-color="#cccccc"
-          color="#cccccc"
-          background-color="#ffffff"
+          border-color="-exact-separator"
+          color="-exact-secondary-label"
+          background-color="-exact-background"
           testId="edit-article"
           text "✎ Edit Article"
         button press=remove(post.slug)
           class=BtnSm
-          border-color="#b85c5c"
-          color="#b85c5c"
-          background-color="#ffffff"
+          border-color="-exact-system-red"
+          color="-exact-system-red"
+          background-color="-exact-background"
           testId="delete-article"
           text "🗑 Delete Article"
       else
@@ -918,31 +919,31 @@ component ArticleActions
         if me.signedIn
           button press=follow(post.author.username, not following)
             class=BtnSm
-            border-color="#cccccc"
-            color=(following ? "#ffffff": "#cccccc")
-            background-color=(following ? "#cccccc": "#ffffff")
+            border-color="-exact-separator"
+            color=(following ? "-exact-label": "-exact-secondary-label")
+            background-color=(following ? "-exact-fill": "-exact-background")
             testId="follow"
             text(following ? `+ Unfollow ${post.author.username}`: `+ Follow ${post.author.username}`)
           button press=favorite(post.slug, not post.favorited, post.favoritesCount)
             class=BtnSm
-            border-color="#33aa44"
-            color=(post.favorited ? "#ffffff": "#33aa44")
-            background-color=(post.favorited ? "#33aa44": "#ffffff")
+            border-color="AccentColor"
+            color=(post.favorited ? "AccentColorText": "AccentColor")
+            background-color=(post.favorited ? "AccentColor": "-exact-background")
             testId="favorite"
             text `♥ ${post.favorited ? "Unfavorite" : "Favorite"} Article (${post.favoritesCount})`
         else
           link href="/register" press=go("/register")
             class=BtnSm
-            border-color="#cccccc"
-            color="#cccccc"
-            background-color="#ffffff"
+            border-color="-exact-separator"
+            color="-exact-secondary-label"
+            background-color="-exact-background"
             testId="follow"
             text `+ Follow ${post.author.username}`
           link href="/register" press=go("/register")
             class=BtnSm
-            border-color="#33aa44"
-            color="#33aa44"
-            background-color="#ffffff"
+            border-color="AccentColor"
+            color="AccentColor"
+            background-color="-exact-background"
             testId="favorite"
             text `♥ Favorite Article (${post.favoritesCount})`
 
@@ -971,7 +972,7 @@ component ArticlePage
           column class=Container
             text post.title font-size=44.8
               font-weight=600
-              color="#222222"
+              color="-exact-label"
               line-height=1.1
               margin-bottom=8
               testId="article-title"
@@ -996,15 +997,15 @@ component ArticlePage
               for t in post.tags key = t
                 link href=`/tag/${encodeURIComponent(t)}` press=go(`/tag/${encodeURIComponent(t)}`)
                   class=Tag
-                  color="#aaaaaa"
+                  color="-exact-secondary-label"
                   font-weight=300
-                  background-color="#ffffff"
+                  background-color="-exact-background"
                   text t
             box margin-top=16
               margin-bottom=16
               border-top-style="solid"
               border-top-width=1
-              border-color="#eeeeee"
+              border-color="-exact-separator"
             row justify-content="center" margin-bottom=24
               ArticleActions(
                 me=me,
@@ -1020,7 +1021,7 @@ component ArticlePage
               if me.signedIn
                 column border-style="solid"
                   border-width=1
-                  border-color="#eeeeee"
+                  border-color="-exact-separator"
                   border-radius=12
                   margin-bottom=12
                   overflow="hidden"
@@ -1040,10 +1041,10 @@ component ArticlePage
                     padding-bottom=12
                     padding-left=20
                     padding-right=20
-                    background-color="#f5f5f5"
+                    background-color="-exact-secondary-background"
                     border-top-style="solid"
                     border-top-width=1
-                    border-color="#eeeeee"
+                    border-color="-exact-separator"
                     image me.avatar width=30
                       height=30
                       border-radius=30
@@ -1051,24 +1052,24 @@ component ArticlePage
                       aria-label=""
                     button press=postComment(post.slug)
                       class=BtnSm
-                      border-color="#33aa44"
-                      background-color="#33aa44"
-                      color="#ffffff"
+                      border-color="AccentColor"
+                      background-color="AccentColor"
+                      color="AccentColorText"
                       font-weight=700
                       testId="post-comment"
                       text "Post Comment"
               else
                 row flex-wrap="wrap" gap=4 margin-bottom=16
-                  link href="/login" press=go("/login") color="#33aa44"
+                  link href="/login" press=go("/login") color="AccentColor"
                     text "Sign in"
                   text "or"
-                  link href="/register" press=go("/register") color="#33aa44"
+                  link href="/register" press=go("/register") color="AccentColor"
                     text "sign up"
                   text "to add comments on this article."
               for c in thread key = c.id
                 column border-style="solid"
                   border-width=1
-                  border-color="#eeeeee"
+                  border-color="-exact-separator"
                   border-radius=12
                   margin-bottom=12
                   overflow="hidden"
@@ -1079,10 +1080,10 @@ component ArticlePage
                     padding-bottom=12
                     padding-left=20
                     padding-right=20
-                    background-color="#f5f5f5"
+                    background-color="-exact-secondary-background"
                     border-top-style="solid"
                     border-top-width=1
-                    border-color="#eeeeee"
+                    border-color="-exact-separator"
                     gap=6
                     font-size=12.8
                     image c.author.image width=20
@@ -1091,14 +1092,14 @@ component ArticlePage
                       object-fit="cover"
                       aria-label=""
                     link href=`/profile/${encodeURIComponent(c.author.username)}` press=go(`/profile/${encodeURIComponent(c.author.username)}`)
-                      color="#33aa44"
+                      color="AccentColor"
                       text c.author.username
-                    text c.date color="#bbbbbb"
+                    text c.date color="-exact-secondary-label"
                     if c.mine
                       button press=uncomment(post.slug, c.id)
                         margin-left="auto"
-                        color="#333333"
-                        background-color="#f5f5f5"
+                        color="-exact-label"
+                        background-color="-exact-secondary-background"
                         aria-label="Delete comment"
                         testId=`delete-comment-${c.id}`
                         text "🗑"
@@ -1124,7 +1125,7 @@ component ProfilePage
         padding-bottom=16
         border-bottom-style="solid"
         border-bottom-width=1
-        border-color="#eeeeee"
+        border-color="-exact-separator"
         border-top-style="solid"
         border-top-width=1
         column class=Container align-items="center"
@@ -1139,7 +1140,7 @@ component ProfilePage
             line-height=1.1
             margin-bottom=8
             testId="profile-name"
-          text person.bio color="#aaaaaa"
+          text person.bio color="-exact-secondary-label"
             font-weight=300
             max-width=450
             text-align="center"
@@ -1149,9 +1150,9 @@ component ProfilePage
               button press=go("/settings")
                 class=BtnSm
                 align-self="flex-end"
-                border-color="#999999"
-                color="#999999"
-                background-color="#ffffff"
+                border-color="-exact-separator"
+                color="-exact-secondary-label"
+                background-color="-exact-background"
                 testId="edit-settings"
                 text "⚙ Edit Profile Settings"
             else
@@ -1159,18 +1160,18 @@ component ProfilePage
                 button press=follow(person.username, not following)
                   class=BtnSm
                   align-self="flex-end"
-                  border-color="#999999"
-                  color=(following ? "#ffffff": "#999999")
-                  background-color=(following ? "#999999": "#ffffff")
+                  border-color="-exact-separator"
+                  color=(following ? "-exact-label": "-exact-secondary-label")
+                  background-color=(following ? "-exact-fill": "-exact-background")
                   testId="follow-profile"
                   text(following ? `+ Unfollow ${person.username}`: `+ Follow ${person.username}`)
               else
                 link href="/register" press=go("/register")
                   class=BtnSm
                   align-self="flex-end"
-                  border-color="#999999"
-                  color="#999999"
-                  background-color="#ffffff"
+                  border-color="-exact-separator"
+                  color="-exact-secondary-label"
+                  background-color="-exact-background"
                   testId="follow-profile"
                   text `+ Follow ${person.username}`
       column class=Container max-width=950
@@ -1182,9 +1183,9 @@ component ProfilePage
             padding-right=16
             border-bottom-style="solid"
             border-bottom-width=2
-            border-color=(favorites ? "#ffffff": "#33aa44")
-            color=(favorites ? "#aaaaaa": "#33aa44")
-            background-color="#ffffff"
+            border-color=(favorites ? "transparent": "AccentColor")
+            color=(favorites ? "-exact-secondary-label": "AccentColor")
+            background-color="-exact-background"
             testId="tab-mine"
             text "My Articles"
           link href=`/profile/${encodeURIComponent(person.username)}/favorites` press=go(`/profile/${encodeURIComponent(person.username)}/favorites`)
@@ -1194,9 +1195,9 @@ component ProfilePage
             padding-right=16
             border-bottom-style="solid"
             border-bottom-width=2
-            border-color=(favorites ? "#33aa44": "#ffffff")
-            color=(favorites ? "#33aa44": "#aaaaaa")
-            background-color="#ffffff"
+            border-color=(favorites ? "AccentColor": "transparent")
+            color=(favorites ? "AccentColor": "-exact-secondary-label")
+            background-color="-exact-background"
             testId="tab-favorites"
             text "Favorited Articles"
         Previews(

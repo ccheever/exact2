@@ -15,7 +15,10 @@ export function openingLinks(app, platform, development, distributed) {
   const web = handlers.filter((h) => isWebScheme(h.protocol)).map((h) => h.protocol);
   const schemes = [...new Map([...(app.manifest.host?.[platform]?.urlSchemes ?? []), ...handlers.filter((h) => !isWebScheme(h.protocol)).map((h) => h.protocol), ...(development ? [development.scheme] : [])].map((s) => [s.toLowerCase(), s])).values()];
   const types = [...(schemes.length ? [{ CFBundleURLName: app.id, CFBundleURLSchemes: schemes }] : []), ...(web.length ? [{ CFBundleURLName: 'Web site URL', CFBundleTypeRole: 'Viewer', CFBundleURLSchemes: web }] : [])];
+  // The schemes `openURL` may hand to the system (`open_url`), read by the hosts' `openURL`.
+  const opens = app.manifest.open_url?.schemes ?? [];
   return { ...(types.length ? { CFBundleURLTypes: types } : {}), ...(handlers.length ? { ExactProtocolHandlers: handlers } : {}),
+    ...(opens.length ? { ExactOpenURLSchemes: opens } : {}),
     ...(development ? { ExactDevelopmentURLScheme: development.scheme, ExactDevelopmentOrigins: development.origins, ExactDevelopmentToken: development.token } : {}) };
 }
 

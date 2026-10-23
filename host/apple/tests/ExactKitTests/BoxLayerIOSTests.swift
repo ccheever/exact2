@@ -11,6 +11,39 @@ import XCTest
 /// what the layer cannot say still draws. UIKit, so a simulator runs it:
 ///   bun host/apple/build.mjs --test --ios
 final class BoxLayerIOSTests: XCTestCase {
+    func testAnUnevenImageBackgroundStaysBehindItsDrawnPixels() throws {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let png = try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 80, height: 40), format: format).image { context in
+            UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 40, height: 40))
+        }.pngData())
+        let p = Presenter(), loader = RasterLoader(), resolver = AssetResolver(root: URL(fileURLWithPath: NSTemporaryDirectory()))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        defer { loader.shutdown(); window.isHidden = true }
+        p.viewport.frame = window.bounds; window.addSubview(p.viewport); window.makeKeyAndVisible()
+        let image = NodeView(id: 1, kind: "image", presenter: p)
+        p.views[1] = image; p.viewport.addSubview(image)
+        image.frame = CGRect(x: 0, y: 0, width: 80, height: 40)
+        image.loadGeneration = 1
+        loader.load(image, source: "data:image/png;base64," + png.base64EncodedString(), resolver: resolver)
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while image.raster == nil, Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+        XCTAssertNotNil(image.raster)
+        for alpha in [255, 128] {
+            image.applyStyle(["background_color": [0, 0, 255, .number(Double(alpha))],
+                "border_radius_top_left": 18, "border_radius_top_right": 18,
+                "border_radius_bottom_left": 18, "border_radius_bottom_right": 4])
+            image.layer.displayIfNeeded()
+            let context = try XCTUnwrap(CGContext(data: nil, width: 80, height: 40, bitsPerComponent: 8, bytesPerRow: 320,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            image.layer.render(in: context)
+            let bytes = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+            func pixel(_ x: Int, _ y: Int) -> [UInt8] { Array(UnsafeBufferPointer(start: bytes + y * 320 + x * 4, count: 4)) }
+            XCTAssertEqual(pixel(20, 20), [255, 0, 0, 255], "the background must not cover or tint the opaque image")
+            XCTAssertEqual(pixel(60, 20), [0, 0, UInt8(alpha), UInt8(alpha)], "the transparent image leaves the background visible")
+            XCTAssertEqual(pixel(0, 0), [0, 0, 0, 0], "the corner remains transparent")
+        }
+    }
+
     func testPercentageRadiusUsesBothAxesAndFollowsResize() {
         var style: NodeStyle = ["background_color": [36, 104, 172, 255]]
         for corner in ["top_left", "top_right", "bottom_right", "bottom_left"] {
@@ -313,7 +346,7 @@ final class BoxLayerIOSTests: XCTestCase {
         XCTAssertNotNil(sides.layer.contents, "sides in two colours draw")
         XCTAssertNil(sides.layer.backgroundColor, "and so does its background, once")
         let corners = node(["background_color": white, "border_radius_top_left": 8, "border_radius_bottom_right": 20])
-        XCTAssertNotNil(corners.layer.contents, "two radii draw")
+        XCTAssertNil(corners.layer.contents, "unequal radii use a shape mask")
         XCTAssertEqual(corners.layer.cornerRadius, 0)
     }
 
@@ -358,28 +391,27 @@ final class BoxLayerIOSTests: XCTestCase {
         avatar.layer.displayIfNeeded(); padded.layer.displayIfNeeded(); skewed.layer.displayIfNeeded()
 
         let sub = try XCTUnwrap(avatar.imageLayer)
-        XCTAssertTrue((sub.contents as AnyObject?) === avatar.raster?.image.image)
+        let whole = try XCTUnwrap(sub.sublayers?.first)
+        XCTAssertTrue((whole.contents as AnyObject?) === avatar.raster?.image.image)
         XCTAssertNil(avatar.layer.contents, "no bitmap of the view's size")
         XCTAssertEqual(sub.frame, avatar.bounds)
-        // A 2:1 image covering a square: Core Animation's aspect fill shows the middle half of its width.
-        XCTAssertEqual(sub.contentsRect, CGRect(x: 0, y: 0, width: 1, height: 1))
-        XCTAssertEqual(sub.contentsGravity, .resizeAspectFill)
+        XCTAssertEqual(whole.frame, CGRect(x: -20, y: 0, width: 80, height: 40))
+        XCTAssertEqual(whole.contentsGravity, .resize)
         XCTAssertEqual(sub.cornerRadius, 20); XCTAssertTrue(sub.masksToBounds)
 
         XCTAssertNil(padded.imageLayer)
         XCTAssertNotNil(padded.layer.contents, "a radius over a padded content box draws")
 
-        // Decoded for a 40-point box, a 4000×1001 picture's rounded height moves its aspect off the
-        // natural one by more than half a point across the fitted width: gravity would fit the
-        // bitmap's aspect, so the crop is `contentsRect`'s, from the natural size.
+        // The decoded aspect differs; the fitted rectangle retains the natural one.
         let reduced = try XCTUnwrap(skewed.raster?.image.image)
         XCTAssertLessThan(reduced.width, 4000, "decoded at the box's size")
         XCTAssertNotEqual(Double(reduced.width) / Double(reduced.height), 4000.0 / 1001, accuracy: 0.01)
         let skewedSub = try XCTUnwrap(skewed.imageLayer)
-        XCTAssertEqual(skewedSub.contentsGravity, .resize)
+        let skewedWhole = try XCTUnwrap(skewedSub.sublayers?.first)
+        XCTAssertEqual(skewedWhole.contentsGravity, .resize)
         let fitted = 40 * 4000.0 / 1001
-        XCTAssertEqual(skewedSub.contentsRect.width, 40 / fitted, accuracy: 0.0001)
-        XCTAssertEqual(skewedSub.contentsRect.midX, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(skewedWhole.bounds.width, fitted, accuracy: 0.0001)
+        XCTAssertEqual(skewedWhole.frame.midX, 20, accuracy: 0.0001)
 
         window.layoutIfNeeded(); CATransaction.flush()
         // UIKit's animated bounds and the pixels must cover the same box throughout a resize.
@@ -394,10 +426,27 @@ final class BoxLayerIOSTests: XCTestCase {
         XCTAssertEqual(pixelsBounds.fromValue as? NSValue, viewBounds.fromValue as? NSValue)
         XCTAssertEqual(sub.bounds.size, avatar.bounds.size)
         XCTAssertEqual(sub.animation(forKey: "position")?.duration ?? 0, viewBounds.duration, accuracy: 0.001, "its centre moves with the box")
-        // The crop widens from the middle half to the whole width as the box does, frame by frame, at
-        // the picture's own aspect: an interpolated `contentsRect` would stretch it on the way.
-        XCTAssertEqual(sub.contentsGravity, .resizeAspectFill)
+        XCTAssertEqual(whole.bounds.width / whole.bounds.height, 2, accuracy: 0.0001)
         XCTAssertFalse(sub.animationKeys()?.contains { $0.hasPrefix("contentsRect") } ?? false)
+        UIView.animate(withDuration: 0.8) {
+            skewed.frame.size = CGSize(width: 160, height: 80)
+            skewed.applyImageLayer()
+        }
+        func halfwayBounds(_ layer: CALayer) throws -> CGSize {
+            let animation = try XCTUnwrap((layer.animation(forKey: "bounds") ?? layer.animation(forKey: "bounds.size")) as? CABasicAnimation)
+            let from = try XCTUnwrap(animation.fromValue as? NSValue)
+            let size = animation.keyPath == "bounds.size" ? from.cgSizeValue : from.cgRectValue.size
+            return CGSize(width: (size.width + layer.bounds.width) / 2, height: (size.height + layer.bounds.height) / 2)
+        }
+        let fittedHalfway: CGSize
+        if let whole = skewedSub.sublayers?.first, whole.contents != nil {
+            fittedHalfway = try halfwayBounds(whole)
+        } else {
+            let visible = try halfwayBounds(skewedSub), crop = skewedSub.contentsRect
+            fittedHalfway = CGSize(width: visible.width / crop.width, height: visible.height / crop.height)
+        }
+        XCTAssertEqual(fittedHalfway.width / fittedHalfway.height, 4000.0 / 1001, accuracy: 0.0001,
+                       "a decoded cover keeps its natural aspect halfway through UIKit's resize")
         avatar.layer.removeAllAnimations(); sub.removeAllAnimations()
         UIView.performWithoutAnimation {
             avatar.frame.size = CGSize(width: 80, height: 80)
@@ -462,7 +511,7 @@ final class BoxLayerIOSTests: XCTestCase {
         mark.applyStyle(["object_fit": .string("contain")])
         mark.layer.displayIfNeeded()
         let sub = try XCTUnwrap(mark.imageLayer)
-        XCTAssertTrue((sub.contents as AnyObject?) === mark.raster?.image.image)
+        XCTAssertTrue((sub.sublayers?.first?.contents as AnyObject?) === mark.raster?.image.image)
         mark.raster = nil
     }
 }

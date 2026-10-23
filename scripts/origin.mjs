@@ -22,6 +22,7 @@
 // and Azure all have) is owed, and `--yes` against https refuses by name.
 import { createHash } from 'node:crypto';
 import { extname, resolve } from 'node:path';
+import { canonical, matchPattern } from '../host/web-js/route-pattern.js';
 import { filesystem, filesystemLock } from './filesystem.mjs';
 
 /** SHA-256, lowercase hex — the digest every card and blob name carries (LLP 1023 D2). */
@@ -63,9 +64,8 @@ export function webRequestURL(target) {
 
 /** Extensions a web build's files have (serve.mjs `webContentType` and the
  * game's `.hbc`, `.model`, `.tex`): a missing one stays a 404, a page or an
- * iframe's document (`/deck/missing.html`) included. A location whose last
- * label is one of them (`/profile/photos.zip`, `.zip` being a TLD) is taken
- * for a file too: telling the two apart needs the app's routes (QUEUE). */
+ * iframe's document (`/deck/missing.html`) included, unless a declared
+ * route matches the path on a navigation. */
 const FILE_EXTENSIONS = new Set(['.html', '.htm', '.css', '.js', '.mjs', '.json', '.wasm', '.plan', '.map', '.txt', '.xml', '.pdf', '.zip',
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.svg', '.ico', '.mp4', '.webm', '.vtt', '.wav', '.mp3', '.m4a', '.aac', '.ogg', '.oga',
   '.ttf', '.otf', '.woff', '.woff2', '.wgsl', '.hbc', '.model', '.tex']);
@@ -90,16 +90,16 @@ export function acceptsHTML(accept = '') {
 }
 /** Whether a path that names no file is the app's document. A navigation
  * (`acceptsHTML`) to one whose last segment has a dot is too, unless that
- * is a file's extension: a deep link like `/profile/jay.bsky.team` is a
- * location, not a missing file. */
-export function appDocumentPath(pathname, navigation = false) {
+ * is a file's extension and no declared route matches it. */
+export function appDocumentPath(pathname, navigation = false, routes = []) {
   if (!webRequestURL(pathname)) return false;
   let path;
   try { path = decodeURIComponent(pathname); } catch { return false; }
+  const extension = extname(path.replace(/\/+$/, '')).toLowerCase();
   return path.startsWith('/') && !path.includes('\\') && !path.includes('\0')
     && !path.split('/').some(part => part.startsWith('.'))
     && path !== '/__dev' && !path.startsWith('/__dev/')
-    && (extname(path.replace(/\/+$/, '')) === '' || (navigation && !FILE_EXTENSIONS.has(extname(path.replace(/\/+$/, '')).toLowerCase())));
+    && (extension === '' || (navigation && (!FILE_EXTENSIONS.has(extension) || matchPattern(routes, canonical(pathname)) >= 0)));
 }
 export function parseWebRoot(bytes) {
   const root = JSON.parse(bytes.toString('utf8'));

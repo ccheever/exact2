@@ -1,0 +1,58 @@
+{
+  "$schema": "../../../scripts/app.schema.json",
+  "name": "Harmony",
+  "short_name": "Harmony",
+  "id": "com.example.harmony",
+  "start_url": "/",
+  "display": "standalone",
+  "app": {
+    "id": "com.example.harmony",
+    "name": "Harmony"
+  },
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ]
+    },
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 1120,
+        "height": 740
+      }
+    },
+    "web": {}
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  },
+  "typescript": {
+    "sources": {
+      "snapback4": "../../../snapback4/ts",
+      "backend": "../snapback/generated"
+    }
+  },
+  "commands": {
+    "seed": [
+      "bun",
+      "../seed.mjs",
+      "--post"
+    ]
+  },
+  "icons": [
+    {
+      "src": "assets/icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png"
+    }
+  ],
+  "background_color": "#7a4fd6"
+}

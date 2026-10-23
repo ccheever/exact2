@@ -177,6 +177,60 @@ fn part(name: &str) -> Option<Part> {
     })
 }
 
+/// An event record (`ScrollEvent`, `MIDIMessageEvent`): its fields as the type
+/// checker declares them, and each handler that hands it to its action as an
+/// optional last parameter, with the action that handler calls. Builders
+/// meet the name in an arity refusal and looked it up (euxy ports 19, 20).
+struct Event {
+    fields: Vec<(String, String)>,
+    handlers: Vec<(&'static str, String)>,
+}
+
+/// The records a handler hands by the control it is on, which
+/// `event_record` (one record a handler) does not say: the type checker's
+/// `payload` and `edits_text` rules.
+const CONTROL_RECORDS: &[(&str, &str, &str)] = &[
+    ("InputEvent", "select", "`select=act` on a text field calls `action act(event: InputEvent)`"),
+    ("InputEvent", "selectionchange", "`selectionchange=act` on a text field or textarea hands its action the `InputEvent` as an optional last parameter"),
+    ("MarkdownSelection", "select", "`select=act` on the Markdown editor calls `action act(selection: MarkdownSelection)`"),
+];
+
+fn event(name: &str) -> Option<Event> {
+    let mut handlers: Vec<(&'static str, String)> = vocab::attrs()
+        .into_iter()
+        .map(|(h, _)| h)
+        .filter(|h| contract_types::event_record(h) == Some(name))
+        .map(|h| {
+            let calls = match h {
+                "selectionchange" => format!("`selectionchange=act` outside a text field hands its action the `{name}` as an optional last parameter"),
+                _ => contract_types::handler_signature(h).unwrap_or_else(|| {
+                    format!("`{h}=act` hands its action the `{name}` as an optional last parameter, after what the control hands it")
+                }),
+            };
+            (h, calls)
+        })
+        .collect();
+    handlers.extend(
+        CONTROL_RECORDS
+            .iter()
+            .filter(|(record, _, _)| *record == name)
+            .map(|(_, h, calls)| (*h, calls.to_string())),
+    );
+    if handlers.is_empty() {
+        return None;
+    }
+    let shapes = contract_syntax::parse("component G\n  view\n    column\n")
+        .ok()
+        .and_then(|f| contract_types::check_declarations(&f).ok());
+    let fields = shapes
+        .and_then(|s| s.map.get(name).cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(f, t)| (f, t.to_string()))
+        .collect();
+    Some(Event { fields, handlers })
+}
+
 fn entry(name: &str) -> Option<Entry> {
     let tag = tags::tag(name).map(|t| tag_json(name, &t));
     // Lowering's own row for `:active`'s opacity is no attribute (LLP 1121 D8).
@@ -240,6 +294,22 @@ fn refusal(name: &str) -> String {
 
 /// One name as JSON, and whether it was known.
 fn one_json(name: &str) -> (Value, bool) {
+    if let Some(e) = event(name) {
+        let fields: Vec<Value> = e
+            .fields
+            .iter()
+            .map(|(f, t)| json!({ "name": f, "type": t }))
+            .collect();
+        let handlers: Vec<Value> = e
+            .handlers
+            .iter()
+            .map(|(h, calls)| json!({ "name": h, "calls": calls }))
+            .collect();
+        return (
+            json!({ "name": name, "event": { "fields": fields, "handlers": handlers } }),
+            true,
+        );
+    }
     let Some(Entry {
         tag,
         attr,
@@ -310,6 +380,14 @@ fn one_text(name: &str, shown: &mut Shown) -> bool {
         .filter(|n| (1..=6).contains(n))
     {
         println!("{name}: a heading of level {level}: `{name} \"Title\"` is `text \"Title\" role=\"heading\" aria-level={level}`; a level the app computes is written that way");
+        return true;
+    }
+    if let Some(e) = event(name) {
+        let fields: Vec<String> = e.fields.iter().map(|(f, t)| format!("{f}: {t}")).collect();
+        println!("{name}: an event record, its fields {}", fields.join(", "));
+        for (_, calls) in &e.handlers {
+            println!("  {calls}");
+        }
         return true;
     }
     let Some(Entry {
@@ -570,8 +648,6 @@ const MEANS: &[(&[&str], &str)] = &[
     ),
     (
         &[
-            "keyframes",
-            "@keyframes",
             "Animated",
             "Reanimated",
             "LayoutAnimation",
@@ -841,6 +917,8 @@ fn tag_json(name: &str, t: &Tag) -> Value {
     doc
 }
 
+const GRID_TRACKS: &str = "CSS track lists: none, px, %, fr, auto, min-content, max-content, named lines, fit-content(px or %), minmax(), and repeat() with a count, auto-fill or auto-fit. Lengths accept calc(), min(), max() and clamp() over px and %, including in minmax() and valid repetitions. Percentages use the grid's content box in that axis; negative calculated results clamp to zero. Example: repeat(auto-fill, minmax(min(100%, 200px), 1fr)). Calculated fit-content(), other length units, var() and env() are unsupported; grid-auto-columns/rows are not yet attributes.";
+
 const TEXT_PX_WIDTH: &str = "A fixed ceiling from width or max-width (a number, px, pt, absolute calc(), or em against an authored absolute font), after min-width wins any conflict, can constrain scalable text at accessibility sizes (lower-text-px-width). Express the width and its bounds in rem (width=\"3rem\" or max-width=\"3rem\"), or let content determine the width. A minimum alone supplies no ceiling. The lint is deliberately conservative: it stays silent for unresolved classes, uncertain visibility or sizing, flex sizing that can supersede width without a fixed maximum, and minimum bounds that may grow past the ceiling. Text in absolute or fixed positioning, popovers and dialogs is checked inside that subtree, without counting against enclosing boxes. Text inherits the platform root font. Native Apple controls use the Apple control font, which can scale with Dynamic Type; web controls inherit, and Linux control defaults are fixed. An absolute font size stops scaling within that boundary; inherit and unset use the parent font even on controls. The warning checks layout boxes containing text runs or text fields, including HTML inside SVG foreignObject. It reads lowering’s parent layout, grouped-list typography and known styles. A computed width can still have a fixed maximum; computed fonts remain unknown.";
 
 fn attr_json(name: &str, a: &AttrTarget) -> Value {
@@ -862,6 +940,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
         }
         AttrTarget::Handler(event) => {
             doc["event"] = (*event).into();
+            if let Some(calls) = contract_types::handler_signature(name) {
+                doc["calls"] = calls.into();
+            }
             if name == "contextmenu" {
                 doc["note"] = CONTEXTMENU.into();
             }
@@ -892,6 +973,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     }
     if matches!(name, "width" | "font-size") {
         doc["note"] = TEXT_PX_WIDTH.into();
+    }
+    if matches!(name, "grid-template-columns" | "grid-template-rows") {
+        doc["note"] = GRID_TRACKS.into();
     }
     if name == "buttonStyle" {
         doc["note"] = vocab::BUTTON_DEFAULT_NOTE.into();
@@ -1007,6 +1091,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             if matches!(name, "width" | "font-size") {
                 lines.push(TEXT_PX_WIDTH.into());
             }
+            if matches!(name, "grid-template-columns" | "grid-template-rows") {
+                lines.push(GRID_TRACKS.into());
+            }
             if name == "font-family" {
                 lines.push("CSS family list: literal lists and literal choices work on every host; a string from state or data names installed or generic families on web, macOS, iOS and Linux. Invalid lists leave the row unset. Bundled faces use a `font` declaration".into());
             }
@@ -1061,7 +1148,12 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
         AttrTarget::Handler(event) if name == "navigate" => {
             vec![format!("event {event}"), NAVIGATE.into()]
         }
-        AttrTarget::Handler(event) => vec![format!("event {event}")],
+        // The action's signature first: the scroll port guessed one
+        // `ScrollEvent` parameter, and `moved(x, y)` was a later bullet.
+        AttrTarget::Handler(event) => contract_types::handler_signature(name)
+            .into_iter()
+            .chain([format!("event {event}")])
+            .collect(),
         AttrTarget::Surface => vec!["a canvas's surface binding: surface=name(args)".into()],
         AttrTarget::MediaMetadata => vec![
             format!("record {METADATA}"),

@@ -640,3 +640,307 @@ fn a_refused_probe_leaves_no_manifest_so_the_next_run_proceeds_and_git_must_igno
     );
     let _ = std::fs::remove_dir_all(&other);
 }
+
+const HANDLED: &str = r#"component Row
+  props
+    symbol: string
+    title: string
+    press: action
+  view
+    button press=press
+      image `symbol:${symbol}`
+      text title
+
+component Toggle
+  props
+    title: string
+    on: bool
+    set: action
+  view
+    row
+      text title
+      input type="checkbox" switch checked=on change=set aria-label=title
+
+component Field
+  props
+    text: string
+    edit: action
+  view
+    input value=text input=edit aria-label="Field"
+"#;
+
+const APP_HANDLED: &str = r#"use Row, Toggle, Field from "@acme/lib"
+
+component App
+  state on = false
+  state typed = ""
+  action go
+  action flip(v: bool)
+    on = v
+  action type(v: string)
+    typed = v
+  view
+    column
+      Row(symbol="settings", title="t", press=go)
+      Toggle(title="t", on=on, set=flip)
+      Field(text=typed, edit=type)
+"#;
+
+/// A string prop the view names a symbol by gets a role (its own name names
+/// none), and an action prop a handler calls with its payload gets an inert
+/// action of that signature, one per signature (stage 13 C: @exact/lists'
+/// ListRow and SwitchRow).
+#[test]
+fn a_symbols_prop_gets_a_role_and_a_handlers_action_its_payloads_parameters() {
+    let dir = fixture("handled");
+    let lib = dir.join("node_modules/@acme/lib");
+    std::fs::write(lib.join("index.contract"), HANDLED).unwrap();
+    std::fs::write(dir.join("app.contract"), APP_HANDLED).unwrap();
+    let out = dir.join("node_modules/.cache/exact-gallery");
+    let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
+    let refused: Vec<(&str, &str)> = g
+        .cells
+        .iter()
+        .filter_map(|c| Some((c.component.as_str(), c.refused.as_deref()?)))
+        .collect();
+    assert_eq!(refused, vec![], "every cell placed");
+    let text = std::fs::read_to_string(&g.source).unwrap();
+    for line in [
+        "  action noop\n",
+        "  action noop_bool(checked: bool)\n",
+        "  action noop_string(value: string)\n",
+        r#"Row(symbol="back", title="title", press=noop)"#,
+        r#"Toggle(title="title", on=false, set=noop_bool)"#,
+        r#"Field(text="text", edit=noop_string)"#,
+    ] {
+        assert!(text.contains(line), "{line:?} in {text}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+const BOUNDARIES: &str = r#"component Stem
+  props
+    chevron: string
+    gear: string
+  view
+    row
+      image `symbol:${chevron}-left`
+      image `symbol:${gear}`
+
+component Shadowed
+  props
+    symbol: string
+  view
+    column
+      text symbol
+      for symbol in ["add"] key = symbol
+        image `symbol:${symbol}`
+
+component Twice
+  props
+    on: bool
+    set: action
+  view
+    input type="checkbox" switch checked=on change=set aria-label="Twice"
+
+component Odd
+  props
+    pick: action
+  view
+    button press=pick("x")
+      text "Pick"
+
+component Forward
+  props
+    on: bool
+    set: action
+  view
+    Toggle(title="f", on=on, set=set)
+
+component Five
+  props
+    pick: action
+  view
+    button press=pick(1, 2, 3, 4, `e${1}`)
+      text "Five"
+
+shape Num
+  id: number
+
+shape Word
+  id: string
+
+component ShadowList
+  props
+    items: Num[]
+    groups: Word[][]
+    pick: action
+  view
+    column
+      for items, i in groups key = i
+        for x in items key = x.id
+          button press=pick(x.id)
+            text "x"
+"#;
+
+const APP_BOUNDARIES: &str = r#"use Stem, Shadowed, Toggle, Twice, Odd, Forward, Five, ShadowList from "@acme/lib"
+
+component App
+  state on = false
+  action flip(v: bool)
+    on = v
+  action pick(v: string)
+  view
+    column
+      Stem(chevron="chevron", gear="gear")
+      Shadowed(symbol="s")
+      Toggle(title="t", on=on, set=flip)
+      Twice(on=on, set=flip)
+      Odd(pick=pick)
+      Forward(on=on, set=flip)
+      Five(pick=pick)
+      ShadowList(items=[], groups=[], pick=pick)
+"#;
+
+/// A stem (`symbol:${chevron}-left`, an alias of `back`) keeps the prop's
+/// own name, which names no role alone, and a prop that
+/// is a role's alias gets that role; a `for` that binds the prop's name
+/// hides it; two components of one signature share one inert action; an
+/// action the view calls with a literal argument gets an inert action of its
+/// type (its arguments named by position, five as well as one, a template
+/// a string, a `for` item's field typed from the list it iterates, even one
+/// an outer `for` binds over the prop's name); one it passes on to another
+/// component stays `noop`, for the
+/// compiler to refuse. (One given to handlers that pass different payloads
+/// stays `noop` too, which `press` and `navigate` both take.)
+#[test]
+fn a_stem_a_shadow_a_shared_signature_and_an_action_the_view_calls_otherwise() {
+    let dir = fixture("boundaries");
+    let lib = dir.join("node_modules/@acme/lib");
+    std::fs::write(
+        lib.join("index.contract"),
+        format!("{HANDLED}\n{BOUNDARIES}"),
+    )
+    .unwrap();
+    std::fs::write(dir.join("app.contract"), APP_BOUNDARIES).unwrap();
+    let out = dir.join("node_modules/.cache/exact-gallery");
+    let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
+    let refused: Vec<&str> = g
+        .cells
+        .iter()
+        .filter(|c| c.refused.is_some())
+        .map(|c| c.component.as_str())
+        .collect();
+    assert_eq!(
+        refused,
+        vec!["Forward"],
+        "only the cell whose action the view passes on"
+    );
+    let text = std::fs::read_to_string(&g.source).unwrap();
+    for line in [
+        r#"Stem(chevron="chevron", gear="settings")"#,
+        r#"Shadowed(symbol="symbol")"#,
+        r#"Twice(on=false, set=noop_bool)"#,
+        "action noop_string(a0: string)",
+        "(a0: number, a1: number, a2: number, a3: number, a4: string)",
+        r#"ShadowList(items=[], groups=[], pick=noop_string)"#,
+        r#"Odd(pick=noop_string)"#,
+        "binding to `noop`",
+    ] {
+        assert!(text.contains(line), "{line:?} in {text}");
+    }
+    assert_eq!(text.matches("  action noop_bool(").count(), 1, "{text}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+const PICS: &str = r#"component Pic
+  props
+    src: string
+    label: string
+  parts
+    frame: paint
+  view
+    column part="frame"
+      image src width=20 height=20
+      text label
+
+component Face
+  props
+    avatar: string
+    name: string
+  parts
+    face: paint
+  view
+    column part="face"
+      Pic(src=avatar, label=name)
+      text name
+
+component Banner
+  props
+    banner: string
+    fallback: string
+    backup: string
+    plain: bool
+    icon: string
+  parts
+    band: paint
+  view
+    column part="band"
+      image `${banner}` width=20 height=20
+      image (plain ? fallback : `${backup}`) width=20 height=20
+      image `symbol:${icon}` width=20 height=20
+"#;
+
+const PICS_APP: &str = r#"use Pic, Face, Banner from "@acme/lib"
+
+component App
+  view
+    column
+      Pic(src="a.png", label="a")
+      Face(avatar="b.png", name="b")
+      Banner(banner="c.png", fallback="d.png", backup="e.png", plain=false, icon="star")
+"#;
+
+/// A string prop shown as an image's source, directly or through a
+/// component it is passed to, gets a neutral picture, not its name, which no
+/// image loads (design-tool pass 2, #8); a text prop keeps its name.
+#[test]
+fn a_string_shown_as_an_image_gets_a_neutral_picture_and_text_keeps_its_name() {
+    let dir = fixture("images");
+    let lib = dir.join("node_modules/@acme/lib");
+    std::fs::write(lib.join("index.contract"), PICS).unwrap();
+    std::fs::write(dir.join("app.contract"), PICS_APP).unwrap();
+    let out = dir.join("node_modules/.cache/exact-gallery");
+    let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
+    assert!(
+        g.cells.iter().all(|c| c.refused.is_none()),
+        "{:?}",
+        g.cells.iter().map(|c| &c.refused).collect::<Vec<_>>()
+    );
+    let text = std::fs::read_to_string(&g.source).unwrap();
+    let neutral = r#""data:image/svg+xml,%3Csvg"#;
+    let pic = text
+        .lines()
+        .find(|l| l.contains("Pic("))
+        .expect("a Pic cell");
+    assert!(pic.contains(&format!("src={neutral}")), "{pic}");
+    assert!(pic.contains(r#"label="label""#), "{pic}");
+    let face = text
+        .lines()
+        .find(|l| l.contains("Face("))
+        .expect("a Face cell");
+    assert!(face.contains(&format!("avatar={neutral}")), "{face}");
+    assert!(face.contains(r#"name="name""#), "{face}");
+    // Through a template of it alone and either branch of a `?:`; a symbol's name is no image.
+    let banner = text
+        .lines()
+        .find(|l| l.contains("Banner("))
+        .expect("a Banner cell");
+    assert!(banner.contains(&format!("banner={neutral}")), "{banner}");
+    assert!(banner.contains(&format!("fallback={neutral}")), "{banner}");
+    assert!(banner.contains(&format!("backup={neutral}")), "{banner}");
+    assert!(!banner.contains(&format!("icon={neutral}")), "{banner}");
+    // Sized by itself, as a browser sizes an SVG without a size, for native readers.
+    assert!(text.contains("width='150' height='150'"), "{banner}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

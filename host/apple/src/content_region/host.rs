@@ -540,7 +540,7 @@ impl<D: DataSource> Host<D> {
                 .ok_or("native current node missing")?;
             let parent = live.parent.and_then(|id| kernel.node(id)).map(|p| p.frame);
             n.mirror.frame = Some(relative(projected.frame, parent));
-            n.mirror.field_content = published_content_box(&live, kernel);
+            n.mirror.field_content = published_content_box(&live, kernel).map(Box::new);
             n.mirror.field_cell = live.is_cell_field();
             if style::effective_overflow(&live) != (Overflow::Visible, Overflow::Visible) {
                 // Preserve the ordinary native overflow computation while current;
@@ -601,7 +601,7 @@ impl<D: DataSource> Host<D> {
                     .mirror
                     .props
                     .iter()
-                    .map(|(k, v)| (k.as_str(), v.clone()))
+                    .map(|(k, v)| (*k, v.clone()))
                     .collect();
                 staged.create(
                     node.header.id,
@@ -630,13 +630,13 @@ impl<D: DataSource> Host<D> {
                         .props
                         .iter()
                         .filter(|(k, v)| old.props.get(*k) != Some(*v))
-                        .map(|(k, v)| (k.as_str(), v.clone()))
+                        .map(|(k, v)| (*k, v.clone()))
                         .collect();
                     let clear: Vec<_> = old
                         .props
                         .keys()
                         .filter(|k| !node.mirror.props.contains_key(*k))
-                        .map(String::as_str)
+                        .copied()
                         .collect();
                     staged.props(node.header.id, &set, &clear);
                 }
@@ -653,12 +653,13 @@ impl<D: DataSource> Host<D> {
                 staged.frame(node.header.id, x, y, w, h);
             }
             if self.layout_withheld
-                || old.map(|m| m.field_content).unwrap_or(None) != node.mirror.field_content
+                || old.and_then(|m| m.field_content.as_deref())
+                    != node.mirror.field_content.as_deref()
                 || old.is_some_and(|m| m.field_cell != node.mirror.field_cell)
             {
                 staged.field_content(
                     node.header.id,
-                    node.mirror.field_content,
+                    node.mirror.field_content.as_deref().copied(),
                     node.mirror.field_cell,
                 );
             }
@@ -717,7 +718,7 @@ impl<D: DataSource> Host<D> {
         if self
             .mirror
             .get(&owner_id)
-            .is_none_or(|m| m.children != owner_children)
+            .is_none_or(|m| *m.children != *owner_children)
         {
             staged.children(owner_id, &owner_children);
         }
@@ -746,8 +747,9 @@ impl<D: DataSource> Host<D> {
             self.mirror
                 .insert(headers.last().unwrap().id, Box::new(node.mirror));
         }
-        self.mirror.entry(owner_id).or_default().children = owner_children;
+        self.mirror.entry(owner_id).or_default().children = owner_children.into_boxed_slice();
         self.collections_json = collections_json;
+        self.collection_heads = None;
         native.selected = Some(SelectedNative {
             identity: candidate.identity,
             serial,

@@ -608,11 +608,11 @@ test('Apple asset catalogs select platform modules and invalidate native receipt
   assert.equal(appleAssetCatalogInventory(app, 'ios')[0].path, shared[0].path);
   rmSync(resolve(dir, 'modules/apple/Shared.xcassets'), { recursive: true });
   assert.deepEqual(pendingBuildInputs(build), ['Apple asset catalogs']);
-  assert.equal(appleRunBinary(launchApp), paths.binary);
+  assert.equal(appleRunBinary(launchApp), resolve(paths.bundle, 'Contents/MacOS', paths.executable));
   launchApp.manifest.widgets = [{ kind: 'card', families: ['systemSmall'] }];
   mkdirSync(paths.products, { recursive: true });
   writeFileSync(resolve(paths.products, 'receipt.json'), JSON.stringify({ entitlements: null }));
-  assert.equal(appleRunBinary(launchApp), paths.binary, 'a widget declaration without an identity still launches the bare app');
+  assert.equal(appleRunBinary(launchApp), resolve(paths.bundle, 'Contents/MacOS', paths.executable), 'a widget declaration without an identity still launches the bundled app');
   writeFileSync(resolve(paths.products, 'receipt.json'), JSON.stringify({ entitlements: plistFile({ 'com.apple.security.application-groups': ['TEAM.com.exact.catalog.widgets'] }) }));
   assert.equal(appleRunBinary(launchApp), resolve(paths.bundle, 'Contents/MacOS', paths.executable));
   assert.equal(appleRunBinary(launchApp, true), appleArtifacts(launchApp, { host: true }).binary);
@@ -630,13 +630,13 @@ test.skipIf(process.platform !== 'darwin')('the iOS launch screen is the app\'s 
     const out = resolve(dir, `app${n++}.app`); mkdirSync(out);
     const keys = iosAssets({ dir, name: 'Launch', manifest }, out, false, options);
     const result = spawnSync('xcrun', ['assetutil', '--info', resolve(out, 'Assets.car')], { encoding: 'utf8' });
-    const colours = keys.UILaunchScreen ? JSON.parse(result.stdout).filter(asset => asset.Name === 'ExactLaunch')
+    const colours = keys.UILaunchScreen ? JSON.parse(result.stdout).filter(asset => asset.Name === keys.UILaunchScreen.UIColorName)
       .map(asset => [asset.Appearance ?? 'light', asset['Color components'].map(c => Math.round(c * 255))]) : [];
     return { keys, colours };
   };
   // Stopwatch, round 13: a first route on the grouped grey, whose launch screen was the system's white.
   const grouped = made({}, { launch: 'grouped' });
-  assert.equal(grouped.keys.UILaunchScreen.UIColorName, 'ExactLaunch');
+  assert.match(grouped.keys.UILaunchScreen.UIColorName, /^ExactLaunch-[0-9a-f]{8}$/);
   assert.deepEqual(grouped.colours, [['light', [242, 242, 247, 255]], ['UIAppearanceDark', [0, 0, 0, 255]]]);
   // A page of the platform's own stays the system's launch screen (`systemBackground`, light and dark).
   for (const options of [{ launch: 'system' }, {}]) assert.deepEqual(made({}, options).keys, {});
@@ -667,7 +667,8 @@ test.skipIf(process.platform !== 'darwin')('Apple asset catalogs retain named im
   const ios = resolve(dir, 'iOS.app'); mkdirSync(ios);
   const keys = iosAssets(app, ios, false, { catalog: true, kept: cache, expected: inventory });
   assert.equal(keys.CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName, 'AppIcon');
-  assert.equal(keys.UILaunchScreen.UIColorName, 'ExactLaunch');
+  const launch = keys.UILaunchScreen.UIColorName;
+  assert.match(launch, /^ExactLaunch-[0-9a-f]{8}$/);
   assert.equal(keys.NSAccentColorName, undefined, 'no AccentColor set, no accent named');
   const inspect = path => {
     const result = spawnSync('xcrun', ['assetutil', '--info', resolve(path, 'Assets.car')], { encoding: 'utf8' });
@@ -675,8 +676,8 @@ test.skipIf(process.platform !== 'darwin')('Apple asset catalogs retain named im
     return JSON.parse(result.stdout);
   };
   const first = inspect(ios);
-  for (const name of ['Badge', 'Ink', 'AppIcon', 'ExactLaunch']) assert.ok(first.some(asset => asset.Name === name), name);
-  assert.equal(first.filter(asset => asset.Name === 'ExactLaunch').length, 2);
+  for (const name of ['Badge', 'Ink', 'AppIcon', launch]) assert.ok(first.some(asset => asset.Name === name), name);
+  assert.equal(first.filter(asset => asset.Name === launch).length, 2);
   const held = readdirSync(cache.dir).find(name => name.startsWith('assets-ios-'));
   const before = statSync(resolve(cache.dir, held, 'Assets.car'), { bigint: true }).mtimeNs;
   const second = resolve(dir, 'Second.app'); mkdirSync(second);
@@ -821,6 +822,8 @@ test('docs prints the section on its words first, matching whole words', () => {
     [['storage'], 'docs/recipes/files-and-grants.md', /storage/],
     [['share'], 'docs/contract-grammar.md', /`share`/],
     [['MIDI'], 'docs/contract-grammar.md', /exactMIDI/],
+    // A table of contents names every section's words and is no section's answer.
+    [['sound', 'midi', 'and', 'media'], 'docs/contract-for-agents.md', /^### Sound, MIDI and media/],
     // A CSS name's words together are the phrase, though its pieces alone are not the words.
     [['text', 'overflow'], 'docs/agent-pitfalls.md', /text-overflow/],
     [['background', 'color'], 'docs/recipes/theme.md', /background-color/],

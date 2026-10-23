@@ -2,8 +2,8 @@
 
 **Name the port when you make it:** `exact new <path> --name "Euxy" --bundle-id com.yourcompany.euxy`,
 with the original's name and bundle id if it replaces the original on a device. A bundle id
-changed after the first build makes the next build cold (46 s in the euxy port) and leaves the
-app installed under the old id, to delete by hand. Changing one later means app.json's `app.id`
+changed after the first build makes the next build cold and leaves the app installed under the
+old id, to delete by hand. Changing one later means app.json's `app.id`
 and app.ts's `appId` together. A new app ships Linux as well; a port of an iPhone app runs
 `bun exact.mjs update --without linux` next, or each `symbol:sf/…` warns that Linux draws it blank.
 It ships the Mac too, so a `tamber-unreachable` warning names a Mac control that ignores the
@@ -16,12 +16,13 @@ which opens UIKit's menus and reaches a native module's own controls: drive with
 port's screens with the original's ([ios-driving](ios-driving.md)). Porting a React Native app,
 read [its pitfalls](../agent-pitfalls.md#porting-a-react-native-app) first.
 
-**What ships.** `ios --release` builds what ships (`--prebuild --release` early: its first build
-is minutes; `EXACT_UPDATE_TRUST=production bun exact.mjs agent ios …` drives it). A
-`--touch platform` drive turns the simulator's accessibility on while it runs (an app launched
-with it on loads UIKit's accessibility runtime: about 1.4 s) and puts back what it found when it
-ends. A launch still that slow (`main→didFinishLaunching` over a second) had it on from before;
-this one line turns it off for the next launch, with no reboot:
+**What ships.** `ios --release` builds what ships (`EXACT_UPDATE_TRUST=production bun exact.mjs agent
+ios …` drives it). Its first build is two minutes: start it early, `--prebuild --release`; later
+run `ios --release` in the foreground, which waits for a build still running, then takes seconds.
+A `--touch platform` drive turns the simulator's accessibility on while it runs (an app launched
+with it on loads UIKit's accessibility runtime: 1.4 s) and restores what it found at its end. A
+launch that slow (`main→didFinishLaunching` over a second) had it on before; this turns it off,
+with no reboot:
 
 ```sh
 for k in AutomationEnabled AccessibilityEnabled ApplicationAccessibilityEnabled; do xcrun simctl spawn <udid> defaults delete com.apple.Accessibility $k; done

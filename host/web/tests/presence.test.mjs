@@ -44,6 +44,7 @@ const page = `<style>
 <script type="module">
   import { presenceLoader, animationClock, settleValue } from './navigation.js';
   window.exact = {};
+  let incarnation = 1;
   await import('./presence-glue.js');
   const root = document.getElementById('exact-root'), views = new Map();
   const presence = presenceLoader(async () => exact.presence, root, batch => applyBatch(batch), () => {});

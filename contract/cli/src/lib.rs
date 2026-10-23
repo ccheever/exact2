@@ -413,6 +413,7 @@ pub fn source_graph(path: &Path) -> SourceGraph {
         sources: Vec::new(),
         packages: Vec::new(),
         consulted: Vec::new(),
+        owners: Vec::new(),
         errors: vec![CompileError {
             pass: "use",
             id: "contract-use-unreadable".into(),

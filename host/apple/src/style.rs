@@ -127,9 +127,15 @@ pub(crate) fn style_json_rows(
         if matches!(id, StyleId::WrapFlow | StyleId::ShapeMargin) {
             continue;
         }
+        let size = matches!(name, "width" | "height");
         if matches!(name, "translate" | "scale" | "rotate" | "opacity")
-            || !keep.has(id) && (presenter_ignores(name) || matches!(name, "width" | "height"))
+            || !keep.has(id) && (presenter_ignores(name) || size)
         {
+            // A size is layout's; that its author wrote one is still said.
+            if size && style.written.has(id) {
+                let comma = if written.is_empty() { "" } else { "," };
+                let _ = write!(written, "{comma}\"{name}\"");
+            }
             continue;
         }
         if !style.mask.has(id) {
@@ -993,7 +999,7 @@ fn style_json_shown(
     }
     // The presenter must inset editors/images and paint the same border area
     // that the kernel laid out. Authored widths survive separately in the node.
-    let widths = computed.border_widths();
+    let widths = computed.border_widths_in(env);
     for (id, width) in [
         StyleId::BorderWidthTop,
         StyleId::BorderWidthRight,
@@ -1050,7 +1056,7 @@ fn style_json_shown(
             Some(&insets)
         } else if computed.position_area != PositionArea::None {
             Some(&placed)
-        } else if computed.position_type == exact_kernel::PositionType::Sticky {
+        } else if node.layout_position() == exact_kernel::PositionType::Sticky {
             Some(&vertical)
         } else {
             None
@@ -1126,10 +1132,13 @@ pub fn glass_auto_spacing(node: &NodeRef<'_>) -> Option<f32> {
 
 /// [`glass_auto_spacing`] in a node's props: the points as `glassGroup` and
 /// `glassGroupAuto`, so a change to the prop sends them.
-pub fn glass_auto_props(node: &NodeRef<'_>, out: &mut exact_kernel::SortedMap<String, String>) {
+pub fn glass_auto_props(
+    node: &NodeRef<'_>,
+    out: &mut exact_kernel::SortedMap<&'static str, String>,
+) {
     if let Some(points) = glass_auto_spacing(node) {
-        out.insert(PropId::GlassGroup.name().to_string(), num(points));
-        out.insert("glassGroupAuto".to_string(), "true".to_string());
+        out.insert(PropId::GlassGroup.name(), num(points));
+        out.insert("glassGroupAuto", "true".to_string());
     }
 }
 

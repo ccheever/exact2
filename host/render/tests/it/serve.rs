@@ -119,6 +119,7 @@ pub(super) fn dist(name: &str) -> PathBuf {
     let shell = Path::new(env!("CARGO_MANIFEST_DIR")).join("../web/index.html");
     std::fs::copy(shell, dir.join("shell.html")).unwrap();
     std::fs::write(dir.join("glue.js"), "// the glue\n").unwrap();
+    std::fs::write(dir.join("module-binary.js"), "binary").unwrap();
     std::fs::write(dir.join("module-prelude.js"), "prelude").unwrap();
     std::fs::write(dir.join("app.js"), "module").unwrap();
     std::fs::write(
@@ -307,7 +308,7 @@ fn each_route_answers_by_its_policy() {
         .find(|d| d.trim().starts_with("script-src"))
         .unwrap();
     assert!(!scripts.contains("unsafe-inline"), "{scripts}");
-    for source in ["prelude", "module"] {
+    for source in ["binary", "prelude", "module"] {
         use sha2::{Digest, Sha256};
         let hash = exact_data::envelope::base64(&Sha256::digest(source.as_bytes()));
         assert!(csp.contains(&format!("'sha256-{hash}'")), "{csp}");

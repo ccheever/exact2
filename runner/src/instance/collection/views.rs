@@ -274,7 +274,11 @@ impl Collection {
         Ok(out)
     }
 }
-pub(super) fn validate_row(plan: &Plan, roots: &[Child]) -> Result<(), InstanceError> {
+pub(super) fn validate_row(
+    plan: &Plan,
+    sites: &SiteIndex,
+    roots: &[Child],
+) -> Result<(), InstanceError> {
     let [Child::Node(root)] = roots else {
         return Err(invalid("collection requires one flow root"));
     };
@@ -291,9 +295,10 @@ pub(super) fn validate_row(plan: &Plan, roots: &[Child]) -> Result<(), InstanceE
         let Some(style) = StyleId::from_bit(binding.id as u32) else {
             continue;
         };
-        let Some(value) = root.last[i].as_ref() else {
+        let Some(value) = root.emitted(plan, sites, i) else {
             continue;
         };
+        let value = &value;
         // A transform or a relative offset moves the row's box where it
         // paints and leaves its flow, and so its wrapper's measure, as CSS
         // does: a lifted row being dragged is `translate` and `z-index`

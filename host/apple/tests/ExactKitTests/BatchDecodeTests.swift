@@ -132,6 +132,27 @@ final class BatchDecodeTests: XCTestCase {
         XCTAssertEqual(compared, rows.count * 2)
     }
 
+    func testStylesThatDifferShareTheValuesTheyRepeat() throws {
+        // A colour and a shadow two different styles hold, each decoded once.
+        let batch = try compare(#"{"ops":[{"op":"style","id":1,"style":{"border_radius_top_left":4,"background_color":[0.125,0.25,0.5,1],"box_shadow":[{"x":0,"y":1,"c":[0,0,0,0.5]}]}},{"op":"style","id":2,"style":{"border_radius_top_left":8,"background_color":[0.125,0.25,0.5,1],"box_shadow":[{"x":0,"y":1,"c":[0,0,0,0.5]}]}}]}"#)
+        func storage(_ value: BatchValue?) throws -> UnsafeRawPointer? {
+            try XCTUnwrap(value?.array).withUnsafeBufferPointer { $0.baseAddress.map(UnsafeRawPointer.init) }
+        }
+        let (a, b) = (batch.ops[0].style, batch.ops[1].style)
+        XCTAssertNotEqual(a, b)
+        XCTAssertEqual(try storage(a["background_color"]), try storage(b["background_color"]))
+        XCTAssertEqual(try storage(a["box_shadow"]), try storage(b["box_shadow"]))
+        // A style with an escape is neither cached nor shares: one can spell out a profile path.
+        let escapedText = #"{"ops":[{"op":"style","id":3,"style":{"font_family":"A\u0020family","background_color":[0.125,0.25,0.5,1]}}]}"#
+        let (escaped, again) = (try compare(escapedText), try compare(escapedText))
+        XCTAssertNotEqual(try storage(escaped.ops[0].style["background_color"]), try storage(a["background_color"]))
+        XCTAssertNotEqual(try storage(escaped.ops[0].style["background_color"]), try storage(again.ops[0].style["background_color"]))
+        // Swift's `==` equates these two spellings; each keeps its own bytes.
+        let (composed, decomposed) = ("Caf\u{E9} Display Extra", "Cafe\u{301} Display Extra")
+        let spelled = try compare("{\"ops\":[{\"op\":\"style\",\"id\":4,\"style\":{\"font_family\":\"\(composed)\"}},{\"op\":\"style\",\"id\":5,\"style\":{\"font_family\":\"\(decomposed)\",\"x\":1}}]}")
+        XCTAssertEqual(spelled.ops.map { Array(($0.style["font_family"]?.string ?? "").utf8) }, [Array(composed.utf8), Array(decomposed.utf8)])
+    }
+
     func testStringsNumbersDefaultsAndUnknownKeys() throws {
         for text in [#"{}"#, #"{"ops":null,"timers":null,"motion":null,"clock":null,"error":null,"pending":null,"timer_due_ms":null}"#,
                      #"{"unknown":{"a":[{},[],true,false,null,1e999]},"ops":[{"op":"destroy","unused":1e999}]}"#,

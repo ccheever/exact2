@@ -2,8 +2,8 @@
 // picture of the original app, in text, saying only what the pixels show. The regions are where the two pictures differ,
 // cell by cell, merged into boxes; each is named by the node under its centre, with the colours on each side where they
 // differ, and a hint where its content plainly sits elsewhere in the reference. A box whose edges both pictures show
-// is given at its measured size in each. A picture of the differences is written beside the capture, and one of the
-// regions alone, each cut from both pictures at their own resolution.
+// is given at its measured size in each. A picture of the differences is written beside the capture, one of the
+// regions alone, each cut from both pictures at their own resolution, and the two pictures side by side at half size.
 //
 // Everything is measured on a grid of one cell a point, each cell the area mean of the pixels it covers (flattened on
 // white first). Two cells match when each lies within INK of the other's 3×3 neighbourhood, so anti-aliasing and
@@ -320,13 +320,14 @@ export function boxDiffs(A, B, result, nodes) {
 const hintText = ({ axis, d }, unit) => `its content sits ${Math.abs(d)} ${unit} ${axis === 'y' ? (d > 0 ? 'lower' : 'higher') : (d > 0 ? 'right' : 'left')} in the reference`;
 
 /** The text `compare` prints: a head line, a few lines a region, a line a measured box. */
-export function report(result, nodes, { reference, diff, close = null, unit = 'pt', boxes = [], painted = false }) {
+export function report(result, nodes, { reference, diff, side = null, close = null, unit = 'pt', boxes = [], painted = false }) {
   const pct = (v) => `${(Math.floor(v * 1000) / 10).toFixed(1)}%`, out = [];
   const left = [result.top ? `the top ${result.top} (status bar)` : '', result.bottom ? `the bottom ${result.bottom} (home indicator)` : ''].filter(Boolean).join(' and ');
   const n = result.regions.length, near = close && n ? `; up close, ${close} (${n === 1 ? 'region 1' : `a row a region, 1 to ${n}`})` : '';
   // A menu the agent painted moves the score and reads as the app's bug: said with the score, the line a reader keeps.
   const menu = painted ? ', with the open menu or popover painted by the agent, not UIKit\'s (--touch platform shows UIKit\'s)' : '';
-  out.push(`compare ${reference}: ${pct(result.match)} matches (${result.w}×${result.h} ${unit}${left ? `; ${left} not scored` : ''})${menu}; diff ${diff} (${PANELS.join(' | ')})${near}`);
+  const both = side ? `; side by side at half size, ${side} (${SIDE_PANELS.join(' | ')}, the regions outlined)` : '';
+  out.push(`compare ${reference}: ${pct(result.match)} matches (${result.w}×${result.h} ${unit}${left ? `; ${left} not scored` : ''})${menu}; diff ${diff} (${PANELS.join(' | ')})${both}${near}`);
   result.regions.forEach((r, i) => {
     const names = under(nodes, r.screen), { screen: sc, reference: rc } = r.colours;
     const colour = (c) => (c.ink ? `${c.ink} on ${c.fill}` : c.edges ? `${c.fill}, its edge's anti-aliasing ${c.blend} beside it` : c.fill ?? 'nothing');
@@ -358,36 +359,69 @@ const GLYPHS = {
   S: ['.####', '#....', '#....', '.###.', '....#', '....#', '####.'],
 };
 
-/** Three panels a point a pixel under a band naming each (PANELS): the reference, the screen, and the screen faded
- *  with what differs in red and each region boxed in amber with its number in ticks above its corner. */
-export function diffImage(A, B, result) {
-  const { w, h, mask } = result, W = w * 3 + 8;
-  // The labels at twice the glyphs' size where the widest fits a panel, else at their size.
-  const k = PANELS.every((l) => l.length * 12 + 8 <= w) ? 2 : 1, T = 7 * k + 8, H = h + T;
+const AMBER = [240, 170, 0], GREY = [128, 128, 128];
+
+/** A canvas of panels `w` wide and `h` tall, 4 apart, under a band naming each (`labels`), at twice the glyphs' size
+ *  where the widest fits a panel, else at their size: `put(x, y, colour)` in the panels' pixels (the band above y 0). */
+function panels(labels, w, h) {
+  const W = labels.length * (w + 4) - 4, k = labels.every((l) => l.length * 12 + 8 <= w) ? 2 : 1, T = 7 * k + 8, H = h + T;
   const data = new Uint8Array(W * H * 4).fill(255);
   const put = (x, y, c) => { y += T; if (x < 0 || y < 0 || x >= W || y >= H) return; const i = (y * W + x) * 4; data[i] = c[0]; data[i + 1] = c[1]; data[i + 2] = c[2]; };
-  const ox = 2 * w + 8, amber = [240, 170, 0], grey = [128, 128, 128];
-  PANELS.forEach((label, p) => {
+  labels.forEach((label, p) => {
     [...label.toUpperCase()].forEach((ch, n) => GLYPHS[ch].forEach((row, gy) => [...row].forEach((c, gx) => {
       if (c !== '#') return;
       for (let dy = 0; dy < k; dy++) for (let dx = 0; dx < k; dx++) put(p * (w + 4) + 4 + n * 6 * k + gx * k + dx, 4 - T + gy * k + dy, [0, 0, 0]);
     })));
+    if (p) for (let y = -T; y < h; y++) for (let x = 0; x < 4; x++) put(p * (w + 4) - 4 + x, y, GREY);
   });
+  for (let x = 0; x < W; x++) put(x, -1, GREY);
+  return { put, image: { width: W, height: H, data } };
+}
+
+/** Region `n`'s box (`x0`…`x1`, `y0`…`y1` inclusive, in a panel's pixels from `ox`) outlined in amber just outside it,
+ *  with n + 1 ticks above its corner. */
+function outline(put, ox, x0, y0, x1, y1, n) {
+  for (let x = x0 - 1; x <= x1 + 1; x++) { put(ox + x, y0 - 1, AMBER); put(ox + x, y1 + 1, AMBER); }
+  for (let y = y0 - 1; y <= y1 + 1; y++) { put(ox + x0 - 1, y, AMBER); put(ox + x1 + 1, y, AMBER); }
+  for (let k = 0; k <= n; k++) for (let y = y0 - 6; y < y0 - 2; y++) { put(ox + x0 + k * 3, y, AMBER); put(ox + x0 + k * 3 + 1, y, AMBER); }
+}
+
+/** Three panels a point a pixel under a band naming each (PANELS): the reference, the screen, and the screen faded
+ *  with what differs in red and each region boxed in amber with its number in ticks above its corner. */
+export function diffImage(A, B, result) {
+  const { w, h, mask } = result, { put, image } = panels(PANELS, w, h), ox = 2 * w + 8;
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const i = (y * w + x) * 3, l = 155 + (0.2126 * B.rgb[i] + 0.7152 * B.rgb[i + 1] + 0.0722 * B.rgb[i + 2]) * 0.39;
     put(x, y, [A.rgb[i], A.rgb[i + 1], A.rgb[i + 2]]);
     put(w + 4 + x, y, [B.rgb[i], B.rgb[i + 1], B.rgb[i + 2]]);
     put(ox + x, y, mask[y * w + x] ? [230, 30, 30] : [l, l, l]);
   }
-  for (let y = -T; y < h; y++) for (let x = 0; x < 4; x++) { put(w + x, y, grey); put(2 * w + 4 + x, y, grey); }
-  for (let x = 0; x < W; x++) put(x, -1, grey);
-  result.regions.forEach((r, n) => {
-    const b = r.screen;
-    for (let x = b.x - 1; x <= b.x + b.w; x++) { put(ox + x, b.y - 1, amber); put(ox + x, b.y + b.h, amber); }
-    for (let y = b.y - 1; y <= b.y + b.h; y++) { put(ox + b.x - 1, y, amber); put(ox + b.x + b.w, y, amber); }
-    for (let k = 0; k <= n; k++) for (let y = b.y - 6; y < b.y - 2; y++) { put(ox + b.x + k * 3, y, amber); put(ox + b.x + k * 3 + 1, y, amber); }
+  result.regions.forEach(({ screen: b }, n) => outline(put, ox, b.x, b.y, b.x + b.w - 1, b.y + b.h - 1, n));
+  return image;
+}
+
+/** The side-by-side picture's panels, left to right. */
+export const SIDE_PANELS = ['reference', 'screen'];
+
+/** The reference and the screen at half a pixel a point, side by side under a band naming each (SIDE_PANELS), each
+ *  region outlined in amber on both with its number in ticks above its corner: the two pictures in one image a
+ *  twelfth the pixels of the diff's, small enough to view at every step (the euxy porters composed it themselves). */
+export function sideImage(A, B, result) {
+  const { w, h } = result, pw = Math.max(1, Math.round(w / 2)), ph = Math.max(1, Math.round(h / 2));
+  const { put, image } = panels(SIDE_PANELS, pw, ph);
+  const half = (G) => {
+    const full = new Uint8Array(w * h * 4);
+    for (let i = 0; i < w * h; i++) full.set([G.rgb[i * 3], G.rgb[i * 3 + 1], G.rgb[i * 3 + 2], 255], i * 4);
+    return shrink({ width: w, height: h, data: full }, pw, ph).data;
+  };
+  [A, B].forEach((G, p) => {
+    const px = half(G), ox = p * (pw + 4);
+    for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) put(ox + x, y, px.subarray((y * pw + x) * 4, (y * pw + x) * 4 + 3));
+    // On `shrink`'s own scale, which an odd size makes other than a half.
+    const sx = pw / w, sy = ph / h;
+    result.regions.forEach(({ screen: b }, n) => outline(put, ox, Math.floor(b.x * sx), Math.floor(b.y * sy), Math.ceil((b.x + b.w) * sx) - 1, Math.ceil((b.y + b.h) * sy) - 1, n));
   });
-  return { width: W, height: H, data };
+  return image;
 }
 
 const CLOSE_WIDTH = 1600, CLOSE_HEIGHT = 2400; // the largest a close-up sheet is drawn, in pixels
@@ -421,10 +455,9 @@ export function closeUp(ref, png, result) {
     const piece = flatten(crop(img, x, y, cw, ch));
     return pw <= cw && ph <= ch ? shrink(piece, pw, ph) : piece;
   };
-  const amber = [240, 170, 0], grey = [128, 128, 128];
   let top = 0;
   rows.forEach((r, n) => {
-    for (let t = 0; t <= n; t++) for (let y = 2; y < BAND - 2; y++) { put(2 + t * 4, top + y, amber); put(3 + t * 4, top + y, amber); }
+    for (let t = 0; t <= n; t++) for (let y = 2; y < BAND - 2; y++) { put(2 + t * 4, top + y, AMBER); put(3 + t * 4, top + y, AMBER); }
     top += BAND;
     const left = cut(ref, r, r.pw, r.ph), mid = cut(png, r, r.pw, r.ph), panel = Math.round(widest * k) + GAP;
     for (let y = 0; y < r.ph; y++) for (let x = 0; x < r.pw; x++) {
@@ -434,10 +467,10 @@ export function closeUp(ref, png, result) {
       put(x, top + y, a); put(panel + x, top + y, b);
       put(2 * panel + x, top + y, mask[cy * w + cx] ? [230, 30, 30] : [l, l, l]);
     }
-    for (let y = top - BAND; y < top + r.ph; y++) for (let g = 0; g < GAP; g++) { put(panel - GAP + g, y, grey); put(2 * panel - GAP + g, y, grey); }
+    for (let y = top - BAND; y < top + r.ph; y++) for (let g = 0; g < GAP; g++) { put(panel - GAP + g, y, GREY); put(2 * panel - GAP + g, y, GREY); }
     const q = r.region, bx = 2 * panel + Math.round((q.x - r.x) * k), by = top + Math.round((q.y - r.y) * k), bw = Math.round(q.w * k), bh = Math.round(q.h * k);
-    for (let x = bx - 1; x <= bx + bw; x++) { put(x, by - 1, amber); put(x, by + bh, amber); }
-    for (let y = by - 1; y <= by + bh; y++) { put(bx - 1, y, amber); put(bx + bw, y, amber); }
+    for (let x = bx - 1; x <= bx + bw; x++) { put(x, by - 1, AMBER); put(x, by + bh, AMBER); }
+    for (let y = by - 1; y <= by + bh; y++) { put(bx - 1, y, AMBER); put(bx + bw, y, AMBER); }
     top += r.ph;
   });
   return { width: W, height: H, data };
@@ -476,8 +509,9 @@ function captureNotes(shot) {
 
 /** `screenshot <png> … compare <reference.png>`: `take()` captures (the driver's screenshot), then the comparison against
  *  the reference, with the nodes from `layout` and `tree` (on the web read where the picture shows a transition under
- *  way); the diff picture is written beside the capture as `<png>.diff.png`, and its regions up close as
- *  `<png>.regions.png` (`closeUp`). Replies the capture's reply with `compare`, `diff`, `close` and `text`. */
+ *  way); the diff picture is written beside the capture as `<png>.diff.png`, the two pictures at half size as
+ *  `<png>.side.png` (`sideImage`), and its regions up close as `<png>.regions.png` (`closeUp`). Replies the capture's
+ *  reply with `compare`, `diff`, `side`, `close` and `text`. */
 export async function compareOp(s, referencePath, take) {
   let ref;
   try { ref = decodePng(readFileSync(referencePath)); } catch (e) { throw new MalformedOperation(`compare ${referencePath}: ${e.code === 'ENOENT' ? 'no such file' : e.message}`); }
@@ -505,16 +539,17 @@ export async function compareOp(s, referencePath, take) {
   const bottom = shot.window ? Math.ceil(shot.safeArea?.bottom ?? 0) : 0;
   if (shot.window && !shot.safeArea) notes.push('the host gave no safe area: only a status bar it named is left out');
   const A = grid(ref, w, h), B = grid(png, w, h), result = compareGrids(A, B, { top, bottom });
-  const diff = shot.screenshot.replace(/\.png$/i, '') + '.diff.png', near = closeUp(ref, png, result);
+  const base = shot.screenshot.replace(/\.png$/i, ''), diff = `${base}.diff.png`, side = `${base}.side.png`, near = closeUp(ref, png, result);
   writeFileSync(diff, encodePng(diffImage(A, B, result)));
-  const close = near ? diff.replace(/\.diff\.png$/, '.regions.png') : null;
+  writeFileSync(side, encodePng(sideImage(A, B, result)));
+  const close = near ? `${base}.regions.png` : null;
   if (near) writeFileSync(close, encodePng(near));
-  let text = report(result, nodes, { reference: referencePath, diff, close, unit: s.host === 'web' ? 'px' : 'pt', boxes: boxDiffs(A, B, result, nodes), painted: typeof shot.paintedNote === 'string' });
+  let text = report(result, nodes, { reference: referencePath, diff, side, close, unit: s.host === 'web' ? 'px' : 'pt', boxes: boxDiffs(A, B, result, nodes), painted: typeof shot.paintedNote === 'string' });
   if (notes.length) text += '\n' + notes.map((n) => `  capture: ${n}`).join('\n');
   // A floating sheet's content is drawn scaled by the platform, the reference's too: a box measured smaller is that.
   for (const line of scaledLines(layout)) text += `\n  note: ${line}`;
   const { mask, ...kept } = result;
-  return { ...shot, compare: { ...kept, reference: referencePath }, diff, ...(close ? { close } : {}), text };
+  return { ...shot, compare: { ...kept, reference: referencePath }, diff, side, ...(close ? { close } : {}), text };
 }
 
 /** A drive that takes a plain `screenshot` while the app keeps reference pictures (a `ref/` or `reference/` folder in

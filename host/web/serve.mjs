@@ -541,6 +541,97 @@ function planAppId(bytes) {
   return bytes.subarray(36, 36 + idLen).toString('utf8');
 }
 
+// The schema is the wire authority; no table offsets or row sizes are mirrored here.
+const planFormat = JSON.parse(readFileSync(new URL('../../plan/tables/format.json', import.meta.url), 'utf8'));
+const planFormatDigest = createHash('sha256').update('EXACT.PLAN.FORMAT.SHA256.V1\0').update(canonicalBytes(planFormat)).digest().subarray(0, 8);
+const routeBuffers = new WeakMap();
+function planRoutes(bytes) {
+  if (routeBuffers.has(bytes)) return routeBuffers.get(bytes);
+  let routes = [];
+  try {
+    if (bytes.subarray(0, 4).toString() !== 'EXPL' || bytes.readUInt32LE(4) !== planFormat.formatVersion
+      || !bytes.subarray(8, 16).equals(planFormatDigest)) throw new Error('unknown plan format');
+    let at = 32;
+    const take = n => { const start = at; at += n; if (at > bytes.length) throw new Error('truncated plan'); return start; };
+    const u32 = () => bytes.readUInt32LE(take(4));
+    const decoder = new TextDecoder('utf-8', { fatal: true });
+    const string = () => { const n = u32(); return decoder.decode(bytes.subarray(take(n), at)); };
+    for (const field of planFormat.header) {
+      if (field.codec === 'string') string(); else take(4);
+    }
+    const count = u32(), strings = [];
+    for (let i = 0; i < count; i++) strings.push(string());
+    take(u32()); // code pool
+    take(u32()); // data pool
+    const width = codec => {
+      const kind = codec.split(':')[0];
+      if (['u8', 'bool', 'enum'].includes(kind)) return 1;
+      if (kind === 'u16') return 2;
+      if (['u32', 'i32', 'str', 'idx', 'opt'].includes(kind)) return 4;
+      if (['f64', 'range', 'code', 'bytes'].includes(kind)) return 8;
+      throw new Error('unknown plan codec');
+    };
+    for (const table of planFormat.tables) {
+      const count = u32(), size = table.fields.reduce((n, field) => n + width(field.codec), 0);
+      const start = take(count * size);
+      if (table.name !== 'routes') continue;
+      for (let i = 0; i < count; i++) {
+        let offset = start + i * size;
+        const row = {};
+        for (const field of table.fields) {
+          if (field.name === 'pattern') row.pattern = strings[bytes.readUInt32LE(offset)];
+          if (field.name === 'notfound') { const value = bytes[offset]; if (value > 1) throw new Error('invalid route'); row.notfound = !!value; }
+          offset += width(field.codec);
+        }
+        if (typeof row.pattern !== 'string') throw new Error('invalid route pattern');
+        routes.push(row);
+      }
+    }
+    if (at !== bytes.length) throw new Error('trailing plan bytes');
+  } catch { routes = []; } // An absent or unfinished build admits no additional document paths.
+  routeBuffers.set(bytes, routes);
+  return routes;
+}
+const servedRoutePlans = new Map();
+function routePlanIdentity(dist, published) {
+  const was = buildRoot(dist);
+  if (!was) return null;
+  const stamp = name => {
+    try {
+      const s = lstatSync(resolve(was.root, name), {bigint: true});
+      return [s.dev, s.ino, s.size, s.mtimeNs, s.ctimeNs, s.mode].join(':');
+    } catch (error) { if (error.code === 'ENOENT') return '-'; throw error; }
+  };
+  return [was.root, was.at.dev, was.at.ino, stamp('app.plan'), published ? stamp(webRootPath) : ''].join('|');
+}
+// Check the build, plan and published head before reading. A producer may
+// rewrite a local plan without replacing its build directory.
+function* servedRoutePlan(dist, published = true) {
+  const key = `${published}:${resolve(dist)}`;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const identity = routePlanIdentity(dist, published);
+      if (!identity) return null;
+      const cached = servedRoutePlans.get(key);
+      if (cached?.identity === identity) return cached.plan;
+      let plan;
+      if (published) plan = yield* staticRead(dist, '/app.plan');
+      else {
+        const bytes = yield {op: 'get', root: resolve(dist), path: 'app.plan'};
+        plan = bytes === null ? null : {body: Buffer.from(bytes, 'base64')};
+      }
+      if (routePlanIdentity(dist, published) !== identity) continue;
+      // Static reads return null for both absence and failure; neither should suppress a retry.
+      if (!plan) return null;
+      plan = {routes: planRoutes(plan.body), path: plan.path, published: plan.published};
+      if (servedRoutePlans.size >= 32) servedRoutePlans.delete(servedRoutePlans.keys().next().value);
+      servedRoutePlans.set(key, {identity, plan});
+      return plan;
+    } catch { return null; }
+  }
+  return null;
+}
+
 /** Whether the complete build at `dist` belongs to `app`. The completion
  * marker, public envelope, and named plan must all agree with the requested
  * manifest identity before dev starts that app's resident compiler. */
@@ -687,7 +778,9 @@ export function jsTargetBuild(dist) {
 /** A file of a JS-target build for a request path: the file, a directory's
  * index.html (a page rendered at build), else the shell for an app
  * location. The previous build answers during a rebuild's rename. */
-export function buildTreeFile(dist, pathname, accept = '') {
+export function buildTreeFile(dist, pathname, accept = '') { return runReads(treeFile(dist, pathname, accept)); }
+export function buildTreeFileAsync(dist, pathname, accept = '') { return runReadsAsync(treeFile(dist, pathname, accept)); }
+function* treeFile(dist, pathname, accept) {
   let path;
   try { path = installRoute(decodeURIComponent(pathname)); } catch { return null; }
   // No dot path, but the auth callback page's (LLP 1069.006 D4: `/.exact/auth/…`)
@@ -700,7 +793,11 @@ export function buildTreeFile(dist, pathname, accept = '') {
     const was = buildRoot(dist);
     if (!was) continue;
     const { root } = was, prefix = root.endsWith(sep) ? root : root + sep;
-    for (const route of [path, path.replace(/\/?$/, '/index.html'), ...(appDocumentPath(pathname, acceptsHTML(accept)) ? ['/index.html'] : [])]) {
+    for (const [i, route] of [path, path.replace(/\/?$/, '/index.html'), '/index.html'].entries()) {
+      if (i === 2 && !appDocumentPath(pathname, acceptsHTML(accept))) {
+        const plan = acceptsHTML(accept) ? yield* servedRoutePlan(root, false) : null;
+        if (!stillBuild(dist, was) || !appDocumentPath(pathname, acceptsHTML(accept), plan?.routes ?? [])) break;
+      }
       const file = resolve(root, '.' + route);
       try { if (file.startsWith(prefix) && realpathSync(file) === file && statSync(file).isFile()) return { path: file, route }; } catch { /* next */ }
     }
@@ -709,11 +806,11 @@ export function buildTreeFile(dist, pathname, accept = '') {
   }
   return null;
 }
-export function serveBuildTree(dist, req, res) {
+export async function serveBuildTree(dist, req, res) {
   // The raw target is refused as serveStatic refuses it (an encoded dot
   // segment); a parsed URL would resolve one into another route.
   const target = webRequestURL(req.url);
-  const found = target && buildTreeFile(dist, target.pathname, req.headers.accept);
+  const found = target && await buildTreeFileAsync(dist, target.pathname, req.headers.accept);
   if (!found) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
   sendStaticBody(req, res, readFileSync(found.path), { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });
 }
@@ -892,13 +989,26 @@ export async function warmCompression(dist, compression) {
 
 // @ref LLP 1038 D7 — preserve file precedence and negotiate the app
 // document after resolving the shared extensionless-location fallback.
-export async function readWebRequest(dist, pathname, accept = '') {
+export async function readWebRequest(dist, pathname, accept = '', admittedPlan = undefined) {
   if (!webRequestURL(pathname)) return { found: null, index: false };
   let route = pathname;
   let found = await readStaticFileAsync(dist, route);
-  if (!found && appDocumentPath(route, acceptsHTML(accept))) {
-    route = '/index.html';
-    found = await readStaticFileAsync(dist, route);
+  if (!found) {
+    const navigation = acceptsHTML(accept), ordinary = appDocumentPath(route, navigation);
+    // Dev generations can carry a plan newer than the build on disk.
+    let plan = null;
+    if (!ordinary && navigation) {
+      if (admittedPlan === undefined) plan = await runReadsAsync(servedRoutePlan(dist));
+      else if (admittedPlan !== null) plan = {routes: planRoutes(admittedPlan)};
+    }
+    if (ordinary || appDocumentPath(route, navigation, plan?.routes ?? [])) {
+      route = '/index.html';
+      // A published route table belongs to that immutable release, even if
+      // another publish moves the head before the document is read.
+      const document = plan?.published ? '/' + relative(resolve(dist), resolve(dirname(plan.path), 'index.html')).split(sep).join('/') : route;
+      found = await readStaticFileAsync(dist, document);
+      if (found && plan?.published) found = {...found, immutable: false};
+    }
   }
   const index = route === '/' || route === '/index.html' || found?.route === '/index.html';
   if (index && accept.includes('application/vnd.exact.envelope+json')) {
@@ -1043,13 +1153,20 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
  * an orphaned server keeps its port (chat and onboarding F20). Without the variable a loop runs until stopped. */
 /** A dev loop answers on IPv6's loopback too, the same port: `localhost`
  * resolves to [::1] first, and the design tool frames the page as
- * localhost (another site than the tool's 127.0.0.1). Each connection
- * there is the HTTP server's own. Resolves once it listens, or when there
- * is no IPv6; rejects (EADDRINUSE) when another server holds the port
- * there, which a localhost URL would reach instead. */
+ * localhost (another site than the tool's 127.0.0.1). An HTTP server of
+ * its own there, each request and upgrade handed to `server`'s handlers:
+ * a raw socket handed over instead (`emit('connection')`) loses its
+ * requests' `close` under Bun, so a page's stream there never ended and
+ * the tool listed every canvas it had framed as connected. Closed, its
+ * connections with it, when `server` closes. Resolves once it listens, or
+ * when there is no IPv6; rejects (EADDRINUSE) when another server holds
+ * the port there, which a localhost URL would reach instead. */
 export function alsoOnIPv6Loopback(server, port) {
-  const six = createSocketServer((socket) => server.emit('connection', socket));
-  server.on('close', () => six.close());
+  const six = createServer((req, res) => server.emit('request', req, res));
+  // (An upgrade no one takes is closed, as an HTTP server with no `upgrade` listener closes it.)
+  six.on('upgrade', (req, socket, head) => { if (!server.emit('upgrade', req, socket, head)) socket.destroy(); });
+  // Its connections ended first: Bun's close() lets go of the native server, after which they cannot be.
+  server.on('close', () => { six.closeAllConnections?.(); six.close(); });
   return new Promise((ok, fail) => {
     six.once('error', (e) => (e.code === 'EADDRINUSE' ? fail(e) : ok(null)));
     six.listen(port, '::1', () => ok(six));

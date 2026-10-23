@@ -43,3 +43,77 @@ theme
   actions.count-size: length = 0.81875rem
   actions.count-size-big: length = 0.9375rem
   actions.count-line: length = 1.0625rem
+  // The composer's frame (ComposeFrame): its bar's and toolbar's text and
+  // icons in the accent, the languages too; what's left in the label
+  // colour, the system red once over; the ring's arc on a separator track.
+  actions.compose-tint = AccentColor
+  actions.compose-label = actions.compose-tint
+  actions.compose-surface = -exact-background
+  actions.compose-divider = -exact-separator
+  actions.compose-count = -exact-label
+  actions.compose-over = -exact-system-red
+  actions.compose-track = -exact-separator
+  actions.compose-arc = actions.compose-tint
+  // Its bar: the edges, the height, Cancel's and Drafts' text buttons.
+  actions.compose-bar-lead: length = space.sm
+  actions.compose-bar-trail: length = 12px
+  actions.compose-bar-height: length = 54px
+  actions.compose-text-pad: length = 10px
+  actions.compose-text-height: length = 36px
+  actions.compose-text-size: length = 0.9375rem
+  actions.compose-drafts-pad: length = 12px
+  actions.compose-drafts-gap: length = space.xs
+  // Its toolbar: the edges, the buttons' hit padding and gaps, the icons,
+  // the languages' label, and the counter's width, gap and ring.
+  actions.compose-hairline: length = -exact-hairline
+  actions.compose-toolbar-lead: length = 7px
+  actions.compose-toolbar-trail: length = space.md
+  actions.compose-toolbar-pad: length = space.xs
+  actions.compose-tool-gap: length = space.xs
+  actions.compose-tool-pad: length = space.sm
+  actions.compose-tool-corner: length = radius.full
+  actions.compose-icon: length = 24px
+  actions.compose-dim: number = 0.5
+  actions.compose-trail-gap: length = 12px
+  actions.compose-add-pad: length = 6px
+  actions.compose-add-icon: length = 22px
+  actions.compose-lang-pad: length = space.xs
+  actions.compose-lang-max: length = 100px
+  actions.compose-small-size: length = 0.81875rem
+  actions.compose-count-line: length = 1.1875rem
+  actions.compose-counter-width: length = 65px
+  actions.compose-counter-gap: length = space.sm
+  actions.compose-ring: length = 30px
+  // An app's own bar's items (BarItem): the icon in the label colour, a
+  // count's pill and dot in the accent with white text; the item's column
+  // over and under its icon, held at 0.8; the pill's and the dot's size,
+  // type and offsets.
+  actions.bar-tint = -exact-label
+  actions.bar-badge = AccentColor
+  actions.bar-badge-ink = #ffffff  scheme=fixed
+  actions.bar-item-top: length = 13px
+  actions.bar-item-bottom: length = space.xs
+  actions.bar-item-press: number = 0.8
+  actions.bar-badge-top: length = space.sm
+  actions.bar-badge-pad: length = 5px
+  actions.bar-badge-pad-top: length = 1px
+  actions.bar-badge-pad-bottom: length = 2px
+  // Bluesky's pill is a rounded rectangle at 6, not a full pill: it stays
+  // 6 as the type grows.
+  actions.bar-badge-corner: length = 6px
+  actions.bar-badge-size: length = 0.75rem
+  actions.bar-badge-line: length = 0.9375rem
+  actions.bar-dot-top: length = 10px
+  actions.bar-dot-gap: length = space.xs
+  actions.bar-dot: length = space.sm
+  actions.bar-dot-corner: length = radius.full
+  // An app's own header's buttons (HeaderButton): a round slot, its icon in
+  // the label colour (a small one's smaller, in the secondary label), and
+  // the back button's pull to the edge (no base name is negative).
+  actions.header-tint = -exact-label
+  actions.header-tint-small = -exact-secondary-label
+  actions.header-slot: length = 33px
+  actions.header-corner: length = radius.full
+  actions.header-icon: length = 24px
+  actions.header-icon-small: length = 20px
+  actions.header-lead: length = -3px

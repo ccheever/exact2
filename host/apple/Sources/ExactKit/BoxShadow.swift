@@ -188,8 +188,12 @@ extension BoxShadowSpec {
 }
 
 extension NodeView {
-    /// The `box-shadow` list resolved for the view's appearance.
-    var boxShadows: [BoxShadowSpec] { BoxShadowSpec.list(style["box_shadow"], dark: drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: style["box_shadow"])) }
+    /// The `box-shadow` list resolved for the view's appearance; a popover's
+    /// default surface's shadow where its author wrote none (`defaultSurface`).
+    var boxShadows: [BoxShadowSpec] {
+        let list = BoxShadowSpec.list(style["box_shadow"], dark: drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: style["box_shadow"]))
+        return list.isEmpty ? defaultSurfaceShadow.map { [$0] } ?? [] : list
+    }
 
     /// The first outer shadow's colour; nil when there is none.
     var shadowColor: CGColor? { boxShadows.first { !$0.inset }?.color }
@@ -214,7 +218,13 @@ extension NodeView {
         let host = layer
         #endif
         let all = surface == nil && bounds.width > 0 && bounds.height > 0 ? boxShadows : []
-        let sizes = BorderPaint.reduced(BorderPaint.radii(style, in: bounds), in: bounds)
+        var sizes = BorderPaint.reduced(BorderPaint.radii(style, in: bounds), in: bounds)
+        // A default surface's corner where its author wrote none, its shadow cast from it.
+        var outline = outline
+        if let r = defaultSurfaceRadius, !writesCorner {
+            sizes = BorderPaint.reduced(Array(repeating: CGSize(width: r, height: r), count: 4), in: bounds)
+            outline = BorderPaint.roundedRect(bounds, sizes, shape: CornerShape(nil))
+        }
         let shape = CornerShape(style["corner_shape"])
         let outer = all.filter { !$0.inset }
         if let host, !outer.isEmpty {

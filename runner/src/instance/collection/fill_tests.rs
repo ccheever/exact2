@@ -355,14 +355,13 @@ fn a_rejected_report_s_padding_changes_nothing() {
     assert_eq!(h.collection().padding(), [20.0, 20.0], "the next report");
     // A request after them aligns within the list's style's scroll padding,
     // which no report carries
-    let sites = crate::instance::SiteIndex::new(&h.plan);
-    let mut u = Update::new(env(&h.plan, &h.slots), &sites, &mut h.ids);
+    let mut u = Update::new(env(&h.plan, &h.slots), &h.sites, &mut h.ids);
     let style = |_| [12.0, 0.0, 0.0, 0.0];
     u.scroll_padding = Some(&style);
     let Child::Node(root) = &mut h.tree.children[0] else {
         panic!()
     };
-    let list = root.collection.as_mut().unwrap();
+    let list = root.collection_mut().unwrap();
     list.begin_into_view(&mut u, &[], "n:50", Align::Start, false, None)
         .unwrap();
     let offset = list.correction.unwrap().offset;
@@ -443,7 +442,7 @@ fn padded_extent_overflow_is_rejected_before_any_geometry_mutation() {
                 let Child::Node(root) = &mut h.tree.children[0] else {
                     panic!()
                 };
-                root.collection.as_mut().unwrap().estimated_height = 1e38;
+                root.collection_mut().unwrap().estimated_height = 1e38;
             }
             let before = h.snapshot();
             let fingerprint = h.collection().index.fingerprint();

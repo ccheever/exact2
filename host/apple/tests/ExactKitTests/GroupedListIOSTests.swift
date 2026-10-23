@@ -185,6 +185,19 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertFalse(try cell(p, 21).contentView.insetsLayoutMarginsFromSafeArea, "a custom row's content")
     }
 
+    func testAGroupedInvokerUsesItsVisibleCellButKeepsAuthorHiding() throws {
+        let p = presenter { self.model() }
+        let row = try XCTUnwrap(p.views[10]), section = try XCTUnwrap(p.views[2])
+        _ = try cell(p, 10)
+        XCTAssertTrue(section.isHidden)
+        XCTAssertTrue(p.menus.eligible(row), "the cell stands for the hidden authored section")
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["display": "none"]]]))
+        XCTAssertFalse(p.menus.eligible(row), "the author's hiding still withdraws the invoker")
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["display": "block"]],
+                           ["op": "props", "id": 10, "set": ["disabled": "true"], "clear": [String]()]]))
+        XCTAssertFalse(p.menus.eligible(row), "a disabled invoker stays unavailable")
+    }
+
     func testATapHighlightsAndPressesTheRowOnce() throws {
         let p = presenter { self.model() }
         var pressed: [UInt32] = []

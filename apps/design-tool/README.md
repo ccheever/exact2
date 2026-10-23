@@ -200,8 +200,9 @@ whose design the port serves.
   Set for this app writes the app's override line (`set-token`); Back to
   the base or the package removes it.
 - `app.test.contract` runs against `stub/tamber-stub.ts`, canned replies;
-  `scripts/design-tool.test.mjs` drives the built tool against a real
-  server on a copy of `apps/theme-fixture`. Both run on the checkout's own
+  `scripts/design-tool.test.mjs` (with its `-ops`, `-canvas` and `-scrub`
+  files, which a lane runs side by side) drives the built tool against a
+  real server on a copy of `apps/theme-fixture`. Both run on the checkout's own
   port (`EXACT_TOOL_PORT` names another), never a person's 7740: `bun
   exact.mjs test` here runs a copy staged for that origin
   (`scripts/tamber-tool-port.mjs`), and so does a drive or verify named

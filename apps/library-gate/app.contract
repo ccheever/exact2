@@ -1,5 +1,5 @@
 // LLP 1139 §5 E's fixture app (scripts/stage12-gate.mjs drives it): every
-// exported component of @exact/cards and @exact/actions, once per value of
+// exported component of @exact/cards, @exact/actions and @exact/lists, once per value of
 // each variant prop as the compiler marks them (D5: a bool or enum a class
 // condition or a style row's ?: or match reads), one varied at a time (the
 // others at their first value; a bool's first is false), and a component
@@ -12,15 +12,21 @@
 // gate can see the slot render both.
 // scripts/library-gate.test.mjs holds the cells to the compiler's IR. No
 // `if`, `for` or `match` in this view: every cell renders.
-use PostCard, AtCard from "@exact/cards"
-use ActionRow, PostButton from "@exact/actions"
+use PostCard, AtCard, ProfileHeader, ProfileAlert from "@exact/cards"
+use ActionRow, PostButton, ComposeFrame, BarItem, HeaderButton from "@exact/actions"
+use ListRow, SwitchRow from "@exact/lists"
 
 component App
   state glyph = "A"
   state pressed = 0
+  state switched = false
   action toggle
     glyph = (glyph == "A" ? "B" : "A")
   action press
+    pressed = pressed + 1
+  action flip(on: bool)
+    switched = on
+  action pick(id: string)
     pressed = pressed + 1
   view
     scroll testId="root" flex=1 background-color="gate.ground"
@@ -65,3 +71,95 @@ component App
           PostButton(id="sample-pb-reply", label="Post", reply=true, disabled=false, press=press)
           PostButton(id="sample-pb-disabled", label="Post", reply=false, disabled=true, press=press)
         AtCard(id="at-base", href="https://fixture.attie.site/garden", title="A garden plan", description="Beds, paths and what grows where.", thumb="", atName="Eli Brandt", atHandle="@eli.fixture.invalid", atAvatar="")
+        // The profile header: its two variants, then each badge, "Follows you" and a
+        // note in place of the counts as samples (structure, no recipe).
+        ProfileHeader(id="ph-base", bannerSrc="", avatarSrc="", avatarFlight="", name="Ada Lindqvist", handle="ada.fixture.invalid", badge="none", followsYou=false, followers="1.2K", followersNoun="followers", follows="210", posts="3.4K", alerts=[], note="", blocked=false, compact=false, pull=0, openAvatar=press, openFollowers=press, openFollows=press, openAlert=pick)
+          box testId="marker-ph-base" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ProfileHeader(id="ph-blocked", bannerSrc="", avatarSrc="", avatarFlight="", name="Ada Lindqvist", handle="ada.fixture.invalid", badge="none", followsYou=false, followers="1.2K", followersNoun="followers", follows="210", posts="3.4K", alerts=[], note="", blocked=true, compact=false, pull=0, openAvatar=press, openFollowers=press, openFollows=press, openAlert=pick)
+          box testId="marker-ph-blocked" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ProfileHeader(id="ph-compact", bannerSrc="", avatarSrc="", avatarFlight="", name="Ada Lindqvist", handle="ada.fixture.invalid", badge="none", followsYou=false, followers="1.2K", followersNoun="followers", follows="210", posts="3.4K", alerts=[], note="", blocked=false, compact=true, pull=0, openAvatar=press, openFollowers=press, openFollows=press, openAlert=pick)
+          box testId="marker-ph-compact" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ProfileHeader(id="sample-ph-verified", bannerSrc="", avatarSrc="", avatarFlight="", name="Ada Lindqvist", handle="ada.fixture.invalid", badge="verified", followsYou=false, followers="1.2K", followersNoun="followers", follows="210", posts="3.4K", alerts=[], note="", blocked=false, compact=false, pull=0, openAvatar=press, openFollowers=press, openFollows=press, openAlert=pick)
+          box testId="marker-sample-ph-verified" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ProfileHeader(id="sample-ph-verifier", bannerSrc="", avatarSrc="", avatarFlight="", name="Ada Lindqvist", handle="ada.fixture.invalid", badge="verifier", followsYou=false, followers="1.2K", followersNoun="followers", follows="210", posts="3.4K", alerts=[], note="", blocked=false, compact=false, pull=0, openAvatar=press, openFollowers=press, openFollows=press, openAlert=pick)
+          box testId="marker-sample-ph-verifier" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ProfileHeader(id="sample-ph-follows-you", bannerSrc="", avatarSrc="", avatarFlight="", name="Ada Lindqvist", handle="ada.fixture.invalid", badge="none", followsYou=true, followers="1.2K", followersNoun="followers", follows="210", posts="3.4K", alerts=[], note="", blocked=false, compact=false, pull=0, openAvatar=press, openFollowers=press, openFollows=press, openAlert=pick)
+          box testId="marker-sample-ph-follows-you" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ProfileHeader(id="sample-ph-alerts", bannerSrc="", avatarSrc="", avatarFlight="", name="Ada Lindqvist", handle="ada.fixture.invalid", badge="none", followsYou=false, followers="1.2K", followersNoun="followers", follows="210", posts="3.4K", alerts=[ProfileAlert(id="blocked", label="User Blocked", icon="ban"), ProfileAlert(id="muted", label="Account Muted", icon="eyeslash"), ProfileAlert(id="label", label="Adult Content", icon="warning"), ProfileAlert(id="info", label="Note", icon="info")], note="", blocked=false, compact=false, pull=0, openAvatar=press, openFollowers=press, openFollows=press, openAlert=pick)
+          box testId="marker-sample-ph-alerts" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ProfileHeader(id="sample-ph-note", bannerSrc="", avatarSrc="", avatarFlight="", name="Ada Lindqvist", handle="ada.fixture.invalid", badge="none", followsYou=false, followers="1.2K", followersNoun="followers", follows="210", posts="3.4K", alerts=[], note="This account couldn't be loaded.", blocked=false, compact=false, pull=0, openAvatar=press, openFollowers=press, openFollows=press, openAlert=pick)
+          box testId="marker-sample-ph-note" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        // A picture avatar (a local symbol, no network): its own sized column.
+        ProfileHeader(id="sample-ph-avatar", bannerSrc="", avatarSrc="symbol:person", avatarFlight="", name="Ada Lindqvist", handle="ada.fixture.invalid", badge="none", followsYou=false, followers="1.2K", followersNoun="followers", follows="210", posts="3.4K", alerts=[], note="", blocked=false, compact=false, pull=0, openAvatar=press, openFollowers=press, openFollows=press, openAlert=pick)
+          box testId="marker-sample-ph-avatar" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        // The composer's frame: each variant value, one at a time, then the
+        // ring near and over its limit (with a post to add) as samples.
+        ComposeFrame(id="cf-base", cancelLabel="Cancel", drafts=false, draftsLabel="Drafts", busy=false, postLabel="Post", postDisabled=false, reply=false, gallery=false, camera=false, gif=false, canAdd=false, langLabel="English", count=40, limit=300, cancel=press, openDrafts=press, post=press, choose=press, openCamera=press, gifs=press, addPost=press, languages=press)
+          box testId="marker-cf-base" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ComposeFrame(id="sample-cf-drafts", cancelLabel="Cancel", drafts=true, draftsLabel="Drafts", busy=false, postLabel="Post", postDisabled=false, reply=false, gallery=false, camera=false, gif=false, canAdd=false, langLabel="English", count=40, limit=300, cancel=press, openDrafts=press, post=press, choose=press, openCamera=press, gifs=press, addPost=press, languages=press)
+          box testId="marker-sample-cf-drafts" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ComposeFrame(id="sample-cf-reply", cancelLabel="Cancel", drafts=true, draftsLabel="Drafts", busy=false, postLabel="Post", postDisabled=false, reply=true, gallery=false, camera=false, gif=false, canAdd=false, langLabel="English", count=40, limit=300, cancel=press, openDrafts=press, post=press, choose=press, openCamera=press, gifs=press, addPost=press, languages=press)
+          box testId="marker-sample-cf-reply" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ComposeFrame(id="cf-gallery", cancelLabel="Cancel", drafts=false, draftsLabel="Drafts", busy=false, postLabel="Post", postDisabled=false, reply=false, gallery=true, camera=false, gif=false, canAdd=false, langLabel="English", count=40, limit=300, cancel=press, openDrafts=press, post=press, choose=press, openCamera=press, gifs=press, addPost=press, languages=press)
+          box testId="marker-cf-gallery" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ComposeFrame(id="cf-camera", cancelLabel="Cancel", drafts=false, draftsLabel="Drafts", busy=false, postLabel="Post", postDisabled=false, reply=false, gallery=false, camera=true, gif=false, canAdd=false, langLabel="English", count=40, limit=300, cancel=press, openDrafts=press, post=press, choose=press, openCamera=press, gifs=press, addPost=press, languages=press)
+          box testId="marker-cf-camera" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ComposeFrame(id="cf-gif", cancelLabel="Cancel", drafts=false, draftsLabel="Drafts", busy=false, postLabel="Post", postDisabled=false, reply=false, gallery=false, camera=false, gif=true, canAdd=false, langLabel="English", count=40, limit=300, cancel=press, openDrafts=press, post=press, choose=press, openCamera=press, gifs=press, addPost=press, languages=press)
+          box testId="marker-cf-gif" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ComposeFrame(id="sample-cf-near", cancelLabel="Cancel", drafts=true, draftsLabel="Drafts", busy=false, postLabel="Post", postDisabled=false, reply=false, gallery=true, camera=true, gif=true, canAdd=true, langLabel="English", count=290, limit=300, cancel=press, openDrafts=press, post=press, choose=press, openCamera=press, gifs=press, addPost=press, languages=press)
+          box testId="marker-sample-cf-near" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        ComposeFrame(id="sample-cf-over", cancelLabel="Cancel", drafts=true, draftsLabel="Drafts", busy=false, postLabel="Post", postDisabled=false, reply=false, gallery=true, camera=true, gif=true, canAdd=true, langLabel="English", count=320, limit=300, cancel=press, openDrafts=press, post=press, choose=press, openCamera=press, gifs=press, addPost=press, languages=press)
+          box testId="marker-sample-cf-over" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        // An app's own bar's items, in a row as a bar holds them: the base,
+        // then selected, a count, a dot and an avatar in the slot as samples.
+        row testId="gate-bar"
+          BarItem(id="bi-base", label="Home", selected=false, d="M4 4h16v16H4zM6 6v12h12V6z", selectedD="M4 4h16v16H4z", iconSize=28, lift=0, badge="", dot=false, press=press)
+            box testId="marker-bi-base" press=toggle width=24 height=24 align-items="center" justify-content="center"
+              text glyph
+          BarItem(id="sample-bi-selected", label="Home", selected=true, d="M4 4h16v16H4zM6 6v12h12V6z", selectedD="M4 4h16v16H4z", iconSize=28, lift=0, badge="", dot=false, press=press)
+            box testId="marker-sample-bi-selected" press=toggle width=24 height=24 align-items="center" justify-content="center"
+              text glyph
+          BarItem(id="sample-bi-badge", label="Home", selected=false, d="M4 4h16v16H4zM6 6v12h12V6z", selectedD="M4 4h16v16H4z", iconSize=28, lift=0, badge="3", dot=false, press=press)
+            box testId="marker-sample-bi-badge" press=toggle width=24 height=24 align-items="center" justify-content="center"
+              text glyph
+          BarItem(id="sample-bi-dot", label="Home", selected=false, d="M4 4h16v16H4zM6 6v12h12V6z", selectedD="M4 4h16v16H4z", iconSize=28, lift=0, badge="", dot=true, press=press)
+            box testId="marker-sample-bi-dot" press=toggle width=24 height=24 align-items="center" justify-content="center"
+              text glyph
+          BarItem(id="sample-bi-avatar", label="Home", selected=false, d="", selectedD="M4 4h16v16H4z", iconSize=28, lift=0, badge="", dot=false, press=press)
+            box testId="marker-sample-bi-avatar" press=toggle width=24 height=24 align-items="center" justify-content="center"
+              text glyph
+        // An app's own header's buttons: each variant value, one at a time.
+        row testId="gate-header" gap=8
+          HeaderButton(id="hb-base", label="Back", d="M3 12l6-6v4h12v4H9v4z", small=false, lead=false, press=press)
+          HeaderButton(id="hb-small", label="Back", d="M3 12l6-6v4h12v4H9v4z", small=true, lead=false, press=press)
+          HeaderButton(id="hb-lead", label="Back", d="M3 12l6-6v4h12v4H9v4z", small=false, lead=true, press=press)
+        // The lists' rows sit in a grouped list's section, as the platform's
+        // list cells do (LLP 1084): each accessory and a destructive row are
+        // samples (structure and an attribute, no recipe).
+        list appearance="auto" listStyle="inset-grouped" testId="gate-lists" flex-shrink=0
+          section
+            ListRow(id="lr-base", symbol="settings", title="Settings", value="", accessory="chevron", selected=false, destructive=false, press=press)
+            ListRow(id="sample-lr-value", symbol="mail", title="Email", value="ada@fixture.invalid", accessory="value", selected=false, destructive=false, press=press)
+            ListRow(id="sample-lr-check", symbol="", title="System", value="", accessory="check", selected=true, destructive=false, press=press)
+            ListRow(id="sample-lr-check-off", symbol="", title="Light", value="", accessory="check", selected=false, destructive=false, press=press)
+            ListRow(id="sample-lr-check-symbol", symbol="moon", title="Dark", value="", accessory="check", selected=true, destructive=false, press=press)
+            ListRow(id="sample-lr-none", symbol="info", title="Help", value="", accessory="none", selected=false, destructive=false, press=press)
+            ListRow(id="sample-lr-destructive", symbol="sign-out", title="Sign out", value="", accessory="none", selected=false, destructive=true, press=press)
+            SwitchRow(id="sr-base", symbol="moon", title="Dark mode", checked=switched, set=flip)

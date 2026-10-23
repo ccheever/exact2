@@ -22,11 +22,10 @@ import AppKit
 import UniformTypeIdentifiers
 
 extension Presenter {
-    /// Chrome on macOS opens an unmodified ContextMenu keydown at the
-    /// current focus, after its key handlers; Shift+F10 has no such default.
+    /// Invoke the focused node's contextmenu or contextPopover after key handlers.
     func contextMenuKey(_ event: NSEvent, in owner: NSWindow? = nil) -> Bool {
-        guard event.type == .keyDown, NodeView.keyName(event) == "ContextMenu",
-              event.modifierFlags.intersection([.shift, .control, .option, .command]).isEmpty,
+        let name = NodeView.keyName(event), held = KeyCodes.held(event.modifierFlags)
+        guard event.type == .keyDown, (name == "ContextMenu" && held.isEmpty || name == "F10" && held == "Shift+"),
               let window = owner ?? event.window, hosts(window),
               (window.firstResponder as? NSTextInputClient)?.hasMarkedText() != true else { return false }
         if let run = window.firstResponder as? InlineKeyView, run.owner?.inlineContextMenu(run.id) == true { return true }
@@ -207,13 +206,19 @@ extension NodeView {
             svgPressed = nil
             // The element has no view of its own: the `svg`'s view stands for it.
             if !inert, presenter?.svg.target(id, at: local(event.locationInWindow)) == target {
-                presenter?.pressHeld = KeyCodes.held(event.modifierFlags); presenter?.onPress?(target); presenter?.pressHeld = ""
+                presenter?.menus.activating(from: self, pressing: nil) {
+                    presenter?.pressHeld = KeyCodes.held(event.modifierFlags); presenter?.onPress?(target); presenter?.pressHeld = ""
+                }
             }
             return
         }
         if let run = inlinePressed {
             inlinePressed = nil
-            if inlineTarget(at: local(event.locationInWindow), handler: "press")?.id == run { _ = activateInline(run) }
+            if inlineTarget(at: local(event.locationInWindow), handler: "press")?.id == run {
+                presenter?.pressClick = event
+                _ = activateInline(run)
+                presenter?.pressClick = nil
+            }
             return
         }
         if selectsText { presenter?.selection.end(self, event: event); return }
@@ -222,7 +227,9 @@ extension NodeView {
         pressed = false
         if pressInside(event.locationInWindow) {
             let canvas = inputCanvas, ownerWindow = window
-            presenter?.press(id, held: KeyCodes.held(event.modifierFlags))
+            presenter?.menus.activating(from: presenter?.mouseChain.pressSource ?? self, pressing: self) {
+                presenter?.press(id, held: KeyCodes.held(event.modifierFlags), click: event)
+            }
             finishPress(canvas: canvas, window: ownerWindow, pointer: true)
         }
     }

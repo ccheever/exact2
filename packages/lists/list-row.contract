@@ -1,0 +1,61 @@
+// A grouped list's row that goes somewhere or does something (the clone's
+// NavRow, ValueRow, CheckRow and ActRow): the platform's list cell, a
+// native button holding a symbol, a title and, by `accessory`, a value, a
+// chevron or a checkmark. The platform draws the button as its list's cell
+// (LLP 1084), so it is no native control's part (LLP 1139 D6) and the row
+// has none; nothing inside it is a part either (§9 Q3).
+component ListRow
+  params
+    tint: color = "lists.symbol-tint" control = "token" group = "Color" priority = 1 label = "Symbol tint"
+  props
+    // Names its testId.
+    id: string
+    symbol: string
+    title: string
+    // The text after the title (Account's Email), on a `value` or
+    // `chevron` row.
+    value: string
+    accessory: enum<"chevron", "value", "check", "none">
+    // One of a few choices (a `check` row): whether it is the chosen one,
+    // which shows the checkmark.
+    selected: bool
+    destructive: bool
+    press: action
+  view
+    // An action's row (`accessory` none: Sign in, Sign out): a symbol and a
+    // title, the shape the platform draws as its action cell, in the accent
+    // or, destructive, the destructive colour, so its symbol takes no tint
+    // of ours (the platform's accent, or destructive red). A check row says
+    // whether it is the chosen one (aria-selected); no other row does. A
+    // destructive row's symbol is the row's red on every row, so the tint
+    // param is for the others.
+    if accessory == "none"
+      button press=press testId=id destructive=destructive
+        if symbol != ""
+          image `symbol:${symbol}`
+        text title
+    else if accessory == "check"
+      button press=press testId=id destructive=destructive aria-selected=selected
+        if symbol != ""
+          if destructive
+            image `symbol:${symbol}`
+          else
+            image `symbol:${symbol}` color="param.tint"
+        text title
+        if selected
+          image "symbol:checkmark"
+    else
+      button press=press testId=id destructive=destructive
+        // One node each for the leading symbol and the trailing accessory,
+        // so the cell finds them first and last (grouped.rs reads an `if`
+        // through, by its place in the row).
+        if symbol != ""
+          if destructive
+            image `symbol:${symbol}`
+          else
+            image `symbol:${symbol}` color="param.tint"
+        text title
+        if value != ""
+          text value
+        if accessory == "chevron"
+          image "symbol:forward-chevron"

@@ -291,3 +291,63 @@ test('host.ios.appClip is an object of an id and a name, and an unknown key or a
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('display_override is the web manifest\'s, written into manifest.json and baked for the Mac', async () => {
+  const { readManifest, webAppManifest } = await import('./app.mjs');
+  const { macInfoPlist } = await import('../host/apple/build.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'manifest-display-override-'));
+  const save = display_override => writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Row', app: { id: 'dev.exact.row', name: 'Row' }, display: 'standalone', display_override }));
+  try {
+    save(['window-controls-overlay', 'standalone']);
+    const manifest = readManifest(dir, 'row');
+    assert.deepEqual(manifest.display_override, ['window-controls-overlay', 'standalone']);
+    assert.deepEqual(webAppManifest(manifest, 'Row').display_override, ['window-controls-overlay', 'standalone']);
+    const plist = macInfoPlist({ id: 'dev.exact.row', displayName: 'Row', manifest });
+    assert.match(plist, /<key>ExactDisplayOverride<\/key>\s*<array>\s*<string>window-controls-overlay<\/string>/);
+    save(['borderless']);
+    assert.throws(() => readManifest(dir, 'row'), /display_override/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('open_url declares the schemes openURL may hand to the system, and refuses the ones the hosts keep', async () => {
+  const { macInfoPlist, infoPlist } = await import('../host/apple/build.mjs');
+  const { readManifest } = await import('./app.mjs');
+  const app = { id: 'dev.exact.editors', displayName: 'Editors', manifest: { open_url: { schemes: ['vscode', 'zed', 'jetbrains'] } } };
+  for (const plist of [macInfoPlist(app), infoPlist(app)]) {
+    assert.match(plist.replace(/\s+/g, ''), /<key>ExactOpenURLSchemes<\/key><array><string>vscode<\/string><string>zed<\/string><string>jetbrains<\/string><\/array>/);
+  }
+  assert.doesNotMatch(infoPlist({ id: 'dev.exact.editors', displayName: 'Editors', manifest: {} }), /ExactOpenURLSchemes/);
+  const dir = mkdtempSync(resolve(tmpdir(), 'manifest-open-url-'));
+  try {
+    const save = (open_url) => writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Editors', app: { id: 'dev.exact.editors', name: 'Editors' }, open_url }));
+    save({ schemes: ['vscode-insiders', 'cursor', 'sms'] });
+    assert.deepEqual(readManifest(dir, 'editors').open_url.schemes, ['vscode-insiders', 'cursor', 'sms']);
+    for (const [open_url, says] of [[{ schemes: ['file'] }, /does not match/], [{ schemes: ['javascript'] }, /does not match/], [{ schemes: ['https'] }, /does not match/], [{ schemes: ['vbscript'] }, /does not match/], [{ schemes: ['view-source'] }, /does not match/], [{ schemes: ['intent'] }, /does not match/],
+      [{ schemes: ['vscode://'] }, /does not match/], [{ schemes: [] }, /fewer than 1/], [{ apps: ['vscode'] }, /not a known key/]]) {
+      save(open_url);
+      assert.throws(() => readManifest(dir, 'editors'), says);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('foreground update intervals are positive seconds and reach both Apple bundles', async () => {
+  const { readManifest } = await import('./app.mjs');
+  const { macInfoPlist, infoPlist } = await import('../host/apple/build.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'manifest-checks-'));
+  const manifest = { name: 'Checks', app: { id: 'test.checks', name: 'Checks' }, deploy: { activate: 'app-decides', check: { interval: 3 } } };
+  const save = () => writeFileSync(resolve(dir, 'app.json'), JSON.stringify(manifest));
+  try {
+    save();
+    assert.equal(readManifest(dir, 'checks').deploy.check.interval, 3);
+    const app = { id: 'test.checks', displayName: 'Checks', manifest };
+    for (const plist of [macInfoPlist(app), infoPlist(app)]) {
+      assert.match(plist, /<key>ExactUpdateCheckInterval<\/key>\s*<integer>3<\/integer>/);
+      assert.match(plist, /<key>ExactUpdateActivate<\/key>\s*<string>app-decides<\/string>/);
+    }
+    for (const interval of [0, -1, '3']) {
+      manifest.deploy.check.interval = interval;
+      save();
+      assert.throws(() => readManifest(dir, 'checks'), /interval/);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

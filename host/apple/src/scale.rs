@@ -17,7 +17,9 @@ pub(crate) fn kernel(measurer: Box<dyn TextMeasurer>) -> Kernel {
     } else {
         Column::Ios
     });
-    Kernel::new(measurer)
+    let mut kernel = Kernel::new(measurer);
+    kernel.set_pixel_borders();
+    kernel
 }
 
 impl<D: DataSource> Host<D> {
@@ -37,8 +39,24 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    /// The host's zoom over the root size (LLP 1021 §5.3, the Mac's View ▸
+    /// Zoom In): a relayout in one commit; the same zoom commits nothing.
+    pub fn set_root_font_zoom(&mut self, factor: f64) -> String {
+        match self.runner.set_root_font_zoom(factor) {
+            Ok(Some(receipt)) => self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => self.finish(Batch::new(), None),
+            Err(e) => self.finish(Batch::new(), Some(format!("root font zoom: {e:?}"))),
+        }
+    }
+
     /// Tell the runner the display's scale: a relayout in one commit where a
-    /// row is a hairline, nothing where none is.
+    /// hairline or snapped border can move, nothing where none can.
     pub fn set_display_scale(&mut self, scale: f64) -> String {
         match self.runner.set_display_scale(scale) {
             Ok(Some(receipt)) => self.commit(

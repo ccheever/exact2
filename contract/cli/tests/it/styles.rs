@@ -371,7 +371,7 @@ fn aspect_ratio_takes_the_css_grammar() {
         ("e", "2/1"),
     ] {
         assert_eq!(
-            style_of(&r, id).aspect_ratio,
+            style_of(&r, id).rare.aspect_ratio,
             AspectRatio::parse(css).unwrap(),
             "{id}"
         );

@@ -134,13 +134,17 @@ impl<'a> Designs<'a> {
         Some((role.to_string(), t))
     }
 
-    /// A package's token `name` (a package's icons are not read yet).
+    /// A package's line `name` reads: a token, or an icon (stage 13).
     fn package_token(
         &self,
         name: &str,
     ) -> Option<(&contract_syntax::DesignSource, &exact_tamber::Token)> {
         self.packages.iter().find_map(|(s, d)| {
-            let t = d.tokens.iter().find(|t| t.name.value == name)?;
+            let t = d
+                .tokens
+                .iter()
+                .chain(&d.icons)
+                .find(|t| t.name.value == name)?;
             Some((*s, t))
         })
     }

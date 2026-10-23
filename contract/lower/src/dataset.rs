@@ -14,12 +14,13 @@ use exact_kernel::PropId;
 use exact_plan::asm::Asm;
 use exact_plan::BindingsRow;
 
-/// Words a host already writes as `data-<word>` on the elements it makes:
-/// the web host's own markers (`host/web`, `host/web-js`), and the props it
-/// has no DOM name for, written as `data-<the prop's name, lowercased>`.
-/// `host/web`'s `every_data_name_the_host_writes_is_a_reserved_word` keeps
-/// the second half whole.
-const HOST_WORDS: [&str; 101] = [
+/// Words the web targets write as `data-<word>` on their elements:
+/// explicit DOM markers and props without a DOM name, whose fallback is
+/// `data-<the prop's name, lowercased>`. `host/web`'s element tests and
+/// `host/web-js`'s row tests check the names their Rust writers emit; the
+/// markers the JS glue writes (`agent.js`, `modes.js`, `gpu-refusal.js`)
+/// and the render host's `audio-session` are kept here by hand.
+const HOST_WORDS: [&str; 114] = [
     "accept",
     "accessibilitybusy",
     "accessibilitydisabled",
@@ -27,9 +28,12 @@ const HOST_WORDS: [&str; 101] = [
     "accessibilityvaluetext",
     "action",
     "activate",
+    "agent-part",
     "agent-view",
     "alertpart",
+    "app-poster",
     "app-src",
+    "audio-session",
     "autofocus",
     "bitmapheight",
     "bitmapwidth",
@@ -37,6 +41,8 @@ const HOST_WORDS: [&str; 101] = [
     "boot-ms",
     "button-style",
     "carry-type",
+    "color-space",
+    "color-type",
     "colorspace",
     "colortype",
     "context-preview",
@@ -44,6 +50,7 @@ const HOST_WORDS: [&str; 101] = [
     "decorations",
     "decoration-styles",
     "decorationstyles",
+    "defaultsurface",
     "disabledstyled",
     "depth",
     "destructive",
@@ -60,6 +67,7 @@ const HOST_WORDS: [&str; 101] = [
     "frame-callback-ms",
     "gpu-input",
     "gpu-ms",
+    "gpu-refusal",
     "groupedrowseparator",
     "hatch",
     "headcanonical",
@@ -114,6 +122,7 @@ const HOST_WORDS: [&str; 101] = [
     "time-end",
     "time-format",
     "time-reservation",
+    "time-shown",
     "time-start",
     "toolbarplacement",
     "transformdragfor",
@@ -121,6 +130,11 @@ const HOST_WORDS: [&str; 101] = [
     "virtualized",
     "wasm",
     "wrap-flow",
+    "x-accent",
+    "x-b",
+    "x-modes",
+    "x-pin",
+    "x-scrub",
 ];
 
 /// The word of a `data-` attribute, or `None` for any other name.

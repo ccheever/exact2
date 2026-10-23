@@ -589,14 +589,44 @@ final class RasterLoaderTests: XCTestCase {
             }
             try png(root, "local.png", width: 120, height: 60, identity: 90)
             other.load(local, source: "local.png", resolver: resolver)
-            // No main-runloop progress: cancelled HTTP must free the workers
-            // so another session can inspect local metadata independently.
+            // No main-runloop progress: the hanging downloads hold no worker,
+            // so another session inspects local metadata independently.
             let hang = Date(timeIntervalSinceNow: 300)
             while (other.diagnostics["metadataReads"] as? Int ?? 0) == 0 && Date() < hang { Thread.sleep(forTimeInterval: 0.005) }
             XCTAssertEqual(other.diagnostics["metadataReads"] as? Int, 1)
             settle { local.raster != nil }
             XCTAssertEqual(server.accepted, 2) // server still never replied
+            // The downloads are cancelled, not left waiting on the server.
+            let closing = Date(timeIntervalSinceNow: 10)
+            while server.closed < 2 && Date() < closing { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
+            XCTAssertEqual(server.closed, 2, operation)
         }
+    }
+    /// Remote images download at once, as a page's do, and none holds a
+    /// worker: a local image paints while the downloads wait on the network.
+    func testRemoteImagesDownloadTogetherWhileALocalOnePaints() throws {
+        let (root, resolver, presenter, first, loader, window) = try fixture()
+        defer { loader.shutdown(); presenter.views.values.forEach { $0.raster = nil }; window.close(); try? FileManager.default.removeItem(at: root) }
+        try png(root, "body.png", width: 40, height: 40, identity: 3)
+        try png(root, "local.png", width: 40, height: 40, identity: 4)
+        let server = try GatedRasterHTTP(body: Data(contentsOf: root.appendingPathComponent("body.png")))
+        defer { server.stop() }
+        var nodes = [first]
+        for id in 2...5 {
+            let node = NodeView(id: UInt32(id), kind: "image", presenter: presenter)
+            presenter.views[node.id] = node; presenter.viewport.addSubview(node); node.frame = first.frame
+            nodes.append(node)
+        }
+        for (i, node) in nodes.dropLast().enumerated() {
+            loader.load(node, source: "http://127.0.0.1:\(server.port)/\(i)", resolver: resolver)
+        }
+        let together = Date(timeIntervalSinceNow: 10)
+        while server.waiting < 4 && Date() < together { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
+        XCTAssertEqual(server.waiting, 4, "the four requests are in flight together")
+        loader.load(nodes[4], source: "local.png", resolver: resolver)
+        settle { nodes[4].raster != nil }
+        server.open()
+        settle { nodes.allSatisfy { $0.raster != nil } }
     }
     func testExpiredResolverAndReplacementRootDoNotReuseOldPixels() throws {
         let (root, _, presenter, node, loader, window) = try fixture()
@@ -705,13 +735,16 @@ private final class RasterAdmissionFlood: @unchecked Sendable {
 }
 
 /// Loopback-only fixture. It accepts two HTTP connections and sends no bytes;
-/// the native source cancellation, not a server response, must unblock workers.
+/// the native source cancellation, not a server response, must end them
+/// (`closed` counts the connections the client closed).
 private final class HangingRasterHTTP: @unchecked Sendable {
     private let listener: Int32
     private let lock = NSLock()
     private var clients: [Int32] = []
+    private var ended = 0
     let port: UInt16
     var accepted: Int { lock.lock(); defer { lock.unlock() }; return clients.count }
+    var closed: Int { lock.lock(); defer { lock.unlock() }; return ended }
     init() throws {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         listener = fd
@@ -727,7 +760,13 @@ private final class HangingRasterHTTP: @unchecked Sendable {
         DispatchQueue.global().async { [self] in
             for _ in 0..<2 {
                 let client = accept(listener, nil, nil)
-                if client >= 0 { lock.lock(); clients.append(client); lock.unlock() }
+                guard client >= 0 else { continue }
+                lock.lock(); clients.append(client); lock.unlock()
+                Thread.detachNewThread { [self] in
+                    var buffer = [UInt8](repeating: 0, count: 4096)
+                    while recv(client, &buffer, buffer.count, 0) > 0 {}
+                    lock.lock(); ended += 1; lock.unlock()
+                }
             }
         }
     }
@@ -816,5 +855,76 @@ private final class CachingRasterHTTP: @unchecked Sendable {
         }
     }
     func stop() { shutdown(listener, SHUT_RDWR); close(listener) }
+}
+
+/// Loopback HTTP/1.1 with keep-alive. Each request waits for the test to
+/// open the gate; `waiting` is how many wait.
+private final class GatedRasterHTTP: @unchecked Sendable {
+    private let listener: Int32
+    private let lock = NSLock()
+    private let gate = NSCondition()
+    private var inFlight = 0, open_ = false
+    private var clients: [Int32] = []
+    let port: UInt16
+    private let body: Data
+    var waiting: Int { gate.lock(); defer { gate.unlock() }; return inFlight }
+    init(body: Data) throws {
+        self.body = body
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        listener = fd
+        guard fd >= 0 else { throw NSError(domain: "socket", code: 1) }
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size); address.sin_family = sa_family_t(AF_INET)
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let bound = withUnsafePointer(to: &address) { p in p.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
+        guard bound == 0, listen(fd, 16) == 0 else { close(fd); throw NSError(domain: "listen", code: 1) }
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        _ = withUnsafeMutablePointer(to: &address) { p in p.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &length) } }
+        port = UInt16(bigEndian: address.sin_port)
+        Thread.detachNewThread { [self] in
+            while true {
+                let client = accept(listener, nil, nil)
+                if client < 0 { break }
+                lock.lock(); clients.append(client); lock.unlock()
+                Thread.detachNewThread { [self] in serve(client) }
+            }
+        }
+    }
+    /// Lets every waiting request answer.
+    func open() { gate.lock(); open_ = true; gate.broadcast(); gate.unlock() }
+    private func serve(_ client: Int32) {
+        var noPipe: Int32 = 1
+        setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noPipe, socklen_t(MemoryLayout<Int32>.size))
+        var buffer = [UInt8](repeating: 0, count: 4096), pending = Data()
+        while true {
+            while pending.range(of: Data("\r\n\r\n".utf8)) == nil {
+                let count = recv(client, &buffer, buffer.count, 0)
+                if count <= 0 { return }
+                pending.append(contentsOf: buffer.prefix(count))
+            }
+            pending.removeSubrange(..<pending.range(of: Data("\r\n\r\n".utf8))!.upperBound)
+            gate.lock()
+            inFlight += 1
+            let deadline = Date(timeIntervalSinceNow: 30)
+            while !open_ && gate.wait(until: deadline) {}
+            gate.unlock()
+            let header = "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nCache-Control: no-store\r\nContent-Length: \(body.count)\r\n\r\n"
+            let response = Data(header.utf8) + body
+            response.withUnsafeBytes { bytes in
+                var offset = 0
+                while offset < bytes.count {
+                    let sent = send(client, bytes.baseAddress!.advanced(by: offset), bytes.count - offset, 0)
+                    if sent <= 0 { break }; offset += sent
+                }
+            }
+            gate.lock(); inFlight -= 1; gate.unlock()
+        }
+    }
+    func stop() {
+        shutdown(listener, SHUT_RDWR); close(listener)
+        open()
+        lock.lock(); let sockets = clients; clients.removeAll(); lock.unlock()
+        for socket in sockets { shutdown(socket, SHUT_RDWR); close(socket) }
+    }
 }
 #endif

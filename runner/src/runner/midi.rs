@@ -73,6 +73,16 @@ impl<D: DataSource> Runner<D> {
         &self.midi
     }
 
+    /// Whether the plan keeps a MIDI queue the agent shows
+    /// ([`crate::uses::keeps_midi`]). That decodes every code range, which
+    /// takes a large plan hundreds of milliseconds, and an agent's `clock`
+    /// reads `state` many times: it is made once, at the first read.
+    pub(crate) fn keeps_midi(&self) -> bool {
+        *self
+            .keeps_midi
+            .get_or_init(|| crate::uses::keeps_midi(&self.plan))
+    }
+
     /// `exactMIDI()`'s answer, by the declared fields and, in its port
     /// lists, the `MIDIPort` shape's.
     pub(super) fn midi_answer(&self, i: usize) -> Result<Value, DataError> {

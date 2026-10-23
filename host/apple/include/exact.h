@@ -412,7 +412,12 @@ uint32_t exact_entry_timeline(ExactRuntime rt, double now_ms, double remaining_m
 /* Gallery-only query: a fresh data seam and scratch store, no host activation. */
 uint32_t exact_refresh_entry(ExactRuntime rt, double now_ms);
 uint32_t exact_boot_plan(ExactRuntime rt, size_t len, float width, float height);
+/* First root's literal viewport-fit=cover, without settlement. Input plan
+ * bytes of length len, or the baked plan when len is zero. */
+uint32_t exact_plan_covers_viewport(ExactRuntime rt, size_t len);
 uint32_t exact_prepare_plan(ExactRuntime rt, uint64_t token, size_t len, float width, float height);
+/* Check every participant and commit in one owner job, without intervening turns. */
+uint32_t exact_check_prepared(ExactRuntime rt);
 uint32_t exact_commit_plan(ExactRuntime rt);
 /* Admitted generation: concatenated plan, pairing receipt, compiled module.
  * A nonzero token supplies signed delivery facts. Identity and grants match
@@ -458,6 +463,8 @@ uint32_t exact_location_beneath(ExactRuntime rt, uint64_t id);
  * authored Back control under a root with no `navigate` handler: the
  * router's `back` as a commit of its own. A batch. */
 uint32_t exact_host_back(ExactRuntime rt, uint64_t id, double now_ms);
+/* The runner's own go to the UTF-8 location in exact_in, a batch. */
+uint32_t exact_host_go(ExactRuntime rt, size_t len, double now_ms);
 /* kind: 0 = press, 1 = change, 2 = hover in, 3 = hover out, 4 = focus,
  * 5 = blur, 6 = key, 7 = submit, 8 = iframe load, 9 = iframe message,
  * 10 = contextmenu, 11 = dblclick, 12 = swiperight, 13 = scroll (UTF-8 scrollLeft,scrollTop),
@@ -627,10 +634,11 @@ uint32_t exact_set_time(ExactRuntime rt, double epoch_at_zero, double utc_offset
  * running runner is not told. A date that does not validate is ignored. */
 uint32_t exact_set_launch_time(ExactRuntime rt, double epoch_at_zero, double utc_offset);
 /* Where the viewer is, as exact_set_place's input (locale NUL timeZone NUL
- * seed), for the next boot or candidate; the running runner is not told.
+ * seed, then optionally NUL formatLocale), for the next boot or candidate; the running runner is not told.
  * Returns zero when accepted, otherwise an error batch length; keeps the last valid fact. */
 uint32_t exact_set_launch_place(ExactRuntime rt, size_t len);
-/* Beside the date: the locale and IANA time zone, as locale NUL timeZone input. */
+/* Beside the date: the locale and IANA time zone, as locale NUL timeZone input,
+ * then optionally NUL seed NUL formatLocale. */
 uint32_t exact_set_place(ExactRuntime rt, size_t len);
 /* @ref LLP 1126.001 WP9: declare the packaged arm before boot, then deliver
  * its source snapshots or send completions through the input buffer. */
@@ -644,7 +652,9 @@ uint32_t exact_midi(ExactRuntime rt, size_t len);
  * a native module source's preferred value. Returns the batch length. */
 uint32_t exact_extension(ExactRuntime rt, size_t len);
 /* @ref LLP 1133.001 D4: the extensions the app's module composes, one name a
- * line in the input buffer: the runner sends their names to the module. */
+ * line in the input buffer: the runner sends their names to the module. A
+ * line `agent <name>` is an implementation bound under the agent, which
+ * answers an interface that is its own substitute (LLP 1133.006 D8). */
 void exact_bind_extensions(ExactRuntime rt, size_t len);
 /* @ref LLP 1121 D5: app modes, `axis=value` pins comma-separated (the agent's `prefer mode`); a leading `?` only checks them. */
 uint32_t exact_set_mode(ExactRuntime rt, size_t len);
@@ -680,6 +690,9 @@ uint32_t exact_set_page(ExactRuntime rt, uint32_t bits);
 uint32_t exact_reads_on_line(ExactRuntime rt);
 /* @ref LLP 1069.000 D3: the root font size `rem` follows, in points. */
 uint32_t exact_set_root_font_size(ExactRuntime rt, double px);
+/* @ref LLP 1021 §5.3: the host's zoom over the root size, the app's own
+ * included (the Mac's View ▸ Actual Size, Zoom In, Zoom Out); after boot. */
+uint32_t exact_set_root_font_zoom(ExactRuntime rt, double factor);
 /* @ref LLP 1115 D6, LLP 1115.000 D13.4: whether a confirmation's rows are an
  * alert's (explanatory text, one cancel, at most three buttons): 1 or 0. The
  * kernel's rule, which lowering and the Linux host read too; needs no runtime. */
@@ -744,15 +757,19 @@ uint32_t exact_titlebar_area(ExactRuntime rt, const float *rect, uint32_t count)
 /* @ref LLP 1075.003 §9.11: the window's own size (points), whatever is
  * presented in it — what every viewport unit (vw, vh, vmin, vmax and kin) resolves against
  * everywhere, root and every sheet, never a sheet's viewport (exact_segments
- * sends the window's segments too). A nonpositive size clears it. */
+ * sends the window's segment grid too, its tops and lefts; a keyboard ends the
+ * segments with the viewport, LLP 1078). A nonpositive size clears it. */
 uint32_t exact_screen(ExactRuntime rt, float width, float height);
 /* What changed of the view at once, from the input buffer's first len bytes,
  * little-endian 32-bit words: a mask of what is given (1 the window's size,
- * 2 the safe-area insets, 4 the layout regions, 8 the viewport), the
- * window's width and height (nonpositive clears it), the insets top, right,
- * bottom, left, the viewport's width and height, the regions' count (20 or
- * 0) and their insets: exact_screen, exact_insets, exact_regions and
- * exact_resize in one batch under one layout. */
+ * 2 the safe-area insets, 4 the layout regions, 8 the viewport, 16 the
+ * segments' rects), the window's width and height (nonpositive clears it),
+ * the insets top, right, bottom, left, the viewport's width and height, the
+ * regions' count (20 or 0) and their insets, then, with 16, the rects' count
+ * and each rect's x y w h, on the grid exact_segments set: exact_screen,
+ * exact_insets, exact_regions, exact_resize and a keyboard's segment extents
+ * in one batch under one layout. Rects off the grid, or not finite, are
+ * refused and change nothing. */
 uint32_t exact_view(ExactRuntime rt, size_t len);
 /* @ref LLP 1078 D4: the device's posture (0 continuous, 1 folded) and the
  * viewport segments a fold makes — cols × rows rects, row-major, each

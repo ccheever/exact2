@@ -144,10 +144,81 @@ extension NodeView {
         style["backdrop_filter"]?.array?.compactMap(BackdropOperation.init) ?? []
     }
 
-    /// The material this node asks for: the host-policy prop, else a backdrop.
+    /// The material this node asks for: the host-policy prop, else a
+    /// backdrop, else a popover's default surface (UIKit's popover glass).
     var materialRequest: String? {
         if let material = props["backgroundMaterial"] { return material }
-        return backdropOperations.isEmpty ? nil : "backdrop"
+        if !backdropOperations.isEmpty { return "backdrop" }
+        // An authored corner the glass can't take (not one circle): no default surface, rather than a square one.
+        return defaultSurfaceRadius == nil || unevenCorners ? nil : "glass"
+    }
+
+    /// The corner of a popover's default surface (LLP 1021; theme2
+    /// 2026-10-21 19:55): the compiler marks a popover whose author wrote no
+    /// surface (`defaultSurface`), and the host sends the corner only where
+    /// this platform's metrics give one (`popover-radius`: iOS's, measured
+    /// against iOS 26's glass popover on iOS 27; an earlier iOS draws the
+    /// glass's ultra-thin stand-in with that corner and shadow, unmeasured
+    /// against the pre-glass popover, no older runtime being installed). It
+    /// is a popover while `popover` says so; a menu, by its role or as a
+    /// node's context menu, is the platform's own. Nil: none here.
+    var defaultSurfaceRadius: CGFloat? {
+        guard props["defaultSurface"] == "true", props["popover"] != nil, props["accessibilityRole"] != "menu",
+              let radius = props["defaultSurfaceRadius"].flatMap(Double.init) else { return nil }
+        #if os(iOS)
+        if let id = props["id"], presenter?.carrying("contextPopover").contains(where: { $0.props["contextPopover"] == id }) == true { return nil }
+        #endif
+        return CGFloat(radius)
+    }
+
+    /// The corners actually painted, including the platform's unsaid popover surface.
+    func effectiveCornerSizes(in rect: CGRect) -> [CGSize] {
+        #if os(iOS) || os(tvOS)
+        if materialView != nil, !writesCorner, let radius = defaultSurfaceRadius {
+            return BorderPaint.reduced(Array(repeating: CGSize(width: radius, height: radius), count: 4), in: rect)
+        }
+        #endif
+        return cornerSizes(in: rect)
+    }
+
+    #if os(iOS) || os(tvOS)
+    /// A scrolling popover's children are its scroll view's, not the glass's
+    /// content view's: the scroll view takes the default surface's corner
+    /// while that applies, and gives it up when it no longer does.
+    func syncDefaultSurfaceScroll() {
+        // The corner the glass has: the author's (one circle) or the default's.
+        let corner = materialView == nil || defaultSurfaceRadius == nil ? nil : effectiveCornerSizes(in: bounds).first?.width
+        guard let scroll, corner != nil || scrollCornered else { return }
+        scroll.layer.cornerRadius = corner ?? 0
+        scroll.layer.cornerCurve = corner == nil ? .circular : .continuous
+        scrollCornered = corner != nil
+    }
+    #endif
+
+    /// Whether its author's corners are not one circle, as written (a row
+    /// each, or `border-radius` for the ones it covers, an unwritten one 0),
+    /// whatever the box: they differ, or one isn't points (a percentage,
+    /// `{"pct"}`, is an ellipse on a box that isn't square; a calculation
+    /// waits on its basis), which the glass can't follow.
+    var unevenCorners: Bool {
+        let corners = ["top_left", "top_right", "bottom_right", "bottom_left"].map { style["border_radius_" + $0] ?? style["border_radius"] ?? .number(0) }
+        return Set(corners.map(\.key)).count > 1 || corners.contains { $0.number == nil }
+    }
+
+    /// Whether its author wrote a corner, even 0: theirs, not the default's.
+    var writesCorner: Bool {
+        style["border_radius"] != nil || ["top_left", "top_right", "bottom_right", "bottom_left"].contains { style["border_radius_" + $0] != nil }
+    }
+
+    /// That surface's shadow, black at the metrics' alpha, offset down and
+    /// blurred as they say (`defaultSurfaceShadow`: "y blur alpha"); in the
+    /// light appearance only, as UIKit's popover casts it (none in dark,
+    /// measured over a coloured page).
+    var defaultSurfaceShadow: BoxShadowSpec? {
+        guard defaultSurfaceRadius != nil, !drawsDark, let parts = props["defaultSurfaceShadow"]?.split(separator: " ").compactMap({ Double($0) }),
+              parts.count == 3 else { return nil }
+        return BoxShadowSpec(color: CGColor(gray: 0, alpha: parts[2]), offset: CGSize(width: 0, height: parts[0]),
+                             blur: parts[1], spread: 0, inset: false)
     }
 }
 
@@ -212,7 +283,7 @@ extension NodeView {
     /// takes the node's backdrop instead.
     func applyBackdrop() {
         guard let l = layer else { return }
-        let operations = materialView == nil && props["backgroundMaterial"] == nil ? backdropOperations : []
+        let operations = !cssVisibilityHidden && materialView == nil && props["backgroundMaterial"] == nil ? backdropOperations : []
         guard !operations.isEmpty else {
             if l.backgroundFilters != nil { l.backgroundFilters = nil; backdropDrawn = nil; syncEllipticalClip() }
             return

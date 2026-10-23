@@ -692,7 +692,7 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact tamber op <url> <request JSON>|subscribe  its scripted client
   exact tamber pair <url> --scope read|propose|write [--name <n>]  a pairing code for a remote client
   exact tamber tool [<app>] [--via <dev url>]  the design tool, at http://127.0.0.1:7740/__tamber/tool/
-  exact tamber import shadcn|tailwind|dtcg|astryx <source> <url> --app <app>  a theme as held proposals
+  exact tamber import shadcn|tailwind|dtcg|pen|astryx <source> <url> --app <app>  a theme as held proposals
                                (astryx: bun scripts/astryx-tokens.mjs resolves its pinned package first)
   exact tamber export dtcg <app> [-o <file>]  the design as DTCG 2025.10; its baseline in .exact/
 
@@ -1106,6 +1106,13 @@ function mentions(line, kind, re) {
   return n;
 }
 
+/** Whether a section is a table of contents: in-page links alone, which name every section's words and are about none
+ *  (`docs sound midi and media` printed the guide's Contents, not its section). */
+const contents = (f, h) => {
+  const body = f.lines.slice(h.from + 1, h.own).filter(line => line.trim());
+  return body.length > 0 && body.every(line => /^\s*([-*]|\d+\.)\s+\[[^\]]*\]\(#[^)]*\)\s*$/.test(line));
+};
+
 /** `exact.mjs docs <words>`: the section of the guides and recipes that holds every word, as a whole word, most densely
  * (mentions in headings and code weigh more; a recipe, a section on its topic, more again), with its path and line, so a
  * lookup is one call. A section whose heading holds the words prints from its heading, its subsections too; any other
@@ -1119,6 +1126,7 @@ export function docs(words, say = console.log) {
   for (const path of [...GUIDES, ...recipes]) {
     const f = { path, shown: relative(process.cwd(), resolve(ROOT, path)), ...sections(readFileSync(resolve(ROOT, path), 'utf8')) };
     for (const h of f.heads) {
+      if (contents(f, h)) continue;
       const counts = res.map(re => { let n = 0; for (let i = h.from; i < h.own; i++) n += mentions(f.lines[i], f.kinds[i], re); return n; });
       // The words written together are the phrase, a CSS name's hyphens included (`text overflow` is `text-overflow`,
       // whose pieces alone are not the words); the query's own section (TOPICS) is a match however it says the words.
@@ -1138,7 +1146,7 @@ export function docs(words, say = console.log) {
       const opens = res.every(re => f.lines.slice(first, last).some((line, i) => mentions(line, f.kinds[first + i], re)));
       const density = (counts.reduce((a, b) => a + b, 0) + 2 * joined) / (h.own - h.from + 8);
       // A heading that is the words ("Tabular numbers") weighs more again; the query's own section comes first.
-      const exact = own.map(singular).join(' ') === words.map(w => singular(w).toLowerCase()).join(' ');
+      const exact = own.map(singular).join(' ') === words.map(w => singular(w).toLowerCase()).filter(w => !STOP.has(w)).join(' ');
       units.push({ f, h, titled, score: topic === h.title ? Infinity : density * (recipe ? 1.5 : 1) * (titled ? 3 : 1) * (exact ? 2 : 1) * (opens ? 1.5 : 1) * (joined ? 3 : 1) });
     }
   }

@@ -15,7 +15,8 @@ drawn or read, where, how, and the number. Each entry's `Binds:` line names ever
   steps for the neutral column (LLP 1115.000 D17: the neutral look is Exact's own, not Material).
 - There is no web column: every web build draws the neutral look, so `Column::Web` (a process that says no column, and
   Material's fallback) reads the neutral cell (theme2, 2026-10-19; LLP 1115.000 D17 as corrected).
-- One role stretch, ruled by theme2 with its reason (below): the Mac's space.xl.
+- One role stretch, ruled by theme2 with its reason (below): the Mac's space.xl. The table writes it as a stretch cell,
+  `{"stretch": "=grouped-label-inset", "why": "…"}` (LLP 1121 stage 13 D5), and the build requires its entry here.
 - The terminal's spacings are cells (`n ch`); it draws no corners (0). radius.full is `style::scale::RADIUS_FULL`, one
   oversized length every host clamps into a pill (theme2's C ruling).
 - px (points), never scaled by Dynamic Type (ruling 6; QUEUE has the opt-in).

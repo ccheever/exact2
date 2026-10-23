@@ -329,6 +329,9 @@ impl<D: DataSource> Host<D> {
         let (receipts, _) = self.runner.apply_announced();
         if landed || !receipts.is_empty() {
             self.after_commit();
+        } else {
+            // (what a landing asked with no commit, a background round's next request, still goes out)
+            self.run_requests();
         }
     }
 
@@ -488,13 +491,13 @@ impl<D: DataSource> Host<D> {
             }
         }
         if trace {
-            eprintln!(
+            crate::term::diagnostic(format_args!(
                 "commit: layout {:?}, focus {:?}, walks {:?}, nodes {}",
                 t_layout,
                 t_focus - t_layout,
                 t0.elapsed() - t_focus,
                 self.runner.kernel().live_count()
-            );
+            ));
         }
     }
 
@@ -864,7 +867,13 @@ impl<D: DataSource> Host<D> {
         let Some(target) = kernel.node(id).map(|n| n.frame) else {
             return;
         };
-        let mut at = kernel.node(id).and_then(|n| n.parent);
+        // A block's root (a popover's, the viewport) is not in what scrolls
+        // above it: the walk stops at it.
+        let blocked = |view: ViewId| kernel.host_block(view).is_some();
+        let mut at = kernel
+            .node(id)
+            .and_then(|n| n.parent)
+            .filter(|_| !blocked(id));
         let mut changes = Vec::new();
         while let Some(p) = at {
             let Some(n) = kernel.node(p) else { break };
@@ -885,7 +894,7 @@ impl<D: DataSource> Host<D> {
                 };
                 changes.push((p, next.clamp(0.0, reach)));
             }
-            at = n.parent;
+            at = n.parent.filter(|_| !blocked(p));
         }
         for (view, offset) in changes {
             if self.scroll.get(&view).copied().unwrap_or(0.0) != offset {
@@ -1133,9 +1142,43 @@ impl<D: DataSource> Host<D> {
         !self.layers.is_empty()
     }
 
+    /// The open layers, told to the runner. A popover in the viewport's
+    /// block (stage 14 B) is where it paints, not at its frame: by its
+    /// block's rectangle in the grid, which `frame` and `elementFromPoint`
+    /// map it through; any other layer is at its frame, as before.
     fn sync_top_layer(&mut self) {
         let open: Vec<ViewId> = self.layers.iter().map(|(id, ..)| *id).collect();
-        self.runner.top_layer(&open);
+        let frames = {
+            let scene = self.scene();
+            let kernel = scene.kernel;
+            let shown = |&id: &ViewId| {
+                let used = kernel.host_block_size(id)?;
+                let (dx, dy) = crate::paint::placement(&scene, id, self.cols, self.rows, 0.0);
+                Some((
+                    id,
+                    [-dx as f64, -dy as f64, used.0 as f64, used.1 as f64],
+                    None,
+                ))
+            };
+            let placed: Vec<_> = open.iter().filter_map(shown).collect();
+            let at_frame = |&id: &ViewId| {
+                let f = kernel.node(id)?.frame;
+                let rect = [f.x as f64, f.y as f64, f.width as f64, f.height as f64];
+                Some(
+                    placed
+                        .iter()
+                        .find(|p| p.0 == id)
+                        .copied()
+                        .unwrap_or((id, rect, None)),
+                )
+            };
+            (!placed.is_empty()).then(|| open.iter().filter_map(at_frame).collect::<Vec<_>>())
+        };
+        let Some(frames) = frames else {
+            self.runner.top_layer(&open);
+            return;
+        };
+        self.runner.top_layer_frames(&frames, None);
     }
 
     /// The node an agent names by `testId`.
@@ -1199,6 +1242,10 @@ mod invocation_tests;
 #[cfg(test)]
 #[path = "host_clock_tests.rs"]
 mod clock_tests;
+
+#[cfg(test)]
+#[path = "host_top_layer_tests.rs"]
+mod top_layer_tests;
 
 #[cfg(test)]
 #[path = "host_scale_tests.rs"]

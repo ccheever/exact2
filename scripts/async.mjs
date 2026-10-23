@@ -111,7 +111,7 @@ export function glueTests(root) {
   const files = ['host/web', 'host/web-js'].flatMap(dir => [...new Bun.Glob(`${dir}/**/*.test.{mjs,js}`).scanSync({ cwd: root, onlyFiles: true })])
     .filter(file => !LEFT_OUT.test(file)).sort().map(file => `./${file}`);
   // The glue lane is macOS: link.test reads Mach-O load commands with Apple tools.
-  return [...files, './host/apple/link.test.mjs', './host/apple/cloak.test.mjs', ...['app-workspace', 'app-bake', 'app-apple', 'app-keychain', 'app-manifest', 'exact', 'push', 'agent', 'agent-launch', 'agent-drag', 'tamber-server', 'test-children', 'scale-check', 'tool-drive', 'help-parity', 'tamber-builds', 'tamber-scrub', 'tamber-dtcg', 'design-tool-levels', 'tamber-tool-answers', 'design-tool', 'design-tool-scale', 'library-gate', 'stage12-gate', 'wasm-check', 'tamber-body-limit'].map(name => `./scripts/${name}.test.mjs`), './scripts/deploy-paths.test.mjs', './scripts/async-inputs.test.mjs', './scripts/coverage.test.mjs'];
+  return [...files, './host/apple/link.test.mjs', './host/apple/cloak.test.mjs', ...['app-workspace', 'app-bake', 'app-apple', 'app-keychain', 'app-manifest', 'exact', 'push', 'agent', 'agent-launch', 'agent-drag', 'tamber-server', 'test-children', 'scale-check', 'tool-drive', 'help-parity', 'tamber-builds', 'tamber-scrub', 'tamber-dtcg', 'design-tool-levels', 'tamber-tool-answers', 'design-tool', 'design-tool-ops', 'design-tool-canvas', 'design-tool-scrub', 'design-tool-scale', 'library-gate', 'stage12-gate', 'position-reads', 'wasm-check', 'tamber-body-limit', 'tamber-upstream', 'harmony-seed', 'design-tool-harness', 'agent-held'].map(name => `./scripts/${name}.test.mjs`), './scripts/deploy-paths.test.mjs', './scripts/async-inputs.test.mjs', './scripts/coverage.test.mjs'];
 }
 export function checks(sha, since, selection = {}) {
   if (TIER === 2) return tierTwoChecks();
@@ -153,12 +153,17 @@ export function checks(sha, since, selection = {}) {
     // This document proof builds Weatherlight's wasm target. Keep it out of
     // glue's seconds loop while retaining it in the asynchronous lane.
     ['web-build-test', 'env', [...required, 'bun', 'test', './host/web/tests/document.test.mjs', '--test-name-pattern', "a TypeScript app's served document"]],
+    // Harmony's end-to-end tests on the web, against a Snapback server of
+    // their own in memory on a free port: never the origin app.ts names,
+    // where a live server real people use listens on this machine.
+    ['harmony', 'env', [...required, 'bun', 'scripts/memory-backend-test.mjs', 'apps/harmony/app']],
     // The web build's JS target against the wasm runner, step by step (LLP
     // 1071 §4; Charlie, 2026-09-28): minutes and a network, so never blocking.
     ['conform', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--build', '--linux', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform')]],
-    // `tree --ax` against Chrome's own tree (LLP 1080.002 §3), over this
-    // commit's Caltrain dists; a missing dist fails it.
-    ['web-ax-test', 'env', [...required, ...distEnv, 'bun', 'test', './host/web/tests/accessibility-tree.test.mjs']],
+    // `tree --ax` against Chrome's own tree (LLP 1080.002 §3), and the wasm
+    // host's presence preload and zero-viewport recovery, over this commit's
+    // Caltrain dists; a missing dist fails it.
+    ['web-ax-test', 'env', [...required, ...distEnv, 'bun', 'test', './host/web/tests/accessibility-tree.test.mjs', './host/web/tests/presence-preload.test.mjs', './host/web/tests/zero-viewport.test.mjs']],
     // The JS target in the other browser engines, with Chrome as its oracle.
     // These remain async-only; a missing Playwright browser is a named failure
     // whose log gives the exact outside-the-repo install command.
@@ -198,7 +203,7 @@ const distEnv = [`EXACT_WEB_DIST=${resolve(DISTS, 'caltrain-wasm')}`, `EXACT_WEB
 /** Settings a check inherits from the lane's own environment that change what it tests. */
 export const ENV_DROPPED = ['EXACT_UPDATE_TRUST', 'CARGO_TARGET_DIR', 'EXACT_WEB_BROWSER', 'EXACT_JS_ENGINE', 'EXACT_JS_GPU_SURFACES',
   'EXACT_WEB_LINK', 'EXACT_WEB_DIST', 'EXACT_WEB_JS_DIST', 'EXACT_NO_GPU_WASM_DIST', 'EXACT_NO_GPU_JS_DIST',
-  'EXACT_NO_GPU_CHROME', 'EXACT_MOTION_DIST', 'EXACT_GLUE_FAST', 'EXACT_REQUIRED'];
+  'EXACT_NO_GPU_CHROME', 'EXACT_MOTION_DIST', 'EXACT_GLUE_FAST', 'EXACT_REQUIRED', 'EXACT_BACKEND_ORIGIN'];
 export const laneEnv = base => {
   const env = { ...base, HERMES_LEAN_SYS_OFFLINE: '1' };
   for (const k of Object.keys(env)) if (ENV_DROPPED.includes(k) || k.startsWith('EXACT_AGENT')) delete env[k];

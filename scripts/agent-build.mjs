@@ -22,7 +22,7 @@
 
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { closeSync, createWriteStream, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, createWriteStream, existsSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { appleArtifacts, appleRunBinary } from '../host/apple/build.mjs';
@@ -49,8 +49,18 @@ export function nativeBuild(host, app, { sample = false, checked = null } = {}) 
   const built = ios ? appleArtifacts(app, { destination: 'ios-simulator', host: sample }).bundle : appleRunBinary(app, sample);
   if (!existsSync(built)) return { built, missing: true, changed: [] };
   const receipt = ios ? resolve(built, 'receipt.json')
-    : [resolve(built, '..', 'receipt.json'), resolve(appleArtifacts(app, { host: sample }).bundle, 'Contents/Resources/receipt.json')].find(existsSync);
-  return { built, receipt, changed: receipt ? receiptChanges(receipt, app, { hashed: !!checked && checked === digestOf(receipt) }) : [] };
+    : [resolve(appleArtifacts(app, { host: sample }).products, 'receipt.json'), resolve(appleArtifacts(app, { host: sample }).bundle, 'Contents/Resources/receipt.json')].find(existsSync);
+  const changed = receipt ? receiptChanges(receipt, app, { hashed: !!checked && checked === digestOf(receipt) }) : [];
+  if (!ios && !sample && receipt) {
+    const bundled = resolve(appleArtifacts(app).bundle, 'Contents/Resources/receipt.json');
+    try {
+      const selected = JSON.parse(readFileSync(receipt, 'utf8')), actual = JSON.parse(readFileSync(bundled, 'utf8'));
+      const identity = r => [r.built, r.started, r.target, r.composition, r.compatibilityId, r.build?.trust, r.build?.binary?.sha256];
+      // The shared .app path can have been replaced by a release in another build namespace.
+      if (actual.build?.trust !== 'development' || JSON.stringify(identity(selected)) !== JSON.stringify(identity(actual))) changed.push(bundled);
+    } catch { changed.push(bundled); }
+  }
+  return { built, receipt, changed };
 }
 
 /** Why a drive must build first, or null when it need not: no build yet, or
@@ -86,14 +96,28 @@ export function refuseBuild(host, state, app, { sample = false } = {}) {
  * nothing: the drive installs it, copying aside a Release build it replaces (devices.mjs `keepInstalledRelease`). */
 export const buildArgs = (host, app) => [...(host === 'ios' ? ['--ios'] : []), app.crate('apple'), ...(host === 'ios' ? ['--no-install'] : [])];
 
+const errorLine = line => /^error\b|\berror(\[E\d+\])?:/.test(line);
 /** What a failed build said, short: from its first error, at most 30 lines (else
- * its last 20), and its last line; then that it failed and where its log is. */
-export function failureSummary(output, { host, code, log }) {
+ * its last 20), and its last line. */
+function failureLines(output) {
   const lines = output.split('\n').filter(line => line.trim());
-  const first = lines.findIndex(line => /^error\b|\berror(\[E\d+\])?:/.test(line));
+  const first = lines.findIndex(errorLine);
   const shown = first < 0 ? lines.slice(-20) : lines.slice(first, first + 30);
   if (lines.length && !shown.includes(lines.at(-1))) shown.push('…', lines.at(-1));
-  return [...shown, `the ${label(host)} build failed (exit ${code}), so nothing was driven; its whole log: ${log}`].join('\n');
+  return shown;
+}
+
+/** `failureLines`, then that the build failed and where its log is. */
+export function failureSummary(output, { host, code, log, beforeDrive = true }) {
+  return [...failureLines(output), `the ${label(host)} build failed (exit ${code})${beforeDrive ? ', so nothing was driven' : ''}; its whole log: ${log}`].join('\n');
+}
+
+/** A failed child's diagnostic for a metrics row. */
+export function childFailure(r) {
+  const lines = text => (text ?? '').split('\n').map(l => l.trim()).filter(l => l && !/^at |^Bun v\d/.test(l));
+  const stderr = lines(r.stderr), stdout = lines(r.stdout), errors = [...stderr, ...stdout].filter(errorLine);
+  return (r.error ? lines(r.error.message) : errors.length ? errors : stdout.length ? stdout : stderr)
+    .slice(-3).join(' / ').slice(0, 400);
 }
 
 /** `command` with `args`, its output into `log` (`append`ed to it); its exit code and output. */
@@ -235,9 +259,61 @@ export async function makeOverride(host, app, state, { bake = bakePlan, log } = 
   } finally { rmSync(stage, { recursive: true, force: true }); }
 }
 
+// ---------------------------------------------------------------- a background build's end
+
+const prebuildHost = args => args.includes('--tvos') ? 'tvos' : args.includes('--ios') || args.includes('--device') ? 'ios' : 'macos';
+/** Where `prebuild` records the build it started: its `id`, its arguments, its
+ * start, the pid of the shell running it, and, once it has ended, its exit code
+ * and how much of the log it wrote. Written whole (`publish`), and only by the
+ * build whose `id` it holds. */
+export const prebuildRecord = (app, host) => resolve(app.dir, '.exact', `${host}-prebuild.json`);
+const publish = (path, value) => { writeFileSync(`${path}.${process.pid}.tmp`, JSON.stringify(value) + '\n'); renameSync(`${path}.${process.pid}.tmp`, path); };
+const readRecord = path => { try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; } };
+/** Removes the record when it is still the one read (`id`): taken aside whole, and put
+ * back when another prebuild's has replaced it since. Whether it was removed. */
+const take = (path, id) => {
+  const aside = `${path}.${process.pid}.taken`;
+  try { renameSync(path, aside); } catch { return false; }
+  const mine = readRecord(aside)?.id === id;
+  if (!mine) try { linkSync(aside, path); } catch { /* a newer one is there */ }
+  rmSync(aside, { force: true });
+  return mine;
+};
+const alive = pid => { try { process.kill(pid, 0); return true; } catch (error) { return error.code === 'EPERM'; } };
+const claimed = app => { try { return claimLive(readFileSync(appleArtifacts(app).lock, 'utf8')); } catch { return false; } };
+
+/** Says once, on `say`, that the last background build (`prebuild`) for the host
+ * `args` build for failed, with its log's `failureLines`: nothing else would, since
+ * it ended apart from every shell (the euxy port's edit during a `--prebuild
+ * --release` failed it, and only the log said so). Run by a foreground Apple build
+ * and by a drive's build check, after any build running has ended. */
+export async function reportPrebuild(app, args, say = line => console.error(line)) {
+  if (process.env.EXACT_PREBUILD_RECORD) return; // the background build itself
+  const host = prebuildHost(args), record = prebuildRecord(app, host), read = () => readRecord(record);
+  let ended = read();
+  // The build has let its claim go and its shell is about to record how it ended.
+  for (let waited = 0; ended && !Number.isInteger(ended.exit) && waited < 5000 && alive(ended.pid) && !claimed(app); waited += 100) {
+    await new Promise(r => setTimeout(r, 100));
+    ended = read();
+  }
+  if (!Number.isInteger(ended?.exit)) {
+    if (ended && !alive(ended.pid)) take(record, ended.id); // killed before it could say
+    return;
+  }
+  if (!take(record, ended.id) || !ended.exit) return; // another said it, or it built
+  // Its part of the log, kept apart: the build this command may run next writes the log anew.
+  const log = resolve(app.dir, '.exact', `${host}-prebuild-failed.log`);
+  let output = ''; try { output = readFileSync(resolve(app.dir, '.exact', `${host}-build.log`)).subarray(0, ended.bytes).toString('utf8'); } catch {}
+  writeFileSync(log, output);
+  const what = host === 'ios' ? 'iOS' : host === 'tvos' ? 'tvOS' : 'macOS';
+  const command = ['--prebuild', ...ended.args.filter(arg => arg !== app.crate('apple'))].join(' ');
+  say([...failureLines(output), `the background ${what} build (${command}, started ${ended.started}) failed (exit ${ended.exit}); its whole log: ${shown(log)}`].join('\n'));
+}
+
 /** A build of this app already running (one started in the background) ends
- * before the check, so the drive neither races it nor is refused as busy. */
-async function waitForBuild(app, say) {
+ * before the check, so a drive or a foreground build neither races it nor is
+ * refused as busy. */
+export async function waitForBuild(app, say = line => console.error(line)) {
   const lock = appleArtifacts(app).lock;
   for (let told = false; ; await new Promise(r => setTimeout(r, 250))) {
     let held; try { held = readFileSync(lock, 'utf8'); } catch { return; }
@@ -256,6 +332,7 @@ export async function buildFirst(host, app, { say = line => console.error(line),
   host = host === 'ios' ? 'ios' : 'macos';
   if (host === 'macos' && process.env.EXACT_MAC_BIN) return 0; // the caller's own binary: the driver says it did not check
   await wait(app, say);
+  await reportPrebuild(app, host === 'ios' ? ['--ios'] : [], say);
   const state = nativeBuild(host, app);
   // What the drive after this need not hash again: its receipt, when nothing is rebuilt (`nativeBuild`'s `checked`).
   const hashed = () => { if (process.env.EXACT_BUILD_CHECK_OUT && state.receipt) writeFileSync(process.env.EXACT_BUILD_CHECK_OUT, digestOf(state.receipt)); return 0; };
@@ -296,13 +373,25 @@ export async function buildFirst(host, app, { say = line => console.error(line),
  * once the build holds the app's build claim, so a `test` or `agent` started next waits for it
  * (`waitForBuild`) instead of building beside it. */
 export async function prebuild(app, args, { timeout = 30_000, say = line => console.error(line) } = {}) {
-  const host = args.includes('--tvos') ? 'tvos' : args.includes('--ios') || args.includes('--device') ? 'ios' : 'macos';
+  const host = prebuildHost(args);
   const log = resolve(app.dir, '.exact', `${host}-build.log`), lock = appleArtifacts(app).lock, since = Date.now() - 1000;
+  // A second would truncate the first's log and record, and fail as busy anyway: refused while
+  // a build holds the claim, or a prebuild's shell is alive before its build claims it.
+  const record = prebuildRecord(app, host), built = args.filter(arg => arg !== '--prebuild'), id = `${process.pid}-${Date.now()}`;
+  const busy = () => (say(`an Apple build of ${app.name} is already running, so none was started; test, agent and this command without --prebuild wait for it`), 1);
+  const before = readRecord(record);
+  if (claimed(app) || (before && !Number.isInteger(before.exit) && alive(before.pid))) return busy();
+  // The record is this prebuild's from here: of two starting together, one links it.
   mkdirSync(dirname(log), { recursive: true });
+  const mine = `${record}.${id}.tmp`;
+  writeFileSync(mine, JSON.stringify({ id, pid: process.pid }) + '\n');
+  if (before) take(record, before.id); // ended, said, or its shell gone
+  try { linkSync(mine, record); } catch { return busy(); } finally { rmSync(mine, { force: true }); }
   const out = openSync(log, 'w');
-  const build = [resolve(ROOT, 'host/apple/build.mjs'), ...args.filter(arg => arg !== '--prebuild')];
-  const child = spawn('/bin/sh', ['-c', '"$0" "$@"; built=$?; "$0" "$TOOL" --tool; exit $built', process.execPath, ...build],
-    { detached: true, stdio: ['ignore', out, out], env: { ...process.env, TOOL: fileURLToPath(import.meta.url) } });
+  const build = [resolve(ROOT, 'host/apple/build.mjs'), ...built];
+  const child = spawn('/bin/sh', ['-c', '"$0" "$@"; built=$?; "$0" "$TOOL" --tool "$built"; exit $built', process.execPath, ...build],
+    { detached: true, stdio: ['ignore', out, out], env: { ...process.env, TOOL: fileURLToPath(import.meta.url), EXACT_PREBUILD_RECORD: record, EXACT_PREBUILD_LOG: log, EXACT_PREBUILD_ID: id } });
+  publish(record, { id, args: built, started: new Date().toLocaleTimeString('en-GB'), pid: child.pid });
   closeSync(out);
   let ended = null;
   child.on('exit', code => { ended = code ?? 1; });
@@ -312,12 +401,19 @@ export async function prebuild(app, args, { timeout = 30_000, say = line => cons
   }
   child.unref();
   const what = host === 'ios' ? 'iOS' : host === 'tvos' ? 'tvOS' : 'macOS';
-  if (ended !== null) { say(ended ? `the ${what} build failed (exit ${ended}); its log: ${shown(log)}` : `built for ${what}; its log: ${shown(log)}`); return ended; }
-  say(`building for ${what} in the background (pid ${child.pid}, apart from this shell); its log: ${shown(log)}. test and agent wait for it.`);
+  if (ended !== null) {
+    if (readRecord(record)?.id === id) rmSync(record, { force: true }); // said here
+    say(ended ? `the ${what} build failed (exit ${ended}); its log: ${shown(log)}` : `built for ${what}; its log: ${shown(log)}`);
+    return ended;
+  }
+  say(`building for ${what} in the background (pid ${child.pid}, apart from this shell); its log: ${shown(log)}. test, agent and this command without --prebuild wait for it.`);
   return 0;
 }
 
 if (import.meta.main && process.argv[2] === '--tool') { // the bake tool, after a prebuild
+  // How the build ended, for `reportPrebuild`, before the tool adds to the log.
+  const { EXACT_PREBUILD_RECORD: record, EXACT_PREBUILD_LOG: log, EXACT_PREBUILD_ID: id } = process.env, started = readRecord(record);
+  try { if (started?.id === id) publish(record, { ...started, exit: Number(process.argv[3]), bytes: statSync(log).size }); } catch {}
   const child = spawn(bakeTool.command, bakeTool.args, { ...bakeTool.options(), stdio: 'inherit' });
   child.on('exit', code => process.exit(code ?? 1));
 } else if (import.meta.main) {

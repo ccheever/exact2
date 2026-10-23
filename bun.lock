@@ -8,12 +8,14 @@
         "@exact/actions": "workspace:*",
         "@exact/cards": "workspace:*",
         "@exact/geolocation": "workspace:*",
+        "@exact/lists": "workspace:*",
         "@exact/reading": "workspace:*",
         "@exact/scale-fixture-cards": "workspace:*",
         "@exact/scale-fixture-notes": "workspace:*",
       },
       "devDependencies": {
         "@sqlite.org/sqlite-wasm": "3.53.4-build1",
+        "fflate": "0.8.3",
         "playwright-core": "1.64.1",
         "rolldown": "1.2.9",
         "snapback4": "0.4.33",
@@ -31,6 +33,10 @@
     "packages/geolocation": {
       "name": "@exact/geolocation",
       "version": "1.0.0",
+    },
+    "packages/lists": {
+      "name": "@exact/lists",
+      "version": "0.1.0",
     },
     "packages/reading": {
       "name": "@exact/reading",
@@ -51,6 +57,8 @@
     "@exact/cards": ["@exact/cards@workspace:packages/cards"],
 
     "@exact/geolocation": ["@exact/geolocation@workspace:packages/geolocation"],
+
+    "@exact/lists": ["@exact/lists@workspace:packages/lists"],
 
     "@exact/reading": ["@exact/reading@workspace:packages/reading"],
 
@@ -133,6 +141,8 @@
     "@typescript/typescript-win32-arm64": ["@typescript/typescript-win32-arm64@7.0.2", "", { "os": "win32", "cpu": "arm64" }, "sha512-Gyl1Vy6OsWesLzmq+EP0Fb7b4Nid5232AvcA2SFcdYreldpNtYFFofPjnt62y9hQy7VTaZp65ICJjuAQRaVcIQ=="],
 
     "@typescript/typescript-win32-x64": ["@typescript/typescript-win32-x64@7.0.2", "", { "os": "win32", "cpu": "x64" }, "sha512-0BQ3HkAHHlKLSp1qRvf3SUhGpGsDuhB/jgFw75guyqbxJqEaS0Cw/VFO8i2nHglJUzQCRtMMR/IBAKE3ETMC4g=="],
+
+    "fflate": ["fflate@0.8.3", "", {}, "sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA=="],
 
     "jose": ["jose@6.2.12", "", {}, "sha512-9NiFmJEex0sy2Dk58j2UGBSHgUs2ypF9eZSu4L6vjOX3Dp96Sw1F3uL+H+D1sx02jZZdzUT0HgvCy59CuvXcWw=="],
 

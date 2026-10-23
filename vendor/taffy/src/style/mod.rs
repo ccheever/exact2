@@ -3,6 +3,9 @@ mod alignment;
 mod available_space;
 mod compact_length;
 mod dimension;
+mod rare;
+
+pub use rare::{Rare, RareStyle};
 
 #[cfg(feature = "block_layout")]
 mod block;
@@ -712,9 +715,6 @@ pub struct Style<S: CheapCloneStr = DefaultCheapStr> {
     /// How items elements should aligned in the inline axis
     #[cfg(feature = "block_layout")]
     pub text_align: TextAlign,
-    /// EXACT PATCH 27: a multi-column container's columns
-    #[cfg(feature = "block_layout")]
-    pub multicol: Option<Multicol>,
 
     // Flexbox container properties
     /// Which direction does the main axis flow in?
@@ -747,41 +747,13 @@ pub struct Style<S: CheapCloneStr = DefaultCheapStr> {
     #[cfg(feature = "flexbox")]
     pub flex_shrink: f32,
 
-    // Grid container properies
-    /// Defines the track sizing functions (heights) of the grid rows
-    #[cfg(feature = "grid")]
-    pub grid_template_rows: GridTrackVec<GridTemplateComponent<S>>,
-    /// Defines the track sizing functions (widths) of the grid columns
-    #[cfg(feature = "grid")]
-    pub grid_template_columns: GridTrackVec<GridTemplateComponent<S>>,
-    /// Defines the size of implicitly created rows
-    #[cfg(feature = "grid")]
-    pub grid_auto_rows: GridTrackVec<TrackSizingFunction>,
-    /// Defined the size of implicitly created columns
-    #[cfg(feature = "grid")]
-    pub grid_auto_columns: GridTrackVec<TrackSizingFunction>,
     /// Controls how items get placed into the grid for auto-placed items
     #[cfg(feature = "grid")]
     pub grid_auto_flow: GridAutoFlow,
 
-    // Grid container named properties
-    /// Defines the rectangular grid areas
-    #[cfg(feature = "grid")]
-    pub grid_template_areas: Option<GridTemplateAreas<S>>,
-    /// The named lines between the columns
-    #[cfg(feature = "grid")]
-    pub grid_template_column_names: GridTrackVec<GridTrackVec<S>>,
-    /// The named lines between the rows
-    #[cfg(feature = "grid")]
-    pub grid_template_row_names: GridTrackVec<GridTrackVec<S>>,
-
-    // Grid child properties
-    /// Defines which row in the grid the item should start and end at
-    #[cfg(feature = "grid")]
-    pub grid_row: Line<GridPlacement<S>>,
-    /// Defines which column in the grid the item should start and end at
-    #[cfg(feature = "grid")]
-    pub grid_column: Line<GridPlacement<S>>,
+    /// EXACT PATCH 62: grid and multi-column fields, allocated only when written.
+    #[cfg_attr(feature = "serde", serde(flatten))]
+    pub rare: Rare<S>,
 }
 
 impl<S: CheapCloneStr> Style<S> {
@@ -828,8 +800,6 @@ impl<S: CheapCloneStr> Style<S> {
         // Block
         #[cfg(feature = "block_layout")]
         text_align: TextAlign::Auto,
-        #[cfg(feature = "block_layout")]
-        multicol: None,
         // Flexbox
         #[cfg(feature = "flexbox")]
         flex_direction: FlexDirection::Row,
@@ -843,27 +813,9 @@ impl<S: CheapCloneStr> Style<S> {
         flex_shrink: 1.0,
         #[cfg(feature = "flexbox")]
         flex_basis: Dimension::AUTO,
-        // Grid
-        #[cfg(feature = "grid")]
-        grid_template_rows: GridTrackVec::new(),
-        #[cfg(feature = "grid")]
-        grid_template_columns: GridTrackVec::new(),
-        #[cfg(feature = "grid")]
-        grid_template_areas: None,
-        #[cfg(feature = "grid")]
-        grid_template_column_names: GridTrackVec::new(),
-        #[cfg(feature = "grid")]
-        grid_template_row_names: GridTrackVec::new(),
-        #[cfg(feature = "grid")]
-        grid_auto_rows: GridTrackVec::new(),
-        #[cfg(feature = "grid")]
-        grid_auto_columns: GridTrackVec::new(),
         #[cfg(feature = "grid")]
         grid_auto_flow: GridAutoFlow::Row,
-        #[cfg(feature = "grid")]
-        grid_row: Line { start: GridPlacement::<S>::Auto, end: GridPlacement::<S>::Auto },
-        #[cfg(feature = "grid")]
-        grid_column: Line { start: GridPlacement::<S>::Auto, end: GridPlacement::<S>::Auto },
+        rare: Rare::DEFAULT,
     };
 }
 
@@ -1053,7 +1005,7 @@ impl<S: CheapCloneStr> BlockContainerStyle for Style<S> {
 
     #[inline(always)]
     fn multicol(&self) -> Option<Multicol> {
-        self.multicol
+        self.rare.multicol
     }
 }
 
@@ -1254,19 +1206,19 @@ impl<S: CheapCloneStr> GridContainerStyle for Style<S> {
 
     #[inline(always)]
     fn grid_template_rows(&self) -> Option<Self::TemplateTrackList<'_>> {
-        Some(self.grid_template_rows.iter().map(|c| c.as_component_ref()))
+        Some(self.rare.grid_template_rows.iter().map(|c| c.as_component_ref()))
     }
     #[inline(always)]
     fn grid_template_columns(&self) -> Option<Self::TemplateTrackList<'_>> {
-        Some(self.grid_template_columns.iter().map(|c| c.as_component_ref()))
+        Some(self.rare.grid_template_columns.iter().map(|c| c.as_component_ref()))
     }
     #[inline(always)]
     fn grid_auto_rows(&self) -> Self::AutoTrackList<'_> {
-        self.grid_auto_rows.iter().copied()
+        self.rare.grid_auto_rows.iter().copied()
     }
     #[inline(always)]
     fn grid_auto_columns(&self) -> Self::AutoTrackList<'_> {
-        self.grid_auto_columns.iter().copied()
+        self.rare.grid_auto_columns.iter().copied()
     }
     #[inline(always)]
     fn grid_auto_flow(&self) -> GridAutoFlow {
@@ -1296,29 +1248,29 @@ impl<S: CheapCloneStr> GridContainerStyle for Style<S> {
     #[inline(always)]
     #[cfg(feature = "grid")]
     fn grid_template_areas(&self) -> Option<Self::GridTemplateAreas<'_>> {
-        self.grid_template_areas.as_ref().map(|template| template.areas.iter().cloned())
+        self.rare.grid_template_areas.as_ref().map(|template| template.areas.iter().cloned())
     }
     #[inline(always)]
     #[cfg(feature = "grid")]
     fn grid_template_area_row_count(&self) -> u16 {
-        self.grid_template_areas.as_ref().map(|template| template.row_count).unwrap_or(0)
+        self.rare.grid_template_areas.as_ref().map(|template| template.row_count).unwrap_or(0)
     }
     #[inline(always)]
     #[cfg(feature = "grid")]
     fn grid_template_area_column_count(&self) -> u16 {
-        self.grid_template_areas.as_ref().map(|template| template.column_count).unwrap_or(0)
+        self.rare.grid_template_areas.as_ref().map(|template| template.column_count).unwrap_or(0)
     }
 
     #[inline(always)]
     #[cfg(feature = "grid")]
     fn grid_template_column_names(&self) -> Option<Self::TemplateLineNames<'_>> {
-        Some(self.grid_template_column_names.iter().map(|names| names.iter()))
+        Some(self.rare.grid_template_column_names.iter().map(|names| names.iter()))
     }
 
     #[inline(always)]
     #[cfg(feature = "grid")]
     fn grid_template_row_names(&self) -> Option<Self::TemplateLineNames<'_>> {
-        Some(self.grid_template_row_names.iter().map(|names| names.iter()))
+        Some(self.rare.grid_template_row_names.iter().map(|names| names.iter()))
     }
 }
 
@@ -1421,12 +1373,12 @@ impl<S: CheapCloneStr> GridItemStyle for Style<S> {
     #[inline(always)]
     fn grid_row(&self) -> Line<GridPlacement<S>> {
         // TODO: Investigate eliminating clone
-        self.grid_row.clone()
+        self.rare.grid_row.clone()
     }
     #[inline(always)]
     fn grid_column(&self) -> Line<GridPlacement<S>> {
         // TODO: Investigate eliminating clone
-        self.grid_column.clone()
+        self.rare.grid_column.clone()
     }
     #[inline(always)]
     fn align_self(&self) -> Option<AlignSelf> {
@@ -1473,6 +1425,30 @@ mod tests {
 
         let old_defaults: Style<DefaultCheapStr> = Style {
             dummy: core::marker::PhantomData,
+            rare: super::RareStyle {
+                #[cfg(feature = "grid")]
+                grid_template_rows: Default::default(),
+                #[cfg(feature = "grid")]
+                grid_template_columns: Default::default(),
+                #[cfg(feature = "grid")]
+                grid_auto_rows: Default::default(),
+                #[cfg(feature = "grid")]
+                grid_auto_columns: Default::default(),
+                #[cfg(feature = "grid")]
+                grid_template_column_names: Default::default(),
+                #[cfg(feature = "grid")]
+                grid_template_row_names: Default::default(),
+                #[cfg(feature = "grid")]
+                grid_template_areas: Default::default(),
+                #[cfg(feature = "grid")]
+                grid_row: Line { start: GridPlacement::Auto, end: GridPlacement::Auto },
+                #[cfg(feature = "grid")]
+                grid_column: Line { start: GridPlacement::Auto, end: GridPlacement::Auto },
+                #[cfg(feature = "block_layout")]
+                multicol: None,
+                ..super::RareStyle::DEFAULT
+            }
+            .into(),
             display: Default::default(),
             item_is_table: false,
             item_is_replaced: false,
@@ -1511,8 +1487,6 @@ mod tests {
             gap: Size::zero(),
             #[cfg(feature = "block_layout")]
             text_align: Default::default(),
-            #[cfg(feature = "block_layout")]
-            multicol: None,
             #[cfg(feature = "flexbox")]
             flex_grow: 0.0,
             #[cfg(feature = "flexbox")]
@@ -1525,25 +1499,7 @@ mod tests {
             aspect_ratio: Default::default(),
             aspect_ratio_content_box: false,
             #[cfg(feature = "grid")]
-            grid_template_rows: Default::default(),
-            #[cfg(feature = "grid")]
-            grid_template_columns: Default::default(),
-            #[cfg(feature = "grid")]
-            grid_template_row_names: Default::default(),
-            #[cfg(feature = "grid")]
-            grid_template_column_names: Default::default(),
-            #[cfg(feature = "grid")]
-            grid_template_areas: Default::default(),
-            #[cfg(feature = "grid")]
-            grid_auto_rows: Default::default(),
-            #[cfg(feature = "grid")]
-            grid_auto_columns: Default::default(),
-            #[cfg(feature = "grid")]
             grid_auto_flow: Default::default(),
-            #[cfg(feature = "grid")]
-            grid_row: Line { start: GridPlacement::Auto, end: GridPlacement::Auto },
-            #[cfg(feature = "grid")]
-            grid_column: Line { start: GridPlacement::Auto, end: GridPlacement::Auto },
         };
 
         assert_eq!(Style::DEFAULT, Style::<DefaultCheapStr>::default());
@@ -1649,12 +1605,13 @@ mod tests {
         assert_type_size::<GridTemplateComponent<String>>(56);
         assert_type_size::<GridPlacement<String>>(32);
         assert_type_size::<Line<GridPlacement<String>>>(64);
-        assert_type_size::<Style<String>>(600);
+        assert!(core::mem::size_of::<Style<String>>() <= 304);
+        assert_type_size::<Rare<String>>(core::mem::size_of::<usize>());
 
         // String-type dependent (Arc<str>)
         assert_type_size::<GridTemplateComponent<Arc<str>>>(56);
         assert_type_size::<GridPlacement<Arc<str>>>(24);
         assert_type_size::<Line<GridPlacement<Arc<str>>>>(48);
-        assert_type_size::<Style<Arc<str>>>(568);
+        assert_type_size::<Style<Arc<str>>>(core::mem::size_of::<Style<String>>());
     }
 }

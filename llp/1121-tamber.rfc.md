@@ -890,7 +890,8 @@ app's definition wins). A token keeps its name in the one table; its source is
 `<package>/<file>#<token>` (stage 11 A2), as D15 names components. A package's design holds a
 `theme` block and its components' params (stage 12 B1: `component … params`, named
 `<package>/<file>#Name`): axes, dials, `params` lines, icon tokens and `exports` are refused
-(`tamber-package-block`; icons QUEUE). Its tokens join the
+(`tamber-package-block`; icons QUEUE; *superseded for icons by stage 13's amendment below*: a
+package's design declares icons). Its tokens join the
 app's design in the one fold; a token the app's design defines is the app's, whole (all its
 `when` lines). What a package token names, as the fold resolves it (its values and its `pair=`),
 is a token its own design declares, a role or one of the base scale's nine names (`space.xs`,
@@ -899,6 +900,21 @@ is a token its own design declares, a role or one of the base scale's nine names
 and no dial its values read (`tamber-unknown-token`; references across packages are QUEUE).
 A refusal in a package's design points at its line there (a token's, a `when`'s, a refused
 block's); one about the file (unreadable, a namespace taken twice) names the file.
+
+*Amended 2026-10-22 (stage 13, package icon tokens; theme2's 03:22 ruling):* **an SVG path is
+relative to the `assets/` of the root whose file writes it**: the app's directory for the app's
+lines, the package's root for a package's (its design wherever its `"tamber"` puts it, or its
+Contract; a vendored package is the named package its identity names). A package's design may declare
+`icons`, each named under its namespace (`reading.star`; else `tamber-package-name`) and naming
+only its own package's icons (an app's or another package's is `tamber-unknown-token`, as for its
+tokens). The app's design overrides one by its full name under its own `icons`, whole, and D7
+keeps one as it keeps a package token. A package's `svg "star.svg"` reads
+`<package root>/assets/star.svg`, the app's `<app>/assets/`; so does a package component's icon
+param default written as a literal `icon(svg …)`, in the package's design or its Contract (Q1: a
+package is self-contained wherever it is used), while an app's `params` line setting that param is the app's and reads the app's. An icon
+naming another reads the file beside the line that writes the `icon(…)`. In v1 a package's SVG
+must be a one-colour template (Q2 (a); `tamber-icon-svg` otherwise): the web, which alone draws a
+file as written, stages the app's `assets/` only (QUEUE).
 
 ### D12 — Every language gets generated names over the one table
 
@@ -1578,6 +1594,10 @@ Android's reader and the terminal.
     tweakable surface and anatomy as checked data, keeping exact1 Facet's rule, "a recipe
     styles parts; it never forecloses slots". Its own RFC. **Gate:** set by that RFC; its
     first consumer is named before it starts.
+13. **Finishing the open threads, and the library's second wave** (*closed 2026-10-23, its parts gated
+    separately; C, D and E met, A's R4 and B's Figma run and `pen` importer carried; §10 "Stage 13: as built"*):
+    the hosted relay's service (R3), external clients, LLP 1139's second wave of library components and
+    package icons, the write check's open gaps, and the design tool after its hands-on pass, on `tamber/1.16`.
 
 **Checks that stay from stage 2:** `tamber-dial-inert` (and `tamber-param-unused` from stage
 7); golden IR and
@@ -5698,3 +5718,195 @@ codec and the wire don't move: the theme row's value is the shadow's text, its l
 - **Tests:** web-js `a_shadow_over_base_names_writes_their_properties` (the platform colour, box and text, as the
   row's CSS); kernel `is_length_item`; `an_unkinded_shadow_of_functions_asks_for_its_kind` (functions over base
   names, and over numbers).
+
+**Follow-up: per-column shadow values** (`tamber/1.16`'s first change, stage 12 having closed: hello bumps; QUEUE's B3 entry beside D1's, the lead's 20:40Z task;
+theme2's 20:50 ruling on `~/x2theme/x2p4-s12-shadowcols-plan.md`). A shadow token's value with a length over unset
+base names gets D1's `columns` in D1's places: `explain`'s value, each `when` line (as the first tuple choosing it
+folds it) and each of `resolve`'s tuples, `{ios, mac, neutral, material: {value}}`, each `value` the whole shadow's
+text as that column's host reads it, by the kernel's own `scale::fold_lengths` over the scale table's column (never
+a copy; a colour, a platform colour named `space.md` included, kept whole). Each of `resolve`'s shadows with
+`length_texts` gains `columns: {col: {value, lengths}}` (Q2): its own text there and every length's px as a number,
+in `lengths`' order, never null. No terminal column for a shadow (Q1): the terminal draws none, the doc's one stated
+exception to D1's "left out only where it doesn't fold". A px-only shadow, or one over a base the app sets (folded
+to px), has no `columns` key. rt1's D1 carry-overs hold: a zero is never negative (`calc(space.md * -0)` compiles to
+a px length of -0, which the per-shadow numbers write 0; the kernel's `calc()` folds no zero to -0), a default's
+columns come from the first tuple choosing it, read per column, and the key is absent, not empty. The code is
+`shadow_columns_of` and `one_shadow_columns` beside `columns_of` in contract/cli/src/tamber_base.rs; D1's length path
+is unchanged.
+- Tests (`contract/cli/tests/it/tamber_serve_shadow_columns.rs`, every expected px from the kernel's evaluator): a box
+  shadow over `space.md` and `calc(space.sm * 2)` (explain, its px-only `when`, resolve's token and per-shadow
+  columns); a `when` line's list with a px-only shadow among two over bases; a default the first tuple doesn't
+  choose; a text shadow; a platform colour named `space.md`; px-only and app-set shadows with no key; a length
+  keeping `terminal` while a shadow has none; no -0.
+
+### Stage 13: package icon tokens
+
+theme2's 03:22 ruling on `~/x2theme/x2p4-s13-package-icons-plan.md` (Q1 yes, Q2 (a)); QUEUE "What a package's
+design can't do yet" (1). D11 is amended (above).
+- **Tamber.** An `Icon` carries `written`, the line its `icon(…)` is written on: its own value's, or, for an icon
+  naming another, that one's (`icon::aliased` carries the value's line with its text).
+- **The join** (contract/lower/src/theme/packages.rs). A package's `icons` block is no longer
+  `tamber-package-block`: its icons are named under its namespace as its tokens are, banded into the app's design
+  as its tokens are (the app's icon of one name is the icon, whole), and `references` refuses one naming an icon
+  that isn't its own package's. LLP 1139 D8's check reads a library package's icons as names it defines, and an
+  app icon under its namespace that it doesn't define is `tamber-package-unknown`, as a token is.
+- **Where an SVG is read** (contract/lower/src/icons.rs). `written_in` finds the package design an icon's
+  `written` line is in (a package's band, or a param's line whose identity is a package design's); `Home::of` is
+  that package's root (the new `DesignSource::root`, from the resolved `Package.root`) or the app's. `svg_of`,
+  `draws` and `declare` take it per icon; a refusal names the package's file ("the package `@acme/reading`'s
+  `assets/star.svg`"), and a package's non-template SVG is `tamber-icon-svg`: "a package's pictures are one-colour
+  templates in v1". A missing file is `tamber-icon-svg`, as an app's is.
+- **Readers.** The source graph lists a package's SVG under its root, with the package's origin (one not there yet
+  is consulted); the design server's `draws`, `tamber check`'s copy and the ops check of an icon param's SVG read
+  the per-icon root; the levels walker reads a package's icons as its tokens.
+- **Wire** (one clause on `tamber/1.16`). `describe`'s icon rows gain `package` and `file`, and `explain` of a
+  package icon `package`, `file`, `identity`, `package_value` under an app override, and its value as its package
+  writes it (`tamber_packages::owner` learns icons for rows; a write's ops still take tokens alone, no new op).
+- **Round 1's open questions** (the lead's ruling, a second commit). A package's Contract component's icon param
+  with a literal `icon(svg …)` default reads its package's `assets/` too, whether or not the package ships a
+  design: the loader gives a package's components their package and root (`Params::package`, `Params::root`,
+  from the source's `Origin::Package`), a `ParamToken` carries them (a design's from its `DesignSource`), and
+  `written_in` reads a param's line through them; the source graph finds the package's origin by its root.
+  `resolve` of a package icon carries `package`, `file` and `identity`, as of a package token (the 1.16 clause
+  says so). Tests: `a_package_contracts_icon_param_reads_its_packages_assets` (with and without a design, the
+  app's same-named file unused, the graph, a write's check, the refusal, the app's `params` line), and resolve's
+  fields in `describe_and_explain_name_a_package_icons_package_and_file`.
+- **After review round 1 (Astra, Grok: RIGHT WITH CHANGES).** Astra 3 = Grok 1 and Astra 8 are the commit above.
+  - A package component's icon param may name its own package's icons (Astra 1): `references` counts them as its
+    own.
+  - A write's plan folds the package's icons beside the app's design (Astra 2): `tamber_params::joined_all` gives
+    the tokens and the icons, and `params::Params` gains `joined_icons`, which `laid` adds under `icons` (one the
+    design defines is the design's), so an app icon naming a package's doesn't refuse an unrelated write.
+  - A package's SVG is confined to its package (Astra 4 = Grok 2): `Home::leaves` canonicalizes a package's file
+    that is there and requires it under the package's own canonical `assets/`; else `tamber-icon-svg` ("leaves
+    the package"). The build, `draws`, the write's check and `tamber check`'s copy refuse it, and the source graph
+    lists no such file as a source (the link is consulted, so mending it rebuilds). The app's `assets/` stay
+    unconfined: they are the author's to arrange, and the web stages them as they are.
+  - A package-only design (no app design, no params) folds in the source graph too (Astra 5), so its SVGs are
+    build inputs.
+  - A package SVG edit is announced (Astra 6): the local wire's `hello {paths: true}` gives each package
+    `assets`, a digest of the package SVGs the build reads (path and bytes; one looked for and absent by its
+    path), and `scripts/tamber-package-designs.mjs` compares it with the design's digest, so an edit announces a
+    `changed` naming the package's design. A client's hello carries neither.
+  - A `color` on any drawn element makes an SVG no template, for every icon (Astra 7): two `currentColor` fills
+    under two `color`s are two colours.
+  - Tests: `package_icons.rs`'s `a_package_param_may_name_its_own_packages_icon`, `a_write_folds_the_packages_icons`,
+    `a_package_svg_linked_out_of_its_package_is_refused` (a linked file, a linked `assets/`, the graph, `draws`,
+    a write), `a_package_only_design_lists_its_svgs`, `a_package_svg_edit_moves_its_assets_digest`; the module test
+    in `scripts/tamber-package-designs.test.mjs` (an SVG edit announced); `icon_svg`'s `color` cases.
+- **After review round 2 (Astra, Grok: RIGHT WITH CHANGES; every round 1 item confirmed).**
+  - A component's assets are the named package its identity names (Astra 1): `named_home` (now in
+    contract/cli/src/sources/home.rs, beside `home`) gives the package's name and directory with the identity, so
+    a package vendored inside another, or inside the app, reached by a relative `use`, reads its own `assets/`.
+  - A `color` makes an SVG no template only where a path paints `currentColor` (Astra 2); a `color` nothing paints
+    in is ignored again, as on main.
+  - A package's SVG is read at the canonical path its confinement checked (both, R2-3), and an entry that can't
+    be resolved (a dangling link) leaves; so for the assets digest and `tamber check`'s copy.
+  - A package with no design whose SVGs the build reads (a Contract component's icon param) is in the local
+    wire's `watch.assets`, `{package, file: "<package>/assets/", assets}`, which the watcher compares as a
+    design's, so an edit announces `changed` naming `<package>/assets/` (Astra, R2-4).
+  - A `style`'s property names match in any case (R2-5).
+  - The wording: an SVG path is relative to the `assets/` of the root whose file writes it, the app's directory
+    or the package's root (R2-6, here, D11's amendment and contract-for-agents); D11's older paragraph marks the
+    icons refusal superseded (R2-7).
+  - Tests: `a_vendored_packages_icon_default_reads_its_own_assets` (inside a package and inside the app, each
+    beside the surrounding package's and the app's same-named SVG), `a_dangling_link_in_a_packages_assets_leaves_it`,
+    `a_contract_only_packages_svgs_are_watched`, the module test of a design-less package's SVG edit, and
+    `icon_svg`'s cases (main's `color` with a black fill a template; `COLOR`/`Color` names).
+- **After review round 3 (Astra, Grok: RIGHT WITH CHANGES; every earlier item confirmed).**
+  - `currentColor` resolves to the element's inherited `color` (attribute or style, any case) and joins the one
+    colour comparison (R3-1): under red it is red, beside an explicit red fill one colour; under red and blue two;
+    with no `color` set, the host's colour, as on main. Round 1's and 2's `color` heuristics are gone.
+  - `!important` is read in any case and with space after its `!` (R3-2), so it neither hides a paint's value nor
+    loses its precedence.
+  - A package vendored in the app and reached by a relative `use` owns its SVG in the graph (a package origin from
+    its own manifest, which is consulted) and on the local wire (`watch.assets`, its directory in `watch.roots`)
+    (R3-3).
+  - A package's file is read from the file checked (R3-4, `icons/confined.rs`): opened, its descriptor's device
+    and inode taken, the path resolved again and required under the canonical `<root>/assets/` and to be that
+    file, and read from the descriptor; nothing at the path is missing with no second open. The build, `draws`,
+    the source graph and the write check (`Home::leaves`), the assets digest and `tamber check`'s copy all read
+    through it. It closes a link planted or swapped in after the check and a parent directory swapped between
+    the open and the re-check; a file replaced by another inside the package's `assets/` is still the package's.
+  - Tests: `icon_svg`'s cases (main's, R3-1's, red and blue, `currentColor` beside red, `!IMPORTANT` and
+    `! Important`), `confined`'s unit test (a planted link, a link inside, dangling, absent),
+    `an_app_vendored_packages_svg_is_its_packages`, and the module test of an app-vendored package's SVG edit.
+- **After the narrow re-check (Grok RIGHT; Astra RIGHT WITH CHANGES).**
+  - A package an icon's SVG is read from owns it there or not (RE-1): the source graph's `owners` lists each
+    such package (one vendored in the app included) from the identity's owner, its manifest is consulted, and the
+    local wire's `watch.roots` and `watch.assets` come from it, so making a missing SVG is announced.
+  - `color="inherit"` or `currentColor` keeps the parent's colour (RE-2).
+  - A three-swap interleaving of the confined read is a stated limit, in confined.rs and QUEUE (RE-3).
+  - Tests: `an_app_vendored_packages_missing_svg_is_still_watched`, the module test of a vendored package's SVG
+    made where none was, and `icon_svg`'s `inherit` and `currentColor` cases.
+- **Unchanged:** every app's plan and `tamber check` output (no app has a package icon), and `@exact/cards` and
+  `@exact/actions`, whose icons are still path functions (their move to icon tokens is the follow-up).
+- **Tests:** `contract/cli/tests/it/package_icons.rs` (the namespace and its refusal; an alias within the package
+  and an app icon naming a package's; a package icon naming the app's refused; the app's override whole; D7 keeping
+  only a read one; the package's `assets/` and not the app's same-named file; a missing one naming the package's
+  file; a non-template one refused; the source graph; describe and explain rows and `package_value`; the levels
+  walker; a write's check of a package default's SVG), `library_rules.rs` (a library's icons as its names), and `tamber_package_params.rs`'s `a_package_icon_params_svg_is_a_source` now expects the package's
+  `assets/` (and an app `params` line the app's).
+
+### Stage 13: as built, and closed (2026-10-23; brief `~/x2theme/stage13-brief.md`)
+
+Stage 13 was one stage with five parts, each gated on its own (the lead's 2026-10-21 decision), so a part waiting
+on Charlie held no other. Every part was built and reviewed under this RFC's process and signed off by theme2 (the
+design tool's code by review2). The rulings are in `~/x2theme/SIGNOFFS.md`. Its wire is the one `tamber/1.16`
+bullet: per-column shadow values (`76748724f3`, which opened 1.16), D4's `bases_by_tuple`, D5's Stretch form,
+package icons, and the selection's `fromAt` with `inspect {select: {up}}`.
+
+- **A, the hosted relay** (rt1): **R3** landed, the self-hostable relay service, through `ba5ca5e381`, with
+  3 rounds and a security pass. **R4 is carried** (below).
+- **B, external clients** (rt1): the `pen` importer's plan is approved (3 rounds and a security pass); it is in
+  flight. **The real-Figma run is carried** (below).
+- **C, the library's second wave** (iosfix with x2-perf4): `@exact/lists` (ListRow, SwitchRow; `21a1a836b3`),
+  ProfileHeader in `@exact/cards` (`b821a5f4d0`..`9aa14743f2`), ComposeFrame (`f926a60524`..`304de7b893`) and BarItem and
+  HeaderButton with lower-library-control's button rules (`ba2d017788`..`4f29a65443`) in `@exact/actions`, adopted by
+  the clone on its signed-out, synthetic copy. Package icon tokens followed (`22746a70cd`..`67c8eeed8f`, D11
+  amended above). Its gate is LLP 1139 §10's.
+- **D, the checker's open gaps** (reload1): the write check judges font rows, computed rows and `svg` subtrees
+  (D1–D3, `fade920ee5`..`93b827ca19`); `explain`'s `bases_by_tuple` (D4, `..76becad4ef`); the Stretch cell
+  (D5, `21a1a836b3`..`f134cefd86`, `SCHEMA_DIGEST` `0x41fc_75ef_b151_8e26`). Then it judges a style's rows at each
+  element that applies it (`f85d38ae54`..`4cc93c4172`), and written shorthand and flex rows
+  (`3d66eb069b`..`7b784e5751`).
+  - **What the write check judges now:** font and font-family rows through `type_tokens`; computed arms,
+    conservatively over the tokens they can produce; `svg` subtrees, with lowering's renaming; a style's rows
+    where each element applies it, refused in the build's order; a written shorthand or flex row as lowering
+    expands it. A choice of literals is judged whole, `none` arms included, and a row is also reached by its
+    expansion's text.
+  - **Still the build's:** each of these is refused by the build alone, and QUEUE says each.
+    - a computed shorthand or flex row;
+    - transition and animation rows;
+    - a `font` shorthand naming no type token, since it can name no design token;
+    - a style row at an element the check leaves to the build: under `for`/`match`, a choice of styles, SVG,
+      transforms, grouped lists, buttons, audio, `delete=`.
+- **E, the design tool after the hands-on pass** (dtool2, LLP 1122): the ghost-builds follow-up, the Stretch
+  "why" in the tool, a second pass over the library components with findings #1–#9 fixed or closed (#5 and #6 the
+  1.16 lines above; #9 closed by a regression test, since it no longer reproduced), and a polish commit. The pass
+  showed no need for per-instance variant pins (LLP 1139 §9 Q5) or native copies, so neither was built.
+
+| Part | Gate | Result |
+|---|---|---|
+| A | R4's lines on a deployed relay; the PSL PR filed | **Carried**: R3 met its loopback gate; R4 needs hosting |
+| B | The Figma line on a real file; a `.pen` file imported, re-imported and refused past the budget | **Carried**: the Figma run needs Charlie; `pen` is in flight |
+| C | Stage 12's gate lines over the new components | **Met** (LLP 1139 §10; `~/x2theme/s13c-gate-run.txt`) |
+| D | Each gap closed with same-words tests; plans byte-identical; the clone's write check in budget | **Met**: 55 write-check tests, each new one red under its mutation; 48 plans byte-identical; the clone's check 11–29 ms |
+| E | The pass's top findings fixed, each with a contract test; any 1.16 wire signed by theme2 | **Met** (`~/x2theme/stage13-e-gate.md`, confirmed by theme2) |
+
+**Carried to the next stage, named:**
+- **R4**, the deployed relay's gate. It waits on Charlie's hosting (a VPS), the domain, how accounts are issued,
+  and the PSL submission.
+- **The real-Figma run** (10b's gate line). It waits on Charlie's session.
+- **The `pen` importer**, in rt1's rounds.
+
+**Found and fixed on the way:** an open popover laid out in its parent's flow, fixed in the kernel with one
+accessor for a box's layout position and a guard on direct reads (`3fd6e52197`..`5bf1aecc9a`); iOS bar items and
+custom invokers that turned any popover into a pull-down; a clock that waited on replies a server holds (LLP
+1016.000 D9, `exactHeld` and `clock held`, `5752d1b032`..`58baabfe67`).
+
+**QUEUE:** top-layer layout as a computed-style default, with a compile-time guard; `fill-rule` in icon templates;
+multicolour package SVGs on the web; the Android slot-marker flake.
+
+**Stage 13 is closed** with C, D and E met and A and B carried as named. The `tamber/1.16` window is closed; the next
+wire change, a carried part's included, takes `tamber/1.17`.

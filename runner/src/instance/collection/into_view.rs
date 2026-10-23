@@ -131,7 +131,7 @@ impl Collection {
         // As the kernel lays it out, under a terminal's rule (any length, in
         // whole cells); else as the plan binds it.
         let laid = u.cell_margins.map(|margins| margins(root.view));
-        let number = |id| match (laid, root.bound_style(u.env.plan, id)) {
+        let number = |id| match (laid, root.bound_style(u.env.plan, u.sites, id).as_ref()) {
             (Some([t, r, b, l]), _) => match id {
                 StyleId::MarginTop => t,
                 StyleId::MarginRight => r,
@@ -371,30 +371,35 @@ type Found<'a> = (&'a mut Collection, Option<exact_plan::Str>, Vec<Frame>);
 
 /// The collections under `children`, outside other collections' rows,
 /// each with its node's `id` and the frames in force at it.
-fn lists<'a>(children: &'a mut [Child], plan: &Plan, frames: &[Frame], out: &mut Vec<Found<'a>>) {
+fn lists<'a>(
+    children: &'a mut [Child],
+    (plan, sites): (&Plan, &SiteIndex),
+    frames: &[Frame],
+    out: &mut Vec<Found<'a>>,
+) {
     for child in children {
         match child {
             Child::Node(node) => {
-                let id = match node.bound_prop(plan, PropId::Id) {
-                    Some(v @ exact_plan::str_value!()) => v.to_shared_str(),
+                let id = match node.bound_prop(plan, sites, PropId::Id) {
+                    Some(ref v @ exact_plan::str_value!()) => v.to_shared_str(),
                     _ => None,
                 };
-                match &mut node.collection {
+                match crate::instance::rare::list_mut(&mut node.rare) {
                     Some(c) => out.push((c, id, frames.to_vec())),
-                    None => lists(&mut node.children, plan, frames, out),
+                    None => lists(&mut node.children, (plan, sites), frames, out),
                 }
             }
             Child::Region(region) => match &mut region.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
                     inner.push(frame.scope());
-                    lists(roots, plan, &inner, out);
+                    lists(roots, (plan, sites), &inner, out);
                 }
                 Active::Rows { rows } => {
                     for row in rows {
                         let mut inner = frames.to_vec();
                         inner.push(row.frame.clone());
-                        lists(&mut row.roots, plan, &inner, out);
+                        lists(&mut row.roots, (plan, sites), &inner, out);
                     }
                 }
             },
@@ -413,10 +418,10 @@ fn by_view<'a>(
     for child in children {
         match child {
             Child::Node(node) => {
-                if node.collection.as_ref().is_some_and(|c| c.view == view) {
-                    return node.collection.as_deref_mut().map(|c| (c, frames.to_vec()));
+                if node.collection().is_some_and(|c| c.view == view) {
+                    return node.collection_mut().map(|c| (c, frames.to_vec()));
                 }
-                if let Some(c) = &mut node.collection {
+                if let Some(c) = crate::instance::rare::list_mut(&mut node.rare) {
                     for m in &mut c.mounted {
                         let mut inner = frames.to_vec();
                         inner.push(m.row.frame.clone());
@@ -560,7 +565,7 @@ impl Tree {
             return Ok(IntoViewStatus::Pending);
         }
         let mut found = Vec::new();
-        lists(&mut self.children, plan, &[], &mut found);
+        lists(&mut self.children, (plan, u.sites), &[], &mut found);
         let Some(row) = &request.row else {
             let Some((list, _, frames)) = found
                 .into_iter()
@@ -603,7 +608,12 @@ impl Tree {
         let mut inner_frames = frames.clone();
         inner_frames.push(mounted.row.frame.clone());
         let mut inner = Vec::new();
-        lists(&mut mounted.row.roots, plan, &inner_frames, &mut inner);
+        lists(
+            &mut mounted.row.roots,
+            (plan, u.sites),
+            &inner_frames,
+            &mut inner,
+        );
         let Some((list, _, frames)) = inner
             .into_iter()
             .find(|(_, id, _)| id.as_deref() == Some(request.list.as_str()))
@@ -633,7 +643,7 @@ impl Tree {
         while let Some(child) = stack.pop() {
             match child {
                 Child::Node(node) => {
-                    if let Some(c) = &node.collection {
+                    if let Some(c) = node.collection() {
                         if let Some((key, status)) = &c.into_view_status {
                             if out.len() > 1 {
                                 out.push(',');

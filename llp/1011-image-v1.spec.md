@@ -146,11 +146,10 @@ size; that is not a second `load`.
 font-size=17 font-weight=600 tint-color="#007aff"` uses one of the seven
 schema roles: back, close, compose, add, microphone, send and search. Literal
 unknown roles are `lower-attr-value`; a dynamic unknown role paints empty,
-clears intrinsic size and logs a refusal. Symbols are decorative: the surrounding
-control carries its accessible name, the symbol does not carry another one.
-Since 2026-10-04 a symbol its author names (`alt` or `aria-label`) keeps that
-name on the web and macOS (LLP 1035.004 D1, amended); iOS still hides every
-symbol from VoiceOver (`NodeViewIOS.swift`), and Linux exposes no image names.
+clears intrinsic size and logs a refusal. An unnamed symbol is decorative:
+its surrounding control carries the accessible name. A symbol with an
+accessible name is an image element on the web, macOS and iOS (LLP 1035.004
+D1, amended). Linux exposes no image names.
 No network or asset load resolves a symbol. Definite dimensions still size its
 box; inherited font size/weight configure its natural glyph dimensions.
 
@@ -209,7 +208,9 @@ its bounds. A native button's symbol takes no `width` or `height`
 keeps the box the look gives it, as iOS draws those outside a button's face: a
 tab bar's or a segmented control's image (at body size) and a menu item's. An
 icon of the app's own, with no `sf`, draws its viewBox at
-1em, as the Apple hosts draw its path (`FaceSymbol.pathImage`).
+1em, as the Apple hosts draw its path (`FaceSymbol.pathImage`). A symbol alone
+on a bar item's face is at the bar's symbol size, whatever size is written on it
+or its item (LLP 1115.000 D4.15).
 
 **Tinted rasters (2026-09-26).** `host_css` (`host/web/src/element.rs`) gives
 an `<img>` whose source is not `symbol:` and whose `tint_color` is set the
@@ -316,7 +317,18 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   `RasterMetadata.encodedLimit` (64 MiB) from `Content-Length` and again as
   it streams; the request times out at 15 s and the whole load at 30 s. The
   body spools to a temporary file read once for its header (256 KiB) and
-  once to decode. Responses are cached on disk only (`URLCache`, 64 MiB,
+  once to decode. A download runs on URLSession's queue, never on a raster
+  worker (2026-10-21): the process keeps one session for each cache policy,
+  so images share connections (HTTP/2 streams on one) and download at once,
+  up to the 64 sources a session may have waiting for a header; a worker
+  reads the header once the body is spooled, and decodes go on meanwhile.
+  A session per download, waited out on the two workers, fetched two
+  images at a time, each over a new connection: 18 product photos from
+  Brooks' CDN (`AkamaiGHost`, HTTP/2) filled a 3-column grid on an iPhone
+  16 Pro Max in a median 1.53 s (1.30–2.30) after a cold launch with no
+  cached responses; now before the launch animation ends (0.63 s, all five
+  runs), as UIKit with `URLSession.shared` and SwiftUI's `AsyncImage` do;
+  Expo's `expo-image` took 0.85 s (filmed, `~/bench/imagebench`). Responses are cached on disk only (`URLCache`, 64 MiB,
   `Caches/exact-raster-http`, the HTTP cache headers' policy); decoded
   pixels are the session's raster budget. An SVG, remote or under `assets/`,
   is drawn as a picture at the box's size (LLP 1011.001; the same on Linux);

@@ -32,10 +32,10 @@ final class ContentOwnersIOSTests: XCTestCase {
         super.tearDown()
     }
 
-    private func until(_ what: String, _ seconds: Double = 5, _ done: () -> Bool) {
+    private func until(_ what: @autoclosure () -> String, _ seconds: Double = 5, _ done: () -> Bool) {
         let deadline = Date().addingTimeInterval(seconds)
         while !done(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
-        XCTAssertTrue(done(), what)
+        XCTAssertTrue(done(), what())
     }
 
     /// A fixture booted in a window of the test host's scene, `size` large:
@@ -165,6 +165,30 @@ final class ContentOwnersIOSTests: XCTestCase {
     /// route beside its panel, so neither reaches the card, and `frame`,
     /// both point reads and the intersection observer agree with the card's
     /// view.
+    func testANativeOwnerPublishesItsIntermediatePlacement() throws {
+        guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else { throw missing("scene", "native owner motion requires a scene") }
+        let s = try fixture("owner-animation", CGSize(width: 402, height: 874), plan: "EXACT_TAB_OWNER_PLAN")
+        let p = s.presenter, route = try node(s, "route-first")
+        let view = try XCTUnwrap(p.navigation.controllers[route.id]?.viewIfLoaded)
+        let owner = try XCTUnwrap(p.navigation.container)
+        p.owners.publish()
+        let start = try XCTUnwrap(p.owners.told[route.id]?.placement?.rect).minX
+        var finished = false
+        UIView.animate(withDuration: 0.8, delay: 0, options: [.curveLinear]) {
+            view.transform = CGAffineTransform(translationX: 160, y: 0)
+            p.owners.publish()
+        } completion: { _ in finished = true }
+        until("the owner publishes an intermediate position", 2) {
+            guard let x = p.owners.told[route.id]?.placement?.rect.minX else { return false }
+            return x > start + 30 && x < start + 120
+        }
+        let layer = try XCTUnwrap(view.layer.presentation()), destination = try XCTUnwrap(owner.layer.presentation())
+        let shown = layer.convert(layer.bounds, to: destination)
+        XCTAssertEqual(try XCTUnwrap(p.owners.told[route.id]?.placement?.rect).minX, shown.minX, accuracy: 3)
+        until("the owner finishes moving", 2) { finished }
+        until("the geometry clock stops", 2) { !FrameClock.shared.wants(p.nativeGeometry) }
+    }
+
     func testATabsRouteIsReadWhereUIKitShowsItUnderATurnedPanel() throws {
         let session = try fixture("owner-turned-tab", CGSize(width: 402, height: 874), plan: "EXACT_TAB_OWNER_PLAN")
         let p = session.presenter
@@ -399,7 +423,11 @@ final class ContentOwnersIOSTests: XCTestCase {
         let route = try node(session, "route-form")
         let controller = try XCTUnwrap(p.navigation.controllers[route.id])
         let sheetView = try XCTUnwrap(controller.view)
-        until("the sheet's route takes the sheet's size") { self.laidOut(session, route.id) == sheetView.bounds.size }
+        // Layout crosses the host ABI as f32; compare UIKit's bounds at that precision.
+        until("the sheet's route takes the sheet's size: kernel \(String(describing: self.laidOut(session, route.id))), UIKit \(sheetView.bounds.size)") {
+            let size = CGSize(width: CGFloat(Float(sheetView.bounds.width)), height: CGFloat(Float(sheetView.bounds.height)))
+            return self.laidOut(session, route.id) == size
+        }
         let form = try node(session, "form-scroll"), sv = try XCTUnwrap(form.scroll)
         XCTAssertTrue(controller.edgeScroll === form, "the scroller ends the route")
         let bottom = { form.convert(form.bounds, to: sheetView).maxY }

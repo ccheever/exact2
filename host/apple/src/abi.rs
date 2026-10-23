@@ -14,6 +14,7 @@
 //! batch instead of trapping. [`host!`] exports one app's source and baked plan;
 //! each process links one app archive because the C names are fixed.
 mod control_text;
+mod navigation;
 use crate::host::{Host, PlanBytes};
 use crate::measure::{install_fonts, CallbackMeasurer, FontsFn, MeasureFn};
 use exact_kernel::{MonospaceMeasurer, TextMeasurer};
@@ -85,6 +86,7 @@ struct PreparedHost<D: DataSource> {
     hooks: Hooks,
     module: bool,
     let_go: bool,
+    carried_from: Option<exact_runner::Carried>,
 }
 
 fn not_booted() -> String {
@@ -259,8 +261,13 @@ impl<D: DataSource> Bridge<D> {
             let mut presenter = crate::batch::Batch::new();
             Self::auth_forgotten(h, &mut presenter);
             for r in h.take_requests() {
-                // A deadline the auth and surface paths can't keep: the executor refuses it, fencing ordered work.
-                if r.request.timeout_refusal().is_some() {
+                // A deadline the auth and surface paths can't keep, or a long poll on work that is no HTTP
+                // request (LLP 1016.000 D8): the executor refuses it, fencing ordered work.
+                if r.request
+                    .timeout_refusal()
+                    .or(r.request.long_poll_refusal())
+                    .is_some()
+                {
                     Self::run_dispatch(h, x, parked, r, exact_runner::Dispatch::Missing);
                     continue;
                 }
@@ -887,6 +894,7 @@ impl<D: DataSource> Bridge<D> {
                     hooks,
                     module: false,
                     let_go: false,
+                    carried_from: self.host.as_ref().map(Host::carry),
                 });
                 self.output.len() as u32
             }
@@ -918,12 +926,8 @@ impl<D: DataSource> Bridge<D> {
     /// Commit the already-accepted candidate, without decoding or laying it
     /// out again. The app calls this only after every session prepared.
     pub fn commit_plan(&mut self) -> u32 {
-        let module = self
-            .prepared
-            .as_ref()
-            .is_some_and(|c| c.module && !c.let_go);
-        if module && self.host.as_ref().is_some_and(|h| h.runner().has_pending()) {
-            return self.refuse_pending();
+        if let Some(refusal) = self.preparation_refusal() {
+            return refusal;
         }
         let Some(mut candidate) = self.prepared.take() else {
             return self.prepare_error("no prepared plan");
@@ -1070,16 +1074,6 @@ impl<D: DataSource> Bridge<D> {
         };
         let out = match self.host.as_mut() {
             Some(h) => h.dispatch_at(view, event, now_ms),
-            None => not_booted(),
-        };
-        self.emit(out)
-    }
-
-    /// `exact_host_back`: the platform's own Back from visit `id` (LLP 1115
-    /// D5), a batch.
-    pub fn host_back(&mut self, id: u64, now_ms: f64) -> u32 {
-        let out = match self.host.as_mut() {
-            Some(h) => h.host_back(id, now_ms),
             None => not_booted(),
         };
         self.emit(out)
@@ -1268,10 +1262,14 @@ impl<D: DataSource> Bridge<D> {
 
     /// The viewport changed.
     pub fn resize(&mut self, width: f32, height: f32) -> u32 {
+        let observed = self.live_clock.map(|clock| clock());
         let out = self
             .host
             .as_mut()
-            .map_or_else(not_booted, |h| h.resize(width, height));
+            .map_or_else(not_booted, |h| match observed {
+                Some(now) => h.resize_at(width, height, now),
+                None => h.resize(width, height),
+            });
         self.emit(out)
     }
 
@@ -1300,7 +1298,7 @@ impl<D: DataSource> Bridge<D> {
 
     /// The locale and time zone, as `locale NUL timeZone` in the input buffer.
     pub fn set_place(&mut self, len: usize) -> u32 {
-        // `locale NUL timeZone`, then `NUL seed` at launch.
+        // `locale NUL timeZone`, then `NUL seed` and `NUL formatLocale`.
         let text = std::str::from_utf8(&self.input[..len.min(self.input.len())]).unwrap_or("");
         let mut fields = text.split('\0');
         let (Some(locale), Some(zone)) = (fields.next(), fields.next()) else {
@@ -1308,10 +1306,9 @@ impl<D: DataSource> Bridge<D> {
         };
         let seed = fields.next().and_then(|s| s.parse::<f64>().ok());
         let (locale, zone) = (locale.to_owned(), zone.to_owned());
-        let out = self
-            .host
-            .as_mut()
-            .map_or_else(not_booted, |h| h.set_place(&locale, &zone, seed));
+        let out = self.host.as_mut().map_or_else(not_booted, |h| {
+            h.set_place(&locale, &zone, seed, fields.next())
+        });
         self.emit(out)
     }
 
@@ -1461,6 +1458,7 @@ pub type Cell<D> = RefCell<Bridge<D>>;
 
 mod boot;
 mod colors;
+mod preparation;
 mod registry;
 mod snapshot;
 #[cfg(test)]

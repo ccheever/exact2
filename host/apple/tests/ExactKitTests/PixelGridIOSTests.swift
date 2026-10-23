@@ -11,6 +11,138 @@ import XCTest
 final class PixelGridIOSTests: XCTestCase {
     private var window: UIWindow!
 
+    override func tearDown() { window?.isHidden = true; window = nil; super.tearDown() }
+
+    func testCollectionCorrectionsAndReadingRestorationKeepEdgesSharp() throws {
+        for scale in [2, 3] as [CGFloat] {
+            let p = presenter([
+                ["op": "create", "id": 1, "kind": "list", "props": ["scrollFollowEnd": "true"], "style": ["overflow_y": "scroll"]],
+                ["op": "create", "id": 2, "kind": "view", "props": ["testId": "line"], "style": ["background_color": [0, 0, 0, 255]]],
+                ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+                ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 100, "h": 100],
+                ["op": "frame", "id": 2, "x": 0, "y": 150, "w": 100, "h": 1],
+                ["op": "content", "id": 1, "w": 100, "h": 1000],
+            ])
+            p.viewport.traitOverrides.displayScale = scale
+            p.viewport.updateTraitsIfNeeded(); p.root.updateTraitsIfNeeded()
+            let node = try XCTUnwrap(p.views[1]), scroll = try XCTUnwrap(node.scroll)
+            node.updateTraitsIfNeeded(); scroll.updateTraitsIfNeeded()
+            p.regridAll()
+            scroll.contentOffset.y = 100
+            p.collections.keepStart(1, at: 100.4)
+            XCTAssertEqual(scroll.contentOffset.y, PixelGrid.round(100.4, scale: scale), accuracy: 1e-6)
+            scroll.contentOffset.y = 100
+            p.collections.shift(1, by: 0.4, extent: 1000, from: nil)
+            XCTAssertEqual(scroll.contentOffset.y, PixelGrid.round(100.4, scale: scale), accuracy: 1e-6, "relative anchor correction")
+            let reached = CollectionHost.reachable(CGPoint(x: 0, y: 200.4), in: scroll)
+            XCTAssertEqual(reached.y, PixelGrid.round(200.4, scale: scale), accuracy: 1e-6)
+            p.collections.correct(1, top: 200.4, extent: 1000, smooth: true)
+            XCTAssertTrue(p.collections.animating.contains(1))
+            var frames = 0
+            let deadline = Date(timeIntervalSinceNow: 2)
+            while p.collections.animating.contains(1), Date() < deadline {
+                RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+                XCTAssertEqual(scroll.contentOffset.y * scale, (scroll.contentOffset.y * scale).rounded(), accuracy: 1e-6,
+                               "each animated correction frame is on the display's grid")
+                frames += 1
+            }
+            XCTAssertGreaterThan(frames, 0)
+            XCTAssertFalse(p.collections.animating.contains(1))
+            XCTAssertEqual(scroll.contentOffset.y, PixelGrid.round(200.4, scale: scale), accuracy: 1e-6)
+            scroll.contentInset.bottom = 0.3
+            p.collections.shift(1, by: 10000, extent: 1000, from: nil)
+            XCTAssertEqual(scroll.contentOffset.y, 900, accuracy: 1e-6, "relative anchor at a fractional range end")
+            scroll.contentOffset.y = 100
+            p.collections.correct(1, top: 10000, extent: 1000)
+            XCTAssertEqual(scroll.contentOffset.y, 900, accuracy: 1e-6, "fractional range ends snap inward")
+            scroll.contentInset.bottom = scale == 2 ? 0.4 : 0.6
+            node.followedScroll = (top: 900, end: true, start: false)
+            node.restoreScrollPosition()
+            let bound = (900 + scroll.contentInset.bottom) * scale
+            XCTAssertEqual(scroll.contentOffset.y, bound.rounded(.down) / scale, accuracy: 1e-6, "followed fractional end")
+            scroll.contentInset.bottom = 0
+            scroll.contentOffset.y = 100
+            node.followedScroll = (top: 100.4, end: false, start: false)
+            node.restoreScrollPosition()
+            XCTAssertEqual(scroll.contentOffset.y, PixelGrid.round(100.4, scale: scale), accuracy: 1e-6)
+            let format = UIGraphicsImageRendererFormat(); format.scale = scale; format.opaque = true; format.preferredRange = .standard
+            let rule = try XCTUnwrap(p.views[2])
+            rule.layer.backgroundColor = UIColor.black.cgColor
+            let image = UIGraphicsImageRenderer(size: CGSize(width: 100, height: 100), format: format).image { context in
+                UIColor.white.setFill(); context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+                p.viewport.layer.render(in: context.cgContext)
+            }
+            let cg = try XCTUnwrap(image.cgImage), data = try XCTUnwrap(cg.dataProvider?.data)
+            let bytes = CFDataGetBytePtr(data)!
+            var blended = 0, dark = 0
+            for y in 0..<cg.height {
+                let at = y * cg.bytesPerRow + 20 * cg.bitsPerPixel / 8
+                if bytes[at] < 255 { dark += 1 }
+                if bytes[at] > 0 && bytes[at] < 255 { blended += 1 }
+            }
+            print("pixel-grid \(scale)x: \(blended) blended rows after reading restoration")
+            XCTAssertGreaterThan(dark, 0, "the captured rule must be visible")
+            XCTAssertEqual(blended, 0, "the one-point rule has solid pixel rows at \(scale)x")
+            if let directory = ProcessInfo.processInfo.environment["EXACT_PIXEL_CAPTURES"] {
+                try image.pngData()?.write(to: URL(fileURLWithPath: directory).appendingPathComponent("scroll-\(Int(scale))x.png"))
+            }
+            window.isHidden = true
+        }
+    }
+
+    func testRestingPageBandsClampFractionalStartAndEndInward() throws {
+        for (scale, fraction) in [(CGFloat(2), CGFloat(0.4)), (3, 0.6)] {
+            let p = presenter([
+                ["op": "create", "id": 1, "kind": "list", "props": ["scrollFollowEnd": "true"], "style": ["overflow_y": "scroll"]],
+                ["op": "roots", "ids": [1]],
+                ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 100, "h": 100],
+                ["op": "content", "id": 1, "w": 100, "h": 1000],
+            ])
+            let node = try XCTUnwrap(p.views[1]), scroll = try XCTUnwrap(node.scroll)
+            scroll.traitOverrides.displayScale = scale
+            scroll.updateTraitsIfNeeded()
+            XCTAssertEqual(scroll.traitCollection.displayScale, scale)
+            scroll.contentInsetAdjustmentBehavior = .never
+            scroll.contentOffset = .zero
+            node.setPageBand(UIEdgeInsets(top: fraction, left: 0, bottom: 0, right: 0))
+            XCTAssertEqual(scroll.contentOffset.y, (-fraction * scale).rounded(.up) / scale, accuracy: 1e-6,
+                           "the resting first row stays inside the fractional inset")
+            node.setPageBand(.zero)
+            scroll.contentOffset.y = 900
+            node.setPageBand(.zero, inset: UIEdgeInsets(top: 0, left: 0, bottom: fraction, right: 0))
+            XCTAssertEqual(scroll.contentOffset.y, ((900 + fraction) * scale).rounded(.down) / scale, accuracy: 1e-6,
+                           "following the end stays on its last reachable pixel")
+            window.isHidden = true
+        }
+    }
+
+    func testAnUnclampedWritePreservesOnlyAnActualRubberBand() {
+        for (scale, fraction) in [(CGFloat(2), CGFloat(0.4)), (3, 0.6)] {
+            let scroll = UIScrollView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+            scroll.traitOverrides.displayScale = scale; scroll.updateTraitsIfNeeded()
+            scroll.contentInsetAdjustmentBehavior = .never
+            scroll.contentInset.top = fraction
+            scroll.contentSize = CGSize(width: 100, height: 200 + fraction)
+            let high = 100 + fraction
+            XCTAssertEqual(PixelGrid.offset(CGPoint(x: 0, y: high), in: scroll, clamped: false).y,
+                           (high * scale).rounded(.down) / scale, accuracy: 1e-6)
+            XCTAssertEqual(PixelGrid.offset(CGPoint(x: 0, y: -fraction), in: scroll, clamped: false).y,
+                           (-fraction * scale).rounded(.up) / scale, accuracy: 1e-6)
+            for outside in [-fraction - 1, high + 1] {
+                XCTAssertEqual(PixelGrid.offset(CGPoint(x: 0, y: outside), in: scroll, clamped: false).y,
+                               PixelGrid.round(outside, scale: scale), accuracy: 1e-6)
+            }
+        }
+    }
+
+    func testNativePixelBoundsDoNotLoseAPixelToArithmeticNoise() {
+        for scale in [2, 3] as [CGFloat] {
+            let low = -499 / scale, high = 1000 / scale
+            XCTAssertEqual(PixelGrid.clamp(low, low.nextUp, high, scale: scale), low, accuracy: 1e-9)
+            XCTAssertEqual(PixelGrid.clamp(high, low, high.nextDown, scale: scale), high, accuracy: 1e-9)
+        }
+    }
+
     func testEachEdgeRoundsHalfUpAndTheSizeIsBetweenThem() {
         // At 3x, x = 10.1667 is 30.5 device pixels and rounds up to 31; its
         // right edge, 90.5, to 91. A 0.5 pt height from 0 is 0 to 1.5: 0 to 2.

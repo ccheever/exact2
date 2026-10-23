@@ -186,26 +186,31 @@ final class SwipeActionsIOSTests: XCTestCase {
         XCTAssertEqual(pressed, [], "the stale action presses nothing")
     }
 
-    /// A painted row's full swipe presses the action at the edge the drag
-    /// went past: the trailing one at the right, unless the row is laid out
-    /// right to left, when the trailing actions are at the left.
+    /// Both action edges follow the row's layout direction.
     func testAPaintedFullSwipeFollowsTheRowsLayoutDirection() throws {
-        for rtl in [false, true] {
-            let p = fixture()
-            let owner = try XCTUnwrap(p.views[1])
-            var paint = BatchOp(op: .style, nodeID: 4)
-            paint.style = ["appearance": "none", "written": ["appearance"]]
-            // Right to left, the content is at the right and Delete at the left.
-            apply(p, [paint] + (rtl ? [frame(3, 90, 300, 80), frame(4, 0, 90, 80)] : []))
-            owner.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
-            let scroll = try XCTUnwrap(owner.scroll)
-            var pressed: [UInt32] = []
-            p.onPress = { pressed.append($0) }
-            // Held by the rubber band 60 points (20% of the row) past the edge.
-            scroll.contentOffset.x = rtl ? -60 : 150
-            var target = scroll.contentOffset
-            p.swipeActions.painted.willEnd(owner, scroll, target: &target)
-            XCTAssertEqual(pressed, [4], rtl ? "rightward, past the left edge: trailing" : "leftward, past the right edge: trailing")
+        for leading in [false, true] {
+            for rtl in [false, true] {
+                let p = fixture()
+                defer { p.reset(); window.isHidden = true }
+                let owner = try XCTUnwrap(p.views[1])
+                var paint = BatchOp(op: .style, nodeID: 4)
+                paint.style = ["appearance": "none", "written": ["appearance"]]
+                var side = BatchOp(op: .props, nodeID: 1)
+                side.props = [leading ? "swipeLeading" : "swipeTrailing": "delete"]
+                side.clear = [leading ? "swipeTrailing" : "swipeLeading"]
+                let left = leading != rtl
+                apply(p, [paint, side] + (left ? [frame(3, 90, 300, 80), frame(4, 0, 90, 80)] : []))
+                owner.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+                let scroll = try XCTUnwrap(owner.scroll)
+                var pressed: [UInt32] = []
+                p.onPress = { pressed.append($0) }
+                // Rubber-banded 60 points past the action edge.
+                scroll.contentOffset.x = left ? -60 : 150
+                var target = scroll.contentOffset
+                p.swipeActions.painted.willEnd(owner, scroll, target: &target)
+                XCTAssertEqual(pressed, [4], "leading=\(leading), rtl=\(rtl)")
+                XCTAssertEqual(target.x, left ? 90 : 0, "the row closes after its full swipe")
+            }
         }
     }
 

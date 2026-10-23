@@ -1,9 +1,141 @@
 #if os(macOS)
 import AppKit
 import XCTest
+import ObjectiveC
 @testable import ExactKit
 
 final class PageScrollMacTests: XCTestCase {
+    private static var preferredStyle: NSScroller.Style = .overlay
+    @objc private class func forcedScrollerStyle() -> NSScroller.Style { preferredStyle }
+
+    func testPreferredStyleChangesRetileAndRefitThePage() throws {
+        _ = NSApplication.shared
+        let original = try XCTUnwrap(class_getClassMethod(NSScroller.self, #selector(getter: NSScroller.preferredScrollerStyle)))
+        let replacement = try XCTUnwrap(class_getClassMethod(Self.self, #selector(Self.forcedScrollerStyle)))
+        method_exchangeImplementations(original, replacement)
+        defer { method_exchangeImplementations(original, replacement) }
+        Self.preferredStyle = .overlay
+        let p = Presenter()
+        p.viewport.frame.size = NSSize(width: 600, height: 400)
+        let child = FlippedView(frame: NSRect(x: 0, y: 0, width: 600, height: 1000))
+        p.root.addSubview(child)
+        p.fitDocument()
+        var sizes: [NSSize] = []
+        p.viewport.visibleSizeChanged = {
+            sizes.append(p.viewportSize)
+            child.frame.size.width = p.viewportSize.width
+            p.fitDocument()
+        }
+        for style in [NSScroller.Style.legacy, .overlay, .legacy] {
+            Self.preferredStyle = style
+            NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+            XCTAssertEqual(p.viewport.scrollerStyle, style)
+            XCTAssertEqual(child.frame.width, p.viewportSize.width)
+            XCTAssertEqual(p.root.frame.width, p.viewportSize.width)
+            XCTAssertTrue(p.viewport.horizontalScroller!.isHidden, "a fitting page has no sideways scroll")
+            XCTAssertEqual(p.viewportSize.width < 600, style == .legacy)
+        }
+        XCTAssertFalse(sizes.isEmpty)
+    }
+
+    func testOverflowingRootUsesTheVisibleViewportAtLaunchAndAfterResize() throws {
+        _ = NSApplication.shared
+        let original = try XCTUnwrap(class_getClassMethod(NSScroller.self, #selector(getter: NSScroller.preferredScrollerStyle)))
+        let replacement = try XCTUnwrap(class_getClassMethod(Self.self, #selector(Self.forcedScrollerStyle)))
+        method_exchangeImplementations(original, replacement)
+        defer { method_exchangeImplementations(original, replacement) }
+        Self.preferredStyle = .legacy
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let source = """
+        shape Viewport
+          width: number
+          height: number
+        component App
+          resource viewport = exactViewport() as shape Viewport
+          view
+            main width="100%" height="100%" padding=20
+              text `${viewport.width}x${viewport.height}` testId="size"
+
+        """
+        let contract = dir.appendingPathComponent("app.contract"), plan = dir.appendingPathComponent("app.plan")
+        try source.write(to: contract, atomically: true, encoding: .utf8)
+        let compiler = Process()
+        compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"]))
+        compiler.arguments = ["build", contract.path, "-o", plan.path]
+        try compiler.run(); compiler.waitUntilExit()
+        XCTAssertEqual(compiler.terminationStatus, 0)
+        let session = ExactApp.shared.makeSession(label: "page-viewport")
+        let initial = NSSize(width: 1000, height: 700)
+        XCTAssertNil(session.boot(plan: try Data(contentsOf: plan), size: initial).error)
+        let view = ExactView(session: session)
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: initial), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        defer { window.close(); session.destroy() }
+        let p = session.presenter
+        for style in [NSScroller.Style.overlay, .legacy] {
+            Self.preferredStyle = style
+            NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+            let visible = p.viewportSize
+            let label = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "size" })
+            XCTAssertEqual(label.props["text"], "\(Int(visible.width))x\(Int(visible.height))", "style changes update the resource without a resize")
+        }
+        for size in [initial, NSSize(width: 800, height: 600), initial] {
+            window.setContentSize(size)
+            view.layoutSubtreeIfNeeded()
+            let visible = p.viewportSize
+            let label = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "size" })
+            XCTAssertEqual(label.props["text"], "\(Int(visible.width))x\(Int(visible.height))")
+            if ExactEnv.agentMode { XCTAssertEqual(visible, size, "the agent keeps overlay even with overflow") }
+            XCTAssertEqual(p.root.subviews.first?.frame.width, visible.width + 40)
+        }
+    }
+
+    func testDriverResizeKeepsACoverViewportAtTheWindowsFrame() throws {
+        for overlay in [false, true] {
+            _ = NSApplication.shared
+            let path = try XCTUnwrap(ProcessInfo.processInfo.environment[overlay ? "EXACT_FIELDLESS_PLAN" : "EXACT_COVER_SCROLL_PLAN"])
+            let session = ExactApp.shared.makeSession(label: "cover-viewport")
+            defer { session.destroy() }
+            let initial = NSSize(width: 420, height: 900)
+            XCTAssertNil(session.boot(plan: try Data(contentsOf: URL(fileURLWithPath: path)), size: initial).error)
+            let view = ExactView(session: session)
+            let window = NSWindow(contentRect: NSRect(origin: .zero, size: initial),
+                                  styleMask: [.titled, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = view
+            defer { window.close() }
+            if overlay {
+                XCTAssertNil(view.viewportFit, "the overlay does not require an authored cover")
+                XCTAssertFalse(view.hasWindowToolbar)
+                window.toolbar = NSToolbar(identifier: "cover-viewport-overlay")
+                window.toolbarStyle = .unified
+                window.titlebarAppearsTransparent = true
+                view.controlsOverlay = true
+            }
+            session.presenter.viewport.scrollerStyle = .overlay
+            view.layoutSubtreeIfNeeded()
+            let agent = session.agentInstance
+            let before = try XCTUnwrap(agent.layout()["viewport"] as? [String: Double])
+            XCTAssertEqual(before["w"], Double(window.frame.width))
+            XCTAssertEqual(before["h"], Double(window.frame.height))
+            let sameSize = NSSize(width: CGFloat(try XCTUnwrap(before["w"])), height: CGFloat(try XCTUnwrap(before["h"])))
+            for size in [sameSize, NSSize(width: 640, height: 480), sameSize] {
+                let reply = agent.resizeWindow(size)
+                XCTAssertNil(reply["error"])
+                let viewport = try XCTUnwrap(agent.layout()["viewport"] as? [String: Double])
+                XCTAssertEqual(window.frame.size, size, "a cover resize includes the titlebar")
+                XCTAssertEqual(viewport["w"], Double(size.width))
+                XCTAssertEqual(viewport["h"], Double(size.height))
+                XCTAssertEqual(reply["resized"] as? [Double], [Double(size.width), Double(size.height)])
+                XCTAssertEqual(session.presenter.insets.top, overlay ? 0 : window.frame.height - window.contentLayoutRect.height, accuracy: 0.01)
+                XCTAssertGreaterThan(view.safeAreaInsets.top, 0)
+            }
+        }
+    }
+
     private func fixture(xOverflow: Bool = false, yOverflow: Bool = false) -> (Presenter, NSView) {
         _ = NSApplication.shared
         let p = Presenter()

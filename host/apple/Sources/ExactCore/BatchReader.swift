@@ -10,6 +10,11 @@ package struct BatchReader {
     package var depth = 0
     package var colorChannels: ((BatchValue, Bool) -> [Double]?)? = nil
     package var profileResolver: AssetResolver? = nil
+    /// While `style` decodes a style it will cache, the depth of the
+    /// style's own values: those that are arrays or objects come from
+    /// `StyleCache` by their bytes (at that depth only, so no byte is hashed
+    /// twice), and its keys and long strings at any depth are shared.
+    private var sharing: Int? = nil
 
     package init(bytes: UnsafeBufferPointer<UInt8>, colorChannels: ((BatchValue, Bool) -> [Double]?)? = nil, profileResolver: AssetResolver? = nil) {
         self.bytes = bytes; self.colorChannels = colorChannels; self.profileResolver = profileResolver
@@ -220,7 +225,7 @@ package struct BatchReader {
     }
     package mutating func values() throws -> NodeStyle {
         var values: NodeStyle = [:]
-        try object { r, key in values[key] = try r.value() }
+        try object { r, key in values[r.sharing != nil ? StyleCache.strings.share(key) : key] = try r.value() }
         return values
     }
     /// A node's style dictionary, shared with every earlier one of the same
@@ -232,22 +237,49 @@ package struct BatchReader {
         let start = offset
         try skip()
         let span = UnsafeRawBufferPointer(rebasing: UnsafeRawBufferPointer(bytes)[start..<offset])
-        // Raw ICC paths are generation-relative; resolve them on every decode.
+        // Raw ICC paths are generation-relative; resolve them on every
+        // decode. An escape can spell one out (`\u0069cc:`) that the raw
+        // bytes do not show, so a style with an escape is not cached either.
         let hasICC = span.count >= 4 && (0..<(span.count - 3)).contains {
             span[$0] == 105 && span[$0 + 1] == 99 && span[$0 + 2] == 99 && span[$0 + 3] == 58
         }
-        if !hasICC, let hit = StyleCache.shared.get(span) { return hit }
+        let cached = !hasICC && !span.contains(92)
+        if cached, let hit = StyleCache.styles.get(span) { return hit }
         let end = offset
         offset = start
+        sharing = cached ? depth + 1 : nil
+        defer { sharing = nil }
         let style = try CalculatedLength.decode(values())
         guard offset == end else { throw Invalid.wire }
-        if !hasICC { StyleCache.shared.put(span, style) }
+        if cached { StyleCache.styles.put(span, style) }
         return style
     }
     package mutating func value() throws -> BatchValue {
         whitespace()
+        if let level = sharing, depth == level, byte == 123 || byte == 91 { return try sharedValue() }
+        return try plainValue()
+    }
+    /// An object or array in a style, as the earlier decode of the same
+    /// bytes: styles that differ still repeat their colours, lengths and
+    /// shadows, which would otherwise each be an array or a dictionary of
+    /// their own (a colour's four channels are a 96-byte block).
+    private mutating func sharedValue() throws -> BatchValue {
+        let start = offset
+        try skip()
+        let span = UnsafeRawBufferPointer(rebasing: UnsafeRawBufferPointer(bytes)[start..<offset])
+        if let hit = StyleCache.values.get(span) { return hit }
+        let end = offset
+        offset = start
+        let value = try plainValue()
+        guard offset == end else { throw Invalid.wire }
+        StyleCache.values.put(span, value)
+        return value
+    }
+    private mutating func plainValue() throws -> BatchValue {
         switch byte {
-        case 34: return .string(try string())
+        case 34:
+            let text = try string()
+            return .string(sharing != nil ? StyleCache.strings.share(text) : text)
         case 123:
             var object = try values()
             if let name = object["s"]?.string, name.hasPrefix("icc:"),
@@ -285,33 +317,72 @@ package struct BatchReader {
     }
 }
 
-/// Decoded style dictionaries by their exact bytes (`BatchReader.style`).
-/// Bounded: when full it starts over. Batches decode on more than one
-/// thread (a session's executor, the main thread), so a lock guards it.
-package final class StyleCache: @unchecked Sendable {
-    package static let shared = StyleCache()
-    private struct Entry { let bytes: [UInt8]; let style: NodeStyle }
+/// What `BatchReader.style` keeps: whole style dictionaries by their exact
+/// bytes, the arrays and objects inside them by theirs, and one copy of each
+/// long string they hold.
+package enum StyleCache {
+    package static let styles = SpanCache<NodeStyle>()
+    package static let values = SpanCache<BatchValue>()
+    package static let strings = SharedStrings()
+}
+
+/// Decoded values by their exact bytes. An entry keeps the bytes' length and two independent hashes of them, not
+/// the bytes: FNV-1a 64 finds it and the process-seeded SipHash of `Hasher`
+/// confirms it. Equality is therefore probabilistic: on 64-bit targets two
+/// different styles of one length pass both by a chance too small to matter
+/// for the host's own style text (it is no defence against crafted input). A
+/// copy of every style's bytes (the host's mirrors keep the same texts) was
+/// as large as the dictionaries. Bounded: when full it starts over. Batches
+/// decode on more than one thread (a session's executor, the main thread),
+/// so a lock guards it.
+package final class SpanCache<Value>: @unchecked Sendable {
+    private struct Entry { let count: Int; let check: Int; let value: Value }
     private var entries: [UInt64: Entry] = [:]
     private let lock = NSLock()
-    private static let capacity = 1024
+    private let capacity = 1024
 
     private static func hash(_ b: UnsafeRawBufferPointer) -> UInt64 {
         var h: UInt64 = 0xcbf2_9ce4_8422_2325
         for byte in b { h = (h ^ UInt64(byte)) &* 0x0000_0100_0000_01b3 }
         return h
     }
-    package func get(_ b: UnsafeRawBufferPointer) -> NodeStyle? {
-        let h = Self.hash(b)
-        lock.lock(); defer { lock.unlock() }
-        guard let e = entries[h], e.bytes.count == b.count,
-              e.bytes.withUnsafeBytes({ memcmp($0.baseAddress!, b.baseAddress!, b.count) == 0 }) else { return nil }
-        return e.style
+    private static func check(_ b: UnsafeRawBufferPointer) -> Int {
+        var h = Hasher()
+        h.combine(bytes: b)
+        return h.finalize()
     }
-    package func put(_ b: UnsafeRawBufferPointer, _ style: NodeStyle) {
+    package func get(_ b: UnsafeRawBufferPointer) -> Value? {
+        let h = Self.hash(b)
+        lock.lock()
+        let found = entries[h]
+        lock.unlock()
+        guard let e = found, e.count == b.count, e.check == Self.check(b) else { return nil }
+        return e.value
+    }
+    package func put(_ b: UnsafeRawBufferPointer, _ value: Value) {
         guard b.count > 2 else { return }
+        let entry = Entry(count: b.count, check: Self.check(b), value: value)
         let h = Self.hash(b)
         lock.lock(); defer { lock.unlock() }
-        if entries.count >= Self.capacity { entries.removeAll(keepingCapacity: true) }
-        entries[h] = Entry(bytes: Array(b), style: style)
+        if entries.count >= capacity { entries.removeAll(keepingCapacity: true) }
+        entries[h] = entry
+    }
+}
+
+/// One copy of each long string the styles hold (a key such as
+/// `border_radius_top_left`, a font family): Swift keeps a string of up to
+/// 15 UTF-8 bytes inline and allocates storage for each longer one. Bounded
+/// as `SpanCache` is.
+package final class SharedStrings: @unchecked Sendable {
+    private var strings: Set<String> = []
+    private let lock = NSLock()
+
+    /// `s`, or the earlier copy of it. Only ASCII: Swift's `==` also equates
+    /// canonically equivalent Unicode spellings, which are different bytes.
+    package func share(_ s: String) -> String {
+        guard s.utf8.count > 15, s.utf8.allSatisfy({ $0 < 128 }) else { return s }
+        lock.lock(); defer { lock.unlock() }
+        if strings.count >= 1024, !strings.contains(s) { strings.removeAll(keepingCapacity: true) }
+        return strings.insert(s).memberAfterInsert
     }
 }

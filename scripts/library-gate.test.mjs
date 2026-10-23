@@ -8,13 +8,30 @@
 // `match` in the view), and every PostCard's slot holds its marker.
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { cellsFor, conditional, markedSlot, option, placements, uncommented } from './library-gate.mjs';
+import { SLOTTED } from './stage12-gate.mjs';
+import { COMPONENTS, DERIVED, PARAM_TOKENS, READS, cases as restyleCases, newTokens, packageParams, readsOf } from './s13c-restyle.mjs';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const APP = join(ROOT, 'apps/library-gate/app.contract');
+
+/** The components of these packages that declare a slot, by their sources. */
+function slottedIn(packages) {
+  const out = [];
+  for (const pkg of packages) {
+    const dir = join(ROOT, 'packages', pkg);
+    for (const f of readdirSync(dir).filter(f => f.endsWith('.contract'))) {
+      for (const block of readFileSync(join(dir, f), 'utf8').split(/^(?=component )/m)) {
+        const name = /^component (\w+)/.exec(block)?.[1];
+        if (name && /^  slot\s*$/m.test(block.split(/^  view\s*$/m)[0])) out.push(name);
+      }
+    }
+  }
+  return out;
+}
 
 function ir() {
   const out = join(mkdtempSync(join(tmpdir(), 'library-gate-ir-')), 'ir.json');
@@ -26,7 +43,11 @@ function ir() {
 test('every exported component, once per variant value, every cell rendered, every slot marked', () => {
   const library = ir();
   const names = library.map(c => c.name);
-  expect(names.sort()).toEqual(['ActionRow', 'AtCard', 'PostButton', 'PostCard']);
+  expect(names.sort()).toEqual(['ActionRow', 'AtCard', 'BarItem', 'ComposeFrame', 'HeaderButton', 'ListRow', 'PostButton', 'PostCard', 'ProfileHeader', 'SwitchRow']);
+  // The gate's slot-rendered line reads every component with a slot (one at
+  // its view's root, as ComposeFrame's, is in no part).
+  const slotted = slottedIn(['actions', 'cards', 'lists']).filter(n => names.includes(n));
+  expect(slotted.sort()).toEqual([...SLOTTED].sort());
   const app = readFileSync(APP, 'utf8');
   // One component, the root, so every placement is in the rendered view.
   expect([...app.matchAll(/^component (\w+)/gm)].map(m => m[1])).toEqual(['App']);
@@ -40,7 +61,7 @@ test('every exported component, once per variant value, every cell rendered, eve
     expect([c.name, got]).toEqual([c.name, want]);
     // A slot's marker in every placement of a component with one: the
     // slot's first child, the glyph directly under it.
-    if (c.parts.some(p => p.slot)) {
+    if (slotted.includes(c.name)) {
       for (const p of mine) expect([p.id, markedSlot(p)]).toEqual([p.id, true]);
     }
   }
@@ -48,7 +69,9 @@ test('every exported component, once per variant value, every cell rendered, eve
   const ids = placed.map(p => p.id);
   expect(new Set(ids).size).toBe(ids.length);
   const used = [...app.matchAll(/^use (.+) from "@exact\/(\w+)"/gm)].flatMap(([, n]) => n.split(',').map(x => x.trim()));
-  expect(used.sort()).toEqual(names.sort());
+  expect(used.filter(n => names.includes(n)).sort()).toEqual(names.sort());
+  // Besides the components, only the shapes their props take.
+  expect(used.filter(n => !names.includes(n))).toEqual(['ProfileAlert']);
 }, 600_000);
 
 // `contract gallery` (the design tool's variant gallery, LLP 1139 §9 Q2): the same cells as this app's, by the compiler's
@@ -59,7 +82,7 @@ test("contract gallery places the cells this app does, each placed, on the app's
   const out = mkdtempSync(join(ROOT, 'target', 'library-gate-gallery-'));
   const r = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'gallery', join(ROOT, 'apps/library-gate'), '-o', out], { cwd: ROOT, encoding: 'utf8' });
   expect([r.status, r.stderr]).toEqual([0, '']);
-  expect(r.stdout).toContain('gallery: 4 components, 11 cells (0 refused)');
+  expect(r.stdout).toContain('gallery: 10 components, 24 cells (0 refused)');
   const gallery = readFileSync(join(out, 'app.contract'), 'utf8');
   expect(gallery).not.toContain("can't place");
   const placed = placements(gallery, library.map(c => c.name));
@@ -87,4 +110,28 @@ test('the cells rule, and the parse refuses what could hide a cell', () => {
   const marked = '      Card(id="a")\n        box testId="marker-a" press=toggle width=24 height=24\n          text glyph\n';
   const unmarked = '      Card(id="a")\n        // box testId="marker-a" press=toggle width=24 height=24\n        text glyph\n';
   expect([markedSlot(placements(marked, ['Card'])[0]), markedSlot(placements(unmarked, ['Card'])[0])]).toEqual([true, false]);
+});
+
+// The gate's restyle cases (theme2 09:49 (c), 10:28 (5)): every token and
+// param stage 13 C added, by the packages' sources, is in a case and read
+// somewhere, so a new one with no case or no read fails here.
+test("the restyle cases name every stage 13 C token and param, each one read", () => {
+  const tokens = newTokens(), params = packageParams(), all = restyleCases();
+  const named = new Set(all.flatMap(c => c.set.map(s => (c.param ? s.key : s.name))));
+  const derived = new Set(all.flatMap(c => c.derived));
+  expect(tokens.map(t => t.name).filter(n => !named.has(n) && !derived.has(n))).toEqual([]);
+  expect(params.map(p => p.key).filter(k => !named.has(k))).toEqual([]);
+  // Each param's default is the token the cases pin it to (a default moved
+  // to another token fails here, not in a case that would follow it).
+  expect(Object.fromEntries(params.map(p => [p.key, p.token]))).toEqual(PARAM_TOKENS);
+  // Read on a node: itself, through a param it is the default of, or as an
+  // input of a derived token that is.
+  const read = n => readsOf(n).length > 0 || params.some(p => PARAM_TOKENS[p.key] === n && readsOf(p.key).length > 0)
+    || Object.entries(DERIVED).some(([d, x]) => x.from.includes(n) && readsOf(d).length > 0);
+  expect([...named, ...derived].filter(n => !read(n))).toEqual([]);
+  // No read of a name that isn't stage 13 C's.
+  expect(Object.keys(READS).filter(k => !tokens.some(t => t.name === k) && !params.some(p => p.key === k))).toEqual([]);
+  // The cases' components and instances are library-gate's.
+  const app = readFileSync(APP, 'utf8');
+  for (const [name, c] of Object.entries(COMPONENTS)) expect([name, placements(app, [name]).map(p => p.id).sort()]).toEqual([name, [...c.ids].sort()]);
 });

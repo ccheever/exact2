@@ -27,6 +27,8 @@ pub fn io_grants(spec: &str) -> String {
 }
 
 /// A data source's answer: a value now, or a request for the host.
+// (most answers that leave a source are requests: boxing one would cost each an allocation)
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Answer {
     /// The value, now.
@@ -142,6 +144,20 @@ pub struct Request {
     /// coalesced, and a [`Outcome::Closed`] end; mutations send on it
     /// ([`SocketSend`]). Unset, a socket only listens, as in D4.
     pub socket: bool,
+    /// An HTTP stream whose body, when it is not `text/event-stream`,
+    /// arrives as bytes (LLP 1016.000, the byte stream of 2026-10-23): each
+    /// [`Message`] is `binary`, the bytes read since the runner took the
+    /// last one, never dropped. Unset, such a body is the stream's one
+    /// answer. Set by TypeScript's `fetch(url, {exactStream})`.
+    pub bytes: bool,
+    /// An HTTP stream that is a long poll (LLP 1016.000 D8): the host asks
+    /// the URL, delivers each reply as one [`Message`] (its `id` the new
+    /// cursor), and asks again with the cursor taken from that reply, one
+    /// request at a time, a heartbeat asked again with no message, a
+    /// transient failure after `Retry-After` or a bounded backoff. Set by
+    /// TypeScript's `fetch(url, {exactStream, exactLongPoll})` and
+    /// [`Request::long_poll`].
+    pub long_poll: Option<Box<LongPoll>>,
     /// A deadline for the whole exchange, in milliseconds: headers and body.
     /// The host cancels the request when it passes and replies
     /// [`FailureKind::Timeout`]. `None` keeps the host's own limits (on Apple,
@@ -156,7 +172,67 @@ pub struct Request {
     pub body_from: Option<String>,
     /// What a redirect response does (`fetch`'s `redirect`).
     pub redirect: Redirect,
+    /// The server may hold the reply until something changes (a long poll;
+    /// LLP 1016.000 D9): pending as any request, but no clock waits on it,
+    /// neither a jump nor `clock settle` nor `clock data`, and each reply
+    /// that leaves it out names it. Its answer must be safe to supersede: a
+    /// send to its target meanwhile replaces it. Only a plain HTTP request
+    /// is held (a stream already stops counting at its first message).
+    /// Set by TypeScript's `fetch(url, {exactHeld: true})` and [`Request::held`].
+    pub held: bool,
 }
+
+/// The event of a long poll's message that is a reply but no event (LLP
+/// 1016.000 D8): a heartbeat or a transient failure, which takes the stream
+/// out of every clock's wait and raises `heldReplies`, with no mapper call.
+/// A long poll's own events have an empty event; no other stream sends it.
+pub const LONG_POLL_REPLY: &str = "exact:reply";
+
+/// A long poll's terms (LLP 1016.000 D8).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LongPoll {
+    /// The query parameter the next request carries the cursor in.
+    pub cursor: String,
+    /// The reply's JSON field the next cursor is: a member's name, or two
+    /// joined by `.` for one level of nesting.
+    pub from: String,
+    /// A reply whose cursor is the one asked with is delivered, not a
+    /// heartbeat (`sameCursor: "event"`): for an endpoint that sends new
+    /// data under an unchanged cursor.
+    pub same_cursor_event: bool,
+}
+
+impl LongPoll {
+    /// Why these terms are refused, if they are: each a name of 1 to 256
+    /// characters, `from` a member or two joined by one `.`.
+    pub fn refusal(&self) -> Option<&'static str> {
+        let named = |s: &str| (1..=256).contains(&s.chars().count());
+        if !named(&self.cursor) {
+            return Some("exactLongPoll.cursor is the query parameter the cursor goes in, a name of 1 to 256 characters");
+        }
+        let parts = self.from.split('.');
+        if !named(&self.from) || parts.clone().count() > 2 || parts.into_iter().any(str::is_empty) {
+            return Some("exactLongPoll.from is the reply's field the cursor comes from: a name, or two joined by one `.`, of 1 to 256 characters");
+        }
+        None
+    }
+}
+
+/// A long poll waiting to ask again after a transient failure (D8), as
+/// `state.streams` shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Retrying {
+    /// The failures in a row so far, from 1.
+    pub attempt: u32,
+    /// How long until it asks again, in ms.
+    pub in_ms: u64,
+    /// What failed: the network's error, or the status.
+    pub error: String,
+}
+
+/// The host's live view of its long polls' waits (D8), by stream ticket;
+/// `None` for a ticket that is not waiting.
+pub type RetryReader = std::sync::Arc<dyn Fn(u64) -> Option<Retrying> + Send + Sync>;
 
 /// The largest file [`Request::body_from`] sends: 64 MiB.
 pub const MAX_BODY_FROM_BYTES: u64 = 64 << 20;
@@ -191,9 +267,12 @@ impl Request {
             body,
             stream: false,
             socket: false,
+            bytes: false,
+            long_poll: None,
             timeout_ms: None,
             body_from: None,
             redirect: Redirect::Follow,
+            held: false,
         }
     }
 
@@ -247,9 +326,12 @@ impl Request {
             body: Vec::new(),
             stream: false,
             socket: false,
+            bytes: false,
+            long_poll: None,
             timeout_ms: None,
             body_from: None,
             redirect: Redirect::Follow,
+            held: false,
         }
     }
 
@@ -267,9 +349,12 @@ impl Request {
             body: json.as_bytes().to_vec(),
             stream: false,
             socket: false,
+            bytes: false,
+            long_poll: None,
             timeout_ms: None,
             body_from: None,
             redirect: Redirect::Follow,
+            held: false,
         }
     }
 
@@ -362,10 +447,77 @@ impl Request {
         self
     }
 
+    /// Why this request's long poll is refused, if it is one and is (LLP
+    /// 1016.000 D8): a stream's GET with no body over `http:` or `https:`,
+    /// with good terms. Every host and seam checks it before anything is sent.
+    pub fn long_poll_refusal(&self) -> Option<&'static str> {
+        let poll = self.long_poll.as_deref()?;
+        let other = self.is_native() || self.is_auth();
+        if other || self.surface.is_some() || self.storage.is_some() || self.continuation.is_some()
+        {
+            return Some("exactLongPoll: a long poll is an HTTP request's, not other host work's");
+        }
+        if !self.stream {
+            return Some(
+                "exactLongPoll asks again for an answer that keeps coming: it is a stream's",
+            );
+        }
+        let http = ["http://", "https://"].iter().any(|s| {
+            self.url
+                .get(..s.len())
+                .is_some_and(|p| p.eq_ignore_ascii_case(s))
+        });
+        if !http {
+            return Some("exactLongPoll: a long poll is HTTP, not a WebSocket");
+        }
+        if !self.method.eq_ignore_ascii_case("GET")
+            || !self.body.is_empty()
+            || self.body_from.is_some()
+        {
+            return Some("exactLongPoll: a long poll is a GET with no body");
+        }
+        poll.refusal()
+    }
+
+    /// As a long poll (see [`Request::long_poll`]): `cursor` the query
+    /// parameter asked again with, `from` the reply's JSON field it comes from.
+    /// The request must be a stream's (`Answer::stream`).
+    pub fn long_poll(mut self, cursor: &str, from: &str) -> Self {
+        self.long_poll = Some(Box::new(LongPoll {
+            cursor: cursor.into(),
+            from: from.into(),
+            same_cursor_event: false,
+        }));
+        self
+    }
+
     /// With a deadline for the whole exchange (see [`Request::timeout_ms`]).
     pub fn timeout(mut self, ms: u32) -> Self {
         self.timeout_ms = Some(ms);
         self
+    }
+
+    /// Held: the server may keep the reply until something changes, and no
+    /// clock waits on it (see [`Request::held`]). On anything but a plain
+    /// HTTP request it changes nothing.
+    pub fn held(mut self) -> Self {
+        self.held = true;
+        self
+    }
+
+    /// Whether no clock waits on this request: [`Request::held`] on a plain
+    /// HTTP request (not a stream, storage, a continuation, a surface, a
+    /// native call or an auth request, nor an upload, whose file is read
+    /// before it is sent).
+    pub fn is_held(&self) -> bool {
+        self.held
+            && !self.stream
+            && self.body_from.is_none()
+            && self.storage.is_none()
+            && self.continuation.is_none()
+            && self.surface.is_none()
+            && !self.is_native()
+            && !self.is_auth()
     }
 
     /// With its body read from the app file `path` when the host runs it

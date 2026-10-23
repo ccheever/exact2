@@ -72,6 +72,56 @@ final class HeaderMacTests: XCTestCase {
     private func identifiers() -> [String] { window.toolbar?.items.map(\.itemIdentifier.rawValue) ?? [] }
     private let back = WindowToolbarHost.backIdentifier.rawValue
 
+    func testAuthoredClearInkReachesToolbarAndAbsenceRestoresAppKit() throws {
+        let p = fixture(extra: [
+            ["op": "style", "id": 13, "style": ["text_color": [0, 0, 0, 0], "written": ["text_color"]]]])
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        let button = try XCTUnwrap(p.toolbar.items[13]?.view as? NSButton)
+        XCTAssertEqual(button.contentTintColor?.alphaComponent, 0)
+        p.apply(wireBatch([
+            ["op": "style", "id": 13, "style": ["text_color": [255, 0, 0, 255]]]]))
+        p.toolbar.sync()
+        XCTAssertNil(p.toolbar.items[13]?.view)
+        XCTAssertEqual(window.titleVisibility, .visible)
+    }
+
+    func testToolbarTitleAndSymbolKeepTheirOwnAuthoredColours() throws {
+        let p = fixture()
+        var face = ButtonFace()
+        face.title = "Add"
+        face.symbol = "plus"
+        face.rows = ButtonFaceRows(["title": ["text_color": [0, 0, 0, 0]], "symbol": ["tint_color": [0, 0, 255, 255]]])
+        p.buttonFace = { _ in face }
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        let button = try XCTUnwrap(p.toolbar.items[14]?.view as? NSButton)
+        let titleInk = try XCTUnwrap(button.attributedTitle.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor)
+        XCTAssertEqual(titleInk.alphaComponent, 0)
+        XCTAssertEqual(button.contentTintColor?.alphaComponent, 0)
+        XCTAssertEqual(button.image?.isTemplate, false, "the symbol carries its own blue")
+        face.rows = ButtonFaceRows(["symbol": ["tint_color": [0, 0, 255, 255]]])
+        p.toolbar.sync()
+        XCTAssertNil(button.contentTintColor, "unsaid title ink remains AppKit's")
+        XCTAssertNil(button.attributedTitle.attribute(.foregroundColor, at: 0, effectiveRange: nil))
+        XCTAssertEqual(button.image?.isTemplate, false)
+    }
+
+    func testAuthoredToolbarButtonIsDisabledWhileASheetIsAttached() throws {
+        let p = fixture(extra: [["op": "style", "id": 13, "style": ["text_color": [0, 0, 0, 0], "written": ["text_color"]]]])
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        let button = try XCTUnwrap(p.toolbar.items[13]?.view as? NSButton)
+        let sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        sheet.isReleasedWhenClosed = false
+        defer { window.endSheet(sheet); sheet.close() }
+        window.beginSheet(sheet)
+        p.toolbar.sync()
+        XCTAssertNotNil(window.attachedSheet)
+        XCTAssertFalse(try XCTUnwrap(p.toolbar.items[13]).isEnabled)
+        XCTAssertFalse(button.isEnabled)
+        window.endSheet(sheet)
+        p.toolbar.sync()
+        XCTAssertTrue(button.isEnabled)
+    }
+
     func testARIAUnavailableToolbarViewerRemainsPressable() throws {
         let p = fixture(extra: [["op": "props", "id": 13, "set": ["accessibilityDisabled": "true"]]])
         XCTAssertTrue(p.toolbar.attach(to: window))
@@ -190,11 +240,156 @@ final class HeaderMacTests: XCTestCase {
         XCTAssertEqual(window.title, "Shelf")
     }
 
+    func testStatusReadoutProjectsAnUnpressableToolbarView() throws {
+        let p = fixture(extra: view(16, "text", ["text": "Syncing", "accessibilityRole": "status", "testId": "sync-status"])
+            + [children(10, [11, 12, 16, 13, 14])])
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        XCTAssertEqual(window.title, "Library")
+        XCTAssertTrue(try node(p, 10).isHidden)
+        let readout = try XCTUnwrap(p.toolbar.items[16]?.view as? NSImageView)
+        XCTAssertNotNil(readout.image)
+        XCTAssertEqual(readout.accessibilityIdentifier(), "sync-status")
+        XCTAssertNil(p.toolbar.items[16]?.action)
+        let status = try node(p, 16)
+        XCTAssertEqual(readout.accessibilityRole(), .group)
+        XCTAssertEqual(readout.accessibilitySubrole()?.rawValue, "AXApplicationStatus")
+        XCTAssertTrue(status.liveAnnouncementView === readout)
+        XCTAssertTrue(status.liveSpeaks("Saved", launching: false), "a projected status still announces changes")
+        p.apply(wireBatch([["op": "props", "id": 16, "set": ["text": "Saved"]]]))
+        XCTAssertEqual(readout.accessibilityLabel(), "Saved")
+        XCTAssertEqual(status.liveText, "Saved")
+        p.toolbar.detach()
+    }
+
+    private func pixels(_ image: NSImage, appearance: NSAppearance.Name) throws -> NSBitmapImageRep {
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(ceil(image.size.width)),
+            pixelsHigh: Int(ceil(image.size.height)), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+            isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        let context = try XCTUnwrap(NSGraphicsContext(bitmapImageRep: bitmap))
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = context
+        try XCTUnwrap(NSAppearance(named: appearance)).performAsCurrentDrawingAppearance {
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+        return bitmap
+    }
+
+    func testPaintedFaceResolvesBothDotAndTextForEachAppearance() throws {
+        let schemes = [[20, 200, 40, 255], [220, 30, 20, 255]]
+        let p = fixture(extra: view(130) + view(131, "text", ["text": "Clock"])
+            + [["op": "style", "id": 130, "style": ["width": 8, "height": 8, "background_color": schemes]],
+               ["op": "style", "id": 131, "style": ["font_size": 24, "text_color": schemes, "written": ["font_size", "text_color"]]],
+               children(13, [130, 131])])
+        window.appearance = NSAppearance(named: .aqua)
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        let image = try XCTUnwrap(p.toolbar.items[13]?.image)
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            let bitmap = try pixels(image, appearance: name)
+            var dot = 0, text = 0, wrong = 0
+            for y in 0..<bitmap.pixelsHigh { for x in 0..<bitmap.pixelsWide {
+                let c = try XCTUnwrap(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                guard c.alphaComponent > 0.5 else { continue }
+                let green = c.greenComponent > c.redComponent * 2
+                let red = c.redComponent > c.greenComponent * 2
+                if name == .aqua ? green : red { if x < 8 { dot += 1 } else { text += 1 } }
+                if name == .aqua ? red : green { wrong += 1 }
+            } }
+            XCTAssertGreaterThan(dot, 30, name.rawValue)
+            XCTAssertGreaterThan(text, 30, name.rawValue)
+            XCTAssertEqual(wrong, 0, name.rawValue)
+        }
+    }
+
+    func testPaintedReadoutRetainsAuthoredTabularDigits() throws {
+        let p = fixture(extra: view(16, "text", ["text": "1111", "accessibilityRole": "status"])
+            + [["op": "style", "id": 16, "style": ["font_size": 24, "font_variant_numeric": 1, "written": ["font_size", "font_variant_numeric"]]],
+               children(10, [11, 12, 16, 13, 14])])
+        session = ExactApp.shared.makeSession(label: "bar-numeric")
+        p.session = session
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        let readout = try XCTUnwrap(p.toolbar.items[16]?.view as? NSImageView)
+        let font = try XCTUnwrap(session?.text.font(size: 24, weight: 400, family: 0, italic: false, numeric: 1))
+        let first = try XCTUnwrap(readout.image).size.width
+        XCTAssertEqual(first, ceil(("1111" as NSString).size(withAttributes: [.font: font]).width))
+        p.apply(wireBatch([["op": "props", "id": 16, "set": ["text": "8888"]]]))
+        XCTAssertEqual(try XCTUnwrap(readout.image).size.width, first, "changing digits retain their spacing")
+    }
+
+    func testUnauthoredReadoutFollowsBoldTextPreference() throws {
+        let previous = DisplayPreferences.agentBoldText
+        defer { DisplayPreferences.agentBoldText = previous }
+        DisplayPreferences.agentBoldText = true
+        let p = fixture(extra: view(16, "text", ["text": "Saved", "accessibilityRole": "status"])
+            + [children(10, [11, 12, 16, 13, 14])])
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        let image = try XCTUnwrap((p.toolbar.items[16]?.view as? NSImageView)?.image)
+        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+        XCTAssertEqual(image.size.width, ceil(("Saved" as NSString).size(withAttributes: [.font: font]).width))
+    }
+
+    func testAuthoredDotAndFontKeepTheirToolbarFace() throws {
+        let p = fixture(extra: view(130) + view(131, "text", ["text": "Clock"])
+            + [["op": "style", "id": 130, "style": ["width": 8, "height": 8, "background_color": [20, 200, 40, 255]]],
+               ["op": "style", "id": 131, "style": ["font_size": 28, "font_family": 5, "written": ["font_family", "font_size"]]],
+               children(13, [130, 131])])
+        session = ExactApp.shared.makeSession(label: "bar-authored-font")
+        p.session = session
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        XCTAssertTrue(try node(p, 10).isHidden)
+        let item = try XCTUnwrap(p.toolbar.items[13])
+        let image = try XCTUnwrap(item.image)
+        XCTAssertFalse(image.isTemplate)
+        let font = try XCTUnwrap(session?.text.font(size: 28, weight: 400, family: 5, italic: false))
+        let textWidth = ceil(("Clock" as NSString).size(withAttributes: [.font: font]).width)
+        XCTAssertEqual(image.size.width, 8 + textWidth)
+        XCTAssertNotEqual(textWidth, ceil(("Clock" as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 28)]).width))
+        let bitmap = try pixels(image, appearance: .aqua)
+        let dot = try XCTUnwrap(bitmap.colorAt(x: 3, y: bitmap.pixelsHigh / 2)?.usingColorSpace(.sRGB))
+        XCTAssertEqual(dot.greenComponent, 200 / 255, accuracy: 0.01)
+        XCTAssertEqual(dot.redComponent, 20 / 255, accuracy: 0.01)
+        XCTAssertEqual(item.title, "")
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        XCTAssertEqual(p.toolbar.activate(try node(p, 13)), true)
+        XCTAssertEqual(pressed, [13])
+    }
+
+    func testSubtitleAndAvatarProjectAndFollowTheRoute() throws {
+        let p = fixture(extra: view(16, "text", ["text": "3 books"])
+            + view(17, "button", ["accessibilityLabel": "Profile"], press: true)
+            + view(170) + view(171, "text", ["text": "AB"])
+            + [["op": "style", "id": 170, "style": ["background_color": [40, 100, 200, 255], "border_radius": 18]],
+               children(170, [171]), children(17, [170]), children(10, [11, 12, 16, 13, 14, 17])])
+        window.subtitle = "Original subtitle"
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        XCTAssertEqual(window.title, "Library")
+        XCTAssertEqual(window.subtitle, "3 books")
+        XCTAssertTrue(try node(p, 10).isHidden)
+        let avatar = try XCTUnwrap(p.toolbar.items[17])
+        XCTAssertEqual(avatar.label, "Profile")
+        XCTAssertEqual(avatar.title, "", "the initials are already in the image")
+        XCTAssertNotNil(avatar.image)
+        XCTAssertFalse(try XCTUnwrap(avatar.image).isTemplate, "the avatar keeps its authored colours")
+        var pressed: UInt32?
+        p.onPress = { pressed = $0 }
+        XCTAssertTrue(p.toolbar.activate(try node(p, 17)) == true)
+        XCTAssertEqual(pressed, 17)
+        p.apply(wireBatch([["op": "props", "id": 16, "set": ["text": "4 books"]]]))
+        XCTAssertEqual(window.subtitle, "4 books")
+        select("b", in: p)
+        XCTAssertEqual(window.subtitle, "")
+        XCTAssertNil(p.toolbar.items[17])
+        select("a", in: p)
+        XCTAssertEqual(window.subtitle, "4 books")
+        p.toolbar.detach()
+        XCTAssertEqual(window.subtitle, "Original subtitle")
+    }
+
     func testAHeaderTheBarCannotShowWholeStaysPaintedWhole() throws {
         // Each of these in Library's header is something a toolbar has no place for.
         let cases: [(String, [[String: Any]], [Int])] = [
             ("a picture", view(16, "image", ["imageSource": "assets/logo.png"]), [11, 12, 13, 14, 16]),
-            ("a second line of text", view(16, "text", ["text": "3 books"]), [11, 12, 13, 14, 16]),
             ("a field", view(16, "input", ["type": "text"]), [11, 12, 13, 14, 16]),
             ("a button drawn as a filled box", view(16, "button", ["accessibilityLabel": "Profile"], press: true) + view(160) + view(161, "text", ["text": "AB"]) + [children(160, [161]), children(16, [160])], [11, 12, 13, 14, 16]),
             ("a pressable around the heading", view(16, "view", [:], press: true) + [children(16, [12])], [11, 16, 13, 14]),
@@ -343,7 +538,7 @@ final class HeaderMacTests: XCTestCase {
         XCTAssertEqual(window.title, "Shelf", "the declared toolbar has no heading: the window's own title")
         XCTAssertFalse(try node(p, 10).isHidden, "the header paints, whole")
         XCTAssertTrue(try node(p, 30).isHidden, "the declared toolbar is the window's")
-        XCTAssertEqual(p.covers.delivered, [:])
+        XCTAssertEqual(p.covers.delivered, [30: .whole])
         // The route without one projects its header as any other.
         select("b", in: p)
         XCTAssertEqual(window.title, "Detail")
@@ -352,16 +547,13 @@ final class HeaderMacTests: XCTestCase {
         select("a", in: p)
         XCTAssertEqual(identifiers(), [back, "exact.command.31"])
         XCTAssertEqual(window.title, "Shelf")
-        XCTAssertEqual(p.covers.delivered, [:])
+        XCTAssertEqual(p.covers.delivered, [30: .whole])
         p.toolbar.detach()
     }
 
     /// What a header button invokes, as HTML resolves it, decides whether
-    /// the window's bar can hold it: a button whose `commandfor` hides a form
-    /// popover is a command, though its `popovertarget` names that form; one
-    /// whose invocation opens the form keeps the header painted, as the form
-    /// is placed against the button's box; a command-only `toggle-popover`
-    /// of a menu is the bar's menu item.
+    /// the window's bar can hold it: a form opens from its item, a hiding
+    /// command closes it, and a menu uses AppKit's menu toolbar item.
     func testWhatAHeaderButtonInvokesDecidesItsPlaceInTheBar() throws {
         /// Whether the header is the window's bar (titled by its heading), and the bar's items.
         func attach(_ props: [String: String]) -> (inBar: Bool, identifiers: [String]) {
@@ -376,15 +568,32 @@ final class HeaderMacTests: XCTestCase {
             return (window.title == "Library", identifiers())
         }
         XCTAssertTrue(attach(["popovertarget": "form", "commandfor": "form", "command": "hide-popover"]).inBar, "its commandfor governs: a command")
-        XCTAssertFalse(attach(["popovertarget": "form"]).inBar, "it opens the form, which needs the button's box")
+        XCTAssertTrue(attach(["popovertarget": "form"]).inBar, "AppKit anchors the form to its toolbar item")
         XCTAssertTrue(attach(["commandfor": "more", "command": "toggle-popover"]).identifiers.contains("exact.menu.16"), "a command-only menu item")
+    }
+
+    func testAFormWithAuthoredPopoverPlacementKeepsItsPaintedHeader() throws {
+        for style: [String: Any] in [
+            ["position_area": "top", "margin_bottom": 12],
+            ["position_area": "right", "margin_left": 12],
+            ["margin_top": 12],
+        ] {
+            let form = symbolButton(16, "Rename", "pencil", ["popovertarget": "rename"])
+                + view(40, "view", ["popover": "auto", "id": "rename"]) + view(41, "input", ["type": "text"])
+                + [["op": "style", "id": 40, "style": style], children(40, [41]), children(10, [11, 12, 13, 14, 16]), children(2, [10, 15, 40])]
+            let p = fixture(extra: form)
+            XCTAssertTrue(p.toolbar.attach(to: window))
+            XCTAssertFalse(try node(p, 10).isHidden, "authored placement needs the button's page box: \(style)")
+            XCTAssertNil(p.toolbar.items[16])
+            p.toolbar.detach()
+            window.close()
+        }
     }
 
     /// A header's button that opens a menu is AppKit's menu item: the menu
     /// is the item's own to pop up, filled from the popover's rows as it
     /// opens, after the button's own press; a chosen row presses its
-    /// authored row. A popover that is no menu needs the button's box, so
-    /// its header stays painted.
+    /// authored row. A form opens as a native popover from its toolbar item.
     func testAButtonThatOpensAMenuIsAMenuItem() throws {
         // More (16) opens a menu (40) of two rows; it also hears `press`.
         let menu = symbolButton(16, "More", "ellipsis.circle", ["popovertarget": "more", "testId": "more"])
@@ -431,15 +640,23 @@ final class HeaderMacTests: XCTestCase {
         p.toolbar.detach()
         window.close()
 
-        // A popover that is no menu (it holds a field) is placed against its button's box: the header keeps it.
+        // A form popover anchors to its toolbar item.
         let form = symbolButton(16, "Rename", "pencil", ["popovertarget": "rename"])
             + view(40, "view", ["popover": "auto", "id": "rename"]) + view(41, "input", ["type": "text"])
             + [children(40, [41]), children(10, [11, 12, 13, 14, 16]), children(2, [10, 15, 40])]
         let q = fixture(extra: form)
         XCTAssertTrue(q.toolbar.attach(to: window))
-        XCTAssertEqual(window.title, "Shelf")
-        XCTAssertFalse(try node(q, 10).isHidden)
-        XCTAssertTrue((q.toolbar.summary["headerKept"] as? String)?.contains("neither a menu nor an alert") == true)
+        XCTAssertEqual(window.title, "Library")
+        XCTAssertTrue(try node(q, 10).isHidden)
+        let formItem = try XCTUnwrap(q.toolbar.items[16])
+        XCTAssertFalse(formItem is NSMenuToolbarItem)
+        window.orderFrontRegardless()
+        window.layoutIfNeeded()
+        q.menus.show(try node(q, 40), from: try node(q, 16))
+        let native = try XCTUnwrap(q.menus.windowed.first)
+        XCTAssertTrue(native.popover.isShown)
+        XCTAssertFalse(native.window === window)
+        q.menus.reset()
         q.toolbar.detach()
         window.close()
 
@@ -599,8 +816,12 @@ final class HeaderMacTests: XCTestCase {
 
         // The caret goes to it AppKit's way, by name or by an action's `focus()`; its `focus` is the input's.
         XCTAssertEqual(p.toolbar.activate(node), true)
-        let limit = Date().addingTimeInterval(5)
-        while field.currentEditor() == nil, Date() < limit { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
+        // AppKit posts textDidBeginEditing only once editing changes text;
+        // attaching the field editor has no notification of its own.
+        let limit = Date(timeIntervalSinceNow: 30)
+        while field.currentEditor() == nil, Date() < limit {
+            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+        }
         let editor = try XCTUnwrap(field.currentEditor())
         XCTAssertTrue(editor is FieldEditor, "it edits in the session's editor, as in the page")
         XCTAssertTrue(p.keyTarget(window.firstResponder) === node)
@@ -750,6 +971,12 @@ final class HeaderMacTests: XCTestCase {
         XCTAssertEqual(page.frame.minY, 0, "the page starts where the header did")
         XCTAssertEqual(page.frame.height, view.bounds.height, "and has the route's whole height")
         let add = try XCTUnwrap(p.toolbar.items[try named("add").id])
+        let agent = Agent(session: session), addNode = try named("add")
+        let row = try XCTUnwrap((agent.layout()["nodes"] as? [[String: Any]])?.first { $0["id"] as? Int == Int(addNode.id) })
+        XCTAssertNil(row["radii"], "a system-owned toolbar item has no observable corner geometry")
+        let target = try XCTUnwrap(agent.layout(["id": Int(addNode.id)])["node"] as? [String: Any])
+        XCTAssertNil(target["radii"], "targeted layout agrees with the native substitute in the list")
+
         XCTAssertEqual(add.label, "Add Book")
         XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(add.action), to: add.target, from: add))
         XCTAssertEqual(try named("added").accessibleText, "added 1")

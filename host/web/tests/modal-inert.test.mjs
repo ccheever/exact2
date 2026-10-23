@@ -4,7 +4,7 @@ import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { glueDeclarations } from './glue-fixture.mjs';
 
 const glue = readFileSync(new URL('../glue.js', import.meta.url), 'utf8');
-const gpuListen = glueDeclarations(readFileSync(new URL('../gpu-glue.js', import.meta.url), 'utf8'), ['listen']);
+const gpuListen = glueDeclarations(readFileSync(new URL('../gpu-glue.js', import.meta.url), 'utf8'), ['listen', 'editable']);
 // Execute the wasm host's actual entry points with only the runner and unrelated
 // presenters stubbed. The browser owns dialog, popover, inert and scrolling behavior.
 const shown = glue.split('exact_geometry: { shown: ')[1].split(', read: ')[0];
@@ -30,12 +30,12 @@ const html = `<style>dialog { max-height: 240px; overflow: auto; }</style>
 </main>
 <script type="module">
   import * as nav from '/navigation.js';
-  import { reveal } from '/input-glue.js';
+  import { reveal, backButton } from '/input-glue.js';
   import '/document-glue.js';
   const { inertAncestor, modalLayers, contextAt, editMenu, liveById } = nav;
   const root = document.getElementById('exact-root');
   const views = new Map([...root.querySelectorAll('[id]')].map(el => [el.id, el]));
-  const wasm = {}, inputReady = true, tagged = reply => reply, syncMedia = () => {}, syncMarkup = () => {};
+  const wasm = {}, inputReady = true, agentMode = false, tagged = reply => reply, syncMedia = () => {}, syncMarkup = () => {};
   ${agent}
   ${props}
   let structuralModalLayers;

@@ -82,7 +82,11 @@ extension NavigationHost {
     /// Whether Back goes now: a way back, and nothing modal over the page
     /// (a dialog in the top layer, a sheet on the window).
     var canGoBack: Bool {
-        presenter.dialogs.active == nil && presenter.viewport.window?.attachedSheet == nil && back != nil
+        guard back != nil, presenter.alerts.modal == nil else { return false }
+        if let dialog = presenter.dialogs.active {
+            return pushedRoute?.route === dialog && presenter.dialogs.routeActive && dialog.window?.attachedSheet == nil
+        }
+        return presenter.viewport.window?.attachedSheet == nil
     }
 
     /// The platform's Back, taken: the authored control pressed, else the
@@ -118,7 +122,7 @@ extension NavigationHost {
     /// why the app refused it ("" when it did not).
     func agentBack() -> (way: String, refused: String)? {
         if pushedRoute != nil {
-            if presenter.dialogs.active != nil || presenter.viewport.window?.attachedSheet != nil { return ("route", "a dialog or a sheet is open over the page") }
+            if !canGoBack && back != nil { return ("route", "a dialog or a sheet is open over the page") }
             return ("route", goBack() ? "" : "its navigationBack control is disabled or has no press handler")
         }
         if let (_, route) = sheetRoute { return ("sheet", dismiss(route) ?? "") }
@@ -134,10 +138,17 @@ extension NavigationHost {
     /// D7.4), and the agent's `back`. It goes as the stack goes back, which
     /// the app decides; nil when it went, else why it was refused.
     @discardableResult func dismiss(_ route: NodeView) -> String? {
+        let route = presenter.dialogs.dismissalOwner(of: route)
         guard let selection, let root = presenter.views[selection.root] else { return "its stack has no navigation root" }
         if NavigationRules.modalRefusesDismissal(closedby: route.props["closedby"]) { return "its closedby is \"none\"" }
         guard let how = way(from: root, route) else { return "its navigationBack control is disabled or has no press handler" }
-        take(how, from: root, route)
+        if case .press(let id) = how, presenter.dialogs.active !== route, presenter.dialogs.entries.contains(where: { $0.routeBase === route }) {
+            // A pushed child hides and gates the base's control. Dismissing its sheet still invokes that control's action.
+            guard let control = presenter.views[id], !sequence(first: control as NSView, next: { self.presenter.menus.parent(of: $0) })
+                .contains(where: { ($0 as? NodeView)?.props["inert"] == "true" }) else { return "its navigationBack control is inert" }
+            presenter.commitPendingEdit()
+            presenter.onPress?(id)
+        } else { take(how, from: root, route) }
         return nil
     }
 

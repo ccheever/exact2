@@ -845,3 +845,149 @@ fn id_of<D: exact_runner::DataSource>(host: &Host<D>, test_id: &str) -> u32 {
     let k = host.runner.kernel();
     k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
 }
+
+#[test]
+fn a_delayed_stepped_transition_fills_with_its_uneased_start() {
+    for easing in ["steps(4, jump-start)", "linear(0 25%, 1 75%)"] {
+        let app = format!(
+            r#"component A
+  state on = false
+  action go
+    on = true
+  view
+    column
+      button "Go" testId="go" press=go
+      box testId="fade" width=24 height=24 opacity=(on ? 0 : 1) transition="opacity 1s {easing} 500ms"
+"#
+        );
+        let plan = contract::compile(&app).unwrap().encode();
+        let (mut host, _) = Host::boot(
+            &plan,
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            390.0,
+            844.0,
+        )
+        .unwrap();
+        host.svg.box_motion = true;
+        host.svg.play_transitions = true;
+        host.engine.set_lowered_properties(&svg::lowered(true));
+        host.start_on_frame(true, 0.0);
+        host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
+        let started = host.tick_at(112.0, 116.0);
+        let played = spec(&started, id(&host, "fade"));
+        assert_eq!(
+            played["v"][0], 1.0,
+            "{easing}: backwards fill holds from during the delay: {played}"
+        );
+        assert_eq!(played["t"][0], 0.0);
+    }
+}
+
+#[test]
+fn box_transform_transitions_play_without_sampling_and_reclaim_for_the_agent() {
+    let app = r##"component A
+  state on = false
+  action go
+    on = not on
+  view
+    column
+      button press=go testId="go"
+        text "Go"
+      box testId="move" width=100 height=40 translate=(on ? "50% 10px" : "0px 0px") transition="translate 1s linear"
+      box testId="turn" width=40 height=40 rotate=(on ? 180 : 0) transition="rotate 1s linear"
+      box testId="grow" width=40 height=40 scale=(on ? 2 : 1) transition="scale -exact-spring(200, 20, 1)"
+      box testId="hit" width=40 height=40 press=go translate=(on ? "40px 0px" : "0px 0px") transition="translate 1s linear"
+      box testId="invoker-parent" width=100 height=40 translate=(on ? "40px 0px" : "0px 0px") transition="translate 1s linear"
+        button popovertarget="more"
+          text "More"
+      box id="more" popover="auto"
+        text "Menu"
+      box testId="corner" width=40 height=40 transform-origin="0% 0%" rotate=(on ? 180 : 0) transition="rotate 1s linear"
+"##;
+    let plan = contract::compile(app).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    host.svg.box_motion = true;
+    host.svg.play_transitions = true;
+    host.engine.set_lowered_properties(&svg::lowered(true));
+    host.start_on_frame(true, 0.0);
+    host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
+    let batch = host.tick_at(112.0, 116.0);
+    let key = |host: &Host<NoData>, name| {
+        exact_kernel::motion::motion_node(host.runner.kernel().find_by_test_id(name)[0])
+    };
+    for (name, property, path) in [
+        ("move", Property::Translate, "transform.translation.x"),
+        ("turn", Property::Rotate, "transform.rotation.z"),
+        ("grow", Property::Scale, "transform.scale"),
+    ] {
+        assert!(
+            host.engine.is_played(key(&host, name), property),
+            "{name}: {batch}"
+        );
+        assert_eq!(spec(&batch, id(&host, name))["k"], path);
+    }
+    assert_eq!(
+        spec(&batch, id(&host, "move"))["v"],
+        serde_json::json!([0, 50])
+    );
+    let radians = spec(&batch, id(&host, "turn"))["v"][1].as_f64().unwrap();
+    assert!((radians - std::f64::consts::PI).abs() < 1e-5);
+    for (name, property) in [
+        ("hit", Property::Translate),
+        ("invoker-parent", Property::Translate),
+        ("corner", Property::Rotate),
+    ] {
+        assert!(
+            !host.engine.is_played(key(&host, name), property),
+            "{name} must sample"
+        );
+    }
+    host.start_on_frame(false, 300.0);
+    host.tick_at(300.0, 300.0);
+    assert!(!host
+        .engine
+        .is_played(key(&host, "move"), Property::Translate));
+    let x = host
+        .engine
+        .value(key(&host, "move"), Property::Translate)
+        .unwrap();
+    assert!((x.z - 9.2).abs() < 1e-4, "{x:?}");
+}
+
+#[test]
+fn sticky_translation_transitions_stay_sampled_for_host_placement() {
+    let plan = contract::compile(include_str!("../tests/fixtures/sticky-transition.contract"))
+        .unwrap()
+        .encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        300.0,
+        500.0,
+    )
+    .unwrap();
+    host.svg.box_motion = true;
+    host.svg.play_transitions = true;
+    host.engine.set_lowered_properties(&svg::lowered(true));
+    host.start_on_frame(true, 0.0);
+    host.dispatch_at(id(&host, "move"), Event::Press, 100.0);
+    host.tick_at(112.0, 116.0);
+    let batch = host.tick_at(612.0, 616.0);
+    let node = host.runner.kernel().node(id(&host, "pinned")).unwrap();
+    let key = exact_kernel::motion::motion_node(node.key);
+    assert!(!host.engine.is_played(key, Property::Translate), "{batch}");
+    assert_eq!(host.engine.value(key, Property::Translate).unwrap().x, 50.0);
+    assert!(
+        motion(&batch),
+        "the host needs a sample while placement can change"
+    );
+}

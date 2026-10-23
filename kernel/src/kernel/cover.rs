@@ -44,6 +44,9 @@ pub enum HostCover {
     /// edges: subtracted from its content box's height for layout, never
     /// moving the content, and left out of its published extent.
     Inset([f32; 2]),
+    /// Space occupied by native scrollers on the right and bottom edges.
+    /// Overlay scrollers report zero; authored padding stays unchanged.
+    Gutter([f32; 2]),
 }
 
 impl Kernel {
@@ -70,7 +73,7 @@ impl Kernel {
             .ok_or(LayoutError::UnknownView(view))?;
         let edges: &[f32] = match &cover {
             Some(HostCover::Edges(e)) => e,
-            Some(HostCover::Inset(e)) => e,
+            Some(HostCover::Inset(e) | HostCover::Gutter(e)) => e,
             _ => &[],
         };
         if !edges.iter().all(|e| e.is_finite() && *e >= 0.0) {
@@ -219,6 +222,8 @@ impl Kernel {
 /// both insets, so its children keep their start and their scroll extent's
 /// end is where the platform's own inset begins.
 pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
+    // A popover is the host's to lift, out of flow, open or closed (`style::top_layer`).
+    crate::style::top_layer::apply(arena, slot, s);
     let (style, env) = (arena.effective_style(slot), arena.env());
     match arena.cover(slot) {
         Some(HostCover::Whole) => s.display = taffy::style::Display::None,
@@ -238,6 +243,17 @@ pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
             let [_, _, bottom, _] = added_padding(arena, slot);
             let spaced = style.padding_bottom.spaced(env, crate::style::cells::ROW);
             s.padding.bottom = spaced.floor_lp(env, bottom);
+        }
+        Some(HostCover::Gutter([right, bottom])) => {
+            s.scrollbar_width = right.max(bottom);
+            // Taffy reserves its scalar width on Scroll axes. Hidden keeps
+            // the same scroll-container layout without reserving that axis.
+            if right == 0.0 && s.overflow.y == taffy::style::Overflow::Scroll {
+                s.overflow.y = taffy::style::Overflow::Hidden;
+            }
+            if bottom == 0.0 && s.overflow.x == taffy::style::Overflow::Scroll {
+                s.overflow.x = taffy::style::Overflow::Hidden;
+            }
         }
         None => {}
     }
@@ -280,7 +296,8 @@ fn scroller_insets_bottom(arena: &NodeArena, slot: u32) -> bool {
         let flowing = |&&c: &&u32| {
             let s = arena.style(c);
             s.display != crate::Display::None
-                && s.position_type != crate::PositionType::Absolute
+                // A popover is out of flow, open or closed (`style::top_layer`).
+                && crate::style::top_layer::layout_position(arena, c) != crate::PositionType::Absolute
                 && arena.cover(c) != Some(HostCover::Whole)
         };
         let Some(&last) = arena.children(at).iter().rev().find(flowing) else {
@@ -342,10 +359,15 @@ pub(crate) fn style_changed(
     slot: u32,
     mask: &crate::StyleMask,
 ) {
-    use crate::StyleId::{Display, OverflowX, OverflowY, PositionType};
-    if [Display, PositionType, OverflowX, OverflowY]
-        .iter()
-        .any(|&id| mask.has(id))
+    use crate::StyleId;
+    if [
+        StyleId::Display,
+        StyleId::PositionType,
+        StyleId::OverflowX,
+        StyleId::OverflowY,
+    ]
+    .iter()
+    .any(|&id| mask.has(id))
     {
         chain_changed(arena, layout, slot);
     }
@@ -380,8 +402,13 @@ pub(crate) fn chain_changed(arena: &NodeArena, layout: &mut dyn LayoutMirror, sl
 /// cleared included, so the caller says when).
 pub(crate) fn positioned_children(arena: &NodeArena, slot: u32) -> Vec<u32> {
     (arena.children(slot).iter().copied())
-        .filter(|&c| arena.style(c).position_type == crate::PositionType::Absolute)
+        .filter(|&c| positioned(arena, c))
         .collect()
+}
+
+/// Whether `slot` lays out absolute: authored so, or a popover (`style::top_layer`).
+fn positioned(arena: &NodeArena, slot: u32) -> bool {
+    crate::style::top_layer::layout_position(arena, slot) == crate::PositionType::Absolute
 }
 
 /// The points a cover adds to the box's padding as layout pads it (`apply`):
@@ -452,7 +479,7 @@ pub(crate) fn children_changed(
         // no longer (`apply`): a child attached, or moved here from a
         // covered box, is derived again.
         for &c in arena.children(slot) {
-            if arena.style(c).position_type == crate::PositionType::Absolute {
+            if positioned(arena, c) {
                 if let Some(node) = arena.taffy(c) {
                     layout.restyle(arena, c, node);
                 }

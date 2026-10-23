@@ -831,6 +831,43 @@ final class NodePoolIOSTests: XCTestCase {
         override func accessibilityElement(at index: Int) -> Any? { UIAccessibilityElement(accessibilityContainer: self) }
     }
 
+    func testVideoCreationIsMeasuredOnlyAfterItsFirstPresentationUpdate() throws {
+        for _ in 0..<6 { HeavyLeaves.record("video", 12345) }
+        let p = Presenter()
+        defer { p.reset() }
+        func creates(_ ids: Range<Int>, source: Bool) -> [[String: Any]] {
+            ids.map { id in
+                var props = ["muted": "true", "controls": id % 2 == 0 ? "true" : "false", "playsinline": "true"]
+                // An empty authored source creates the presentation without fetching media.
+                if source { props["src"] = "" }
+                return ["op": "create", "id": id, "kind": "video", "props": props,
+                        "handlers": ["pause"], "style": ["width": 100, "height": 60]]
+            }
+        }
+        func presentation(_ id: UInt32) throws -> UIView {
+            let node = try XCTUnwrap(p.views[id])
+            guard let media = node.subviews.first else {
+                throw missing("module", "the video module is not beside this test runner (EXACT_VIDEO_DYLIB)")
+            }
+            return media
+        }
+        p.apply(wireBatch(creates(100..<106, source: false)))
+        XCTAssertEqual(HeavyLeaves.cost("video"), 12345, "handler and style updates without a source complete no creation sample")
+        for id in 100..<106 {
+            XCTAssertEqual(try presentation(UInt32(id)).subviews.count, 1, "only the poster exists before a source arrives")
+        }
+        p.apply(wireBatch((100..<106).map { ["op": "props", "id": $0, "set": ["src": ""]] }))
+        for id in 100..<106 {
+            XCTAssertEqual(try presentation(UInt32(id)).subviews.count, 2, "the first source constructs AVKit or the player layer")
+        }
+        XCTAssertLessThan(try XCTUnwrap(HeavyLeaves.cost("video")), 12345, "the presentation updates complete the samples")
+
+        for _ in 0..<6 { HeavyLeaves.record("video", 12345) }
+        p.apply(wireBatch(creates(200..<206, source: true)))
+        for id in 200..<206 { XCTAssertEqual(try presentation(UInt32(id)).subviews.count, 2) }
+        XCTAssertLessThan(try XCTUnwrap(HeavyLeaves.cost("video")), 12345, "an eager create with authored source also completes its sample")
+    }
+
     func testHeavyLeafCostsLeaveOutEachKindsFirstCreation() {
         let kind = "test-kind-\(UUID().uuidString)"
         HeavyLeaves.record(kind, 0.5)

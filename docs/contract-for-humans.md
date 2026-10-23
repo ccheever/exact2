@@ -922,12 +922,12 @@ call outside them fails. The capabilities are:
   no new mutation reply: the mutation keeps its previous value and runs no
   `then`. A failed read should fail its resource so Exact retains its last valid
   answer.
-- *`app.ts` imports local files, and only types from packages.* An `import
-  type` (or a name used only as a type) may reach a package's declarations,
-  such as the rows `snapback4 types` writes to `snapback/generated/api.ts`,
-  and every build checks against them. Importing a package's code is refused
-  (`module outside captured app: …/node_modules/…`): npm packages are not
-  bundled yet.
+- *`app.ts` imports local files and pure-JavaScript packages.* The bake bundles
+  a package's code (ESM or CommonJS, its `browser` build first), as Excord's
+  `fflate` is. One that needs Node (`fs`, `Buffer`), the DOM or a native addon
+  is refused by name. An `import type` (or a name used only as a type) may
+  reach any package's declarations, such as the rows `snapback4 types` writes
+  to `snapback/generated/api.ts`, and every build checks against them.
 
 **Testing with storage.** Each authored test gets an empty store of its own,
 apart from the app's real data. An ad hoc `agent` drive has none unless it
@@ -1045,7 +1045,9 @@ one, as a radiogroup names itself by its visible heading) wins over `aria-label`
 this one) and `aria-description` are its description. `aria-invalid`,
 `aria-required`, `aria-haspopup` and `aria-current` (a navigation link's
 `"page"`, a wizard's `"step"`) take their ARIA words or a bool; UIKit has no
-property for those four, so iOS exposes none of them. A drawn range —
+property for those four, so iOS exposes the first three not at all and a
+pressable's (a button's, a link's) `aria-current` other than `false` as its
+selected trait, as `aria-selected` is. A drawn range —
 `role="progressbar"`, `"slider"`, `"meter"`, `"scrollbar"` or `"spinbutton"` —
 takes `aria-valuenow`, `aria-valuemin` and `aria-valuemax` (numbers; ARIA's 0
 and 100 where a bound is unsaid) and `aria-valuetext`: it is one element, its

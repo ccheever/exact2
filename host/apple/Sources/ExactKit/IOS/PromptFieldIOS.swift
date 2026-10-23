@@ -26,6 +26,7 @@ final class PromptField: NSObject, UITextFieldDelegate {
         let selection: NSRange?
     }
     private var restoring: Snapshot?
+    private var relocating = false
     /// The alert's own delegate for the field, which answers what this does
     /// not.
     private weak var alertDelegate: UITextFieldDelegate?
@@ -123,7 +124,7 @@ final class PromptField: NSObject, UITextFieldDelegate {
     }
     func textFieldDidEndEditing(_ textField: UITextField) {
         alertDelegate?.textFieldDidEndEditing?(textField)
-        live()?.textFieldDidEndEditing(textField) // the `change`, then the blur
+        if !relocating { live()?.textFieldDidEndEditing(textField) } // the `change`, then the blur
     }
     /// Return, one rule on every host (docs/contract-for-agents.md): the
     /// input's `key` handlers first (prevented, nothing more); its `change`;
@@ -223,8 +224,9 @@ final class PromptField: NSObject, UITextFieldDelegate {
 
     /// The alert is going: the edit commits, and the authored field is its
     /// own again.
-    func end() {
-        if let node = live() { presenter?.commitEdit(node.id, node.fieldText, change: node.handlers.contains("change")) }
+    func end(relocating: Bool = false) {
+        self.relocating = relocating
+        if !relocating, let node = live() { presenter?.commitEdit(node.id, node.fieldText, change: node.handlers.contains("change")) }
         if let node, node.headerField === field { node.headerField = nil }
     }
 }

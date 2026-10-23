@@ -1446,7 +1446,14 @@ impl TrackSizingFunction {
     }
     /// Determine whether at least one of the components ("min" and "max") are fixed sizing function
     pub fn has_fixed_component(&self) -> bool {
-        self.min.0.is_length_or_percentage() || self.max.0.is_length_or_percentage()
+        let fixed = |value: CompactLength| {
+            #[cfg(feature = "calc")]
+            if value.is_calc() {
+                return true;
+            }
+            value.is_length_or_percentage()
+        };
+        fixed(self.min.0) || fixed(self.max.0)
     }
 }
 impl TaffyAuto for TrackSizingFunction {
@@ -1910,5 +1917,14 @@ mod expand_tests {
             MaxTrackSizingFunction::calc(handle)
         );
         assert_eq!(MinTrackSizingFunction::calc(handle).expand(), ExpandedMinTrackSizingFunction::Calc(handle));
+        assert!(TrackSizingFunction {
+            min: MinTrackSizingFunction::calc(handle), max: MaxTrackSizingFunction::fr(1.0)
+        }.has_fixed_component());
+        assert!(TrackSizingFunction {
+            min: MinTrackSizingFunction::auto(), max: MaxTrackSizingFunction::calc(handle)
+        }.has_fixed_component());
+        assert!(!TrackSizingFunction {
+            min: MinTrackSizingFunction::auto(), max: MaxTrackSizingFunction::fr(1.0)
+        }.has_fixed_component());
     }
 }

@@ -163,9 +163,10 @@ for (const engine of engines) {
         return { last: last(rate), first: rate.findIndex(x => Math.abs(x) > 1e-4), mid: rate[13000],
           hardLeft: [left[frame(100)], right[frame(100)]], half: [left[frame(400)], right[frame(400)]], centre: [left[frame(700)], right[frame(700)]], lines: [...r.lines, ...s.lines] };
       });
-      expect(got.first).toBe(12000);
+      // A resampled voice's edges blur by a few frames: Firefox's resampler (playbackRate 2) spreads each by 4.
+      expect(Math.abs(got.first - 12000)).toBeLessThanOrEqual(4);
       expect(got.mid).toBeCloseTo(0.5, 3);
-      expect(Math.abs(got.last - 14399)).toBeLessThanOrEqual(2);
+      expect(Math.abs(got.last - 14399)).toBeLessThanOrEqual(4);
       expect(got.hardLeft[0]).toBeCloseTo(0.5, 3);
       expect(got.hardLeft[1]).toBeCloseTo(0, 3);
       expect(got.half[0]).toBeCloseTo(0.5 * Math.cos(0.75 * Math.PI / 2), 3);

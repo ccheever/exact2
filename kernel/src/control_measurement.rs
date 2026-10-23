@@ -187,6 +187,8 @@ pub struct ButtonFaceStyle {
     /// Root font size for an admitted Neutral narrow tab. Host-only geometry
     /// context shared by measurement and paint, not an authored style row.
     pub neutral_tab_root: Option<f32>,
+    /// Keep tab, segment and menu-row minimums when padding is authored.
+    pub neutral_role_floor: bool,
     /// Title typography; its own rows win over the button's.
     pub title: crate::StyleProps,
     /// Subtitle typography, resolved independently in the same way.

@@ -19,6 +19,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// the journal is written out when asked for (`canvas/journal.rs`).
     pub fn requests(&mut self) -> Option<Vec<i32>> {
         self.echo_journal();
+        crate::canvas::jni::jni_extensions::stamp(self.p.host().runner().now_ms());
         if let Some(names) = crate::canvas::jni::jni_extensions::take_bound() {
             self.bind_extensions(&names);
         }
@@ -74,14 +75,17 @@ impl<D: DataSource + Default> CanvasHost<D> {
 
     /// The extensions the APK carries (`exact.app.ExactExtensions`, LLP
     /// 1133.001 D5), one a line: they answer their names from now on,
-    /// outside the agent; under it, only those `EXACT_AGENT_BIND` names
-    /// (`--bind`), and the substitute the rest (LLP 1124 D7).
+    /// outside the agent; under it, those `EXACT_AGENT_BIND` names
+    /// (`--bind`) as in production, and the rest told they run under the
+    /// agent, which answer only an interface that is its own substitute
+    /// (LLP 1124 D7, LLP 1133.006 D8).
     pub fn bind_extensions(&mut self, names: &str) {
-        let agent = std::env::var("EXACT_AGENT").is_ok_and(|v| v == "1");
-        let chosen = std::env::var("EXACT_AGENT_BIND").unwrap_or_default();
-        let bound: Vec<&str> = (names.lines().filter(|n| !n.is_empty()))
-            .filter(|n| !agent || chosen.split(',').any(|c| c == *n))
-            .collect();
-        self.p.host_mut().runner_mut().bind_extensions(&bound);
+        let under_agent = crate::canvas::jni::jni_extensions::under_agent;
+        let (under, real): (Vec<&str>, Vec<&str>) =
+            (names.lines().filter(|n| !n.is_empty())).partition(|n| under_agent(n));
+        self.p
+            .host_mut()
+            .runner_mut()
+            .bind_extensions(&real, &under);
     }
 }

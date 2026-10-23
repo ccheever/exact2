@@ -169,6 +169,21 @@
         "browser"
       ]
     },
+    "display_override": {
+      "description": "The Web App Manifest's display modes in order of preference, each used where the platform takes it, else the next, else `display`. `window-controls-overlay` puts the page under the title bar beside the window's controls: Chrome's in an installed app; on macOS, an app without routes gets the platform's tall unified title row, an empty toolbar over the page, and `env(titlebar-area-*)` its area beside the traffic lights (LLP 1039 D8).",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "window-controls-overlay",
+          "tabbed",
+          "fullscreen",
+          "standalone",
+          "minimal-ui",
+          "browser"
+        ]
+      }
+    },
     "orientation": {
       "type": "string",
       "description": "The Web App Manifest's default screen orientation (Screen Orientation API values). The web manifest carries it; the iPhone and Android lock to it; iPad keeps every orientation, as its multitasking requires.",
@@ -359,6 +374,18 @@
           "preview": {
             "type": "object"
           }
+        }
+      }
+    },
+    "open_url": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What `openURL` hands to the system beyond http, https, mailto and tel (LLP 1133.000 §2, open a URL). Each scheme is one another app registers, such as an editor's (`vscode`, `zed`, `jetbrains`): web, macOS and iOS open a URL of a declared scheme with whatever the system has registered for it (a browser asks first); an undeclared one stays refused. Under the agent the open is journaled, not performed. Schemes the hosts handle themselves (`http`, `https`, `mailto`, `tel`, `doc`, `app`, `app-settings`) or that run or read content (`file`, `filesystem`, `javascript`, `vbscript`, `data`, `blob`, `about`, `view-source`, `jar`, `intent`, `content`) are refused here, and refused again by the hosts. `sms` may be declared: it opens the system's message composer.",
+      "properties": {
+        "schemes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "pattern": "^(?!(?:https?|mailto|tel|file|filesystem|javascript|vbscript|data|blob|about|view-source|jar|intent|content|doc|app|app-settings)$)[a-z][a-z0-9+.-]*$" }
         }
       }
     },
@@ -778,6 +805,11 @@
         "check": {
           "type": "object",
           "properties": {
+            "interval": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Seconds between foreground update checks; defaults to 900 under every activation policy."
+            },
             "background": {
               "type": "boolean"
             }
@@ -960,6 +992,18 @@
         "type": "array",
         "minItems": 1,
         "items": { "type": "string", "minLength": 1 }
+      }
+    },
+    "server": {
+      "type": "object",
+      "description": "The app's own server, started for tests, verification and agent drives.",
+      "additionalProperties": false,
+      "properties": {
+        "database": {
+          "type": "boolean",
+          "default": true,
+          "description": "False declares that the server keeps no database: DB is omitted and no scratch database is created or removed. Otherwise its entry or an imported module must read the database path from DB."
+        }
       }
     },
     "tamber": {

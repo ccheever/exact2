@@ -13,6 +13,12 @@ struct RegionPaintRow: Sendable, Equatable {
     let artifact: UInt64
     let box: CGRect
     var selection = NSRange(location: 0, length: 0)
+    var selectionRanges: [NSRange] = []
+}
+struct RegionSelectionSnapshot: Sendable {
+    let artifact: UInt64
+    let range: NSRange
+    let rects: [CGRect]
 }
 struct RegionRasterRequest: Sendable {
     let serial: UInt64
@@ -174,8 +180,10 @@ final class RegionRaster: Sendable {
     let hits: RegionViewportHits
     let intent: RegionRasterRequest
     let interaction: RegionPointReply?
+    let selectionSnapshots: [RegionSelectionSnapshot]
     init(_ request: RegionRasterRequest, _ pixels: RegionPixels, hits: RegionViewportHits,
-         intent: RegionRasterRequest, interaction: RegionPointReply?) {
+         intent: RegionRasterRequest, interaction: RegionPointReply?, selectionSnapshots: [RegionSelectionSnapshot] = []) {
+        self.selectionSnapshots = selectionSnapshots
         self.request = request; self.pixels = pixels; self.hits = hits
         self.intent = intent; self.interaction = interaction
     }
@@ -288,7 +296,7 @@ final class RegionPaintIndex {
                         let layout = layouts[p], row = request.rows[p], line = layout.line(at: i)
                         let flush: CGFloat = layout.source.align == 1 ? 0.5 : layout.source.align == 2 ? 1 : 0
                         let x = row.box.minX - request.scroll.x + TextEngine.penOffset(line, flush: flush, room: Double(row.box.width), rtl: layout.source.direction == 1)
-                        let y = row.box.minY - request.scroll.y + layout.baselines[i].rounded()
+                        let y = row.box.minY - request.scroll.y + TextEngine.paintedBaseline(layout.baselines[i], scale: CGFloat(request.scale))
                         if pass == .ink { TextLinePaint.draw(line, at: CGPoint(x: x, y: y), in: ctx); continue }
                         let range = CTLineGetStringRange(line)
                         let lo = max(row.selection.location, range.location)
@@ -314,7 +322,12 @@ final class RegionPaintIndex {
             guard let i = request.rows.firstIndex(where: { $0.artifact == id }) else { return nil }
             return self.layouts[i]
         },account: accountHits)
-        return RegionRaster(request,pixels,hits: hits,intent: intent,interaction: interaction)
+        let selections = zip(request.rows, layouts).flatMap { row, layout in
+            row.selectionRanges.map { range in
+                RegionSelectionSnapshot(artifact: row.artifact, range: range, rects: layout.selectionRects(range, in: row.box))
+            }
+        }
+        return RegionRaster(request,pixels,hits: hits,intent: intent,interaction: interaction,selectionSnapshots: selections)
     }
 }
 

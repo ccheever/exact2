@@ -131,6 +131,19 @@ final class FlatLeaves {
         return r
     }
 
+    func documentOverflow(of host: NodeView, in document: UIView) -> CGRect? {
+        var below = children(of: host.id) ?? [], reach: CGRect?
+        while let id = below.popLast() {
+            guard let leaf = leaves[id] else { continue }
+            below.append(contentsOf: children(of: id) ?? [])
+            guard leaf.frame.width > 0, leaf.frame.height > 0,
+                  let frame = frameInHost(id) else { continue }
+            let box = host.drawnRect(frame, in: document)
+            reach = reach.map { $0.union(box) } ?? box
+        }
+        return reach
+    }
+
     /// The nodes this batch creates flat: eligible, holding only nodes made
     /// flat, and placed by the batch under a flat box or, at rank zero and
     /// not positioned, under a plain box (one it creates, or a view already there).
