@@ -589,6 +589,9 @@ package final class Runtime {
         guard let id = UInt64(key) else { return nil }
         return on { read(exact_host_back(rt, id, now)) }
     }
+    package func hostGo(_ location: String, now: Double) -> Batch {
+        on { read(exact_host_go(rt, write(location), now)) }
+    }
     package func advance(now: Double, untilRequest: Bool = false) -> Batch { on { read(exact_advance(rt, now, untilRequest ? 1 : 0)) } }
     /// The `then`s an agent's input settled, the clock unmoved (LLP 1012 §2).
     package func landThen() -> Batch { on { read(exact_advance(rt, 0, 2)) } }
