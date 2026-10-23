@@ -984,7 +984,28 @@ extension NavigationHost {
         let whole = wantsWholeView && presenter.viewportFit != "cover"
         let node = shape.map { shape in kids.firstIndex { $0 === shape.header }.flatMap { kids[($0 + 1)...].first(where: flowing) } }
             ?? (shows || whole ? kids.first(where: flowing) : nil)
-        let target = shape?.authored.isEmpty != false && node?.scrollView != nil && node === scroller ? node : nil
+        var riders: [NodeView] = []
+        #if os(iOS)
+        if #available(iOS 26.0, *), shape?.level == 1, let scroller,
+           scroller.style["scroll_edge_effect"]?.string != "none", !Self.transparentBar(c.node),
+           let bars = ControlBars(presenter).bars(of: scroller, in: c.node, top: true), !bars.isEmpty {
+            riders = bars
+        }
+        #endif
+        for old in c.ridingBars where !riders.contains(where: { $0 === old }) { old.controlRide = 0; old.applyTransform() }
+        c.ridingBars = riders
+        c.rideBars()
+        let covered: Bool
+        if case .edges(let edges)? = covers[c.node.id] { covered = edges.top > 0.5 } else { covered = false }
+        let ordinary = shape?.authored.isEmpty != false && node?.scrollView != nil && node === scroller ? node : nil
+        let target = !riders.isEmpty ? (covered ? nil : scroller) : ordinary
+        if let target, !riders.isEmpty {
+            let frame = target.convert(target.bounds, to: c.node)
+            let band = UIEdgeInsets(top: max(0, frame.minY), left: 0, bottom: target.pageBand.bottom, right: 0)
+            var own = band
+            own.top += min(band.top, c.view.safeAreaInsets.top)
+            if target.pageBand != band || target.bandInset != own { target.setPageBand(band, inset: own) }
+        }
         let physical = target?.scrollView
         // A route that turns transparent, or back, keeps its scroller: only
         // whether UIKit insets it follows.

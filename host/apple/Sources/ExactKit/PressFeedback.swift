@@ -312,7 +312,7 @@ extension NodeView {
     /// transform: a layout transition's offset, a sticky box's scroll offset
     /// (LLP 1083), a keyboard toolbar's lift and a context preview's projection.
     var hostPlacement: CGAffineTransform {
-        CGAffineTransform(translationX: layoutOffset.x + stickyOffset.x, y: layoutOffset.y - keyboardLift + stickyOffset.y).concatenating(contextTransform)
+        CGAffineTransform(translationX: layoutOffset.x + stickyOffset.x, y: layoutOffset.y - keyboardLift + stickyOffset.y + controlRide).concatenating(contextTransform)
     }
     /// The border box in `viewport`'s visible space as an open top-layer box
     /// is told to the runner: before its own transform, which the runner

@@ -209,5 +209,36 @@ final class PageEdgesIOSTests: XCTestCase {
         let i = sv.adjustedContentInset
         XCTAssertLessThanOrEqual(sv.contentSize.height + i.top + i.bottom, sv.bounds.height + 0.5, "no range from the bands, as a table that fits")
     }
+    func testALargeTitleCollapsesOverAFixedControlBar() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the title and safe area belong to a scene window") }
+        guard #available(iOS 26.0, *) else { throw XCTSkip("control bars require iOS 26") }
+        let (session, _) = try fixture("CONTROL_BARS")
+        let p = session.presenter
+        p.press(try node(session, "pick-large").id)
+        let filter = try node(session, "filter"), list = try node(session, "list")
+        p.apply(wireBatch([["op": "props", "id": Int(filter.id), "set": ["accessibilityRole": "group"]]]))
+        let route = try XCTUnwrap(p.navigation.activeRoute)
+        until("the filter is page content and its bar has settled") { route.scoped == nil && !Agent(session: session).nativeInFlight() }
+        let nav = try XCTUnwrap(route.navigationController), sv = try XCTUnwrap(list.scrollView)
+        nav.view.layoutIfNeeded()
+        let expanded = nav.navigationBar.bounds.height
+        XCTAssertGreaterThan(expanded, 80)
+        XCTAssertTrue(route.collapseScroll === list)
+        XCTAssertGreaterThan(list.pageBand.top, 0)
+        let top = try node(session, "list-top")
+        XCTAssertEqual(top.convert(top.bounds, to: nil).minY, filter.convert(filter.bounds, to: nil).maxY + 8, accuracy: 1)
+        Agent.rest(sv, at: CGPoint(x: 0, y: sv.contentOffset.y + 30), x: false, y: true)
+        nav.view.layoutIfNeeded()
+        let turn = expectation(description: "bar covers delivered")
+        DispatchQueue.main.async { turn.fulfill() }
+        wait(for: [turn], timeout: 5)
+        XCTAssertTrue(nav.navigationBar.bounds.height < 65 || nav.navigationBar.bounds.height >= expanded - 0.5,
+                      "a released short drag leaves a snapped title, not one held halfway by an offset rewrite")
+        Agent.rest(sv, at: CGPoint(x: 0, y: 300 - sv.adjustedContentInset.top), x: false, y: true)
+        nav.view.layoutIfNeeded()
+        XCTAssertLessThan(nav.navigationBar.bounds.height, 65)
+        XCTAssertEqual(filter.convert(filter.bounds, to: route.view).minY, route.view.safeAreaInsets.top + 8, accuracy: 1)
+    }
+
 }
 #endif
