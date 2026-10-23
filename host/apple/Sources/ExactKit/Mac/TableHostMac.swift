@@ -19,10 +19,13 @@ final class TableHost {
     private weak var presenter: Presenter?
     private(set) var feeds: [UInt32: TableFeed] = [:]
     private var pressContact: PressNode?
+    private weak var pressCell: TableRowCell?
 
     func cancelPress() {
         pressContact?.node?.pressed = false
         pressContact = nil
+        pressCell?.syncSelectionPaint()
+        pressCell = nil
     }
 
     /// Observe AppKit's contact without replacing the table's tracking loop.
@@ -37,6 +40,8 @@ final class TableHost {
                   let node = feed.pressing(row), node.authorsPress, !node.disabled, !node.inert else { return }
             pressContact = PressNode(node, bubbled: false)
             node.pressed = true
+            pressCell = table.rowView(atRow: row.index, makeIfNecessary: false)?.view(atColumn: 0) as? TableRowCell
+            pressCell?.syncSelectionPaint()
         case .leftMouseDragged:
             guard let contact = pressContact, contact.isLive, let node = contact.node else { cancelPress(); return }
             node.pressFollows(inside: node.pressInside(NodeView.point(event, in: node.window)))
