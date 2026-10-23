@@ -431,21 +431,29 @@ fn chains_past_256_links_stop_there() {
 
 #[test]
 fn long_values_are_reported_and_wide_sheets_read_once() {
-    // A value past 4 KiB, a name past 256 bytes and a prelude past 4 KiB are
-    // reported, each one value, not copied about.
+    // A value past 4 KiB, the design checker's bound, refuses the import with
+    // that bound's id, naming the property and not echoing the value.
+    let big = format!(
+        ":root{{--big: rgb({}0 0 0);--ok: #fff;}}",
+        "0".repeat(5_000)
+    );
+    let refused =
+        shadcn::import(&big, "shadcn", &parse("tamber app\n").unwrap(), &vocab()).unwrap_err();
+    assert_eq!(refused[0].id, "tamber-value-size", "{refused:?}");
+    assert!(
+        refused[0].message.starts_with("`--big`") && refused[0].message.len() < 100,
+        "{refused:?}"
+    );
+    // A name past 256 bytes and a prelude past 4 KiB are reported, each one
+    // value, not copied about.
     let css = format!(
-        ":root{{--big: rgb({}0 0 0);--{}: #000;--ok: #fff;}}.{}{{--x: #000;}}",
-        "0".repeat(5_000),
+        ":root{{--{}: #000;--ok: #fff;}}.{}{{--x: #000;}}",
         "n".repeat(300),
         "p".repeat(5_000)
     );
     let import = shadcn_of(&css);
     let whys: Vec<&str> = import.unmapped.iter().map(|u| u.why.as_str()).collect();
-    assert_eq!(import.counted.source, 4);
-    assert!(
-        whys.contains(&"not read: a custom property's value past 4 KiB (line 1)"),
-        "{whys:?}"
-    );
+    assert_eq!(import.counted.source, 3);
     assert!(
         whys.contains(&"not read: a custom property's name past 256 bytes (line 1)"),
         "{whys:?}"

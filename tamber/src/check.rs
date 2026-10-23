@@ -531,7 +531,7 @@ impl<'a> Checker<'a> {
                 DialKind::Color => {
                     let folded = css::parse(&d.value.value)
                         .map_err(|m| FoldError {
-                            id: "tamber-syntax",
+                            id: syntax(&d.value.value),
                             message: m,
                         })
                         .and_then(|items| fold::color(&items, &mut Literal { roles: &self.roles }));
@@ -1146,6 +1146,12 @@ impl<'a> Checker<'a> {
             kind,
             Kind::BoxShadow | Kind::TextShadow | Kind::Type | Kind::Family
         );
+        // A value past the checker's bounds is refused before any fold,
+        // a shadow's or a family's too (`css::over_limit`).
+        if let Some((id, why)) = css::over_limit(&value.value) {
+            self.at(value, id, why);
+            return None;
+        }
         let items = match css::parse(&value.value) {
             Ok(items) => items,
             Err(_) if shadow => Vec::new(),
@@ -1212,7 +1218,7 @@ impl<'a> Checker<'a> {
         let items = match css::parse(&value.value) {
             Ok(items) => items,
             Err(m) => {
-                self.at(value, "tamber-syntax", m);
+                self.at(value, syntax(&value.value), m);
                 return None;
             }
         };
@@ -1466,4 +1472,10 @@ impl Names for Scope<'_, '_> {
         }
         Ok(Named::Unknown)
     }
+}
+
+/// A value's refusal id when it isn't read: the checker's own bound
+/// (`css::over_limit`), else `tamber-syntax`.
+fn syntax(text: &str) -> &'static str {
+    css::over_limit(text).map_or("tamber-syntax", |(id, _)| id)
 }
