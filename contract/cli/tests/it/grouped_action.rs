@@ -274,7 +274,7 @@ fn a_leading_symbols_slot_and_the_title_after_it_follow_the_text_size() {
         (17.0, 56.0, 24.0),
         (23.0, 63.67, 32.11),
         (14.0, 52.67, 20.28),
-        (53.0, 56.0, 24.0),
+        (53.0, 86.33, 54.33),
     ] {
         r.set_root_font_size(body).unwrap();
         layout(&mut r);

@@ -553,7 +553,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // The symbol's size when the kernel's measurer could not say
             presenter?.queueIntrinsicSize(self, generation: generation, SymbolMeasure.size(name, points: points, weight: weight))
         }
-        symbolView?.tintColor = symbolInk
+        symbolView?.tintColor = drawnSymbolInk
         symbolView?.preferredSymbolConfiguration = symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight))
         if let leaf = symbolView { applySymbolEffect(leaf) }
         layoutSymbol()

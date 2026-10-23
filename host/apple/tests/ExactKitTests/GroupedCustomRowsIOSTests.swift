@@ -131,12 +131,13 @@ final class GroupedCustomRowsIOSTests: GroupedListFixture {
         XCTAssertFalse(image.listSymbol, "its author's contain")
         p.apply(wireBatch([["op": "style", "id": 30, "style": ["font_size": 17.0, "object_fit": "contain"]]]))
         XCTAssertTrue(image.listSymbol)
-        // At an accessibility size the slot keeps the default's drawing (its
-        // medium scale, in its box) until UIKit's rule there is measured.
+        // At an accessibility size too, drawn at UIKit's smaller size there.
         window.traitOverrides.preferredContentSizeCategory = .accessibilityLarge
         window.layoutIfNeeded() // traits reach the views at layout
         p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "large"]]]))
-        XCTAssertFalse(image.listSymbol, "an accessibility size")
+        XCTAssertTrue(image.listSymbol, "an accessibility size")
+        let base = UIImage.SymbolConfiguration(pointSize: 33)
+        XCTAssertEqual(image.symbolShape(base), base.applying(UIImage.SymbolConfiguration(pointSize: 25.14)).applying(UIImage.SymbolConfiguration(scale: .large)))
         window.traitOverrides.preferredContentSizeCategory = .extraExtraExtraLarge
         window.layoutIfNeeded()
         p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "xxxl"]]]))

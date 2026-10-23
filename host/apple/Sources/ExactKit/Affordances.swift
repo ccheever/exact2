@@ -23,6 +23,12 @@ extension NodeView {
         return channels("text_color").map(TextEngine.color) ?? .label
         #endif
     }
+    /// The ink it is drawn in: its computed colour, or as a list cell's
+    /// image (iOS's custom grouped row) its tint, which the sheet sets, as
+    /// UIKit tints a cell's image (`GroupedListIOS.swift`'s standard cell).
+    var drawnSymbolInk: PlatformColor? {
+        drawsListSymbol ? channels("tint_color").map(TextEngine.color) ?? inheritedTint : symbolInk
+    }
     /// Whether a colour row is the platform's accent (`AccentColor`, iOS's
     /// inherited `tintColor`) rather than a colour of its own. An unset
     /// `tint-color` is its initial value, `AccentColor`.
@@ -53,10 +59,25 @@ extension NodeView {
         [style["symbol_rendering"]?.string ?? "", "\(number("symbol_value", -1))", "\(drawsListSymbol)"].joined(separator: "|")
     }
 
+    #if os(iOS) || os(tvOS)
+    /// The point size whose large scale UIKit's list cell draws its image at
+    /// at each accessibility text size: a star measured on iOS 27.1 under the
+    /// system's text size (ink 30.33, 35, 34.33, 40.33 and 45.33 points wide,
+    /// 23.67 at the default's 17), about 0.76 of the checkmark accessory's
+    /// growth, stepping back at AX3 as it does.
+    static let listSymbolPoints: [UIContentSizeCategory: CGFloat] = [
+        .accessibilityMedium: 21.78, .accessibilityLarge: 25.14, .accessibilityExtraLarge: 24.66,
+        .accessibilityExtraExtraLarge: 28.97, .accessibilityExtraExtraExtraLarge: 32.56,
+    ]
+    #endif
     /// Shape belongs to the cached image; paint can change without replacing it.
     func symbolShape(_ base: SymbolConfig) -> SymbolConfig {
         #if os(iOS) || os(tvOS)
-        return drawsListSymbol ? base.applying(SymbolConfig(scale: .large)) : base
+        // At an accessibility size UIKit draws a list cell's image smaller
+        // than the text's large scale (`listSymbolPoints`).
+        guard drawsListSymbol else { return base }
+        let sized = Self.listSymbolPoints[traitCollection.preferredContentSizeCategory].map { base.applying(SymbolConfig(pointSize: $0)) } ?? base
+        return sized.applying(SymbolConfig(scale: .large))
         #else
         return base
         #endif
@@ -66,7 +87,7 @@ extension NodeView {
     /// mode (D10) — hierarchical in the tint, a palette, or multicolor.
     /// `face`: as a native control's face draws it, without the page's ink.
     func symbolConfiguration(_ base: SymbolConfig, face: Bool = false) -> SymbolConfig {
-        let tint = (face ? nil : symbolInk) ?? inheritedTint
+        let tint = (face ? nil : drawnSymbolInk) ?? inheritedTint
         let base = symbolShape(base)
         switch style["symbol_rendering"]?.string {
         case "hierarchical": return base.applying(SymbolConfig(hierarchicalColor: tint))
