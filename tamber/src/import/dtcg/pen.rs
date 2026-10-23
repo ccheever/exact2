@@ -215,6 +215,8 @@ struct At<'a> {
     outer: Option<&'a str>,
     gradient: bool,
     opaque: bool,
+    /// This object is a `descendants` map: its keys are node ids.
+    ids: bool,
 }
 
 /// Each variable's readers in the node tree (`"$name"`), by the property
@@ -272,8 +274,8 @@ fn readers(v: &Value, at: At, out: &mut BTreeMap<String, Uses>) -> Result<(), St
             for (k, x) in m {
                 crate::budget::spend(k.len() as u64)?;
                 // (a node's `theme` names axes and their values, literals all: no variable is bound there;
-                // under `descendants` the key is a node's id, its overrides read as any node's)
-                if k == "theme" && !opaque && at.key != Some("descendants") {
+                // in a `descendants` map the key is a node's id, its overrides read as any node's)
+                if k == "theme" && !opaque && !at.ids {
                     continue;
                 }
                 let inner = At {
@@ -283,6 +285,7 @@ fn readers(v: &Value, at: At, out: &mut BTreeMap<String, Uses>) -> Result<(), St
                     outer: at.holder,
                     gradient,
                     opaque,
+                    ids: k == "descendants" && !at.ids && !opaque,
                 };
                 readers(x, inner, out)?;
             }
@@ -737,6 +740,10 @@ pub fn import_within(
     limit: u64,
 ) -> Result<Import, Vec<Diagnostic>> {
     let refuse = |m: String| vec![Diagnostic::new("tamber-import-source", m, 1, 1)];
+    // (a prefix starts every token name, each copied in every tuple's result: bounded as a name is)
+    if prefix.chars().count() > NAME {
+        return Err(refuse(format!("a prefix is at most {NAME} characters")));
+    }
     let _work = crate::budget::Work::begin(limit);
     crate::budget::spend(text.len() as u64).map_err(refuse)?;
     let doc: Doc = serde_json::from_str(text).map_err(|e| refuse(format!("{file}: {e}")))?;

@@ -174,6 +174,15 @@ fn import_with(
             text, explicit, kept, current, &vocab,
         ));
     }
+    // A prefix starts every token name an importer makes: bounded as a name is.
+    if prefix.is_some_and(|p| p.chars().count() > 128) {
+        return Some(Err(vec![exact_tamber::Diagnostic {
+            id: "tamber-import-source",
+            message: "a prefix is at most 128 characters".into(),
+            line: 1,
+            col: 1,
+        }]));
+    }
 
     Some(match kind {
         "shadcn" => shadcn::import(text, prefix.unwrap_or("shadcn"), design, &vocab),
