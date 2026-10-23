@@ -68,6 +68,45 @@ final class DialogGeometryIOSTests: XCTestCase {
         until("native geometry releases its frames") { !FrameClock.shared.wants(p.nativeGeometry) }
     }
 
+    func testSheetResizeClipsPointReadsToItsVisibleHeight() throws {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { throw missing("scene", "native sheet resizing requires a scene") }
+        let s = ExactApp.shared.makeSession(label: "dialog-resize-geometry")
+        session = s
+        let view = ExactView(session: s), host = UIViewController(), w = UIWindow(windowScene: scene)
+        w.frame = w.screen.bounds; w.rootViewController = host; w.makeKeyAndVisible(); host.view.addSubview(view)
+        window = w
+        XCTAssertNil(s.boot(plan: try fixturePlan("DIALOG_SHEET_READS"), size: w.bounds.size).error)
+        view.frame = host.view.bounds; view.layoutIfNeeded()
+        if s.firstDrawMs == nil { s.firstDrawMs = ExactEnv.wall() }
+        let p = s.presenter
+        defer { p.menus.reset(); host.dismiss(animated: false) }
+        p.dialogCommand("showModal", "form")
+        until("the sheet appeared") { host.presentedViewController is DialogSheetController && !p.menus.inTransition }
+        let sheet = try XCTUnwrap(host.presentedViewController as? DialogSheetController)
+        let dialog = try XCTUnwrap(p.views.values.first { $0.props["id"] == "form" })
+        sheet.view.frame.size.height = 200
+        sheet.view.layoutIfNeeded()
+        var finished = false
+        UIView.animate(withDuration: 0.8, delay: 0, options: [.curveLinear]) {
+            sheet.view.frame.size.height = 400
+            sheet.view.layoutIfNeeded()
+        } completion: { _ in finished = true }
+        until("the sheet is between heights") {
+            guard let layer = sheet.view.layer.presentation() else { return false }
+            return layer.bounds.height > 240 && layer.bounds.height < 330
+        }
+        let card = try XCTUnwrap(sheet.view.layer.presentation()), scroll = try XCTUnwrap(sheet.scroller.layer.presentation())
+        let port = try XCTUnwrap(p.viewport.layer.presentation())
+        let visible = p.viewportPoints(card.convert(card.bounds, to: port).intersection(scroll.convert(scroll.bounds, to: port)))
+        let clip = try XCTUnwrap(p.openTopLayer.frames.first { $0.0 == dialog.id }?.2)
+        XCTAssertEqual(clip.height, visible.height, accuracy: 3, "the published clip follows native presentation bounds")
+        let point = CGPoint(x: visible.midX, y: visible.maxY + 20)
+        let sample = PointerSample(x: 0, y: 0, buttons: 0, pressure: 0, type: "mouse", id: 1, clientX: Double(point.x), clientY: Double(point.y))
+        s.apply(s.runtime.pointer(dialog.id, .move, sample, now: s.now()))
+        XCTAssertEqual(slots(s)["hit"] as? String, "none", "the sheet's destination height admits no invisible hit")
+        until("the native resize ends") { finished }
+    }
+
     func testScrollingTheSheetDeliversIntersectionWithoutAnotherInput() throws {
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { throw missing("scene", "native sheet scrolling requires a scene") }
         let s = ExactApp.shared.makeSession(label: "dialog-geometry")
