@@ -888,10 +888,15 @@ final class SplitMacTests: XCTestCase {
                 p.menus.action("showPopover", ["listpop"])
                 let opened = Date().addingTimeInterval(3)
                 while !p.menus.isOpen(later), Date() < opened { settle() }
-                // A depth from the pane's own ranking (a retained positioned
-                // route there gives it one) must not travel with the layer.
+                // A depth from the pane's own ranking must not travel with the
+                // layer: a box ranked there that stays when the split ends (as a
+                // retained route of another stack would) gives the pane's layers
+                // a deeper depth than the page's.
                 let paneLayer = try XCTUnwrap(pop.superview)
-                paneLayer.layer?.zPosition = 0.002
+                let retained = NodeView(id: 9_999_001, kind: "view", presenter: p)
+                pane.addSubview(retained, positioned: .below, relativeTo: nil)
+                retained.setRank(2)
+                XCTAssertGreaterThan(paneLayer.layer?.zPosition ?? 0, 0.0015, "deeper by the pane's own ranking")
                 p.navigation.split.painted = true
                 settle()
                 XCTAssertFalse(p.navigation.split.active, "no split")
@@ -902,6 +907,7 @@ final class SplitMacTests: XCTestCase {
                 XCTAssertLessThan(try XCTUnwrap(first), try XCTUnwrap(second), "under the one opened after it")
                 let depths = (paneLayer.layer?.zPosition, later.superview?.layer?.zPosition)
                 XCTAssertEqual(depths.0, depths.1, "ranked among the page's layers, so their order paints")
+                retained.removeFromSuperview()
             }
             session.destroy(); self.session = nil; window.close(); self.window = nil
         }
