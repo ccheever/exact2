@@ -223,7 +223,13 @@ fn readers(v: &Value, at: At, out: &mut BTreeMap<String, Uses>) -> Result<(), St
                         && at.outer == Some("shadow"));
                 // (a use only where Pencil binds a variable: a schema property, one's side, or a map of the
                 // author's names)
-                if !(at.opaque || side || PIXELS.contains(&k) || BINDABLE.contains(&k)) {
+                // (and `position` only as a gradient stop's)
+                let stop = at.gradient && at.parent == Some("colors");
+                if !(at.opaque
+                    || side
+                    || PIXELS.contains(&k)
+                    || BINDABLE.contains(&k) && (k != "position" || stop))
+                {
                     return Ok(());
                 }
                 let pixel = !at.gradient && !at.opaque && (PIXELS.contains(&k) || side);
@@ -256,8 +262,9 @@ fn readers(v: &Value, at: At, out: &mut BTreeMap<String, Uses>) -> Result<(), St
                 at.opaque || (at.holder.is_some() && at.key.is_some_and(|p| OPAQUE.contains(&p)));
             for (k, x) in m {
                 crate::budget::spend(k.len() as u64)?;
-                // (a node's `theme` names axes and their values, literals all: no variable is bound there)
-                if k == "theme" && !opaque {
+                // (a node's `theme` names axes and their values, literals all: no variable is bound there;
+                // under `descendants` the key is a node's id, its overrides read as any node's)
+                if k == "theme" && !opaque && at.key != Some("descendants") {
                     continue;
                 }
                 let inner = At {

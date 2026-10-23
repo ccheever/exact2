@@ -609,8 +609,14 @@ fn round_3_recheck_2_collisions_more_bindings_and_themes() {
     let go = |text: &str| pen::import_with("x.pen", text, "pen", &design, &vocab());
     // A long name reported never takes a token name, so many names colliding with it copy nothing of it.
     let dashes = "-".repeat(64 * 1024);
+    // (punctuation alone, each name distinct and each read as `x`, as the long one is)
     let others: Vec<String> = (0..500)
-        .map(|i| format!(r##""!{i}?":{{"type":"color","value":"#000000"}}"##))
+        .map(|i: usize| {
+            let name: String = (0..5)
+                .map(|d| ['!', '?', '*', '~', '@'][i / 5usize.pow(d) % 5])
+                .collect();
+            format!(r##""{name}":{{"type":"color","value":"#000000"}}"##)
+        })
         .collect();
     let import = go(&format!(r##"{{"version":"2.21","variables":{{"{dashes}":{{"type":"color","value":"#000000"}},{}}}}}"##, others.join(","))).unwrap();
     assert!(import.unmapped.iter().all(|u| u.why.len() < 300));
@@ -655,4 +661,40 @@ fn round_3_recheck_2_every_schema_binding_counts() {
     let text = r#"{"version":"2.21","variables":{"n":{"type":"number","value":8}},"children":[{"type":"frame","gap":"$n","spread":"$n"}]}"#;
     let import = pen::import_with("x.pen", text, "pen", &design, &vocab()).unwrap();
     assert_eq!(folded(&import).value("pen.n", 0).unwrap().css(), "8px");
+}
+
+#[test]
+fn round_3_recheck_3_descendants_positions_and_prefix() {
+    let design = parse(EMPTY).unwrap();
+    let go = |text: &str| pen::import_with("x.pen", text, "pen", &design, &vocab());
+    // A descendant whose id is `theme` has overrides like any node's: its opacity is a use, so `n` is a number.
+    let text = r#"{"version":"2.21","variables":{"n":{"type":"number","value":0.5}},
+      "children":[{"type":"frame","gap":"$n"},{"type":"ref","ref":"a","descendants":{"theme":{"opacity":"$n"}}}]}"#;
+    assert_eq!(
+        folded(&go(text).unwrap()).value("pen.n", 0).unwrap().css(),
+        "0.5"
+    );
+    // A position outside a gradient's stops binds nothing: `n` is read as a gap alone.
+    let text = r#"{"version":"2.21","variables":{"n":{"type":"number","value":8}},
+      "children":[{"type":"frame","gap":"$n","position":"$n","layout":{"position":"$n"}}]}"#;
+    assert_eq!(
+        folded(&go(text).unwrap()).value("pen.n", 0).unwrap().css(),
+        "8px"
+    );
+    // A stop's position is a use, and no pixel one.
+    let text = r##"{"version":"2.21","variables":{"n":{"type":"number","value":8}},
+      "children":[{"type":"frame","gap":"$n","fill":{"type":"gradient","colors":[{"color":"#000000","position":"$n"}]}}]}"##;
+    assert_eq!(
+        folded(&go(text).unwrap()).value("pen.n", 0).unwrap().css(),
+        "8"
+    );
+    // Each name made is charged with the prefix it carries: a long prefix over many variables is refused.
+    let prefix = "p".repeat(256 * 1024);
+    let vars: Vec<String> = (0..2500)
+        .map(|i| format!(r##""c{i}":{{"type":"color","value":"#000000"}}"##))
+        .collect();
+    let text = format!(r#"{{"version":"2.21","variables":{{{}}}}}"#, vars.join(","));
+    assert!(pen::import_within("x.pen", &text, "pen", &design, &vocab(), IMPORT).is_ok());
+    let refused = pen::import_within("x.pen", &text, &prefix, &design, &vocab(), IMPORT);
+    assert!(refused.is_err(), "a long prefix over 2500 names is charged");
 }
