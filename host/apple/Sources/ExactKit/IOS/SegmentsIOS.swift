@@ -601,9 +601,10 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
     /// Agent activation names the authored tab even though UIKit owns its pixels.
     func activate(_ node: NodeView, before: (CGPoint?) -> Bool = { _ in true }) -> Bool? {
         // A segment in the route's bar takes precedence over its hidden content control.
-        if presenter.navigation.barSegment(node) != nil {
+        if let shown = presenter.navigation.barSegment(node) {
             guard !node.disabled, !node.ariaUnavailable else { return false }
-            guard before(nil), !node.disabled, !node.inert, !node.ariaUnavailable, presenter.views[node.id] === node else { return false }
+            let point = shown.control.convert(CGPoint(x: shown.segment.midX, y: shown.segment.midY), to: nil)
+            guard before(point), !node.disabled, !node.inert, !node.ariaUnavailable, presenter.views[node.id] === node else { return false }
             presenter.press(node.id)
             return true
         }
