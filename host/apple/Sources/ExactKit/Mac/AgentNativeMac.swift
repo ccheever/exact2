@@ -80,7 +80,7 @@ extension Presenter {
     private func inspectionAccount(_ sub: NSView, in parent: NSView, owner: NodeView?) -> (role: String, owner: UInt32?)? {
         if let o = owner {
             let id = o.id
-            if sub === o.symbolClip || sub === o.symbolView { return ("glyph", id) }
+            if sub === o.symbolClip || sub === o.symbolView || sub === o.symbolShape { return ("glyph", id) }
             if sub === o.materialView || sub === o.glassGroupView || sub === o.glassIsolation || sub === o.materialContent { return ("material", id) }
             if sub === o.clipBox { return ("clip", id) }
             if sub === o.metal || sub === o.overlay { return ("canvas", id) }

@@ -67,6 +67,8 @@ final class IconPathTests: XCTestCase {
         #if os(iOS)
         return (v?.symbolView as? UIImageView)?.tintColor
         #else
+        // A path icon fills its paths in its tint (stage 14 C1, IconShapeMac.swift).
+        if let fill = v?.symbolShape?.shapes.first?.fillColor { return NSColor(cgColor: fill) }
         return (v?.symbolView as? NSImageView)?.contentTintColor
         #endif
     }

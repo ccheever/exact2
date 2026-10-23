@@ -42,7 +42,7 @@ extension NodeView {
     /// Paint only `draw(_:)` makes (outside a capture).
     var drawsPaint: Bool {
         if let cached = layerPaintCache { return cached }
-        let paints = boxNeedsDraw || (kind == "image" && symbolView == nil && raster != nil && imagePlan == nil)
+        let paints = boxNeedsDraw || (kind == "image" && !hasSymbolLeaf && raster != nil && imagePlan == nil)
         layerPaintCache = paints
         return paints
     }
@@ -312,7 +312,7 @@ extension NodeView {
     /// only when it is the whole content box and that is the border box, or
     /// when no corner is rounded. `nil`: `draw(_:)` paints them.
     private var imagePlan: (shown: CGRect, unit: CGRect, radius: CGFloat, corners: CACornerMask)? {
-        guard kind == "image", symbolView == nil, style["tint_color"] == nil, let bitmap = raster?.image else { return nil }
+        guard kind == "image", !hasSymbolLeaf, style["tint_color"] == nil, let bitmap = raster?.image else { return nil }
         let content = contentBox()
         let rect = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: style["object_fit"]?.string ?? "fill")
         let shown = rect.intersection(content)
@@ -336,12 +336,12 @@ extension NodeView {
 
     /// An image whose pixels are a sublayer the capture hides, so that
     /// `draw(_:)` paints them into the shot (`Capture.hideBoxFills`).
-    var capturesPixels: Bool { kind == "image" && symbolView == nil && raster?.image != nil && imageLayer != nil }
+    var capturesPixels: Bool { kind == "image" && !hasSymbolLeaf && raster?.image != nil && imageLayer != nil }
 
     /// The image's pixels onto a sublayer, or none (`draw(_:)` paints them).
     func applyImageLayer() {
         if cssVisibilityHidden { imageLayer?.removeFromSuperlayer(); imageLayer = nil; return }
-        if let look = flightLook, let layer, kind == "image", symbolView == nil, style["tint_color"] == nil, let bitmap = raster?.image ?? look.stand?.image {
+        if let look = flightLook, let layer, kind == "image", !hasSymbolLeaf, style["tint_color"] == nil, let bitmap = raster?.image ?? look.stand?.image {
             // Flying (LLP 1013.000 D4): the whole image where the flight
             // puts it; the view's own bounds and radius clip it.
             CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -420,7 +420,7 @@ extension NodeView {
         applyBoxMask()
         // What the plan just decided is what `wantsUpdateLayer` answers
         // until something it reads changes.
-        layerPaintCache = (hasBoxPaint && p.drawn) || (kind == "image" && symbolView == nil && raster != nil && imageLayer == nil)
+        layerPaintCache = (hasBoxPaint && p.drawn) || (kind == "image" && !hasSymbolLeaf && raster != nil && imageLayer == nil)
     }
 }
 #endif
