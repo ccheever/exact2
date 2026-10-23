@@ -91,6 +91,27 @@ final class ReplyPumpTests: XCTestCase {
         }
     }
 
+    func testEmptyScrollAndTimerBatchesSkipPresentationWhileAReplyParses() {
+        let session = ExactApp.shared.makeSession(label: "reply-scroll")
+        defer { session.destroy() }
+        session.clock = 0
+        let release = DispatchSemaphore(value: 0)
+        Owner.shared.post { XCTAssertEqual(release.wait(timeout: .now() + 5), .success) }
+        session.pumpReplies()
+        let before = session.appliedBatches
+        let empty = Batch(ops: [], timers: false, motion: false, clock: nil, error: nil)
+        XCTAssertTrue(session.changesNothing(empty))
+        for _ in 0..<10 {
+            session.applyUnlessEmpty(empty, scrolled: true)
+            session.applyUnlessEmpty(empty, timer: true)
+        }
+        XCTAssertEqual(session.appliedBatches, before, "an unpublished reply must not force empty presenter passes")
+        XCTAssertEqual(session.repliesInFlight, 1)
+        release.signal()
+        session.drainFill()
+        XCTAssertFalse(session.ownerInFlight)
+    }
+
     func testRepliesLandBeforeALaterBatchAndOldGenerationsAreDropped() {
         let session = ExactApp.shared.makeSession(label: "reply-order")
         defer { session.destroy() }
