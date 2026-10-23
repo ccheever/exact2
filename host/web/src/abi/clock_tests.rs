@@ -117,3 +117,139 @@ fn an_input_the_pages_clock_overtook_is_presented_at_the_inputs_time() {
     // a hold there.
     assert_eq!(host.motion_now(), 2.0);
 }
+
+#[test]
+fn a_mixed_set_keeps_its_parked_request_pending_until_release_or_supersession() {
+    use exact_data::Mixed;
+    use exact_runner::{Answer, Dispatch, Placement, Store, Work};
+
+    struct Numbers(Placement);
+    impl DataSource for Numbers {
+        fn query(&mut self, _: &str, args: &[Value]) -> Result<Value, DataError> {
+            Ok(args[0].clone())
+        }
+        fn placement(&self) -> Placement {
+            self.0
+        }
+        fn grants(&self) -> &str {
+            "secret.keep shared"
+        }
+    }
+    let mut data = Mixed::new(
+        Numbers(Placement::Worker),
+        Numbers(Placement::Main),
+        &[],
+        &["number"],
+    )
+    .unwrap();
+    let mut store = Store::new(data.grants(), []);
+    let args = [Value::Number(99.)];
+    let Answer::Later(reserved) = data.answer(&mut store, "number", &args).unwrap() else {
+        panic!("the ordered call must reserve a turn")
+    };
+    let Dispatch::Run(Work::Now(work)) = data.dispatch(reserved.continuation.unwrap(), &store)
+    else {
+        panic!("the main child's turn must run inline")
+    };
+    // Keep this turn's reply outside the host. The runner's resource must
+    // wait behind it in Mixed, with no browser operation to wait on.
+    let outcome = work();
+    let plan = contract::compile(
+        "component App\n  state n = 1\n  resource value = number(n) as shape number\n  action next\n    n = n + 1\n  view\n    button \"Next\" press=next testId=\"next\"\n",
+    )
+    .unwrap()
+    .encode();
+    let mut bridge = Bridge::new();
+    assert_eq!(bridge.requests_pending(), 0);
+    let len = bridge.boot(&plan, data, 400., 400., "/");
+    let batch = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(!batch.contains("\"op\":\"request\""), "{batch}");
+    assert!(!batch.contains("\"op\":\"continue\""), "{batch}");
+    assert_eq!(bridge.requests_pending(), 1);
+    let host = bridge.host.as_mut().unwrap();
+    let ticket = host.runner().in_flight()[0].1;
+    assert!(host.runner().held_requests().is_empty());
+    let kernel = host.runner().kernel();
+    let next = kernel
+        .node_by_key(kernel.find_by_test_id("next")[0])
+        .unwrap()
+        .id;
+    bridge.dispatch(next, 0, 0, 0.);
+    assert_eq!(bridge.request_active(ticket as f64), 0);
+    assert_eq!(bridge.requests_pending(), 1, "the replacement still waits");
+    assert_ne!(
+        bridge.host.as_ref().unwrap().runner().in_flight()[0].1,
+        ticket
+    );
+    bridge
+        .host
+        .as_mut()
+        .unwrap()
+        .runner_mut()
+        .data()
+        .parse(&mut store, "number", &args, outcome)
+        .unwrap();
+    bridge.advance(0., 0);
+    assert_eq!(bridge.requests_pending(), 0);
+    assert_eq!(
+        bridge.host.as_ref().unwrap().runner().resource("value"),
+        Some(&Value::Number(2.))
+    );
+}
+
+#[test]
+fn pending_requests_exclude_declared_holds_and_streams_after_their_first_message() {
+    use exact_runner::{Answer, Outcome, Request, Store};
+
+    struct Network;
+    impl DataSource for Network {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            unreachable!()
+        }
+        fn answer(
+            &mut self,
+            _: &mut Store,
+            source: &str,
+            _: &[Value],
+        ) -> Result<Answer, DataError> {
+            let request = Request::get("https://example.test/events");
+            Ok(match source {
+                "held" => Answer::Later(request.held()),
+                "stream" => Answer::stream(request),
+                _ => Answer::Later(request),
+            })
+        }
+        fn parse(
+            &mut self,
+            _: &mut Store,
+            _: &str,
+            _: &[Value],
+            _: Outcome,
+        ) -> Result<Answer, DataError> {
+            Ok(Answer::Now(Value::Number(1.)))
+        }
+    }
+    for source in ["held", "stream", "device"] {
+        let plan = contract::compile(&format!("component App\n  resource value = {source}() as shape number\n  view\n    text \"x\"\n")).unwrap().encode();
+        let mut bridge = Bridge::new();
+        bridge.boot(&plan, Network, 400., 400., "/");
+        assert_eq!(bridge.requests_pending(), u32::from(source != "held"));
+        let host = bridge.host.as_mut().unwrap();
+        let ticket = host.runner().pending()[0].1;
+        if source == "stream" {
+            host.runner_mut()
+                .fulfill(ticket, Outcome::Message(Default::default()))
+                .unwrap();
+        } else if source == "device" {
+            host.runner_mut()
+                .hold_request(ticket, "auth", "value", "{}");
+        } else {
+            assert_eq!(
+                host.runner().held_requests(),
+                vec![("value".into(), ticket)]
+            );
+        }
+        assert_eq!(bridge.request_active(ticket as f64), 1);
+        assert_eq!(bridge.requests_pending(), 0);
+    }
+}
