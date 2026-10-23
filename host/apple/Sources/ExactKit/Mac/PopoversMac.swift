@@ -61,6 +61,16 @@ final class NativePopover: NSObject, NSPopoverDelegate {
         popover.contentSize = home.size
         popover.delegate = self
     }
+    /// Where it points while shown, by its margins (the gap to its invoker):
+    /// the view it was shown against, and the rectangle for given margins in it.
+    var positioning: (view: NSView, rect: (PositionArea.Margins) -> NSRect)?
+    var margins = PositionArea.Margins()
+    /// Its margins changed while shown: the gap to its invoker follows.
+    func reanchor(_ margins: PositionArea.Margins) {
+        guard margins != self.margins else { return }
+        self.margins = margins
+        if let positioning, popover.isShown { popover.positioningRect = positioning.rect(margins) }
+    }
     /// The content's size, as layout returned it.
     func fit(_ size: CGSize) {
         guard size.width > 0, size.height > 0, popover.contentSize != size else { return }
@@ -189,6 +199,7 @@ extension MenuHost {
             // Its margins as they are now: a change while open resizes it too.
             let margins = pop.map(PositionArea.margins(of:)) ?? margins
             native?.fit(CGSize(width: size.width - margins.left - margins.right, height: size.height - margins.top - margins.bottom))
+            native?.reanchor(margins)
         }
         // A presenter with no session lays nothing out again: the popover keeps the page's box.
         if presenter.blocks.used[pop.id] == nil { pop.setFrameOrigin(.zero) }
@@ -196,18 +207,26 @@ extension MenuHost {
         // The author's margin stands between the popover and its invoker: the
         // anchor's rectangle moved out by it, in the window's content view,
         // since AppKit keeps a rectangle to the view it is given in.
-        let gap = edge == .minY ? margins.bottom : edge == .maxY ? margins.top : edge == .maxX ? margins.left : margins.right
-        var (at, rect) = (view, anchor)
-        if gap > 0, view.isFlipped, let content = window.contentView {
+        // A margin changed while it is shown moves the rectangle in the same view.
+        let content = view.isFlipped ? window.contentView : nil
+        let at: NSView = margins.gap(edge) > 0 ? content ?? view : view
+        let pointing = { [weak view, weak at] (margins: PositionArea.Margins) -> NSRect in
+            guard let view, let at else { return anchor }
+            let gap = view.isFlipped ? margins.gap(edge) : 0
+            var rect = anchor
             switch edge {
             case .minY: rect.origin.y -= gap; rect.size.height += gap
             case .maxY: rect.size.height += gap
             case .maxX: rect.size.width += gap
             default: rect.origin.x -= gap; rect.size.width += gap
             }
-            (at, rect) = (content, content.convert(rect, from: view))
+            return at === view ? rect : at.convert(rect, from: view)
         }
+        let rect = pointing(margins)
+        native.positioning = (at, pointing)
+        native.margins = margins
         if Self.usesToolbarAnchor(pop), let item = presenter.toolbar.items[source.id], window.toolbar?.items.contains(where: { $0 === item }) == true {
+            native.positioning = nil // a toolbar item's popover points at the item
             native.popover.show(relativeTo: item)
         } else {
             native.popover.show(relativeTo: rect, of: at, preferredEdge: at.isFlipped ? edge : Self.unflipped(edge))
