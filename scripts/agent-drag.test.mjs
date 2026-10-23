@@ -481,3 +481,22 @@ test('a hold whose ops moved the clock moves it only by the rest', async () => {
   expect(e.s.now).toBe(2200);
   expect(e.ran).toEqual(['clock +1200 real row']);
 });
+
+test('a scripted drag validates every leg and its complete duration', async () => {
+  const { dragArguments } = await import('./agent-drag.mjs');
+  expect(() => dragArguments({ dx: 0, dy: 40, hold: 300, path: [{ dx: 0, dy: -40, over: 0 }] })).toThrow('over > 0');
+  expect(() => dragArguments({ dx: 0, dy: 40, hold: 6000, path: [{ dx: 0, dy: -40, hold: 6000 }] })).toThrow('gesture lasts past');
+});
+
+
+test('CLI path reads belong to each held leg and malformed paths refuse before injection', async () => {
+  const { parseDrag } = await import('./agent-drag.mjs');
+  const s = { state: async () => 'held' };
+  const drag = parseDrag(s, '0 120 over 300 hold 500 during "state" then 0 -120 over 300 hold 500 during "state"');
+  expect(drag.path).toHaveLength(1);
+  expect(drag.path[0]).toEqual(expect.objectContaining({ dx: 0, dy: -120, over: 300, hold: 500 }));
+  expect(await drag.during[0]()).toBe('held');
+  expect(await drag.path[0].during[0]()).toBe('held');
+  expect(() => parseDrag(s, '0 120 hold 500 during "tap other" then 0 -120')).toThrow('not a read');
+  expect(() => parseDrag(s, '0 120 then 0')).toThrow('finite');
+});

@@ -47,7 +47,7 @@ try {
     process.env.EXACT_SIM = ownedSim;
   }
   const device = chooseSimulator(process.env.EXACT_SIM);
-  if (device.type !== 'iPhone-17-Pro') throw Error(`ios-touch refuses ${device.name} (${device.type}): the Island hold and Lock Screen swipe points were measured on iPhone 17 Pro`);
+
   console.log(`ios-touch: ${device.name} ${device.udid}, ${device.runtime}`);
 if (argv.includes('--build')) {
   const built = spawnSync('bun', ['host/apple/build.mjs', '--ios', 'caltrain-apple', '--no-install'], { cwd: ROOT, stdio: 'inherit' });
@@ -88,6 +88,17 @@ for (const timing of ['agent', 'platform']) {
     const y1 = await row();
     check(dragged.delivery === 'platform' && dragged.touch?.moved > 0 && y0 - y1 > 150, `${timing}: a real drag of 250 pt moved the stations ${y0 - y1} pt: ${JSON.stringify(dragged)}`);
     console.log(`${timing}: drag moved the stations ${y0 - y1} pt in ${dragged.touch?.moved} moves`);
+    const checkpoints = [];
+    const heldRow = async () => { const y = await row(); checkpoints.push(y); return y; };
+    const reversed = await s.tap('stations-screen', { drag: {
+      dx: 0, dy: 120, over: 300, hold: 500, during: [heldRow],
+      path: [{ dx: 0, dy: -120, over: 300, hold: 500, during: [heldRow] }],
+    } });
+    check(reversed.delivery === 'platform' && reversed.touch?.moved > 0 &&
+      Math.abs(reversed.touch?.travel?.[1]) < 2 && checkpoints.length === 2 && checkpoints[0] - checkpoints[1] > 70,
+      `${timing}: held reversal did not keep one touch and move back: ${JSON.stringify({reversed, checkpoints})}`);
+    console.log(`${timing}: held reversal checkpoints ${JSON.stringify(checkpoints)}, travel ${JSON.stringify(reversed.touch?.travel)}`);
+
     await s.type('station-search', 'Palo');
     await tap('station-paloalto');
     if (timing === 'platform') await s.clock('settle');
@@ -160,7 +171,8 @@ if (argv.includes('--build')) {
   const built = spawnSync('bun', ['host/apple/build.mjs', '--ios', 'caltrain-apple', '--widget-gallery', '--no-install'], { cwd: ROOT, stdio: 'inherit' });
   if (built.status !== 0) throw Error('activity archive: the gallery build failed');
 }
-await archiveActivities(device.udid, check);
+if (device.type === 'iPhone-17-Pro') await archiveActivities(device.udid, check);
+else console.log(`activity archive: skipped on ${device.type}; Island and Lock Screen points require iPhone 17 Pro`);
 } catch (error) {
   check(false, error.message);
 } finally {

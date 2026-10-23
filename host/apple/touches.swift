@@ -105,6 +105,20 @@ final class ExactTouches: XCTestCase {
                 // Play the drag through the synthesizer, as a tap, on the app's display; the public call is the fallback
                 let fixed = { (key: String) in (req[key] as? [Double]).flatMap { $0.count == 2 && $0.allSatisfy(\.isFinite) ? CGPoint(x: $0[0], y: $0[1]) : nil } }
                 let size = (req["display"] as? [Double]).flatMap { $0.count == 2 ? CGSize(width: $0[0], height: $0[1]) : nil }
+                if let legs = req["path"] as? [[String: Any]] {
+                    guard let from = fixed("screen"), !legs.isEmpty, legs.count <= 8 else { session.send(["error": "path needs a screen start and one to eight legs"]); continue }
+                    var points: [(CGPoint, Double, Double)] = []
+                    for leg in legs {
+                        guard let to = leg["to"] as? [Double], to.count == 2, to.allSatisfy(\.isFinite),
+                              let over = leg["over"] as? Double, let held = leg["hold"] as? Double,
+                              [over, held].allSatisfy({ $0.isFinite && $0 >= 0 }) else { break }
+                        points.append((CGPoint(x: to[0], y: to[1]), over, held))
+                    }
+                    guard points.count == legs.count, press + points.reduce(0, { $0 + $1.1 + $1.2 }) <= 10 else { session.send(["error": "invalid path or duration past 10 s"]); continue }
+                    let outcome = Synthesizer.path(from: from, legs: points, press: press, display: size.flatMap(Displays.showing), bounds: size)
+                    guard outcome == .injected else { session.send(["error": "XCTest's synthesizer did not inject the complete path; no fallback was injected"]); continue }
+                    session.send(["done": true, "injected": ["start": start, "end": Date().timeIntervalSince1970 * 1000, "via": "synthesizer"]]); continue
+                }
                 if let from = fixed("screen"), let to = fixed("screenTo") {
                     let outcome = Synthesizer.drag(from: from, to: to, press: press, velocity: velocity, hold: hold, display: size.flatMap(Displays.showing), bounds: size)
                     if outcome == .unfinished { session.send(["error": "XCTest's event synthesizer did not finish the drag in time; nothing more was injected"]); continue }
@@ -255,18 +269,31 @@ enum Synthesizer {
     /// that stays on the display, `bounds` either way round, taller than wide
     /// as its fixed portrait space is.
     static func drag(from: CGPoint, to: CGPoint, press: Double, velocity: Double, hold: Double, display: Int?, bounds: CGSize?) -> Outcome {
-        let distance = Double(hypot(to.x - from.x, to.y - from.y)), travel = velocity > 0 ? distance / velocity : 0
-        let moved = press + travel, lift = moved + hold, step = 1.0 / 30, still = max(moved, lift - 0.15)
-        var moves = (press > 0 ? [(from, press)] : []) + (distance > 0 ? [(to, moved)] : [])
-        if distance > 0 {
-            var across = CGPoint(x: to.x - (to.y - from.y) / CGFloat(distance), y: to.y + (to.x - from.x) / CGFloat(distance))
-            let fixed = bounds.map { CGSize(width: min($0.width, $0.height), height: max($0.width, $0.height)) }
-            if let fixed, !CGRect(origin: .zero, size: fixed).contains(across) { across = CGPoint(x: 2 * to.x - across.x, y: 2 * to.y - across.y) }
-            if still > moved { moves.append((to, still)) }
-            // Steps while the last one's return to `to` comes half a step or more before the lift (1 ms of slack for rounding)
-            for t in stride(from: still + step, through: lift - 1.5 * step + 0.001, by: 2 * step) { moves += [(across, t), (to, t + step)] }
+        let distance = Double(hypot(to.x - from.x, to.y - from.y))
+        return path(from: from, legs: [(to, velocity > 0 ? distance / velocity : 0, hold)], press: press, display: display, bounds: bounds)
+    }
+
+    /// All legs share one pointer path and one lift. Every hold ends with the same resting samples as a straight drag.
+    static func path(from: CGPoint, legs: [(CGPoint, Double, Double)], press: Double, display: Int?, bounds: CGSize?) -> Outcome {
+        var moves: [(CGPoint, Double)] = press > 0 ? [(from, press)] : []
+        var start = from, offset = press
+        for (index, leg) in legs.enumerated() {
+            let (to, travel, hold) = leg
+            let distance = Double(hypot(to.x - start.x, to.y - start.y))
+            let moved = offset + travel, lift = moved + hold, step = 1.0 / 30, still = max(moved, lift - 0.15)
+            if distance > 0 { moves.append((to, moved)) }
+            if distance > 0 {
+                var across = CGPoint(x: to.x - (to.y - start.y) / CGFloat(distance), y: to.y + (to.x - start.x) / CGFloat(distance))
+                let fixed = bounds.map { CGSize(width: min($0.width, $0.height), height: max($0.width, $0.height)) }
+                if let fixed, !CGRect(origin: .zero, size: fixed).contains(across) { across = CGPoint(x: 2 * to.x - across.x, y: 2 * to.y - across.y) }
+                if still > moved { moves.append((to, still)) }
+                for t in stride(from: still + step, through: lift - 1.5 * step + 0.001, by: 2 * step) { moves += [(across, t), (to, t + step)] }
+            }
+            // A following move must start after the hold, rather than stretching back to the previous sample.
+            if hold > 0 && index < legs.count - 1 { moves.append((to, lift)) }
+            start = to; offset = lift
         }
-        return touch(from, moves: moves, lift: lift, display: display, within: 5 + lift)
+        return touch(from, moves: moves, lift: offset, display: display, within: 5 + offset)
     }
 
     /// One touch: down at `at`, moved to each point at its offset in seconds,
