@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { open } from '../../scripts/agent.mjs';
 import { checkOp, ratio } from '../../scripts/agent-check.mjs';
+import { waitAtMost } from '../../scripts/agent-wire.mjs';
 
 // Build first with `bun host/web/build.mjs photo-editor`.
 for (const scheme of ['light', 'dark']) {
@@ -10,6 +11,23 @@ for (const scheme of ['light', 'dark']) {
       env: { EXACT_AGENT_EPHEMERAL_PORT: '1' } });
     try {
       await session.prefer({ 'prefers-color-scheme': scheme });
+      await session.clock('settle');
+      // Module attachment settles before the bundled photo's load event.
+      await waitAtMost(session.carrier.evaluate(() => new Promise((resolve, reject) => {
+        const image = document.querySelector('[data-testid="editor"]').shadowRoot?.querySelector('img');
+        if (!image) return reject(new Error('Missing editor image'));
+        const finished = () => {
+          image.removeEventListener('load', finished);
+          image.removeEventListener('error', finished);
+          if (image.naturalWidth > 0) resolve();
+          else reject(new Error('Editor image failed to load'));
+        };
+        if (image.complete) finished();
+        else {
+          image.addEventListener('load', finished);
+          image.addEventListener('error', finished);
+        }
+      })), 10000, () => { throw new Error('Editor image did not load within 10 seconds'); });
       await session.clock('settle');
       const readPaint = () => {
         const node = id => document.querySelector(`[data-testid="${id}"]`);
