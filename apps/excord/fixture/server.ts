@@ -1,16 +1,21 @@
 #!/usr/bin/env bun
 // A Discord stand-in for tests and agent drives (llp/0001 §4.4): the user gateway (zlib-stream or
 // text) and the REST paths Excord uses, over the seeded world, plus `/control/*` to inject traffic.
-// `bun apps/excord/fixture/server.ts [--port 4790] [--seed 1]`; app.ts's `origin` points here.
-// POST /control/clock {advance_ms} advances wall time by an offset for timestamps, nonce expiry,
+// `bun apps/excord/fixture/server.ts --world transcript --reset-on-identify`; app.ts's `origin` points here.
+// POST /control/clock {advance_ms} advances the selected clock for timestamps, nonce expiry,
 // rate limits and reaction batches, flushing due batches before returning. Reset clears the offset.
 // With passive capabilities, full guild events require subscribeAll, POST /control/subscribe
 // {guild_id} after login, or op 14 {guild_id} / op 37 {subscriptions: {[guild_id]: {}}}.
 // Either subscription opcode accepts either shape.
+// POST /control/hold-sends {on} holds the app's sends until released, in order.
 // POST /control/heartbeat-request asks every socket for op 1; POST /control/react-many
 // {channel_id, message_id, emoji, user_ids} adds reactions and flushes their batch immediately.
 import { constants, createDeflate } from 'node:zlib';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { ServerWebSocket } from 'bun';
+import { emojiNames, WORLD_NOW } from './transcript-content.ts';
+import { createTranscriptWorld } from './transcript-world.ts';
+import { inject, type InjectedDispatch } from './inject.ts';
 import {
   createMessageGenerator, createWorld, emptyMessage, fileAssets, imageArtwork, pageMessages,
   NONCE_WINDOW_MS, recentNonceMessage, replySnapshot, seededRandom, snowflakeFromMs,
@@ -83,6 +88,9 @@ export interface FixtureOptions {
   port?: number;
   hostname?: string;
   seed?: number;
+  world?: 'default' | 'transcript';
+  clock?: 'wall' | 'fixed'; // Default: fixed for transcript, wall otherwise.
+  resetOnIdentify?: boolean;
   heartbeatInterval?: number;
   nonceWindowMs?: number; // Default: five minutes, measured on the fixture clock.
   reactionDebounceMs?: number; // Default: 500 ms from the first add in each message's batch.
@@ -169,7 +177,7 @@ export function syntheticGuild(world: World, index: number, randomBytes = 0): Gu
 export function readyPayload(world: World, sessionId: string, gatewayUrl: string) {
   return {
     v: 9, user: world.me,
-    guilds: world.guilds.map(guild => guild.id === world.lazyGuildId
+    guilds: world.guilds.map(guild => world.lazyGuildId && guild.id === world.lazyGuildId
       ? { id: guild.id, unavailable: true } : readyGuild(guild)),
     private_channels: world.private_channels, users: world.users.filter(user => user.id !== world.me.id),
     read_state: world.read_state,
@@ -208,6 +216,8 @@ export function sizedReady(world: World, sessionId: string, gatewayUrl: string, 
 export function startFixture(options: FixtureOptions = {}) {
   const seed = options.seed ?? 1;
   const hostname = options.hostname ?? '127.0.0.1';
+  const fixedClock = (options.clock ?? (options.world === 'transcript' ? 'fixed' : 'wall')) === 'fixed';
+  const buildWorld = () => options.world === 'transcript' ? createTranscriptWorld(origin) : createWorld(seed, origin);
   const heartbeatInterval = options.heartbeatInterval ?? 41250;
   const nonceWindowMs = integer(options.nonceWindowMs, NONCE_WINDOW_MS);
   const reactionDebounceMs = integer(options.reactionDebounceMs, 500, 2147483647);
@@ -219,7 +229,7 @@ export function startFixture(options: FixtureOptions = {}) {
   let resetVersion = 0;
   let clockOffsetMs = 0, messageTimestamp = 0, messageSequence = 0, passiveUpdateCount = 0;
   let reactionTimer: ReturnType<typeof setTimeout> | undefined;
-  const nowMs = () => Date.now() + clockOffsetMs;
+  const nowMs = () => (fixedClock ? WORLD_NOW : Date.now()) + clockOffsetMs;
   const sockets = new Set<Socket>();
   const sessions = new Map<string, Session>();
   const buckets = new Map<string, Bucket>();
@@ -228,10 +238,18 @@ export function startFixture(options: FixtureOptions = {}) {
   const frames: FrameSize[] = [];
   const reactionUsers = new Map<string, Set<string>>();
   const burstTimers = new Map<ReturnType<typeof setTimeout>, () => void>();
+  const typingUsers = new Map<string, Set<string>>();
+  const failNext = new Set<string>();
+  // While held, a send's reply (and its MESSAGE_CREATE) waits for `hold-sends {on: false}`.
+  let holdSends = false;
+  const heldSends: (() => void)[] = [];
+  const releaseSends = () => { holdSends = false; for (const resume of heldSends.splice(0)) resume(); };
+  const injectionDispatches = new AsyncLocalStorage<InjectedDispatch[]>();
 
-  function nextMessage() {
-    const ms = nowMs();
+  function nextMessage(requested = nowMs()) {
+    let ms = Math.max(requested, messageTimestamp);
     messageSequence = ms === messageTimestamp ? messageSequence + 1 : 0;
+    if (messageSequence >= 2 ** 22) { ms++; messageSequence = 0; }
     messageTimestamp = ms;
     world.nextTimestamp = ms + 1;
     return { ms, id: snowflakeFromMs(ms, messageSequence) };
@@ -241,6 +259,8 @@ export function startFixture(options: FixtureOptions = {}) {
     const serialized = typeof frame === 'string' ? frame : JSON.stringify(frame);
     const meta = JSON.parse(serialized);
     const parts = frameParts;
+    const captured = injectionDispatches.getStore();
+    const sessionId = socket.data.session?.id;
     const result = socket.data.queue.then(async () => {
       if (socket.data.closed) return 0;
       const compressed = socket.data.compressed;
@@ -257,6 +277,9 @@ export function startFixture(options: FixtureOptions = {}) {
           compressed, part: i + 1, parts: pieces.length });
       }
       if (frames.length > 512) frames.splice(0, frames.length - 512);
+      if (captured && meta.op === 0 && sessionId) {
+        captured.push({ session_id: sessionId, s: meta.s, t: meta.t, d: meta.d });
+      }
       return bytes.byteLength;
     });
     socket.data.queue = result.catch(() => { socket.close(1011, 'Fixture compression failed'); });
@@ -301,12 +324,13 @@ export function startFixture(options: FixtureOptions = {}) {
   function scheduleReactions() {
     clearTimeout(reactionTimer);
     reactionTimer = undefined;
+    if (fixedClock) return;
     let next = Infinity;
     for (const session of sessions.values()) for (const batch of session.reactions.values()) {
       next = Math.min(next, batch.dueAt);
     }
-    if (next !== Infinity && !closed) reactionTimer = setTimeout(
-      () => flushReactions().catch(() => {}), Math.max(0, next - nowMs()));
+    if (next !== Infinity && !closed) reactionTimer = injectionDispatches.exit(() => setTimeout(
+      () => flushReactions().catch(() => {}), Math.max(0, next - nowMs())));
   }
 
   function flushReactions(): Promise<number[]> {
@@ -347,8 +371,15 @@ export function startFixture(options: FixtureOptions = {}) {
     return Promise.all(pending);
   }
 
-  function broadcast(event: string, data: any): Promise<number[]> {
-    if (event === 'MESSAGE_REACTION_ADD') return broadcastReactionAdds([data]);
+  function broadcast(event: string, data: any, immediate = false): Promise<number[]> {
+    if (event === 'MESSAGE_REACTION_ADD') {
+      const pending: Promise<number>[] = [];
+      if (immediate) for (const session of sessions.values()) {
+        if (!passiveVersion(session, data.guild_id)) pending.push(...flushReactionBatch(session, `${data.channel_id}/${data.message_id}`));
+      }
+      const added = broadcastReactionAdds([data], immediate);
+      return pending.length ? Promise.all([Promise.all(pending), added]).then(groups => groups.flat()) : added;
+    }
     const pending: Promise<number>[] = [];
     const guildId = data.guild_id ?? world.channels.find(channel => channel.id === data.channel_id)?.guild_id;
     for (const session of sessions.values()) {
@@ -378,6 +409,7 @@ export function startFixture(options: FixtureOptions = {}) {
   }
 
   async function login(socket: Socket, capabilities: number) {
+    const version = resetVersion;
     const session: Session = { id: `fixture-${seed}-${++sessionCounter}`, seq: 0, dispatches: [], capabilities,
       subscribedGuilds: new Set(options.subscribeAll ? world.guilds.map(guild => guild.id) : []),
       subscriptions: [], passiveUpdates: 0, reactions: new Map() };
@@ -388,17 +420,20 @@ export function startFixture(options: FixtureOptions = {}) {
     loginBytes = 0;
     const ready = sizedReady(world, session.id, gatewayUrl, session.seq + 1, size);
     let sent = await send(socket, dispatch(session, 'READY', ready.d));
+    if (version !== resetVersion || socket.data.closed) return;
     sent += await send(socket, dispatch(session, 'READY_SUPPLEMENTAL', {
       guilds: world.guilds.map(guild => ({ id: guild.id, voice_states: [], embedded_activities: [] })),
       merged_members: world.guilds.map(guild => guild.members),
       merged_presences: { guilds: world.guilds.map(() => []), friends: [] }, lazy_private_channels: [],
     }));
-    sent += await send(socket, dispatch(session, 'GUILD_CREATE', world.guilds.find(guild => guild.id === world.lazyGuildId)));
+    if (world.lazyGuildId) {
+      sent += await send(socket, dispatch(session, 'GUILD_CREATE', world.guilds.find(guild => guild.id === world.lazyGuildId)));
+    }
     while (!socket.data.closed && sent <= burst && burst > 0) {
       const guild = syntheticGuild(world, syntheticCounter++, Math.min(200000, burst - sent + 4096));
       sent += await send(socket, dispatch(session, 'GUILD_CREATE', guild));
     }
-    loginsDone++;
+    if (version === resetVersion && !socket.data.closed) loginsDone++;
   }
 
   async function receive(socket: Socket, raw: string | Buffer) {
@@ -423,6 +458,7 @@ export function startFixture(options: FixtureOptions = {}) {
     if (frame.d?.token !== world.token) { socket.close(4004, 'Authentication failed'); return; }
     if (socket.data.session) { socket.close(4005, 'Already authenticated'); return; }
     if (frame.op === 2) {
+      if (options.resetOnIdentify) reset(socket);
       identifyCount++;
       await login(socket, Number.isSafeInteger(frame.d.capabilities) ? frame.d.capabilities : 0);
       return;
@@ -454,14 +490,14 @@ export function startFixture(options: FixtureOptions = {}) {
     return found;
   }
 
-  function createMessage(channelId: string, content: string, authorId = world.me.id, body: any = {}): Message {
+  function createMessage(channelId: string, content: string, authorId = world.me.id, body: any = {}, at?: number): Message {
     const destination = channel(channelId);
     const author = world.users.find(user => user.id === authorId);
     if (!author) throw new HttpError(400, 'Unknown author');
     const reference = body.message_reference;
     const earlier = reference ? message(channelId, textField(reference, 'message_id')) : undefined;
     if (reference?.channel_id && reference.channel_id !== channelId) throw new HttpError(400, 'Reply must be in this channel');
-    const { ms, id } = nextMessage();
+    const { ms, id } = nextMessage(at);
     const created = emptyMessage(destination, author, ms, content);
     created.id = id;
     if (body.nonce !== undefined) created.nonce = body.nonce;
@@ -475,8 +511,11 @@ export function startFixture(options: FixtureOptions = {}) {
     created.mention_roles = world.guilds.flatMap(guild => guild.roles)
       .filter(role => content.includes(`<@&${role.id}>`)).map(role => role.id);
     created.mention_everyone = /@(?:everyone|here)\b/.test(content);
-    world.messages[channelId].push(created);
-    destination.last_message_id = created.id;
+    const history = world.messages[channelId];
+    const later = history.findIndex(message => BigInt(message.id) > BigInt(created.id));
+    history.splice(later < 0 ? history.length : later, 0, created);
+    destination.last_message_id = history.at(-1)!.id;
+    typingUsers.get(channelId)?.delete(authorId);
     return created;
   }
 
@@ -513,7 +552,7 @@ export function startFixture(options: FixtureOptions = {}) {
     return { id: custom?.[2] ?? null, name: custom?.[1] ?? value };
   }
 
-  function changeReaction(channelId: string, id: string, emoji: Emoji, userId: string, add: boolean): ReactionAdd | undefined {
+  function changeReaction(channelId: string, id: string, emoji: Emoji, userId: string, add: boolean, repeat = false): ReactionAdd | undefined {
     const current = message(channelId, id);
     if (!world.users.some(user => user.id === userId)) throw new HttpError(400, 'Unknown user');
     let reaction = current.reactions.find(value => value.emoji.id === emoji.id && value.emoji.name === emoji.name);
@@ -527,7 +566,7 @@ export function startFixture(options: FixtureOptions = {}) {
       }
       reactionUsers.set(key, users);
     }
-    if (users.has(userId) === add) return;
+    if (users.has(userId) === add && !repeat) return;
     if (add) users.add(userId); else users.delete(userId);
     if (!reaction) {
       reaction = { emoji, count: 0, me: false, count_details: { burst: 0, normal: 0 },
@@ -554,6 +593,8 @@ export function startFixture(options: FixtureOptions = {}) {
     const destination = channel(channelId);
     const user = world.users.find(value => value.id === userId);
     if (!user) throw new HttpError(400, 'Unknown user');
+    if (!typingUsers.has(channelId)) typingUsers.set(channelId, new Set());
+    typingUsers.get(channelId)!.add(userId);
     await broadcast('TYPING_START', { channel_id: channelId, user_id: userId,
       timestamp: Math.floor(nowMs() / 1000), ...(destination.guild_id
         ? { guild_id: destination.guild_id, member: world.guilds.find(guild => guild.id === destination.guild_id)
@@ -606,8 +647,56 @@ export function startFixture(options: FixtureOptions = {}) {
       stop_acks: stopAcks, ready_bytes: readyBytes, login_bytes: loginBytes, split_parts: frameParts };
   }
 
+  function reset(keep?: Socket) {
+    resetVersion++;
+    for (const [timer, resolve] of burstTimers) { clearTimeout(timer); resolve(); }
+    burstTimers.clear();
+    for (const socket of sockets) if (socket !== keep) {
+      socket.data.closed = true; socket.close(1000, 'Fixture reset');
+    }
+    sockets.clear(); sessions.clear(); buckets.clear(); reactionUsers.clear();
+    typingUsers.clear(); failNext.clear(); releaseSends();
+    clearTimeout(reactionTimer); reactionTimer = undefined;
+    clockOffsetMs = messageTimestamp = messageSequence = passiveUpdateCount = 0;
+    forced.length = requests.length = frames.length = 0;
+    connectionCounter = sessionCounter = identifyCount = resumeCount = loginsDone = 0;
+    readyBytes = loginBytes = 0; frameParts = 1; stopAcks = false; syntheticCounter = 10000;
+    world = buildWorld();
+    if (keep) {
+      keep.data.session = undefined;
+      keep.data.id = ++connectionCounter;
+      sockets.add(keep);
+    }
+  }
+
   async function control(name: string, body: any) {
     switch (name) {
+      case 'inject': {
+        const channelId = textField(body, 'channel_id');
+        channel(channelId);
+        const at = integer(body.at_ms, nowMs(), 8640000000000000 - 2500);
+        if (at < Date.UTC(2015, 0, 1)) throw new HttpError(400, 'Invalid message time');
+        const request = { channel_id: channelId, what: textField(body, 'what'),
+          near: body.near === undefined ? '' : textField(body, 'near'), at_ms: at };
+        const version = resetVersion;
+        const dispatches: InjectedDispatch[] = [];
+        await injectionDispatches.run(dispatches, () => inject(world, request, {
+          origin, typingUsers, failNext, remove, typing, broadcast,
+          isCurrent: () => version === resetVersion && !closed,
+          create: (channelId, content, authorId, at) => createMessage(channelId, content, authorId, {}, at),
+          react: async (channelId, id) => {
+            // Each menu click counts another add; the stand-in does not deduplicate reactors.
+            const added = changeReaction(channelId, id, { id: null, name: '✨' }, world.users[1].id, true, true);
+            if (added) await broadcast('MESSAGE_REACTION_ADD', added, true);
+          },
+          badRequest: message => { throw new HttpError(400, message); },
+        }));
+        return { ok: true, dispatches };
+      }
+      case 'hold-sends':
+        if (typeof body.on !== 'boolean') throw new HttpError(400, 'on must be a boolean');
+        if (body.on) holdSends = true; else releaseSends();
+        break;
       case 'clock':
         clockOffsetMs += integer(body.advance_ms, 0, 8640000000000000 - nowMs());
         await flushReactions();
@@ -644,6 +733,7 @@ export function startFixture(options: FixtureOptions = {}) {
           created.id = id;
           history.push(created);
           destination.last_message_id = created.id;
+          typingUsers.get(channelId)?.delete(created.author.id);
           ids.push(created.id);
           await broadcast('MESSAGE_CREATE', created);
         }
@@ -713,17 +803,7 @@ export function startFixture(options: FixtureOptions = {}) {
         break;
       }
       case 'reset':
-        resetVersion++;
-        for (const [timer, resolve] of burstTimers) { clearTimeout(timer); resolve(); }
-        burstTimers.clear();
-        for (const socket of sockets) { socket.data.closed = true; socket.close(1000, 'Fixture reset'); }
-        sockets.clear(); sessions.clear(); buckets.clear(); reactionUsers.clear();
-        clearTimeout(reactionTimer); reactionTimer = undefined;
-        clockOffsetMs = messageTimestamp = messageSequence = passiveUpdateCount = 0;
-        forced.length = requests.length = frames.length = 0;
-        connectionCounter = sessionCounter = identifyCount = resumeCount = loginsDone = 0;
-        readyBytes = loginBytes = 0; frameParts = 1; stopAcks = false; syntheticCounter = 10000;
-        world = createWorld(seed, origin);
+        reset();
         break;
       default: throw new HttpError(404, 'Unknown control endpoint');
     }
@@ -760,6 +840,8 @@ export function startFixture(options: FixtureOptions = {}) {
       return { status: 200, body: pageMessages(world.messages[channelId], query) };
     }
     if (!messageId && method === 'POST') {
+      if (holdSends) await new Promise<void>(resume => heldSends.push(resume));
+      if (failNext.delete(channelId)) throw new HttpError(500, 'Fixture failure');
       const body = await readBody(request), content = textField(body, 'content');
       if (body.nonce !== undefined && !['string', 'number'].includes(typeof body.nonce)) throw new HttpError(400, 'Invalid nonce');
       if (body.enforce_nonce && body.nonce !== undefined) {
@@ -826,7 +908,19 @@ export function startFixture(options: FixtureOptions = {}) {
       const json = (body: unknown, status = 200) => Response.json(body, { status, headers });
       if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
       const isRest = url.pathname === '/api/v9' || url.pathname.startsWith('/api/v9/');
-      const retry = isRest ? limitRequest(request.method, url.pathname, headers) : undefined;
+      const failingSend = request.method === 'POST' && /^\/api\/v9\/channels\/([^/]+)\/messages$/.exec(url.pathname);
+      const retry = isRest && !(failingSend && failNext.has(failingSend[1]))
+        ? limitRequest(request.method, url.pathname, headers) : undefined;
+      if (request.method === 'GET' && (url.pathname.startsWith('/media/') || url.pathname.startsWith('/emojis/'))) {
+        const media = /^\/media\/([a-z]+)\.png$/.exec(url.pathname);
+        const emoji = /^\/emojis\/(50[0-8])\.png$/.exec(url.pathname);
+        const name = media?.[1] ?? (emoji ? emojiNames[Number(emoji[1]) - 500] : undefined);
+        if (!name || !/^[a-z]+$/.test(name)) return json({ message: 'Unknown asset', code: 0 }, 404);
+        const file = Bun.file(`${import.meta.dir}/../assets/${media ? 'media' : 'emoji'}/${name}.png`);
+        if (!await file.exists()) return json({ message: 'Unknown asset', code: 0 }, 404);
+        headers.set('Content-Type', 'image/png');
+        return new Response(file, { headers });
+      }
       const dimensions = /^\/assets\/([1-9]\d{0,4})x([1-9]\d{0,4})\.svg$/.exec(url.pathname);
       if (dimensions) {
         headers.set('Content-Type', 'image/svg+xml');
@@ -881,7 +975,7 @@ export function startFixture(options: FixtureOptions = {}) {
   const host = hostname.includes(':') ? `[${hostname}]` : hostname;
   origin = `http://${host}:${server.port}`;
   gatewayUrl = `ws://${host}:${server.port}/`;
-  world = createWorld(seed, origin);
+  world = buildWorld();
   return {
     origin, gatewayUrl, control: `${origin}/control`, get world() { return world; },
     async close() {
@@ -904,11 +998,23 @@ if (import.meta.main) {
   const args = process.argv.slice(2);
   for (let i = 0; i < args.length; i++) {
     const flag = args[i];
-    if (flag !== '--port' && flag !== '--seed') throw new Error(`Unknown option: ${flag}`);
+    if (flag === '--reset-on-identify') { options.resetOnIdentify = true; continue; }
+    if (!['--port', '--seed', '--world', '--clock'].includes(flag)) throw new Error(`Unknown option: ${flag}`);
     if (args[i + 1] === undefined) throw new Error(`Missing value for ${flag}`);
+    if (flag === '--world') {
+      const world = args[++i];
+      if (world !== 'default' && world !== 'transcript') throw new Error('world must be default or transcript');
+      options.world = world; continue;
+    }
+    if (flag === '--clock') {
+      const clock = args[++i];
+      if (clock !== 'fixed' && clock !== 'wall') throw new Error('clock must be fixed or wall');
+      options.clock = clock; continue;
+    }
     const value = integer(args[++i], 0, flag === '--port' ? 65535 : 4294967295);
     if (flag === '--port') options.port = value; else options.seed = value;
   }
+  if (options.port === undefined && process.env.PORT !== undefined) options.port = integer(process.env.PORT, 4790, 65535);
   const fixture = startFixture(options);
   console.log(fixture.origin);
   for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, async () => {

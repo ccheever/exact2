@@ -1,41 +1,48 @@
-// Excord's transcript on the stand-in world (Excord LLP 0001 §3; `world.ts`). The
-// world's newest message is five minutes before this epoch; #general holds 10,000
-// messages with its last 37 unread, #help 1,200 with its last 260 unread.
+// Excord's transcript on the fixture server (Excord LLP 0001 §3, §4.4), over the
+// real protocol client: run `bun apps/excord/fixture/server.ts --world transcript
+// --reset-on-identify` first, so each launch's IDENTIFY starts from the same world.
+// The world's newest message is five minutes before this epoch; #general holds
+// 10,000 messages with its last 37 unread, #help 1,200 with its last 260 unread.
 // A test asserts what every host reports alike: the window (`anchor`, `win`), the
 // rows mounted, the reader's first visible row where nothing has just been
 // estimated. Where a property is a position on screen, a drive measures it.
+// The gateway's READY follows HELLO and IDENTIFY on real time, which no clock step
+// waits for: each launch lets 500 ms of it pass.
 epoch "2026-10-22T18:00:00Z"
 time-zone "America/Los_Angeles"
 
 test "a channel opens at its newest message, live (§3.1)"
+  clock +500 real
   tap "channel-general"
   clock settle
   expect state anchor == ""
   expect state away == false
   expect state win.hasAfter == false
-  expect tree has "message-0037262130000010000"
+  expect tree has "message-1562887009075210000"
   expect tree missing "jump-present"
 
 test "unread: the bar says how many since when, and lands on the New divider (§3.2)"
+  clock +500 real
   tap "channel-help"
   clock settle
-  expect text "unread-bar" == "260 new messages since 8:09 AM"
+  expect text "unread-bar" == "200+ new messages since 1:06 AM"
   expect tree missing "new-divider"
   tap "unread-bar"
   clock settle
   expect tree has "new-divider"
-  expect state anchor == "0037062287000000940"
+  expect state anchor == "1554504989743776684"
   expect state target == ""
   expect tree missing "unread"
 
 test "a channel reopens where its reader left it (§3.3)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
-  tap "transcript" into "0037258518100009964"
+  tap "transcript" into "1562735517454313196"
   clock settle
   expect state away == true
-  expect state anchor == "0037241759900009901"
+  expect state anchor == "1562032626728969901"
   back
   clock settle
   tap "channel-random"
@@ -44,29 +51,31 @@ test "a channel reopens where its reader left it (§3.3)"
   clock settle
   tap "channel-general"
   clock settle
-  expect state anchor == "0037241759900009901"
+  expect state anchor == "1562032626728969901"
   expect state away == true
-  expect tree has "message-0037258518100009964"
-  expect tree missing "message-0037262130000010000"
+  expect tree has "message-1562735517454313196"
+  expect tree missing "message-1562887009075210000"
 
 test "reading back moves the window a page ahead of the reader, who stays put (§3.4)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
-  tap "transcript" into "0037235381600009829"
+  tap "transcript" into "1561765100405139045"
   clock settle
-  expect state win.firstId == "0037186915100009701"
-  expect state win.rows.0 .key == "0037186915100009701"
-  expect tree has "message-0037235381600009829"
+  expect state win.firstId == "1559734913224156646"
+  expect state win.rows.0 .key == "1559734913224156646"
+  expect tree has "message-1561765100405139045"
   expect state win.hasAfter == true
 
 test "changes above the viewport leave the reader's row where it is (§3.5)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
-  tap "transcript" into "0037261654000009984"
+  tap "transcript" into "1562867046130132736"
   clock settle
-  expect state topKey == "0037261654000009984"
+  expect state topKey == "1562867046130132736"
   expect state topOffset == 0
   tap "fixture"
   tap "inject-edit-above"
@@ -81,20 +90,21 @@ test "changes above the viewport leave the reader's row where it is (§3.5)"
   tap "inject-delete-above"
   clock data
   clock settle
-  expect state topKey == "0037261654000009984"
+  expect state topKey == "1562867046130132736"
   expect state topOffset == 0
 
 test "a reply's original far back loads around it, lit, and Jump to Present returns (§3.6)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
-  tap "transcript" into "0037255874700009956"
+  tap "transcript" into "1562624645306263268"
   clock settle
-  tap "reply-to-0037255874700009956"
+  tap "reply-to-1562624645306263268"
   clock settle
-  expect state anchor == "0036207094100006756"
-  expect state highlight == "0036207094100006756"
-  expect tree has "message-0036207094100006756"
+  expect state anchor == "1518635600276626020"
+  expect state highlight == "1518635600276626020"
+  expect tree has "message-1518635600276626020"
   expect state win.hasAfter == true
   expect text "jump-present" == "Jump to Present"
   clock +3000
@@ -107,6 +117,7 @@ test "a reply's original far back loads around it, lit, and Jump to Present retu
   expect tree missing "jump-present"
 
 test "at the end a burst follows; nothing to jump to (§3.7)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -119,17 +130,18 @@ test "at the end a burst follows; nothing to jump to (§3.7)"
   expect tree missing "jump-present"
 
 test "away from the end nothing moves, and a pill counts what arrived (§3.8)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
-  tap "transcript" into "0037258518100009964"
+  tap "transcript" into "1562735517454313196"
   clock settle
   expect state away == true
   tap "fixture"
   tap "inject-burst"
   clock settle
-  expect state anchor == "0037241759900009901"
-  expect tree has "message-0037258518100009964"
+  expect state anchor == "1562032626728969901"
+  expect tree has "message-1562735517454313196"
   expect text "jump-present" == "6 new messages"
   tap "jump-present"
   clock settle
@@ -137,22 +149,26 @@ test "away from the end nothing moves, and a pill counts what arrived (§3.8)"
   expect tree missing "jump-present"
 
 test "a send shows at once, dimmed, and its confirmation keeps its row (§3.9)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
+  request POST "/control/hold-sends" {"on": true}
   type "composer" "Shipping the anchor fix now"
   tap "send"
-  clock data
+  clock +1
   expect text "composer" == ""
   expect state win.rows.199 .state == "pending"
-  expect state win.rows.199 .key == "0037262160000020002"
-  clock +350
+  expect state win.rows.199 .key == "1562888269480329216"
+  request POST "/control/hold-sends" {"on": false}
+  clock data
   clock settle
   expect state win.rows.199 .state == "sent"
-  expect state win.rows.199 .key == "0037262160000020002"
-  expect state win.rows.199 .id == "0037262160000020003"
+  expect state win.rows.199 .key == "1562888269480329216"
+  expect state win.rows.199 .id == "1562888267366400000"
 
 test "a failed send stays, marked, and Retry sends it (§3.9)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -163,15 +179,18 @@ test "a failed send stays, marked, and Retry sends it (§3.9)"
   clock +350
   clock settle
   expect state win.rows.199 .state == "failed"
-  tap "retry-0037262160000020002"
-  clock data
+  request POST "/control/hold-sends" {"on": true}
+  tap "Retry"
+  clock +1
   expect state win.rows.199 .state == "pending"
-  clock +350
+  request POST "/control/hold-sends" {"on": false}
+  clock data
   clock settle
   expect state win.rows.199 .state == "sent"
-  expect tree missing "failed-0037262160000020002"
+  expect tree missing "failed-1562888267366400000"
 
 test "Return sends and Shift-Return breaks the line (§3.12, §3.13)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -185,6 +204,7 @@ test "Return sends and Shift-Return breaks the line (§3.12, §3.13)"
   expect state win.rows.199 .plain == "first line\nsecond line"
 
 test "a draft survives switching channels and relaunching (§3.12)"
+  clock +500 real
   tap "channel-general"
   clock settle
   type "composer" "half a thought"
@@ -201,28 +221,31 @@ test "a draft survives switching channels and relaunching (§3.12)"
   back
   clock settle
   reload
+  clock +500 real
   tap "channel-general"
   clock settle
   expect text "composer" == "half a thought"
 
 test "one author within seven minutes is one group; a day change draws its date (§3.15)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
-  expect tree has "author-0037262028900009997"
-  expect tree missing "author-0037262057500009998"
-  tap "transcript" into "0037258455600009961"
+  expect tree has "author-1562882770722629389"
+  expect tree missing "author-1562883971870631694"
+  tap "transcript" into "1562732896249194217"
   clock settle
-  expect text "day-0037258455600009961" == "Oct 22, 2026"
-  expect tree missing "day-0037258480400009962"
+  expect text "day-1562732896249194217" == "Oct 22, 2026"
+  expect tree missing "day-1562733934096164586"
 
 // The reviews of the first commit (Sol, Grok): one test a finding.
 
 test "a send from history returns to the live tail and lands at its end (review: Sol 2, Grok 1)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
-  tap "transcript" into "0037235381600009829"
+  tap "transcript" into "1561765100405139045"
   clock settle
   expect state win.hasAfter == true
   type "composer" "Back to the present"
@@ -231,13 +254,14 @@ test "a send from history returns to the live tail and lands at its end (review:
   expect state anchor == ""
   expect state away == false
   expect state endGap == 0
-  expect tree has "message-0037262160000020002"
+  expect tree has "message-1562888267366400000"
 
 test "a send from a window pinned inside the tail shows at the end (review: Sol 2, Grok 1)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
-  tap "transcript" into "0037258518100009964"
+  tap "transcript" into "1562735517454313196"
   clock settle
   expect state away == true
   type "composer" "Still here"
@@ -245,9 +269,10 @@ test "a send from a window pinned inside the tail shows at the end (review: Sol 
   clock settle
   expect state anchor == ""
   expect state endGap == 0
-  expect tree has "message-0037262160000020002"
+  expect tree has "message-1562888267366400000"
 
 test "Edit starts from the message's Markdown, spoilers kept (review: Sol 1)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -255,11 +280,12 @@ test "Edit starts from the message's Markdown, spoilers kept (review: Sol 1)"
   tap "send"
   clock +350
   clock settle
-  tap "row-0037262160000020002" contextmenu
+  tap "row-1562888267366400000" contextmenu
   tap "menu-edit"
   expect text "composer" == "||secret|| and **bold**"
 
 test "an edit the server refuses keeps its text and says why (review: Sol 4)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -267,10 +293,10 @@ test "an edit the server refuses keeps its text and says why (review: Sol 4)"
   tap "send"
   clock +350
   clock settle
-  tap "row-0037262160000020002" contextmenu
+  tap "row-1562888267366400000" contextmenu
   tap "menu-edit"
   type "composer" "second try"
-  tap "row-0037262160000020002" contextmenu
+  tap "row-1562888267366400000" contextmenu
   tap "menu-delete"
   tap "delete-confirm"
   clock settle
@@ -280,6 +306,7 @@ test "an edit the server refuses keeps its text and says why (review: Sol 4)"
   expect tree has "edit-error"
 
 test "a send settles while its reader is in another channel (review: Sol 5)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -297,6 +324,7 @@ test "a send settles while its reader is in another channel (review: Sol 5)"
   expect state win.rows.199 .state == "sent"
 
 test "the unread jump survives the first unread message's deletion (review: Sol 6)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "fixture"
@@ -308,10 +336,11 @@ test "the unread jump survives the first unread message's deletion (review: Sol 
   expect state target == ""
 
 test "the pill counts arrivals; a deletion does not cancel one (review: Sol 7, Grok 3)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
-  tap "transcript" into "0037258518100009964"
+  tap "transcript" into "1562735517454313196"
   clock settle
   expect state away == true
   tap "fixture"
@@ -323,6 +352,7 @@ test "the pill counts arrivals; a deletion does not cancel one (review: Sol 7, G
   expect text "jump-present" == "1 new message"
 
 test "within one row's height of the end, a new message is followed (review: Sol 8, Grok 2)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -336,18 +366,20 @@ test "within one row's height of the end, a new message is followed (review: Sol
   expect tree missing "jump-present"
 
 test "a reply to a deleted message does not jump (review: Grok 5)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
-  tap "transcript" into "0037242607000009923"
+  tap "transcript" into "1562068155507943107"
   clock settle
-  expect state anchor == "0037241759900009901"
-  tap "reply-to-0037242607000009923"
+  expect state anchor == "1562032626728969901"
+  tap "reply-to-1562068155507943107"
   clock settle
-  expect state anchor == "0037241759900009901"
+  expect state anchor == "1562032626728969901"
   expect state highlight == ""
 
 test "what was read at the end is acknowledged (review: Grok 4)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -357,9 +389,10 @@ test "what was read at the end is acknowledged (review: Grok 4)"
   clock +2000
   back
   clock settle
-  expect state gateway.channels.0 .unread == 0
+  expect state channels.0 .unread == 0
 
 test "paging is not refused while another refresh is in flight (review: Grok 6)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -369,34 +402,36 @@ test "paging is not refused while another refresh is in flight (review: Grok 6)"
   tap "fixture"
   tap "inject-typing"
   clock data
-  tap "transcript" into "0037235381600009829"
+  tap "transcript" into "1561765100405139045"
   clock +400
   clock settle
-  expect state win.firstId == "0037186915100009701"
+  expect state win.firstId == "1559734913224156646"
 
 test "a jump whose history arrives later still lands on its target (review: Sol 3)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
-  tap "transcript" into "0037255874700009956"
+  tap "transcript" into "1562624645306263268"
   clock settle
   tap "fixture"
   tap "toggle-slow"
   clock data
-  tap "reply-to-0037255874700009956"
+  tap "reply-to-1562624645306263268"
   clock data
-  expect state win.anchor == "0037241759900009901"
-  expect state target == "0036207094100006756"
+  expect state win.anchor == "1562032626728969901"
+  expect state target == "1518635600276626020"
   clock +400
   clock settle
-  expect state win.anchor == "0036207094100006756"
+  expect state win.anchor == "1518635600276626020"
   expect state target == ""
-  expect state highlight == "0036207094100006756"
-  expect tree has "message-0036207094100006756"
+  expect state highlight == "1518635600276626020"
+  expect tree has "message-1518635600276626020"
 
 // The reviews' second round (Sol, Grok): one test a finding.
 
 test "leaving a channel from its end acknowledges what was on screen (re-check: Grok 4)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -405,21 +440,23 @@ test "leaving a channel from its end acknowledges what was on screen (re-check: 
   clock data
   back
   clock settle
-  expect state gateway.channels.0 .unread == 0
+  expect state channels.0 .unread == 0
 
 test "scrolling up from the end acknowledges what was on screen (re-check: Grok 4)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
   tap "fixture"
   tap "inject-burst"
   clock data
-  tap "transcript" into "0037258518100009964"
+  tap "transcript" into "1562735517454313196"
   clock data
   expect state away == true
-  expect state gateway.channels.0 .unread == 0
+  expect state channels.0 .unread == 0
 
 test "an edit settled after leaving its channel leaves the other channel's draft alone (re-check: Sol 1)"
+  clock +500 real
   tap "channel-random"
   clock settle
   type "composer" "a draft for random"
@@ -432,7 +469,7 @@ test "an edit settled after leaving its channel leaves the other channel's draft
   tap "send"
   clock +350
   clock settle
-  tap "row-0037262160000020002" contextmenu
+  tap "row-1562888267366400000" contextmenu
   tap "menu-edit"
   type "composer" "second try"
   tap "send"
@@ -443,6 +480,7 @@ test "an edit settled after leaving its channel leaves the other channel's draft
   expect state editing == ""
 
 test "nothing is acknowledged while the channel list shows (re-check: Sol 2)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -452,25 +490,27 @@ test "nothing is acknowledged while the channel list shows (re-check: Sol 2)"
   back
   clock settle
   clock +4000
-  expect state gateway.channels.0 .unread == 1
+  expect state channels.0 .unread == 1
 
 test "Mark As Read away from the end reads the channel (re-check: Sol 3)"
+  clock +500 real
   tap "channel-help"
   clock settle
-  tap "transcript" into "0037152765000001100"
+  tap "transcript" into "1558299912028816460"
   clock data
   expect state away == true
   tap "mark-read"
   clock data
   back
   clock settle
-  expect state gateway.channels.1 .unread == 0
+  expect state channels.1 .unread == 0
 
 test "a send while the list is still moving lands at the live end (re-check: Grok new 1)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
-  tap "transcript" into "0037235381600009829"
+  tap "transcript" into "1561765100405139045"
   clock settle
   type "composer" "sent mid-fling"
   tap "transcript" drag 0 500 over 60
@@ -478,9 +518,10 @@ test "a send while the list is still moving lands at the live end (re-check: Gro
   clock settle
   expect state anchor == ""
   expect state away == false
-  expect tree has "message-0037262160000020002"
+  expect tree has "message-1562888267366400000"
 
 test "an arrival the reader watches gets no New divider (re-check: Grok new 2)"
+  clock +500 real
   tap "channel-random"
   clock settle
   tap "fixture"
@@ -489,14 +530,15 @@ test "an arrival the reader watches gets no New divider (re-check: Grok new 2)"
   expect tree missing "new-divider"
 
 test "paging continues while the pin request is out (re-check: Grok new 3)"
+  clock +500 real
   tap "channel-general"
   clock settle
   tap "mark-read"
   tap "fixture"
   tap "toggle-slow"
   clock data
-  tap "transcript" into "0037255676300009951"
-  tap "transcript" into "0037235393700009830"
+  tap "transcript" into "1562616321735141087"
+  tap "transcript" into "1561765610164069990"
   clock +400
   clock settle
-  expect state win.firstId == "0037186915100009701"
+  expect state win.firstId == "1559734913224156646"

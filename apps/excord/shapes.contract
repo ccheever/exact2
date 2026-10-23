@@ -117,6 +117,9 @@ shape Message
 // and `hasAfter` say whether older or newer history exists outside it; a
 // window without `hasAfter` ends at the channel's newest message. `pin` is
 // the anchor that answers this same window while no message arrives.
+// `unread` counts the messages after the read position the window was asked
+// with, `unreadMore` says it is a lower bound (the cache does not reach that
+// position), and `unreadAt` is the first one's time, or the read message's.
 shape Window
   channel: string
   anchor: string
@@ -126,18 +129,22 @@ shape Window
   firstId: string
   lastId: string
   pin: string
+  unread: number
+  unreadMore: bool
+  unreadAt: number
 
-// What the gateway knows about one channel. `version` moves whenever its
-// history changes; `total` counts its messages and `arrived` the messages that
-// arrived since the app started (a deletion never lowers it); `lastRead` is the
-// read position and `firstUnread` the oldest unread message ("" when read to the
-// end); `typing` names who is typing.
+// A channel or DM as the lists show it, and the open channel. `version` moves
+// whenever its history changes; `arrived` counts the messages that arrived
+// since the app started (a deletion never lowers it); `lastRead` is the read
+// position and `firstUnread` the oldest unread message the cache holds ("" when
+// read to the end or not cached); `unread` counts the unread messages the cache
+// holds, at least 1 when Discord says there are some; `typing` names who is typing.
 shape Channel
   id: string
+  guild: string
   name: string
   topic: string
   version: number
-  total: number
   unread: number
   mentions: number
   firstUnread: string
@@ -146,13 +153,42 @@ shape Channel
   arrived: number
   typing: string
 
-// `pending` counts sends awaiting Discord's confirmation, in every channel.
+shape Guild
+  id: string
+  name: string
+  unread: bool
+  mentions: number
+
+// A channel's versions: `version` moves with any change to it, `history` only
+// with a change to its messages.
+shape Version
+  id: string
+  version: number
+  history: number
+
+// The gateway's snapshot (Excord LLP 0001 §4.2): the connection's state
+// ("connecting", "awaiting-hello", "identifying", "resuming", "ready",
+// "backoff", "stopped" or "signed-out"), a version for the lists (`sidebar`)
+// and one per channel, so a dispatch re-asks only what it changed. `fixture`
+// says the build talks to the fixture, whose traffic menu shows; `retryIn` is
+// how long a backoff waits, `attempt` counts connections.
 shape Gateway
   state: string
+  detail: string
   me: string
-  pending: number
-  channels: Channel[]
+  fixture: bool
+  sidebar: number
+  versions: Version[]
+  retryIn: number
+  attempt: number
 
 shape Ack
   ok: bool
   error: string
+
+// A local send's reply: its row's key, which the post that follows names.
+shape Sent
+  ok: bool
+  error: string
+  key: string
+  channel: string

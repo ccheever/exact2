@@ -1,4 +1,20 @@
-import type { Attachment, Embed, Message, User } from './world';
+// The stand-in world's content that `transcript-world.ts` turns into Discord's shapes: the transcript's
+// test history (Excord LLP 0001 §4.4), generated the same every run.
+export interface User { id: string; username: string; global_name: string | null; bot: boolean; tint: number }
+export interface Attachment { id: string; url: string; filename: string; width?: number; height?: number; spoiler: boolean }
+export interface Embed {
+  type: string; title?: string; description?: string; url?: string; color?: number;
+  provider?: { name: string }; author?: { name: string };
+  image?: { url: string; width?: number; height?: number };
+  thumbnail?: { url: string; width?: number; height?: number };
+}
+export interface Message {
+  id: string; channel_id: string; author: User; content: string; timestamp: number;
+  edited_timestamp: number | null; attachments: Attachment[]; embeds: Embed[];
+  reactions: { emoji: { id: string | null; name: string }; count: number; me: boolean }[];
+  message_reference?: { message_id: string }; nonce?: string; type: number;
+  state: 'sent' | 'pending' | 'failed'; revision: number;
+}
 
 export const WORLD_NOW = Date.UTC(2026, 9, 22, 18, 0, 0);
 const EPOCH = Date.UTC(2015, 0, 1);
@@ -18,9 +34,6 @@ export const channelSpecs = [
 ];
 
 export const emojiNames = ['exact', 'ferris', 'party', 'shipit', 'coffee', 'bike', 'spark', 'heart', 'check'];
-export function emojiPath(name: string): string {
-  return emojiNames.includes(name) ? `assets/emoji/${name}.png` : '';
-}
 
 export const photos = [
   { name: 'harbor', width: 960, height: 540 }, { name: 'ridge', width: 800, height: 600 },

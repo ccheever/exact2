@@ -465,7 +465,8 @@ function reaction(s: Store, t: string, data: DiscordObject, c: Changes): void {
     const previous = old[index];
     const mine = data.user_id === s.meId;
     const add = t === 'MESSAGE_REACTION_ADD';
-    if ((!add && !previous) || (mine && add && previous?.me)) return;
+    // A client that applies its own reaction on the REST reply sees the gateway's copy as a repeat.
+    if ((!add && !previous) || (mine && add && previous?.me) || (mine && !add && !previous?.me)) return;
     const count = Math.max(0, (previous?.count ?? 0) + (add ? 1 : -1));
     const updated = { ...previous, emoji: { ...data.emoji }, count, me: mine ? add : previous?.me ?? false };
     next = [...old];
@@ -731,6 +732,15 @@ export function failPending(s: Store, channelId: string, nonce: string, error: s
   return finish(s, { channels: new Set([channelId]), sidebar: false });
 }
 
+/** Mark a failed local send pending again, for a retry with the same nonce. */
+export function retryPending(s: Store, channelId: string, nonce: string): Changed {
+  const entry = s.histories.get(channelId)?.pending.get(nonce);
+  if (!entry || entry.row.status !== 'failed') return { channels: [], sidebar: false };
+  const { error: _error, ...row } = entry.row;
+  entry.row = { ...row, status: 'pending' } as MessageRow;
+  return finish(s, { channels: new Set([channelId]), sidebar: false });
+}
+
 /** Remove an unconfirmed local send without creating a server-message tombstone. */
 export function removePending(s: Store, channelId: string, nonce: string): Changed {
   const h = s.histories.get(channelId);
@@ -861,6 +871,25 @@ export function dms(s: Store): Channel[] {
 export function channel(s: Store, channelId: string): Channel | null {
   const value = s.channelMap.get(channelId);
   return value ? withRecipients(s, value) : null;
+}
+
+/** Read one cached message by id, or a local send by its nonce. */
+export function message(s: Store, channelId: string, id: string): MessageRow | null {
+  const h = s.histories.get(channelId);
+  return (h?.messages.get(id) ?? h?.pending.get(id))?.row ?? null;
+}
+
+/** Read one cached message by its row key: a send confirmed here keeps its nonce as key. */
+export function messageByKey(s: Store, channelId: string, key: string): MessageRow | null {
+  const found = message(s, channelId, key);
+  if (found) return found;
+  for (const entry of s.histories.get(channelId)?.messages.values() ?? []) if (entry.row.key === key) return entry.row;
+  return null;
+}
+
+/** Whether the store saw this message deleted, as opposed to never having held it. */
+export function deleted(s: Store, channelId: string, id: string): boolean {
+  return s.histories.get(channelId)?.tombstones.has(id) ?? false;
 }
 
 /** Read a normalized user, or null until a dispatch supplies it. */

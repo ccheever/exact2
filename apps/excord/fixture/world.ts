@@ -48,7 +48,7 @@ export interface Channel {
 export interface Guild {
   id: string;
   name: string;
-  icon: string;
+  icon: string | null;
   owner_id: string;
   description: string;
   features: string[];
@@ -57,6 +57,7 @@ export interface Guild {
   channels: Channel[];
   members: Member[];
   unavailable: boolean;
+  emojis?: { id: string; name: string; animated: false; available: true }[];
 }
 
 export interface Image {
@@ -82,7 +83,9 @@ export interface Embed {
   url?: string;
   title?: string;
   description?: string;
-  provider?: { name: string; url: string };
+  color?: number;
+  provider?: { name: string; url?: string };
+  author?: { name: string };
   image?: Image;
   thumbnail?: Image;
   video?: Image;
