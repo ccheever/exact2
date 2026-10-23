@@ -139,6 +139,75 @@ fn what_the_walk_cannot_be_sure_of_or_css_gives_a_meaning_is_not_named() {
     }
 }
 
+#[test]
+fn multicol_exemptions_follow_the_winning_count_and_width() {
+    let properties = ["justify-content", "gap", "row-gap", "column-gap"];
+    for (style, inline, multicol) in [
+        ("", "column-count=\"auto\"", false),
+        ("", "column-width=\"auto\"", false),
+        ("", "columns=\"auto\"", false),
+        ("", "columns=\"auto auto\"", false),
+        ("column-count=\"3\"", "column-count=\"auto\"", false),
+        ("column-width=\"12em\"", "column-width=\"auto\"", false),
+        ("columns=\"12em 3\"", "columns=\"auto\"", false),
+        ("", "columns=\"2\" column-count=\"auto\"", false),
+        ("", "columns=\"12em\" column-width=\"auto\"", false),
+        (
+            "column-count=\"3\"",
+            "columns=\"12em\" column-width=\"auto\"",
+            false,
+        ),
+        (
+            "column-width=\"12em\"",
+            "columns=\"2\" column-count=\"auto\"",
+            false,
+        ),
+        ("", "column-count=\"3\" columns=\"auto\"", false),
+        ("", "column-width=\"12em\" columns=\"auto\"", false),
+        ("", "column-count=\"3\"", true),
+        ("", "column-width=\"12em\"", true),
+        ("", "columns=\"12em\"", true),
+        ("", "columns=\"auto 2\"", true),
+        ("", "columns=\"12em auto\"", true),
+        ("", "columns=\"auto\" column-count=\"3\"", true),
+        ("", "columns=\"auto\" column-width=\"12em\"", true),
+        ("", "columns=\"12em 2\" column-count=\"auto\"", true),
+        ("", "columns=\"12em 2\" column-width=\"auto\"", true),
+        ("column-width=\"12em\"", "column-count=\"auto\"", true),
+        ("column-count=\"3\"", "column-width=\"auto\"", true),
+        ("", "column-count=count", true),
+        ("", "column-width=width", true),
+        ("", "columns=(count > 1 ? \"2\" : \"auto\")", true),
+        ("", "column-count=count columns=\"auto\"", false),
+        ("", "column-width=width columns=\"auto\"", false),
+    ] {
+        let (style, class) = if style.is_empty() {
+            (String::new(), "")
+        } else {
+            (format!("style Columns\n  {style}\n"), "class=Columns")
+        };
+        let src = format!(
+            "{style}component App\n  state count = 3\n  state width = \"12em\"\n  view\n    view {class} {inline} justify-content=\"center\" gap=4 row-gap=4 column-gap=4\n"
+        );
+        let (plan, warnings) = contract::compile_warned(&src);
+        plan.unwrap_or_else(|e| panic!("{src}: {e:?}"));
+        let messages: Vec<_> = warnings.iter().filter(|w| w.id == ID).collect();
+        assert_eq!(
+            messages.len(),
+            usize::from(!multicol),
+            "{src}: {messages:?}"
+        );
+        if !multicol {
+            for property in properties {
+                assert!(
+                    messages[0].message.contains(&format!("`{property}`")),
+                    "{src}: {messages:?}"
+                );
+            }
+        }
+    }
+}
+
 /// Twenty earlier warnings of a lower rank (a symbol by another spelling
 /// than its role, each) do not crowd it out of lowering's cap.
 #[test]
