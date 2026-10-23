@@ -831,6 +831,18 @@ final class NodePoolIOSTests: XCTestCase {
         override func accessibilityElement(at index: Int) -> Any? { UIAccessibilityElement(accessibilityContainer: self) }
     }
 
+    func testVideoCreationIsMeasuredOnlyAfterItsFirstPresentationUpdate() throws {
+        for _ in 0..<6 { HeavyLeaves.record("video", 12345) }
+        let p = Presenter()
+        let nodes = (100..<106).map { NodeView(id: UInt32($0), kind: "video", presenter: p) }
+        XCTAssertEqual(HeavyLeaves.cost("video"), 12345, "a player alone is not a completed creation sample")
+        for node in nodes {
+            node.props = ["controls": "true", "muted": "true"]
+            try XCTUnwrap(node.video).update()
+        }
+        XCTAssertLessThan(try XCTUnwrap(HeavyLeaves.cost("video")), 12345, "the first updates complete the samples")
+    }
+
     func testHeavyLeafCostsLeaveOutEachKindsFirstCreation() {
         let kind = "test-kind-\(UUID().uuidString)"
         HeavyLeaves.record(kind, 0.5)
