@@ -97,12 +97,10 @@ struct ReorderScroller {
     }
     private var range: (now: CGFloat, low: CGFloat, high: CGFloat) {
         let insets = scroll.adjustedContentInset
-        if vertical {
-            let low = -insets.top
-            return (scroll.contentOffset.y, low, max(low, scroll.contentSize.height + insets.bottom - scroll.bounds.height))
-        }
-        let low = -insets.left
-        return (scroll.contentOffset.x, low, max(low, scroll.contentSize.width + insets.right - scroll.bounds.width))
+        let low = PixelGrid.offset(CGPoint(x: -insets.left, y: -insets.top), in: scroll)
+        let high = PixelGrid.offset(CGPoint(x: scroll.contentSize.width + insets.right - scroll.bounds.width,
+                                            y: scroll.contentSize.height + insets.bottom - scroll.bounds.height), in: scroll)
+        return vertical ? (scroll.contentOffset.y, low.y, high.y) : (scroll.contentOffset.x, low.x, high.x)
     }
     func canScroll(toward direction: Double) -> Bool {
         let r = range
@@ -115,7 +113,7 @@ struct ReorderScroller {
         var offset = scroll.contentOffset
         if vertical { offset.y = next } else { offset.x = next }
         scroll.setContentOffset(PixelGrid.offset(offset, in: scroll), animated: false)
-        return true
+        return (vertical ? scroll.contentOffset.y : scroll.contentOffset.x) != r.now
     }
 }
 
