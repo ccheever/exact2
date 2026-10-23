@@ -414,7 +414,7 @@ let markupModule, decorationsModule; const markupPending = new WeakSet(); functi
     const id = Number(el.dataset.view), live = node => views.get(id) === node && node.isConnected && !retiredViews.has(node);
     if (composing.has(el)) return; // Keep the native marked range until its final input has committed.
     markupPending.delete(el); if (!live(el) || el.getAttribute('markup') !== 'markdown') return;
-    install(el, { live, replace(node) { el.exactIntersect?.(); views.set(id, node); attach(node, id, el.exactHandlers); }, // (the old node's first entry lets go: the new one is observed)
+    install(el, { live, replace(node) { views.get(id)?.exactIntersect?.(); views.set(id, node); attach(node, id, el.exactHandlers); }, // (the old node's first entry lets go: the new one is observed)
       select(node, payload) { if (live(node) && inputReady && node.exactHandlers.includes('select')) send(wasm.exact_dispatch(id, 21, writeIn(payload), now())); } });
   }).catch(error => console.error('exact: Markdown editor:', error));
 }
