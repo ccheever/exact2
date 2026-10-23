@@ -1036,11 +1036,10 @@ fn style_json_shown(
     computed.background_color = Some(computed.background_color.unwrap_or(current));
     computed.tint_color = Some(computed.tint_color.unwrap_or(current));
     let (mut json, skipped) = style_json_sized(&computed, env, kept_geometry(node));
-    // A modal's top layer is positioned in the viewport by AppKit, outside
-    // its authored parent. Keep only the existing inset rows for dialogs.
-    // A popover placed by `position-area` (LLP 1021, "Placement") is placed
-    // by the host against its invoker, and CSS aligns its margin box: its
-    // margins cross too, `auto` and percentages as the host reads them (0).
+    // A modal's top layer is positioned in the viewport by AppKit: its insets
+    // cross. A popover (by its area, or the web's default, `PositionArea.painted`)
+    // is placed by the host against its invoker, aligning its margin box: its
+    // margins cross too (a dialog used as one, both), `auto` and % read as 0.
     let placed = [
         StyleId::MarginTop,
         StyleId::MarginRight,
@@ -1051,7 +1050,6 @@ fn style_json_shown(
     // A sticky box's vertical insets say whether it sticks while its
     // scroller scrolls: an iOS header's search field stays in view.
     let vertical = [StyleId::Top, StyleId::Bottom];
-    // A dialog used as a popover keeps its insets and is placed as one too.
     let both = [insets, placed].concat();
     let placed_box = computed.position_area != PositionArea::None
         || node.props.str(exact_kernel::PropId::Popover).is_some();
@@ -1059,8 +1057,6 @@ fn style_json_shown(
         if node.props.str(exact_kernel::PropId::SemanticTag) == Some("dialog") {
             Some(if placed_box { &both } else { &insets })
         } else if placed_box {
-            // A popover is placed by its area, the web's default where its
-            // author wrote none (`PositionArea.painted`), its margin box flipping.
             Some(&placed)
         } else if node.layout_position() == exact_kernel::PositionType::Sticky {
             Some(&vertical)
