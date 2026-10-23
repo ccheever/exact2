@@ -332,6 +332,12 @@ There are two kinds of re-run, each numbered (port N) and added to the app's res
   beside the frozen original and native builds. It measures Exact's defaults and runtime with
   the builder held fixed (LLP 1116.019's replay gate). It is cheap; run it after each batch of
   runtime fixes.
+A replay holds the builder's code fixed, workarounds included. A workaround written against an
+Exact bug can break once the bug is fixed: React Conf's port tuned a sticky offset to a wrong
+measurement, and on the corrected one its picker covered a card. So a loss that appears only in
+a replay is bisected to its commit before it is called a regression; when the commit is a fix
+the web oracle confirms, the loss is filed as a workaround of a fixed bug, and the fix stays.
+
 - **Fresh port.** The same frozen brief and pinned model, on the new main, from an empty
   directory. It measures what builders now trip on. Run it when a batch of authoring fixes is
   the hypothesis, and only after the diary items it targets pass as extracted tasks (§4.8).
