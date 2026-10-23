@@ -55,6 +55,40 @@ final class AgentBarPointerIOSTests: XCTestCase {
         try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == testId }, testId)
     }
 
+    private func assertVisibleSegmentPoint(_ session: ExactSession, _ testId: String) throws {
+        let p = session.presenter, tab = try node(session, testId), agent = Agent(session: session)
+        until { p.navigation.barSegment(tab) != nil && !agent.nativeInFlight() }
+        let shown = try XCTUnwrap(p.navigation.barSegment(tab))
+        let point = shown.control.convert(CGPoint(x: shown.segment.midX, y: shown.segment.midY), to: nil)
+        let expected = p.client(point)
+        var samples: [PointerSample] = []
+        p.onPointer = { _, _, sample in samples.append(sample) }
+        let reply = agent.tap(["id": Int(tab.id)])
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertEqual(reply["native"] as? String, "segmented-control")
+        XCTAssertEqual(samples.count, 2)
+        for sample in samples {
+            XCTAssertEqual(sample.clientX, Double(expected.x), accuracy: 0.5, testId)
+            XCTAssertEqual(sample.clientY, Double(expected.y), accuracy: 0.5, testId)
+        }
+        p.onPointer = nil
+    }
+
+    func testATitleSegmentReportsItsVisibleMidpoint() throws {
+        let session = try fixture()
+        try node(session, "navigation").handlers.formUnion(["pointerdown", "pointerup"])
+        try assertVisibleSegmentPoint(session, "segment-missed")
+    }
+
+    func testSearchScopeAndSubtitleSegmentsReportTheirVisibleMidpoints() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "search and subtitle segments are placed by a scene's bar") }
+        let session = try fixture("EXACT_SEARCH_SCOPE_PLAN")
+        try node(session, "app").handlers.formUnion(["pointerdown", "pointerup"])
+        try assertVisibleSegmentPoint(session, "filter-mine")
+        session.presenter.press(try node(session, "pick-plain").id)
+        try assertVisibleSegmentPoint(session, "filter-done")
+    }
+
     func testABarSegmentRechecksARIAAfterPointerHandlers() throws {
         let session = try fixture(), p = session.presenter
         let tab = try node(session, "segment-missed"), root = try node(session, "navigation")
