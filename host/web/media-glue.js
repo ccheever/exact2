@@ -168,8 +168,8 @@ globalThis.exact.mediaHold = (el, then = () => {}) => {
   const names = ['seeked', 'canplay', 'error', 'emptied', 'stalled', 'suspend', 'loadedmetadata', 'loadeddata'];
   const done = new Promise(resolve => {
     const check = ev => { if (ev?.type === 'stalled' || ready()) release(); };
-    let gone = false;
-    release = () => { if (gone) return; gone = true; holds.delete(el); for (const n of names) el.removeEventListener(n, check); then(); resolve(); };
+    let released = false;
+    release = () => { if (released) return; released = true; holds.delete(el); for (const n of names) el.removeEventListener(n, check); then(); resolve(); };
     for (const n of names) el.addEventListener(n, check);
   });
   holds.set(el, release);
