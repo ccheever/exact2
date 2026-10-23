@@ -13,8 +13,8 @@
 //   (`navigationBar="none"`): a full-bleed screen;
 // - `sheet` is a modal route with no header: the first route of its own
 //   presented stack;
-// - `titled` is a modal route whose header's heading is level 1: inline, as
-//   a sheet's title is (LLP 1116.020 D2);
+// - `titled` is a modal route whose header's heading is level 1: a large
+//   title, as its author asked (LLP 1141.001 D7);
 // - `glass` is a modal route at `medium large` whose author left its
 //   background unsaid, its heading of no level: UIKit's glass at the medium
 //   detent, the system background at the large (D3), and an inline title
