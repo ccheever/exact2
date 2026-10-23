@@ -1,6 +1,7 @@
 # Startup holds the main thread on the data module's first evaluation
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed: the main thread no longer waits on the module's evaluation (LLP 1027.007 P1); evaluating earlier (P2/P3) declined 2026-10-23.
 **Systems:** Apple host session activation (`Session.firstDrawn`), Owner thread, native views (`activateAfterCommit`), TypeScript data module load
 **Severity:** P1
 **Author:** Claude (Opus 5.5), from the Brooks four-way port's device measurements
@@ -31,3 +32,7 @@ Evidence: `~/bench/brooks-device/diag/tp-exact.trace` and `tp-worker.trace` (Tim
 ## Main thread freed (2026-10-21)
 
 LLP 1027.007 P1: while the data source activates, the page-facts and preferences notices iOS posts at first pixel send their runtime calls to the owner without the main thread waiting, and their batches land in the owner's order. Brooks on the iPhone 17 Pro Max: rail photos 0.55 s, as UIKit; hero 0.53 s. The main thread is idle during the evaluation. What remains is the evaluation itself (314 ms for Brooks, 220 ms of it its own eager `completeTheLook` for every product; LLP 1027.007 §6a), which content that needs data waits for; evaluating before first pixel is LLP 1027.007 P2 and P3, not ruled on.
+
+## Remainder declined (2026-10-23)
+
+The main thread no longer waits on the module's evaluation, native views attach at first draw, and a top level over 50 ms is journalled; this ticket's symptom is gone. Content that needs data still waits for the evaluation, and runtime input can still queue behind it. Starting the evaluation earlier or off the owner (LLP 1027.007 P2 and P3) was declined: the remedy is the app's own top level (LLP 1027.007 §6a; `docs/agent-pitfalls.md`, "Shape data in the source").

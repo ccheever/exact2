@@ -1,10 +1,12 @@
 # An image cannot sit inside a paragraph's text
 
-**Status:** Open (an ask)
+**Status:** Open
 **Systems:** Contract lowering (`lower-leaf-children`), the kernel's text, every host
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from Excord's stage 1 transcript lane (`apps/excord/llp/0001-excord.rfc.md`)
 **Date:** 2026-10-22
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): an ask
 
 ## Symptom
 
