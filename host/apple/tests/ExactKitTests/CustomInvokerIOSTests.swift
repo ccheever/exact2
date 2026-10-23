@@ -145,7 +145,7 @@ final class CustomInvokerIOSTests: XCTestCase {
     }
 
     func testASecondContactKeepsItsForwardedRouteAndTheOverlaysLook() throws {
-        for cancelled in [false, true] {
+        for (cancelled, overlayFirst) in [(false, false), (true, false), (false, true), (true, true)] {
             let p = page(), source = try XCTUnwrap(p.views[2]), parent = try XCTUnwrap(p.views[1])
             p.apply(wireBatch([
                 ["op": "create", "id": 7, "kind": "button", "handlers": ["press"]],
@@ -167,12 +167,13 @@ final class CustomInvokerIOSTests: XCTestCase {
             XCTAssertNotNil(source.press.dimmedAt, "the overlay still holds the invoker's look outside")
             touch.point = nil
             child.touchesMoved([touch], with: nil)
+            if overlayFirst { overlay.isHighlighted = false }
             if cancelled { child.touchesCancelled([touch], with: nil) }
             else { child.touchesEnded([touch], with: nil) }
             XCTAssertEqual(presses, cancelled ? [] : [1], "the second down belonged to the ancestor")
             XCTAssertFalse(parent.hasPressContact)
             XCTAssertFalse(parent.pressed)
-            XCTAssertNotNil(source.press.dimmedAt, "the overlay still holds the look after the second contact")
+            XCTAssertEqual(source.press.dimmedAt != nil, !overlayFirst, "only a remaining overlay holds the look")
             overlay.isHighlighted = false
             XCTAssertFalse(source.pressed)
             XCTAssertNil(source.press.dimmedAt)
