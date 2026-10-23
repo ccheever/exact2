@@ -435,9 +435,11 @@ final class MenuHost: NSObject {
     }
     /// Where a menu presenting `pop` pops up in `source`: its top-left, by
     /// the popover's `position-area` and margins as its painted box would
-    /// sit, the menu's own size the box, clamped to the viewport (§5).
+    /// sit, the menu's own size the box, clamped to the viewport (§5), or to
+    /// the split's pane when `source` is in it.
     func popUpPoint(_ menu: NSMenu, _ pop: NodeView, in source: NodeView) -> NSPoint {
-        let bounds = presenter.map { source.convert($0.viewport.bounds, from: $0.viewport) } ?? .infinite
+        let column = presenter.map { $0.navigation.split.pane(holding: source) ?? $0.viewport }
+        let bounds = column.map { source.convert($0.bounds, from: $0) } ?? .infinite
         return PositionArea.origin(PositionArea.of(pop), anchor: anchor(source, in: source), size: menu.size,
                                    margins: PositionArea.margins(of: pop), overflow: .platform, in: bounds)
     }
