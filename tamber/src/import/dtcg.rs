@@ -47,7 +47,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 mod kinds;
 pub mod pen;
+mod resolve;
 pub(crate) use kinds::colour;
+use resolve::{Colour, Resolve};
 
 /// Where a layer applies.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -922,78 +924,6 @@ fn alias(value: &Value) -> Option<Result<String, String>> {
 /// One mode tuple: the scheme's side and a value of each axis.
 type Tuple = (bool, Vec<String>);
 
-/// A path's colour in one tuple: as written (a reference a token's name),
-/// resolved, and the path it references.
-type Colour = (String, String, Option<String>);
-
-/// A path's colour in one tuple, or why not.
-type Seen = Result<Colour, String>;
-
-/// A tuple's resolution: its winners, the token names, and each path's
-/// colour once found.
-struct Resolve<'a> {
-    defs: &'a [Def],
-    w: &'a BTreeMap<&'a str, usize>,
-    names: &'a BTreeMap<String, String>,
-    memo: HashMap<String, Seen>,
-    /// Each path's typed definition, once found (`type_of`).
-    types: RefCell<HashMap<String, Option<usize>>>,
-}
-
-impl Resolve<'_> {
-    /// A path's colour, aliases followed (a cycle is none).
-    fn seen(&mut self, path: &str, visiting: &mut BTreeSet<String>) -> Seen {
-        if let Some(found) = self.memo.get(path) {
-            return found.clone();
-        }
-        let Some(&i) = self.w.get(path) else {
-            return Err(format!("`{{{path}}}` is no token in this mode"));
-        };
-        crate::budget::spend(1)?;
-        let d = &self.defs[i];
-        let found = if let Some(why) = &d.refused {
-            Err(why.clone())
-        } else {
-            match alias(&d.value) {
-                Some(Ok(target)) if visiting.contains(&target) => {
-                    Err(format!("a cycle of aliases through `{{{target}}}`"))
-                }
-                Some(Ok(_)) if visiting.len() > 256 => {
-                    Err("an alias chain longer than 256".to_string())
-                }
-                Some(Ok(target)) => {
-                    visiting.insert(target.clone());
-                    let inner = self.seen(&target, visiting);
-                    visiting.remove(&target);
-                    inner.map(|(_, resolved, _)| match self.names.get(&target) {
-                        Some(n) => (n.clone(), resolved, Some(target)),
-                        None => (resolved.clone(), resolved, None),
-                    })
-                }
-                Some(Err(why)) => Err(why),
-                None => colour(&d.value)
-                    .map(|c| (c.clone(), c, None))
-                    .ok_or_else(|| match d.value.as_str() {
-                        Some(s) if exact_color::parse(s).is_some() => {
-                            "a colour Tamber does not fold yet".to_string()
-                        }
-                        _ => "not a colour Tamber reads".to_string(),
-                    }),
-            }
-        };
-        // A colour found holds, its names (or why not) charged once returned, once kept; a failure may be a cycle in progress, kept only from the top.
-        let size = match &found {
-            Ok((a, b, c)) => a.len() + b.len() + c.as_ref().map_or(0, String::len),
-            Err(why) => why.len(),
-        };
-        crate::budget::spend(2 * size as u64)?;
-        if found.is_ok() || visiting.len() <= 1 {
-            self.memo.insert(path.to_string(), found.clone());
-        }
-        found
-    }
-}
-
 /// A tuple as a report names it: `dark, brand=loud`.
 fn tuple_name(t: &Tuple, scheme: bool, axes: &[(String, Vec<String>)]) -> String {
     let mut parts = Vec::new();
@@ -1174,16 +1104,18 @@ fn planned(
     // Each tuple's winners: its layers merged in order, a later one winning
     // whatever its kind.
     let active = |t: &Tuple, scopes: &[Scope]| scopes.iter().any(|scope| scope.holds(t, &axes));
-    let winners: Vec<BTreeMap<&str, usize>> = tuples
-        .iter()
-        .map(|t| {
-            let mut w = BTreeMap::new();
-            // A colliding path still resolves; only its name is not made.
-            for l in read.layers.iter().filter(|l| active(t, &l.scopes)) {
-                for &i in l.defs.iter().filter(|i| !unused.contains(i)) {
-                    w.insert(defs[i].path.as_str(), i);
-                }
+    // (each entry charged: a tuple holds every path, so tuples times paths are kept)
+    let mut winners: Vec<BTreeMap<&str, usize>> = Vec::with_capacity(tuples.len());
+    for t in &tuples {
+        let mut w = BTreeMap::new();
+        // A colliding path still resolves; only its name is not made.
+        for l in read.layers.iter().filter(|l| active(t, &l.scopes)) {
+            for &i in l.defs.iter().filter(|i| !unused.contains(i)) {
+                crate::budget::spend(1).map_err(|m| refuse("tamber-import-source", m))?;
+                w.insert(defs[i].path.as_str(), i);
             }
+        }
+        winners.push({
             // A token and a group at one path: the later layer's stands,
             // the other's tokens go (a token replaces a group, a group a
             // token).
@@ -1207,8 +1139,8 @@ fn planned(
                 }
             }
             w
-        })
-        .collect();
+        });
+    }
     // Every path's colour in every tuple, or why it makes no token.
     let paths: Vec<&str> = names.keys().map(String::as_str).collect();
     let mut values: BTreeMap<&str, Vec<Colour>> = BTreeMap::new();
@@ -1230,10 +1162,12 @@ fn planned(
         let mut failure: Option<String> = None;
         let mut first: Option<&'static str> = None;
         for ((t, w), r) in tuples.iter().zip(&winners).zip(resolvers.iter_mut()) {
-            let label = tuple_name(t, has_scheme, &axes);
+            // (named only for a failure's words: not made for every path in every tuple)
+            let label = || tuple_name(t, has_scheme, &axes);
             if !w.contains_key(path) {
                 failure.get_or_insert(format!(
-                    "not set in {label}, and no value of it is invented"
+                    "not set in {}, and no value of it is invented",
+                    label()
                 ));
                 continue;
             }
@@ -1255,7 +1189,7 @@ fn planned(
                 Kind::Colour => match r.seen(path, &mut BTreeSet::from([path.to_string()])) {
                     Ok(v) => per.push(v),
                     Err(why) => {
-                        failure.get_or_insert(format!("{why} ({label})"));
+                        failure.get_or_insert(format!("{why} ({})", label()));
                     }
                 },
                 Kind::Other(k) => {
@@ -1263,9 +1197,14 @@ fn planned(
                         .raw(path, &mut BTreeSet::from([path.to_string()]))
                         .and_then(|v| kinds::text(ty.as_deref().unwrap_or_default(), &v));
                     match found {
-                        Ok(v) => per.push((v.clone(), v, None)),
+                        Ok(v) => {
+                            // (kept twice a tuple, as a colour's names are: charged)
+                            crate::budget::spend(2 * v.len() as u64)
+                                .map_err(|m| refuse("tamber-import-source", m))?;
+                            per.push((v.clone(), v, None))
+                        }
                         Err(why) => {
-                            failure.get_or_insert(format!("{why} ({label})"));
+                            failure.get_or_insert(format!("{why} ({})", label()));
                         }
                     }
                     kinds_of.insert(path, k);
@@ -1276,12 +1215,14 @@ fn planned(
             }
         }
         // One value on both sides of the scheme, but for a colour.
+        // (each tuple's value beside its axis values' other side: one pass, not every pair)
         if failure.is_none() && kinds_of.contains_key(path) {
+            let mut side: HashMap<&[String], (bool, &str)> = HashMap::new();
             let sided = tuples.iter().zip(&per).any(|(t, v)| {
-                tuples
-                    .iter()
-                    .zip(&per)
-                    .any(|(u, x)| u.1 == t.1 && u.0 != t.0 && x.0 != v.0)
+                match side.insert(&t.1, (t.0, v.0.as_str())) {
+                    Some((dark, x)) => dark != t.0 && x != v.0,
+                    None => false,
+                }
             });
             if sided {
                 failure = Some(other::SIDED.to_string());
@@ -1292,6 +1233,9 @@ fn planned(
                 values.insert(path, per);
             }
             Some(why) => {
+                // (a why names a tuple: kept, so charged)
+                crate::budget::spend(why.len() as u64)
+                    .map_err(|m| refuse("tamber-import-source", m))?;
                 fates.insert(path, why);
             }
         }
@@ -1348,12 +1292,17 @@ fn planned(
         true => l.to_string(),
         false => format!("light-dark({l}, {d})"),
     };
+    // (each tuple's place found once: a path's lines ask it for every combination)
+    let place: HashMap<(bool, &[String]), usize> = tuples
+        .iter()
+        .enumerate()
+        .map(|(i, t)| ((t.0, t.1.as_slice()), i))
+        .collect();
     let value_at = |per: &Vec<Colour>, combo: &Vec<String>| {
         let at = |dark: bool| {
-            tuples
-                .iter()
-                .position(|t| t.0 == dark && t.1 == *combo)
-                .map(|i| per[i].0.clone())
+            place
+                .get(&(dark, combo.as_slice()))
+                .map(|&i| per[i].0.clone())
                 .unwrap_or_default()
         };
         match has_scheme {
@@ -1376,6 +1325,9 @@ fn planned(
         let value = value_at(per, &default_combo);
         let mut whens: Vec<(Vec<(String, String)>, String)> = Vec::new();
         for combo in &combos {
+            // (each combination's lines weighed against those made so far: charged)
+            crate::budget::spend(1 + whens.len() as u64)
+                .map_err(|m| refuse("tamber-import-source", m))?;
             let conds: Vec<(String, String)> = axes
                 .iter()
                 .zip(combo.iter())
