@@ -873,7 +873,13 @@ under one domain (`https://*.example.com`), or a whole scheme, written as CSP
 writes a scheme source: `net.fetch https:` or `net.fetch http:` admits any host
 at any port of that scheme, for a server the person names at run time (a URL
 they type, a local server on a port chosen at launch). `net.websocket` takes an
-origin or `wss:`/`ws:` the same way. A scheme no line names is refused (`wss:`
+origin, a subdomain wildcard (`wss://*.example.com` or `ws://*.example.com`),
+or `wss:`/`ws:` the same way. In either family's subdomain wildcard, `*` must
+be the whole leftmost label, the suffix must have at least two labels and
+must not be an IP address, and userinfo, paths, queries and fragments are
+refused (a trailing `/` is allowed). Only hosts strictly under the suffix
+match, at the grant's scheme and port (explicit or the scheme's default);
+the bare suffix and sibling domains do not. A scheme no line names is refused (`wss:`
 does not admit `ws:`). The platform's own refusals still apply: App Transport
 Security refuses cleartext beyond the local network, and a browser refuses
 `ws:` from an `https:` page except to loopback. A render-server page's
@@ -1737,8 +1743,23 @@ cargo run -q -p exact-js-bake -- path/to/app --out path/to/new-generation
 The app exports `appId`, `grants`, and an `Answer`-typed `answer`; `appId` and
 `grants` are constants the build reads from the source without running it (a
 string, a template or `+` of constants, an array of them `.join('\n')`, or a
-top-level `const` holding one). The producer
-captures local imports, type-checks, bundles with Rolldown, compiles HBC, and
+top-level `const` holding one). Numbers keep their type: `1 + 2` is `3`, while
+`'a' + 1 + 2` is `'a12'`. Conditional expressions are refused.
+
+For grants that differ by backend, write an object literal such as
+`export const grants = { 'http://127.0.0.1:4790': ['net.fetch http://127.0.0.1:4790', 'secret.keep fixture-token'], 'https://discord.com': ['net.fetch https://discord.com', 'net.websocket wss://gateway.discord.gg', 'secret.keep discord-token'] };`.
+Keys must be unique string literals naming http(s) origins without credentials,
+paths, queries or fragments; values are string literals or arrays of them, one
+grant line per literal. Identifiers, templates, computed keys, spreads and methods
+are refused with `app.ts:line:col`. The bake selects the key exactly matching the
+top-level literal `const origin`, after `EXACT_BACKEND_ORIGIN` or
+`.exact/backend-origin` overrides it, and refuses a missing entry, listing the
+origin and keys. Before type-checking, it replaces only the captured initializer
+with a string of the selected lines joined by `\n`, so web and native read the
+same grants. Authored source stays unchanged; keyed grants are never moved to
+another origin.
+
+The producer captures local imports, type-checks, bundles with Rolldown, compiles HBC, and
 bakes with an empty store. It writes `app.plan`, `app.js`, `app.hbc`, generated
 types, and an `app.module.json` pairing receipt into a **new** directory; it
 never overwrites an existing generation. An installed package's code is captured
