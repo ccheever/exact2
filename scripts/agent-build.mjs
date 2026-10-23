@@ -86,11 +86,12 @@ export function refuseBuild(host, state, app, { sample = false } = {}) {
  * nothing: the drive installs it, copying aside a Release build it replaces (devices.mjs `keepInstalledRelease`). */
 export const buildArgs = (host, app) => [...(host === 'ios' ? ['--ios'] : []), app.crate('apple'), ...(host === 'ios' ? ['--no-install'] : [])];
 
+const errorLine = line => /^error\b|\berror(\[E\d+\])?:/.test(line);
 /** What a failed build said, short: from its first error, at most 30 lines (else
  * its last 20), and its last line. */
 function failureLines(output) {
   const lines = output.split('\n').filter(line => line.trim());
-  const first = lines.findIndex(line => /^error\b|\berror(\[E\d+\])?:/.test(line));
+  const first = lines.findIndex(errorLine);
   const shown = first < 0 ? lines.slice(-20) : lines.slice(first, first + 30);
   if (lines.length && !shown.includes(lines.at(-1))) shown.push('…', lines.at(-1));
   return shown;
@@ -102,8 +103,12 @@ export function failureSummary(output, { host, code, log }) {
 }
 
 /** A failed child's diagnostic for a metrics row. */
-export const childFailure = r => (r.error?.message ?? (r.stderr?.trim() || r.stdout || '')).split('\n')
-  .map(l => l.trim()).filter(l => l && !/^at |^Bun v\d/.test(l)).slice(-3).join(' / ').slice(0, 400);
+export function childFailure(r) {
+  const lines = text => (text ?? '').split('\n').map(l => l.trim()).filter(l => l && !/^at |^Bun v\d/.test(l));
+  const stderr = lines(r.stderr), stdout = lines(r.stdout), errors = [...stderr, ...stdout].filter(errorLine);
+  return (r.error ? lines(r.error.message) : errors.length ? errors : stdout.length ? stdout : stderr)
+    .slice(-3).join(' / ').slice(0, 400);
+}
 
 /** `command` with `args`, its output into `log` (`append`ed to it); its exit code and output. */
 function logged(command, args, log, { cwd, env, append = false } = {}) {
