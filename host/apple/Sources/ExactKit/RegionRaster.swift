@@ -296,7 +296,7 @@ final class RegionPaintIndex {
                         let layout = layouts[p], row = request.rows[p], line = layout.line(at: i)
                         let flush: CGFloat = layout.source.align == 1 ? 0.5 : layout.source.align == 2 ? 1 : 0
                         let x = row.box.minX - request.scroll.x + TextEngine.penOffset(line, flush: flush, room: Double(row.box.width), rtl: layout.source.direction == 1)
-                        let y = row.box.minY - request.scroll.y + layout.baselines[i].rounded()
+                        let y = row.box.minY - request.scroll.y + TextEngine.paintedBaseline(layout.baselines[i], scale: CGFloat(request.scale))
                         if pass == .ink { TextLinePaint.draw(line, at: CGPoint(x: x, y: y), in: ctx); continue }
                         let range = CTLineGetStringRange(line)
                         let lo = max(row.selection.location, range.location)
