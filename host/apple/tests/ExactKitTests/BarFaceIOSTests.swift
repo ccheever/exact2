@@ -24,6 +24,30 @@ final class BarFaceIOSTests: XCTestCase {
          "style": ["text_color": [142, 142, 147, 255], "font_size": 12].merging(style) { $1 }]
     }
 
+    func testABadgeIsDrawnForThePagesSchemeAtTheSamePointSize() throws {
+        let p = Presenter()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "button", "props": ["testId": "badge"]],
+            ["op": "create", "id": 2, "kind": "view", "style": ["background_color": [[255, 0, 0, 255], [0, 0, 255, 255]]]],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "A"]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [3]],
+            ["op": "roots", "ids": [1]],
+        ]))
+        let box = try XCTUnwrap(p.views[2])
+        box.traitOverrides.userInterfaceStyle = .light
+        box.updateTraitsIfNeeded()
+        let light = try XCTUnwrap(BadgeFace(box: box))
+        box.traitOverrides.userInterfaceStyle = .dark
+        box.updateTraitsIfNeeded()
+        let dark = try XCTUnwrap(BadgeFace(box: box))
+        XCTAssertNotEqual(light.source, dark.source, "a scheme change redraws the bar item's face")
+        XCTAssertEqual(light.image.size, CGSize(width: 36, height: 36))
+        XCTAssertEqual(dark.image.size, light.image.size)
+        let pixel = try XCTUnwrap(SharePictureCase.rgba(try XCTUnwrap(dark.image.cgImage), x: 4, y: 4))
+        XCTAssertGreaterThan(pixel.2, 240, "the installed image itself is blue in dark mode")
+        XCTAssertLessThan(pixel.0, 15)
+    }
+
     func testADotBesideALabelIsDrawnAsPainted() throws {
         let (p, node) = button([dot, label(["written": ["text_color"]])])
         let face = try XCTUnwrap(ChipFace(node, engine: TextEngine(resolve: { _ in nil })))
