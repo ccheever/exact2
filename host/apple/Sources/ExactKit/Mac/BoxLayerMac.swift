@@ -228,9 +228,14 @@ extension NodeView {
         if b.frame != bounds { b.frame = bounds }
         if let shape = b as? CAShapeLayer, p.partialCorners {
             let width = devicePixels(p.widths[0]), cornerShape = CornerShape(style["corner_shape"])
-            let path = BorderPaint.roundedRect(bounds, cornerSizes(in: bounds), shape: cornerShape)
-            path.addPath(BorderPaint.roundedRect(bounds.insetBy(dx: width, dy: width),
-                BorderPaint.radii(style, in: bounds.insetBy(dx: width, dy: width), inset: width), shape: cornerShape))
+            let outerRadii = cornerSizes(in: bounds)
+            let inner = CGRect(x: bounds.minX + width, y: bounds.minY + width,
+                width: max(0, bounds.width - 2 * width), height: max(0, bounds.height - 2 * width))
+            let innerRadii = BorderPaint.reduced(outerRadii.map {
+                CGSize(width: max(0, $0.width - width), height: max(0, $0.height - width))
+            }, in: inner)
+            let path = BorderPaint.roundedRect(bounds, outerRadii, shape: cornerShape)
+            path.addPath(BorderPaint.roundedRect(inner, innerRadii, shape: cornerShape))
             shape.path = path; shape.fillRule = .evenOdd; shape.fillColor = border
             return
         }
