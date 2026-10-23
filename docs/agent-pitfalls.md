@@ -404,7 +404,9 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   turn dark. Four of round 4's five hex-heavy bake-off apps broke so. Fix: write no
   colour (the accent is the platform's blue; a brand is an `app.tamber`); surfaces and text
   are roles (`-exact-label`) or unsaid. Look in both schemes: `"prefer prefers-color-scheme dark"` as a drive's
-  first op. (LLP 1116.002 D1.)
+  first op, or `prefer prefers-color-scheme dark` before a test's first
+  observation. A later `prefer prefers-color-scheme light` switches back.
+  (LLP 1116.002 D1.)
 - **A card is white on a white page in light mode.** Cause:
   `-exact-secondary-grouped-background` (white in light) on a plain page (white), as
   start-here once suggested; two round-5 apps' cards vanished so. Fix: surfaces in
