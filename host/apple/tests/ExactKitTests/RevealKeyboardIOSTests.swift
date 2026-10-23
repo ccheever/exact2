@@ -1,5 +1,6 @@
 #if os(iOS)
 import UIKit
+import ObjectiveC.runtime
 import XCTest
 @testable import ExactKit
 
@@ -212,6 +213,37 @@ final class RevealKeyboardIOSTests: XCTestCase {
         let (session, window) = session("page-dismissal", widget: nil, scroller: false)
         defer { window.isHidden = true; session.destroy() }
         XCTAssertEqual(session.presenter.viewport.keyboardDismissMode, .interactive)
+    }
+
+    func testAPageDragAppliesZeroDurationKeyboardFramesImmediately() throws {
+        let (session, window) = session("page-keyboard-tracking", widget: "resizes-visual", scroller: false)
+        defer { window.isHidden = true; session.destroy() }
+        let p = session.presenter
+        window.isHidden = true
+        if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene { window.windowScene = scene }
+        let host = UIViewController()
+        window.rootViewController = host
+        host.view.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        p.applyKeyboard(top: 460, duration: 0, curve: 0)
+        // UIKit creates no finger contact for a unit test. Supply its tracking
+        // answer only for this viewport, then deliver the real notification path.
+        let selector = #selector(getter: UIScrollView.isTracking)
+        let method = try XCTUnwrap(class_getInstanceMethod(UIScrollView.self, selector))
+        let original = method_getImplementation(method)
+        let getter = unsafeBitCast(original, to: (@convention(c) (AnyObject, Selector) -> Bool).self)
+        let tracking: @convention(block) (UIScrollView) -> Bool = { view in view === p.viewport || getter(view, selector) }
+        let replacement = imp_implementationWithBlock(tracking)
+        method_setImplementation(method, replacement)
+        defer { method_setImplementation(method, original); imp_removeBlock(replacement) }
+        XCTAssertTrue(p.viewport.isTracking)
+        XCTAssertTrue(p.interactiveKeyboardDrag)
+        p.keyboardChanged(Notification(name: UIResponder.keyboardWillChangeFrameNotification, userInfo: [
+            UIResponder.keyboardFrameEndUserInfoKey: window.convert(CGRect(x: 0, y: 510, width: 400, height: 290), to: window.screen.coordinateSpace),
+            UIResponder.keyboardAnimationDurationUserInfoKey: 0.0
+        ]))
+        XCTAssertEqual(p.keyboardTop, 510, "the frame follows this turn of the finger")
+        XCTAssertFalse(p.hasPendingKeyboardResize, "interactive frames do not enter the focus-change debounce")
     }
 
     func testAHostedNativeEditorIsRevealedWhenTheKeyboardMoves() throws {
