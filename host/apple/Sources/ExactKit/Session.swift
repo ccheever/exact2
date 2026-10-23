@@ -1265,18 +1265,6 @@ public final class ExactSession {
     /// The zone's offset last told (`followOffset`, before each advance, so a
     /// DST change reaches the timer after it, habits F6; `tellAgentOffset`).
     var toldOffset: Double?, offsetHeld: (zone: String, until: Date)? // `followOffset`
-    /// @ref LLP 1061 D5 — told after every boot, as the date is, and on each
-    /// change: in the same main-thread turn as the boot batch, so the first
-    /// frame on screen already reads the user's preferences.
-    func tellPreferences() {
-        guard booted, state != .destroyed else { return }
-        apply(runtime.setPreferences(preferenceBits()))
-        // Increased Contrast changes what every platform colour resolves to; the build channel reports it (LLP 1122 D4).
-        reportColors(); app.scheduleStatus()
-        #if os(macOS)
-        controlTextChanged()
-        #endif
-    }
     /// Before a first boot the runtime keeps them, so the first frame is laid
     /// out with the device's preferences rather than a mouse's and then again
     /// (`pointer: none` on tvOS sets a different layout).
