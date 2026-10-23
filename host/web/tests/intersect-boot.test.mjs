@@ -61,6 +61,7 @@ function serve(plan, gated = null) {
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) {
     let path = new URL(req.url).pathname;
     if (path === '/__plan') return new Response(Bun.file(plan));
+    if (path === '/__plain') return new Response(Bun.file(`${plan}.plain`));
     if (path.endsWith('/')) path += 'index.html';
     const file = Bun.file(resolve(wasmDist, '.' + path));
     if (!(await file.exists())) return new Response('', { status: 404 });
@@ -106,6 +107,10 @@ check("the wasm host: an agent's settle waits for a view's first intersection en
     writeFileSync(resolve(tmp, 'app.contract'), APP);
     const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', resolve(tmp, 'app.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
     expect(c.status, c.stderr).toBe(0);
+    // The plan a reload brings in its place: no target, so nothing new to wait on.
+    writeFileSync(resolve(tmp, 'plain.contract'), 'component App\n  view\n    text "plain"\n');
+    const p = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', resolve(tmp, 'plain.contract'), '-o', `${plan}.plain`], { cwd: ROOT, encoding: 'utf8' });
+    expect(p.status, p.stderr).toBe(0);
     browser = await suiteBrowser();
     server = serve(plan);
     const page = await browser.newPage();
@@ -161,7 +166,7 @@ check("the wasm host: an agent's settle waits for a view's first intersection en
       await loading;
       const began = performance.now(), settling = globalThis.exact.agentSettled({ op: 'clock', settle: true });
       await new Promise((r) => setTimeout(r, 100));
-      await globalThis.exact.reload(bytes, true);
+      await globalThis.exact.reload(new Uint8Array(await fetch('/__plain').then((r) => r.arrayBuffer())), true);
       const settled = await settling;
       return { settled, ms: performance.now() - began };
     });
