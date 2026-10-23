@@ -25,7 +25,7 @@ test "unread: the bar says how many since when, and lands on the New divider (§
   clock +500 real
   tap "channel-help"
   clock settle
-  expect text "unread-bar" == "200+ new messages since 1:06 AM"
+  expect text "unread-bar" == "200+ new messages since 7:47 AM"
   expect tree missing "new-divider"
   tap "unread-bar"
   clock settle
@@ -158,13 +158,15 @@ test "a send shows at once, dimmed, and its confirmation keeps its row (§3.9)"
   tap "send"
   clock +1
   expect text "composer" == ""
+  // The row's key is the send's nonce, the app's clock at the send, which differs
+  // by host; render.test.ts holds it across the confirmation.
   expect state win.rows.199 .state == "pending"
-  expect state win.rows.199 .key == "1562888269480329216"
+  expect state win.rows.199 .plain == "Shipping the anchor fix now"
   request POST "/control/hold-sends" {"on": false}
   clock data
   clock settle
   expect state win.rows.199 .state == "sent"
-  expect state win.rows.199 .key == "1562888269480329216"
+  expect state win.rows.199 .plain == "Shipping the anchor fix now"
   expect state win.rows.199 .id == "1562888267366400000"
 
 test "a failed send stays, marked, and Retry sends it (§3.9)"

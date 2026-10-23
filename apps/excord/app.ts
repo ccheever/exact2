@@ -51,14 +51,15 @@ const render = createRenderer(dirs);
 const LIMIT = 200, HALF = 100;
 
 // What is unread after `since`: counted in the cached run that holds it, a lower bound (`more`) when
-// that run does not reach the newest message or `since` is not cached.
+// that run does not reach the newest message or `since` is not cached; its time is then the read
+// message's, since the first unread one is not known.
 function unreadAfter(channel: string, since: string | null): Unread {
   if (!since) return { count: 0, more: false, at: 0 };
   const after = S.windowAfter(store, channel, since, LIMIT);
   const rows = after.rows.length ? after.rows : S.latestWindow(store, channel, LIMIT).rows.filter(r => r.id && cmpId(r.id, since) > 0);
   const located = after.rows.length > 0 || !!S.message(store, channel, since);
-  return { count: rows.length, more: !located || !after.reachesNewest,
-    at: rows[0] ? timeOf(rows[0] as Stored) : msFromSnowflake(since) };
+  const more = !located || !after.reachesNewest;
+  return { count: rows.length, more, at: rows[0] && !more ? timeOf(rows[0] as Stored) : msFromSnowflake(since) };
 }
 
 function displayName(id: string): string {
@@ -85,9 +86,10 @@ const emptyWindow = (channel: string, anchor: string): Window => ({ channel, anc
   hasAfter: false, firstId: '', lastId: '', pin: '', unread: 0, unreadMore: false, unreadAt: 0 });
 const position = (w: S.MessageWindow, id: string): number => w.rows.findIndex(r => r.id === id || r.key === id);
 
-// The window: one run of at most 200 messages, the live tail or around an anchor, fetching up to two
-// pages (50 each, one at a time) on each side the store cannot fill. A cold tail loads two, so the
-// reader starts a page away from the paging edge. After a fresh READY its rows are refetched.
+// The window: one run of at most 200 messages, the live tail or around an anchor, fetching the pages
+// (50 each, one at a time) the store cannot fill: a cold tail's whole window, which the view pages
+// from 50 rows before its edge, and up to two on each side of an anchor. After a fresh READY its
+// rows are refetched.
 async function loadWindow(channel: string, anchor: string, since: string): Promise<Window> {
   if (!channel) return emptyWindow(channel, anchor);
   const read = () => (anchor ? S.windowAround(store, channel, anchor, LIMIT) : S.latestWindow(store, channel, LIMIT));
@@ -95,7 +97,7 @@ async function loadWindow(channel: string, anchor: string, since: string): Promi
   if (w.stale) { await page(live, channel, anchor ? { around: anchor, limit: 50 } : { limit: 50 }); w = read(); }
   if (anchor && w.fetchAround) { await page(live, channel, { around: anchor, limit: 50 }); w = read(); }
   if (!anchor && w.fetchLatest) { await page(live, channel, { limit: 50 }); w = read(); }
-  for (let i = 0; i < 2 && w.fetchBefore && (anchor ? position(w, anchor) : w.rows.length) < HALF; i++) {
+  for (let i = 0; i < (anchor ? 2 : 3) && w.fetchBefore && (anchor ? position(w, anchor) < HALF : w.rows.length < LIMIT); i++) {
     await page(live, channel, { before: w.fetchBefore, limit: 50 });
     w = read();
   }

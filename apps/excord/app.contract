@@ -70,6 +70,7 @@ component Excord
   state savingId = ""
   state savingStash = ""
   state unreadBar = false
+  state unreadLabel = ""
   state baseArrived = 0
   state followed = 0
   state highlight = ""
@@ -165,6 +166,10 @@ component Excord
   // or the channel acknowledges at once what was on screen (`scrolled`, `back`).
   task ack when reading and current and anchor == "" and not away and chan.unread > 0 and page.visibilityState == "visible"
     after(1000, ackNow)
+  // The bar says what was unread when the channel opened: its label is held from
+  // the first window that answers it, as arrivals and sends move the count on.
+  task unreadLands when unreadBar and unreadLabel == "" and win.channel == open
+    after(1, holdUnread)
   task pumping when slow
     every(150, pumpNow)
 
@@ -204,6 +209,7 @@ component Excord
     // reader watches is not new to them.
     since = c.unread > 0 ? c.lastRead : ""
     unreadBar = c.unread > 0
+    unreadLabel = ""
     baseArrived = c.arrived
     followed = c.arrived
     if p.channel == id and not p.atEnd
@@ -466,6 +472,8 @@ component Excord
     slow = not slow
     lagAnchor = anchor
     lagVersion = histVersion
+  action holdUnread
+    unreadLabel = unreadText
   action pumpNow
     lagAnchor = anchor
     lagVersion = histVersion
@@ -566,10 +574,10 @@ component Excord
                   text "Delete"
                 button commandfor="confirm-delete" command="close" testId="delete-cancel"
                   text "Cancel"
-              if unreadBar and win.channel == open
+              if unreadBar and unreadLabel != ""
                 row position="absolute" top=0 left=0 right=0 align-items="center" column-gap=12 padding="0px 16px" flex-wrap="wrap" background-color="AccentColor" testId="unread"
                   button appearance="none" press=jumpToUnread testId="unread-bar" flex="1 1 12rem" min-width=0 padding="9px 0px"
-                    text unreadText color="AccentColorText" font="-exact-footnote" font-weight=600
+                    text unreadLabel color="AccentColorText" font="-exact-footnote" font-weight=600
                   button appearance="none" press=dismissUnread testId="mark-read" padding="9px 0px"
                     text "Mark As Read" color="AccentColorText" font="-exact-footnote" font-weight=600
               if chan.typing != ""

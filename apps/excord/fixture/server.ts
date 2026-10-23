@@ -651,8 +651,10 @@ export function startFixture(options: FixtureOptions = {}) {
     resetVersion++;
     for (const [timer, resolve] of burstTimers) { clearTimeout(timer); resolve(); }
     burstTimers.clear();
+    // A client the reset superseded is told to stop (4004 is fatal to it), so it cannot
+    // reconnect and reset the world under the session that replaced it.
     for (const socket of sockets) if (socket !== keep) {
-      socket.data.closed = true; socket.close(1000, 'Fixture reset');
+      socket.data.closed = true; socket.close(keep ? 4004 : 1000, 'Fixture reset');
     }
     sockets.clear(); sessions.clear(); buckets.clear(); reactionUsers.clear();
     typingUsers.clear(); failNext.clear(); releaseSends();
