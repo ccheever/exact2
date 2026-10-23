@@ -655,9 +655,10 @@ extension Presenter {
                 node.liveText = text
             } else { node.liveText = nil }
             guard session?.autofocusHeld != true, launchAutofocusReleased || session?.booted != true, !autofocusProcessed.contains(ObjectIdentifier(node)), node.props["autofocus"] == "true",
-                  node.accessibilityVisible, !node.disabled, node.bounds.width > 0, node.bounds.height > 0 else { continue }
+                  !node.disabled else { continue }
+            let shown = node.accessibilityVisible && node.bounds.width > 0 && node.bounds.height > 0
             #if os(macOS)
-            guard let window = node.window else { continue }
+            guard shown, let window = node.window else { continue }
             let current = window.firstResponder, click = pressMount(node, in: window)
             if (current as? NodeView)?.returnsPointerFocusToCanvas != true { autofocusProcessed.insert(ObjectIdentifier(node)) }
             guard click != nil || current == nil || current === window || current === window.contentView || current === viewport || current === session?.view || (current as? NodeView)?.canvasInput != nil else { continue }
@@ -675,9 +676,17 @@ extension Presenter {
             // which an autofocus the work mounts takes (PressHandoffIOS).
             func yields(_ view: UIView) -> Bool { (view as? NodeView)?.focusedBySurfaceTouch == true || pressHandsOff(view, to: node) }
             func hasFocus(_ view: UIView) -> Bool { (view.isFirstResponder && (view as? NodeView)?.canvasInput == nil && !yields(view) && !(view is ExactView)) || view.subviews.contains(where: hasFocus) }
-            guard let window = node.window else { continue }
+            // A header's search field is the bar's (NavigationBarIOS), its own node hidden: it takes the focus
+            // as `focus()` gives it, once the push that mounted it settles.
+            let projected = node.headerField != nil
+            guard shown || projected, let window = node.window ?? root.window else { continue }
             autofocusProcessed.insert(ObjectIdentifier(node))
             guard !hasFocus(window) else { continue }
+            if projected {
+                autofocused(node)
+                focusNode(node)
+                continue
+            }
             let target: UIResponder = node.textArea ?? node.field ?? node, caret = pressCaret(in: node)
             autofocused(node) // the app's focus now, as Tab's and focus(id)'s
             if target.becomeFirstResponder() {

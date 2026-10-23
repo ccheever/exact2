@@ -449,7 +449,7 @@ package final class Presenter {
             session?.log("pending focus cancelled: its target or route was replaced")
             return
         }
-        guard pending.node.window != nil, pending.node.bounds.width > 0, pending.node.bounds.height > 0 else { return }
+        guard (pending.node.headerField ?? pending.node).window != nil, Self.sized(pending.node) else { return }
         pendingFocus = nil
         deliveringFocus = true
         focus(pending.node, selectText: pending.selectText)
@@ -526,6 +526,13 @@ package final class Presenter {
     /// A hatch's `focus()` on the node it resolved (LLP 1075.003 §3.4).
     func focusNode(_ target: NodeView) { focus(target, selectText: false) }
 
+    /// Whether `target` has a box to focus. A header's search field is the
+    /// bar's, which UIKit collapses to no height until it is pulled down or
+    /// its search is active.
+    private static func sized(_ target: NodeView) -> Bool {
+        target.headerField != nil || (target.bounds.width > 0 && target.bounds.height > 0)
+    }
+
     /// The node an action's `focus()` last named, delivered yet or not: a field's Return reads it to learn whether its `submit` asked for the keyboard back (LLP 1115.000 D9.2).
     weak var focusAsked: NodeView?
     private func focus(_ target: NodeView, selectText: Bool) {
@@ -546,7 +553,7 @@ package final class Presenter {
         let hidden = sequence(first: shown, next: \.superview).contains { $0.isHidden }
         // The mounted window is a prerequisite, never another session's.
         if let reason = NavigationRules.focusRefusal(mounted: shown.window != nil, disabled: target.formDisabled,
-                                                     zeroSize: shown.bounds.width == 0 || shown.bounds.height == 0,
+                                                     zeroSize: !Self.sized(target),
                                                      hiddenAncestor: hidden, inertAncestor: target.inert) {
             session?.log("focus \"\(name)\" refused: \(reason)")
             return
