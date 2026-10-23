@@ -2,17 +2,23 @@
 // document, not a missing file (bsky5, b32: `/profile/jay.bsky.team` 404'd
 // on the dev server); a request that is no navigation (an asset's fetch)
 // still finds nothing, and a file that exists is still that file.
-import {afterEach, test, expect} from 'bun:test';
-import {mkdirSync, mkdtempSync, rmSync, readFileSync, existsSync, writeFileSync} from 'node:fs';
+import {afterAll, afterEach, beforeAll, describe, test, expect, spyOn} from 'bun:test';
+import {mkdirSync, mkdtempSync, rmSync, readFileSync, renameSync, writeFileSync} from 'node:fs';
 import {createServer} from 'node:net';
+import {createServer as httpServer} from 'node:http';
+import * as filesystem from '../../scripts/filesystem.mjs';
 import {spawnOwned, stopAll} from '../../scripts/test-children.mjs';
 import {spawnSync} from 'node:child_process';
+import {createInterface} from 'node:readline';
+import {Readable} from 'node:stream';
+import {createApp} from '../../game/new.mjs';
+import {developmentBuildEnv} from '../../scripts/app.mjs';
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {acceptsHTML, appDocumentPath, DirectoryOrigin} from '../../scripts/origin.mjs';
 import {publishRoot} from '../../scripts/deploy.mjs';
 import {canonical, locationOf, matchPattern} from '../web-js/route-pattern.js';
-import {buildTreeFile, readWebRequest} from './serve.mjs';
+import {buildTreeFile, readWebRequest, serveBuildTree} from './serve.mjs';
 
 test('a navigation to a dotted deep link is the document; a fetch of one is not', async () => {
   const dist = mkdtempSync(resolve(tmpdir(), 'exact-deep-link-'));
@@ -124,44 +130,140 @@ test('the shared pattern matcher retains the route corpus semantics without notf
 });
 
 afterEach(() => stopAll());
-test('JS dev loop serves declared file-like routes and updates them after an edit', async () => {
-  const dir = mkdtempSync(resolve(tmpdir(), 'exact-deep-link-dev-'));
-  const app = resolve(dir, 'deep-links'), dist = resolve(dir, 'dist');
-  mkdirSync(app);
-  writeFileSync(resolve(app, 'app.json'), JSON.stringify({name: 'Deep links', app: {id: 'com.exact.deep-links', name: 'Deep links'}}));
-  const source = resolve(app, 'app.contract');
-  writeFileSync(source, sourceFor('/profile/:handle'));
-  const listener = createServer();
-  await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
-  const port = listener.address().port;
-  await new Promise(ok => listener.close(ok));
+// Fixture compilation is preparation; every wait on a running loop is bounded to 30 seconds.
+for (const wasm of [false, true]) describe(`${wasm ? 'wasm' : 'JS'} dev routes`, () => {
+  let dir, app, dist, source, env;
   const root = resolve(import.meta.dir, '../..');
-  const dev = spawnOwned(process.execPath, ['host/web/dev.mjs', '--app', app, '--port', String(port)],
-    {cwd: root, env: {...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist}, stdio: ['ignore', 'pipe', 'pipe']});
-  let said = '', listening = false;
-  const hear = data => { said = (said + data).slice(-12000); listening ||= said.includes(`127.0.0.1:${port}/`); };
-  dev.stdout.on('data', hear); dev.stderr.on('data', hear);
-  const until = async pass => {
-    const end = Date.now() + 900_000;
-    while (!pass()) {
-      if (dev.exitCode !== null || Date.now() > end) throw new Error(`dev build did not arrive: ${said}`);
-      await Bun.sleep(100);
+  beforeAll(async () => {
+    dir = mkdtempSync(resolve(tmpdir(), 'exact-deep-link-dev-'));
+    app = resolve(dir, 'deep-links'); dist = resolve(dir, 'dist');
+    if (wasm) {
+      createApp(app, {id: 'com.exact.deep-links', title: 'Deep links'});
+      writeFileSync(resolve(app, 'app.ts'), "export const appId = 'com.exact.deep-links';\nexport const grants = '';\nexport const answer = () => { throw new Error('no sources'); };\n");
+    } else {
+      mkdirSync(app);
+      writeFileSync(resolve(app, 'app.json'), JSON.stringify({name: 'Deep links', app: {id: 'com.exact.deep-links', name: 'Deep links'}}));
     }
-  };
-  const status = async (path, accept = 'text/html') => (await fetch(`http://127.0.0.1:${port}${path}`, {headers: {accept}})).status;
+    source = resolve(app, 'app.contract');
+    writeFileSync(source, sourceFor('/profile/:handle'));
+    env = {...developmentBuildEnv(), EXACT_APP_DIR: app, EXACT_WEB_DIST: dist,
+      EXACT_UPDATE_TRUST: 'development', EXACT_WEB_LINK: 'all', EXACT_DEV_BAKE: resolve(dist, 'bake.json')};
+    const prepare = (command, args) => new Promise((ok, no) => {
+      const child = spawnOwned(command, args, {cwd: root, env, stdio: ['ignore', 'pipe', 'pipe']});
+      let said = '';
+      const hear = data => { said = (said + data).slice(-12000); };
+      child.stdout.on('data', hear); child.stderr.on('data', hear);
+      child.once('error', no);
+      child.once('exit', code => code === 0 ? ok() : no(new Error(`fixture preparation failed: ${said}`)));
+    });
+    await prepare(process.execPath, ['host/web/build.mjs', app, '--render', 'none', ...(wasm ? ['--wasm'] : [])]);
+    if (wasm) await prepare('cargo', ['build', '-q', '--release', '-p', 'exact-js-bake']);
+  }, 600_000);
+  afterAll(async () => { await stopAll(); if (dir) rmSync(dir, {recursive: true, force: true}); });
+
+  test('serves admitted routes after an edit and reports a failed rebuild', async () => {
+    const listener = createServer();
+    await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
+    const port = listener.address().port;
+    await new Promise(ok => listener.close(ok));
+    const url = `http://127.0.0.1:${port}`;
+    const dev = spawnOwned(process.execPath, ['host/web/dev.mjs', '--app', app, '--port', String(port), ...(wasm ? ['--wasm'] : [])],
+      {cwd: root, env, stdio: ['ignore', 'pipe', 'pipe']});
+    const controller = new AbortController();
+    let streamTimer;
+    try {
+      await new Promise((ok, no) => {
+        let said = '';
+        const finish = error => {
+          clearTimeout(timer); dev.off('exit', exited);
+          dev.stdout.off('data', hear); dev.stderr.off('data', hear);
+          dev.stdout.resume(); dev.stderr.resume();
+          error ? no(error) : ok();
+        };
+        const timer = setTimeout(() => finish(new Error(`dev did not listen: ${said}`)), 30_000);
+        const exited = code => finish(new Error(`dev exited ${code}: ${said}`));
+        const hear = data => { said = (said + data).slice(-12000); if (said.includes(url + '/')) finish(); };
+        dev.stdout.on('data', hear); dev.stderr.on('data', hear); dev.once('exit', exited);
+      });
+      streamTimer = setTimeout(() => controller.abort(new Error('dev build notification did not arrive')), 30_000);
+      const response = await fetch(url + (wasm ? '/__dev' : '/__dev/page'), {signal: controller.signal});
+      const lines = createInterface({input: Readable.fromWeb(response.body)})[Symbol.asyncIterator]();
+      const nextBuild = async predicate => {
+        for (;;) {
+          const {value: line, done} = await lines.next();
+          if (done) throw new Error('dev event stream closed');
+          if (!line.startsWith('data: ')) continue;
+          const frame = JSON.parse(line.slice(6));
+          if (frame.error) throw new Error(frame.error);
+          if (predicate(frame)) return frame;
+        }
+      };
+      const sequence = frame => wasm ? frame.seq : frame.reload;
+      const initial = await nextBuild(frame => sequence(frame) > 0);
+      const status = async (path, accept = 'text/html') => (await fetch(url + path, {headers: {accept}})).status;
+      expect(await status('/profile/photos.zip')).toBe(200);
+      expect(await status('/deck/missing.html')).toBe(404);
+      expect(await status('/missing.pdf')).toBe(404);
+      expect(await status('/profile/photos.zip', '*/*')).toBe(404);
+      const before = readFileSync(resolve(dist, 'app.plan'));
+      writeFileSync(source, sourceFor('/changed/:handle'));
+      const changed = await nextBuild(frame => sequence(frame) > sequence(initial));
+      if (wasm) {
+        expect(changed.digest).not.toBe(initial.digest);
+        expect(readFileSync(resolve(dist, 'app.plan')).equals(before)).toBe(true);
+      }
+      expect(await status('/changed/photos.zip')).toBe(200);
+      expect(await status('/profile/photos.zip')).toBe(404);
+      writeFileSync(source, 'invalid contract !!!');
+      await expect(nextBuild(frame => sequence(frame) > sequence(changed))).rejects.toThrow('syntax-expected-declaration');
+      expect(dev.exitCode).toBe(null);
+      expect(await status('/changed/photos.zip')).toBe(200);
+    } finally {
+      clearTimeout(streamTimer); controller.abort();
+      await dev.stop(30_000);
+    }
+  }, 65_000);
+});
+
+test('HTTP route caches read each plan asynchronously once and refresh after edits', async () => {
+  const dist = mkdtempSync(resolve(tmpdir(), 'exact-route-cache-'));
+  const sync = spyOn(filesystem, 'filesystem'), reads = spyOn(filesystem, 'filesystemRead');
+  let server;
   try {
-    await until(() => listening && existsSync(resolve(dist, 'app.plan')));
-    expect(await status('/profile/photos.zip')).toBe(200);
-    expect(await status('/deck/missing.html')).toBe(404);
-    expect(await status('/missing.pdf')).toBe(404);
-    expect(await status('/profile/photos.zip', '*/*')).toBe(404);
-    const before = readFileSync(resolve(dist, 'app.plan'));
-    writeFileSync(source, sourceFor('/changed/:handle'));
-    await until(() => { try { return !readFileSync(resolve(dist, 'app.plan')).equals(before); } catch { return false; } });
-    expect(await status('/changed/photos.zip')).toBe(200);
-    expect(await status('/profile/photos.zip')).toBe(404);
+    writeFileSync(resolve(dist, 'index.html'), '<title>app</title>');
+    plan(dist, '/profile/:handle');
+    server = httpServer((req, res) => serveBuildTree(dist, req, res));
+    await new Promise(ok => server.listen(0, '127.0.0.1', ok));
+    const url = `http://127.0.0.1:${server.address().port}`;
+    const tree = async path => (await fetch(url + path, {headers: {accept: 'text/html'}})).status;
+    const staticRead = async path => (await readWebRequest(dist, path, 'text/html')).found ? 200 : 404;
+    for (const read of [tree, staticRead]) {
+      sync.mockClear(); reads.mockClear();
+      expect(await read('/profile/photos.zip')).toBe(200);
+      const planReads = () => reads.mock.calls.filter(([request]) => request.path === 'app.plan').length;
+      expect(sync.mock.calls.length).toBe(0);
+      expect(planReads()).toBe(1);
+      expect(await read('/profile/photos.zip')).toBe(200);
+      expect(await read('/deck/missing.html')).toBe(404);
+      expect(planReads()).toBe(1);
+      plan(dist, '/changed/:handle');
+      expect(await read('/changed/photos.zip')).toBe(200);
+      expect(await read('/profile/photos.zip')).toBe(404);
+      expect(planReads()).toBe(2);
+      renameSync(dist, dist + '.previous');
+      mkdirSync(dist);
+      writeFileSync(resolve(dist, 'index.html'), '<title>replacement</title>');
+      plan(dist, '/replaced/:handle');
+      expect(await read('/replaced/photos.zip')).toBe(200);
+      expect(await read('/changed/photos.zip')).toBe(404);
+      expect(planReads()).toBe(3);
+      rmSync(dist + '.previous', {recursive: true, force: true});
+      plan(dist, '/profile/:handle');
+    }
   } finally {
-    await dev.stop(30_000);
-    rmSync(dir, {recursive: true, force: true});
+    sync.mockRestore(); reads.mockRestore();
+    if (server) { server.closeAllConnections(); await new Promise(ok => server.close(ok)); }
+    rmSync(dist + '.previous', {recursive: true, force: true});
+    rmSync(dist, {recursive: true, force: true});
   }
-}, 1_200_000);
+});
