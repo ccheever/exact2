@@ -366,7 +366,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
             parameters.visiblePath = path
         }
         let radius = shown.layer.cornerRadius
-        if radius > 0 { parameters.visiblePath = UIBezierPath(roundedRect: shown.bounds, cornerRadius: radius) }
+        if radius > 0, parameters.visiblePath == nil { parameters.visiblePath = UIBezierPath(roundedRect: shown.bounds, cornerRadius: radius) }
         return UITargetedPreview(view: shown, parameters: parameters)
     }
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configuration: UIContextMenuConfiguration, highlightPreviewForItemWithIdentifier identifier: NSCopying) -> UITargetedPreview? {
