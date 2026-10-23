@@ -1326,8 +1326,7 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
       check(byTestId(t, 'live-count')?.props.text === 'Count 1', 'live text changes through an action');
       // AppKit button activation keeps the old responder; Tab moves focus for this autofocus-retention check.
       if (host === 'macos') { await f.type('first', { key: 'Tab' }); check(byTestId(await f.tree(), 'other')?.focused === true, 'Other owns focus before the update'); }
-      await f.tap('other');
-      t = await f.tree();
+      await f.tap('other'); t = await f.tree();
       check(byTestId(t, 'live-count')?.props.text === 'Count 2', 'Other activates the text update'); check(byTestId(t, 'other')?.focused === true, 'a text update does not steal focus back');
       check(byTestId(t, 'pressed')?.props.accessibilityPressed === 'true' && byTestId(t, 'mixed')?.props.accessibilityPressed === 'mixed', `aria-pressed is in the tree: ${JSON.stringify([byTestId(t, 'pressed')?.props, byTestId(t, 'mixed')?.props])}`); await f.clock('+1000'); check(byTestId(await f.tree(), 'pressed')?.props.accessibilityPressed === 'false', 'aria-pressed follows its bool'); await f.clock('+1000');
       t = await f.tree();
