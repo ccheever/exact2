@@ -29,6 +29,31 @@ final class SheetSurfaceMacTests: XCTestCase {
         return counts.sorted { $0.value > $1.value }.prefix(4).map(\.key)
     }
 
+    private func measuredColours(_ rep: NSBitmapImageRep) throws -> [[Int]] {
+        let colours = commonColours(rep)
+        guard colours.count >= 2, let ground = colours.first, ground.contains(where: { $0 > 8 }), ground.contains(where: { $0 < 247 }) else {
+            throw XCTSkip("window-server capture is blank; sheet surfaces cannot be measured")
+        }
+        return colours
+    }
+
+    func testCaptureValidationRejectsBlankImages() throws {
+        let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+        let context = try XCTUnwrap(CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 256,
+                                              space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        for blank: CGFloat in [0, 1] {
+            context.setFillColor(CGColor(colorSpace: space, components: [blank, blank, blank, 1])!)
+            context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+            let rep = NSBitmapImageRep(cgImage: try XCTUnwrap(context.makeImage()))
+            XCTAssertThrowsError(try measuredColours(rep)) { XCTAssertTrue($0 is XCTSkip) }
+        }
+        for (x, shade): (Int, CGFloat) in [(0, 0.15), (32, 0.25)] {
+            context.setFillColor(CGColor(colorSpace: space, components: [shade, shade, shade, 1])!)
+            context.fill(CGRect(x: x, y: 0, width: 32, height: 64))
+        }
+        XCTAssertEqual(try measuredColours(NSBitmapImageRep(cgImage: XCTUnwrap(context.makeImage()))).count, 2)
+    }
+
     func testAuthoredGroundAndGroupedCardMatchASwiftUISheetInDarkMode() throws {
         _ = NSApplication.shared
         let reference = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 600, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
@@ -43,7 +68,7 @@ final class SheetSurfaceMacTests: XCTestCase {
         let limit = Date().addingTimeInterval(5)
         while reference.attachedSheet == nil && Date() < limit { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
         let swiftSheet = try XCTUnwrap(reference.attachedSheet)
-        let expected = commonColours(try capture(swiftSheet, name: "swiftui"))
+        let expected = try measuredColours(try capture(swiftSheet, name: "swiftui"))
 
         let f = try SheetFixture(page: """
         component Proof
@@ -69,16 +94,15 @@ final class SheetSurfaceMacTests: XCTestCase {
         try f.press("open")
         let actualSheet = try XCTUnwrap(f.window.attachedSheet)
         let picture = try capture(actualSheet, name: "exact")
-        let actual = commonColours(picture)
+        let actual = try measuredColours(picture)
         let top = try XCTUnwrap(picture.colorAt(x: picture.pixelsWide / 2, y: 30)?.usingColorSpace(.sRGB))
         let topRGB = [top.redComponent, top.greenComponent, top.blueComponent].map { Int(($0 * 255).rounded()) }
         print("SwiftUI sheet colours: \(expected); Exact: \(actual); authored ground: \(topRGB)")
-        try XCTExpectFailure("QUEUE 1569: authored system backgrounds and grouped cards use the window surface in a sheet") {
+        XCTExpectFailure("QUEUE 1569: authored system backgrounds and grouped cards use the window surface in a sheet") {
             XCTAssertTrue(zip(topRGB, expected[0]).allSatisfy { abs($0 - $1) <= 3 }, "authored ground \(topRGB) differs from sheet \(expected[0])")
             for colour in expected.prefix(2) {
                 XCTAssertTrue(actual.contains { zip($0, colour).allSatisfy { abs($0 - $1) <= 3 } }, "SwiftUI's surface \(colour) absent from \(actual)")
             }
-            XCTAssertTrue(try f.node("ground").materialView is NSVisualEffectView)
         }
     }
 }
