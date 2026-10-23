@@ -120,13 +120,9 @@ fn a_list_rows_symbol_takes_its_tint_but_a_destructive_rows_is_its_red() {
     let r = boot(&app);
     let k = r.kernel();
     let node = |test_id: &str| k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap();
-    let symbol_tint = |row: &str| {
-        let first = node(row).children()[0];
-        match k.node(first).unwrap().computed(StyleId::TintColor) {
-            exact_kernel::style::RowValue::ColorValue(c) => c,
-            other => panic!("{row}: {other:?}"),
-        }
-    };
+    // A symbol is drawn in its `color` (LLP 1081 stage 2): the param's on a
+    // plain row, the row's red, inherited, on a destructive one.
+    let symbol_tint = |row: &str| k.node(node(row).children()[0]).unwrap().text_color();
     let ink = |row: &str| k.node(node(row).children()[1]).unwrap().text_color();
     assert_ne!(symbol_tint("red"), symbol_tint("plain"), "not the param's");
     assert_eq!(

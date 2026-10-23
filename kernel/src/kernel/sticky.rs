@@ -131,7 +131,23 @@ impl Kernel {
             ])
         };
         let margin = tree.layout(arena.taffy(slot)?).margin;
-        let cb = content(parent)?;
+        let mut cb = content(parent)?;
+        // A scroller's own child has the content it scrolls for its
+        // containing block, not the scroller's box: Chrome, Firefox and
+        // WebKit keep such a box stuck through the whole scroll. The extent
+        // is the padding box grown to the content (`NodeArena::content`).
+        if parent == scroller && scroller != slot && scrolls(arena, scroller) {
+            let l = tree.layout(arena.taffy(scroller)?);
+            let (w, h) = arena.content(scroller);
+            cb[3] = cb[3].max(l.border.top + h - l.padding.bottom);
+            if arena
+                .computed_source(scroller, StyleId::Direction)
+                .direction
+                != Direction::Rtl
+            {
+                cb[2] = cb[2].max(l.border.left + w - l.padding.right);
+            }
+        }
         let port = content(scroller)?;
         let (w, h) = (port[2] - port[0], port[3] - port[1]);
         let env = arena.env();
