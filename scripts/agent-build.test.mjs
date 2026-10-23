@@ -17,6 +17,11 @@ test('a child failure keeps stderr when stdout ends with successful build progre
   assert.equal(childFailure({ stdout: 'error: compiler failed\n' }), 'error: compiler failed');
 });
 
+test('a child failure retains errors from either stream past warnings and progress', () => {
+  assert.equal(childFailure({ stderr: 'warning: deprecated flag\n', stdout: 'Building...\nerror: could not find sdk\n' }), 'error: could not find sdk');
+  assert.equal(childFailure({ stderr: 'error: simulator installation failed\nwarning: one\nwarning: two\nwarning: three\n', stdout: 'Build complete!\n' }), 'error: simulator installation failed');
+});
+
 /** An outside app, as `exact new` lays one out, with only what the decision reads. */
 function scratchApp(name) {
   const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-agent-build-')));
