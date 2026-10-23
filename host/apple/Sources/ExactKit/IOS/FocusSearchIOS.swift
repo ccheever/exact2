@@ -71,9 +71,8 @@ final class Viewport: ScrollView {
     override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self, in: rect) }
     #endif
 }
-/// What a presentation mounts its navigation in (`ModalHost.present`): the
-/// other way into a session's views, which answers the search as the
-/// viewport does (LLP 1123 D2).
+/// A native document's or presentation's non-scrolling mount. Both answer
+/// the session's focus search as the viewport does (LLP 1123 D2).
 final class PresentationMount: UIView {
     #if os(iOS)
     /// What the route's logical ancestors listen for (`MountRelay`).

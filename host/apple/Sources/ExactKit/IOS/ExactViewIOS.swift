@@ -21,6 +21,7 @@ public let launchScreenColor = ((Bundle.main.object(forInfoDictionaryKey: "UILau
 public final class ExactView: UIView {
     public let session: ExactSession
     private var fitPending = false
+    private let navigationDocument = PresentationMount()
     /// The canvas's colour, which this view shows wherever the viewport does
     /// not reach (`paintUnderKeys`).
     private var canvas: UIColor?
@@ -41,7 +42,7 @@ public final class ExactView: UIView {
     private var lastDisplayScale: CGFloat = 0
     private var keyboardProbe: UIView?
     /// What this view adds beside the viewport, for `layout agree` (LLP 1080.001 D3).
-    var inspectionOwned: [UIView] { keyboardProbe.map { [$0] } ?? [] }
+    var inspectionOwned: [UIView] { [navigationDocument] + (keyboardProbe.map { [$0] } ?? []) }
     private var keyboardObserver: NSObjectProtocol?
     /// Fits again once the keyboard has stopped moving (see `init`).
     private var keyboardSettled: [NSObjectProtocol] = []
@@ -82,6 +83,9 @@ public final class ExactView: UIView {
         backgroundColor = launchScreenColor ?? .platformBackground(in: nil)
         canvas = backgroundColor
         addSubview(session.presenter.viewport)
+        navigationDocument.isHidden = true
+        navigationDocument.clipsToBounds = true
+        addSubview(navigationDocument)
         #if !os(tvOS)
         keyboardObserver = NotificationCenter.default.addObserver(
             forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] _ in
@@ -137,6 +141,20 @@ public final class ExactView: UIView {
             if status != hingeStatus { hingeStatus = status; regionRereads = 0 }
             setNeedsLayout()
         }
+    }
+
+    /// Keep stationary native navigation outside the page scroller: UIKit's Duo Back
+    /// control draws through that ancestor but does not receive its touches.
+    func mountDocument() {
+        let presenter = session.presenter, viewport = presenter.viewport
+        let native = presenter.navigation.wantsWholeView && !viewport.hasRange
+        navigationDocument.transform = viewport.transform
+        navigationDocument.bounds = viewport.bounds
+        navigationDocument.center = viewport.center
+        navigationDocument.isHidden = !native
+        viewport.isScrollEnabled = !native
+        let mount: UIView = native ? navigationDocument : viewport
+        if presenter.root.superview !== mount { mount.addSubview(presenter.root) }
     }
 
     /// Paint motion resolves `light-dark()` by this view's appearance (LLP 1062).
@@ -573,6 +591,7 @@ public final class ExactView: UIView {
             lastFold = segments
             session.segments(segments)
         }
+        mountDocument()
         paintUnderKeys()
     }
 

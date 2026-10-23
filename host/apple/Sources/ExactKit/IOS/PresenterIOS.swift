@@ -414,6 +414,7 @@ package final class Presenter {
         if root.frame != frame { root.frame = frame }
         let content = CGSize(width: size.width + m.left + m.right, height: size.height + m.top + m.bottom)
         if viewport.contentSize != content { viewport.contentSize = content }
+        session?.view?.mountDocument()
     }
     var onPress, onClose: ((UInt32) -> Void)?
     var onChange: ((UInt32, String) -> Void)?
