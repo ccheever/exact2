@@ -892,3 +892,72 @@ component App
     assert_eq!(batch["storeReadPending"], false);
     assert!(!host.pending_store_writes.is_empty());
 }
+
+#[test]
+fn accepted_peer_snapshot_supersedes_a_failed_local_write() {
+    struct SharedWrites {
+        values: Arc<Mutex<std::collections::BTreeMap<String, Vec<u8>>>>,
+        refusing: Arc<AtomicBool>,
+    }
+    impl crate::store::KeptStore for SharedWrites {
+        fn snapshot(&self, _: Vec<(String, Vec<u8>)>) -> crate::store::StoreRead {
+            crate::store::StoreRead {
+                values: self.values.lock().unwrap().clone().into_iter().collect(),
+                omitted: vec![],
+                complete: true,
+            }
+        }
+        fn write(&self, write: &exact_runner::StoreWrite) -> Result<(), String> {
+            if self.refusing.load(Ordering::SeqCst) {
+                return Err("injected I/O failure".into());
+            }
+            let mut values = self.values.lock().unwrap();
+            if let Some(value) = &write.value {
+                values.insert(write.name.clone(), value.clone());
+            } else {
+                values.remove(&write.name);
+            }
+            Ok(())
+        }
+        fn kept_failures(&self) -> Vec<String> {
+            vec![]
+        }
+    }
+    let plan = contract::compile("component App\n  state count = 0 persist\n  action step\n    count = count + 1\n  view\n    text `${count}`\n").unwrap().encode();
+    let values = Arc::new(Mutex::new(std::collections::BTreeMap::new()));
+    let refusing = Arc::new(AtomicBool::new(true));
+    let mut hosts: Vec<_> = (0..2)
+        .map(|i| {
+            let (mut host, _) = Host::boot(
+                &plan,
+                ChangingReader {
+                    asks: Arc::new(AtomicUsize::new(0)),
+                },
+                Box::new(MonospaceMeasurer::default()),
+                300.,
+                200.,
+            )
+            .unwrap();
+            host.activate_data();
+            host.runner.take_store_writes();
+            host.secrets = Some(Box::new(SharedWrites {
+                values: values.clone(),
+                refusing: if i == 0 {
+                    refusing.clone()
+                } else {
+                    Arc::new(AtomicBool::new(false))
+                },
+            }));
+            host
+        })
+        .collect();
+    for i in [0, 1, 1] {
+        let receipt = hosts[i].runner.act("step", vec![]).unwrap();
+        hosts[i].commit(&[Timed { at_ms: 0., receipt }], None);
+    }
+    refusing.store(false, Ordering::SeqCst);
+    hosts[0].refresh_store();
+    assert_eq!(hosts[0].runner.slot("count"), Some(&Value::Number(2.)));
+    assert_eq!(values.lock().unwrap()["exact.state.count"], b"2");
+    assert!(hosts[0].pending_store_writes.is_empty());
+}
