@@ -175,7 +175,7 @@ theorem map_prop {records : List String} {s : Subst} {c : CComponent}
     (hd : Distinct c) {acts derives : List (String × Expr)}
     (hacts : acts.map (·.1) = c.actions.map (·.name)) (hdv : ∀ p ∈ derives, p.1 ∈ c.derives.map (·.name))
     {pd : PropDecl} (hpd : pd ∈ c.props) {a : Expr} (ha : (args.find? (·.1 == pd.name)).map (·.2) = .some a) :
-    (withDerives records (insertAll m acts) derives).get pd.name =
+    (withDerives records (c.states.map (·.name)) (insertAll m acts) derives).get pd.name =
       .some (replOf (propValue s pd a)) := by
   simp only [baseMap, bind, Except.bind] at hm
   split at hm
@@ -208,7 +208,7 @@ theorem map_state {records : List String} {s : Subst} {c : CComponent}
     (hd : Distinct c) {acts derives : List (String × Expr)}
     (hacts : acts.map (·.1) = c.actions.map (·.name)) (hdv : ∀ p ∈ derives, p.1 ∈ c.derives.map (·.name))
     {st : StateDecl} (hst : st ∈ c.states) :
-    (withDerives records (insertAll m acts) derives).get st.name =
+    (withDerives records (c.states.map (·.name)) (insertAll m acts) derives).get st.name =
       .some (.name (lifted st.name n)) := by
   simp only [baseMap, bind, Except.bind] at hm
   split at hm
@@ -253,7 +253,7 @@ theorem use_prop {records : List String} {s : Subst} {c : CComponent}
     {fe : Env} {Lf : Locals}
     (harg : ∀ v, (∃ k, ceval k ce fp lp a = .ok v) ↔ EvalR fe false Lf (substExpr s a) v) :
     ∀ v, (∃ k, cvar k ce cname id binds pd.name = .ok v) ↔
-      Reads fe Lf (withDerives records (insertAll m acts) derives) pd.name v := by
+      Reads fe Lf (withDerives records (c.states.map (·.name)) (insertAll m acts) derives) pd.name v := by
   have hpn : pd.name ∈ c.props.map (·.name) := List.mem_map_of_mem hpd
   refine prop_reads hC (not_any_of_not_mem (hd.pd _ hpn)) (not_any_of_not_mem (hd.ps _ hpn)) hb ?_ harg
   rw [map_prop hm hd hacts hdv hpd ha]
@@ -274,7 +274,7 @@ theorem use_state {records : List String} {s : Subst} {c : CComponent}
     (hslot : ∀ v, (∃ sl, ce.store.find id = .some sl ∧ lookup st.name sl = .some v) ↔
       ExpandSubst.Res fe Lf (lifted st.name n) v) :
     ∀ v, (∃ k, cvar k ce cname id binds st.name = .ok v) ↔
-      Reads fe Lf (withDerives records (insertAll m acts) derives) st.name v := by
+      Reads fe Lf (withDerives records (c.states.map (·.name)) (insertAll m acts) derives) st.name v := by
   have hsn : st.name ∈ c.states.map (·.name) := List.mem_map_of_mem hst
   refine state_reads hC (not_any_of_not_mem (hd.sd _ hsn))
     (List.any_eq_true.2 ⟨st, hst, by simp⟩) (map_state hm hd hacts hdv hst) hslot

@@ -631,6 +631,9 @@ binder does not protect call heads.
 A derive supplies a value, even when its expression is a function call.
 Beside `fn pick`, `derive pick = pick(1)` makes `${pick}` read that result;
 `pick(5)` still calls the function.
+States and device-fact resources also supply values only: beside `fn pick`,
+`state pick = 7` makes `${pick}` read `7`, while `pick(5)` calls the function.
+These names leave calls intact in derives, state initializers, actions and slot fills.
 
 A child's action may call its `action` props and injected actions, with the
 arguments after those captured where they were bound: the parent's action runs
