@@ -61,6 +61,27 @@ final class AddressedTapIOSTests: XCTestCase {
         return (session, Agent(session: session), { defer { pressed = [] }; return pressed })
     }
 
+    func testANamedDateTapAimsAtItsCompactControlInsideAWiderBox() throws {
+        let (session, agent, _) = rows(), p = session.presenter
+        p.apply(wireBatch([
+            ["op": "create", "id": 10, "kind": "control", "props": ["type": "date", "value": "2026-10-22"], "handlers": ["change"]],
+            ["op": "children", "id": 1, "ids": [10]],
+            ["op": "frame", "id": 10, "x": 10.0, "y": 200.0, "w": 380.0, "h": 44.0],
+        ]))
+        p.viewport.layoutIfNeeded()
+        let node = try XCTUnwrap(p.views[10]), control = try XCTUnwrap(p.controls.controls[10]), window = try XCTUnwrap(window)
+        let b = agent.box(node), cb = agent.box(control)
+        XCTAssertFalse(cb.contains(CGPoint(x: b.midX, y: b.midY)), "the authored box's middle is beside the compact picker")
+        switch agent.addressedPoint(node, box: b, in: window) {
+        case .refused(let refusal): XCTFail("\(refusal)")
+        case .at(let point, _):
+            XCTAssertTrue(cb.contains(point), "a named tap reaches the compact picker: \(point), picker \(cb)")
+        }
+        let unsupported = agent.tap(["id": 10])
+        XCTAssertEqual(unsupported["delivery"] as? String, "unsupported")
+        XCTAssertTrue((unsupported["reason"] as? String ?? "").contains("--touch platform"))
+    }
+
     func testARowWithItsOwnPressIsPressedBesideTheCardAtItsMiddle() throws {
         let (_, agent, presses) = rows()
         let reply = agent.tap(["id": 2])
