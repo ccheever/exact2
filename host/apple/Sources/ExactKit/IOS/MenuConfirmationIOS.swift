@@ -2,6 +2,14 @@
 import UIKit
 
 extension MenuHost {
+    /// A visible native cell replaces its host-hidden authored section; CSS hiding still withdraws the invoker.
+    func groupedProjectionShows(_ source: NodeView, behind view: UIView) -> Bool {
+        guard let node = view as? NodeView, node.hiddenByHost, node.style["display"]?.string != "none",
+              let lists = presenter?.groupedLists, lists.hides(node),
+              case .view(let drawn, let port)? = lists.shown(source) else { return false }
+        return drawn.window != nil && !drawn.isHidden && !port.isHidden
+    }
+
     /// An alertdialog-shaped popover has one or more actions and at most one
     /// hide-only cancel: a chooser ("Open in…") is one action per choice.
     /// Retain this owner until native dismissal completes; ids alone are not
