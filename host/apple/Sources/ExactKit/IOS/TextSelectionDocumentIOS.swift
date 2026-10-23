@@ -142,11 +142,16 @@ final class SelectionSurface: UIView {
         return hit === self ? nil : hit
     }
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard input?.selected.length ?? 0 == 0 else { touched = nil; return }
         touched = touches.first.flatMap { input?.document?.paragraph(at: $0.location(in: self)) }
         touched?.touchesBegan(touches, with: event)
     }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) { touched?.touchesMoved(touches, with: event) }
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { touched?.touchesEnded(touches, with: event); touched = nil }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if input?.selected.length ?? 0 > 0 { touched?.touchesCancelled(touches, with: event) }
+        else { touched?.touchesEnded(touches, with: event) }
+        touched = nil
+    }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { touched?.touchesCancelled(touches, with: event); touched = nil }
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         action == #selector(copy(_:)) && input?.selected.length ?? 0 > 0
