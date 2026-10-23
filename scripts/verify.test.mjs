@@ -1006,7 +1006,7 @@ test('the largest text size: a clamped word wider than its box, drawn under the 
 });
 
 // A label a list's row cuts is given the row's room and its row grows taller, as UIKit's cells do at the accessibility sizes
-// (a grouped row already hyphenates); never the flex-wrap the row does not take, the line-clamp round 22's graders named a
+// (a grouped list's standard cell already hyphenates); never the flex-wrap the row does not take, the line-clamp round 22's graders named a
 // tell, nor the `hyphens` round 26's builders put on whole headings; an iOS test end at a window the phone shows scaled
 // measures no contrast or target.
 test('the largest text size in a list row; a scaled iOS test end', async () => {
