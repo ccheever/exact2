@@ -421,7 +421,7 @@ extension NodeView {
     /// native button is UIKit's own and never comes here.
     var platformPressDims: Bool {
         guard !authorsPress, !isNativeButton, !isSurfaceControl,
-              handlers.contains("press") || pressContact?.invokerLook == true,
+              handlers.contains("press") || pressContact?.invokerLook == true || overlayHoldsPress,
               !handlers.contains("pointerdown"), !handlers.contains("pointerup") else { return false }
         if let w = window {
             let r = convert(bounds, to: w)

@@ -22,7 +22,7 @@ class InvokerButton: UIButton {
         didSet {
             guard isHighlighted != oldValue else { return }
             releasePress()
-            if isHighlighted, let invoker { invoker.pressed = true; pressing = invoker }
+            if isHighlighted, let invoker { pressing = invoker; invoker.pressed = true }
         }
     }
     func releasePress() {

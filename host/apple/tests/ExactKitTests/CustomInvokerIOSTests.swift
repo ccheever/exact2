@@ -144,6 +144,43 @@ final class CustomInvokerIOSTests: XCTestCase {
         XCTAssertTrue(p.menus.isOpen(pop))
     }
 
+    func testASecondContactKeepsItsForwardedRouteAndTheOverlaysLook() throws {
+        for cancelled in [false, true] {
+            let p = page(), source = try XCTUnwrap(p.views[2]), parent = try XCTUnwrap(p.views[1])
+            p.apply(wireBatch([
+                ["op": "create", "id": 7, "kind": "button", "handlers": ["press"]],
+                ["op": "children", "id": 4, "ids": [7]],
+                ["op": "create", "id": 8, "kind": "button"],
+                ["op": "frame", "id": 8, "x": 10, "y": 10, "w": 80, "h": 24],
+                ["op": "children", "id": 2, "ids": [3, 8]],
+            ]))
+            p.menus.sync()
+            let overlay = try XCTUnwrap(source.subviews.compactMap { $0 as? InvokerButton }.first)
+            overlay.isHighlighted = true
+            let child = try XCTUnwrap(p.views[8]), touch = Touch(child)
+            var presses: [UInt32] = []
+            p.onPress = { presses.append($0) }
+            child.touchesBegan([touch], with: nil)
+            XCTAssertTrue(parent.hasPressContact)
+            touch.point = CGPoint(x: -1000, y: -1000)
+            child.touchesMoved([touch], with: nil)
+            XCTAssertNotNil(source.press.dimmedAt, "the overlay still holds the invoker's look outside")
+            touch.point = nil
+            child.touchesMoved([touch], with: nil)
+            if cancelled { child.touchesCancelled([touch], with: nil) }
+            else { child.touchesEnded([touch], with: nil) }
+            XCTAssertEqual(presses, cancelled ? [] : [1], "the second down belonged to the ancestor")
+            XCTAssertFalse(parent.hasPressContact)
+            XCTAssertFalse(parent.pressed)
+            XCTAssertNotNil(source.press.dimmedAt, "the overlay still holds the look after the second contact")
+            overlay.isHighlighted = false
+            XCTAssertFalse(source.pressed)
+            XCTAssertNil(source.press.dimmedAt)
+            p.menus.reset()
+            window?.isHidden = true
+        }
+    }
+
     func testACancelledInvokerContactClearsItsLookAndTheForwardedPress() throws {
         let p = page(), source = try XCTUnwrap(p.views[2]), parent = try XCTUnwrap(p.views[1])
         var presses = 0
