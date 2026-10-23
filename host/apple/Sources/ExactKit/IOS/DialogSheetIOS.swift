@@ -156,7 +156,9 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
         // its box, and the sheet scrolls the overflow, as the web's modal
         // dialog (`overflow: auto` under its `max-height`) scrolls itself.
         let overflow = dialog.scrollView != nil ? 0 : dialog.container.subviews.lazy.compactMap { $0 as? NodeView }.map(\.laidOutFrame.maxY).max() ?? 0
-        let content = CGSize(width: width, height: max(box.height, origin.y + overflow))
+        let port = max(0, scroller.bounds.width - inset.left - inset.right)
+        let content = CGSize(width: max(port, origin.x + size.width),
+                             height: max(box.height, origin.y + max(size.height, overflow)))
         if scroller.contentSize != content { scroller.contentSize = content }
     }
 }
