@@ -549,3 +549,56 @@ fn round_3_binding_context_duplicates_and_two_proposed_axes() {
         import.counted.mapped + import.counted.reported
     );
 }
+
+#[test]
+fn round_3_recheck_long_names_long_chains_and_only_bound_properties() {
+    let design = parse(EMPTY).unwrap();
+    let go = |text: &str| pen::import_with("x.pen", text, "pen", &design, &vocab());
+    // A name past 128 characters: reported, never named by an alias's report.
+    let long = "n".repeat(64 * 1024);
+    let aliases: Vec<String> = (0..2000)
+        .map(|i| format!(r#""c{i}":{{"type":"color","value":"$s"}}"#))
+        .collect();
+    let text = format!(
+        r#"{{"version":"2.21","variables":{{"{long}":{{"type":"color","value":"${long}"}},"s":{{"type":"color","value":"${long}"}},{}}}}}"#,
+        aliases.join(",")
+    );
+    let import = go(&text).unwrap();
+    assert!(
+        import.unmapped.iter().all(|u| u.why.len() < 300),
+        "a report's words are bounded"
+    );
+    assert!(import
+        .unmapped
+        .iter()
+        .any(|u| u.why == "a name of more than 128 characters"));
+    // A long chain of colour aliases: its cycle check is charged, refused or done in no more than a moment.
+    let chain: Vec<String> = (0..18_000)
+        .map(|i| {
+            if i == 0 {
+                r##""v0":{"type":"color","value":"#000000"}"##.to_string()
+            } else {
+                format!(r#""v{i}":{{"type":"color","value":"$v{}"}}"#, i - 1)
+            }
+        })
+        .collect();
+    let t = std::time::Instant::now();
+    let _ = go(&format!(
+        r#"{{"version":"2.21","variables":{{{}}}}}"#,
+        chain.join(",")
+    ));
+    assert!(
+        t.elapsed() < std::time::Duration::from_secs(20),
+        "{:?}",
+        t.elapsed()
+    );
+    // Only a property that takes a variable is a use: an `id`, a `context`, a position or a layout enum is none,
+    // while a script input of any name (`id` included) is the author's own.
+    let text = r#"{"version":"2.21","variables":{"n":{"type":"number","value":8},"m":{"type":"number","value":9}},
+      "children":[{"type":"frame","gap":"$n","id":"$n","context":"$n","x":"$n","layout":"$n"},
+                  {"type":"script","inputs":{"id":"$m"},"gap":"$m"}]}"#;
+    let import = go(text).unwrap();
+    let f = folded(&import);
+    assert_eq!(f.value("pen.n", 0).unwrap().css(), "8px");
+    assert_eq!(f.value("pen.m", 0).unwrap().css(), "9");
+}
