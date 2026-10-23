@@ -68,6 +68,19 @@ extension ExactSession {
         tellSoon(calls)
     }
 
+    /// @ref LLP 1061 D5 — told after every boot, as the date is, and on each
+    /// change: in the same main-thread turn as the boot batch, so the first
+    /// frame on screen already reads the user's preferences.
+    func tellPreferences() {
+        guard booted, state != .destroyed else { return }
+        apply(runtime.setPreferences(preferenceBits()))
+        // Increased Contrast changes what every platform colour resolves to; the build channel reports it (LLP 1122 D4).
+        reportColors(); app.scheduleStatus()
+        #if os(macOS)
+        controlTextChanged()
+        #endif
+    }
+
     /// `tellPreferences` for a notice; at once unless the data source is
     /// activating. The colours go with it unless a batch is being applied, as
     /// `reportColors` decides.
