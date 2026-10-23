@@ -928,7 +928,6 @@ public final class ExactSession {
         runtime.setProfileResolver(candidate.resolver)
         core.measure(with: candidate.text)
         installControlText(on: candidate.text)
-        candidate.text.commitFonts()
     }
 
     func cancelCommit() {
@@ -941,6 +940,7 @@ public final class ExactSession {
     func commit(_ candidate: Prepared, batch: Batch) -> Batch {
         precondition(batch.error == nil, "an accepted session candidate must remain commit-ready")
         text = candidate.text
+        text.commitFonts()
         updateToken = candidate.token
         generation += 1
         return batch

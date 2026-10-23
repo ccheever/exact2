@@ -1,4 +1,6 @@
 import Foundation
+import CoreText
+import CExact
 import XCTest
 #if os(macOS)
 import AppKit
@@ -6,6 +8,48 @@ import AppKit
 @testable import ExactKit
 
 final class GenerationAcceptanceTests: XCTestCase {
+    func testRefusedPreparationDoesNotRegisterItsFontsInTheProcess() throws {
+        #if os(macOS)
+        _ = NSApplication.shared
+        #endif
+        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../../../../scripts/fixtures/fonts/assets/DejaVuSans.ttf").standardized
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("candidate.ttf")
+        try FileManager.default.copyItem(at: fixture, to: url)
+        var registrationAttempted = false
+        defer {
+            if registrationAttempted { CTFontManagerUnregisterFontsForURL(url as CFURL, .process, nil) }
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let descriptors = try XCTUnwrap(CTFontManagerCreateFontDescriptorsFromURL(url as CFURL) as? [CTFontDescriptor])
+        let descriptor = try XCTUnwrap(descriptors.first)
+        let name = CTFontCopyPostScriptName(CTFontCreateWithFontDescriptor(descriptor, 16, nil)) as String
+        func available() -> Bool { (CTFontManagerCopyAvailablePostScriptNames() as? [String] ?? []).contains(name) }
+        try XCTSkipIf(available(), "the fixture face is already installed in this process")
+        registrationAttempted = true
+        let app = ExactApp.shared, session = ExactApp.shared.makeSession(label: "refused-font")
+        defer { session.destroy() }
+        let text = TextEngine.pair(resolve: { _ in url }, read: { _ in try? Data(contentsOf: url) }, bundled: { _ in url })
+        let family = Array("Candidate".utf8), source = Array("candidate.ttf".utf8)
+        family.withUnsafeBufferPointer { family in source.withUnsafeBufferPointer { source in
+            var face = ExactFontFace()
+            face.family = family.baseAddress; face.family_len = family.count
+            face.source = source.baseAddress; face.source_len = source.count
+            face.stack = 8; face.weight = 400
+            withUnsafePointer(to: &face) { face in
+                var catalog = ExactFontCatalog(); catalog.faces = face; catalog.count = 1
+                withUnsafePointer(to: &catalog) { text.install($0) }
+            }
+        } }
+        session.configureCommit(ExactSession.Prepared(text: text, resolver: app.resolver, token: 0))
+        session.cancelCommit()
+        XCTAssertFalse(available(), "a refused generation must leave process font registration unchanged")
+        text.commitFonts()
+        XCTAssertTrue(available(), "the fixture registers when accepted")
+    }
+
     func testAChangedSessionRefusesTheWholeCompositionBeforeDurableCommit() throws {
         #if os(macOS)
         _ = NSApplication.shared
