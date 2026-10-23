@@ -812,9 +812,6 @@ pub(crate) fn source_bound<'a>(
     values: impl IntoIterator<Item = (&'a str, &'a str)>,
 ) -> Result<(), Vec<Diagnostic>> {
     for (name, value) in values {
-        if let Some((id, why)) = crate::css::over_bytes("a name", name) {
-            return Err(vec![Diagnostic::new(id, why, 1, 1)]);
-        }
         if let Some((id, why)) = crate::css::over_limit(value) {
             let name: String = name.chars().take(80).collect();
             return Err(vec![Diagnostic::new(id, format!("`{name}`: {why}"), 1, 1)]);
