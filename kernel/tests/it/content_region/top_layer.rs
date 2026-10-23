@@ -1,5 +1,6 @@
-//! A popover in a content region (stage 14 B): it leaves the region's trial
-//! as it leaves its parent's layout, and is laid out in the viewport.
+//! A popover in a content region (stage 14 B, theme2 09:54): it stays in
+//! the region's trial, laid out in-region as on main (the native region
+//! captures it: QUEUE); out of the region it is in the viewport again.
 use super::support::*;
 use exact_kernel::*;
 
@@ -47,41 +48,30 @@ fn with_popover(static_owner: bool) -> Kernel {
 }
 
 #[test]
-fn a_popover_leaves_the_regions_trial_for_the_viewport() {
+fn a_popover_under_a_region_stays_in_its_trial() {
     let mut k = with_popover(false);
     register(&mut k);
-    let popover = key(&k, 7);
-    let first = pass(&mut k, 400., 1);
-    assert!(
-        first.shell.updated.contains(&popover),
-        "published after the region"
-    );
     let r = ready(&mut k, 400., 1);
-    assert_eq!(
-        r.current_frame(popover),
-        None,
-        "not one of the trial's frames"
-    );
-    let f = k.node(7).unwrap().frame;
-    assert_eq!((f.x, f.y, f.width, f.height), (0., 0., 200., 30.));
-    assert_eq!(k.host_block_size(7), Some((200., 30.)));
-    // The text beside it lays out as without it.
-    let text = k.node(4).unwrap().frame;
-    let mut plain = fixture();
-    register(&mut plain);
-    ready(&mut plain, 400., 1);
-    assert_eq!(text, plain.node(4).unwrap().frame);
+    let popover = key(&k, 7);
+    assert_eq!(k.host_block(7), None, "no viewport block under a region");
+    // In its owner, the trial's containing block: 50% of the owner's 400.
+    let f = r.current_frame(popover).expect("one of the trial's frames");
+    assert_eq!((f.width, f.height), (200., 30.));
+    // Out of the region, the same popover is in the viewport again.
+    k.set_content_region(None).unwrap();
+    k.compute_layout(1, Offer::definite(800., 300.)).unwrap();
+    assert!(k.host_block(7).is_some());
+    assert_eq!(k.node(7).unwrap().frame.width, 400.);
 }
 
-/// A static owner over a popover registers, as over nothing absolute: the
-/// popover is not in the trial (LLP 1074 T1's refusal is for boxes that are).
+/// A static owner over a popover is refused, as over any absolutely
+/// positioned box (LLP 1074 T1): under a region the popover is in the trial.
 #[test]
-fn a_static_owner_over_a_popover_registers() {
-    let mut k = with_popover(true);
+fn a_static_owner_over_a_popover_is_refused() {
+    let k = with_popover(true);
     let b = binding(&k);
-    assert!(k.set_content_region(Some(b)).is_ok());
-    ready(&mut k, 400., 1);
-    assert_eq!(k.node(7).unwrap().frame.width, 200.);
+    let mut k = k;
+    assert!(k.set_content_region(Some(b)).is_err());
 }
 
 /// A region whose owner is in the top layer is refused: the owner is laid

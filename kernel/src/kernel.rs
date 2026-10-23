@@ -467,8 +467,6 @@ impl Kernel {
         profile: crate::region::RegionProfile,
     ) -> Result<bool, KernelError> {
         self.mirror();
-        // A popover in the region has left its trial (`holds_absolute`).
-        self.imply_blocks();
         if binding.is_some() && self.arena.blocks.any_given() {
             return Err(LayoutError::HostBlock("no content region beside a block").into());
         }
@@ -496,6 +494,9 @@ impl Kernel {
             })
             .transpose()?;
         self.region = next;
+        // A popover under the region stays in its trial; one it no longer
+        // holds is in the viewport again (`imply_blocks`).
+        self.imply_blocks();
         // The previous region cut its owner's ordinary child edge. Restore
         // current authored topology when replacing or removing it, only AFTER
         // the new binding passed preflight. Invalid replacement leaves it intact.
