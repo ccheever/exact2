@@ -94,35 +94,45 @@ final class PageScrollMacTests: XCTestCase {
     }
 
     func testDriverResizeKeepsACoverViewportAtTheWindowsFrame() throws {
-        _ = NSApplication.shared
-        let path = try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_COVER_SCROLL_PLAN"])
-        let session = ExactApp.shared.makeSession(label: "cover-viewport")
-        defer { session.destroy() }
-        let initial = NSSize(width: 420, height: 900)
-        XCTAssertNil(session.boot(plan: try Data(contentsOf: URL(fileURLWithPath: path)), size: initial).error)
-        let view = ExactView(session: session)
-        let window = NSWindow(contentRect: NSRect(origin: .zero, size: initial),
-                              styleMask: [.titled, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = view
-        defer { window.close() }
-        session.presenter.viewport.scrollerStyle = .overlay
-        view.layoutSubtreeIfNeeded()
-        let agent = session.agentInstance
-        let before = try XCTUnwrap(agent.layout()["viewport"] as? [String: Double])
-        XCTAssertEqual(before["w"], Double(window.frame.width))
-        XCTAssertEqual(before["h"], Double(window.frame.height))
-        let sameSize = NSSize(width: CGFloat(try XCTUnwrap(before["w"])), height: CGFloat(try XCTUnwrap(before["h"])))
-        for size in [sameSize, NSSize(width: 640, height: 480), sameSize] {
-            let reply = agent.resizeWindow(size)
-            XCTAssertNil(reply["error"])
-            let viewport = try XCTUnwrap(agent.layout()["viewport"] as? [String: Double])
-            XCTAssertEqual(window.frame.size, size, "a cover resize includes the titlebar")
-            XCTAssertEqual(viewport["w"], Double(size.width))
-            XCTAssertEqual(viewport["h"], Double(size.height))
-            XCTAssertEqual(reply["resized"] as? [Double], [Double(size.width), Double(size.height)])
-            XCTAssertEqual(session.presenter.insets.top, window.frame.height - window.contentLayoutRect.height, accuracy: 0.01)
-            XCTAssertGreaterThan(session.presenter.insets.top, 0)
+        for overlay in [false, true] {
+            _ = NSApplication.shared
+            let path = try XCTUnwrap(ProcessInfo.processInfo.environment[overlay ? "EXACT_FIELDLESS_PLAN" : "EXACT_COVER_SCROLL_PLAN"])
+            let session = ExactApp.shared.makeSession(label: "cover-viewport")
+            defer { session.destroy() }
+            let initial = NSSize(width: 420, height: 900)
+            XCTAssertNil(session.boot(plan: try Data(contentsOf: URL(fileURLWithPath: path)), size: initial).error)
+            let view = ExactView(session: session)
+            let window = NSWindow(contentRect: NSRect(origin: .zero, size: initial),
+                                  styleMask: [.titled, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = view
+            defer { window.close() }
+            if overlay {
+                XCTAssertNil(view.viewportFit, "the overlay does not require an authored cover")
+                XCTAssertFalse(view.hasWindowToolbar)
+                window.toolbar = NSToolbar(identifier: "cover-viewport-overlay")
+                window.toolbarStyle = .unified
+                window.titlebarAppearsTransparent = true
+                view.controlsOverlay = true
+            }
+            session.presenter.viewport.scrollerStyle = .overlay
+            view.layoutSubtreeIfNeeded()
+            let agent = session.agentInstance
+            let before = try XCTUnwrap(agent.layout()["viewport"] as? [String: Double])
+            XCTAssertEqual(before["w"], Double(window.frame.width))
+            XCTAssertEqual(before["h"], Double(window.frame.height))
+            let sameSize = NSSize(width: CGFloat(try XCTUnwrap(before["w"])), height: CGFloat(try XCTUnwrap(before["h"])))
+            for size in [sameSize, NSSize(width: 640, height: 480), sameSize] {
+                let reply = agent.resizeWindow(size)
+                XCTAssertNil(reply["error"])
+                let viewport = try XCTUnwrap(agent.layout()["viewport"] as? [String: Double])
+                XCTAssertEqual(window.frame.size, size, "a cover resize includes the titlebar")
+                XCTAssertEqual(viewport["w"], Double(size.width))
+                XCTAssertEqual(viewport["h"], Double(size.height))
+                XCTAssertEqual(reply["resized"] as? [Double], [Double(size.width), Double(size.height)])
+                XCTAssertEqual(session.presenter.insets.top, overlay ? 0 : window.frame.height - window.contentLayoutRect.height, accuracy: 0.01)
+                XCTAssertGreaterThan(view.safeAreaInsets.top, 0)
+            }
         }
     }
 
