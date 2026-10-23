@@ -892,4 +892,10 @@ fn a_popover_under_a_native_region_stays_in_it_and_publishes() {
         None,
         "in the region"
     );
+    let frame = host.runner().kernel().node(pop).unwrap().frame;
+    assert_eq!(
+        (frame.width, frame.height),
+        (300., 30.),
+        "half the owner's 600"
+    );
 }

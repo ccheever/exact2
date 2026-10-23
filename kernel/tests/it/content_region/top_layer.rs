@@ -92,3 +92,92 @@ fn a_region_owner_in_a_popover_is_refused() {
     let b = binding(&k);
     assert!(k.set_content_region(Some(b)).is_err());
 }
+
+/// A popover in the region's shell is laid out in its block after the
+/// region; a bad measurement there is recovered as the region's own is: the
+/// next pass measures again, and nothing cached keeps the bad zero.
+#[test]
+fn a_shell_popovers_bad_measurement_is_recovered() {
+    use std::cell::Cell;
+    use std::rc::Rc;
+    struct Toggle(Rc<Cell<bool>>);
+    impl TextMeasurer for Toggle {
+        fn measure(&mut self, r: &TextMeasureRequest<'_>) -> TextMetrics {
+            if self.0.get() && r.runs.iter().any(|r| r.text.starts_with("Popped")) {
+                TextMetrics {
+                    width: f32::NAN,
+                    ..Default::default()
+                }
+            } else {
+                MonospaceMeasurer::default().measure(r)
+            }
+        }
+    }
+    let bad = Rc::new(Cell::new(false));
+    let mut k = fixture_with(Box::new(Toggle(bad.clone())));
+    k.apply(
+        0,
+        0,
+        &[
+            Op::CreateView {
+                id: 8,
+                node_type: NodeType::View,
+            },
+            Op::CreateView {
+                id: 9,
+                node_type: NodeType::Text,
+            },
+            Op::SetProp {
+                id: 8,
+                prop: PropId::Popover,
+                value: "manual".into(),
+            },
+            Op::SetProp {
+                id: 9,
+                prop: PropId::Text,
+                value: "Popped".into(),
+            },
+            Op::SetChildren {
+                id: 8,
+                children: vec![9],
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![2, 6, 8],
+            },
+        ],
+    )
+    .unwrap();
+    register(&mut k);
+    ready(&mut k, 400., 1);
+    let good = k.node(9).unwrap().frame.width;
+    assert!(good > 0.);
+    assert!(
+        k.host_block(8).is_some(),
+        "the shell's popover is in its block"
+    );
+    // The text changes, so the next pass measures it, badly.
+    bad.set(true);
+    k.apply(
+        1,
+        1,
+        &[Op::SetProp {
+            id: 9,
+            prop: PropId::Text,
+            value: "Popped again".into(),
+        }],
+    )
+    .unwrap();
+    let r = k.compute_region_layout(
+        1,
+        Offer::definite(300., 300.),
+        RegionInputs {
+            catalog: 1,
+            consumer_revision: 1,
+        },
+    );
+    assert!(r.is_err(), "the bad measurement is the pass's error");
+    bad.set(false);
+    pass(&mut k, 300., 1);
+    assert!(k.node(9).unwrap().frame.width > good, "measured again");
+}
