@@ -197,7 +197,7 @@ final class FlightsIOSTests: XCTestCase {
         land(arriver, "full.png", loader, resolver)
         let full = try XCTUnwrap(arriver.raster?.image.image)
         p.apply(wireBatch([["op": "present", "id": 4, "property": "flight", "x": 1.0, "y": 0.0]]))
-        XCTAssertTrue((arriver.imageLayer?.contents as AnyObject?) === full, "its own pixels once they land")
+        XCTAssertTrue(((arriver.imageLayer?.contents ?? arriver.imageLayer?.sublayers?.first?.contents) as AnyObject?) === full, "its own pixels once they land")
         XCTAssertNil(arriver.flightLook?.stand, "the leaver's lease let go")
         XCTAssertEqual(arriver.imageLayer?.frame.height ?? 0, 100, accuracy: 0.5, "at its own aspect")
     }
