@@ -83,5 +83,38 @@ final class CollectionFillIOSTests: XCTestCase {
         print("D3 scheduled scroll reports=\(reports.count) limit=\(limit) elapsed_ms=\((CACurrentMediaTime() - started) * 1000)")
     }
 
+    func testScrollReportsOnlyNewRowMeasurements() throws {
+        let (p, window, scroll) = try fixture()
+        defer { p.reset(); window.isHidden = true }
+        var reports: [Data] = []
+        p.collections.onFeedback = { reports.append($0) }
+        func count(_ data: Data) -> UInt32 {
+            data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 96, as: UInt32.self) }
+        }
+        p.collections.flush()
+        XCTAssertEqual(count(try XCTUnwrap(reports.last)), 4)
+        reports.removeAll()
+        let started = CACurrentMediaTime()
+        for y in [30, 40, 50] {
+            scroll.contentOffset.y = CGFloat(y)
+            p.collections.fillSlice(1, limit: 0)
+        }
+        let sizes = reports.map(count)
+        print("QUEUE 675 scroll reports=\(sizes.count) measurements=\(sizes) bytes=\(reports.reduce(0) { $0 + $1.count }) ms=\((CACurrentMediaTime() - started) * 1000)")
+        XCTAssertEqual(sizes, [0, 0, 0])
+        p.apply(wireBatch([["op": "frame", "id": 2, "x": 10, "y": 20, "w": 280, "h": 73]]))
+        p.collections.settle()
+        XCTAssertEqual(count(try XCTUnwrap(reports.last)), 1, "a changed height is sent")
+        p.apply(wireBatch([["op": "collections", "items": [["view": 1, "revision": 2, "scrollSequence": 0,
+            "count": 100, "totalExtent": 7200, "pending": false,
+            "rows": (0..<4).map { ["view": 2 + $0, "root": 2 + $0, "epoch": 1, "index": $0] },
+            "correction": NSNull()]]]]))
+        p.collections.settle()
+        // The runner may invalidate its height index without changing a
+        // row's frame or epoch. A new revision must measure it again.
+        p.collections.fillSlice(1, limit: 1)
+        XCTAssertEqual(count(try XCTUnwrap(reports.last)), 4)
+    }
+
 }
 #endif
