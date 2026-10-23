@@ -1,16 +1,56 @@
 import { expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import { open } from '../../scripts/agent.mjs';
 import { checkOp, ratio } from '../../scripts/agent-check.mjs';
-import { HOSTS, startNet } from '../../host/web-js/conformance/net.mjs';
+import { answer, startNet } from '../../host/web-js/conformance/net.mjs';
 
 // Build first with `bun host/web/build.mjs spark`.
+test('the dark match overlay declares its status bar only while mounted', async () => {
+  // The web JS compiler omits status-bar properties; check the declaration here
+  // and drive the node's scheme and lifetime below. UIKit rendering needs iOS.
+  const declarations = readFileSync(new URL('./app.contract', import.meta.url), 'utf8')
+    .split('\n').filter(line => line.includes('status-bar-style='));
+  expect(declarations).toHaveLength(1);
+  expect(declarations[0]).toContain('testId="match-overlay"');
+  expect(declarations[0]).toContain('status-bar-style="auto"');
+  const net = await startNet();
+  let session;
+  try {
+    session = await open({ host: 'web', app: 'spark', size: [420, 900],
+      env: { ...net.env, EXACT_AGENT_EPHEMERAL_PORT: '1' } });
+    await session.clock('settle');
+    const overlayMounted = async () => (await session.op({ op: 'tree' })).nodes
+      .some(node => node.props?.testId === 'match-overlay');
+    for (const scheme of ['light', 'dark']) {
+      await session.prefer({ 'prefers-color-scheme': scheme });
+      expect(await overlayMounted()).toBe(false);
+      await session.tap('btn-like');
+      await session.clock('settle');
+      expect((await session.state()).slots.matched).toBe(0);
+      const overlay = (await session.layout('match-overlay')).node;
+      expect(overlay.style.color_scheme.computed).toBe('dark');
+      expect(await overlayMounted()).toBe(true);
+      await session.tap('keep-swiping');
+      await session.clock('settle');
+      expect((await session.state()).slots.matched).toBe(-1);
+      expect(await overlayMounted()).toBe(false);
+      expect((await session.op({ op: 'check' })).scheme).toBe(scheme);
+      await session.tap('btn-undo');
+      await session.clock('settle');
+    }
+  } finally {
+    try { await session?.close(); } finally { await net.close(); }
+  }
+}, 30000);
+
 for (const loaded of [true, false]) {
   test(`Spark contrast with ${loaded ? 'fixture portraits' : 'failed portraits'}`, async () => {
-    const portraits = HOSTS['randomuser.me'];
-    if (!loaded) HOSTS['randomuser.me'] = () => ({ status: 404, body: 'Portrait unavailable' });
-    const net = await startNet();
+    const net = await startNet(undefined, loaded ? {} : {
+      'randomuser.me': () => ({ status: 404, body: 'Portrait unavailable' }),
+    });
     let session;
     try {
+      expect(answer('randomuser.me', 'GET', '/api/portraits/women/1.jpg').status).toBe(200);
       session = await open({ host: 'web', app: 'spark', size: [420, 900],
         env: { ...net.env, EXACT_AGENT_EPHEMERAL_PORT: '1' } });
       const failures = [];
@@ -114,9 +154,7 @@ for (const loaded of [true, false]) {
       expect(net.unanswered).toEqual([]);
       expect(failures).toEqual([]);
     } finally {
-      await session?.close();
-      await net.close();
-      HOSTS['randomuser.me'] = portraits;
+      try { await session?.close(); } finally { await net.close(); }
     }
   }, 30000);
 }
