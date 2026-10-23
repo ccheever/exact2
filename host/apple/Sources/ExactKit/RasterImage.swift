@@ -564,15 +564,16 @@ final class RasterImage: @unchecked Sendable {
     }
 }
 
-/// Whether drawing the thumbnail into the planned bitmap would change
-/// nothing but its bytes' layout: the planned size (no resample), 8-bit
-/// opaque pixels already in the storage space (no conversion; the skipped
-/// alpha byte reads as opaque), rows no wider than the plan's. A deep plan
+/// Keep ImageIO's one-pixel rounding within the reservation. Object fit
+/// uses the source's natural size, so the layer scales these pixels to the
+/// same rectangle without an intermediate resample. Only opaque 8-bit
+/// pixels in the storage space qualify. A deep plan
 /// always draws: ImageIO hands back 16-bit integers, and Core Animation
 /// shares half floats. Otherwise the caller draws.
 private func isAdoptable(_ thumbnail: CGImage, plan: RasterDecodePlan, space: CGColorSpace) -> Bool {
     !plan.deep
-        && thumbnail.width == plan.width && thumbnail.height == plan.height
+        && (plan.width - 1...plan.width).contains(thumbnail.width)
+        && (plan.height - 1...plan.height).contains(thumbnail.height)
         && thumbnail.bitsPerComponent == 8 && thumbnail.bitsPerPixel == 32
         && thumbnail.bytesPerRow <= plan.stride
         && thumbnail.bitmapInfo.subtracting(.alphaInfoMask).subtracting(.byteOrderMask).isEmpty
