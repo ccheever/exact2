@@ -77,6 +77,12 @@ export interface Store {
   channelMap: Map<string, Channel>;
   histories: Map<string, History>;
   readStates: Map<string, ReadState>;
+  // The account's own roles in each guild, which decide what it can see.
+  roles: Map<string, string[]>;
+  // Each guild's channel ids, rebuilt when a channel joins or leaves the cache (`removals` counts the
+  // leaving): a lookup per guild over every channel was quadratic in a large account's READY.
+  byGuild: { key: string; ids: Map<string, string[]> } | null;
+  removals: number;
   versions: Map<string, number>;
   sidebarRevision: number;
   sequence: number;
@@ -87,8 +93,18 @@ interface Changes { channels: Set<string>; sidebar: boolean }
 export function createStore(opts: { meId?: string } = {}): Store {
   return {
     meId: opts.meId ?? null, users: new Map(), guildMap: new Map(), channelMap: new Map(),
-    histories: new Map(), readStates: new Map(), versions: new Map(), sidebarRevision: 0, sequence: 0,
+    histories: new Map(), readStates: new Map(), roles: new Map(), byGuild: null, removals: 0, versions: new Map(), sidebarRevision: 0, sequence: 0,
   };
+}
+
+/** Forget the account (a sign-out): every cached object goes, and every version moves on, so no
+ * answer asked after it can match one asked before. */
+export function forgetAccount(s: Store): void {
+  s.meId = null;
+  for (const map of [s.users, s.guildMap, s.channelMap, s.histories, s.readStates, s.roles]) map.clear();
+  s.removals++;
+  for (const [id, version] of s.versions) s.versions.set(id, version + 1);
+  s.sidebarRevision++;
 }
 
 function changes(): Changes { return { channels: new Set(), sidebar: false }; }
@@ -337,6 +353,7 @@ function setChannel(s: Store, data: DiscordObject, c: Changes): void {
     delete normalized.recipients;
   }
   if (sameFields(old, normalized)) return;
+  if (old && normalized.guild_id !== undefined && old.guild_id !== normalized.guild_id) s.removals++;
   s.channelMap.set(data.id, { ...old, ...normalized } as Channel);
   if (h?.live && last && (!h.live.rowHigh || cmpId(last, h.live.rowHigh) > 0)) demoteLive(h);
   c.channels.add(data.id);
@@ -345,14 +362,34 @@ function setChannel(s: Store, data: DiscordObject, c: Changes): void {
 
 function setGuild(s: Store, data: DiscordObject, c: Changes): void {
   if (!data.id) return;
-  const { properties, channels, threads, members, ...rest } = data;
+  // What the app never shows is not kept: a large account's READY is mostly these.
+  const { properties, channels, threads, members, emojis, stickers, guild_scheduled_events, stage_instances,
+    voice_states, embedded_activities, activity_instances, presences, soundboard_sounds, ...rest } = data;
   const guild = { ...properties, ...rest };
   if (!sameFields(s.guildMap.get(data.id), guild)) {
     s.guildMap.set(data.id, { ...s.guildMap.get(data.id), ...guild } as Guild);
     c.sidebar = true;
   }
   for (const channel of [...(channels ?? []), ...(threads ?? [])]) setChannel(s, { ...channel, guild_id: data.id }, c);
-  for (const member of members ?? []) rememberUser(s, member.user);
+  for (const member of members ?? []) rememberMember(s, data.id, member, c);
+}
+
+function rememberMember(s: Store, guildId: string, member: DiscordObject, c: Changes): void {
+  rememberUser(s, member.user);
+  const id = member.user_id ?? member.user?.id;
+  if (!guildId || !id || id !== s.meId || !Array.isArray(member.roles)) return;
+  const old = s.roles.get(guildId);
+  if (old && old.length === member.roles.length && old.every((role, i) => role === member.roles[i])) return;
+  s.roles.set(guildId, [...member.roles]);
+  c.sidebar = true;
+}
+
+function setRole(s: Store, guildId: string, role: DiscordObject | null, roleId: string, c: Changes): void {
+  const guild = s.guildMap.get(guildId);
+  if (!guild) return;
+  const roles = ((guild.roles ?? []) as DiscordObject[]).filter(r => r.id !== roleId);
+  s.guildMap.set(guildId, { ...guild, roles: role ? [...roles, role] : roles } as Guild);
+  c.sidebar = true;
 }
 
 function unreadSignature(s: Store, id: string): string {
@@ -384,7 +421,10 @@ function ingestReady(s: Store, data: DiscordObject, c: Changes): void {
   for (const user of data.users ?? []) rememberUser(s, user);
   for (const guild of data.guilds ?? []) setGuild(s, guild, c);
   for (const channel of data.private_channels ?? []) setChannel(s, { type: 1, ...channel }, c);
-  for (const members of data.merged_members ?? []) for (const member of members) rememberUser(s, member.user);
+  // `merged_members[i]` holds the account's own member in `guilds[i]`.
+  (data.merged_members ?? []).forEach((members: DiscordObject[], i: number) => {
+    for (const member of members ?? []) rememberMember(s, data.guilds?.[i]?.id, member, c);
+  });
   const readState = data.read_state;
   for (const entry of (Array.isArray(readState) ? readState : readState?.entries) ?? []) {
     setRead(s, entry.id ?? entry.channel_id, entry.last_message_id, entry.mention_count, c);
@@ -394,6 +434,7 @@ function ingestReady(s: Store, data: DiscordObject, c: Changes): void {
 function removeChannel(s: Store, id: string, c: Changes): void {
   if (!s.channelMap.has(id) && !s.histories.has(id) && !s.readStates.has(id)) return;
   s.channelMap.delete(id);
+  s.removals++;
   s.histories.delete(id);
   s.readStates.delete(id);
   c.channels.add(id);
@@ -533,7 +574,8 @@ export function applyDispatch(s: Store, t: string, d: DiscordObject, nowMs: numb
   switch (t) {
     case 'READY':
       for (const id of new Set([...s.channelMap.keys(), ...s.readStates.keys()])) c.channels.add(id);
-      s.users.clear(); s.guildMap.clear(); s.channelMap.clear(); s.readStates.clear();
+      s.users.clear(); s.guildMap.clear(); s.channelMap.clear(); s.readStates.clear(); s.roles.clear();
+      s.removals++;
       ingestReady(s, d, c);
       for (const [id, h] of s.histories) {
         h.invalidatedAt = s.sequence;
@@ -560,6 +602,10 @@ export function applyDispatch(s: Store, t: string, d: DiscordObject, nowMs: numb
         for (const channel of s.channelMap.values()) if (channel.guild_id === d.id) removeChannel(s, channel.id, c);
       }
       break;
+    case 'GUILD_MEMBER_UPDATE': rememberMember(s, d.guild_id, d, c); break;
+    case 'GUILD_ROLE_CREATE':
+    case 'GUILD_ROLE_UPDATE': if (d.role?.id) setRole(s, d.guild_id, d.role, d.role.id, c); break;
+    case 'GUILD_ROLE_DELETE': setRole(s, d.guild_id, null, d.role_id, c); break;
     case 'CHANNEL_CREATE':
     case 'CHANNEL_UPDATE': setChannel(s, d, c); break;
     case 'CHANNEL_DELETE': removeChannel(s, d.id, c); break;
@@ -843,8 +889,22 @@ export function guilds(s: Store): Guild[] { return [...s.guildMap.values()]; }
 function channelOrder(a: Channel, b: Channel): number { return (a.position ?? 0) - (b.position ?? 0) || cmpId(a.id, b.id); }
 
 /** Group a guild's channels by category, with uncategorized channels first and position/id ordering. */
+function channelIdsOf(s: Store, guildId: string): string[] {
+  const key = `${s.channelMap.size}:${s.removals}`;
+  if (s.byGuild?.key !== key) {
+    const ids = new Map<string, string[]>();
+    for (const channel of s.channelMap.values()) {
+      if (!channel.guild_id) continue;
+      const list = ids.get(channel.guild_id);
+      if (list) list.push(channel.id); else ids.set(channel.guild_id, [channel.id]);
+    }
+    s.byGuild = { key, ids };
+  }
+  return s.byGuild.ids.get(guildId) ?? [];
+}
+
 export function guildChannels(s: Store, guildId: string): ChannelGroup[] {
-  const channels = [...s.channelMap.values()].filter(channel => channel.guild_id === guildId);
+  const channels = channelIdsOf(s, guildId).map(id => s.channelMap.get(id)!).filter(channel => channel?.guild_id === guildId);
   const categories = channels.filter(channel => channel.type === 4).sort(channelOrder);
   const groups = categories.map(category => ({ category, channels: [] as Channel[] }));
   const byId = new Map(groups.map(group => [group.category.id, group]));
@@ -855,6 +915,39 @@ export function guildChannels(s: Store, guildId: string): ChannelGroup[] {
   const result = ungrouped.channels.length ? [ungrouped, ...groups] : groups;
   for (const group of result) group.channels.sort(channelOrder);
   return result;
+}
+
+const ADMINISTRATOR = 1n << 3n;
+const VIEW_CHANNEL = 1n << 10n;
+const bits = (value: unknown): bigint => {
+  try { return BigInt(typeof value === 'string' || typeof value === 'number' ? value : 0); } catch { return 0n; }
+};
+
+/** Whether the account may see a guild channel: its roles' permissions with the channel's overwrites
+ * applied, @everyone's first, then its roles' together, then its own, as Discord computes them
+ * (https://discord.com/developers/docs/topics/permissions#permission-overwrites). What the cache cannot
+ * decide (no roles yet) is shown. */
+export function canView(s: Store, channel: Channel): boolean {
+  const guild = channel.guild_id ? s.guildMap.get(channel.guild_id) : undefined;
+  if (!guild || !s.meId) return true;
+  if (guild.owner_id === s.meId) return true;
+  const mine = s.roles.get(guild.id);
+  const roles = (guild.roles ?? []) as DiscordObject[];
+  if (!mine || roles.length === 0) return true;
+  // A role the guild no longer has (GUILD_ROLE_DELETE) grants nothing, nor do its overwrites.
+  const existing = new Set(roles.map(role => role.id));
+  const held = new Set([guild.id, ...mine.filter(id => existing.has(id))]);
+  let permissions = 0n;
+  for (const role of roles) if (held.has(role.id)) permissions |= bits(role.permissions);
+  if (permissions & ADMINISTRATOR) return true;
+  const overwrites = (channel.permission_overwrites ?? []) as DiscordObject[];
+  const apply = (o: DiscordObject | undefined) => { if (o) permissions = (permissions & ~bits(o.deny)) | bits(o.allow); };
+  apply(overwrites.find(o => o.id === guild.id));
+  let deny = 0n, allow = 0n;
+  for (const o of overwrites) if (o.id !== guild.id && o.type === 0 && held.has(o.id)) { deny |= bits(o.deny); allow |= bits(o.allow); }
+  permissions = (permissions & ~deny) | allow;
+  apply(overwrites.find(o => o.type === 1 && o.id === s.meId));
+  return (permissions & VIEW_CHANNEL) !== 0n;
 }
 
 function withRecipients(s: Store, value: Channel): Channel {

@@ -14,6 +14,8 @@ export type GatewayEvent =
   | { type: 'connect'; nowMs: number; jitter?: number }
   | { type: 'open'; nowMs: number; jitter?: number }
   | { type: 'message'; data: ArrayBuffer | Uint8Array | string; nowMs: number; jitter?: number }
+  // A message the caller decoded itself (`gather`, `inflate`, `inflated`), or failed to.
+  | { type: 'payload'; payload?: unknown; invalid?: boolean; nowMs: number; jitter?: number }
   | { type: 'close'; code: number; reason?: string; nowMs: number }
   | { type: 'heartbeat'; nowMs: number }
   | { type: 'retry'; nowMs: number; jitter: number };
@@ -37,7 +39,12 @@ interface ConnectionInflater {
   pending: Uint8Array[];
   byteLength: number;
   tail: number;
-  output: Uint8Array[];
+  // The packet's text so far, decoded as it is inflated so that a large one's bytes are not held as
+  // well, and the bytes of a character the last chunk split.
+  text: string[];
+  carry: Uint8Array | null;
+  // Bytes inflated on this connection.
+  out: number;
 }
 
 export interface GatewayState {
@@ -96,11 +103,31 @@ export function initialGateway(opts: {
 }
 
 function inflater(): ConnectionInflater {
-  const output: Uint8Array[] = [];
-  return {
-    stream: new Unzlib(chunk => { if (chunk.length) output.push(chunk); }),
-    pending: [], byteLength: 0, tail: 0, output,
+  // Each chunk decodes on its own, so a U+FEFF that starts one is text, not a byte order mark.
+  const decoder = new TextDecoder('utf-8', { ignoreBOM: true });
+  const context: ConnectionInflater = {
+    stream: new Unzlib(chunk => {
+      if (!chunk.length) return;
+      context.out += chunk.length;
+      const bytes = context.carry ? join([context.carry, chunk], context.carry.length + chunk.length) : chunk;
+      const whole = completeUtf8(bytes);
+      context.text.push(decoder.decode(bytes.subarray(0, whole)));
+      context.carry = whole < bytes.length ? bytes.slice(whole) : null;
+    }),
+    pending: [], byteLength: 0, tail: 0, text: [], carry: null, out: 0,
   };
+  return context;
+}
+
+/** How much of `bytes` is whole UTF-8 characters: a sequence the end cuts short is left out. */
+function completeUtf8(bytes: Uint8Array): number {
+  for (let i = bytes.length - 1; i >= Math.max(0, bytes.length - 4); i--) {
+    const byte = bytes[i];
+    if ((byte & 0xc0) === 0x80) continue;
+    const size = byte >= 0xf0 ? 4 : byte >= 0xe0 ? 3 : byte >= 0xc0 ? 2 : 1;
+    return bytes.length - i >= size ? bytes.length : i;
+  }
+  return bytes.length;
 }
 
 function join(chunks: Uint8Array[], byteLength: number): Uint8Array {
@@ -114,28 +141,52 @@ function join(chunks: Uint8Array[], byteLength: number): Uint8Array {
   return bytes;
 }
 
-function decode(state: GatewayState, data: ArrayBuffer | Uint8Array | string): unknown | undefined {
-  if (typeof data === 'string') return JSON.parse(data);
+/** Gather one socket message's bytes: the whole compressed packet once its flush marker has come
+ * (the marker can itself straddle socket messages), else null. */
+export function gather(state: GatewayState, data: ArrayBuffer | Uint8Array): Uint8Array | null {
   const context = state.inflater;
   if (!context) throw new Error('missing connection inflater');
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
-  if (!bytes.length) return undefined;
+  if (!bytes.length) return null;
   context.pending.push(bytes);
   context.byteLength += bytes.length;
-  // The flush marker can itself straddle socket messages.
   for (let i = Math.max(0, bytes.length - 4); i < bytes.length; i++) {
     context.tail = ((context.tail << 8) | bytes[i]) >>> 0;
   }
-  if (context.byteLength < 4 || context.tail !== 0x0000ffff) return undefined;
+  if (context.byteLength < 4 || context.tail !== 0x0000ffff) return null;
   const compressed = join(context.pending, context.byteLength);
   context.pending = [];
   context.byteLength = 0;
   context.tail = 0;
-  // Z_SYNC_FLUSH ends a packet, not the zlib stream or its dictionary.
-  context.stream.push(compressed, false);
-  const inflated = join(context.output, context.output.reduce((size, chunk) => size + chunk.length, 0));
-  context.output.length = 0;
-  return JSON.parse(new TextDecoder().decode(inflated));
+  return compressed;
+}
+
+/** Inflate part of a gathered packet, in order: a large one is inflated a slice at a time. Z_SYNC_FLUSH
+ * ends a packet, not the zlib stream or its dictionary. Answers the bytes the slice inflated to. */
+export function inflate(state: GatewayState, slice: Uint8Array): number {
+  const context = state.inflater;
+  if (!context) throw new Error('missing connection inflater');
+  const before = context.out;
+  context.stream.push(slice, false);
+  return context.out - before;
+}
+
+/** The text of the packet inflated so far. */
+export function inflated(state: GatewayState): string {
+  const context = state.inflater;
+  if (!context) throw new Error('missing connection inflater');
+  if (context.carry) throw new Error('a packet ended inside a character');
+  const text = context.text.join('');
+  context.text.length = 0;
+  return text;
+}
+
+function decode(state: GatewayState, data: ArrayBuffer | Uint8Array | string): unknown | undefined {
+  if (typeof data === 'string') return JSON.parse(data);
+  const packet = gather(state, data);
+  if (!packet) return undefined;
+  inflate(state, packet);
+  return JSON.parse(inflated(state));
 }
 
 function status(result: StepResult, phase: GatewayPhase, detail?: string): void {
@@ -328,6 +379,15 @@ export function step(state: GatewayState, event: GatewayEvent): StepResult {
         if (payload !== undefined) frame(result, payload, event.nowMs);
       } catch {
         // Never surface frame contents: malformed frames can include account data.
+        reconnect(result, event.nowMs, 'invalid gateway payload', true);
+      }
+      break;
+    case 'payload':
+      if (state.phase === 'idle' || state.phase === 'connecting' || state.phase === 'backoff') break;
+      try {
+        if (event.invalid) throw new Error('invalid');
+        frame(result, event.payload, event.nowMs);
+      } catch {
         reconnect(result, event.nowMs, 'invalid gateway payload', true);
       }
       break;

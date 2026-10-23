@@ -1890,6 +1890,7 @@ dependencies = [
  "exact-linux",
  "exact-logic",
  "exact-plan",
+ "serde_json",
 ]
 
 [[package]]
@@ -1921,6 +1922,7 @@ dependencies = [
  "exact-js-bake",
  "exact-logic",
  "exact-windows",
+ "serde_json",
 ]
 
 [[package]]

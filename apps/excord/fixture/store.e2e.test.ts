@@ -279,11 +279,11 @@ test('a repeated nonce returns the first message within five minutes and a new o
   expect(later.body.id).not.toBe(first.body.id);
 });
 
-test('an unsubscribed guild sends passive updates: V1 to iOS, V2 to the web; the sidebar learns of them', async () => {
+test('an unsubscribed guild sends passive updates, V2 to every host the client identifies as; the sidebar learns of them', async () => {
   const passive = startFixture({ port: 0, heartbeatInterval: 5_000 });
   const drives: Drive[] = [];
   try {
-    for (const [host, version] of [['ios', 'V1'], ['web', 'V2']] as const) {
+    for (const [host, version] of [['ios', 'V2'], ['web', 'V2']] as const) {
       const own = createStore();
       const pd = drive({ gatewayUrl: passive.gatewayUrl, host, onChange: change => {
         if (change.kind === 'dispatch') applyDispatch(own, change.t, change.d, Date.now());

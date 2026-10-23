@@ -163,6 +163,12 @@ shape Guild
   unread: bool
   mentions: number
 
+// A guild's channels under one category ("" for those in none), in Discord's order.
+shape Category
+  id: string
+  name: string
+  channels: Channel[]
+
 // The gateway's snapshot (Excord LLP 0001 §4.2), the same size for any
 // account: the connection's state ("idle", "connecting", "awaiting-hello",
 // "identifying", "resuming", "ready", "backoff", "stopped" or "signed-out"),
@@ -175,6 +181,10 @@ shape Gateway
   state: string
   detail: string
   me: string
+  meName: string
+  // Socket messages waiting for `digest`, and this snapshot's place in the session's order.
+  queued: number
+  seq: number
   fixture: bool
   sidebar: number
   channel: string

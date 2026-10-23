@@ -93,11 +93,12 @@ so these rules bind every lane:
 - **Passive writes are writes.** Acks (read state), typing, member-list
   subscriptions (op 14) and presence updates are sent only as the official client
   sends them, for what a person is looking at, and never more often.
-- **It looks like the official client of its host.** The gateway `IDENTIFY` and the
-  REST headers (`User-Agent`, `X-Super-Properties`) match one recent build of
-  Discord's iOS app on iOS, its desktop app on macOS and Windows, its web client on
-  the web, and its Android app on Android, each pinned in `discord/client.ts`. The
-  app makes only the requests that client makes for the same screen, in its order.
+- **It looks like Discord's web client.** On every host the gateway `IDENTIFY` and
+  the REST headers (`User-Agent`, `X-Super-Properties`) are those of Discord's web
+  client in Chrome on the host's own OS, pinned in `discord/client.ts` (Charlie,
+  2026-10-23, §9). Its JSON over `zlib-stream` is the gateway as built, and its build
+  number is the one read from discord.com. The app makes only the requests that
+  client makes for the same screen, in its order.
 - **It respects rate limits.** Every REST call honours the `X-RateLimit-*` buckets
   and a 429's `retry_after`; history loads at most 50 messages a page, one page
   in flight per channel. A dropped connection resumes rather than identifies when
@@ -278,8 +279,8 @@ outside this repo writes, so the gaps Excord finds are gaps those authors would 
    the host's gaps against §3, filed against the host. Both hosts are the Linux
    host's presenter and portable executor, which carry the socket of LLP 1016.000
    D7. On Windows, Excord (`apps/excord/windows`) reached the fixture's READY and
-   a heartbeat ACK over `ws:` on 2026-10-22; Android's library
-   (`apps/excord/android`) has not run, for want of an emulator or device.
+   a heartbeat ACK over `ws:` on 2026-10-22, and Android's
+   (`apps/excord/android`) on an emulator on 2026-10-23.
 
 ## 6. What Excord will ask of Exact
 
@@ -335,6 +336,13 @@ unchanged.
 **Admitting Excord.** `rules/DEFERRED.md`'s entry of 2026-10-22 records Charlie's
 ask as the ruling admitting Excord, with the take waived, as for Exact Live.
 Decided at ~85% because he asked for it by name; striking the entry vetoes it.
+
+**The identity:** every host identifies as Discord's web client in Chrome on its
+own OS, not as Discord's app for that host (Charlie, 2026-10-23). The official apps'
+identities were recalled, not captured, and the desktop app's gateway speaks ETF over
+`zstd-stream`, which Excord does not; a claim its connection contradicts is what would
+look odd on the account. Decided at ~80%: a phone then appears in Discord's device
+list as a browser.
 
 **The account:** Charlie's main account, from the start ("let's just not fuck it
 up"); §2. **The store:** (b), §4.2. **Proof on a device:** by hand, §7 ("we'll

@@ -1,7 +1,6 @@
 // The client each host identifies as (llp/0001 §2): IDENTIFY's `properties` and `capabilities`, and
 // the REST headers (`User-Agent`, `X-Super-Properties`). Every value is in `IDENTITIES` with where it
-// came from; Charlie checks them against a capture of his own clients before anything here talks to
-// discord.com. Per-launch ids come from the caller (a data module has no randomness of its own).
+// came from; Charlie can check the desktop ones against what his own Chrome sends discord.com. Per-launch ids come from the caller (a data module has no randomness of its own).
 export type Host = 'ios' | 'macos' | 'windows' | 'web' | 'android';
 
 export interface Sourced<T> {
@@ -20,15 +19,62 @@ function research<T>(value: T, row: string): Sourced<T> {
 }
 
 const protocol = <T>(value: T) => memory(value, 'Discord user gateway/header examples');
-const desktop = <T>(value: T) => memory(value, 'Discord Electron stable super-properties examples; exact build pairing uncertain');
 const web = <T>(value: T) => memory(value, 'Discord Chrome super-properties examples; exact build pairing uncertain');
-const ios = <T>(value: T) => memory(value, 'Discord React Native iOS identify examples; version/build/device pairing uncertain');
-const android = <T>(value: T) => memory(value, 'Discord React Native Android identify examples; version/device pairing uncertain');
+const mobileWeb = <T>(value: T) => memory(value, "Discord's web client in a phone's browser; its browser names as Discord derives them from the User-Agent, uncertain");
 const bundle = <T>(value: T) => research(value, 'X-Super-Properties: web.2ae8383b003d87ae.js field construction');
-const iosCapture = <T>(value: T) => research(value,
-  "What is not known / iOS's headers: from memory, unverified; needs a capture of the iOS app's traffic");
-const desktopCapture = <T>(value: T) => research(value,
-  "Versions / desktop rows omit build numbers: from memory, unverified; needs a capture of the desktop app's traffic");
+// Chrome's User-Agent as the browser reports it, its version and platform reduced to fixed values.
+function reduced<T>(value: T): Sourced<T> {
+  return { value, source: 'Chromium User-Agent Reduction (https://www.chromium.org/updates/ua-reduction/), Chrome 148 per LLP 0002', asOf: '2026-10' };
+}
+
+interface Chrome {
+  os: string;
+  osVersion: string;
+  userAgent: string | null;
+  // In a browser the browser's own; the native hosts' is what they send.
+  browserUserAgent?: string;
+  browser?: string;
+  browserVersion?: string;
+  // Chrome on iOS does not reduce its User-Agent: its values are recalled, not derived.
+  unreduced?: true;
+}
+
+/** The web client's identity in Chrome on one OS: the super-properties of web.2ae8383b003d87ae.js. */
+function chrome(c: Chrome) {
+  const ua = c.browserUserAgent ?? c.userAgent ?? '';
+  const phone = c.browser !== undefined;
+  const named = phone ? mobileWeb : web;
+  const agent = c.unreduced ? mobileWeb : reduced;
+  return {
+    properties: {
+      os: named(c.os),
+      browser: named(c.browser ?? 'Chrome'),
+      device: web(''),
+      device_model_name: bundle(''),
+      system_locale: web('en-US'),
+      has_client_mods: web(false),
+      browser_user_agent: agent(ua),
+      browser_version: agent(c.browserVersion ?? '148.0.0.0'),
+      os_version: agent(c.osVersion),
+      referrer: web(''),
+      referring_domain: web(''),
+      referrer_current: web(''),
+      referring_domain_current: web(''),
+      release_channel: web('stable'),
+      client_build_number: research(647615, 'Versions / Web client: GLOBAL_ENV in discord.com/app'),
+      client_event_source: bundle(null),
+      client_app_state: bundle('focused'),
+    },
+    sessionProperties: {
+      client_launch_id: bundle('launchId'),
+      launch_signature: bundle('launchSignature'),
+      client_heartbeat_session_id: bundle('heartbeatSessionId'),
+      client_app_state: bundle('appState'),
+    },
+    capabilities: web(30717),
+    userAgent: agent(c.userAgent),
+  };
+}
 
 // LLP 0002 supplies the researched pins; unverified values still need the host's own capture.
 export const IDENTITIES = {
@@ -62,161 +108,21 @@ export const IDENTITIES = {
     compress: protocol(false),
     client_state: protocol({ guild_versions: {} }),
   },
-  // The real desktop gateway uses ETF over zstd-stream (LLP 0002, gateway table).
-  // Its identity over our JSON + zlib-stream transport remains a mismatch pending Charlie's ruling.
+  // Every host identifies as Discord's web client in Chrome on the host's own OS (Charlie, 2026-10-23):
+  // its JSON over zlib-stream is the gateway as built, and its build number is the one read from
+  // discord.com. A native host sends the browser's User-Agent itself; in a browser the browser does.
   hosts: {
-    ios: {
-      properties: {
-        os: ios('iOS'),
-        browser: ios('Discord iOS'),
-        device: ios('iPhone16,1'),
-        system_locale: ios('en-US'),
-        has_client_mods: ios(false),
-        client_version: research('350.0', 'Versions / iOS app: App Store lookup, com.hammerandchisel.discord'),
-        release_channel: ios('stable'),
-        os_version: ios('18.1'),
-        os_sdk_version: ios('18.1'),
-        device_id: ios('iPhone16,1'),
-        client_build_number: iosCapture(62365),
-        native_build_number: iosCapture('62365'),
-        client_event_source: ios(null),
-        client_app_state: ios('active'),
-        design_id: ios(2),
-      },
-      sessionProperties: {
-        client_launch_id: ios('launchId'),
-        client_heartbeat_session_id: ios('heartbeatSessionId'),
-        device_vendor_id: ios('deviceVendorId'),
-      },
-      capabilities: ios(16381),
-      userAgent: iosCapture('Discord/350.0 (iPhone; iOS 18.1; Scale/3.00)'),
-    },
-    macos: {
-      properties: {
-        os: desktop('Mac OS X'),
-        browser: desktop('Discord Client'),
-        device: desktop(''),
-        device_model_name: desktop(''),
-        release_channel: desktop('stable'),
-        client_version: research('0.0.419', 'Versions / macOS desktop: installed Info.plist and build_info.json on apartment-m1-max'),
-        os_version: desktop('24.2.0'),
-        os_arch: desktop('arm64'),
-        app_arch: desktop('arm64'),
-        system_locale: desktop('en-US'),
-        has_client_mods: desktop(false),
-        browser_user_agent: research('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) discord/0.0.419 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36',
-          'Versions / macOS desktop: installed app and Electron framework strings; UA template from memory, unverified'),
-        browser_version: research('42.11.15', 'Versions / macOS desktop: installed Electron framework strings'),
-        referrer: desktop(''),
-        referring_domain: desktop(''),
-        referrer_current: desktop(''),
-        referring_domain_current: desktop(''),
-        client_build_number: desktopCapture(363699),
-        native_build_number: desktopCapture(59123),
-        client_event_source: bundle(null),
-        client_app_state: bundle('focused'),
-      },
-      sessionProperties: {
-        client_launch_id: bundle('launchId'),
-        launch_signature: bundle('launchSignature'),
-        client_heartbeat_session_id: bundle('heartbeatSessionId'),
-        client_app_state: bundle('appState'),
-      },
-      capabilities: desktop(30717),
-      userAgent: research('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) discord/0.0.419 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36',
-        'Versions / macOS desktop: installed app and Electron framework strings; UA template from memory, unverified'),
-    },
-    windows: {
-      properties: {
-        os: desktop('Windows'),
-        browser: desktop('Discord Client'),
-        device: desktop(''),
-        device_model_name: desktop(''),
-        release_channel: desktop('stable'),
-        client_version: research('1.0.9265', 'Versions / Windows desktop: stable win x64 distribution manifest'),
-        os_version: desktop('10.0.26100'),
-        os_arch: desktop('x64'),
-        app_arch: desktop('x64'),
-        system_locale: desktop('en-US'),
-        has_client_mods: desktop(false),
-        browser_user_agent: research('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36',
-          'Versions / Windows desktop manifest; Electron and Chrome from macOS desktop row; Windows pairing and UA template from memory, unverified'),
-        browser_version: research('42.11.15', 'Versions / macOS desktop: installed Electron framework strings; Windows pairing from memory, unverified'),
-        referrer: desktop(''),
-        referring_domain: desktop(''),
-        referrer_current: desktop(''),
-        referring_domain_current: desktop(''),
-        client_build_number: desktopCapture(363699),
-        native_build_number: desktopCapture(59123),
-        client_event_source: bundle(null),
-        client_app_state: bundle('focused'),
-      },
-      sessionProperties: {
-        client_launch_id: bundle('launchId'),
-        launch_signature: bundle('launchSignature'),
-        client_heartbeat_session_id: bundle('heartbeatSessionId'),
-        client_app_state: bundle('appState'),
-      },
-      capabilities: desktop(30717),
-      userAgent: research('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36',
-        'Versions / Windows desktop manifest; Electron and Chrome from macOS desktop row; Windows pairing and UA template from memory, unverified'),
-    },
-    web: {
-      properties: {
-        os: web('Mac OS X'),
-        browser: web('Chrome'),
-        device: web(''),
-        device_model_name: bundle(''),
-        system_locale: web('en-US'),
-        has_client_mods: web(false),
-        browser_user_agent: research('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
-          'Versions / macOS desktop: Chrome 148 from installed Electron framework strings; Chrome reduces its User-Agent to MAJOR.0.0.0 (Chromium User-Agent Reduction); template from memory, unverified'),
-        browser_version: research('148.0.0.0', 'Versions / macOS desktop: Chrome 148; reduced as the browser reports it, from memory, unverified'),
-        os_version: web('10.15.7'),
-        referrer: web(''),
-        referring_domain: web(''),
-        referrer_current: web(''),
-        referring_domain_current: web(''),
-        release_channel: web('stable'),
-        client_build_number: research(647615, 'Versions / Web client: GLOBAL_ENV in discord.com/app'),
-        client_event_source: bundle(null),
-        client_app_state: bundle('focused'),
-      },
-      sessionProperties: {
-        client_launch_id: bundle('launchId'),
-        launch_signature: bundle('launchSignature'),
-        client_heartbeat_session_id: bundle('heartbeatSessionId'),
-        client_app_state: bundle('appState'),
-      },
-      capabilities: web(30717),
-      userAgent: web(null),
-    },
-    android: {
-      properties: {
-        os: android('Android'),
-        browser: android('Discord Android'),
-        device: android('Pixel 8 Pro'),
-        system_locale: android('en-US'),
-        has_client_mods: android(false),
-        client_version: android('253.19'),
-        release_channel: android('googleRelease'),
-        os_version: android('15'),
-        os_sdk_version: android('35'),
-        device_id: android('husky'),
-        client_build_number: android(253019),
-        native_build_number: android(253019),
-        client_event_source: android(null),
-        client_app_state: android('active'),
-        design_id: android(2),
-      },
-      sessionProperties: {
-        client_launch_id: android('launchId'),
-        client_heartbeat_session_id: android('heartbeatSessionId'),
-        device_vendor_id: android('deviceVendorId'),
-      },
-      capabilities: android(16381),
-      userAgent: android('Discord-Android/253019;RNA'),
-    },
+    web: chrome({ os: 'Mac OS X', osVersion: '10.15.7', userAgent: null,
+      browserUserAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36' }),
+    macos: chrome({ os: 'Mac OS X', osVersion: '10.15.7',
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36' }),
+    windows: chrome({ os: 'Windows', osVersion: '10',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36' }),
+    // Chrome on iOS is WebKit under Chrome's name (CriOS); Apple freezes the OS version it reports.
+    ios: chrome({ os: 'iOS', osVersion: '18.6', browser: 'Chrome iOS', browserVersion: '148.0.7778.73', unreduced: true,
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/148.0.7778.73 Mobile/15E148 Safari/604.1' }),
+    android: chrome({ os: 'Android', osVersion: '10', browser: 'Android Chrome',
+      userAgent: 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Mobile Safari/537.36' }),
   },
 };
 

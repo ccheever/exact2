@@ -2,7 +2,8 @@ import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
 import type { Answer, Args, Result, Source, Storage, Store, StreamEvent, StreamSocket } from './app.contract.d.ts';
 import * as S from './discord/store.ts';
 import { readyPayload, startFixture } from './fixture/server.ts';
-import { applyEvent, clock, createLive } from './live.ts';
+import { constants as zlibConstants, createDeflate } from 'node:zlib';
+import { applyEvent, call, clock, connect, createLive, digest, pastedToken, signIn, signOut } from './live.ts';
 import { createRenderer, windowOf, type Stored } from './render.ts';
 
 const EPOCH = Date.UTC(2026, 9, 22, 12);
@@ -291,7 +292,7 @@ test('4. the viewed channel subscribes its guild again after a non-resumable rec
 
 test('5. snapshots have fixed keys and only the viewed channel supplies history versions', async () => {
   const app = await rig.app(), peer = await app.dial();
-  const keys = ['state', 'detail', 'me', 'fixture', 'sidebar', 'channel', 'version', 'history', 'retryIn', 'attempt'].sort();
+  const keys = ['state', 'detail', 'me', 'meName', 'fixture', 'queued', 'seq', 'sidebar', 'channel', 'version', 'history', 'retryIn', 'attempt'].sort();
   expect(Object.keys(peer.snapshots.at(-1)!).sort()).toEqual(keys);
   const channel = rig.fixture.world.generalChannelId;
   const other = rig.fixture.world.guilds[0].channels.find(value => value.id !== channel)!.id;
@@ -408,3 +409,213 @@ test('9. deleting an uncached original advances history and redraws its cached r
   expect(S.message(live.store, channel, original)).toBeNull();
   expect(window().rows.find(row => row.id === reply.id)!.reply[0]).toMatchObject({ id: original, state: 'deleted' });
 });
+
+test('10. a token Discord refuses (4004) is forgotten and the gateway says signed out', async () => {
+  const secrets = secretsStore();
+  secrets.set('fixture-token', 'not-the-fixture-token');
+  const app = await rig.app(secrets), peer = await app.dial(EPOCH, 'signed-out');
+  expect(peer.snapshots.at(-1)!.detail).toContain('4004');
+  expect(secrets.get('fixture-token')).toBeNull();
+});
+
+test('11. signing out closes the socket and empties the lists; the next session connects again', async () => {
+  const app = await rig.app(), peer = await app.dial();
+  expect((await app.ask('loadGuilds', [1])).length).toBeGreaterThan(0);
+  expect(await app.ask('signOut', [])).toEqual({ ok: true, error: '' });
+  await rig.drain();
+  expect(peer.socket.readyState).toBe(3);
+  expect(app.secrets.get('fixture-token')).toBeNull();
+  expect(await app.ask('loadGuilds', [2])).toEqual([]);
+  expect(await app.ask('loadDms', [2])).toEqual([]);
+  await app.dial(EPOCH + 1000);
+  expect((await app.ask('loadGuilds', [3])).length).toBeGreaterThan(0);
+});
+
+test('12. a pasted token is taken from its header value or quotes; anything else is refused before it is kept', () => {
+  const live = createLive({ rest: 'https://discord.com', gateway: 'wss://gateway.discord.gg', cdn: 'https://cdn.discordapp.com', fixture: false });
+  const secrets = secretsStore();
+  const token = 'MTIzNDU2Nzg5MDEyMzQ1Njc4.GabcDE.abcdefghijklmnopqrstuvwxyz0123456789_-AB';
+  expect(pastedToken(`  "${token}"\n`)).toBe(token);
+  expect(pastedToken(`Bearer ${token}`)).toBeNull();
+  expect(pastedToken('short')).toBeNull();
+  expect(signIn(live, secrets, 'not a token')).toContain("doesn't look like a Discord token");
+  expect(secrets.get('discord-token')).toBeNull();
+  expect(signIn(live, secrets, `"${token}"`)).toBe('');
+  expect(secrets.get('discord-token')).toBe(token);
+  expect(live.token).toBe(token);
+});
+
+test('13. a READY too large for one turn waits for digest, which applies it a part a turn, and what came after, in order', async () => {
+  (globalThis as any).scheduler ??= { yield: async () => {} };
+  await rig.control('ready-size', { bytes: 16 * 1024 * 1024 });
+  const app = await rig.app(), peer = await app.dial(EPOCH, 'identifying');
+  const waiting = peer.snapshots.at(-1)!;
+  expect(waiting.queued).toBeGreaterThan(0);
+  expect(await app.ask('loadGuilds', [1])).toEqual([]);
+  const digested = await app.ask('digest', [EPOCH + 100]);
+  expect(digested).toMatchObject({ state: 'ready', queued: 0, me: rig.fixture.world.me.id });
+  expect(digested.seq).toBeGreaterThan(waiting.seq);
+  const guilds = await app.ask('loadGuilds', [digested.sidebar]);
+  // Its guilds were applied in parts, each with the account's roles in it.
+  expect(guilds.length).toBeGreaterThan(500);
+  expect((await app.ask('loadChannels', [guilds[0].id, digested.sidebar])).length).toBeGreaterThan(0);
+  // Once the queue is empty the stream's frames are applied as they come again.
+  await app.ask('heartbeat', [EPOCH + INTERVAL]); await rig.drain();
+  expect(peer.snapshots.at(-1)).toMatchObject({ state: 'ready', queued: 0 });
+});
+
+// A scheduler whose yields wait until the test lets them go, so a frame can arrive between two turns of
+// a digest.
+function gatedScheduler() {
+  const waiting: (() => void)[] = [];
+  const previous = (globalThis as any).scheduler;
+  (globalThis as any).scheduler = { yield: () => new Promise<void>(resolve => waiting.push(resolve)) };
+  return {
+    waiting,
+    async releaseAll() { while (waiting.length) { waiting.shift()!(); await Promise.resolve(); await new Promise(r => setTimeout(r, 0)); } },
+    restore() { (globalThis as any).scheduler = previous; },
+  };
+}
+
+// A connection to no server: the test drives its mapper with zlib-stream packets it makes.
+async function mapperRig() {
+  const live = createLive({ rest: 'http://127.0.0.1:4790', gateway: 'ws://127.0.0.1:4790', cdn: 'http://127.0.0.1:4790', fixture: true });
+  live.token = 'fixture-token'; live.ready = true;
+  let mapper!: (event: any, socket?: any) => any;
+  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(((_url: string, init: any) => {
+    mapper = init.exactStream; return new Promise(() => {});
+  }) as any);
+  const sent: string[] = [];
+  const socket = { readyState: 1, bufferedAmount: 0, send: (frame: string) => { sent.push(frame); }, close: () => {} };
+  void connect(live, secretsStore() as any, null, true, EPOCH);
+  const deflate = createDeflate();
+  const packet = async (payload: unknown) => {
+    const chunks: Buffer[] = [];
+    const take = (chunk: Buffer) => chunks.push(chunk);
+    deflate.on('data', take);
+    await new Promise<void>(resolve => { deflate.write(JSON.stringify(payload)); deflate.flush(zlibConstants.Z_SYNC_FLUSH, () => resolve()); });
+    deflate.off('data', take);
+    return new Uint8Array(Buffer.concat(chunks)).buffer;
+  };
+  mapper({ type: 'open' }, socket);
+  mapper({ type: 'message', data: await packet({ op: 10, d: { heartbeat_interval: INTERVAL } }) });
+  // Random text does not compress, so this READY's packet is many slices.
+  let seed = 7;
+  const noise = Buffer.from(Uint8Array.from({ length: 600_000 }, () => (seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) >>> 24)).toString('base64');
+  const ready = { op: 0, t: 'READY', s: 1, d: { session_id: 's', user: { id: '1', username: 'me' }, guilds: [], noise } };
+  return { live, sent, packet, ready, mapper: (event: any) => mapper(event), restore: () => fetchSpy.mockRestore() };
+}
+
+test('14. a frame that arrives while digest runs waits behind it', async () => {
+  const rig = await mapperRig(), { live, mapper, packet } = rig;
+  const gate = gatedScheduler();
+  try {
+    expect(mapper({ type: 'message', data: await packet(rig.ready) }).queued).toBe(1);
+    const digesting = digest(live, secretsStore() as any, EPOCH + 10);
+    await Promise.resolve();
+    expect(gate.waiting.length).toBe(1);
+    // The heartbeat request is a packet of the same zlib stream: inflated now, it would land inside READY's.
+    expect(mapper({ type: 'message', data: await packet({ op: 1, d: null }) }).queued).toBe(2);
+    await gate.releaseAll();
+    expect(await digesting).toMatchObject({ queued: 0 });
+    expect(live.gw!.phase).toBe('ready');
+    expect(rig.sent.filter(frame => frame.startsWith('{"op":1,'))).toHaveLength(1);
+  } finally { gate.restore(); rig.restore(); }
+});
+
+test('16. a digest whose continuation never runs leaves its place, and the next digest goes on from it', async () => {
+  const rig = await mapperRig(), { live, mapper, packet } = rig;
+  const gate = gatedScheduler();
+  try {
+    mapper({ type: 'message', data: await packet(rig.ready) });
+    // The host refuses a turn over budget, and its yield never settles: this one is never let go.
+    void digest(live, secretsStore() as any, EPOCH + 10);
+    await Promise.resolve();
+    expect(gate.waiting.length).toBe(1);
+    const stopped = gate.waiting.shift()!;
+    gate.restore();
+    (globalThis as any).scheduler = { yield: async () => {} };
+    expect(await digest(live, secretsStore() as any, EPOCH + 20)).toMatchObject({ queued: 0 });
+    expect(live.gw!.phase).toBe('ready');
+    // Were it let go after all, it would find its queue taken and stop.
+    const before = live.gw!.seq;
+    stopped();
+    await new Promise(r => setTimeout(r, 0));
+    expect(live.gw!.seq).toBe(before);
+  } finally { gate.restore(); rig.restore(); }
+});
+
+test('17. a 4004 forgets the account and the channel on screen, as signing out does', async () => {
+  (globalThis as any).scheduler ??= { yield: async () => {} };
+  const rig = await mapperRig(), { live, mapper, packet } = rig;
+  try {
+    mapper({ type: 'message', data: await packet(rig.ready) });
+    await digest(live, secretsStore() as any, EPOCH + 10);
+    live.viewing = { channel: '100', guild: '10' };
+    const account = live.account;
+    const after = mapper({ type: 'close', code: 4004, reason: 'Authentication failed.' });
+    expect(after).toMatchObject({ state: 'signed-out', me: '', channel: '' });
+    expect(after.detail).toContain('4004');
+    expect(live.account).toBe(account + 1);
+    expect(live.token).toBe('');
+    await expect(call(live, { method: 'GET', url: 'http://127.0.0.1:4790/api/v9/users/@me', headers: {}, route: 'me' } as any))
+      .rejects.toThrow('Signed out');
+  } finally { rig.restore(); }
+});
+
+test('15. signing out forgets the queue, and a REST reply that lands after it is not applied', async () => {
+  (globalThis as any).scheduler ??= { yield: async () => {} };
+  const app = await rig.app(); await app.dial();
+  const channel = rig.fixture.world.generalChannelId, held = rig.hold(historyPath(channel));
+  const paging = app.ask('loadPage', [channel, 'latest', '']);
+  await held.entered;
+  expect(await app.ask('signOut', [])).toEqual({ ok: true, error: '' });
+  held.release();
+  expect(await paging).toEqual({ ok: false, error: 'Signed out' });
+  expect((await app.window(channel)).rows).toEqual([]);
+  const after = await app.ask('digest', [EPOCH + 1000]);
+  expect(after).toMatchObject({ queued: 0 });
+});
+
+test('18. a packet that compresses well inflates about a megabyte a turn, from its first slice', async () => {
+  const rig = await mapperRig(), { live, mapper, packet } = rig;
+  const inflated = () => (live.gw as any).inflater.out as number;
+  const turns: number[] = [];
+  let last = 0;
+  const previous = (globalThis as any).scheduler;
+  (globalThis as any).scheduler = { yield: async () => { turns.push(inflated() - last); last = inflated(); } };
+  try {
+    // Random text first, which barely compresses, then guilds that compress more than a hundredfold.
+    const guild = (i: number) => ({ id: `${i}`, name: 'the same guild again '.repeat(100), channels: [{ id: `${i}0`, name: 'general', type: 0 }] });
+    const ready = { ...rig.ready, d: { ...rig.ready.d, guilds: Array.from({ length: 4000 }, (_, i) => guild(i)) } };
+    mapper({ type: 'message', data: await packet(ready) });
+    last = inflated();
+    await digest(live, secretsStore() as any, EPOCH + 10);
+    expect(live.gw!.phase).toBe('ready');
+    expect(turns.length).toBeGreaterThan(3);
+    expect(Math.max(...turns)).toBeLessThan(1.5 * 1024 * 1024);
+  } finally { (globalThis as any).scheduler = previous; rig.restore(); }
+});
+
+test('19. a REST reply that lands after a sign-out leaves the next account\'s limits alone', async () => {
+  const live = createLive({ rest: 'https://discord.com', gateway: 'wss://gateway.discord.gg', cdn: 'https://cdn.discordapp.com', fixture: false });
+  const secrets = secretsStore();
+  live.token = 'a'.repeat(60);
+  const lands: ((response: Response) => void)[] = [];
+  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((() => new Promise<Response>(resolve => { lands.push(resolve); })) as any);
+  try {
+    const request = { method: 'GET', url: 'https://discord.com/api/v9/users/@me', headers: {}, route: 'GET /users/@me' } as any;
+    const first = call(live, request);
+    signOut(live, secrets);
+    live.token = 'b'.repeat(60);
+    const second = call(live, request);
+    // The old account's request is still out on that route; the new account's is sent all the same.
+    expect(lands).toHaveLength(2);
+    lands[0](new Response(JSON.stringify({ message: 'You are being rate limited.', retry_after: 60, global: true }),
+      { status: 429, headers: { 'X-RateLimit-Global': 'true', 'Retry-After': '60' } }));
+    await expect(first).rejects.toThrow('Signed out');
+    lands[1](new Response('{}', { status: 200 }));
+    expect(await second).toEqual({});
+  } finally { fetchSpy.mockRestore(); }
+});
+
