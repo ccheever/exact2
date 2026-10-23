@@ -1939,13 +1939,14 @@ hits and clears) and the kernel's layout tests.
 
 ## Patch 61: transfer an intrinsic flex row's resolved width through its ratio
 
-After intrinsic main sizing resolves a flex row's width, refresh its height
-constraints, percentage basis and cross-axis definiteness through the same
-ratio resolution used for incoming dimensions. This happens before cross
-sizing and alignment, so the ratio floor sizes and places the lines as well
-as the container. The intrinsic main-axis constraints and definiteness stay
-intact. Content can exceed the automatic height floor; authored height bounds,
-explicit minima and scroll containers keep their existing ratio rules.
+After intrinsic main sizing resolves a flex row's width, repeat preliminary
+layout with that width and the input definiteness flags. The known width
+bounds the repeat to one pass. Item generation now resolves percentage heights
+and height bounds against the ratio height before flex sizing and alignment;
+refreshing only the container constants left the items' sizes unresolved.
+Pass only the width so content can exceed the automatic height floor without
+changing the ratio's percentage basis. Authored height bounds, explicit minima
+and scroll containers keep their existing ratio rules.
 See [CSS Sizing 4 §4.2](https://www.w3.org/TR/css-sizing-4/#aspect-ratio-automatic),
 [§4.3](https://www.w3.org/TR/css-sizing-4/#auto-min-size) and
 [§4.4](https://www.w3.org/TR/css-sizing-4/#aspect-ratio-size-transfers).
@@ -1959,6 +1960,16 @@ without `max-height` it changes from 120×30 to 120×120. Controls cover definit
 width and height, columns, grid, content exceeding the floor, centered and
 stretched lines, reverse wrapping, nowrap, ratio 2, padding and borders under
 both box-sizing modes, a zero minimum and hidden overflow.
+
+The same test holds 16 literal `Chrome 151 intrinsic ratio percentages` cases,
+measured with Chrome 151.0.7922.34 on 2026-10-23 in `width:max-content` wrappers.
+Before item generation was repeated, 18 frames in 14 cases differed. A 60×60
+ratio root's 50% item now measures 60×30 instead of 60×0 (60×10 with a 10px
+minimum); a 100% item measures 60×60. Controls cover wrapping and reverse
+wrapping, padding under both box-sizing modes, definite width, percentage
+height bounds, ratio 2, a zero minimum and hidden overflow. Taller content and
+multiple lines check that the ratio's percentage basis stays below the used
+height when content exceeds it. Intrinsic columns remain in `QUEUE.md`.
 
 ## Patch 62: allocate rare style fields only when needed
 
