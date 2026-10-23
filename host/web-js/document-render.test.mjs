@@ -503,6 +503,169 @@ component Bars
   });
 }, 180000);
 
+// A page rendered ahead of time, by either renderer, works before its runtime runs as it will after: a wheel over the
+// content scrolls the route its URL selects, every other tab hidden and inert as the projection leaves it (LLP 1038
+// D6), while the document and the tab bar keep their place and the page cannot bounce (LLP 1115.000 D4.12). It adopts
+// without moving.
+test('pages rendered ahead of time scroll the selected route before they adopt, and adopt without moving', async () => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/prerender-scroll-test-')), servers = {};
+  try {
+    const source = resolve(dir, 'app.contract');
+    writeFileSync(source, `routes nav
+  tab first "/" render=build
+  tab second "/second" render=build
+
+component Tabs
+  derive current = top(nav)
+  action pick(name: string)
+    nav = select(nav, name)
+  view
+    main navigationKey=\`\${current.id}\` navigationBack="back" height="100%" display="flex" flex-direction="column"
+      column flex=1 min-height=0 position="relative"
+        for t in nav.tabs key=t.name
+          column role="tabpanel" id=\`panel-\${t.name}\` position="absolute" inset=0
+            for e in t.stack key=e.id
+              column navigationKey=\`\${e.id}\` position="absolute" inset=0 display="flex" flex-direction="column"
+                header padding="8px 16px"
+                  text e.name role="heading" aria-level=1
+                scroll testId=\`content-\${e.name}\` flex=1 min-height=0
+                  for i in range(30) key=i
+                    text \`\${e.name} \${i}\` padding=16
+      row role="tablist"
+        button role="tab" aria-controls="panel-first" aria-selected=(nav.tab == "first") press=pick("first") flex=1
+          text "First"
+        button role="tab" aria-controls="panel-second" aria-selected=(nav.tab == "second") press=pick("second") flex=1
+          text "Second"
+`);
+    for (const how of ['js', 'rust']) {
+      const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'caltrain', '--contract', source, '--out', resolve(dir, how), '--render', how], {
+        cwd: root, env: process.env, stdout: 'pipe', stderr: 'pipe',
+      });
+      const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
+      expect({ how, status, error: status ? stdout + stderr : '' }).toEqual({ how, status: 0, error: '' });
+      servers[how] = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+        const path = new URL(req.url).pathname;
+        return new Response(Bun.file(resolve(dir, how, /\.\w+$/.test(path) ? `.${path}` : `.${path}/index.html`)));
+      } });
+    }
+    // Each panel, route, bar and scroller: its box, whether it is seen, and whether it is inert.
+    const layout = () => [...document.querySelectorAll('[role=tabpanel], [navigationkey], header, [data-scroll], [role=tablist]')].map(e =>
+      [e.localName, e.id || e.getAttribute('data-testid'), ...Object.values(e.getBoundingClientRect().toJSON()).slice(0, 4), getComputedStyle(e).visibility, e.inert]);
+    // Whether the tab's scroller has scrolled, the document's offset, and the tab bar's box.
+    const scroll = tab => [document.querySelector(`[data-testid="content-${tab}"]`).scrollTop > 0, document.scrollingElement.scrollTop,
+      Object.values(document.querySelector('[role=tablist]').getBoundingClientRect().toJSON()).slice(0, 4)];
+    for (const engine of ['chromium', 'firefox', 'webkit']) {
+      const suite = await suiteBrowser(engine, { timeout: 10000 });
+      try {
+        for (const how of ['js', 'rust']) for (const [path, tab] of [['', 'first'], ['/second', 'second']]) {
+          const url = `${servers[how].url.href}${path.slice(1)}`, at = [engine, how, tab];
+          const before = await (await suite.newContext({ viewport: { width: 390, height: 844 }, javaScriptEnabled: false })).newPage();
+          await before.goto(url);
+          expect([...at, await before.evaluate(() => [document.documentElement, document.body].map(e => getComputedStyle(e).overscrollBehaviorY))]).toEqual([...at, ['none', 'none']]);
+          const built = await before.evaluate(layout), [, , bar] = await before.evaluate(scroll, tab);
+          const content = await before.locator(`[data-testid="content-${tab}"]`).boundingBox();
+          await before.mouse.move(content.x + content.width / 2, content.y + content.height / 2);
+          await before.mouse.wheel(0, 300);
+          // Poll from the driver because JavaScript-disabled pages do not run the page's animation-frame poller
+          for (let i = 0; i < 50 && !(await before.evaluate(scroll, tab))[0]; i++) {
+            await before.waitForTimeout(50);
+          }
+          expect([...at, ...(await before.evaluate(scroll, tab))]).toEqual([...at, true, 0, bar]);
+          const after = await (await suite.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+          await after.goto(url);
+          await after.waitForFunction(() => globalThis.exact?.journal?.some(l => l.endsWith('adopted the document')), null, { timeout: 15000 });
+          await after.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+          expect([...at, await after.evaluate(layout)]).toEqual([...at, built]);
+        }
+      } finally { await suite.close(); }
+    }
+  } finally {
+    for (const server of Object.values(servers)) server.stop(true);
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 240000);
+
+test('JavaScript prerender keeps every sheet and its underlying page visible through adoption', async () => {
+  await renderedPages(`routes nav
+  home "/" render=build
+
+component Sheets
+  view
+    main navigationKey="top" navigationBack="back" height="100%"
+      column navigationKey="old" id="old" position="absolute" inset=0
+        text "Earlier page"
+      column navigationKey="base" id="base" position="absolute" inset=0
+        text "Base page"
+      column navigationKey="lower" id="lower" navigationPresentation="modal" height=500
+        text "Lower sheet"
+      column navigationKey="top" id="top" navigationPresentation="modal" height=200
+        text "Top sheet"
+`, async (_, _html, dist) => {
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    const visibility = () => ['old', 'base', 'lower', 'top'].map(id => {
+      const node = document.getElementById(id);
+      return [id, getComputedStyle(node).visibility, node.inert];
+    });
+    const expected = [['old', 'hidden', true], ['base', 'visible', true], ['lower', 'visible', true], ['top', 'visible', false]];
+    try {
+      for (const engine of ['chromium', 'firefox', 'webkit']) {
+        const suite = await suiteBrowser(engine);
+        try {
+          const before = await suite.newPage({ javaScriptEnabled: false });
+          await before.goto(server.url.href);
+          expect([engine, 'prerender', await before.evaluate(visibility)]).toEqual([engine, 'prerender', expected]);
+          const after = await suite.newPage();
+          await after.goto(server.url.href);
+          await after.waitForFunction(() => globalThis.exact?.journal?.some(line => line.endsWith('adopted the document')));
+          expect([engine, 'adopted', await after.evaluate(visibility)]).toEqual([engine, 'adopted', expected]);
+        } finally { await suite.close(); }
+      }
+    } finally { server.stop(true); }
+  });
+}, 60000);
+
+test('both document renderers preserve browser scrolling before startup', async () => {
+  for (const how of ['js', 'rust']) {
+    await renderedPages(`routes nav
+  home "/" render=build
+
+component Page
+  view
+    scroll document height="100%"
+      text "Document" height=1600
+`, async (_, html, dist) => {
+      expect(html('')).toMatch(/<html[^>]* data-scrolldocument/);
+      if (how === 'js') {
+        const { renderer } = await import('./render.mjs');
+        const page = await (await renderer(dist).begin('/')).finish();
+        expect(page.rest.startsWith('<script>document.documentElement.setAttribute("data-scrolldocument","")</script>')).toBe(true);
+      }
+      const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response(Bun.file(resolve(dist, 'index.html'))) });
+      try {
+        for (const engine of ['chromium', 'firefox', 'webkit']) {
+          const browser = await suiteBrowser(engine);
+          try {
+            const page = await browser.newPage({ viewport: { width: 390, height: 844 }, javaScriptEnabled: false });
+            await page.goto(server.url.href);
+            expect([how, engine, await page.evaluate(() => [document.documentElement, document.body].map(e => getComputedStyle(e).overscrollBehaviorY))]).toEqual([how, engine, ['auto', 'auto']]);
+            await page.mouse.move(195, 400);
+            await page.mouse.wheel(0, 300);
+            const scrolled = () => page.evaluate(() => document.scrollingElement.scrollTop > 0);
+            for (let i = 0; i < 50 && !await scrolled(); i++) {
+              await page.waitForTimeout(50);
+            }
+            expect(await scrolled()).toBe(true);
+          } finally { await browser.close(); }
+        }
+      } finally { server.stop(true); }
+    }, {}, {}, how);
+  }
+}, 180000);
+
 // The render's DOM orders nodes as DOM §4.4 does (midi.js sorts its listeners by it).
 test('the render DOM compares document positions, across trees one way each', () => {
   const doc = createDocument(), root = doc.getElementById('exact-root');
