@@ -28,8 +28,8 @@ extension ExactSession {
         return replySubmissions.removeFirst()
     }
 
-    func retryActivation() {
-        if let p = pendingActivation {
+    func retryActivation(generation replyGeneration: Int) {
+        if let p = pendingActivation, p.generation == replyGeneration {
             pendingActivation = nil
             if p.generation == generation {
                 activatedGeneration = nil
