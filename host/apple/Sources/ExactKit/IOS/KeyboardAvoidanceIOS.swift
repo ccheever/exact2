@@ -162,8 +162,9 @@ extension Presenter {
             if o.y > high + 0.5 { pinnedRoom.grow(sv, by: o.y - high) }
         }
         let insets = sv.adjustedContentInset
-        o = PixelGrid.offset(o, in: sv)
         guard abs(o.y - sv.contentOffset.y) > 0.5 || abs(o.x - sv.contentOffset.x) > 0.5 else { return false }
+        o = PixelGrid.offset(o, in: sv)
+        guard o != sv.contentOffset else { return false }
         sv.contentOffset = o
         // The bar's large title collapsing as the list scrolls changes its
         // insets inside this assignment, and UIKit moves the offset on by the
@@ -172,7 +173,7 @@ extension Presenter {
         // asked for, within the new insets, is the least.
         if sv.adjustedContentInset != insets {
             let held = PixelGrid.offset(o, in: sv)
-            if abs(held.y - sv.contentOffset.y) > 0.5 || abs(held.x - sv.contentOffset.x) > 0.5 { sv.contentOffset = held }
+            if held != sv.contentOffset { sv.contentOffset = held }
         }
         return true
     }
