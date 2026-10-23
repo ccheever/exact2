@@ -13,7 +13,7 @@ import XCTest
 ///   bun host/apple/build.mjs --test --ios
 final class RowCellsIOSTests: XCTestCase {
     private var window: UIWindow!
-    func testAReorderedRowsSeparatorMovesWithItsPresentationWithoutABatchRedraw() throws {
+    func testTheRowOwnedSeparatorFollowsPresentationWithoutABatchRedraw() throws {
         let p = try fixture()
         let (row, line) = try XCTUnwrap(rowLines(p).first)
         let before = row.layer.convert(line.frame, to: p.root.layer)
@@ -21,6 +21,51 @@ final class RowCellsIOSTests: XCTestCase {
         let moved = row.layer.convert(line.frame, to: p.root.layer)
         XCTAssertEqual(moved.minY - before.minY, 17.25, accuracy: 1e-6)
         XCTAssertTrue(line.superlayer === row.layer)
+    }
+    func testTheSeparatorFollowsTheRowThroughADragABatchAndTheGhostLanding() throws {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "a drag ghost snapshots a row rendered on screen")
+        }
+        let p = try fixture(list: ["props": ["listRows": "true", "id": "cards", "reorderGroup": "cards"]],
+                            rows: [20: ["props": ["text": "Grip", "reorderFor": "cards"]]])
+        window.windowScene = scene
+        window.layoutIfNeeded()
+        _ = UIGraphicsImageRenderer(size: window.bounds.size).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let calls = ReorderGroupRecorder()
+        p.reorderGroupCalls = calls
+        p.apply(wireBatch([["op": "collections", "items": [["view": 2, "revision": 1, "scrollSequence": 0,
+            "count": 4, "totalExtent": 176, "rows": [["view": 10, "root": 20, "epoch": 1]], "correction": NSNull()]]]]))
+        let grip = try XCTUnwrap(p.views[20]), row = try XCTUnwrap(p.views[10])
+        let before = row.convert(row.bounds, to: window)
+        let hold = try XCTUnwrap(ReorderGroupHold(grip, point: CGPoint(x: before.midX, y: before.midY), ghost: true))
+        let ghost = try XCTUnwrap(hold.ghost)
+        XCTAssertTrue(ghost.view.superview === window)
+        XCTAssertTrue(hold.move(CGPoint(x: before.midX, y: before.midY + 44)))
+        XCTAssertEqual(ghost.frame.minY, before.minY + 44, accuracy: 1e-6)
+        // The runner's displacement and a batch that repaints row lines while lifted.
+        p.apply(wireBatch([["op": "present", "id": 10, "property": "translate", "x": 0, "y": 44],
+                          ["op": "children", "id": 2, "ids": [10, 11, 12, 13]]]))
+        func assertLineAtRowBottom() throws {
+            let line = try XCTUnwrap(rowLines(p).first { $0.row === row }?.layer)
+            let end = row.layer.convert(CGPoint(x: 20, y: row.bounds.maxY), to: window.layer)
+            let path = try XCTUnwrap(line.path?.boundingBoxOfPath)
+            let painted = row.layer.convert(path.offsetBy(dx: line.frame.minX, dy: line.frame.minY), to: window.layer)
+            XCTAssertEqual(end.y, before.maxY + 44, accuracy: 1e-6)
+            XCTAssertEqual(painted.maxY, end.y, accuracy: 1e-6)
+        }
+        try assertLineAtRowBottom()
+        hold.finish(cancel: false)
+        XCTAssertEqual(hold.state.phase, "holding")
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0, "y": 44, "w": 400, "h": 44],
+                          ["op": "present", "id": 10, "property": "translate", "x": 0, "y": 0]]))
+        hold.observe(ReorderGroupState(calls.state("settling", target: 2, row: 10, ending: "landed").ops[0].payload))
+        hold.landNow()
+        XCTAssertNil(p.reorderGroup)
+        XCTAssertNil(ghost.view.superview)
+        try assertLineAtRowBottom()
+        XCTAssertTrue(calls.log.contains("drop"))
     }
     override func tearDown() { window?.isHidden = true; window = nil; super.tearDown() }
 
