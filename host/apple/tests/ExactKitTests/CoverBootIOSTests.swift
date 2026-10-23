@@ -1,5 +1,6 @@
 #if os(iOS)
 import UIKit
+import CExact
 import XCTest
 @testable import ExactKit
 
@@ -51,5 +52,49 @@ final class CoverBootIOSTests: XCTestCase {
         XCTAssertGreaterThan(route.view.safeAreaInsets.bottom, 0)
         XCTAssertEqual(route.bottomClearance, 0, "the document already clears the window's bottom safe area")
     }
+
+    func testARefusedGenerationUsesTheBakesOwnViewportPolicy() throws {
+        let app = ExactApp.shared
+        let probe = app.makeSession(label: "baked-policy")
+        let bakedCover = probe.runtime.on(busy: false) { exact_plan_covers_viewport(probe.runtime.rt, 0) != 0 }
+        probe.destroy()
+        let plan = try fixturePlan(bakedCover ? "FIELDLESS" : "COVER_SCROLL")
+        let previous = app.lastPlan.map { ExactGeneration(plan: $0, assets: app.resolver, token: app.selectedToken, module: app.lastModule) }
+        // This unregistered composition token refuses preparation before commit.
+        app.installInitial(ExactGeneration(plan: plan, assets: app.resolver, token: 855))
+        let session = app.makeSession(label: "cover-fallback")
+        defer {
+            session.destroy()
+            if let previous { app.installInitial(previous) }
+        }
+        let view = ExactView(session: session), host = UIViewController()
+        host.additionalSafeAreaInsets = UIEdgeInsets(top: 24, left: 12, bottom: 16, right: 18)
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        let frame = scene?.screen.bounds ?? CGRect(x: 0, y: 0, width: 402, height: 874)
+        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: frame)
+        window.frame = frame
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        host.view.addSubview(view)
+        var initial: CGSize?
+        session.runtime.observeBatch = { _, batch in
+            guard app.selectedToken == 0, initial == nil,
+                  let root = batch.ops.first(where: { $0.op == .roots })?.ids.first,
+                  let rect = batch.ops.first(where: { $0.op == .frame && $0.id == root }) else { return }
+            initial = CGSize(width: rect.w, height: rect.h)
+        }
+        view.frame = host.view.bounds
+        view.layoutIfNeeded()
+        XCTAssertTrue(session.booted, session.bootError ?? "the embedded bake boots after refusal")
+        XCTAssertEqual(app.selectedToken, 0)
+        XCTAssertNil(app.lastPlan)
+        XCTAssertEqual(session.presenter.viewportFit == "cover", bakedCover)
+        XCTAssertNotEqual(view.bounds.size, view.bounds.inset(by: view.safeAreaInsets).size)
+        let expected = bakedCover ? view.bounds.size : view.bounds.inset(by: view.safeAreaInsets).size
+        XCTAssertEqual(try XCTUnwrap(initial), expected, "the rejected plan must not choose the bake's first viewport")
+        XCTAssertEqual(session.presenter.insets, bakedCover ? view.safeAreaInsets : .zero)
+    }
+
 }
 #endif
