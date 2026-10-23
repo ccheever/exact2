@@ -43,9 +43,10 @@ fn a_long_poll_on_other_work_is_refused_before_its_work_runs() {
     )
     .unwrap();
     assert_eq!(RAN.load(Ordering::SeqCst), 0, "its work never ran");
-    assert_ne!(
+    // Refused by the environment, as a surface is: the render completes, its placeholder kept.
+    assert_eq!(
         rendered.settled,
-        Settled::Busy,
-        "a refusal, not a busy render"
+        Settled::Complete,
+        "a refusal, not busy nor its deadline"
     );
 }

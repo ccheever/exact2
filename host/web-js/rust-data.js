@@ -1,6 +1,6 @@
 import { admitsSecret, createRequestExecutor, fetchHostAsset, sameGrantDeclaration, setAppGrantSet } from './admission.js';
 import { rustGrantSet, tsGrantSet } from './admission-data.js';
-import { boundedHttpBody, streamed } from './http-body.js';
+import { boundedHttpBody, longPollRefusal, streamed } from './http-body.js';
 // A Rust data module on the JS runtime (LLP 1029.000's seam, ABI 4,
 // `logic/abi/src/lib.rs`): the app's importless module wasm and its plan's
 // declarations (`app.bind.plan`, the plan without the bake's answers),
@@ -101,6 +101,9 @@ export async function install(data, sources, load = p => fetchHostAsset(p).then(
       const n = r.u32(), body = r.bytes(n);
       // A long poll (tag 10, LLP 1016.000 D8): its terms after the body, checked as the stream opens (http-body.js).
       const longPoll = tag === 10 ? { cursor: r.str(), from: r.str(), sameCursorEvent: [false, true][r.u8()] ?? (() => { throw new Error('invalid long poll terms'); })() } : undefined;
+      // (refused as the native seam refuses it: before the turn's writes apply)
+      const pollRefusal = longPoll && longPollRefusal({ url, longPoll, stream: true }, method, n ? 'x' : '');
+      if (pollRefusal) throw new Error(pollRefusal);
       return { req: { method, url, headers, body: text.decode(body), raw: body, http, maxResponseBytes: http === 'ordered' ? undefined : Number(http.split(':')[1]), scope: scoped ? scope : null, stream: tag >= 9, longPoll } };
     }
     // Storage work (LLP 1027.001 D2): a portable request the host runs
