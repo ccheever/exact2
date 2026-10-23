@@ -10,7 +10,7 @@
 // `reachstart` and `reachend` behind it); a jump replaces the window and places
 // its target with `scrollIntoView`.
 
-use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Gateway, Session, Ack, Sent from "./shapes.contract"
+use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent from "./shapes.contract"
 use MessageRow from "./transcript.contract"
 use Badge from "exact:content"
 
@@ -59,6 +59,9 @@ component Excord
   state topOffset = 0
   state places: Place[] = []
   state drafts: string[] = [] persist
+  // The server whose channels the list shows, "@me" for the direct messages.
+  state server = "" persist
+  state tokenDraft = ""
   state replyTo = ""
   state replyName = ""
   state editing = ""
@@ -100,14 +103,20 @@ component Excord
   // the session clock real from its first step.
   resource session = loadSession() as shape Session else empty()
   resource gateway = gatewayState(session.ready) with time.epochAtZero as shape Gateway else empty(state="connecting")
-  resource guilds = loadGuilds(gateway.sidebar) as shape Guild[] else empty()
-  derive guild = match first(guilds) { case some(g) => g, case none => Guild(id="", name="", unread=false, mentions=0) }
-  resource channels = loadChannels(guild.id, gateway.sidebar) as shape Channel[] else empty()
-  resource dms = loadDms(gateway.sidebar) as shape Channel[] else empty()
+  // A large frame (a login's READY) waits for `digest`, which works through it a slice a turn and
+  // answers a newer snapshot than the stream's last; the stream's next one is newer again.
+  mutation digested as shape Gateway queue
+  derive gw = match digested { case some(d) => (d.seq > gateway.seq ? d : gateway), case none => gateway }
+  resource guilds = loadGuilds(gw.sidebar) as shape Guild[] else empty()
+  derive dmsShown = server == "@me" or guilds.length == 0
+  derive guild = dmsShown ? Guild(id="", name="", unread=false, mentions=0) : match first(guilds.filter(g => g.id == server).concat(guilds)) { case some(g) => g, case none => Guild(id="", name="", unread=false, mentions=0) }
+  resource categories = loadChannels(guild.id, gw.sidebar) as shape Category[] else empty()
+  derive channels = categories.map(g => g.channels).flat()
+  resource dms = loadDms(gw.sidebar) as shape Channel[] else empty()
   // The snapshot carries the versions of the channel on screen; until it names the
   // one just opened, the lists' version stands in, which moves with its changes too.
-  derive chanVersion = gateway.channel == open ? gateway.version : gateway.sidebar
-  derive histVersion = gateway.channel == open ? gateway.history : gateway.sidebar
+  derive chanVersion = gw.channel == open ? gw.version : gw.sidebar
+  derive histVersion = gw.channel == open ? gw.history : gw.sidebar
   resource chan = loadChannel(open, chanVersion) as shape Channel else empty()
   // Slow history (the fixture's): the window is asked with the anchor and version as of
   // the last pump, every 150 ms of the test clock, as a real store's page takes a while.
@@ -118,11 +127,11 @@ component Excord
   resource win = loadWindow(open, askAnchor, askVersion, since) as shape Window else empty()
   // A send shows at once (`echoed`, the local row), then posts (`sent`).
   mutation echoed as shape Sent queue refreshes win, chan then postEchoed
-  mutation sent as shape Ack queue refreshes win, chan, channels
-  mutation changed as shape Ack queue refreshes win, chan, channels, dms, guilds
+  mutation sent as shape Ack queue refreshes win, chan, categories
+  mutation changed as shape Ack queue refreshes win, chan, categories, dms, guilds
   mutation edited as shape Ack refreshes win then afterEdit
   // An ack changes the read state, not the history the window shows.
-  mutation acked as shape Ack queue refreshes chan, channels, dms, guilds then afterAck
+  mutation acked as shape Ack queue refreshes chan, categories, dms, guilds then afterAck
   // The page the window names (`win.need`), one at a time.
   mutation paged as shape Ack queue refreshes win, chan then afterPage
   mutation beat as shape Ack
@@ -133,6 +142,9 @@ component Excord
   mutation identified as shape Ack
   mutation typed as shape Ack
   mutation joined as shape Ack
+  // A token kept re-asks the session and the gateway, which then connects with it.
+  mutation signedIn as shape Ack refreshes session, gateway then afterSignIn
+  mutation signedOut as shape Ack refreshes session, gateway, guilds, categories, dms, chan, win
   derive rows = win.channel == open ? win.rows : []
   derive keys = rows.map(r => r.key)
   derive lastKey = match rows.at(-1) { case some(r) => r.key, case none => "" }
@@ -144,6 +156,8 @@ component Excord
   // The transcript is on screen, not the channel list.
   derive reading = top(nav).name == "channel"
   derive draft = draftOf(drafts, open)
+  derive signInError = match signedIn { case some(r) => (r.ok ? "" : r.error), case none => "" }
+  derive signedOutNow = gw.state == "signed-out" and not gw.fixture
   derive editFailure = match edited { case some(r) => (r.ok ? "" : r.error), case none => "" }
   derive clock = time.epochAtZero + now
   derive newCount = max(0, chan.arrived - baseArrived)
@@ -153,13 +167,18 @@ component Excord
     every(60000, step)
   // The heartbeat is the gateway session's (`discord/gateway.ts`); this asks it each
   // second whether one is due, which is also the data module's clock.
-  task heartbeat when connected(gateway.state)
+  task heartbeat when connected(gw.state)
     every(1000, beatNow)
   // A dropped connection resumes once its backoff has passed.
-  task redial when gateway.state == "backoff"
+  task redial when gw.state == "backoff"
     every(1000, redialNow)
-  task record when gateway.state == "recording"
+  task record when gw.state == "recording"
     after(1, recordNow)
+  // Discord refusing the token (close 4004) signs out: the channel on screen goes with the account.
+  task signedOutHome when signedOutNow and top(nav).name != "home"
+    after(1, toSignIn)
+  task digest when gw.queued > 0 and not pending(digested) key=gw.seq
+    after(1, digestNow)
   task traffic when live and open != ""
     every(2500, trafficTick)
   // Discord's typing lasts ten seconds unless sent again.
@@ -180,10 +199,10 @@ component Excord
   // or the channel acknowledges at once what was on screen (`scrolled`, `back`).
   // It is asked again when the channel changes (a message reached the tail after the
   // ack chose its newest) and after a failed ack, at most three times.
-  task ack when reading and current and anchor == "" and not away and chan.unread > 0 and page.visibilityState == "visible" key=`${chan.version}/${ackTries}`
+  task ack when reading and not signedOutNow and current and anchor == "" and not away and chan.unread > 0 and page.visibilityState == "visible" key=`${chan.version}/${ackTries}`
     after(1000, ackNow)
   // The page the window lacks; a failed one is asked again, at most three times.
-  task fetchPage when win.channel == open and win.need != "" and pageTries < 3 and not pending(paged) key=`${win.channel}/${win.need}/${win.cursor}/${pageTries}`
+  task fetchPage when win.channel == open and not signedOutNow and win.need != "" and pageTries < 3 and not pending(paged) key=`${win.channel}/${win.need}/${win.cursor}/${pageTries}`
     after(1, pageNow)
   // The bar says what was unread when the channel opened: its label is held from
   // the first window that answers it, as arrivals and sends move the count on.
@@ -198,6 +217,8 @@ component Excord
     send beat = heartbeat(time.epochAtZero + performanceNow())
   action redialNow
     send redialed = heartbeat(time.epochAtZero + performanceNow())
+  action digestNow
+    send digested = digest(time.epochAtZero + performanceNow())
   action recordNow
     send recorded = recordIdentify()
   action identifyNow
@@ -261,6 +282,25 @@ component Excord
     pageTries = 0
     send joined = viewChannel(id)
     nav = push(nav, path("channel", id))
+  action pickServer(v: string)
+    server = v
+  // Signing in keeps the pasted token; the field is cleared once it is taken.
+  action editToken(v: string)
+    tokenDraft = v
+  action signInNow
+    if tokenDraft.trim() != "" and not pending(signedIn)
+      send signedIn = signIn(tokenDraft)
+  action afterSignIn
+    if signInError == ""
+      tokenDraft = ""
+  action askSignOut
+    showModal("confirm-sign-out")
+  action signOutNow
+    toSignIn()
+    send signedOut = signOut()
+  action toSignIn
+    nav = go(nav, "/")
+    open = ""
   // Leaving keeps the reader's place, puts an unsaved edit away and acknowledges
   // what was on screen at the end.
   action leave(url: string)
@@ -522,37 +562,96 @@ component Excord
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" navigate=leave interactive-widget="resizes-content" width="100%" height="100%"
       for e in stack(nav) key=e.id
-        if e.name == "home"
-          column navigationKey=`${e.id}` navigationScroll="channels" position="absolute" inset=0
-            header
-              h1 (guild.name != "" ? guild.name : "Excord")
-            list id="channels" appearance="auto" flex=1 min-height=0
-              if gateway.state == "stopped"
-                section
-                  text `Not connected: ${gateway.detail}` color="-exact-system-red" testId="stopped"
+        if e.name == "home" and signedOutNow
+          column navigationKey=`${e.id}` navigationScroll="sign-in" position="absolute" inset=0
+            header display="flex" align-items="center" padding="8px 16px"
+              h1 "Sign In to Discord" flex=1 min-width=0
+            list id="sign-in" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
               section
-                for c in channels key=c.id
-                  button press=openChannel(c.id) testId=`channel-${c.name}` aria-label=`${c.name}${c.unread > 0 ? ", unread" : ""}`
-                    row gap=8 align-items="center" flex=1 min-width=0
-                      text "#" color="-exact-secondary-label"
-                      text c.name font-weight=(c.unread > 0 ? 600 : 400) flex=1 min-width=0
-                      if c.mentions > 0
-                        Badge(label=`${c.mentions}`, tint=some("-exact-system-red"))
-              if dms.length > 0
+                header
+                  text "Token"
+                row
+                  input type="password" value=tokenDraft input=editToken submit=signInNow autocomplete="off" placeholder="Paste your token" aria-label="Token" testId="token" flex=1 min-width=0
+                footer
+                  text "On a computer, open discord.com in a browser and sign in, then open the browser's developer tools and their Network tab. Pick any request to discord.com/api and copy the value of its Authorization header. Excord keeps the token in this device's secure storage and sends it only to Discord. Treat it like a password: anyone who has it can use your account."
+              section
+                button press=signInNow disabled=(tokenDraft.trim() == "" or pending(signedIn)) testId="sign-in"
+                  text (pending(signedIn) ? "Signing In…" : "Sign In")
+                if signInError != ""
+                  text signInError color="-exact-system-red" testId="sign-in-error"
+                else if gw.detail != ""
+                  text (gw.detail.includes("4004") ? "Discord didn't accept the last token. Sign in with a new one." : gw.detail) color="-exact-system-red" testId="signed-out-detail"
+        else if e.name == "home"
+          column navigationKey=`${e.id}` navigationScroll="channels" position="absolute" inset=0
+            header display="flex" align-items="center" gap=8 padding="8px 16px"
+              h1 (dmsShown ? "Direct Messages" : guild.name) flex=1 min-width=0 line-clamp=1
+              button popovertarget="server-menu" aria-label="Servers" testId="server"
+                image "symbol:menu"
+              button popovertarget="account-menu" aria-label="Account" testId="account"
+                image "symbol:person"
+            column id="server-menu" popover="auto" role="menu" aria-label="Servers"
+              button press=pickServer("@me") popovertarget="server-menu" popovertargetaction="hide" role="menuitemradio" aria-checked=dmsShown testId="server-@me"
+                image "symbol:messages"
+                text "Direct Messages"
+              hr
+              for g in guilds key=g.id
+                button press=pickServer(g.id) popovertarget="server-menu" popovertargetaction="hide" role="menuitemradio" aria-checked=(not dmsShown and g.id == guild.id) testId=`server-${g.id}`
+                  text (g.mentions > 0 ? `${g.name} (${g.mentions})` : g.name)
+            column id="account-menu" popover="auto" role="menu" aria-label="Account"
+              text (gw.meName != "" ? `Signed in as ${gw.meName}` : "Connecting…") font="-exact-footnote" color="-exact-secondary-label" padding="6px 12px"
+              if not gw.fixture
+                hr
+                button press=askSignOut destructive=true popovertarget="account-menu" popovertargetaction="hide" testId="menu-sign-out"
+                  image "symbol:sign-out"
+                  text "Sign Out"
+            dialog id="confirm-sign-out" role="alertdialog" aria-label="Sign Out?"
+              text "Excord forgets your token on this device."
+              button press=signOutNow destructive=true commandfor="confirm-sign-out" command="close" testId="sign-out-confirm"
+                text "Sign Out"
+              button commandfor="confirm-sign-out" command="close" testId="sign-out-cancel"
+                text "Cancel"
+            list id="channels" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+              if gw.state == "stopped"
                 section
-                  header
-                    text "Direct Messages"
+                  text `Not connected: ${gw.detail}` color="-exact-system-red" testId="stopped"
+              if dmsShown
+                section
                   for c in dms key=c.id
                     button press=openChannel(c.id) testId=`dm-${c.id}` aria-label=`${c.name}${c.unread > 0 ? ", unread" : ""}`
                       row gap=8 align-items="center" flex=1 min-width=0
-                        text c.name font-weight=(c.unread > 0 ? 600 : 400) flex=1 min-width=0
+                        text c.name font-weight=(c.unread > 0 ? 600 : 400) flex=1 min-width=0 line-clamp=1
                         if c.mentions > 0
                           Badge(label=`${c.mentions}`, tint=some("-exact-system-red"))
+                        image "symbol:forward-chevron"
+              else
+                for g in categories key=g.id
+                  if g.name == ""
+                    section
+                      for c in g.channels key=c.id
+                        button press=openChannel(c.id) testId=`channel-${c.name}` aria-label=`${c.name}${c.unread > 0 ? ", unread" : ""}`
+                          row gap=8 align-items="center" flex=1 min-width=0
+                            text "#" color="-exact-secondary-label"
+                            text c.name font-weight=(c.unread > 0 ? 600 : 400) flex=1 min-width=0 line-clamp=1
+                            if c.mentions > 0
+                              Badge(label=`${c.mentions}`, tint=some("-exact-system-red"))
+                            image "symbol:forward-chevron"
+                  else
+                    section
+                      header
+                        text g.name
+                      for c in g.channels key=c.id
+                        button press=openChannel(c.id) testId=`channel-${c.name}` aria-label=`${c.name}${c.unread > 0 ? ", unread" : ""}`
+                          row gap=8 align-items="center" flex=1 min-width=0
+                            text "#" color="-exact-secondary-label"
+                            text c.name font-weight=(c.unread > 0 ? 600 : 400) flex=1 min-width=0 line-clamp=1
+                            if c.mentions > 0
+                              Badge(label=`${c.mentions}`, tint=some("-exact-system-red"))
+                            image "symbol:forward-chevron"
         else
           column navigationKey=`${e.id}` navigationScroll="transcript" position="absolute" inset=0
-            header
-              h2 (chan.guild != "" ? `# ${chan.name}` : chan.name)
-              if gateway.fixture
+            header display="flex" align-items="center" gap=8 padding="8px 16px"
+              h2 (chan.guild != "" ? `# ${chan.name}` : chan.name) flex=1 min-width=0 line-clamp=1
+              if gw.fixture
                 button popovertarget="fixture-menu" aria-label="Fixture traffic" testId="fixture"
                   image "symbol:more"
             column id="fixture-menu" popover="auto" role="menu" aria-label="Fixture traffic"
