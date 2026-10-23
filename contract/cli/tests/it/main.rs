@@ -173,6 +173,7 @@ mod tamber_params;
 mod tamber_params_scope;
 mod tamber_params_tools;
 mod tamber_retention_reuse;
+mod tamber_rows_bound;
 mod tamber_rows_check;
 mod tamber_rows_shorthand;
 mod tamber_rows_style;

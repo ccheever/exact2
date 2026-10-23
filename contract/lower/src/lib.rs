@@ -1011,12 +1011,8 @@ impl<'a> Lowerer<'a> {
                 ..
             } => {
                 let (subject, list_ty) = self.typed_code(list, scope, locals)?;
-                let item_ty = match list_ty {
-                    Ty::List(t) => *t,
-                    _ => Ty::Unknown,
-                };
                 let mut inner = scope.clone();
-                inner.push_each(var, index.as_deref(), item_ty);
+                inner.push_each_of(var, index.as_deref(), list_ty);
                 let key = self.expr_code(key, &inner, locals)?;
                 let (_r, arms) =
                     self.b
@@ -1032,16 +1028,12 @@ impl<'a> Lowerer<'a> {
                 ..
             } => {
                 let (code, subject_ty) = self.typed_code(subject, scope, locals)?;
-                let bound_ty = match subject_ty {
-                    Ty::Option(t) => *t,
-                    _ => Ty::Unknown,
-                };
                 let unit = self.b.constant(&Value::Unit);
                 let (_r, arms) =
                     self.b
                         .region(RegionKind::Match, parent, arm, order, code, unit, 2);
                 let mut some_scope = scope.clone();
-                some_scope.push_region(Some((some.0.clone(), Ref::Bound(0), bound_ty)));
+                some_scope.push_some_of(&some.0, subject_ty);
                 self.arm_scopes
                     .insert((*tag, 0), (arms[0], some_scope.clone()));
                 self.nodes(
@@ -1053,7 +1045,7 @@ impl<'a> Lowerer<'a> {
                     parent_tag,
                 )?;
                 let mut none_scope = scope.clone();
-                none_scope.push_region(None);
+                none_scope.push_none();
                 self.arm_scopes
                     .insert((*tag, 1), (arms[1], none_scope.clone()));
                 self.nodes(none, None, Some(arms[1]), &none_scope, locals, parent_tag)
