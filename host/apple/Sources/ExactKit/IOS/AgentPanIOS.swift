@@ -151,6 +151,24 @@ extension Agent {
         #endif
     }
 
+    /// Native projections activate without traversing the ordinary press path.
+    /// Their pointer observers still hear the contact before the control acts.
+    func nativePointer(_ node: NodeView, request: [String: Any], at point: CGPoint? = nil) -> Bool {
+        let snapshot = HeldNode(node)
+        var point = point
+        if point == nil, case .success(let item)? = tabItem(node) {
+            point = item.convert(CGPoint(x: item.bounds.midX, y: item.bounds.midY), to: nil)
+        }
+        if point == nil, case .success(let item)? = barItem(node) {
+            point = item.bar.convert(CGPoint(x: item.item.midX, y: item.item.midY), to: nil)
+        }
+        let at = point ?? windowPoint(tapPoint(request, node: node) ?? .zero)
+        let path = Agent.fingerPath(from: node), held = Agent.heldPrefix(request)
+        fingerPointer(.down, path, at: at, held: held)
+        fingerPointer(.up, path, at: at, held: held)
+        return snapshot.live(in: presenter) != nil && !node.disabled
+    }
+
     /// A request's `modifiers` (`Shift+Meta`) as a chord prefix (`Shift+Meta+`).
     static func heldPrefix(_ req: [String: Any]) -> String {
         (req["modifiers"] as? String).map { $0.isEmpty || $0.hasSuffix("+") ? $0 : $0 + "+" } ?? ""
