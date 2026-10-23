@@ -112,6 +112,28 @@ final class TabEdgeIOSTests: XCTestCase {
         }
     }
 
+    func testOneAgentWheelReachesTheMeasuredEndOfAGroupedList() throws {
+        let session = try fixture(), agent = Agent(session: session)
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        for name in ["grouped", "plainPushed"] {
+            if name == "grouped" { try tap("tab-grouped") }
+            else { try tap("tab-plain"); try tap("plain-1") }
+            let content = try node("content-\(name)")
+            let sv = try XCTUnwrap(session.presenter.groupedLists?.scroller(for: content.id) as? UICollectionView)
+            let reply = agent.tap(["id": Int(content.id), "wheel": [0.0, 20000.0]])
+            XCTAssertNil(reply["error"], "\(reply)")
+            session.presenter.settlePump()
+            sv.layoutIfNeeded()
+            let inset = sv.adjustedContentInset
+            let end = max(-inset.top, sv.contentSize.height + inset.bottom - sv.bounds.height)
+            XCTAssertEqual(sv.contentOffset.y, end, accuracy: 0.5, "one wheel reaches the measured end")
+            let last = IndexPath(item: sv.numberOfItems(inSection: sv.numberOfSections - 1) - 1, section: sv.numberOfSections - 1)
+            let frame = try XCTUnwrap(sv.layoutAttributesForItem(at: last)).frame
+            XCTAssertNotNil(sv.cellForItem(at: last), "the final row is realized")
+            XCTAssertLessThanOrEqual(sv.convert(frame, to: nil).maxY, box(tabs.tabBar).minY + 0.5, "the final row clears the tab bar")
+        }
+    }
+
     /// The `scrolls` route holds a menu between its header and its scroller
     /// and a `dialog` after it. Closed, neither is laid out, and the scroller
     /// keeps both edges. A menu given back to layout to show in Exact's views
