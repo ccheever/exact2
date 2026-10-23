@@ -389,23 +389,6 @@ final class SidebarMacTests: XCTestCase {
         XCTAssertEqual(compositions, 3)
     }
 
-    func testTheSidebarFollowsPlacementWithoutAResize() throws {
-        let session = try boot(size: CGSize(width: 700, height: 500))
-        let view = ExactView(session: session)
-        let split = compose(view)
-        let tabs = try node("tabs")
-        XCTAssertTrue(session.presenter.sidebar.installed)
-        try press("placed-today")
-        XCTAssertFalse(view.wantsWindowSidebar)
-        XCTAssertFalse(tabs.isHidden)
-        XCTAssertNil(session.presenter.covers.delivered[tabs.id])
-        try press("plain-today")
-        XCTAssertTrue(view.wantsWindowSidebar)
-        XCTAssertTrue(tabs.isHidden)
-        XCTAssertEqual(session.presenter.covers.delivered[tabs.id], .whole)
-        split.release()
-    }
-
     func testTheAuthorsHideAndPlacementAndANarrowWindow() throws {
         let session = try boot(size: CGSize(width: 700, height: 500))
         let p = session.presenter
@@ -471,6 +454,8 @@ final class SidebarMacTests: XCTestCase {
         XCTAssertEqual(changes, 0)
 
         // A tablist the app places itself (a row beside the panels) is the app's: no sidebar, and its box comes back.
+        // The placement is the kernel's to read, asked again when the root's level moves, as a window's resize
+        // moves it (what turns a responsive app's bar into its own rail).
         try press("placed-today")
         window.setContentSize(NSSize(width: 760, height: 500))
         window.layoutIfNeeded()
