@@ -23,7 +23,8 @@ export function gridValue(kind, value) {
     const sizes = withoutLines(lower), source = trackSource(String(value));
     if (/^subgrid(?:\s|\[|$)/.test(lower)) return refuse("Taffy has no value for it");
     for (const m of source.matchAll(/([a-z-]+)\s*\(/g)) if (!/^(?:calc|min|max|clamp|minmax|repeat|fit-content)$/.test(m[1])) return refuse("unsupported track function");
-    for (const m of source.matchAll(/(?:^|[^\w.])[+-]?(?:\d*\.)?\d+(?:e[+-]?\d+)?([a-z]+)\b/g)) if (!/^(?:px|fr)$/.test(m[1])) return refuse("Taffy has no value for its unit");
+    // Consume the whole number even without a unit, so an exponent cannot backtrack into one.
+    for (const m of source.matchAll(/(?:^|[^\w.])[+-]?(?:\d*\.)?\d+(?:e[+-]?\d+)?(?:([a-z]+)|%)?/g)) if (m[1] && !/^(?:px|fr)$/.test(m[1])) return refuse("Taffy has no value for its unit");
     if (/\bfit-content\(\s*(?:calc|min|max|clamp)\(/.test(sizes)) return refuse("calculated fit-content() limits are unsupported");
     if (trackCount(lower) > 10000) return refuse("Taffy supports at most 10000 explicit tracks");
   }
