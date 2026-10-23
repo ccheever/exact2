@@ -634,30 +634,27 @@ test.skipIf(!process.env.EXACT_RUST_BAKE_TEST)('a linked Rust bake changes its p
     const target = spawnSync('rustc',['-vV'],{encoding:'utf8'}).stdout.match(/^host: (.*)$/m)[1];
     const env = {...process.env, EXACT_BAKE_OUTPUT:resolve(dir,'bakes'), FIXTURE_BINARY:'one'};
     env.EXACT_BAKED = linkedBakeDir(env,'macos',target);
-    const cargo = () => {
-      const result=spawnSync('cargo',['build','--offline','--manifest-path',resolve(dir,'Cargo.toml'),'--target-dir',app.target,'--message-format=json','-vv'],{cwd:dir,env,encoding:'utf8',maxBuffer:64*1024*1024});
+    const cargo = (archive = false) => {
+      const result=spawnSync('cargo',[...(archive ? ['rustc','--crate-type','staticlib'] : ['build']),'--offline','--manifest-path',resolve(dir,'Cargo.toml'),'--target-dir',app.target,'--message-format=json','-vv'],{cwd:dir,env,encoding:'utf8',maxBuffer:64*1024*1024});
       assert.equal(result.status,0,result.stderr);
       return {...result.stdout.split('\n').filter(line=>line.startsWith('{')).map(line=>JSON.parse(line)).find(row=>row.reason==='compiler-artifact'&&row.target.name==='linked_rust_fixture'), diagnostic: result.stderr};
     };
-    const first=cargo(), library=first.filenames.find(name=>name.endsWith('.rlib'));
+    cargo(); // Compile and run the baker through the rlib first.
+    const first=cargo(true), library=first.filenames.find(name=>name.endsWith('.a'));
     recordRustBake(env);
     const watches=JSON.parse(readFileSync(resolve(env.EXACT_BAKED,'inputs.json'),'utf8'));
     assert.ok(watches.paths.includes(resolve(dir,'app.contract')),'the first build is ready for the driver freshness check');
     assert.ok(Number.isFinite(watches.at));
-    // The bootstrap creates a watched file during Cargo's first invocation;
-    // settle that first watch before measuring a warm edit.
-    bakeOutside(app,'macos',target,env);
-    cargo();
     const initial=statSync(library,{bigint:true}).mtimeNs;
     write('app.contract','second');
     bakeOutside(app,'macos',target,env);
     assert.equal(readFileSync(resolve(env.EXACT_BAKED,'app.plan'),'utf8'),'second');
-    const unchanged=cargo();
+    const unchanged=cargo(true);
     assert.equal(unchanged.fresh,true,unchanged.diagnostic);
     assert.equal(statSync(library,{bigint:true}).mtimeNs,initial);
     env.FIXTURE_BINARY='two';
     bakeOutside(app,'macos',target,env);
-    assert.equal(cargo().fresh,false,'a generated Rust change must still compile');
+    assert.equal(cargo(true).fresh,false,'a generated Rust change must still compile');
     assert.match(readFileSync(resolve(env.EXACT_BAKED,'entry.rs'),'utf8'),/two/);
   } finally { rmSync(dir,{recursive:true,force:true}); }
 },300000);

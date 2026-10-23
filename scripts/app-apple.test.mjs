@@ -735,7 +735,7 @@ test('Mac shared-core rebuild replaces an existing versioned XCFramework slice',
     const runApple = (command, args) => {
       if (command !== 'swift') return run(command, args);
       if (args.includes('--show-bin-path')) return { stdout: bin };
-      if (args.includes('ExactCore')) run('xcrun', ['clang', '-dynamiclib', source, '-o', resolve(bin, 'libExactCore.dylib')]);
+      if (args.includes('ExactCore')) run('xcrun', ['clang', '-dynamiclib', source, '-o', resolve(bin, 'libExactCore.dylib'), ...args.flatMap((arg,i)=>arg==='-Xlinker'?['-Xlinker',args[i+1]]:[])]);
       return { stdout: '' };
     };
     const slice = resolve(prepared.xcframework, `macos-${process.arch === 'arm64' ? 'arm64' : 'x86_64'}/ExactCore.framework`);
@@ -755,6 +755,26 @@ test('Mac shared-core rebuild replaces an existing versioned XCFramework slice',
       const executable = resolve(dir, `Fixture${version}`), frameworks = resolve(slice, '..');
       run('xcrun', ['clang', resolve(dir, 'app.c'), '-F', frameworks, '-framework', 'ExactCore', '-Wl,-rpath,' + frameworks, '-o', executable]);
       run(executable, []);
+    }
+    // A plan edit relinks the shared image even when its Rust archive stays.
+    const planDir=resolve(dir,'plan'); mkdirSync(planDir);
+    writeFileSync(resolve(planDir,'compat.json'),'{}');
+    writeFileSync(resolve(planDir,'app.hbc'),'');
+    writeFileSync(source, `#include <mach-o/getsect.h>
+      extern const struct mach_header_64 __dso_handle;
+      const unsigned char *exact_plan_bytes(unsigned long *size) {
+        return getsectiondata(&__dso_handle,"__TEXT","__exact_plan",size);
+      }`);
+    for (const text of ['first plan','second plan']) {
+      writeFileSync(resolve(planDir,'app.plan'),text);
+      sharedWidgetCore({app:{id:'com.exact.test',manifest:{}},prepared,libDir:dir,crate:'fixture',env:process.env,runApple,linkedPlan:{dir:planDir,digest:text}});
+      const executable=resolve(dir,'ReadPlan');
+      writeFileSync(resolve(dir,'read.c'), `#include <string.h>
+        extern const unsigned char *exact_plan_bytes(unsigned long *size);
+        int main(void) { unsigned long size=0; const unsigned char *bytes=exact_plan_bytes(&size);
+          return bytes && size==${text.length} && !memcmp(bytes,"${text}",size) ? 0 : 1; }`);
+      run('xcrun',['clang',resolve(dir,'read.c'),'-F',resolve(slice,'..'),'-framework','ExactCore','-Wl,-rpath,'+resolve(slice,'..'),'-o',executable]);
+      run(executable,[]);
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
