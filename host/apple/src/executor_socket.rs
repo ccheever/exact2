@@ -232,6 +232,7 @@ fn frame(shared: &Shared, ticket: u64, message: Message, limit: usize) -> Frame 
         stream: true,
         light: false,
         again: false,
+        reply: false,
     });
     if has_ready(&state) {
         wake(&mut state);

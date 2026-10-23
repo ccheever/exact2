@@ -204,10 +204,33 @@ fn a_long_poll_round_trips_and_bad_terms_are_refused() {
         );
         end(&decoded).unwrap();
     }
-    request.long_poll.as_mut().unwrap().cursor = String::new();
-    let mut encoded = Writer::default();
-    encode_result(&mut encoded, Ok(Answer::Later(request)));
-    assert!(read_result(&mut Reader::new(&encoded.into_vec())).is_err());
+    // A module's bad terms are its own refusal, never sent; an ordered stream's too.
+    let mut bad = request.clone();
+    bad.long_poll.as_mut().unwrap().cursor = String::new();
+    let mut ordered = request.clone();
+    ordered.http = HttpScheduling::Ordered;
+    for r in [bad, ordered] {
+        let mut encoded = Writer::default();
+        encode_result(&mut encoded, Ok(Answer::Later(r)));
+        assert!(matches!(
+            read_result(&mut Reader::new(&encoded.into_vec())),
+            Ok(Err(DataError::Unavailable(why))) if why.starts_with("exactLongPoll")
+        ));
+    }
+    // A tag 10 with bad terms, however it was written, is refused as it is read.
+    let mut w = Writer::default();
+    w.u8(10);
+    w.u32(4096);
+    w.u8(0);
+    w.string("");
+    w.string("GET");
+    w.string("https://example.com/changes");
+    pairs(&mut w, &[]);
+    bytes(&mut w, &[]);
+    w.string("since");
+    w.string("a.b.c");
+    w.u8(0);
+    assert!(read_result(&mut Reader::new(&w.into_vec())).is_err());
 }
 
 #[test]

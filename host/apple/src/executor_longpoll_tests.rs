@@ -501,3 +501,96 @@ fn a_cursor_no_host_can_carry_ends_the_stream() {
         until_settled(&core);
     }
 }
+
+/// A real local long-poll server on the platform transport (Darwin on
+/// Apple, the Linux host's own otherwise; theme2's 07:51 ruling): it answers
+/// an event, a heartbeat (204), a 503 with `Retry-After: 0`, a second event,
+/// then holds the next request until the client goes, which it reports on
+/// `gone`. Every request it saw, in order, on `asked`.
+fn server() -> (u16, Arc<Mutex<Vec<String>>>, Receiver<()>) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (asked, (closed, gone)) = (Arc::new(Mutex::new(Vec::new())), channel());
+    let seen = asked.clone();
+    std::thread::spawn(move || {
+        for (n, stream) in listener.incoming().enumerate() {
+            let Ok(mut stream) = stream else { return };
+            let mut buf = [0u8; 4096];
+            let got = stream.read(&mut buf).unwrap_or(0);
+            let line = String::from_utf8_lossy(&buf[..got])
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .to_string();
+            seen.lock().unwrap().push(line);
+            let reply = match n {
+                0 => "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 9\r\nConnection: close\r\n\r\n{\"seq\":1}",
+                1 => "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n",
+                2 => "HTTP/1.1 503 Busy\r\nRetry-After: 0\r\nContent-Length: 4\r\nConnection: close\r\n\r\nbusy",
+                3 => "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 9\r\nConnection: close\r\n\r\n{\"seq\":2}",
+                _ => {
+                    // The held poll: no reply until the client goes, then the listener closes.
+                    stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+                    while matches!(stream.read(&mut buf), Ok(n) if n > 0) {}
+                    let _ = closed.send(());
+                    return;
+                }
+            };
+            let _ = stream.write_all(reply.as_bytes());
+            let _ = stream.flush();
+        }
+    });
+    (port, asked, gone)
+}
+
+#[test]
+#[ignore = "async lane: a real socket under the platform transport (URLSession), timing-sensitive on a loaded machine; bun scripts/async.mjs runs it"]
+fn a_long_poll_on_a_real_connection_asks_with_each_cursor_and_closes_when_dropped() {
+    let (port, asked, gone) = server();
+    let (wake, woke) = channel();
+    let core = Core::start(
+        None,
+        &format!("net.fetch http://127.0.0.1:{port}"),
+        Box::new(move || {
+            let _ = wake.send(());
+        }),
+    );
+    let mut out = poll(1, false, 4096);
+    out.request.url = format!("http://127.0.0.1:{port}/changes?since=0");
+    core.run_owned(out, None).unwrap();
+    assert_eq!(id(&next(&core, &woke).1).0, "1");
+    assert_eq!(
+        id(&next(&core, &woke).1).0,
+        "2",
+        "after a heartbeat and a 503"
+    );
+    assert!(
+        REPLIES.with(|r| r.get()) >= 1,
+        "the heartbeat and the 503 were replies"
+    );
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while asked.lock().unwrap().len() < 5 {
+        assert!(Instant::now() < deadline, "the fifth request never came");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let lines = asked.lock().unwrap().clone();
+    let cursors: Vec<_> = lines
+        .iter()
+        .map(|l| l.split(' ').nth(1).unwrap_or_default())
+        .collect();
+    assert_eq!(
+        cursors,
+        [
+            "/changes?since=0",
+            "/changes?since=1",
+            "/changes?since=1",
+            "/changes?since=1",
+            "/changes?since=2"
+        ]
+    );
+    core.forget(|_| false);
+    gone.recv_timeout(Duration::from_secs(5))
+        .expect("the server saw the held poll close");
+    until_settled(&core);
+}

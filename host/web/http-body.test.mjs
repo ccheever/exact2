@@ -401,7 +401,7 @@ test('a retry asks no sooner than the floor, a busy body is never read, and a cu
     assert.ok(performance.now() - started >= 80);
     assert.equal(controller.markers, 2);
     controller.abort(); await done; s.server.stop(true);
-    for (const body of ['{"seq":9007199254740993}', '{"seq":"a\\nb"}', '{"seq":1.5}']) {
+    for (const body of ['{"seq":9007199254740993}', '{"seq":"a\\nb"}', '{"seq":1.5}', '{"seq":"\\ud800"}']) {
       const t = standIn([{ body }]);
       const end = await longPoll(t, new AbortController(), []);
       assert.equal(end.kind, 2, body);
@@ -411,6 +411,8 @@ test('a retry asks no sooner than the floor, a busy body is never read, and a cu
     const r = standIn([]);
     const ws = await request({ method: 'GET', url: r.origin.replace('http', 'ws'), headers: [], body: '', stream: true, longPoll: { cursor: 'since', from: 'seq', sameCursorEvent: false } }, { grantSet: normalized(`net.fetch ${r.origin}\nnet.websocket ${r.origin.replace('http', 'ws')}`), controllers: new Set(), controller: new AbortController() });
     assert.match(new TextDecoder().decode(ws.body), /HTTP, not a WebSocket/);
+    const plain = await longPoll(r, new AbortController(), [], {}, { stream: false });
+    assert.match(new TextDecoder().decode(plain.body), /a stream's/);
     const deep = await longPoll(r, new AbortController(), [], { from: 'a.b.c' });
     assert.match(new TextDecoder().decode(deep.body), /exactLongPoll.from/);
     assert.equal(r.asked.length, 0);
