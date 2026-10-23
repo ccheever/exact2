@@ -603,7 +603,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         // A segment in the route's bar takes precedence over its hidden content control.
         if presenter.navigation.barSegment(node) != nil {
             guard !node.disabled, !node.ariaUnavailable else { return false }
-            guard before(nil), !node.disabled, presenter.views[node.id] === node else { return false }
+            guard before(nil), !node.disabled, !node.inert, !node.ariaUnavailable, presenter.views[node.id] === node else { return false }
             presenter.press(node.id)
             return true
         }
@@ -611,7 +611,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         guard let owner = presenter.views[entry.key], available(owner), !node.disabled else { return false }
         let drawn = drawn(node)
         let point = drawn.map { $0.control.convert(CGPoint(x: $0.segment.midX, y: $0.segment.midY), to: nil) }
-        guard before(point), available(owner), !node.disabled, presenter.views[node.id] === node else { return false }
+        guard before(point), available(owner), !node.disabled, !node.inert, presenter.views[node.id] === node else { return false }
         presenter.press(node.id)
         return true
     }

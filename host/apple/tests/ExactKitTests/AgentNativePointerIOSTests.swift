@@ -70,6 +70,27 @@ final class AgentNativePointerIOSTests: XCTestCase {
         XCTAssertFalse(control.isOn, "a pointer handler disabled the switch before activation")
     }
 
+    func testAPointerHandlerCanMakeAControlInertOrDetachItBeforeActivation() throws {
+        for detach in [false, true] {
+            let agent = nativeSwitch(), p = session.presenter
+            let control = try XCTUnwrap(p.controls.controls[2] as? UISwitch)
+            var downs = 0
+            p.onPointer = { _, kind, _ in
+                if kind == .down {
+                    downs += 1
+                    if detach { control.removeFromSuperview() }
+                    else { p.apply(wireBatch([["op": "props", "id": 1, "set": ["inert": "true"]]])) }
+                }
+            }
+            _ = agent.tap(["id": 2])
+            XCTAssertEqual(downs, 1)
+            XCTAssertTrue(control.isEnabled, "inertness and attachment are separate from UIControl.isEnabled")
+            XCTAssertFalse(control.isOn, detach ? "the control left the window" : "the parent became inert")
+            session.destroy(); session = nil
+            window.isHidden = true; window = nil
+        }
+    }
+
     func testAnUnrevealedSwipeActionBubblesPointersBeforePress() throws {
         let agent = mount([
             ["op": "create", "id": 1, "kind": "view", "props": ["swipeContent": "body", "swipeTrailing": "delete"],
