@@ -52,6 +52,23 @@ final class TextSelectionMacTests: XCTestCase {
         return p
     }
 
+    func testSelectableReaderTextKeepsAMouseDragFromAnAncestorPan() throws {
+        let p = fixture(measured: true)
+        let parent = try XCTUnwrap(p.views[1]), text = try XCTUnwrap(p.views[2])
+        parent.handlers.insert("pan")
+        var pans = 0
+        p.onPan = { _, _, _ in pans += 1 }
+        try select(p)
+        XCTAssertEqual(pans, 0, "the reader's declared selection owns this mouse contact")
+        text.applyStyle(["font_size": 16, "user_select": "none"])
+        let from = text.convert(NSPoint(x: 1, y: -1), to: nil), to = text.convert(NSPoint(x: 299, y: 21), to: nil)
+        text.mouseDown(with: mouse(.leftMouseDown, from))
+        text.mouseDragged(with: mouse(.leftMouseDragged, to))
+        text.mouseUp(with: mouse(.leftMouseUp, to))
+        XCTAssertGreaterThan(pans, 0, "unselectable text leaves the pan available")
+        XCTAssertTrue(p.selection.selectedText().isEmpty)
+    }
+
     func testPopoverParagraphSelectsUnderButtonOnlyAndSurfaceOnlyAncestors() throws {
         let p = fixture(measured: true), text = try XCTUnwrap(p.views[2])
         p.menus.painted = true
