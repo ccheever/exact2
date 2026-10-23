@@ -1049,7 +1049,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         decorationChanged(from: old)
         syncDynamicRange(from: old)
         let uniformBorder = number("border_width")
-        hasBoxPaint = s["background_color"] != nil || s["background_image"] != nil
+        hasBoxPaint = s["background_color"] != nil || s["background_image"] != nil || fieldGround != nil
             || number("border_width_top", uniformBorder) > 0
             || number("border_width_right", uniformBorder) > 0
             || number("border_width_bottom", uniformBorder) > 0
