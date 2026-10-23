@@ -2,7 +2,8 @@
      browser and on every operating system. A web build takes this sheet after the shell's browser resets
      (host/web/look.mjs). The browser keeps its system font, the reader's text size and the focus ring.
      Like the shell's, every rule is `:where()` or sits under one #exact-root, so the author's rows win, except where
-     a rule says the platform decides whatever is written (a modal sheet's frame, a bar item's symbol).
+     a rule says the platform decides whatever is written (a modal sheet's frame, a bar item's symbol, a sheet bar's
+     word).
 
      The rules the look follows:
      - Colour is Apple's: a build lays Apple's pairs over this sheet's roles (host/web/look.mjs, LLP 1115.000 D4). A
@@ -59,7 +60,7 @@
      written `width` or `height` (`data-exact-said`, D2's bit) and on that axis the look steps aside: the minimum is
      CSS's own again and the label is centred in the box that was written, which is the box the kernel lays out. */
   #exact-root button[data-button-style][data-exact-said~="height"] { min-height: auto; padding-block: 0; }
-  #exact-root button[data-button-style][data-exact-said~="width"] { min-width: auto; padding-inline: 0; }
+  #exact-root button[data-button-style]:is([data-exact-said~="width"], [data-exact-width]):not([navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source])))) { min-width: auto; padding-inline: 0; }
   /* Symbols. A symbol drawn for an SF Symbol (a role, or an icon with an `sf` source) is SF's size at its font size.
      Its path keeps to about the 20-unit live area of a 24-unit box, and an SF Symbol's glyph fills its point size (a
      circle is 1em across, in a 1.18em image), so its box is 1.2em, as the image is on iOS. On a button's face UIKit
@@ -101,18 +102,20 @@
     #exact-root, #exact-root * { --exact-accent-text: lab(from var(--exact-accent, AccentColor) calc((49 - l) * 1e6 + 100) 0 0 / 1); }
     #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style="prominent-glass"], [data-button-style="prominent-clear-glass"]) { color: lab(from var(--exact-accent, AccentColor) calc((49 - l) * 1e6 + 100) 0 0 / 1); }
   }
-  /* Hover, and a bordered, gray or tinted button's press: a wash of the button's own ink over its fill, as an image,
-     so the fill beneath is whatever the style or the accent made it. */
+  /* Draw hover and press washes over the fill. Register `--exact-wash` so the release can interpolate its colour.
+     Tinted buttons use the accent even with authored title ink, matching UIKit's `.tinted()` on iOS 27;
+     Chrome cannot interpolate `currentColor` in this custom property. */
+  @property --exact-wash { syntax: "<color>"; inherits: false; initial-value: transparent; }
   @media (hover: hover) {
-    #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"], :disabled):hover { background-color: transparent; background-image: linear-gradient(var(--exact-quaternary-fill) 0 0); }
+    #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"], :disabled):hover { background-color: transparent; background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: var(--exact-quaternary-fill); }
     #exact-root button[data-button-style="gray"]:not([role="tab"], [role="radio"], :disabled):hover { background-color: var(--exact-secondary-fill); }
-    #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]):not(:disabled):hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) 12%, transparent); background-image: linear-gradient(color-mix(in srgb, currentColor 8%, transparent) 0 0); }
+    #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]):not(:disabled):hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) 12%, transparent); background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, var(--exact-accent, AccentColor) 8%, transparent); }
     #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"]):not(:disabled):hover { background-color: var(--exact-accent, AccentColor); background-image: linear-gradient(color-mix(in srgb, currentColor 12%, transparent) 0 0); }
   }
   /* Each press ties its hover's specificity and wins by coming after it, so these stay below the hover block. */
-  #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"])[data-pressed] { background-color: transparent; background-image: linear-gradient(var(--exact-tertiary-fill) 0 0); }
+  #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"])[data-pressed] { background-color: transparent; background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: var(--exact-tertiary-fill); }
   #exact-root button[data-button-style="gray"]:not([role="tab"], [role="radio"])[data-pressed] { background-color: var(--exact-secondary-fill); }
-  #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"])[data-pressed]:not(:disabled) { background-image: linear-gradient(color-mix(in srgb, currentColor 16%, transparent) 0 0); }
+  #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"])[data-pressed]:not(:disabled) { background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, var(--exact-accent, AccentColor) 16%, transparent); }
   /* Held, a plain, borderless, filled or glass button shows UIKit's highlight, whatever its accent (measured on iOS 27):
      - Its face is at 75%, as `UIButton.Configuration` draws a highlighted button's ink. The face is the button's
        children, and the name a sheet's bar draws in place of a symbol (`::after`, below), so the focus ring keeps its
@@ -130,9 +133,20 @@
      row keeps its own look. */
   #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"], [data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style$="glass"])[data-pressed]:not(:disabled, :is([role="menu"], [data-exact-chooser]) *) {
     &:is([data-button-style="filled"], [data-button-style="bordered-prominent"]) { background-color: light-dark(color-mix(in srgb, var(--exact-accent, AccentColor) 75%, transparent), color-mix(in srgb, var(--exact-accent, AccentColor), #fff 20%)); background-image: none; }
-    &[data-button-style$="glass"] { background-image: linear-gradient(color-mix(in srgb, #fff 20%, transparent) 0 0); }
+    &[data-button-style$="glass"] { background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, #fff 20%, transparent); }
     & > :not(img), &::after { opacity: .75; }
     & > img { --exact-tint: color-mix(in srgb, currentColor 75%, transparent); }
+  }
+  /* Ease the highlight back over 250 ms, ease-in-out, matching UIKit on iOS 27. The press starts immediately,
+     so a quick tap still shows. The input glue keeps `data-exact-released` only while these effects run;
+     later state changes, such as enabling a filled button, keep their own timing. */
+  #exact-root button[data-exact-released]:not(:disabled, :is([role="menu"], [data-exact-chooser]) *) {
+    &:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"]), &:is([data-button-style="tinted"], [data-button-style="bordered-tinted"], [data-button-style$="glass"]) { background-image: linear-gradient(var(--exact-wash) 0 0); transition: --exact-wash .25s ease-in-out; }
+    &:is([data-button-style="filled"], [data-button-style="bordered-prominent"]) { transition: background-color .25s ease-in-out; }
+    &:is([data-button-style="plain"], [data-button-style="borderless"], [data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style$="glass"]) {
+      & > :not(img), &::after { transition: opacity .25s ease-in-out; }
+      & > img { transition: background-color .25s ease-in-out; }
+    }
   }
   /* Disabled, in every style (LLP 1116.005 D8): the grey ink, and the neutral fill where the style filled with the
      accent; an outline fades to a divider. */
@@ -333,10 +347,13 @@
      the shell's heading reset (`margin: 0`) and wins by coming after it. */
   :where(#exact-root [navigationPresentation="modal"] > header:not([data-exact-said~="justify-content"])) > :is(h1, h2, h3, h4, h5, h6),
   :where(#exact-root [navigationPresentation="modal"] > header:not([data-exact-said~="justify-content"]) > [role="heading"]) { margin-inline: auto; text-align: center; }
-  /* LLP 1116.020 D2: a sheet's button whose face is only a symbol says its name instead, padded as a word is (above):
-     iOS draws a Cancel's xmark and a Save's checkmark, and a web dialog's buttons are words. */
+  /* Replace a sheet bar's symbol-only button with its accessible name (LLP 1116.020 D2). Size it to that word,
+     preserving the look's padding even when the symbol had an authored width. UIKit leaves 16 points on each
+     side (measured on iOS 27), matching 1em at the web's 16 px body. A word that cannot fit ends in an ellipsis,
+     including in an authored block display. */
   :where(#exact-root [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source])))) > img { display: none; }
-  :where(#exact-root [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source]))))::after { content: attr(aria-label); }
+  :where(#exact-root [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source]))))::after { content: attr(aria-label); display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #exact-root [navigationPresentation="modal"] > header button[data-button-style][aria-label]:is([data-exact-said~="width"], [data-exact-width]):not(:has(> :not(img[data-symbol-source]))) { width: max-content !important; }
 
   /* A dialog is a modal surface. An alert reads as a page does, its title and message at the start. Its actions share
      the row equally in the order written, a title too long for its share taking a row of its own, and a destructive
