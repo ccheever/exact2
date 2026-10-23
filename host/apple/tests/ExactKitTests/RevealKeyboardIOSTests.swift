@@ -208,5 +208,11 @@ final class RevealKeyboardIOSTests: XCTestCase {
         XCTAssertEqual(reply["scrolled"] as? Bool, false, "\(reply)")
         XCTAssertEqual(try middle(session), 720, accuracy: 0.5)
     }
+    func testThePageScrollerDismissesTheKeyboardInteractively() {
+        let (session, window) = session("page-dismissal", widget: nil, scroller: false)
+        defer { window.isHidden = true; session.destroy() }
+        XCTAssertEqual(session.presenter.viewport.keyboardDismissMode, .interactive)
+    }
+
 }
 #endif
