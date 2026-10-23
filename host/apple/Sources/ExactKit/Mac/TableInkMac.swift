@@ -71,6 +71,7 @@ extension NodeView {
             if let node = view as? NodeView {
                 if node.kind == "text" { node.reapplyColors() }
                 if let leaf = node.symbolView { leaf.cell?.backgroundStyle = node.symbolBackground(emphasized) }
+                node.tintIconShape(emphasized)
             }
             view.subviews.forEach(walk)
         }
