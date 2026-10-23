@@ -47,8 +47,9 @@ export function fixture(agentMode = true) {
     // The page's own wait (http-body.js) races the deadline; here a request marked `stuck` is what a passed deadline finds.
     waitForInflight: async () => { const all = [...context.inflight]; if (all.some(p => p.stuck)) return false; await Promise.all(all); return true; },
     memory: { buffer: new ArrayBuffer(1024) }, readOut: value => value,
+    requestsPending: 0,
     wasm: { exact_in: () => 0, exact_plan: () => 1, exact_out: () => 0,
-      exact_requests_pending: () => 0,
+      exact_requests_pending: () => context.requestsPending,
       exact_plan_fonts: () => '[]', exact_boot: () => '{"ops":[],"timers":true}',
       exact_boot_plan: () => '{"ops":[],"timers":true}', exact_advance: () => '{"ops":[],"clock":16}' },
     devAssets: null, bootAttempt: 0, encoder: new TextEncoder(), location: { pathname: '/', search: '', href: 'https://fixture.invalid/' }, URL,
@@ -76,18 +77,34 @@ export function fixture(agentMode = true) {
   return context;
 }
 
+export function requestClock(f) {
+  let wall = 0;
+  f.performance = { now: () => wall };
+  f.setTimeout = (fn, ms) => { queueMicrotask(() => { wall += ms; f.pollRequests?.(); fn(); }); return 1; };
+  f.clearTimeout = () => {};
+  f.gpuInPlay = () => false;
+  f.settleCandidate = () => f.agentClock;
+  Object.assign(f.collections, { settle() {}, fireOwedScrolls: async () => null, owedScrolls: () => false });
+  vm.runInContext(declaration('waitForInflight'), f);
+  return () => wall;
+}
+
 // A timer every 300 ms whose action sends a request: the runner keeps one
 // request per target, so a jump that fired every due tick at once would
 // drop each reply but the last (runner/src/runner/commit.rs `enqueue`).
 // Advancing until a request, the runner stops after the tick that sent.
-export function timedRequests(f, { stuck = false } = {}) {
+export function timedRequests(f, { stuck = false, parked = false } = {}) {
   let due = 300;
   f.flowDue = due; // the boot batch's `timer_due_ms`
   f.wasm.exact_advance = (to, untilRequest) => {
     let clock = to;
     while (due <= to) {
-      const at = due, p = stuck ? new Promise(() => {}) : new Promise(resolve => setTimeout(() => { f.events.push(`reply ${at}`); resolve(); }, 0));
-      p.stuck = stuck; f.inflight.add(p); p.finally(() => f.inflight.delete(p));
+      const at = due;
+      if (parked) f.requestsPending = 1;
+      else {
+        const p = stuck ? new Promise(() => {}) : new Promise(resolve => setTimeout(() => { f.events.push(`reply ${at}`); resolve(); }, 0));
+        p.stuck = stuck; f.inflight.add(p); p.finally(() => f.inflight.delete(p));
+      }
       due += 300;
       if (untilRequest) { clock = at; break; }
     }
