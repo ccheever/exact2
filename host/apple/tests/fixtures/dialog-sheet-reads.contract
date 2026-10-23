@@ -29,3 +29,9 @@ component App
         view width=100 height=contentHeight press=grow testId="grow-sheet"
       dialog id="percentage" width=300 height="50%"
         text "Half the available height"
+      dialog id="tall" width=300
+        button id="tall-tip-button" popovertarget="tall-tip"
+          text "Show tip"
+        column id="tall-tip" popover="manual" width=200 height=40
+          text "A tip"
+        column height=2000 flex-shrink=0
