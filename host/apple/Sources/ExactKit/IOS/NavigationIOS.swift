@@ -267,6 +267,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     var tabItemsSource: (NavigationTabs, [UIViewController])?
     /// The bar's tint as last written: the tablist's accent, light and dark.
     var tabTint: [[Double]?]?
+    var tabTintOwn = false
     let tabProxy = TabDelegateProxy()
     /// A context menu's commit pushes without the stack's animation: UIKit
     /// animates it (`.pop`, LLP 1021 §5.1). The selected route's key tells
