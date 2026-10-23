@@ -14,6 +14,9 @@ struct BadgeFace: Equatable {
     let text: String, symbol: String?
     let light: [[Double]], dark: [[Double]]
     let corners: [CGSize]
+    #if !os(macOS)
+    private let darkScheme: Bool
+    #endif
     init?(_ button: NodeView) {
         let kids = button.container.subviews.compactMap { $0 as? NodeView }
         guard kids.count == 1, let box = kids.first else { return nil }
@@ -47,12 +50,19 @@ struct BadgeFace: Equatable {
         self.text = text; self.symbol = symbol
         light = colours(false); dark = colours(true)
         corners = box.cornerSizes(in: CGRect(x: 0, y: 0, width: size, height: size))
+        #if !os(macOS)
+        darkScheme = box.drawsDark
+        #endif
     }
     // Joined by hand: interpolating an array goes through reflection, and
     // every batch builds each route's source.
     var source: String {
         let rgba = { (c: [[Double]]) in c.map { $0.map { String($0) }.joined(separator: ",") }.joined(separator: ";") }
-        return "\(text)|\(symbol ?? "")|\(rgba(light))|\(rgba(dark))|\(corners.map { "\($0.width)x\($0.height)" }.joined(separator: ","))|\(size)"
+        var source = "\(text)|\(symbol ?? "")|\(rgba(light))|\(rgba(dark))|\(corners.map { "\($0.width)x\($0.height)" }.joined(separator: ","))|\(size)"
+        #if !os(macOS)
+        source += "|\(darkScheme)"
+        #endif
+        return source
     }
 
     #if os(macOS)
@@ -78,9 +88,7 @@ struct BadgeFace: Equatable {
     }
     #else
     var image: UIImage {
-        let light = draw(self.light).withRenderingMode(.alwaysOriginal)
-        light.imageAsset?.register(draw(self.dark).withRenderingMode(.alwaysOriginal), with: UITraitCollection(userInterfaceStyle: .dark))
-        return light
+        draw(darkScheme ? dark : light).withRenderingMode(.alwaysOriginal)
     }
     private func draw(_ c: [[Double]]) -> UIImage {
         let rect = CGRect(x: 0, y: 0, width: size, height: size)
