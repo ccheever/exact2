@@ -43,7 +43,7 @@ extension NodeView {
             addGestureRecognizer(gesture); hoverRecognizer = gesture
         }
         #endif
-        setNeedsDisplay()
+        if !canRasterText { setNeedsDisplay() }
         #endif
     }
     // Accessibility needs the source, not a colour-resolved layout specification.
