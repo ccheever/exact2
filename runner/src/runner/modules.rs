@@ -78,9 +78,10 @@ pub(super) struct Extensions {
     groups: BTreeMap<String, BTreeSet<String>>,
     /// Who each call comes from (`admit.rs`).
     origins: Origins,
-    /// Requests whose reply carries handles, by ticket, with their source
-    /// (`handles.rs`).
-    provisional: BTreeMap<u64, String>,
+    /// Requests whose reply carries handles, by ticket (`handles.rs`).
+    provisional: BTreeMap<u64, handles::Provisional>,
+    /// Their replies, as they left the implementation.
+    arrived: handles::Arrived,
     /// Each polled source's last ask, on the session's clock (`poll.rs`).
     polls: BTreeMap<String, f64>,
 }
@@ -541,7 +542,7 @@ impl<D: DataSource> Runner<D> {
             .position(|(t, _, _)| *t == token)
         {
             let (_, release, _) = self.extensions.released.remove(at);
-            return Some(self.released(release));
+            return Some(self.released(token, release));
         }
         match self.extensions.held.iter_mut().find(|h| h.token == token) {
             Some(h) => {
@@ -559,17 +560,8 @@ impl<D: DataSource> Runner<D> {
             .partition(|(_, _, dispatched)| *dispatched);
         self.extensions.released = keep;
         out.into_iter()
-            .map(|(token, release, _)| (token, self.released(release)))
+            .map(|(token, release, _)| (token, self.released(token, release)))
             .collect()
-    }
-
-    /// The work behind a released request: its answer, or its call of the
-    /// implementation.
-    fn released(&self, release: Release) -> Dispatch {
-        match release {
-            Release::Answer(outcome) => Dispatch::Run(Work::Now(Box::new(move || outcome))),
-            Release::Forward(body) => self.to_implementation(body),
-        }
     }
 
     /// `body` for the bound implementation, through the native slot.
@@ -1015,6 +1007,7 @@ impl<D: DataSource> Runner<D> {
     /// released, a refused commit): retired with their tickets (§6).
     pub(super) fn retire_modules(&mut self) {
         self.release_idle();
+        self.dispose_dropped();
         self.prune_origins();
         let gone: Vec<u64> = (self.extensions.held.iter())
             .filter(|h| h.reply.is_none())
