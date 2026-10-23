@@ -956,8 +956,13 @@ fn every_pass_over_a_hostile_file_is_charged_to_the_budget() {
         ),
         empty.clone(),
     ));
-    // Values of another kind, long, kept in every tuple.
+    // Values of another kind, long, kept in every tuple: families, each read as `fontFamily`, so resolved, laid
+    // and probed.
     let long = format!(r#""{}""#, "Inter ".repeat(1500));
+    let families = (0..50)
+        .map(|i| format!(r#"{{"type":"text","fontFamily":"$s{i}"}}"#))
+        .collect::<Vec<_>>()
+        .join(",");
     files.push((
         "strings",
         file(
@@ -965,10 +970,23 @@ fn every_pass_over_a_hostile_file_is_charged_to_the_budget() {
             (0..50)
                 .map(|i| themed(&format!("s{i}"), "string", &long, &long))
                 .collect(),
-            "",
+            &families,
         ),
         empty.clone(),
     ));
+    // A number as a CSS expression that multiplies when folded: no Pencil number, refused before any fold.
+    let mut grow = vec![r#""g0":{"type":"number","value":"space.md"}"#.to_string()];
+    grow.extend((1..19).map(|i| {
+        format!(
+            r#""g{i}":{{"type":"number","value":"clamp(g{p}, g{p}, g{p})"}}"#,
+            p = i - 1
+        )
+    }));
+    let gaps = (0..19)
+        .map(|i| format!(r#"{{"type":"frame","gap":"$g{i}"}}"#))
+        .collect::<Vec<_>>()
+        .join(",");
+    files.push(("expression", file(axes(1), grow, &gaps), empty.clone()));
     // Alias chains: every link walked, past 256 too.
     files.push((
         "chain",
@@ -1047,7 +1065,7 @@ fn every_pass_over_a_hostile_file_is_charged_to_the_budget() {
             took < std::time::Duration::from_secs(2),
             "{what}: {took:?} on a small budget"
         );
-        if *what != "strings" {
+        if *what != "expression" {
             assert!(small.is_err(), "{what}: done within three times its size");
         }
     }
