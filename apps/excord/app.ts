@@ -6,7 +6,7 @@ import type { Answer, Result, Sources } from './app.contract.d.ts';
 import * as S from './discord/store';
 import * as rest from './discord/rest';
 import { cmpId, msFromSnowflake } from './discord/ids';
-import { applyEvent, at, call, clock, connect, context, createLive, dispatch, heartbeat, loadSession, nonce, page, RestError, touched, view, type Live } from './live';
+import { applyEvent, at, call, clock, connect, context, createLive, dispatch, heartbeat, loadSession, nonce, page, recordIdentify, RestError, sendIdentify, touched, view, type Live } from './live';
 import { createRenderer, timeOf, windowOf, type Directories, type Stored, type Unread } from './render';
 
 export const appId = 'com.exact.excord';
@@ -18,10 +18,11 @@ export const origin = 'http://127.0.0.1:4790';
 const DISCORD: string = 'https://discord.com';
 export const grants = {
   'http://127.0.0.1:4790': ['net.fetch http://127.0.0.1:4790', 'net.websocket ws://127.0.0.1:4790',
-    'secret.keep fixture-token', 'secret.keep fixture-identifies'],
+    'secret.keep fixture-token', 'fs.read app:/data/fixture-identifies.json', 'fs.write app:/data/fixture-identifies.json'],
   // The gateway resumes on other subdomains (`resume_gateway_url`).
   'https://discord.com': ['net.fetch https://discord.com', 'net.websocket wss://gateway.discord.gg',
-    'net.websocket wss://*.discord.gg', 'secret.keep discord-token', 'secret.keep discord-identifies'],
+    'net.websocket wss://*.discord.gg', 'secret.keep discord-token', 'fs.read app:/data/discord-identifies.json',
+    'fs.write app:/data/discord-identifies.json'],
 };
 
 const live: Live = createLive({
@@ -157,7 +158,9 @@ function newest(channel: string): string | null {
 }
 
 const sources: Sources = {
-  loadSession: (_args, secrets) => loadSession(live, secrets),
+  loadSession: (_args, secrets, storage) => loadSession(live, secrets, storage),
+  recordIdentify: async (_args, _secrets, storage) => { await recordIdentify(live, storage); return OK; },
+  sendIdentify: () => { sendIdentify(live); return OK; },
   gatewayState: ([ready, epoch], secrets, _storage, native) => connect(live, secrets, native, ready, epoch),
   heartbeat: ([now]) => { heartbeat(live, now); return OK; },
   loadGuilds: () => S.guilds(store).filter(g => !g.unavailable).map(g => {
