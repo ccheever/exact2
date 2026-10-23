@@ -166,7 +166,7 @@ extension Agent {
         let path = Agent.fingerPath(from: node), held = Agent.heldPrefix(request)
         fingerPointer(.down, path, at: at, held: held)
         fingerPointer(.up, path, at: at, held: held)
-        return snapshot.live(in: presenter) != nil && !node.disabled
+        return snapshot.live(in: presenter) != nil && !node.disabled && !node.inert && node.window != nil
     }
 
     /// A request's `modifiers` (`Shift+Meta`) as a chord prefix (`Shift+Meta+`).

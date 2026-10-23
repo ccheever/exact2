@@ -376,7 +376,7 @@ final class ControlHost: NSObject {
         guard let control = controls[node.id], !(control is NativeButtonIOS) else { return nil }
         guard control.window != nil, control.isEnabled, !node.inert else { return false }
         let point = control.convert(CGPoint(x: control.bounds.midX, y: control.bounds.midY), to: nil)
-        guard before(point), controls[node.id] === control, control.isEnabled, !node.disabled else { return false }
+        guard before(point), controls[node.id] === control, control.window != nil, control.isEnabled, !node.disabled, !node.inert else { return false }
         // A radio's tap, the host's own (x2apps survey #2).
         if control is ExactRadio { radioTapped(control); return true }
         #if os(tvOS)
