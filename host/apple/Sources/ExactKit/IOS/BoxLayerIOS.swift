@@ -220,7 +220,7 @@ extension NodeView {
     /// where the overflow clips.
     func applyBoxLayer() {
         defer { syncEllipticalClip(); applyColorRanges() }
-        let authored = cgColor("background_color")
+        let authored = presenter?.segments.control(of: id) == nil ? cgColor("background_color") : nil
         let ground = authored == nil ? fieldGround : nil
         let background = authored ?? ground
         let fill = background.flatMap { $0.alpha > 0 ? $0 : nil }

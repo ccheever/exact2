@@ -243,6 +243,28 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertFalse(segments.isEnabled, "inert disables it too")
     }
 
+    func testASegmentedTablistsBackgroundBelongsToTheNativeControlAndReturnsWithItsAuthoredTabs() throws {
+        let p = tablist([2: face("Day"), 3: face("Week"), 4: face("Month")])
+        defer { window.isHidden = true }
+        let owner = try XCTUnwrap(p.views[1]), control = try XCTUnwrap(p.segments.control(of: 1))
+        p.apply(wireBatch([
+            ["op": "style", "id": 1, "style": ["background_color": [255, 0, 0, 255]]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 80.0],
+        ]))
+        owner.layer.displayIfNeeded()
+        XCTAssertEqual(control.backgroundColor?.cgColor.components, [1, 0, 0, 1])
+        XCTAssertNil(owner.layer.backgroundColor, "no rectangular background around UIKit's compact control")
+        XCTAssertLessThan(control.frame.height, owner.bounds.height)
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["background_color": [0, 0, 255, 255]]]]))
+        XCTAssertEqual(control.backgroundColor?.cgColor.components, [0, 0, 1, 1])
+        p.apply(wireBatch([["op": "style", "id": 1, "style": [:]]]))
+        XCTAssertNil(control.backgroundColor, "removing the colour restores UIKit's appearance")
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["appearance": "none", "background_color": [255, 0, 0, 255], "written": ["appearance"]]]]))
+        owner.layer.displayIfNeeded()
+        XCTAssertNil(p.segments.control(of: 1))
+        XCTAssertEqual(owner.layer.backgroundColor?.components, [1, 0, 0, 1], "the authored box draws its own background again")
+    }
+
     func testNativeTabsAreATabBarOrSegmentsFromTheirFaces() throws {
         // A symbol and a title on every tab: the tab bar.
         var p = tablist([2: face("Inbox", symbol: "tray"), 3: face("Sent", symbol: "paperplane"), 4: face("Trash", symbol: "trash")],

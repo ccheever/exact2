@@ -1394,7 +1394,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         let uniform = number("border_width")
         // A box Core Animation can say is the layer's (`applyBoxLayer`);
         // the background within its `background-clip` (LLP 1077 D6).
-        paintBackground(ctx, border: path.cgPath, color: boxDrawn && !cssVisibilityHidden)
+        paintBackground(ctx, border: path.cgPath, color: boxDrawn && !cssVisibilityHidden && presenter?.segments.control(of: id) == nil)
         if boxDrawn, !cssVisibilityHidden {
             // Sides that differ in colour or width, or a radius the layer
             // cannot say: each side in its colour, joined as the web joins
