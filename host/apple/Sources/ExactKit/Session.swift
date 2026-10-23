@@ -651,11 +651,11 @@ public final class ExactSession {
             case .tick: tickInFlight = false
             case .canvas: canvasInFlight = false
             case .notice: noticesInFlight -= 1
-            case .reply, .cancelledReply:
-                submitted = retireReply()
+            case .reply, .cancelledReply: submitted = retireReply()
             }
             if case .cancelledReply = next.kind { continue }
             guard state != .destroyed, next.generation == generation else {
+                if case .reply = next.kind { retryActivation(generation: next.generation) }
                 if case .fill(let view) = next.kind { landedFill(view, stale: true) }
                 continue
             }
@@ -665,7 +665,7 @@ public final class ExactSession {
             }
             if case .reply = next.kind {
                 sampler?.replyPump(main: submitted + (CACurrentMediaTime() - began) * 1000)
-                retryActivation()
+                retryActivation(generation: next.generation)
             }
             // A draw owed while this one ran, or one a tick left owed.
             if canvasOwed { askCanvasDraw() }
