@@ -17,7 +17,7 @@ extension ExactSession {
         repliesInFlight += 1
         // Keep parsing, settlement and batch decoding on the existing owner.
         // Publication joins fills and ticks before any later synchronous batch.
-        runtime.later([{ $0.pump(now: time) }]) { [weak self] batch in
+        runtime.pumpAsync(now: time) { [weak self] batch in
             self?.publish(.reply, batch, captured)
         }
         replySubmissions.append((CACurrentMediaTime() - began) * 1000)

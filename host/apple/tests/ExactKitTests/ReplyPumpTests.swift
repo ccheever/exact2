@@ -3,6 +3,29 @@ import XCTest
 @testable import ExactKit
 
 final class ReplyPumpTests: XCTestCase {
+    #if os(macOS)
+    func testAReplyCapturesAnOpenModalOnMain() throws {
+        let fixture = try SheetFixture()
+        defer { fixture.close() }
+        try fixture.press("open")
+        let session = fixture.session
+        XCTAssertNotNil(session.presenter.openTopLayer.modal)
+        let capture = session.runtime.topLayer
+        var calls = 0
+        session.runtime.topLayer = {
+            XCTAssertTrue(Thread.isMainThread, "native modal geometry belongs to main")
+            guard Thread.isMainThread else { return ([], nil) }
+            calls += 1
+            return capture?() ?? ([], nil)
+        }
+        session.pumpReplies()
+        XCTAssertEqual(calls, 1, "capture before submitting to the owner")
+        session.drainFill()
+        XCTAssertEqual(calls, 1)
+        session.runtime.topLayer = capture
+    }
+    #endif
+
     func testAReplyWakeLeavesMainFreeWhileTheOwnerIsBusy() {
         let session = ExactApp.shared.makeSession(label: "reply-pump")
         defer { session.destroy() }
