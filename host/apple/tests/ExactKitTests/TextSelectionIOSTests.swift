@@ -592,6 +592,25 @@ final class TextSelectionIOSTests: XCTestCase {
         observers.forEach { $0.touchesMoved([touch], with: event) }
         observers.forEach { $0.touchesEnded([touch], with: event) }
         XCTAssertEqual(heard, ["2:down", "1:down", "2:move", "2:up", "1:up"])
+        first.handlers = []
+        first.syncPointerRecognizer()
+        heard = []
+        observers.forEach { $0.reset() }
+        let next = Touch(hit)
+        next.point = touch.point
+        observers.forEach { $0.touchesBegan([next], with: event) }
+        observers.forEach { $0.touchesEnded([next], with: event) }
+        XCTAssertEqual(heard, ["1:down", "1:up"], "an ancestor already on the physical touch path hears it once")
+        first.handlers = ["pointermove"]
+        first.syncPointerRecognizer()
+        heard = []
+        observers.forEach { $0.reset() }
+        let moved = Touch(hit)
+        moved.point = touch.point
+        observers.forEach { $0.touchesBegan([moved], with: event) }
+        observers.forEach { $0.touchesMoved([moved], with: event) }
+        observers.forEach { $0.touchesEnded([moved], with: event) }
+        XCTAssertEqual(heard, ["1:down", "2:move", "1:up"], "a move-only paragraph still owns the observer")
     }
 
     func testTheSharedInputTakesTextTouchesAndForwardsAPress() throws {
