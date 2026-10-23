@@ -1040,17 +1040,13 @@ package final class TextEngine {
         let spec = shape.spec, typesetter = shape.typesetter, insets = shape.lineInsets
         let length = shape.identity.utf16Count
         let strut = spec.strut ?? spec.runs.first
-        func extents(_ run: Run) -> TextLineBox {
-            if let inline = run.inlineBox { return TextLineBox(inline) }
-            return TextLineBox(font(run) as CTFont, height: run.lineHeight)
-        }
+        func extents(_ run: Run) -> TextLineBox { TextLineBox(font(run) as CTFont, height: run.lineHeight) }
         let minimum = strut.map(extents) ?? TextLineBox()
         var explicit = false
         func authoredExtents(_ run: Run) -> TextLineBox {
             // Reuse only this layout's exact strut metrics. Font keys preserve
             // signed zero; nonfinite inputs keep their original computation.
-            guard let strut, run.inlineBox == nil, strut.inlineBox == nil,
-                  let height = run.lineHeight, let strutHeight = strut.lineHeight,
+            guard let strut, let height = run.lineHeight, let strutHeight = strut.lineHeight,
                   run.size.isFinite, strut.size.isFinite, height.isFinite, strutHeight.isFinite,
                   Double(run.size).bitPattern == Double(strut.size).bitPattern,
                   run.weight == strut.weight, run.family == strut.family, run.italic == strut.italic,

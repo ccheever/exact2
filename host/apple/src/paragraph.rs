@@ -193,7 +193,7 @@ impl<D: DataSource> Host<D> {
                 }
                 let mut props = props_for(&run);
                 if run.is_inline_box() {
-                    props.insert("text".into(), "\u{fffc}".into());
+                    props.insert("text", "\u{fffc}".into());
                 }
                 // A run painting an inherited `color` that moves (LLP 1062 D5).
                 let mut shown = style::Shown::default();
