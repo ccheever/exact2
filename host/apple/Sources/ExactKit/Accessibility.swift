@@ -48,6 +48,16 @@ extension NodeView {
         return text.isEmpty ? nil : text
     }
     var accessibleName: String { authoredLabel ?? accessibleText }
+    #if !os(macOS)
+    /// Referenced labels can arrive or disappear without an image props update.
+    func updateImageAccessibility() {
+        guard !actsAsButton, rangeRole == nil, kind == "image" || props["accessibilityRole"] == "img" else { return }
+        let labelled = authoredLabel != nil
+        if isAccessibilityElement != labelled { isAccessibilityElement = labelled }
+        if accessibilityTraits.contains(.image) != labelled { accessibilityTraits.formSymmetricDifference(.image) }
+        if accessibilityValue != nil { accessibilityValue = nil }
+    }
+    #endif
     /// ARIA disabled applies to focusable descendants, without changing input.
     package var ariaUnavailable: Bool {
         #if os(macOS)
@@ -616,6 +626,7 @@ extension Presenter {
                 if node.accessibilityLabel() != node.accessibleName { node.setAccessibilityLabel(node.accessibleName) }
                 #else
                 if node.accessibilityLabel != node.accessibleName { node.accessibilityLabel = node.accessibleName }
+                node.updateImageAccessibility()
                 #endif
             }
         }
