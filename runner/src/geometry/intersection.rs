@@ -36,8 +36,14 @@ pub(crate) fn intersection(
         let (frame, _) = kernel.laid_out_frame(key)?;
         let mut ancestor = Some(key.index);
         while let Some(slot) = ancestor {
+            // A box its host replaces whole (a closed `dialog` or popover on
+            // iOS, `closed.rs`) lays out nothing under it, as `display: none`
+            // does; the box itself answers by its native frame below.
+            let replaced =
+                slot != key.index && arena.cover(slot) == Some(exact_kernel::HostCover::Whole);
             if arena.style(slot).display == Display::None
                 || arena.flags(slot).has(NodeFlags::HIDDEN)
+                || replaced
             {
                 return None;
             }
