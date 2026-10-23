@@ -536,7 +536,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a sheet
 const glueApply = `(() => {
   globalThis.exact ??= {};
   const views = window.glueViews = new Map(), retiredViews = new WeakSet(), root = document.getElementById('exact-root'), log = () => {};
-  const presence = { live: null }, listSelection = null, page = null, agentMode = false, inputReady = false, inputHandlers = null;
+  const presence = { live: null }, listSelection = null, page = null, agentMode = false, agentKeepsStore = false, inputReady = false, inputHandlers = null;
   const motion = { destroy() {} }, arrange = { destroy() {} }, collections = { commit() {}, restyled() {}, jump() {} };
   const followedScrolls = new Map(), pendingScrolls = new Map(), lists = new WeakSet(), messageFrames = new WeakMap(), messageViews = new Map();
   const viewFor = (_, id) => views.get(id), prepareContexts = () => {}, forgetList = () => {}, followScroll = () => {}, settleFollow = () => {}, settleValue = () => {};
