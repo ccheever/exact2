@@ -72,5 +72,7 @@ test "Return adds and keeps typing; Done puts the keyboard away"
 - **Search** is the bar's field, filtering as you type, not a field in the content: `contract vocab search`.
 - **A live result** goes above its field: the keyboard covers what is below it.
 - **On scroll,** a drag on a `list` or `scroll` that reaches the keyboard pulls it down;
-  `keyboardDismissMode="on-drag"` puts it away as the drag starts, `"none"` keeps it up.
+  a quick flick that only just reaches it finishes in a frame, as in any UIKit app.
+  `keyboardDismissMode="on-drag"` puts it away as the drag starts; `"none"` keeps it up while
+  scrolling, and a tap outside the field still puts it away (a chat transcript, Harmony's).
   Composer: [chat-thread](chat-thread.md).
