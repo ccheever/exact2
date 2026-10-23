@@ -11,6 +11,11 @@ import CoreImage
 import IOSurface
 /// A material paints, but never supplies a new hit target or focus owner.
 private final class MaterialContent: NSView {
+    weak var owner: NodeView?
+    override func draw(_ dirtyRect: NSRect) {
+        guard let owner, !owner.cssVisibilityHidden else { return }
+        owner.drawBackground(owner.roundedPath(in: bounds), rounded: owner.cornerRadii(in: bounds).contains { $0 > 0 })
+    }
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? {
         let hit = raisedHit(super.hitTest(point), point)
@@ -544,6 +549,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             materialKind = kind
             if let kind {
                 let content = MaterialContent(frame: bounds)
+                content.owner = self
                 content.autoresizingMask = [.width, .height]
                 let effect: NSView
                 let apple = Materials.resolve(kind) { [weak self] in self?.presenter?.session?.log($0) }
@@ -1055,6 +1061,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     func applyStyle(_ s: NodeStyle) {
+        defer { materialContent?.needsDisplay = true }
         defer { video?.update(); layoutContent(); applyCssVisibility(); if columnRecord?.columns.isEmpty == false { layoutColumnRules() } }
         layerPaintCache = nil
         let origin = style["transform_origin"]
@@ -1362,7 +1369,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // The box's outline only where something is painted through it.
         lazy var path = roundedPath(in: bounds)
         // A layout transition's size shows the surface on its own layer.
-        if paintsBox { drawBackground(path, rounded: rounded) }
+        if paintsBox, materialContent == nil { drawBackground(path, rounded: rounded) }
         if !cssVisibilityHidden, let ctx = NSGraphicsContext.current?.cgContext { drawCapturedInsetShadow(ctx) }
         // The host sends each side's colour (`style.rs`), never a uniform
         // one: each side in its colour, joined as the web joins them.
