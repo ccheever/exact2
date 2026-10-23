@@ -666,9 +666,10 @@ fn a_family_write_breaking_an_italic_beside_it_is_refused() {
     );
 }
 
-/// A computed row whose type the root's scope doesn't give (a `for`'s
-/// item) is the build's: a number row's computed string reads every number
-/// token, which the build judges. Not refused here; the build refuses it.
+/// A computed row whose type its scope doesn't give (the item of a `for`
+/// over a call's list) is the build's: a number row's computed string reads
+/// every number token, which the build judges. Not refused here; the build
+/// refuses it.
 #[test]
 fn a_computed_row_the_check_cannot_type_is_the_builds() {
     let dir = reading("rows-computed-local");
@@ -676,7 +677,7 @@ fn a_computed_row_the_check_cannot_type_is_the_builds() {
     std::fs::write(dir.join("app.tamber"), design).unwrap();
     std::fs::write(
         dir.join("app.contract"),
-        "use Card from \"@acme/reading\"\ncomponent App\n  state picks = [\"2\"]\n  view\n    column\n      for p in picks key=p\n        button \"Go\" -exact-press-scale=p\n      Card()\n",
+        "use Card from \"@acme/reading\"\nfn picksOf(x: string): string[] = [x]\ncomponent App\n  state pick = \"2\"\n  view\n    column\n      for p in picksOf(pick) key=p\n        button \"Go\" -exact-press-scale=p\n      Card()\n",
     )
     .unwrap();
     contract::compile_path(&dir.join("app.contract")).unwrap();

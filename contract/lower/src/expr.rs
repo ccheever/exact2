@@ -551,7 +551,7 @@ pub(crate) fn compile(
             let index = *locals;
             *locals += 1;
             let mut inner = scope.clone();
-            inner.push(vec![(name.clone(), Ref::Local(index as u32), ty)]);
+            inner.push_let(name, index as u32, ty);
             let ty = compile(l, asm, body, &inner, locals)?;
             *locals -= 1;
             asm.drop_local();
