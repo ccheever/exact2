@@ -827,7 +827,7 @@ if (long) {
         const output = `${r.stdout ?? ''}\n${r.stderr ?? ''}\n${r.error?.message ?? ''}`;
         writeFileSync(log, output);
         out[`ios_${optimize}_failed`] = r.status !== 0 ? `exit ${r.status}: ${failure(r)}` : `missing binary ${binary}`;
-        console.error(`iOS hello (${optimize}): ${r.status !== 0 ? failureSummary(output, { host: 'ios', code: r.status, log }) : `${out[`ios_${optimize}_failed`]}; build log: ${log}`}`);
+        console.error(`iOS hello (${optimize}): ${r.status !== 0 ? failureSummary(output, { host: 'ios', code: r.status, log, beforeDrive: false }) : `${out[`ios_${optimize}_failed`]}; build log: ${log}`}`);
         continue;
       }
       out[`ios_${optimize}_bytes`] = strippedSize(binary) - out.ios_floor_bytes;
