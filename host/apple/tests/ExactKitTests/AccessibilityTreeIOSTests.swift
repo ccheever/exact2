@@ -95,7 +95,7 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         }
     }
 
-    func testOnlyDocumentedPropertiesExcludeAndClearingOneExposesTheSubtree() throws {
+    func testHiddenSubtreesReturnWhenTheirExclusionsAreCleared() throws {
         let p = try fixture()
         let box = try XCTUnwrap(p.views[4])
         box.accessibilityElementsHidden = true
@@ -105,11 +105,39 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         // A negative through the walk: cleared after mount, the subtree is exposed again.
         box.accessibilityElementsHidden = false
         XCTAssertNotNil(element(p.axElements(roots: [p.viewport]), "inside"))
-        // Alpha is not a documented exclusion: an alpha-0 view is still reported, and coverage says so.
+        // UIKit's settled snapshot omits a fully transparent subtree.
         box.alpha = 0
         let ax = p.axElements(roots: [p.viewport])
-        XCTAssertNotNil(element(ax, "inside"))
-        XCTAssertEqual((ax["coverage"] as? [String: Any])?["limits"] as? [String], ["alpha", "reading-order"])
+        XCTAssertNil(element(ax, "inside"))
+        XCTAssertEqual((ax["coverage"] as? [String: Any])?["limits"] as? [String], ["reading-order"])
+    }
+
+    func testAnEmptyNativeContainerExcludesItsSubtreeUntilBothAxesHaveArea() throws {
+        let p = try fixture()
+        let holder = UIView(frame: CGRect(x: 0, y: 100, width: 400, height: 100))
+        holder.addSubview(try XCTUnwrap(p.views[5]))
+        p.viewport.addSubview(holder)
+        for size in [CGSize(width: 400, height: 0), CGSize(width: 0, height: 100)] {
+            holder.bounds.size = size
+            XCTAssertNil(element(p.axElements(roots: [p.viewport]), "inside"))
+            let hidden = try XCTUnwrap(element(p.axElements(roots: [p.viewport], excluded: true), "inside"))
+            XCTAssertEqual(hidden["excluded"] as? [String], ["emptyBounds"])
+        }
+        holder.bounds.size = CGSize(width: 1, height: 1)
+        XCTAssertNotNil(element(p.axElements(roots: [p.viewport]), "inside"), "a point on both axes is enough")
+    }
+
+    func testAZeroScaleOrFullyTransparentContainerIsAbsentFromTheSettledTree() throws {
+        let p = try fixture(), box = try XCTUnwrap(p.views[4])
+        box.transform = CGAffineTransform(scaleX: 0, y: 0)
+        XCTAssertNil(element(p.axElements(roots: [p.viewport]), "inside"))
+        XCTAssertEqual(element(p.axElements(roots: [p.viewport], excluded: true), "inside")?["excluded"] as? [String], ["emptyFrame"])
+        box.transform = .identity
+        box.alpha = 0
+        XCTAssertNil(element(p.axElements(roots: [p.viewport]), "inside"))
+        XCTAssertEqual(element(p.axElements(roots: [p.viewport], excluded: true), "inside")?["excluded"] as? [String], ["transparent"])
+        box.alpha = 0.001
+        XCTAssertNotNil(element(p.axElements(roots: [p.viewport]), "inside"), "UIKit exposes even this faint subtree")
     }
 
     func testAModalViewHidesItsSiblingsAndALeakIsMarked() throws {
@@ -294,7 +322,7 @@ final class AccessibilityTreeIOSTests: XCTestCase {
                 let e = UIAccessibilityElement(accessibilityContainer: self); e.isAccessibilityElement = true; e.accessibilityLabel = "\(index)"; return e
             }
         }
-        let many = Many()
+        let many = Many(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
         p.views[1]?.addSubview(many)
         let ax = p.axElements(roots: [p.viewport], limit: 1)
         XCTAssertLessThan(many.asked, 200, "enumeration is bounded by the visit budget, not the reported count")
