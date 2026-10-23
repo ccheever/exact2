@@ -454,31 +454,33 @@ final class NavigationCollapseIOSTests: XCTestCase {
     }
 
     func testSafeAreaOptOutMovesToAReplacementScrollerAndReleasesTheOldOne() throws {
-        let (session, nav) = try second("safe-area-replaced")
-        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        let (_, nav, route) = try pushed("tall")
+        let node = try XCTUnwrap(route.collapseScroll)
         let old = try XCTUnwrap(route.collapseScrollView)
-        route.node.props["safeArea"] = "top"
+        route.node.props["safeArea"] = "top bottom"
         route.host?.reportCovers()
-        XCTAssertEqual(old.adjustedContentInset.top, 0, accuracy: 0.5)
-        let list = try node(session, "list-second")
-        let agent = Agent(session: session)
-        let drag = agent.tap(["id": Int(list.id), "scrollDrag": [0.0, -100_000.0]])
-        XCTAssertNil(drag["error"], "\(drag)")
-        until("the scroll settles") { !agent.nativeInFlight() }
-        let before = old.contentOffset.y
+        XCTAssertLessThan(old.contentInset.top, 0, "the old backend holds a real correction")
+        XCTAssertLessThan(old.contentInset.bottom, 0)
+        node.groupedOwner = true
+        node.syncScroll()
+        let replacement = UIScrollView(frame: node.bounds)
+        replacement.contentSize = old.contentSize
+        replacement.alwaysBounceVertical = true
+        replacement.delegate = node
+        node.addSubview(replacement)
+        node.mountNativeScrollView(replacement)
+        route.host?.prepareRoutes(nav.viewControllers.compactMap { $0 as? RouteController }, in: nav)
+        nav.view.layoutIfNeeded()
         route.host?.reportCovers()
-        XCTAssertEqual(old.contentOffset.y, before, accuracy: 0.5, "updating the opted-out bar inset does not move the content")
-        XCTAssertEqual(old.adjustedContentInset.top, 0, accuracy: 0.5)
-        let press = agent.tap(["id": Int(try node(session, "second-taller").id)])
-        XCTAssertNil(press["error"], "\(press)")
-        until("a new physical scroller") { route.collapseScrollView != nil && route.collapseScrollView !== old }
-        let current = try XCTUnwrap(route.collapseScrollView)
-        route.host?.reportCovers()
-        XCTAssertEqual(old.contentInset.top, 0, accuracy: 0.5, "the old backend gives its correction back")
-        XCTAssertEqual(current.adjustedContentInset.top, 0, accuracy: 0.5)
+        XCTAssertTrue(route.collapseScrollView === replacement)
+        XCTAssertTrue(route.contentScrollView(for: .bottom) === replacement)
+        XCTAssertEqual(old.contentInset, .zero, "the old backend gives both corrections back")
+        XCTAssertLessThan(replacement.contentInset.top, 0, "the new backend takes the correction")
+        XCTAssertEqual(replacement.adjustedContentInset.top, 0, accuracy: 0.5)
+        XCTAssertEqual(replacement.adjustedContentInset.bottom, 0, accuracy: 0.5)
         route.node.props["safeArea"] = "auto"
         route.host?.reportCovers()
-        XCTAssertEqual(current.contentInset.top, 0, accuracy: 0.5)
+        XCTAssertEqual(replacement.contentInset, .zero)
     }
 
     func testAnOptedOutTopStillCollapsesAndReexpandsTheLargeTitle() throws {
@@ -495,7 +497,9 @@ final class NavigationCollapseIOSTests: XCTestCase {
         until("the native large title collapses with top clearance disabled") {
             nav.navigationBar.frame.height < expanded - 20
         }
+        let before = scroll.contentOffset.y
         route.host?.reportCovers()
+        XCTAssertEqual(scroll.contentOffset.y, before, accuracy: 0.5, "updating the opted-out bar inset does not move the content")
         XCTAssertEqual(scroll.adjustedContentInset.top, 0, accuracy: 0.5)
         let collapsed = nav.navigationBar.frame.height
         let page = try XCTUnwrap(route.collapseScroll)
