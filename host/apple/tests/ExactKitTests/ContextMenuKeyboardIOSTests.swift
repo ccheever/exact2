@@ -12,11 +12,13 @@ final class ContextMenuKeyboardIOSTests: XCTestCase {
         window = nil
     }
 
-    private func fixture() -> Presenter {
+    private func fixture(scene: UIWindowScene? = nil) -> Presenter {
         let p = Presenter()
-        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        if let scene { window.frame = scene.coordinateSpace.bounds }
+        window.rootViewController = UIViewController()
         p.viewport.frame = window.bounds
-        window.addSubview(p.viewport)
+        window.rootViewController!.view.addSubview(p.viewport)
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 400],
@@ -103,5 +105,50 @@ final class ContextMenuKeyboardIOSTests: XCTestCase {
         XCTAssertFalse(p.keyDown(at: editor, "F10", held: "Shift+"))
         XCTAssertEqual(heard, 0)
     }
+    func testMenuKeysPresentThePopoverWithAgentModeOff() throws {
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else {
+            throw missing("scene", "a keyboard menu must present in a real window scene")
+        }
+        XCTAssertFalse(ExactEnv.agentMode)
+        let p = fixture(scene: scene), message = try XCTUnwrap(p.views[2])
+        defer { p.menus.reset() }
+        p.apply(wireBatch([
+            ["op": "props", "id": 2, "set": ["contextPopover": "actions"]],
+            ["op": "create", "id": 4, "kind": "view", "props": ["id": "actions", "popover": "auto", "accessibilityRole": "menu"]],
+            ["op": "create", "id": 5, "kind": "button", "handlers": ["press"]],
+            ["op": "create", "id": 6, "kind": "text", "props": ["text": "Before the handler"]],
+            ["op": "children", "id": 5, "ids": [6]], ["op": "children", "id": 4, "ids": [5]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4]],
+        ]))
+        let pop = try XCTUnwrap(p.views[4])
+        var heard = 0
+        p.onClipboard = { _, _, _ in
+            heard += 1
+            p.apply(wireBatch([["op": "props", "id": 6, "set": ["text": "Reply after handler"]]]))
+        }
+        func shows(_ view: UIView) -> Bool {
+            guard !view.isHidden, view.alpha > 0 else { return false }
+            if (view as? UILabel)?.text == "Reply after handler" { return true }
+            return view.subviews.contains(where: shows)
+        }
+        func until(_ condition: () -> Bool) {
+            let limit = Date(timeIntervalSinceNow: 5)
+            while !condition(), Date() < limit { _ = RunLoop.main.run(mode: .default, before: limit) }
+        }
+        for handler in [true, false] {
+            if !handler { message.handlers.remove("contextmenu") }
+            XCTAssertTrue(message.becomeFirstResponder())
+            XCTAssertTrue(p.keyDown(at: message, handler ? "F10" : "ContextMenu", held: handler ? "Shift+" : ""))
+            until { p.menus.isOpen(pop) && scene.windows.contains(where: shows) }
+            XCTAssertTrue(p.menus.isOpen(pop), "a popover opens with or without an authored contextmenu handler")
+            XCTAssertTrue(scene.windows.contains(where: shows), "UIKit displays the action, after the handler updates it")
+            XCTAssertTrue(p.menus.context.isOpen(pop), "this is production menu presentation")
+            XCTAssertEqual(heard, 1)
+            p.menus.context.close(pop)
+            until { !scene.windows.contains(where: shows) }
+            XCTAssertFalse(p.menus.isOpen(pop))
+        }
+    }
+
 }
 #endif
