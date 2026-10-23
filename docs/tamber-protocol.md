@@ -1119,8 +1119,9 @@ list is unchanged: it keeps its own.
     multiplier, anything inside a gradient a fraction of the box, a typed object's `uniforms`,
     `inputs` and `metadata` the author's own names; only a property that takes a variable is a use,
     so an `id`, a `context`, a node's `theme`, a position or a layout enum binds none, while a paint,
-    `opacity`, `rotation`, `enabled`, `innerRadius`, a gradient stop's `position` and the type
-    longhands, `content` among them, do); each number's `notes` line
+    `opacity`, `rotation`, `enabled`, an ellipse's `innerRadius` and angles, a polygon's count, an
+    icon's names and weight, a gradient stop's `position` and the type longhands, `content` among
+    them, do); each number's `notes` line
     names the properties that decided it. A
     `string` every node reads as `fontFamily` is a family. A note says the file's frames and
     components are not imported.
