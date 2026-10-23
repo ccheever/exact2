@@ -483,6 +483,9 @@ fn a_long_poll_on_other_work_is_refused_before_dispatch() {
         Request::native(b"x".to_vec()).long_poll("since", "seq"),
     ] {
         let why = crate::batch::request_refusal(&request);
-        assert!(why.is_some_and(|w| w.starts_with("exactLongPoll")), "{why:?}");
+        assert!(
+            why.is_some_and(|w| w.starts_with("exactLongPoll")),
+            "{why:?}"
+        );
     }
 }
