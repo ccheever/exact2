@@ -45,7 +45,7 @@ final class AgentCornerRadiiTests: XCTestCase {
             let node = try XCTUnwrap(rows.first { $0["id"] as? Int == id })
             return try XCTUnwrap(node["radii"] as? [[Double]])
         }
-        XCTAssertEqual(agent.layout()["layoutVersion"] as? Int, 2)
+        XCTAssertNil(agent.layout()["layoutVersion"], "the protocol has no per-layout version")
         XCTAssertEqual(try radii(1), Array(repeating: [0, 0], count: 4))
         // The right edge's 80 + 20 is twice its height: all axes halve.
         XCTAssertEqual(try radii(2), [[40, 20], [40, 40], [10, 10], [5, 5]])
