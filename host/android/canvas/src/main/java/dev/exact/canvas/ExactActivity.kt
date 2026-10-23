@@ -284,7 +284,7 @@ open class ExactActivity : Activity() {
         Exact.answered = { view.onPublished() }
         Exact.turned = { view.turned() }
         if (input) view.keys = Keys(view)
-        val elements = Natives(this, File(storage, "app"), modules, video)
+        val elements = Natives(this, File(storage, "app"), Extensions.withViews(modules), video)
         natives = elements
         elements.hatched = { node, context -> hatchReader?.made(node, context) }
         view.natives = elements
