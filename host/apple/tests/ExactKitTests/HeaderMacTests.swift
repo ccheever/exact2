@@ -190,6 +190,19 @@ final class HeaderMacTests: XCTestCase {
         XCTAssertEqual(window.title, "Shelf")
     }
 
+    func testStatusReadoutAfterTheHeadingKeepsTheHeaderPainted() throws {
+        let p = fixture(extra: view(16, "text", ["text": "Syncing", "accessibilityRole": "status"])
+            + [children(10, [11, 12, 16, 13, 14])])
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        XCTAssertEqual(window.title, "Shelf")
+        XCTAssertEqual(window.subtitle, "")
+        XCTAssertFalse(try node(p, 10).isHidden)
+        XCTAssertNil(p.toolbar.items[16])
+        XCTAssertEqual(identifiers(), [back])
+        XCTAssertTrue((p.toolbar.summary["headerKept"] as? String)?.contains("readout") == true)
+        p.toolbar.detach()
+    }
+
     func testSubtitleAndAvatarProjectAndFollowTheRoute() throws {
         let p = fixture(extra: view(16, "text", ["text": "3 books"])
             + view(17, "button", ["accessibilityLabel": "Profile"], press: true)
