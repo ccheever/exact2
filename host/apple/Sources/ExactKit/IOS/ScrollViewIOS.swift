@@ -27,6 +27,10 @@ package final class PlainView: UIView {
 /// wheel (the agent's) applies the web's chaining rule itself
 /// (`AgentIOS.swift`).
 package class ScrollView: UIScrollView {
+    package override func layoutSubviews() {
+        super.layoutSubviews()
+        keepPlatformViewsOver()
+    }
     package override var accessibilityElements: [Any]? {
         get { super.accessibilityElements ?? NodeView.emptyBoxAccessibility(in: self) }
         set { super.accessibilityElements = newValue }
