@@ -56,6 +56,9 @@ final class Adapter: ExactSessionDelegate {
             session.log("openURL app-settings: opens the app's page in Settings\(agentMode ? " (not under the agent)" : "")")
             if !agentMode, let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
         case "openURL":
+            // A scheme the app declares (OpenURL.swift), else the web's, mail's and the phone's.
+            if let value = args.first as? String, let url = URL(string: value),
+               session.openDeclaredScheme(url, open: { url, done in UIApplication.shared.open(url, options: [:], completionHandler: done) }) { return }
             guard args.count == 1, let value = args.first as? String,
                   let url = URL(string: value),
                   ["http", "https", "mailto", "tel"].contains(url.scheme?.lowercased() ?? "") else {

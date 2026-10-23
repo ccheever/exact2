@@ -1,0 +1,66 @@
+fn pick(n: number): number = n + 1
+fn other(n: number): number = n + 100
+
+component App
+  state chosen = 0
+  action choose(base: number, n: number)
+    chosen = base + n
+  view
+    column
+      text `${chosen}` testId="chosen"
+      Same(onPick=choose(10))
+      Other()
+
+component Same
+  props
+    onPick: action
+  derive pick = pick(1)
+  state shown = pick(5)
+  action update(n: number)
+    shown = pick(n)
+    onPick(pick(5))
+  action relay()
+    update(7)
+  view
+    column
+      text `${pick} ${pick(5)}` testId="same"
+      text `${shown}` testId="same-state"
+      Frame()
+        text `${pick} ${pick(5)}` testId="fill"
+      Label(value=pick(pick))
+      button "Update" press=relay testId="same-update"
+
+component Other
+  derive pick = other(1)
+  state shown = pick(5)
+  action update()
+    shown = pick(7)
+  view
+    column
+      text `${pick} ${pick(5)}` testId="other"
+      text `${shown}` testId="other-state"
+      button "Update" press=update testId="other-update"
+
+component Frame
+  slot
+  view
+    children
+
+component Label
+  props
+    value: number
+  view
+    text `${value}` testId="argument"
+
+test "derive values leave function calls intact"
+  expect text "same" == "2 6"
+  expect text "other" == "101 6"
+  expect text "fill" == "2 6"
+  expect text "argument" == "3"
+  expect text "same-state" == "6"
+  expect text "other-state" == "6"
+  tap "same-update"
+  expect text "same-state" == "8"
+  expect text "chosen" == "16"
+  tap "other-update"
+  expect text "other-state" == "8"

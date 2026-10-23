@@ -10,6 +10,8 @@ use exact_motion::{Change, Engine, Property, Value};
 #[derive(Debug, Default)]
 pub struct LayoutMotion {
     tracked: IdSet<NodeKey>,
+    /// The tracked boxes laid out in a block of their own when last seen.
+    blocked: IdSet<NodeKey>,
 }
 
 impl LayoutMotion {
@@ -37,6 +39,7 @@ impl LayoutMotion {
         // A renewed node is a new one (LLP 1078): no old box to move from.
         for key in receipt.destroyed.iter().chain(&receipt.renewed) {
             self.tracked.remove(key);
+            self.blocked.remove(key);
         }
         let mut retired = Vec::new();
         for key in receipt.created.iter().chain(&receipt.touched) {
@@ -48,8 +51,16 @@ impl LayoutMotion {
                     if let Some(value) = kernel.layout_box(*key) {
                         observe_box(engine, *key, value);
                     }
+                    // In the space that old box was in: crossing is from there.
+                    let blocked = kernel
+                        .node_by_key(*key)
+                        .is_some_and(|n| kernel.host_block(n.id).is_some());
+                    if blocked {
+                        self.blocked.insert(*key);
+                    }
                 }
             } else if self.tracked.remove(key) {
+                self.blocked.remove(key);
                 engine.remove_property(motion_node(*key), Property::Layout);
                 retired.push(*key);
             }
@@ -121,7 +132,17 @@ impl LayoutMotion {
                 continue;
             };
             self.tracked.insert(key);
-            if snap && engine.remove_property(node, Property::Layout) {
+            // A box moving into its block or out of it (a popover set or
+            // cleared: stage 14 B) changes spaces, not place: it snaps.
+            let blocked = kernel
+                .node_by_key(key)
+                .is_some_and(|n| kernel.host_block(n.id).is_some());
+            let crossed = if blocked {
+                self.blocked.insert(key)
+            } else {
+                self.blocked.remove(&key)
+            };
+            if (snap || crossed) && engine.remove_property(node, Property::Layout) {
                 retired.push(key);
             }
             if unauthored {

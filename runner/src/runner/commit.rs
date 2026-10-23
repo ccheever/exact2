@@ -810,6 +810,7 @@ impl<D: DataSource> Runner<D> {
                 Target::Mutation(m) => self.asked_write(m),
                 Target::Resource(_) => None,
             },
+            held: request.is_held(),
         });
         self.requests.push(RequestOut {
             ticket,
@@ -933,13 +934,41 @@ impl<D: DataSource> Runner<D> {
     /// An open stream counts only until its first message (LLP 1016.000
     /// D5): after that it is open, not in flight, or `settle` never ends.
     /// A request held for the agent (LLP 1069.007 D3) is not I/O either: no
-    /// clock waits on it. The module's background round is (LLP 1097 D9).
+    /// clock waits on it, nor on one the server holds (LLP 1016.000 D9,
+    /// [`Runner::held_requests`]). The module's background round is (LLP
+    /// 1097 D9).
     pub fn has_pending(&self) -> bool {
         self.background_ticket().is_some()
             || self
                 .pending
                 .iter()
-                .any(|p| p.in_flight() && !self.held_for_agent(p))
+                .any(|p| p.waited() && !self.held_for_agent(p))
+    }
+
+    /// Replies landed for held requests, by target, whatever they said (LLP
+    /// 1016.000 D9): what `clock held` waits on to rise. A request let go
+    /// (superseded, forgotten) never counts: its late reply is dropped.
+    pub fn held_replies(&self) -> &[(String, u64)] {
+        &self.held_replies
+    }
+
+    fn count_held_reply(&mut self, target: Target) {
+        let name = self.target_name(target);
+        match self.held_replies.iter_mut().find(|(n, _)| *n == name) {
+            Some((_, count)) => *count += 1,
+            None => self.held_replies.push((name, 1)),
+        }
+    }
+
+    /// The requests the server holds (LLP 1016.000 D9): in flight, but no
+    /// clock waits on them; each reply that leaves them out names them, as
+    /// `state.pending` does (`held: true`).
+    pub fn held_requests(&self) -> Vec<(String, u64)> {
+        self.pending
+            .iter()
+            .filter(|p| p.in_flight() && p.held && !self.held_for_agent(p))
+            .map(|p| (self.target_name(p.target), p.ticket))
+            .collect()
     }
 
     /// A request held for the agent: a device's, or a module's (LLP 1133.002 §6).
@@ -955,7 +984,7 @@ impl<D: DataSource> Runner<D> {
         let mut out: Vec<(String, u64)> = self
             .pending
             .iter()
-            .filter(|p| p.in_flight() && !self.held_for_agent(p))
+            .filter(|p| p.waited() && !self.held_for_agent(p))
             .map(|p| (self.target_name(p.target), p.ticket))
             .collect();
         out.extend(
@@ -1049,6 +1078,9 @@ impl<D: DataSource> Runner<D> {
         let checkpoint = self.checkpoint(true);
         let p = self.pending.remove(pos);
         self.sync_pending_flags();
+        if p.held {
+            self.count_held_reply(p.target);
+        }
         let what = super::lines::fulfilling(ticket, &self.target_name(p.target), &summary);
         let (refused, target) = (p.refused, p.target);
         let result = self.fulfill_inner(p, outcome);
@@ -1098,6 +1130,7 @@ impl<D: DataSource> Runner<D> {
         let (ticket, target, name) = (p.ticket, p.target, self.target_name(p.target));
         let what = super::lines::fulfilling(ticket, &name, summary);
         let before = self.sockets.len();
+        crate::stream_timing::entered(ticket);
         let result = self.fulfill_inner(p, outcome);
         // What the mapper staged answering this frame (LLP 1016.000 D7):
         // addressed for the commit, or left staged by a frame that failed.
@@ -1107,6 +1140,7 @@ impl<D: DataSource> Runner<D> {
         let mapper = |b: &crate::SocketSend| matches!(b.origin, crate::SocketOrigin::Mapper(_));
         let replied = left || self.sockets[before..].iter().any(mapper);
         self.conclude(checkpoint, &result, was_poisoned);
+        crate::stream_timing::committed(result.is_ok());
         self.arm_then(result.is_ok());
         self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);

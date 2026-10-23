@@ -125,8 +125,8 @@ const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationK
 const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
 // Agent launch facts belong to the carrier, not the router's typed URL. Keep
 // them on every History entry so a browser reload retains its agent adapter.
-const agentParameters = ['agent', 'seed', 'locale', 'timeZone', 'epoch', 'storage', 'failFetch'];
-function historyURL(path) {
+const agentParameters = ['agent', 'seed', 'locale', 'formatLocale', 'timeZone', 'epoch', 'storage', 'failFetch'];
+export function historyURL(path) { // (exported for its test)
   if (!AGENT_ADMITTED) return location.origin + path;
   const facts = launched();
   if (!facts.has('agent')) return location.origin + path;
@@ -141,31 +141,34 @@ const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
 const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("navigationBack")) => route && name !== null ? route.querySelector(`[id="${CSS.escape(name)}"]`) ?? [...nav.ownerDocument.querySelectorAll(`[id="${CSS.escape(name)}"]`)].find(control => [null, nav].includes(control.closest("[navigationKey]"))) ?? null : undefined;
 // @ref LLP 1116.000 D4 — a pushed route's bar draws Back as iOS draws UIKit's (NavigationBarIOS.swift `projectBack`),
 // with no Back control too: not on a stack's root, a sheet (whose Cancel is its Back) or a route with no bar, nor for a
-// disabled control. A control that is an item of the bar iOS makes of its header is pressed through it and not shown
-// (index.html). The button is the header's shadow root's, before its slot, so the header's children stay the
-// renderer's.
-const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:2px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;color:var(--exact-accent,AccentColor);cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:var(--exact-back-press,.5)}@media (hover:hover){button:hover{background-color:light-dark(#7676801f,#7676803d)}}svg{width:.75em;height:1.25em;fill:none;stroke:currentColor;stroke-width:2.13;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="6 3 11 18" aria-hidden="true"><path d="M15.35 5 8 12l7.35 7"/></svg><span></span></button><slot></slot>`;
+// disabled control or one the author made inert. A control that is an item of the bar iOS makes of its header is
+// pressed through it and not shown (index.html). The button is the header's shadow root's, before its slot, so the
+// header's children stay the renderer's.
+const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:2px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;color:var(--exact-bar-accent,var(--exact-accent,AccentColor));cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:var(--exact-back-press,.5)}@media (hover:hover){button:hover{background-color:light-dark(#7676801f,#7676803d)}}svg{width:.75em;height:1.25em;fill:none;stroke:currentColor;stroke-width:2.13;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="6 3 11 18" aria-hidden="true"><path d="M15.35 5 8 12l7.35 7"/></svg><span></span></button><slot></slot>`;
 const headerOf = route => [...(route?.children ?? [])].find(child => child.localName === "header");
 const authored = '[data-exact-said~="appearance"]'; // a header whose author wrote `appearance: none` (element.rs)
-// The items of the bar iOS makes of `header`, or null where it makes none: kernel/src/bars.rs `header_bar`, ported to
-// the elements both runtimes write alike, since the JS target keeps no kernel to ask. `walk` is `Walk::walk`: a bar's
-// header holds one heading, and an item is a pressable it reaches that is not the title's.
+// The items of the bar iOS makes of a shown `header`, or null where it makes none: kernel/src/bars.rs `header_bar`,
+// ported to the elements both runtimes write alike, since the JS target keeps no kernel to ask. `walk` is `Walk::walk`:
+// a bar's header holds one heading, and an item is a pressable it reaches, not the title's, or a disabled button.
 function barItems(route, header) {
   if (route.getAttribute("data-navigationbar") === "none" || route.firstElementChild !== header || header.matches(authored)) return null;
   const heading = "[data-exact-text][role=heading]", press = '[data-exact-on~="press"]', layer = el => el.matches("[popover], dialog");
   const holds = el => [...el.children].some(child => !layer(child) && (child.matches(heading) || holds(child)));
+  const disabled = el => el.matches("button[disabled]") && !el.hasAttribute("role") && root?.getAttribute("aria-busy") !== "true"; // `fact::DISABLED`, dimmed whether or not it presses; a `button` element carries no `role` unless it has another one (element.rs); until input is ready, the glue disables every control itself (glue.js)
   let headings = 0, tap = null;
   const items = [], walk = node => {
     for (const child of node.children) {
-      if (layer(child) || child.matches("[role=tablist]")) continue;
+      if (layer(child) || child.matches('[role=tablist], input[type="search"]')) continue; // a layer, the bar's segments or its search field: no item
       if (child.matches(heading)) headings++;
-      else if (child.matches(press) || opensPopover(child)) { if (!tap && child.matches(press) && holds(child)) walk(tap = child); else items.push(child); } // the first to hold a heading is the title, tapped
+      else if (child.matches(press) || opensPopover(child) || (disabled(child) && !holds(child))) { if (!tap && child.matches(press) && holds(child)) walk(tap = child); else items.push(child); } // the first to hold a heading is the title, tapped
       else if (!child.matches("[role=status]") || holds(child)) walk(child); // a readout's face is no item
     }
   };
   walk(header);
-  return headings === 1 && getComputedStyle(header).display !== "none" ? items : null;
+  return headings === 1 ? items : null;
 }
+/** Mark every route's bar on a page rendered ahead of time (host/web-js/render.mjs), which runs no projection, as document.rs marks one. */
+export function markBars(node) { for (const child of node.children) { const header = child.hasAttribute("navigationKey") && !child.hasAttribute("navigationBack") && headerOf(child); if (header) header.toggleAttribute("data-exact-bar", !!barItems(child, header)); markBars(child); } }
 // Whether a button shows or toggles a popover, a header's menu (kernel/src/invocation.rs `opens_popover`).
 function opensPopover(el) {
   if (el.localName !== "button") return false;
@@ -183,17 +186,23 @@ export function pageTitle(said = saidTitle) {
   const nav = root?.querySelector("[navigationBack]"), title = said ?? ((nav && titleOf(selectedRoute(nav))) || appName);
   if (document.title !== title) document.title = title;
 }
-function appBarBack(nav, routes, index, split = false) {
+function appBarBack(nav, routes, index, split, shown) {
   const route = routes[index], header = headerOf(route);
   if (!header) return;
+  const headerShown = getComputedStyle(header).display !== "none";
   // In a split, a detail its list's row pushed has none: the list beside it is its way back (LLP 1116.004 D1). Nor has a
   // route whose shown header's author wrote `appearance: none`, which keeps the bar they drew (HeaderRule.swift
   // `keepsAuthoredHeader`).
   const pushed = index > 0 && !sheet(route) && route.getAttribute("data-navigationbar") !== "none" && !(split && (index === 1 || rowOf.has(route)))
-    && !(route.firstElementChild === header && header.matches(authored) && getComputedStyle(header).display !== "none");
-  // A control in a header iOS makes no bar of is that header's way back, with no Back beside it.
-  const control = pushed ? backControl(nav, route) : null, inHeader = !!control && header.contains(control);
-  const items = inHeader ? barItems(route, header) : null, held = !!items?.includes(control), drawn = pushed && (!inHeader || !!items);
+    && !(route.firstElementChild === header && header.matches(authored) && headerShown);
+  // A header iOS makes no bar of draws Back when it does not show a visible Back control (iOS draws it either way).
+  // Discount the bar's own hiding mark. In a header not shown, the Back stays hidden with it.
+  const control = pushed ? backControl(nav, route) : null, inShownHeader = headerShown && !!control && header.contains(control) && !header.contains(control.closest("[popover], dialog"));
+  const items = headerShown && (inShownHeader || shown) ? barItems(route, header) : null;
+  const held = inShownHeader && !!items?.includes(control);
+  for (const el of route.querySelectorAll("[data-exact-bar-back]")) if (el !== control || !held) el.removeAttribute("data-exact-bar-back");
+  const drawn = pushed && (!inShownHeader || !!items || !control.checkVisibility({ visibilityProperty: true }));
+  if (shown) header.toggleAttribute("data-exact-bar", !!items); // a shown bar, whose symbols are the bar's size (neutral.css)
   let button = header.shadowRoot?.querySelector('button[part="back"]');
   if (drawn && !button && !header.shadowRoot && header.attachShadow) { // not a shadow root of someone else's
     header.attachShadow({ mode: "open" }).innerHTML = BACK;
@@ -201,15 +210,16 @@ function appBarBack(nav, routes, index, split = false) {
     button.addEventListener("click", event => { event.stopPropagation(); appBack(header.parentElement); });
   }
   for (const el of [...route.querySelectorAll("[data-exact-bar-back]"), control]) el?.toggleAttribute("data-exact-bar-back", el === control && held && !!button);
-  // Until the page is interactive the glue disables every control itself (`aria-busy`): not the author's.
-  if (button) button.hidden = !drawn || (control?.matches(":disabled") && !nav.closest('[aria-busy="true"]'));
+  // A control the author disabled, or made inert in its route, leaves no Back, as `pressBack` refuses it. The glue's own
+  // disabling until the page is interactive (`aria-busy`) and the inert it gives a route a sheet covers are not theirs.
+  if (button) button.hidden = !drawn || (control?.matches(":disabled") && !nav.closest('[aria-busy="true"]')) || route.contains(inertAncestor(control)?.parentElement ?? null);
   if (!button || button.hidden) return;
   const words = control ? control.textContent.trim() : titleOf(routes[index - 1]), english = /^en\b/i.test(document.documentElement.lang || "en");
   const label = words.length <= 14 && (words || control) ? words : english ? "Back" : "", name = control ? control.getAttribute("aria-label") || words || "Back" : !english ? words || "Back" : label === "Back" ? label : `Back to ${label}`;
   button.lastChild.hidden = !label;
   if (button.lastChild.textContent !== label) button.lastChild.textContent = label;
   if (button.getAttribute("aria-label") !== name) button.setAttribute("aria-label", name);
-  if (held && control.hasAttribute("aria-keyshortcuts")) button.setAttribute("aria-keyshortcuts", control.getAttribute("aria-keyshortcuts")); else button.removeAttribute("aria-keyshortcuts");
+  if (control?.hasAttribute("aria-keyshortcuts") && !control.checkVisibility({ visibilityProperty: true })) button.setAttribute("aria-keyshortcuts", control.getAttribute("aria-keyshortcuts")); else button.removeAttribute("aria-keyshortcuts");
 }
 /** The app bar's Back on `route`, pressed: the browser's Back from its route (`popped`), applied at once: the route's control
  * pressed, else the root's `navigate` with the location beneath, else the runner's own `back` (LLP 1115 D5). The
@@ -224,15 +234,14 @@ function appBack(route) {
   if (!known || navigate(entry.url) === false) hostBack?.(id);
 }
 const closedNone = route => ["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation")) && route.getAttribute("closedby") === "none";
-/** Press the Back control: shown, the bar's or in a closed menu, as UIKit's Back presses it wherever it is
- * (PresenterIOS.swift `press`); else why it was not pressed. */
+/** Press the Back control wherever it is, shown or not, as UIKit's Back presses it (NavigationRules.swift `backControl`),
+ * unless it is disabled, or inert (the web's choice: iOS's Back reads no inert); else why it was not pressed. */
 function pressBack(nav) {
   const route = selectedRoute(nav), control = backControl(nav);
   if (!route) return "no route is selected";
   if (closedNone(route)) return `route ${route.getAttribute("navigationKey")} is closedby="none"`;
   if (!control) return `route ${route.getAttribute("navigationKey")} has no id="${nav.getAttribute("navigationBack")}" control`;
-  if (control.matches(":disabled") || inertAncestor(control) || !(control.getClientRects().length || control.hasAttribute("data-exact-bar-back") || control.closest("[popover]:not(:popover-open)")) || getComputedStyle(control).visibility !== "visible")
-    return `its id="${control.id}" control is disabled, inert or not shown`;
+  if (control.matches(":disabled") || inertAncestor(control)) return `its id="${control.id}" control is disabled or inert`;
   control.click();
 }
 function go(to, from, finish = () => {}) {
@@ -439,7 +448,7 @@ export const navigation = {
           const column = !split ? null : index === 0 ? "list" : sheet(route) ? null : "detail";
           if (route.getAttribute("data-exact-split") !== column) column ? route.setAttribute("data-exact-split", column) : route.removeAttribute("data-exact-split");
           route.style.setProperty("--exact-split", column ? `${split}px` : "");
-          appBarBack(nav, routes, index, split > 0); if (stack === at && index === selected) freshPath(route);
+          appBarBack(nav, routes, index, split > 0, active || covered); if (stack === at && index === selected) freshPath(route);
         }
         let row = null; for (let i = detail; i > 0 && !row; i--) row = rowOf.get(routes[i])?.isConnected ? rowOf.get(routes[i]) : null;
         for (const el of routes[0]?.querySelectorAll("[data-exact-split-row]") ?? []) if (el !== row) el.removeAttribute("data-exact-split-row");
@@ -542,13 +551,12 @@ export function afterPaintPieces(load, o) {
     return p && c ? Promise.all([p, c]) : (p ?? c ?? null);
   } };
 }
-// @ref LLP 1063 — -exact-exit-animation and -exact-layout-transition play in
-// `presence-glue.js`, fetched when a batch first carries either row, or after first paint where the plan names either
-// (`preload`: a bound layout transition may declare nothing at boot; a batch before it lands, at boot or a person's first
-// press, still jumps); the agent waits for it (`pending`, bounded by its deadline). A batch
-// with an exit that arrives before the module does waits for it, and every
-// batch after it waits behind it, so no exit is lost and order holds; the
-// caller hands them back through `apply`. `live` is the module, once loaded.
+// @ref LLP 1063 — -exact-exit-animation and -exact-layout-transition play in `presence-glue.js`, fetched when a batch
+// first carries either row, or after first paint where the plan names either (`preload`: a bound layout transition may
+// declare nothing at boot; a batch before it lands, at boot or a person's first press, still jumps); the agent waits
+// for it (`pending`, bounded by its deadline). A batch with an exit that arrives before the module does waits for it,
+// and every batch after it waits behind it, so no exit is lost and order holds; the caller hands them back through
+// `apply`. `live` is the module, once loaded.
 export function presenceLoader(load, root, apply, log) {
   let live = null, loading = null, unavailable = false, scheduled = null;
   const held = [], row = op => op.op === 'exit' || /(^|;)\s*--exact-(layout-transition|exit-animation)\s*:/.test((op.css ?? '').replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, '""'));
@@ -606,23 +614,19 @@ export function animationClock(now, settled, synced) {
     },
   };
 }
-// Synced animations (LLP 1055.002): a node whose `animation-timeline` is
-// `clock(Name)` carries `--exact-animation-clock:Name` (css.rs), and each CSS
-// animation on it joins that clock. A clock is one origin, set when an
-// animation joins it idle (no other member unfinished) and kept while it is
-// busy; a joiner starts on the latest cycle boundary at or before it joins
-// (a cycle is two iterations under `alternate`), so it ends where it would.
-// `start` is the synced start at `now` (the agent's clock seeks from it);
-// `sync`, after a commit, sets each joined or resumed animation's
-// `startTime` once on the page's timeline. Nothing runs per frame.
+// Synced animations (LLP 1055.002): a node whose `animation-timeline` is `clock(Name)` carries
+// `--exact-animation-clock:Name` (css.rs), and each CSS animation on it joins that clock. A clock is one origin, set
+// when an animation joins it idle (no other member unfinished) and kept while it is busy; a joiner starts on the latest
+// cycle boundary at or before it joins (a cycle is two iterations under `alternate`), so it ends where it would.
+// `start` is the synced start at `now` (the agent's clock seeks from it); `sync`, after a commit, sets each joined or
+// resumed animation's `startTime` once on the page's timeline. Nothing runs per frame.
 export function animationClocks(root) {
   const origins = new Map(), members = new Map(), paused = new WeakMap(), clocked = new WeakMap();
   const clockOf = a => a.animationName === undefined ? '' : a.effect?.target?.style?.getPropertyValue('--exact-animation-clock').trim() ?? '';
   const live = a => a.effect?.target?.isConnected && a.playState !== 'idle' && a.playState !== 'finished';
-  // Each commit (`sync`, or the agent's `register`) first lets go of every
-  // member whose node left, whose play ended, or that moved to another
-  // clock: it holds no clock busy, and a removed screen's targets are not
-  // kept for the page's lifetime.
+  // Each commit (`sync`, or the agent's `register`) first lets go of every member whose node left, whose play ended, or
+  // that moved to another clock: it holds no clock busy, and a removed screen's targets are not kept for the page's
+  // lifetime.
   const commit = () => {
     for (const [c, m] of members) { for (const b of m) if (!live(b) || clockOf(b) !== c) m.delete(b); if (!m.size) members.delete(c); }
   };
@@ -656,9 +660,8 @@ export function animationClocks(root) {
         paused.set(a, is); clocked.set(a, c);
         // An ended play stays ended: a clock does not restart it.
         if (a.playState === 'finished' || a.playState === 'idle') continue;
-        // A pause keeps its membership: paused, it still holds the clock
-        // busy. A new one joins (paused, without a start, which would
-        // unpause it); a resume rejoins.
+        // A pause keeps its membership: paused, it still holds the clock busy. A new one joins (paused, without a
+        // start, which would unpause it); a resume rejoins.
         if (is && was !== undefined && c === had && member) continue;
         const s = start(a, now);
         if (s !== null && !is) a.startTime = s;
@@ -677,9 +680,8 @@ function rememberScroll(s) {
 }
 function settleFollow(s) {
   if (!s.el.isConnected) return;
-  // A reader above the end uses the browser's CSS scroll anchoring. Writing
-  // the remembered numeric offset here would undo its adjustment when content
-  // above the visible message changes.
+  // A reader above the end uses the browser's CSS scroll anchoring. Writing the remembered numeric offset here would
+  // undo its adjustment when content above the visible message changes.
   if (s.end) s.el.scrollTop = s.el.scrollHeight - s.el.clientHeight;
   rememberScroll(s);
   const children = [...s.el.children];
@@ -709,13 +711,12 @@ function followScroll(el, enabled) {
 }
 // One scheme allowlist for every URL the page can navigate to: a link's `href` (an authored `link`, an inline run bound
 // to data, a Markdown link), an iframe's `src`, and `openURL`. A `javascript:` URL in any of them runs in this page's
-// origin. The browser's own parser reads the scheme, with the whitespace and control characters `java\tscript:` hides
-// behind.
+// origin. The browser's own parser reads the scheme, past the whitespace and control characters it may hide behind.
+// `openURL` alone also takes a scheme app.json's `open_url` declares (`exact.openSchemes`, `declaredScheme`), never one
+// that runs or reads content.
+export const declaredScheme = protocol => !/^(javascript|vbscript|data|file|filesystem|blob|about|view-source|jar|intent|content):$/.test(protocol) && (globalThis.exact?.openSchemes ?? []).includes(protocol.slice(0, -1));
 export function navigableURL(href, base = document.baseURI) {
-  try {
-    const url = new URL(href, base);
-    return ["http:", "https:", "mailto:", "tel:"].includes(url.protocol) ? url.href : null;
-  } catch { return null; }
+  try { const url = new URL(href, base); return ["http:", "https:", "mailto:", "tel:"].includes(url.protocol) ? url.href : null; } catch { return null; }
 }
 export const navigates = (el, name) => name === "href" || (name === "src" && el.localName === "iframe");
 // A present sandbox without `allow-same-origin` gives an opaque origin; tokens use ASCII whitespace and ignore case.
@@ -1080,10 +1081,10 @@ export function placeReporter(params, platform = globalThis) {
     if (AGENT_ADMITTED && params.has('agent')) {
       const value = Number(params.get('seed') ?? 1);
       if (!Number.isSafeInteger(value) || value < 0 || value >= 2 ** 32) throw new Error('seed: a whole number from 0 through 2^32 - 1 (4294967295)');
-      return [params.get('locale') ?? 'en-US', params.get('timeZone') ?? 'UTC', value].join('\0');
+      return [params.get('locale') ?? 'en-US', params.get('timeZone') ?? 'UTC', value, params.get('formatLocale') ?? ''].join('\0');
     }
     if (seed === undefined) seed = platform.crypto.getRandomValues(new Uint32Array(1))[0];
-    return [platform.navigator.language, platform.Intl.DateTimeFormat().resolvedOptions().timeZone, seed].join('\0');
+    return [platform.navigator.language, platform.Intl.DateTimeFormat().resolvedOptions().timeZone, seed, platform.Intl.DateTimeFormat().resolvedOptions().locale].join('\0'); // the last: ECMA-402's default locale, which a browser's formatters use
   };
 }
 // @ref LLP 1027.000.000 D3 — under the agent the date at the clock's zero is the drive's epoch (default
@@ -1110,17 +1111,17 @@ export function launchLocation(platform = globalThis) {
   const rest = q.toString();
   return pathname + (rest ? '?' + rest : '');
 }
-// The drive's facts are the launch URL's, even after a route changes the
-// address bar (storage-environment.js `launchHref`).
+// Drive facts use the launch URL after route changes too (storage-environment.js `launchHref`).
 const launched = () => new URL(globalThis.performance?.getEntriesByType?.('navigation')[0]?.name ?? location.href).searchParams;
-let pageTime;
-export const reportTime = (elapsed) => (pageTime ??= timeReporter(launched()))(elapsed);
-let pagePlace;
-export const reportPlace = () => (pagePlace ??= placeReporter(launched()))();
+let pageTime; export const reportTime = (elapsed) => (pageTime ??= timeReporter(launched()))(elapsed);
+let pagePlace; export const reportPlace = () => (pagePlace ??= placeReporter(launched()))();
 // A store write in the page (LLP 1018 D6, LLP 1116 D5, LLP 1027 D4): a secret or state the quota refuses sets the kept answers aside, a cache the runner bounds together, and is tried once more, the kept answers put back if it fails again; a kept answer it refuses leaves the older one, which the next launch may still match, and is said.
 export function storeInPage(storage, name, value, warn = console.warn) { const key = name.startsWith("exact.state.") ? name : "exact.secret." + name, write = () => value == null ? storage.removeItem(key) : storage.setItem(key, value);
-  try { try { write(); } catch (e) { if (name.startsWith("exact.kept.") || !/quota/i.test(e?.name ?? "")) throw e; const aside = Array.from({ length: storage.length }, (_, i) => storage.key(i)).filter(k => k?.startsWith("exact.secret.exact.kept.")).map(k => [k, storage.getItem(k)]); for (const [k] of aside) storage.removeItem(k); try { write(); } catch (again) { for (const [k, v] of aside) try { storage.setItem(k, v); } catch {} throw again; } } } catch (e) { warn("exact: store", name, String(e)); } }
-
+  try { try { write(); } catch (e) { if (name.startsWith("exact.kept.") || !/quota/i.test(e?.name ?? "")) throw e; const aside = Array.from({ length: storage.length }, (_, i) => storage.key(i)).filter(k => k?.startsWith("exact.secret.exact.kept.")).map(k => [k, storage.getItem(k)]); for (const [k] of aside) storage.removeItem(k); try { write(); } catch (again) { for (const [k, v] of aside) try { storage.setItem(k, v); } catch {} throw again; } } } catch (e) { warn("exact: store", name, String(e)); return false; } return true; }
+/** Failed writes belong to the page until a later commit persists or replaces them. */ export function pageStore(storage = () => localStorage, warn = console.warn) { const pending = new Map();
+  return { set(name, value) { pending.set(name, { value, warned: false }); }, flush() { for (const [name, entry] of pending) {
+    const report = (...line) => { if (!entry.warned) { entry.warned = true; warn(...line); } }; try { if (storeInPage(storage(), name, entry.value, report)) pending.delete(name); } catch (e) { report("exact: store", name, String(e)); }
+  } } }; }
 // An iframe guest's origin as authored when its `src` or `sandbox` was committed (an opaque
 // sandbox posts as "null"), which a `message` from it must match. The authored document owns
 // the channel: a later load revokes it until the app commits a new source.
@@ -1142,8 +1143,7 @@ export function guestMessageAuthorized(el, eventOrigin) {
 
 // @ref LLP 1069.001 D4 (amended 2026-10-04) — a select, range or date is controlled as a text field is: the committed
 // `value` is written when it changes, and shown again after the options change or a refused `type`; after the action
-// that heard the person (`acted`) it keeps their choice, as the web build's does (x2apps kanban2 #5: a date cleared
-// while a `send` was in flight).
+// that heard the person (`acted`) it keeps their choice, as the web build's does.
 const VALUED = new Set(["range", "date", "time", "datetime-local"]);
 export const valuedControl = (el) => el instanceof HTMLSelectElement || (el instanceof HTMLInputElement && VALUED.has(el.type));
 export function settleValue(el, acted = false) {
@@ -1242,8 +1242,7 @@ const grantFNV = text => {
 // two ECMAScript line separators before the seal is calculated.
 const grantBody = set => JSON.stringify({ version: 1, entries: set.entries, error: set.error })
   .replaceAll('\u2028', '\\u2028').replaceAll('\u2029', '\\u2029');
-const networkGrants = new Set(['fetch', 'fetch-subdomains', 'websocket']);
-// A scheme-wide line (`net.fetch https:`, a CSP scheme source) admits every origin of these schemes.
+const networkGrants = new Set(['fetch', 'fetch-subdomains', 'websocket', 'websocket-subdomains']);
 const schemeGrants = { 'fetch-scheme': ['http', 'https'], 'websocket-scheme': ['ws', 'wss'] };
 const pathGrants = new Set(['fs-read', 'fs-write', 'sqlite-open']);
 const nameGrants = new Set(['env-read', 'secret-keep', 'storage-kv']);
@@ -1269,9 +1268,10 @@ const grantTupleValid = grant => {
       || /^(?:https?|wss?|ftp)$/.test(grant[1]) && /^[\d.]+$/.test(grant[2]);
     return grant.length === 4
     && /^[a-z][a-z0-9+.-]*$/.test(grant[1])
+    && (grant[0] !== 'websocket-subdomains' || /^(ws|wss)$/.test(grant[1]))
     && typeof grant[2] === 'string' && grant[2] === grant[2].toLowerCase() && grant[2].length > 0
     && Number.isInteger(grant[3]) && grant[3] >= 0 && grant[3] <= 65535
-    && (grant[0] !== 'fetch-subdomains' || !address && !grant[2].endsWith('.') && grant[2].split('.').filter(Boolean).length >= 2);
+    && (!grant[0].endsWith('-subdomains') || !address && !grant[2].endsWith('.') && grant[2].split('.').filter(Boolean).length >= 2);
   }
   if (Object.hasOwn(schemeGrants, grant[0])) return grant.length === 2 && schemeGrants[grant[0]].includes(grant[1]);
   if (pathGrants.has(grant[0])) return grant.length >= 2
@@ -1295,10 +1295,10 @@ const pathTuple = (kind, target) => {
   return parts.some(part => part === '.' || part === '..') ? null : [kind, namespace, ...parts];
 };
 const networkTuple = (kind, target) => {
-  const wildcard = kind === 'fetch-subdomains';
+  const wildcard = kind.endsWith('-subdomains');
   if (wildcard && !target.includes('://*.')) return null;
   // Userinfo is refused, as in Rust: `https://a.example@evil.com` is evil.com.
-  if (target.includes('@')) return null;
+  if (target.includes('@') || (wildcard ? target.replace('://*.', '://') : target).includes('*')) return null;
   try {
     const url = new URL(wildcard ? target.replace('://*.', '://') : target);
     const port = Number(url.port || ({ 'http:': 80, 'https:': 443, 'ws:': 80, 'wss:': 443, 'ftp:': 21 })[url.protocol]);
@@ -1330,7 +1330,7 @@ const sourceTuple = source => {
     return schemeGrants[kind].includes(scheme) ? [kind, scheme] : null;
   }
   if (capability === 'net.fetch') return networkTuple(target.includes('://*.') ? 'fetch-subdomains' : 'fetch', target);
-  if (capability === 'net.websocket') return target.includes('*') ? null : networkTuple('websocket', target);
+  if (capability === 'net.websocket') return networkTuple(target.includes('://*.') ? 'websocket-subdomains' : 'websocket', target);
   if (capability === 'fs.read') return pathTuple('fs-read', target);
   if (capability === 'fs.write') return pathTuple('fs-write', target);
   if (capability === 'sqlite.open') return pathTuple('sqlite-open', target);
@@ -1427,7 +1427,7 @@ export function admittingGrant(set, value, operation = 'fetch') {
   const scheme = target.protocol.slice(0, -1).toLowerCase(), host = target.hostname.toLowerCase(), port = grantPort(target);
   return set.entries.find(([, , grant]) => grant && grant[1] === scheme && (grant[0] === kind + '-scheme' || grant[3] === port && (
     grant[0] === kind && grant[2] === host
-    || kind === 'fetch' && grant[0] === 'fetch-subdomains' && host.length > grant[2].length + 1 && host.endsWith('.' + grant[2])
+    || grant[0] === kind + '-subdomains' && host.length > grant[2].length + 1 && host.endsWith('.' + grant[2])
   )))?.[1] ?? null;
 }
 export const admitsNetwork = (set, value, operation) => admittingGrant(set, value, operation) !== null;

@@ -83,6 +83,9 @@ pub fn reply<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     if field_bool(request, "frames") {
         return "{\"unavailable\":true}".into();
     }
+    if field_bool(request, "streams") {
+        return streams(runner, request);
+    }
     let ids = runner.ids();
     if ids.work.sites.is_empty() && ids.work.later {
         return error("perf: this build's work is not measured until first asked, by the agent's first request or a trace (LLP 1079 D1)");
@@ -187,4 +190,29 @@ pub fn reply<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     }
     let _ = write!(s, "],\"walked\":{walked},\"truncated\":{truncated}}}");
     s
+}
+
+/// `{"op":"perf","streams":true[,"start":true]}`: the stream timing of
+/// LLP 1133.003's gate ([`crate::stream_timing`]), started (or started
+/// again) by `start`; production trust measures none, as for `perf`.
+fn streams<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
+    let work = &runner.ids().work;
+    if work.sites.is_empty() && !work.later {
+        return error("perf streams: this build measures no work (production trust, LLP 1079 D1)");
+    }
+    if field_bool(request, "start") && !crate::stream_timing::start() {
+        return error("perf streams: this host keeps no stream timing in the runner");
+    }
+    let streams = runner.streams();
+    let name = |ticket: u64| {
+        (streams.iter())
+            .find(|(_, t, _)| *t == ticket)
+            .map(|(name, ..)| name.clone())
+    };
+    let mut out = crate::agent::tags(runner);
+    out.pop();
+    out.push_str(",\"streamTiming\":");
+    out.push_str(&crate::stream_timing::report(&name));
+    out.push('}');
+    out
 }

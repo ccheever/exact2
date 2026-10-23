@@ -299,6 +299,13 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
                 "a request timeout cannot cross the Rust module seam".into(),
             )),
         ),
+        // Nor a held mark (LLP 1016.000 D9): refused, never silently waited on.
+        Ok(Answer::Later(r)) if r.held => encode_result(
+            w,
+            Err(DataError::Unavailable(
+                "a held request cannot cross the Rust module seam yet".into(),
+            )),
+        ),
         // Nor has it a file body (LLP 1108 D6 R2): refused, never sent empty.
         Ok(Answer::Later(r)) if r.body_from.is_some() => encode_result(
             w,
@@ -407,9 +414,11 @@ fn read_result(r: &mut Reader<'_>) -> Result<Result<Answer, DataError>, String> 
         1 | 6 | 9 => Ok(Answer::Later(Request {
             stream: tag == 9,
             socket: false,
+            bytes: false,
             timeout_ms: None,
             body_from: None,
             redirect: Redirect::Follow,
+            held: false,
             http: if tag != 1 {
                 let limit = r.u32().map_err(error)?;
                 if limit == 0 || limit > 64 << 20 {

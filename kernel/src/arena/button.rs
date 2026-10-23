@@ -5,6 +5,7 @@ use crate::{ButtonFaceStyle, ButtonImagePlacement, ControlKind, PressFace};
 pub(crate) struct ButtonInputs {
     env: crate::Env,
     neutral_tab_root: Option<f32>,
+    neutral_role_floor: bool,
     /// A list row's inset (LLP 1138), which the face's padding takes.
     row_inset: Option<[f32; 2]>,
     nodes: Vec<ButtonNode>,
@@ -17,12 +18,15 @@ struct ButtonNode {
     props: PropList,
     inherited: InheritedStyle,
     paragraph: Option<ParagraphStamp>,
+    /// Raster metadata changes the face without a prop or style write.
+    intrinsic: Option<(f32, f32)>,
 }
 
 impl ButtonInputs {
     pub(crate) fn matches(&self, arena: &NodeArena, slot: u32) -> bool {
         if self.env != *arena.env()
             || self.neutral_tab_root != arena.neutral_tab_root(slot)
+            || self.neutral_role_floor != arena.neutral_role_floor(slot)
             || self.row_inset != crate::rows::row_inset(arena, slot)
         {
             return false;
@@ -36,6 +40,10 @@ impl ButtonInputs {
                         || *held.style == *arena.style(s))
                     && held.props == *arena.props(s)
                     && held.paragraph == arena.paragraph_stamp(s)
+                    && held.intrinsic
+                        == arena
+                            .intrinsic(s)
+                            .filter(|_| arena.node_type(s) == NodeType::Image)
                     && held
                         .inherited
                         .changed_mask(&arena.computed_inherited(s))
@@ -94,6 +102,23 @@ impl NodeArena {
         )
     }
 
+    fn neutral_role_floor(&self, slot: u32) -> bool {
+        if matches!(
+            self.props(slot).str(PropId::AccessibilityRole),
+            Some("tab" | "radio")
+        ) {
+            return true;
+        }
+        let mut parent = self.parent(slot);
+        while let Some(at) = parent {
+            if self.props(at).str(PropId::AccessibilityRole) == Some("menu") {
+                return true;
+            }
+            parent = self.parent(at);
+        }
+        false
+    }
+
     pub(crate) fn press_face(&self, slot: u32) -> Option<PressFace> {
         if !self.is_native_button(slot) && self.node_type(slot) != NodeType::Pressable {
             return None;
@@ -130,7 +155,16 @@ impl NodeArena {
                         let source = self.props(child).str(PropId::ImageSource);
                         match source.and_then(|s| s.strip_prefix("symbol:")) {
                             Some(symbol) => face.symbol = Some(symbol.to_owned()),
-                            None => face.raster = source.is_some_and(|s| !s.is_empty()),
+                            None => {
+                                face.raster = source.is_some_and(|s| !s.is_empty());
+                                face.image = source.filter(|s| !s.is_empty()).map(|s| {
+                                    crate::control::ButtonRasterImage {
+                                        view: self.local_id(child),
+                                        source: s.to_owned(),
+                                        size: self.intrinsic(child),
+                                    }
+                                });
+                            }
                         }
                         face.leading = face.title.is_none() && face.subtitle.is_none();
                     }
@@ -156,6 +190,7 @@ impl NodeArena {
         ButtonInputs {
             env: self.env.clone(),
             neutral_tab_root: self.neutral_tab_root(slot),
+            neutral_role_floor: self.neutral_role_floor(slot),
             row_inset: crate::rows::row_inset(self, slot),
             nodes: self
                 .subtree(slot)
@@ -167,6 +202,9 @@ impl NodeArena {
                     props: self.props(s).clone(),
                     inherited: self.computed_inherited(s),
                     paragraph: self.paragraph_stamp(s),
+                    intrinsic: self
+                        .intrinsic(s)
+                        .filter(|_| self.node_type(s) == NodeType::Image),
                 })
                 .collect(),
         }
@@ -301,6 +339,7 @@ impl NodeArena {
         };
         Some(ButtonFaceStyle {
             neutral_tab_root,
+            neutral_role_floor: self.neutral_role_floor(slot),
             title,
             subtitle: texts.get(1).map(|&c| text_style(Some(c))),
             symbol,

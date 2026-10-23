@@ -147,9 +147,9 @@ fn columns_the_author_sized_keep_their_words_width() {
 /// Where the two do not fit one line the value goes under the title, at its
 /// leading edge, and the title takes the row's width, as UIKit's value cell
 /// stacks them (iOS 27): a long title at the default size, both at the
-/// largest. A word that does not fit the title's line breaks between
-/// syllables, as a cell's label hyphenates (round 26's "Anderso/n", broken
-/// at a letter beside its value, was a tell), or anywhere.
+/// largest. The row is a custom cell, so a word longer than the title's line
+/// breaks at a letter, as a UILabel's does, and not between syllables (LLP
+/// 1141.001 D5).
 #[test]
 fn a_column_holding_the_title_is_the_title_and_the_later_text_its_value() {
     for (name, root, beside) in [
@@ -192,11 +192,62 @@ fn a_column_holding_the_title_is_the_title_and_the_later_text_its_value() {
         assert_eq!(
             (style.hyphens, style.overflow_wrap),
             (
-                exact_kernel::Hyphens::Auto,
+                exact_kernel::Hyphens::Manual,
                 exact_kernel::OverflowWrap::BreakWord
             ),
-            "a long word breaks between syllables"
+            "a long word breaks at a letter"
         );
+    }
+}
+
+/// LLP 1141.001 D5: the standard cell's texts hyphenate, as
+/// UIListContentConfiguration's labels do (a title, a title and its value,
+/// the subtitle cell, `RowText`'s stand-in for it, a swipe's row of that
+/// shape). An author's own content in a row (Hackers' feed row: a thumbnail
+/// button beside a stack of a domain, a title and a line of counts) is a
+/// custom cell's, whose labels do not: CSS's `manual`. Every row's long word
+/// still breaks rather than running past its line.
+#[test]
+fn only_the_standard_cells_texts_hyphenate() {
+    use exact_kernel::{Hyphens, OverflowWrap};
+    let rows = r#"list appearance="auto" listStyle="plain" testId="list" flex=1
+  section
+    row
+      text "Title" testId="title"
+    row
+      image "symbol:star"
+      text "Title" testId="valued"
+      text "Value" testId="value"
+      image "symbol:chevron.forward"
+    row
+      column
+        text "Title" testId="stacked"
+        text "Subtitle" testId="subtitle"
+    row delete=go
+      text "Swiped" testId="swiped"
+    row press=go gap=12
+      button press=go aria-label="Open link" width=55 height=55
+        image "symbol:sf/safari"
+      column flex=1 min-width=0 gap=6
+        text "example.com" testId="domain"
+        text "LLMs are making formal software verification feasible" testId="post"
+        row gap=8
+          text "↑ 12" testId="score"
+    row
+      text "A" testId="first"
+      text "B"
+      text "C""#;
+    let r = boot(rows);
+    let k = r.kernel();
+    let style = |t: &str| {
+        let s = k.node(id(&r, t)).unwrap().computed_style(StyleMask::ALL);
+        (s.hyphens, s.overflow_wrap)
+    };
+    for t in ["title", "valued", "value", "stacked", "subtitle", "swiped"] {
+        assert_eq!(style(t), (Hyphens::Auto, OverflowWrap::BreakWord), "{t}");
+    }
+    for t in ["domain", "post", "score", "first"] {
+        assert_eq!(style(t), (Hyphens::Manual, OverflowWrap::BreakWord), "{t}");
     }
 }
 

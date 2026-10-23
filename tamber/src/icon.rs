@@ -1,10 +1,12 @@
 //! Icon tokens (LLP 1121 D10; stage 6 F, stage 9's brought forward): an
 //! `icons` block's tokens, each naming a symbol that is not a role by a
 //! source per platform, `icon(sf "bubble.left", material "chat_bubble",
-//! svg "icons/reply.svg")`: an SF Symbol on Apple, an SVG under the app's
-//! `assets/` everywhere else, and a Material Symbol's name kept as an
-//! annotation. What the files hold, and which targets need which source, is
-//! the build's to check: this module reads the text.
+//! svg "icons/reply.svg")`: an SF Symbol on Apple, an SVG under the
+//! `assets/` of the root whose file writes it (the app's, or a
+//! package's: LLP 1121 D11, stage 13) everywhere else, and a Material
+//! Symbol's name kept as an annotation. What the files hold, and which
+//! targets need which source, is the build's to check: this module reads
+//! the text.
 
 use crate::syntax::Token;
 use crate::Diagnostic;
@@ -18,10 +20,15 @@ pub struct Icon {
     pub sf: Option<String>,
     /// A Material Symbol's name: an annotation, which nothing resolves.
     pub material: Option<String>,
-    /// The SVG under the app's `assets/` other hosts draw, relative to it.
+    /// The SVG other hosts draw, relative to the `assets/` of the root
+    /// whose file writes its sources (the app's directory, or a package's
+    /// root: LLP 1121 D11, stage 13).
     pub svg: Option<String>,
     /// Where it was declared.
     pub line: u32,
+    /// The line its sources are written on: its own value's, or, for one
+    /// naming another, that one's (whose file its SVG is read beside).
+    pub written: u32,
     /// Its column.
     pub col: u32,
 }
@@ -127,8 +134,9 @@ pub(crate) fn aliased(icons: &mut [Token]) {
                 .iter()
                 .find(|t| t.name.value == name && sources(&t.value.value).is_ok())
             {
-                let value = src.value.value.clone();
-                icons[i].value.value = value;
+                // Its line too: the SVG is read beside the file it is written in.
+                let value = src.value.clone();
+                icons[i].value = value;
                 changed = true;
             }
         }
@@ -185,6 +193,7 @@ pub(crate) fn check(icons: &[Token], tokens: &[Token]) -> (Vec<Icon>, Vec<Diagno
                 svg,
                 line: t.name.line,
                 col: t.name.col,
+                written: t.value.line,
             }),
             Err(m) => errors.push(Diagnostic::new("tamber-kind", m, t.value.line, t.value.col)),
         }

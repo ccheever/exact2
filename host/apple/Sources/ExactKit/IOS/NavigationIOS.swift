@@ -38,6 +38,14 @@ final class RouteController: UIViewController {
     weak var bandedTop: UIScrollView?, bandedBottom: UIScrollView?
     /// Its insets were last taken with no bar shown (LLP 1130 D3), so a title's are measured afresh.
     var insetsBarless = false
+    var ridingBars: [NodeView] = []
+    func rideBars() {
+        let offset = node.convert(CGPoint(x: 0, y: view.safeAreaInsets.top), from: view).y
+        for bar in ridingBars where abs(bar.controlRide - offset) > 0.001 {
+            bar.controlRide = offset
+            bar.applyTransform()
+        }
+    }
     /// The scroller that is the route's last in-flow child, which reaches
     /// the screen's bottom edge (LLP 1116 D2).
     weak var edgeScroll: NodeView?
@@ -52,6 +60,7 @@ final class RouteController: UIViewController {
     var search: HeaderSearch?
     /// The title Exact drew from the heading's group, and the subtitle it
     /// wrote; whether the root's tablist was hidden when it last looked (§9.10).
+    let titleInk = NavigationTitleInk()
     var titleView: HeaderTitleView?, subtitle: String?, tablistHidden: Bool?
     /// The route appeared, first or again after a cancelled swipe: a zoom
     /// push's landing hears it (ZoomPushIOS).
@@ -69,6 +78,7 @@ final class RouteController: UIViewController {
     // hatch): the route's content area follows (LLP 1075.003 §3.5).
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
+        rideBars()
         host?.coversChanged()
     }
     // Back on a screen whose list pushed the one leaving: the row that was
@@ -126,8 +136,10 @@ final class RouteController: UIViewController {
     /// background, not white. A sheet is the route's own background where it
     /// has one, as a grouped sheet's surface is the grouped background (LLP
     /// 1116.021 D7, amending LLP 1115 D2), so no white band shows where the
-    /// route stops above a keyboard's bar; else the system's. What is behind
-    /// the sheet is not, and dimming belongs to UIKit's presentation.
+    /// route stops above a keyboard's bar; else clear, over the surface its
+    /// presentation paints (`ModalController.paintSurface`: UIKit's glass at
+    /// a partial detent, LLP 1141.001 D3). What is behind the sheet is not,
+    /// and dimming belongs to UIKit's presentation.
     func paintBackdrop() {
         guard isViewLoaded else { return }
         let modal = node.props["navigationPresentation"] == "modal"
@@ -146,13 +158,14 @@ final class RouteController: UIViewController {
         view.backgroundColor = UIColor { [weak self] traits in
             let dark = traits.userInterfaceStyle == .dark
             let colour = modal ? self?.ownBackdrop(dark: dark) : self?.backdrop(dark: dark)
-            return colour.map { TextEngine.color($0) } ?? system
+            return colour.map { TextEngine.color($0) } ?? (modal ? .clear : system)
         }
     }
 
     /// The route's own background, if it paints one.
     private func ownBackdrop(dark: Bool) -> [Double]? {
-        node.channels("background_color", dark: dark).flatMap { $0.count < 4 || $0[3] > 0 ? $0 : nil }
+        if node.groundIsSheets { return nil }
+        return node.channels("background_color", dark: dark).flatMap { $0.count < 4 || $0[3] > 0 ? $0 : nil }
     }
 
     /// What shows behind the route where it paints nothing: its own
@@ -264,6 +277,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     var tabItemsSource: (NavigationTabs, [UIViewController])?
     /// The bar's tint as last written: the tablist's accent, light and dark.
     var tabTint: [[Double]?]?
+    var tabTintOwn = false
     let tabProxy = TabDelegateProxy()
     /// A context menu's commit pushes without the stack's animation: UIKit
     /// animates it (`.pop`, LLP 1021 §5.1). The selected route's key tells
@@ -573,6 +587,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         guard !changing, !presenter.modals.inTransition, !heldWaits else {
             pendingSync = true
             owePress()
+            reportCovers()
             return
         }
         pendingSync = false

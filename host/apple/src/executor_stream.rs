@@ -11,6 +11,8 @@
 //! is sent: the request's method, headers and body are not used, as a
 //! browser's `WebSocket` could not send them either. A request that says
 //! `socket` owns a two-way socket instead (LLP 1016.000 D7; `socket.rs`).
+//! A request that says `bytes` reads a 2xx body that is not
+//! `text/event-stream` as a byte stream instead of one answer (`bytes.rs`).
 use super::{
     check_headers, complete, failed, fetch_failure, fetch_request, has_ready, wake, Completed,
     Shared, MAX_BODY,
@@ -25,7 +27,8 @@ use ibex2::stdlib::{
 /// What a stream opened as.
 enum Opened {
     Events(StreamingResponse, usize),
-    Socket(Box<dyn MessageSource>),
+    Bytes(StreamingResponse, usize),
+    Socket(Box<dyn MessageSource>, usize),
 }
 pub(super) use socket::{close as close_sockets, release, Socket};
 
@@ -77,7 +80,7 @@ pub(super) fn run(
                         .then(|| failed(FailureKind::Aborted, "native request aborted"))
                 })
                 .and_then(|()| open(Ok(&b), request, forced, &abort))
-                .map(|(r, limit)| (Opened::Events(r, limit), b))
+                .map(|opened| (opened, b))
             }
             Err(message) => Err(failed(FailureKind::Refused, message)),
         }
@@ -88,10 +91,13 @@ pub(super) fn run(
         Ok((Opened::Events(response, limit), _bindings)) => {
             read_events(shared, ticket, response, limit, abort)
         }
-        Ok((Opened::Socket(socket), _bindings)) if two_way => {
-            socket::read(shared, ticket, socket, abort)
+        Ok((Opened::Bytes(response, limit), _bindings)) => {
+            bytes::read(shared, ticket, response, limit, abort)
         }
-        Ok((Opened::Socket(socket), _bindings)) => read_socket(shared, ticket, socket, abort),
+        Ok((Opened::Socket(socket, limit), _bindings)) if two_way => {
+            socket::read(shared, ticket, socket, limit, abort)
+        }
+        Ok((Opened::Socket(socket, _), _bindings)) => read_socket(shared, ticket, socket, abort),
         Err(outcome) => complete(shared, ticket, outcome),
     }
 }
@@ -108,7 +114,7 @@ fn open_socket(
     };
     b.websocket
         .open(&request.url, limit, &abort.signal())
-        .map(Opened::Socket)
+        .map(|socket| Opened::Socket(socket, limit))
         .map_err(|e| fetch_failure(e, abort))
 }
 
@@ -220,16 +226,17 @@ pub fn socket_closed(code: u16, reason: &str) -> String {
     }
 }
 
-/// Open `request` as a stream. `Ok` is an event stream to read, with its
-/// per-message ceiling; anything else is the stream's one answer, whole:
-/// a status that is not 2xx, a body that is not `text/event-stream`, or
-/// the failure that kept it from opening.
+/// Open `request` as a stream. `Ok` is an event stream to read, or a byte
+/// stream when the request says `bytes`, with its per-message ceiling;
+/// anything else is the stream's one answer, whole: a status that is not
+/// 2xx, a body that is not `text/event-stream` (unless `bytes`), or the
+/// failure that kept it from opening.
 fn open(
     bindings: Result<&ibex2::host::Bindings, &str>,
     request: Request,
     forced: bool,
     abort: &AbortController,
-) -> Result<(StreamingResponse, usize), Outcome> {
+) -> Result<Opened, Outcome> {
     if abort.signal().aborted() {
         return Err(failed(FailureKind::Aborted, "native request aborted"));
     }
@@ -238,6 +245,9 @@ fn open(
         HttpScheduling::Ordered => MAX_BODY,
         HttpScheduling::Independent { max_response_bytes } => max_response_bytes as usize,
     };
+    // A response with no body (Fetch's null body status, or to a `HEAD`) is
+    // the one answer, as the web's, whose `response.body` is null for it.
+    let as_bytes = request.bytes && !request.method.eq_ignore_ascii_case("HEAD");
     let mut req = fetch_request(request, forced);
     if !req.headers.has("accept") {
         req.headers.set("accept", "text/event-stream");
@@ -256,7 +266,10 @@ fn open(
                 .is_some_and(|t| t.trim().eq_ignore_ascii_case("text/event-stream"))
         });
     if events {
-        return Ok((r, limit));
+        return Ok(Opened::Events(r, limit));
+    }
+    if as_bytes && r.ok() && !matches!(r.status, 204 | 205) {
+        return Ok(Opened::Bytes(r, limit));
     }
     let (status, headers) = (r.status, r.headers.entries().to_vec());
     let mut body = r.body;
@@ -430,6 +443,8 @@ impl EventStream {
     }
 }
 
+#[path = "executor_bytes.rs"]
+mod bytes;
 #[path = "executor_socket.rs"]
 mod socket;
 

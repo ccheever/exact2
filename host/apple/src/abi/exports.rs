@@ -225,6 +225,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.location_of(len), |n| n)
         }
 
+        /// The first root's literal viewport-fit, read before boot. Zero len selects the bake.
+        #[no_mangle]
+        pub extern "C" fn exact_plan_covers_viewport(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| u32::from(b.plan_covers_viewport(len, $plan)), |_| 0)
+        }
+
         /// Derive a declared protocol handler location from href, scheme and template.
         #[no_mangle]
         pub extern "C" fn exact_protocol_location_of(rt: u32, len: usize) -> u32 {
@@ -247,6 +253,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_host_back(rt: u32, id: u64, now_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.host_back(id, now_ms), |n| n)
+        }
+
+        /// Follow a UTF-8 location with the runner's own go.
+        #[no_mangle]
+        pub extern "C" fn exact_host_go(rt: u32, len: usize, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.host_go(len, now_ms), |n| n)
         }
 
         /// Supply the launch location before the first boot. @ref LLP 1038 D5/D8
@@ -383,6 +395,12 @@ macro_rules! host {
                 if token != 0 && facts.is_none() { return b.refuse_preparation("unknown composition generation"); }
                 b.prepare_module_with_delivery([plan, receipt, module], ($new)(), hooks, width, height, facts, let_go != 0)
             }, |n| n)
+        }
+
+        /// Refuse a candidate whose source changed after preparation.
+        #[no_mangle]
+        pub extern "C" fn exact_check_prepared(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.check_prepared(), |n| n)
         }
 
         /// Commit an accepted prepared plan.
@@ -672,6 +690,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_set_root_font_size(rt: u32, px: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_root_font_size(px), |n| n)
+        }
+
+        /// The host's zoom over the root size (the Mac's View ▸ Zoom In).
+        #[no_mangle]
+        pub extern "C" fn exact_set_root_font_zoom(rt: u32, factor: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_root_font_zoom(factor), |n| n)
         }
 
         /// Whether a confirmation's rows are an alert's (LLP 1115 D6): 1 for

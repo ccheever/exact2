@@ -75,6 +75,7 @@ pub mod share;
 pub mod sound;
 pub mod stdlib;
 pub mod store;
+pub mod stream_timing;
 pub mod strings;
 pub mod surface_record;
 pub mod time;

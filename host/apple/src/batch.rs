@@ -737,14 +737,25 @@ impl Batch {
         self.ops.push(s);
     }
 
-    /// `{"op":"block","id":…,"w":…,"h":…}` — the used size of the containing
-    /// block a host gave this subtree (LLP 1115.002 D8.2).
-    pub fn block(&mut self, id: u32, w: f32, h: f32) {
+    /// `{"op":"block","id":…,"w":…,"h":…,"x":…,"y":…}` — the used size of
+    /// the containing block a host gave this subtree (LLP 1115.002 D8.2),
+    /// or the kernel did (a popover's, the viewport), and where the root
+    /// sits in it: a top-layer box is reported by its block's rectangle.
+    pub fn block(&mut self, id: u32, (w, h): (f32, f32), (x, y): (f32, f32)) {
+        let num = crate::style::num;
         self.ops.push(format!(
-            "{{\"op\":\"block\",\"id\":{id},\"w\":{},\"h\":{}}}",
-            crate::style::num(w),
-            crate::style::num(h)
+            "{{\"op\":\"block\",\"id\":{id},\"w\":{},\"h\":{},\"x\":{},\"y\":{}}}",
+            num(w),
+            num(h),
+            num(x),
+            num(y)
         ));
+    }
+
+    /// `{"op":"block","id":…}` — the subtree has no block any more (a
+    /// popover out of the top layer): its block's rectangle is forgotten.
+    pub fn unblock(&mut self, id: u32) {
+        self.ops.push(format!("{{\"op\":\"block\",\"id\":{id}}}"));
     }
 
     /// `{"op":"content","id":…,"w":…,"h":…}` — natural scrollable extent;

@@ -79,6 +79,8 @@ pub(crate) struct SvgState {
     elements: IdMap<ViewId, ViewId>,
     /// Scenes to rebuild.
     dirty: IdSet<ViewId>,
+    #[cfg(test)]
+    pub(crate) scene_builds: usize,
     /// The last scene sent per `svg`, and its content box.
     sent: IdMap<ViewId, (String, Rect)>,
     /// Environment used by the cached scenes, including the window unit basis.
@@ -94,8 +96,7 @@ pub(crate) struct SvgState {
     /// leaves the engine.
     played: IdSet<ViewId>,
     /// Each played transition's spec and the transition it was made for.
-    pub(crate) played_specs:
-        std::collections::BTreeMap<(u64, usize), (exact_motion::TransitionEnds, String)>,
+    pub(crate) played_specs: std::collections::BTreeMap<(u64, usize), super::svg_lower::PlayedSpec>,
     /// SVG elements with a press handler (LLP 1055.000 D17).
     pressable: IdSet<ViewId>,
     /// Whether a `foreignObject` was met: its boxes are then looked for
@@ -104,8 +105,8 @@ pub(crate) struct SvgState {
     /// Whether boxes' transforms and background colours are lowered
     /// ([`BOX_LOWERED`]): iOS.
     pub(crate) box_motion: bool,
-    /// Whether Core Animation plays boxes' opacity and background-colour
-    /// transitions (`svg_lower::hand_over_transitions`): iOS.
+    /// Whether Core Animation plays boxes' eligible transforms, opacity and
+    /// background-colour transitions (`svg_lower::hand_over_transitions`): iOS.
     pub(crate) play_transitions: bool,
 }
 
@@ -260,6 +261,10 @@ impl SvgState {
                 continue;
             };
             let bx = content_box(kernel, &node);
+            #[cfg(test)]
+            {
+                self.scene_builds += 1;
+            }
             let scene = scene(kernel, engine, &self.pressable, &node, bx);
             if self.sent.get(&root).is_none_or(|(s, _)| *s != scene) {
                 batch.svg(root, &scene);
@@ -326,7 +331,7 @@ impl SvgState {
                 &underlying,
                 Some((size.0 as f64, size.1 as f64)),
             );
-            let played = transition_specs(engine, key, &mut self.played_specs);
+            let played = transition_specs(engine, key, size, &mut self.played_specs);
             if played.is_empty() {
                 self.played.remove(&id);
             } else {

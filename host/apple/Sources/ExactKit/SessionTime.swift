@@ -12,7 +12,7 @@ extension ExactSession {
             offsetHeld = nil
             followOffset()
         }
-        apply(runtime.setPlace(locale: launchPlace.locale, timeZone: launchPlace.timeZone, seed: launchPlace.seed))
+        apply(runtime.setPlace(locale: launchPlace.locale, timeZone: launchPlace.timeZone, seed: launchPlace.seed, formatLocale: launchPlace.formatLocale))
         tellPreferences()
         tellPage()
     }
@@ -59,7 +59,7 @@ extension ExactSession {
         guard state != .destroyed else { return }
         let date = dateNow()
         runtime.setLaunchTime(epochAtZero: date.epoch, utcOffset: date.offset)
-        runtime.setLaunchPlace(locale: launchPlace.locale, timeZone: launchPlace.timeZone, seed: launchPlace.seed)
+        runtime.setLaunchPlace(locale: launchPlace.locale, timeZone: launchPlace.timeZone, seed: launchPlace.seed, formatLocale: launchPlace.formatLocale)
         runtime.liveClock(clock == nil)
     }
 }

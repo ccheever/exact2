@@ -10,6 +10,7 @@
 //! @ref LLP 1015 §5; LLP 1012 §3–§4
 
 pub(crate) mod contact;
+mod held;
 
 use crate::presenter::Presenter;
 use exact_runner::agent::{error, field_bool, field_num, field_str, num};
@@ -1010,6 +1011,7 @@ fn tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             }
         }
     }
+    held::name_pending(p, &mut tree);
     tree.to_string()
 }
 
@@ -1038,7 +1040,7 @@ fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     if field_bool(line, "land") {
         let (landed, e) = p.land_then();
         p.sync_surfaces();
-        return match e {
+        let reply = match e {
             Some(e) => {
                 let mut s = String::from("{\"error\":");
                 exact_runner::agent::quote(&format!("clock: {e}"), &mut s);
@@ -1046,13 +1048,15 @@ fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             }
             None => format!("{{\"clock\":{}}}", num(landed)),
         };
+        return held::held_named(p, reply);
     }
     if field_bool(line, "data") {
-        return land_data(p, SETTLE_BOUND);
+        let reply = land_data(p, SETTLE_BOUND);
+        return held::held_named(p, reply);
     }
     let reply = clock_within(p, line, SETTLE_BOUND);
     retell_offset(p);
-    reply
+    held::held_named(p, reply)
 }
 
 /// `clock data`: the app's data lands — its deferred module activated (the

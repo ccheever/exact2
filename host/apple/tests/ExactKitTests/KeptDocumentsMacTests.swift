@@ -73,23 +73,151 @@ final class KeptDocumentsMacTests: XCTestCase {
     }
 
     /// `forgetDocument` takes a document off Open Recent: the list is noted
-    /// again without it, in the order it had.
+    /// again without it, in the order it had. AppKit applies a clear and a
+    /// note a turn or more later (`noteWhenCleared`), so each step is waited
+    /// for, up to 3 s.
     func testAForgottenDocumentLeavesOpenRecentAndTheRestKeepTheirOrder() throws {
         _ = NSApplication.shared
         let controller = NSDocumentController.shared
+        func listed(_ want: [String]) -> [String] {
+            let end = Date().addingTimeInterval(3)
+            while controller.recentDocumentURLs.map(\.lastPathComponent) != want, Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+            return controller.recentDocumentURLs.map(\.lastPathComponent)
+        }
+        func clear() { if !controller.recentDocumentURLs.isEmpty { controller.clearRecentDocuments(nil); _ = listed([]) } }
         let saved = controller.recentDocumentURLs
         defer {
-            controller.clearRecentDocuments(nil)
+            clear()
             saved.reversed().forEach(controller.noteNewRecentDocumentURL)
         }
         let urls = try ["a.md", "b.md", "c.md"].map { try write($0, $0) }
-        controller.clearRecentDocuments(nil)
+        clear()
         urls.forEach(controller.noteNewRecentDocumentURL)
-        let listed = controller.recentDocumentURLs.map(\.lastPathComponent)
-        try XCTSkipUnless(listed == ["c.md", "b.md", "a.md"], "this test host keeps no recent documents: \(listed)")
+        let noted = listed(["c.md", "b.md", "a.md"])
+        try XCTSkipUnless(noted == ["c.md", "b.md", "a.md"], "this test host keeps no recent documents: \(noted)")
         let b = try XCTUnwrap(KeptDocuments.identity(urls[1].path))
         KeptDocuments.forgotten(device: b.device, inode: b.inode)
+        XCTAssertEqual(listed(["c.md", "a.md"]), ["c.md", "a.md"])
+        // And it stays so: a clear that lands late takes nothing noted after it.
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
         XCTAssertEqual(controller.recentDocumentURLs.map(\.lastPathComponent), ["c.md", "a.md"])
+        // While a clear is on its way: a document the app notes is held, then noted newest, and the list the
+        // library reconciles kept records against (`recent`) is the one to come.
+        let c = try XCTUnwrap(KeptDocuments.identity(urls[2].path)), a = try XCTUnwrap(KeptDocuments.identity(urls[0].path))
+        KeptDocuments.forgotten(device: c.device, inode: c.inode)
+        XCTAssertNotNil(KeptDocuments.toNote, "the clear is on its way")
+        KeptDocuments.note(urls[1])
+        XCTAssertEqual(KeptDocuments.recent.map { KeptDocuments.file(URL(fileURLWithPath: $0)) }, [urls[1], urls[0]].map(KeptDocuments.file))
+        XCTAssertEqual(listed(["b.md", "a.md"]), ["b.md", "a.md"])
+        // A kept document reopened meanwhile moves to the top, past a newer one; one noted and forgotten meanwhile
+        // goes. (A clear that never lands, or lands after the 2 s fallback, leaves c.md or loses b.md here.)
+        KeptDocuments.note(urls[2])
+        _ = listed(["c.md", "b.md", "a.md"])
+        KeptDocuments.forgotten(device: c.device, inode: c.inode)
+        KeptDocuments.note(urls[0])
+        let d = try write("d.md", "d.md"), dIdentity = try XCTUnwrap(KeptDocuments.identity(d.path))
+        KeptDocuments.note(d)
+        KeptDocuments.forgotten(device: dIdentity.device, inode: dIdentity.inode)
+        XCTAssertEqual(KeptDocuments.recent.map { KeptDocuments.file(URL(fileURLWithPath: $0)) }, [urls[0], urls[1]].map(KeptDocuments.file))
+        XCTAssertEqual(listed(["a.md", "b.md"]), ["a.md", "b.md"])
+        // Clear Menu while one is on its way: nothing comes back.
+        KeptDocuments.forgotten(device: a.device, inode: a.inode)
+        KeptDocuments.clear()
+        XCTAssertEqual(listed([]), [])
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertEqual(controller.recentDocumentURLs, [])
+    }
+
+    /// A clear that lands after the 2 s fallback took what it noted: noted
+    /// again once it lands (`watchLate`), and never past a real Clear Menu.
+    /// The late clear is made by hand: the fallback runs on a list it
+    /// assumes cleared, then the test clears it.
+    func testWhatTheFallbackNotedComesBackAfterALateClearButNotAfterClearMenu() throws {
+        _ = NSApplication.shared
+        let controller = NSDocumentController.shared
+        func listed(_ want: [String], within: TimeInterval = 3) -> [String] {
+            let end = Date().addingTimeInterval(within)
+            while controller.recentDocumentURLs.map(\.lastPathComponent) != want, Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+            return controller.recentDocumentURLs.map(\.lastPathComponent)
+        }
+        func clear() { if !controller.recentDocumentURLs.isEmpty { controller.clearRecentDocuments(nil); _ = listed([]) } }
+        let saved = controller.recentDocumentURLs
+        defer {
+            KeptDocuments.late = nil
+            clear()
+            saved.reversed().forEach(controller.noteNewRecentDocumentURL)
+        }
+        let urls = try ["a.md", "b.md", "c.md"].map { try write($0, $0) }
+        for clearMenu in [false, true] {
+            clear()
+            urls.forEach(controller.noteNewRecentDocumentURL)
+            let noted = listed(["c.md", "b.md", "a.md"])
+            try XCTSkipUnless(noted == ["c.md", "b.md", "a.md"], "this test host keeps no recent documents: \(noted)")
+            // b.md forgotten, its clear not landed in 2 s: the fallback notes a.md and c.md over the list as it is.
+            KeptDocuments.toNote = (Set(urls.map(KeptDocuments.file)), [urls[0], urls[2]])
+            KeptDocuments.noteWhenCleared(tries: 0)
+            XCTAssertEqual(listed(["c.md", "a.md", "b.md"]), ["c.md", "a.md", "b.md"])
+            XCTAssertNotNil(KeptDocuments.late, "watched for a later clear")
+            if clearMenu {
+                KeptDocuments.clear()
+                XCTAssertEqual(listed([]), [])
+                RunLoop.main.run(until: Date().addingTimeInterval(1))
+                XCTAssertEqual(controller.recentDocumentURLs, [], "a Clear Menu is not undone")
+            } else {
+                // The clear lands late: what the fallback noted comes back, in its order.
+                controller.clearRecentDocuments(nil)
+                XCTAssertEqual(listed(["c.md", "a.md"], within: 5), ["c.md", "a.md"])
+                KeptDocuments.late = nil
+            }
+        }
+    }
+
+    /// While a late clear is watched for, a document forgotten stays gone,
+    /// and one reopened meanwhile comes back with the rest. Driven by hand:
+    /// the watch looks when the test asks first.
+    func testALateWatchKeepsAForgottenDocumentGoneAndBringsBackOneReopened() throws {
+        _ = NSApplication.shared
+        let controller = NSDocumentController.shared
+        func listed(_ want: [String]) -> [String] {
+            let end = Date().addingTimeInterval(3)
+            while controller.recentDocumentURLs.map(\.lastPathComponent) != want, Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+            return controller.recentDocumentURLs.map(\.lastPathComponent)
+        }
+        func clear() { if !controller.recentDocumentURLs.isEmpty { controller.clearRecentDocuments(nil); _ = listed([]) } }
+        let saved = controller.recentDocumentURLs
+        defer {
+            KeptDocuments.late = nil
+            clear()
+            saved.reversed().forEach(controller.noteNewRecentDocumentURL)
+        }
+        let urls = try ["a.md", "b.md", "c.md"].map { try write($0, $0) }
+        // Forgotten meanwhile: a.md, which the fallback had noted.
+        clear()
+        KeptDocuments.late = ([urls[0], urls[2]], KeptDocuments.generation)
+        let a = try XCTUnwrap(KeptDocuments.identity(urls[0].path))
+        KeptDocuments.forgotten(device: a.device, inode: a.inode)
+        KeptDocuments.watchLate()
+        let came = listed(["c.md"])
+        try XCTSkipUnless(!came.isEmpty, "this test host keeps no recent documents: \(came)")
+        XCTAssertEqual(came, ["c.md"])
+        // Reopened meanwhile: c.md, one the old list had too.
+        clear()
+        KeptDocuments.late = ([urls[0], urls[2]], KeptDocuments.generation)
+        KeptDocuments.note(urls[2])
+        _ = listed(["c.md"])
+        KeptDocuments.watchLate()
+        XCTAssertEqual(listed(["c.md", "a.md"]), ["c.md", "a.md"])
+        // The only document forgotten, reopened before its late clear lands: it comes back after it. (A generation
+        // of its own, so no watch from above looks before the test sees the clear land.)
+        clear()
+        KeptDocuments.generation += 1
+        KeptDocuments.late = ([], KeptDocuments.generation)
+        KeptDocuments.note(urls[1])
+        _ = listed(["b.md"])
+        controller.clearRecentDocuments(nil)
+        XCTAssertEqual(listed([]), [])
+        KeptDocuments.watchLate()
+        XCTAssertEqual(listed(["b.md"]), ["b.md"])
     }
 }
 #endif

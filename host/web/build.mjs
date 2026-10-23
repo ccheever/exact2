@@ -206,7 +206,7 @@ function copyHostFiles(group) {
     if (!name.endsWith('.js')) { copyFileSync(resolve(root, source), resolve(stage, name)); continue; }
     // Production ships executable code, without source comments and long
     // local names. Keep exports and property names intact across modules.
-    const result = minifySync(name, gateAgent(readFileSync(resolve(root, source), 'utf8'), name), { module: name !== 'module-prelude.js' });
+    const result = minifySync(name, gateAgent(readFileSync(resolve(root, source), 'utf8'), name), { module: name !== 'module-prelude.js' && name !== 'module-binary.js' });
     if (result.errors.length) throw new Error(`${name}: ${JSON.stringify(result.errors)}`);
     writeFileSync(resolve(stage, name), result.code);
   }

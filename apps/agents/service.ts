@@ -82,6 +82,7 @@ const MOCK_REPLY = [
   '2. **Measure** before optimising anything.\n',
   '3. **Polish** the parts people touch most.\n\n',
   '```swift\nlet window = NSWindow()\nwindow.titlebarAppearsTransparent = true\n```\n\n',
+  '| Step | Cost | Payoff |\n| :--- | :---: | ---: |\n| **Start small** | Low | Fast feedback |\n| Measure | Medium | Fewer guesses |\n| Polish | High | Delight |\n\n',
   'Want me to go deeper on any of these?',
 ];
 async function mock(job: Job, effort: string) {

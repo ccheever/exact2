@@ -68,7 +68,7 @@ final class SystemColorIOSTests: XCTestCase {
         window.makeKeyAndVisible()
         let blue: [String: Any] = ["sys": "systemBlueColor", "c": [[0, 0, 255, 255], [0, 0, 255, 255]]]
         p.apply(wireBatch([
-            ["op": "create", "id": 1, "kind": "text", "style": ["background_color": blue]],
+            ["op": "create", "id": 1, "kind": "text", "style": ["background_color": blue, "symbol_rendering": "palette", "symbol_palette": [blue]]],
             ["op": "paragraph", "id": 1, "runs": [["id": 2, "parent": 1, "paint": true, "props": ["text": "blue"], "style": ["text_color": blue]]]],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 40.0],
@@ -80,14 +80,14 @@ final class SystemColorIOSTests: XCTestCase {
         let high = UITraitCollection(traitsFrom: [UITraitCollection(userInterfaceStyle: .light), UITraitCollection(accessibilityContrast: .high)])
         XCTAssertEqual(node.channels("background_color"), channels(.systemBlue, normal))
         XCTAssertEqual(node.paragraphSpec().runs.first?.color, channels(.systemBlue, normal))
-        let key = node.symbolLookKey
+        let configuration = node.symbolConfiguration(UIImage.SymbolConfiguration(pointSize: 17))
         node.traitOverrides.accessibilityContrast = .high
         node.updateTraitsIfNeeded()
         XCTAssertEqual(node.drawsHighContrast, true)
         XCTAssertNotEqual(channels(.systemBlue, normal), channels(.systemBlue, high))
         XCTAssertEqual(node.channels("background_color"), channels(.systemBlue, high))
         XCTAssertEqual(node.paragraphSpec().runs.first?.color, channels(.systemBlue, high), "the run resolves now, not at decoding")
-        XCTAssertNotEqual(node.symbolLookKey, key, "a palette resolved for the old contrast is made again")
+        XCTAssertFalse(node.symbolConfiguration(UIImage.SymbolConfiguration(pointSize: 17)).isEqual(configuration), "the view configuration resolves the new contrast")
     }
 
     func testAColourNamedMethodReturningNoObjectIsTheFallback() {
@@ -176,9 +176,9 @@ final class SystemColorIOSTests: XCTestCase {
         let shade = try XCTUnwrap(node.boxShadows.first?.color.components).map { Double($0) * 255 }
         XCTAssertEqual(shade.count, 4)
         for (got, want) in zip(shade, red) { XCTAssertEqual(got, want, accuracy: 0.01, "a box shadow") }
-        let key = node.symbolLookKey
+        let configuration = node.symbolConfiguration(UIImage.SymbolConfiguration(pointSize: 17))
         p.viewport.tintColor = .systemGreen
-        XCTAssertNotEqual(node.symbolLookKey, key, "a palette naming the tint is made again")
+        XCTAssertFalse(node.symbolConfiguration(UIImage.SymbolConfiguration(pointSize: 17)).isEqual(configuration), "the palette follows the view tint")
     }
 
     func testMarkdownAndPlainTextResolveTheSameViewTintAndTraits() throws {

@@ -10,11 +10,11 @@ import type { Answer, Result, Sources } from './app.contract.d.ts';
 import { buildKey, placeOf, schemeOf, selectionView, staleness, visitOf, type Selected } from './inspector';
 // The panel's controls and the grid's cells by kind.
 import { cellText, colourLiteral, panelOf, sides } from './dials';
-import { componentsOf, levelsOf } from './components';
+import { componentsOf, levelsOf, lookOf } from './components';
 import { baseColumns, groupOf, shippedOf, sourceOf, writable } from './base';
 import { pageOf } from './origins';
 import { pairingSources } from './pairing';
-import { gridSources } from './grid'; import { refusalOf, refusalRows, refuse, restoreRefusals, takeRefusals } from './refusals';
+import { gridSources } from './grid'; import { canvasRefusal } from './canvas-check'; import { refusalOf, refusalRows, refuse, restoreRefusals, stepping, stepRefused, stepsAgain, takeRefusals } from './refusals';
 import { GONE, wire, type Reply } from './wire';
 import { heldEvent, holdingOf, holdNote, letGo, type Holding } from './holds';
 import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
@@ -391,7 +391,7 @@ const buildOf = (b: any, was?: BuildState): BuildState => {
 };
 /** The server's list, whole: a build it no longer lists is gone. */
 const takeBuilds = (list: any[], client = '') => {
-  buildsNow = new Map((list ?? []).map(b => [String(b.id), buildOf(b, buildsNow.get(String(b.id)))]));
+  stepsAgain(list ?? [], buildsNow); buildsNow = new Map((list ?? []).map(b => [String(b.id), buildOf(b, buildsNow.get(String(b.id)))]));
   for (const b of list ?? []) owned(b, client);
 };
 // This tool's inspect mode on a build, as its record says (tamber/1.6).
@@ -631,8 +631,8 @@ async function rescopeFor(file: string, op: Record<string, unknown>, token: stri
 }
 
 const sources: Sources = {
-  ...pairingSources(call, pairWith, remote),
-  ...gridSources(call, () => buildsNow, () => selectionNow, () => designAxes),
+  ...pairingSources(call, pairWith, remote), sendSelectUp: async ([client, build, up]) => { stepping.add(String(build)); const r = await call('/__tamber', { method: 'inspect', client, build, select: { up } }); if (r.error) stepping.delete(String(build)); return { ok: !r.error, error: r.error }; },
+  ...gridSources(call, () => buildsNow, () => selectionNow, () => designAxes), loadCanvasCheck: () => canvasRefusal(API),
   loadHello: async () => {
     const { error, reply } = await call('/__tamber', { method: 'hello' });
     if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [], page: '', frame: '', live: false, scope: '', local: false, client: '', epoch: '' };
@@ -742,7 +742,7 @@ const sources: Sources = {
         names: [...names],
         icons: (ir.icons ?? []).map((i: { name: string; sf: string | null; material: string | null; svg: string | null }) => ({ name: i.name, sf: i.sf ?? '', material: i.material ?? '', svg: i.svg ?? '' })),
         // A param's line is the app design's: the panel only while that is open.
-        components: file && file !== designFile ? [] : componentsOf(ir.components, designFile, names, new Set(Object.keys(read.files ?? {})), (v => { const t = tokenOfIn(ir)(v); return t ?? (names.has(v.trim()) ? v.trim() : null); }), new Map(ir.tokens.filter((t: { package?: string | null }) => t.package).map((t: { name: string; package: string }) => [t.name, t.package])), new Set([...baseRows.values()].filter((r: { name: string; override?: unknown }) => !r.override && !ir.tokens.some((t: { name: string }) => t.name === r.name)).map((r: { name: string }) => String(r.name)))),
+        components: file && file !== designFile ? [] : componentsOf(ir.components, designFile, names, new Set(Object.keys(read.files ?? {})), (v => { const t = tokenOfIn(ir)(v); return t ?? (names.has(v.trim()) ? v.trim() : null); }), new Map(ir.tokens.filter((t: { package?: string | null }) => t.package).map((t: { name: string; package: string }) => [t.name, t.package])), new Set([...baseRows.values()].filter((r: { name: string; override?: unknown }) => !r.override && !ir.tokens.some((t: { name: string }) => t.name === r.name)).map((r: { name: string }) => String(r.name))), lookOf(columns, stored, tokens)),
       };
     } catch (e) {
       if ((e as { code?: string }).code === 'bake') throw e;
@@ -1011,9 +1011,9 @@ const sources: Sources = {
     const gen = ++polls;
     // Another name is another client: what this tool inspects is read again.
     if (client !== polled) { polled = client; inspectOn.clear(); resync = true; }
-    const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch, client, ...(heldAt.epoch === epoch ? { held: heldAt.revision } : {}) } : { after: 0, wait: false, client }, 40000);
+    const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch, client, ...(heldAt.epoch === epoch ? { held: heldAt.revision } : {}) } : { after: 0, wait: false, client }, 40000, undefined, !!epoch); // a wait is held (`exactHeld`, LLP 1016.000 D9); the first ask, answered at once, is not
     answers += 1;
-    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, clients: `${clientMoves}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows(), ...refusalRows(buildsNow.values()) });
+    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, committable: `${session} ${fileChanges} ${commitsTold}`, clients: `${clientMoves}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows(), ...refusalRows(buildsNow.values()) });
     if (error) return { ok: false, error, missed: false, ...state() };
     if (gen !== polls) return { ok: true, error: '', missed: false, ...state() };
     const r = reply as { events?: unknown[]; seq?: number; epoch?: string; missed?: boolean; held?: number; proposals?: any[] };
@@ -1098,17 +1098,17 @@ const sources: Sources = {
         if (!e.state && e.reason) holdNotes.set(String(e.build), letGo(String(e.reason), e.detail));
       }
       else if (e.event === 'unsupported') {
-        const b = buildsNow.get(String(e.build)); if (b) b.unsupported = { what: String(e.what ?? ''), detail: e.detail ?? null };
+        const b = buildsNow.get(String(e.build)), step = e.what === 'inspect' && stepRefused(String(e.build), e.detail, b); if (b && !step) b.unsupported = { what: String(e.what ?? ''), detail: e.detail ?? null };
         // (A navigation its page refused, counted: the grid reloads that copy at the place instead, LLP 1122 T7.)
         if (b && e.what === 'navigate') b.navRefusals = (b.navRefusals ?? 0) + 1;
-        if (e.what === 'hold') holdNotes.set(String(e.build), `This build cannot hold that state${e.detail ? `: ${e.detail}` : ''}.`); else if (b && e.what === 'inspect' && inspectOn.has(String(e.build))) refuse(b, String(e.detail ?? '')); // (refusals.ts)
-        if (e.what === 'inspect' && selectionNow && String(selectionNow.e.build) === String(e.build)) selectionNow.stale ||= `its page could not inspect it${e.detail ? ` (${e.detail})` : ''}`;
+        if (e.what === 'hold') holdNotes.set(String(e.build), `This build cannot hold that state${e.detail ? `: ${e.detail}` : ''}.`); else if (b && e.what === 'inspect' && !step && inspectOn.has(String(e.build))) refuse(b, String(e.detail ?? '')); // (refusals.ts)
+        if (e.what === 'inspect' && !step && selectionNow && String(selectionNow.e.build) === String(e.build)) selectionNow.stale ||= `its page could not inspect it${e.detail ? ` (${e.detail})` : ''}`;
       }
       // A selection joined to source, with what it was made under.
       // A selection's held report counts only as the answer to the hold its page was asked under: one
       // from before the hold moved (or unasked) is asked for again.
       else if (e.event === 'selection') {
-        const b = buildsNow.get(String(e.build)), held = e.held && asked.get(String(e.build)) === JSON.stringify(b?.holding.hold ?? null); if (b?.inspectRefused != null) refuse(b, null);
+        const b = buildsNow.get(String(e.build)), held = e.held && asked.get(String(e.build)) === JSON.stringify(b?.holding.hold ?? null); if (b?.inspectRefused != null) refuse(b, null); stepping.delete(String(e.build));
         selectionNow = { e: held || !e.held ? e : { ...e, held: undefined }, at: buildKey(b), axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: '', files: i < lastWrite ? '' : digestKey(filesAt), visit: visitOf(e) };
       }
       // Inspect mode's owners as they move (tamber/1.6): this client's on or
@@ -1204,11 +1204,11 @@ const sources: Sources = {
     };
   },
   loadScope: async ([client]) => {
-    // What a commit would take now (a dry run, of the run the poll is on),
-    // so Commit is on when there is something, writes from before the tool
-    // opened among them, a refusal to say, or no answer (it says why when
-    // pressed). Read again with each poll answer (while a scrub is open,
-    // only when the files move or a commit is told).
+    // What a commit would take now (a dry run, of the run the poll is on), so Commit is on when there is something,
+    // writes from before the tool opened among them, a refusal to say, or no answer (it says why when pressed).
+    // Read again only when the files move, a commit is told or the server starts again; never for no one
+    // (`design-tool:`, before the name).
+    if (!client || client === 'design-tool:') return { open: 0, refused: false, unavailable: false };
     const dry = await call('/__tamber', { method: 'commit', client, dry: true }, 15000, heldToken || undefined);
     const refused = ((dry.reply.error as { refused?: unknown[] } | undefined)?.refused ?? []).length;
     const nothing = /nothing to commit|written nothing/.test(dry.error);

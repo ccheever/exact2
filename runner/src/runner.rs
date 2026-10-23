@@ -328,6 +328,9 @@ struct PendingReq {
     /// A mutation's: the write it carries (`writes.rs`), which only its
     /// reply lands or ends.
     write: Option<u64>,
+    /// Held (LLP 1016.000 D9, [`Request::is_held`]): pending, but no clock
+    /// waits on it.
+    held: bool,
 }
 
 /// An open stream's messages so far, and those the host coalesced away
@@ -344,8 +347,15 @@ pub struct StreamCount {
 
 impl PendingReq {
     /// In flight: every request, and a stream until its first message.
+    /// What `pending(…)` reads, held requests included.
     fn in_flight(&self) -> bool {
         self.stream.is_none_or(|s| s.messages == 0)
+    }
+
+    /// Waited on by a clock (a jump, `clock settle`, `clock data`): in
+    /// flight and not held (LLP 1016.000 D9).
+    fn waited(&self) -> bool {
+        self.in_flight() && !self.held
     }
 }
 
@@ -554,6 +564,8 @@ pub struct Runner<D: DataSource> {
     faults: faults::Faults,
     /// Device requests held for the agent (LLP 1069.007 D3): not I/O.
     device_holds: Vec<device::Hold>,
+    /// Replies landed for held requests, by target (LLP 1016.000 D9): `clock held`'s evidence.
+    held_replies: Vec<(String, u64)>,
     /// Notifications the app posted under the agent (`state.notifications`):
     /// the agent's substitute for the system's (`crate::notify`).
     notifications: Vec<crate::notify::Notice>,
@@ -959,6 +971,7 @@ impl<D: DataSource> Runner<D> {
             journal: std::collections::VecDeque::new(),
             faults: faults::Faults::from_env(),
             device_holds: Vec::new(),
+            held_replies: Vec::new(),
             notifications: Vec::new(),
             auth: Default::default(),
             device_links: DeviceLinks::CORE,
@@ -1475,5 +1488,7 @@ impl<D: DataSource> Runner<D> {
         Ok(vm::eval(self.plan.code(code), &env, &[])?.value)
     }
 }
+#[cfg(test)]
+mod held_tests;
 #[cfg(test)]
 mod stream_tests;

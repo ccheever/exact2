@@ -599,7 +599,433 @@ pub(crate) struct Controls {
 pub(crate) fn control(c: &Component) -> Controls {
     let mut out = Controls::default();
     walk_controls(&c.view, &c.name, &mut out);
+    let states: Vec<&str> = c
+        .props
+        .iter()
+        .filter(|p| STATES.contains(&p.name.as_str()))
+        .filter(|p| match &p.ty {
+            Some(contract_syntax::TypeExpr::Named(n, _)) => n == "bool",
+            Some(contract_syntax::TypeExpr::Option(inner, _)) => {
+                matches!(inner.as_ref(), contract_syntax::TypeExpr::Named(n, _) if n == "bool")
+            }
+            _ => false,
+        })
+        .map(|p| p.name.as_str())
+        .collect();
+    let mut labels = std::collections::HashMap::new();
+    texts_by_id(&c.view, &mut Vec::new(), &mut labels);
+    let cx = Buttons {
+        comp: &c.name,
+        states: &states,
+        derives: &c.derives,
+        labels,
+    };
+    walk_buttons(&c.view, &cx, &mut Vec::new(), &mut out.refused);
     out
+}
+
+/// The bool props a pressable's look may show as a state a person needs
+/// said (theme2 2026-10-22 04:40): a button whose look reads one must say
+/// it aloud (`walk_buttons`). Others (a size, an ink) are presentation.
+pub(crate) const STATES: [&str; 7] = [
+    "selected", "current", "pressed", "checked", "on", "active", "expanded",
+];
+
+/// The attributes a button says a state through, besides its label.
+const SAID: [&str; 5] = [
+    "aria-selected",
+    "aria-pressed",
+    "aria-current",
+    "aria-checked",
+    "aria-expanded",
+];
+
+/// Texts by literal `id`: their words and the names bound around them.
+type Labels<'a> = std::collections::HashMap<&'a str, Option<(&'a Expr, Vec<String>)>>;
+
+/// Each `text` of `nodes` with a literal `id`, by that id: its words and
+/// the names `bound` around it, or `None` for an id two texts take (in two
+/// arms, which of them names a button the view doesn't settle).
+fn texts_by_id<'a>(nodes: &'a [Node], bound: &mut Vec<String>, out: &mut Labels<'a>) {
+    for n in nodes {
+        match n {
+            Node::Element {
+                tag,
+                attrs,
+                positional,
+                children,
+                ..
+            } => {
+                if let (true, Some(id), Some(words)) =
+                    (tag == "text", text(attrs, "id"), positional.first())
+                {
+                    let seen = out.contains_key(id);
+                    out.insert(id, (!seen).then(|| (words, bound.clone())));
+                }
+                texts_by_id(children, bound, out);
+            }
+            Node::Use { children, .. } => texts_by_id(children, bound, out),
+            Node::Each {
+                var, index, body, ..
+            } => {
+                let mark = bound.len();
+                bound.push(var.clone());
+                bound.extend(index.clone());
+                texts_by_id(body, bound, out);
+                bound.truncate(mark);
+            }
+            Node::When {
+                then, otherwise, ..
+            } => {
+                texts_by_id(then, bound, out);
+                texts_by_id(otherwise, bound, out);
+            }
+            Node::Match { some, none, .. } => {
+                let mark = bound.len();
+                bound.push(some.0.clone());
+                texts_by_id(&some.1, bound, out);
+                bound.truncate(mark);
+                texts_by_id(none, bound, out);
+            }
+            Node::Children { .. } => {}
+        }
+    }
+}
+
+/// What the button rules read of a component: its name, its state props,
+/// and its derives, through which a look or a label may read a state.
+struct Buttons<'a> {
+    comp: &'a str,
+    states: &'a [&'a str],
+    derives: &'a [contract_syntax::Binding],
+    /// Each text of the view with a literal `id`: what `aria-labelledby`
+    /// names (`None` where two texts take one id, in two arms).
+    labels: Labels<'a>,
+}
+
+impl Buttons<'_> {
+    /// `names` and every name a derive among them reads, transitively.
+    fn expand(&self, names: &mut Vec<String>) {
+        let mut i = 0;
+        while i < names.len() {
+            if let Some(d) = self.derives.iter().find(|d| d.name == names[i]) {
+                let mut read = Vec::new();
+                super::reads(&d.expr, &mut Vec::new(), true, &mut read);
+                for r in read {
+                    if !names.contains(&r) {
+                        names.push(r);
+                    }
+                }
+            }
+            i += 1;
+        }
+    }
+    /// The names `e` reads as a look: inside a `?:` or `match`, or inside one
+    /// a derive it names holds (`opacity=fade` where `derive fade = (selected
+    /// ? 1 : 0.5)`), a derive read inside one adding all it reads. A derive
+    /// reads in its declaration's scope, which `bound` doesn't reach.
+    fn look_names(
+        &self,
+        e: &Expr,
+        bound: &mut Vec<String>,
+        out: &mut Vec<String>,
+        seen: &mut Vec<String>,
+    ) {
+        let mut inside = Vec::new();
+        super::reads(e, bound, false, &mut inside);
+        let mut all = Vec::new();
+        super::reads(e, bound, true, &mut all);
+        // `seen`: the derives being followed now, a stack (a cycle stops; the
+        // same derive met again elsewhere is followed again).
+        for name in all {
+            let Some(d) = self.derives.iter().find(|d| d.name == name) else {
+                continue;
+            };
+            if inside.contains(&name) {
+                let mut through = vec![name.clone()];
+                self.expand(&mut through);
+                out.extend(through);
+            } else if !seen.contains(&name) {
+                seen.push(name.clone());
+                self.look_names(&d.expr, &mut Vec::new(), out, seen);
+                seen.pop();
+            }
+        }
+        out.extend(inside);
+    }
+    /// Whether `e` reads `state`, itself or through a derive, where a
+    /// binding in `bound` doesn't hide it.
+    fn mentions(&self, e: &Expr, state: &str, bound: &[String]) -> bool {
+        let mut read = Vec::new();
+        super::reads(e, &mut bound.to_vec(), true, &mut read);
+        self.expand(&mut read);
+        read.iter().any(|r| r == state)
+    }
+}
+
+/// Each button of a library view (a `button`, or a node of
+/// `role="button"`), named (a non-empty `aria-label`, `aria-labelledby`, or
+/// a text of its own in every arm), and saying each state of `states` its
+/// look reads (a `?:` or `match` in a row, a class, or a used component's
+/// argument, itself or through a derive) through one of [`SAID`], a label
+/// or a text of its own that reads it (theme2 2026-10-22 04:40, LLP 1139
+/// D9's condition (b)). `bound`: the names a `for` or `match` around binds,
+/// which hide a prop of the same name.
+fn walk_buttons(nodes: &[Node], cx: &Buttons, bound: &mut Vec<String>, out: &mut Vec<LowerError>) {
+    for n in nodes {
+        match n {
+            Node::Element {
+                tag,
+                attrs,
+                children,
+                span,
+                ..
+            } => {
+                let button = tag == "button"
+                    || leaf_texts(attrs, "role").is_some_and(|r| r.iter().any(|r| r == "button"));
+                if button {
+                    check_button(tag, attrs, children, cx, bound, *span, out);
+                }
+                walk_buttons(children, cx, bound, out);
+            }
+            Node::Use { children, .. } => walk_buttons(children, cx, bound, out),
+            Node::Each {
+                var, index, body, ..
+            } => {
+                let mark = bound.len();
+                bound.push(var.clone());
+                bound.extend(index.clone());
+                walk_buttons(body, cx, bound, out);
+                bound.truncate(mark);
+            }
+            Node::When {
+                then, otherwise, ..
+            } => {
+                walk_buttons(then, cx, bound, out);
+                walk_buttons(otherwise, cx, bound, out);
+            }
+            Node::Match { some, none, .. } => {
+                let mark = bound.len();
+                bound.push(some.0.clone());
+                walk_buttons(&some.1, cx, bound, out);
+                bound.truncate(mark);
+                walk_buttons(none, cx, bound, out);
+            }
+            Node::Children { .. } => {}
+        }
+    }
+}
+
+fn check_button(
+    tag: &str,
+    attrs: &[Attr],
+    children: &[Node],
+    cx: &Buttons,
+    bound: &[String],
+    span: Span,
+    out: &mut Vec<LowerError>,
+) {
+    let comp = cx.comp;
+    let error = |message: String| LowerError {
+        id: "lower-library-control",
+        message: format!("{message} in library component `{comp}` (LLP 1139 D9)"),
+        span,
+    };
+    let what = if tag == "button" {
+        "a `button`".to_string()
+    } else {
+        format!("a `{tag}` of `role=\"button\"`")
+    };
+    let labelled = (has(attrs, "aria-label")
+        && text(attrs, "aria-label").is_none_or(|t| !t.trim().is_empty()))
+        || has(attrs, "aria-labelledby");
+    if !labelled && !texted(children) {
+        out.push(error(format!(
+            "{what} without a name: write `aria-label` (or `aria-labelledby`), or give it a text, which assistive technology reads as the control it stands in for"
+        )));
+    }
+    // The states its look reads: inside a `?:` or `match` anywhere in it but
+    // the attributes that say things aloud, itself or through a derive.
+    // (A derive reached reads in its own scope: a binding here doesn't hide it.)
+    let mut look = Vec::new();
+    looks(attrs, children, cx, &mut bound.to_vec(), &mut look);
+    for state in cx.states.iter().filter(|s| look.iter().any(|l| l == *s)) {
+        let says = |name: &str| {
+            attrs
+                .iter()
+                .filter(|a| a.name == name)
+                .any(|a| cx.mentions(&a.value, state, bound))
+        };
+        // What names it says it: `aria-labelledby` first (the texts its ids
+        // name in this view; one the view doesn't settle is taken as saying
+        // it), else a non-empty `aria-label`, else its own text.
+        // (A text it names reads in its own scope, with its own bindings,
+        // not the button's; an empty `aria-labelledby` names nothing.)
+        let name_says = match text(attrs, "aria-labelledby").filter(|ids| !ids.trim().is_empty()) {
+            Some(ids) => ids.split_whitespace().any(|id| {
+                cx.labels
+                    .get(id)
+                    .and_then(Option::as_ref)
+                    .is_none_or(|(e, bound)| cx.mentions(e, state, bound))
+            }),
+            None if has(attrs, "aria-labelledby") && text(attrs, "aria-labelledby").is_none() => {
+                true
+            }
+            None if has(attrs, "aria-label")
+                && text(attrs, "aria-label").is_none_or(|t| !t.trim().is_empty()) =>
+            {
+                says("aria-label")
+            }
+            None => text_says(children, cx, state, &mut bound.to_vec()),
+        };
+        if !SAID.iter().any(|a| says(a)) && !name_says {
+            out.push(error(format!(
+                "{what} whose look says a state it doesn't say aloud: its look reads `{state}`, so say it through `aria-selected`, `aria-pressed`, `aria-current`, `aria-checked` or `aria-expanded` from `{state}`, or a label that reads it"
+            )));
+        }
+    }
+}
+
+/// Whether `nodes` name a button whatever their arms: a text of its own
+/// (not empty, not `aria-hidden`), the slot (its caller's content, which
+/// can't be known here), or a used component given a text to draw (`text`,
+/// `label` or `title`).
+fn texted(nodes: &[Node]) -> bool {
+    nodes.iter().any(|n| match n {
+        Node::Element {
+            tag,
+            attrs,
+            positional,
+            children,
+            ..
+        } => {
+            let hidden = matches!(
+                attrs
+                    .iter()
+                    .find(|a| a.name == "aria-hidden")
+                    .map(|a| &a.value),
+                Some(Expr::Bool(true, _))
+            );
+            let empty = matches!(positional.first(), Some(Expr::Str(s, _)) if s.trim().is_empty());
+            (tag == "text" && !hidden && !empty) || (!hidden && texted(children))
+        }
+        Node::Each { body, .. } => texted(body),
+        Node::When {
+            then, otherwise, ..
+        } => texted(then) && texted(otherwise),
+        Node::Match { some, none, .. } => texted(&some.1) && texted(none),
+        Node::Use { args, children, .. } => {
+            args.iter()
+                .any(|a| matches!(a.name.as_str(), "text" | "label" | "title"))
+                || texted(children)
+        }
+        Node::Children { .. } => true,
+    })
+}
+
+/// Whether a text under `nodes`, one that names the button, reads `state`
+/// whatever their arms (`text (following ? "Unfollow" : "Follow")` says it
+/// as a label does): not an `aria-hidden` one, and in both arms of an `if`
+/// or `match`, or beside them. `bound`: the names a `for` or `match` binds.
+fn text_says(nodes: &[Node], cx: &Buttons, state: &str, bound: &mut Vec<String>) -> bool {
+    nodes.iter().any(|n| match n {
+        Node::Element {
+            tag,
+            attrs,
+            positional,
+            children,
+            ..
+        } => {
+            let hidden = matches!(
+                attrs
+                    .iter()
+                    .find(|a| a.name == "aria-hidden")
+                    .map(|a| &a.value),
+                Some(Expr::Bool(true, _))
+            );
+            !hidden
+                && ((tag == "text" && positional.iter().any(|e| cx.mentions(e, state, bound)))
+                    || text_says(children, cx, state, bound))
+        }
+        Node::Each {
+            var, index, body, ..
+        } => {
+            let mark = bound.len();
+            bound.push(var.clone());
+            bound.extend(index.clone());
+            let says = text_says(body, cx, state, bound);
+            bound.truncate(mark);
+            says
+        }
+        Node::When {
+            then, otherwise, ..
+        } => text_says(then, cx, state, bound) && text_says(otherwise, cx, state, bound),
+        Node::Match { some, none, .. } => {
+            let mark = bound.len();
+            bound.push(some.0.clone());
+            let says = text_says(&some.1, cx, state, bound);
+            bound.truncate(mark);
+            says && text_says(none, cx, state, bound)
+        }
+        Node::Use { .. } | Node::Children { .. } => false,
+    })
+}
+
+/// The names read inside a `?:` or `match` by `attrs` (but those saying
+/// things aloud, its handlers and its names) and everything under
+/// `children`, a used component's arguments included, but those `bound`
+/// (and a `for` or `match` within) hides.
+fn looks(
+    attrs: &[Attr],
+    children: &[Node],
+    cx: &Buttons,
+    bound: &mut Vec<String>,
+    out: &mut Vec<String>,
+) {
+    // What draws: not what it says aloud, its handlers (`press=(selected ?
+    // deselect : select)` draws nothing) nor its names.
+    let drawn = |a: &&Attr| {
+        !a.name.starts_with("aria-")
+            && !matches!(a.name.as_str(), "id" | "testId" | "key")
+            && !matches!(
+                crate::tags::attr(&a.name),
+                Some(crate::tags::AttrTarget::Handler(_))
+            )
+    };
+    for a in attrs.iter().filter(drawn) {
+        cx.look_names(&a.value, bound, out, &mut Vec::new());
+    }
+    for n in children {
+        match n {
+            Node::Element {
+                attrs, children, ..
+            } => looks(attrs, children, cx, bound, out),
+            Node::Use { args, children, .. } => looks(args, children, cx, bound, out),
+            Node::Each {
+                var, index, body, ..
+            } => {
+                let mark = bound.len();
+                bound.push(var.clone());
+                bound.extend(index.clone());
+                looks(&[], body, cx, bound, out);
+                bound.truncate(mark);
+            }
+            Node::When {
+                then, otherwise, ..
+            } => {
+                looks(&[], then, cx, bound, out);
+                looks(&[], otherwise, cx, bound, out);
+            }
+            Node::Match { some, none, .. } => {
+                let mark = bound.len();
+                bound.push(some.0.clone());
+                looks(&[], &some.1, cx, bound, out);
+                bound.truncate(mark);
+                looks(&[], none, cx, bound, out);
+            }
+            Node::Children { .. } => {}
+        }
+    }
 }
 
 fn walk_controls(nodes: &[Node], comp: &str, out: &mut Controls) {

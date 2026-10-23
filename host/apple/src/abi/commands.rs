@@ -351,7 +351,7 @@ impl<D: DataSource> Bridge<D> {
                 && root.style.display == Display::Flex
                 && column(root.style.flex_direction)
                 && matches!(
-                    bar.style.position_type,
+                    bar.layout_position(),
                     PositionType::Static | PositionType::Relative
                 )
                 && !column(bar.style.flex_direction);

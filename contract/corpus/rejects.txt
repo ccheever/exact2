@@ -1857,6 +1857,36 @@ component B
     button "b" press=pick("b")
     text pick(["a"], 0)
 ---
+== type-prop-hides-fn
+# A value prop can redirect the call head to another fn during inlining.
+fn pick(n: number): number = n + 1
+fn other(n: number): number = n + 100
+component App
+  state other = 7
+  view
+    Seg(pick=other)
+component Seg
+  props
+    pick: number
+  view
+    text `${pick(1)}`
+---
+== type-prop-hides-fn
+# Injected values undergo the same call-head substitution as props.
+fn pick(n: number): number = n + 1
+fn other(n: number): number = n + 100
+component App
+  state other = 7
+  provide
+    pick = other
+  view
+    Seg()
+component Seg
+  inject
+    pick: number
+  view
+    text `${pick(1)}`
+---
 == type-handler-action
 # B's handler names A's action: B takes it as an `action` prop.
 component A

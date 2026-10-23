@@ -390,15 +390,20 @@ impl<D: DataSource> Host<D> {
                 m.field_cell = field_cell;
                 batch.field_content(id, field_content, field_cell);
             }
-            if m.frame != Some(rel) || m.block.is_some() != block.is_some() {
+            let framed = m.frame != Some(rel);
+            if framed || m.block.is_some() != block.is_some() {
                 moved.insert(id);
                 m.frame = Some(rel);
                 batch.frame(id, rel.0, rel.1, rel.2, rel.3);
             }
-            if m.block != block {
-                m.block = block;
-                if let Some((w, h)) = block {
-                    batch.block(id, w, h);
+            let implied = kernel.host_block_implied(id);
+            if m.block != block || m.implied != implied || (framed && block.is_some()) {
+                let had = m.block.is_some();
+                (m.block, m.implied) = (block, implied);
+                match block {
+                    Some(size) => batch.block(id, size, (rel.0, rel.1)),
+                    None if had => batch.unblock(id),
+                    None => {}
                 }
             }
             if let Some(c) = content {
@@ -464,8 +469,19 @@ impl<D: DataSource> Host<D> {
     /// the tree to collect it.
     fn emit_collections(&mut self, batch: &mut Batch) -> Result<(), String> {
         let collections = if self.native_mode() {
+            self.collection_heads = None;
             self.native_collections_json()?
         } else {
+            // Revisions cover rows, extent and corrections. A newer feedback
+            // sequence alone needs no snapshot or serialization.
+            let mut heads = self.runner.collections_shallow();
+            for head in &mut heads {
+                head.scroll_sequence = 0;
+            }
+            if self.collection_heads.as_ref() == Some(&heads) {
+                return Ok(());
+            }
+            self.collection_heads = Some(heads);
             self.runner.collections_json()
         };
         if collections != self.collections_json {
@@ -646,7 +662,8 @@ pub(super) fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         if let Some(c) = kernel.node(child).filter(|c| !own(c)) {
             // An absolutely positioned box counts by its border box alone:
             // the end padding follows in-flow content (CSS Overflow 3 §2.2).
-            let (right, bottom) = if c.style.position_type == exact_kernel::PositionType::Absolute {
+            // A popover lays out absolute too (the kernel's top layer), unless sticky.
+            let (right, bottom) = if c.layout_position() == exact_kernel::PositionType::Absolute {
                 (0.0, 0.0)
             } else {
                 (pad_right, pad_bottom)

@@ -382,6 +382,7 @@ impl<D: DataSource> Host<D> {
                 self.runner.kernel(),
                 &mut self.engine,
                 &|v| runs.contains_key(&v),
+                &|v| !self.runner.handlers_of(v).is_empty(),
                 new,
             ) {
                 self.svg.played(view);

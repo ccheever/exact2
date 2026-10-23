@@ -133,7 +133,7 @@ const CASES: &[Case] = &[
     Case {
         wrote: ("", "button press=go buttonStyle=\"filled\"\n  row\n    text \"a\"\n    text \"b\""),
         id: "lower-button-style",
-        leads: "a native button shows `text`s and a symbol `image`, not a `row`",
+        leads: "a native button shows `text`s and one `image`, not a `row`",
         fixed: &[
             ("", "button press=go buttonStyle=\"filled\"\n  text \"a\""),
             ("", "button press=go\n  row\n    text \"a\"\n    text \"b\""),

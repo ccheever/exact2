@@ -114,6 +114,59 @@ test('a stream delivers each read as its newest event, then its end', async () =
   assert.equal(new TextDecoder().decode(end.body), 'the event stream ended');
 });
 
+// LLP 1016.000's byte stream: reads that land before the page's next task
+// join into one ArrayBuffer; nothing is dropped; the end follows; a read past
+// the bound delivers what waits and refuses. Without `bytes` (a Rust
+// source) the body is the one answer.
+test('a TypeScript stream reads a body that is not events as joined bytes, then its end', async () => {
+  const { request } = await import('./http-body.js');
+  const open = (maxResponseBytes, protocol, sent) => {
+    let push;
+    const body = new ReadableStream({ start(c) { push = c; } });
+    const done = request({ method: 'GET', url: 'https://example.test/screen.avcc', headers: [], body: '', stream: true, maxResponseBytes }, {
+      grantSet: normalized('net.fetch https://example.test'), controllers: new Set(), protocol,
+      moduleLoader: { claim: () => Promise.resolve(new Response(body, { headers: { 'content-type': 'application/octet-stream' } })) },
+      message: (m) => sent.push([...new Uint8Array(m.data)]),
+    });
+    return { done, push: (bytes) => push.enqueue(new Uint8Array(bytes)), close: () => push.close() };
+  };
+  const tick = () => new Promise((r) => setTimeout(r, 5));
+  const sent = [], s = open(64, { bytes: true }, sent);
+  await tick();
+  s.push([0, 1]); s.push([2]); s.push([3, 4, 5]);
+  await tick();
+  s.push([6, 7]);
+  await tick();
+  s.close();
+  const end = await s.done;
+  assert.deepEqual(sent, [[0, 1, 2, 3, 4, 5], [6, 7]]);
+  assert.equal(new TextDecoder().decode(end.body), 'the byte stream ended');
+
+  const over = [], o = open(8, { bytes: true }, over);
+  await tick();
+  o.push([1, 1, 1, 1, 1]); o.push([2, 2, 2, 2, 2]);
+  const refused = await o.done;
+  assert.deepEqual(over, [[1, 1, 1, 1, 1]]);
+  assert.equal(refused.kind, 2);
+  assert.equal(new TextDecoder().decode(refused.body), 'byte stream receive queue exceeds the response ceiling');
+
+  // One browser read longer than the bound goes in pieces of it, at once.
+  const big = [], b = open(8, { bytes: true }, big);
+  await tick();
+  b.push([0]); b.push([...Array(20).keys()].map(n => n + 1));
+  await tick();
+  b.close();
+  const after = await b.done;
+  assert.deepEqual(big, [[0], [1, 2, 3, 4, 5, 6, 7, 8], [9, 10, 11, 12, 13, 14, 15, 16], [17, 18, 19, 20]]);
+  assert.equal(new TextDecoder().decode(after.body), 'the byte stream ended');
+
+  const whole = [], w = open(64, undefined, whole);
+  await tick();
+  w.push([9]); w.close();
+  const answer = await w.done;
+  assert.deepEqual([whole, answer.status, [...answer.body]], [[], 200, [9]]);
+});
+
 // A local WebSocket peer (LLP 1069.004 slice 3): `/three` sends `a`, then at
 // each `next('/three')` `b c d` in one write, then a close; `/binary` a binary
 // frame; `/hold` one message, then waits for the client to go.

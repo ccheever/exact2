@@ -751,6 +751,9 @@ impl Lowerer<'_> {
                 }
                 "-exact-press-haptic" => {
                     let kind = match &a.value {
+                        Expr::Str(k, _) if !exact_plan::HAPTIC_KINDS.contains(&k.as_str()) => {
+                            return refuse("lower-button-style-attr", "a native button plays no `-exact-press-haptic`: remove `-exact-press-haptic`".into());
+                        }
                         Expr::Str(k, _) => k.as_str(),
                         _ => "impact-light",
                     };
@@ -842,14 +845,14 @@ impl Lowerer<'_> {
         if faces.iter().any(|f| f.0 > 2 || f.1 > 1) {
             return err(
                 "lower-button-style-attr",
-                "a native button shows at most two `text`s and one symbol `image` at a time; write a custom `button` (without `appearance=\"auto\"`) for more",
+                "a native button shows at most two `text`s and one `image` at a time; write a custom `button` (without `appearance=\"auto\"`) for more",
                 span,
             );
         }
         if !labelled && faces.contains(&(0, 1)) {
             return err(
                 "lower-button-content",
-                "a native button that shows only a symbol needs an `aria-label` that is never empty",
+                "a native button that shows only an image needs an `aria-label` that is never empty",
                 span,
             );
         }
@@ -916,9 +919,18 @@ impl Lowerer<'_> {
     }
 }
 
-/// Every face a native button's children can show, as (texts, symbol
-/// images), saturated above two texts/one image; refusing what a face cannot
-/// hold (LLP 1069.011.001 D3, D12): repeated/arbitrary children and non-face
+fn symbol_source(source: &Expr) -> bool {
+    match source {
+        Expr::Template(parts, _) => {
+            matches!(parts.first(), Some(contract_syntax::TemplatePart::Text(text)) if text.starts_with("symbol:"))
+        }
+        _ => literals(source)
+            .is_some_and(|sources| sources.iter().all(|source| source.starts_with("symbol:"))),
+    }
+}
+
+/// Every face a native button's children can show, as (texts, images),
+/// saturated above two texts/one image; refusing what a face cannot hold (LLP 1069.011.001 D3, D12): repeated/arbitrary children and non-face
 /// rows, after each child's class merge.
 fn face_counts(
     lower: &Lowerer<'_>,
@@ -951,7 +963,7 @@ fn face_counts(
                 if !matches!(tag.as_str(), "text" | "image") {
                     return err(
                         "lower-button-style-attr",
-                        format!("a native button shows `text`s and a symbol `image`, not a `{tag}`; write a custom `button` for other children"),
+                        format!("a native button shows `text`s and one `image`, not a `{tag}`; write a custom `button` for other children"),
                         *span,
                     );
                 }
@@ -971,8 +983,10 @@ fn face_counts(
                     if !allowed {
                         // LLP 1116.018: each edit keeps what the attribute was for.
                         let message = match (tag.as_str(), a.name.as_str()) {
+                            ("image", "width" | "height") if !positional.first().is_some_and(symbol_source) => format!("a raster face needs `button appearance=\"none\"`; put `{}` on its image there to size the picture's box", a.name),
                             ("image", "width" | "height") => format!("write `font-size=…` for the symbol's size in a native button, not `{}`: there a symbol's `font-size` is its point size and `width` would size a box (LLP 1069.011.001 D4); a box of that size is a custom `button`", a.name),
                             (_, name) if name == "role" || name.starts_with("aria-") => format!("put the `{name}` on a node beside the button: a button's content is presentational (WAI-ARIA 1.2, a button's children are presentational), so it is not announced inside it; name the button with `aria-label` if its words differ"),
+                            ("image", "color") if positional.first().is_some_and(symbol_source) => "a native button's symbol is coloured with `-exact-tint-color`, not `color`; a floating round control is `buttonStyle=\"glass\"` (or `\"prominent-glass\"`), still the platform's button".to_string(),
                             _ => format!("a native button's `{tag}` takes no `{}`; write a custom `button` for other face rows", a.name),
                         };
                         return err("lower-button-style-attr", message, a.span);
@@ -1022,11 +1036,15 @@ fn face_counts(
                                 )
                             })
                         };
+                        if !positional.first().is_some_and(symbol_source) {
+                            return err(
+                                "lower-button-content",
+                                "a native button needs an image with a provable `symbol:` prefix: raster faces are not painted by every graphical host; write `button appearance=\"none\"` for a raster face",
+                                *span,
+                            );
+                        }
                         let ok = match positional.first() {
-                            Some(Expr::Template(parts, _)) => matches!(
-                                parts.first(),
-                                Some(contract_syntax::TemplatePart::Text(t)) if t.starts_with("symbol:")
-                            ),
+                            Some(Expr::Template(_, _)) => true,
                             Some(e) => {
                                 literals(e).is_some_and(|srcs| srcs.iter().all(|s| symbol(s)))
                             }
@@ -1035,7 +1053,7 @@ fn face_counts(
                         if !ok {
                             return err(
                                 "lower-button-content",
-                                "a native button's image is a symbol, `image \"symbol:…\"` (a role, an icon token, or `sf/` and an SF Symbol's name, a choice between them, or a template that starts `symbol:`)",
+                                "a native button's `symbol:` image needs a symbol role, an icon token or a nonempty SF Symbol name",
                                 *span,
                             );
                         }

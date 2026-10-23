@@ -171,6 +171,10 @@ fn a_rows_symbol_a_prop_names_or_an_if_shows_is_the_leading_symbol_of_an_action_
     // An `else` that shows a text: the sheet's ink is one for every state,
     // so it is no action cell's (the kernel reads the row as it shows now).
     assert_ne!(colour(&r, "split-title"), accent, "split");
+    assert!(
+        !row(&r, "split").action,
+        "split: the kernel takes the sheet's word"
+    );
     let shown = id(&r, "shown");
     r.dispatch(shown, exact_runner::Event::Press).unwrap();
     layout(&mut r);
@@ -206,6 +210,10 @@ const CHOICES: &str = r#"component App
             text "Huge" testId="unmarked-title"
           button press=pick testId="action"
             text "Update" testId="action-title"
+          button press=pick testId="unsaid"
+            text "Dark" testId="unsaid-title"
+            if picked
+              image "symbol:checkmark"
       text "accent" color="AccentColor" testId="accent"
 "#;
 
@@ -223,6 +231,14 @@ fn a_row_that_says_it_is_selected_is_a_choice_not_an_action() {
     }
     assert_eq!(row(&r, "off").accessory, Accessory::None);
     assert!(row(&r, "action").action, "a row that says nothing is one");
+    // A checkmark row that does not say `aria-selected`: unpicked it shows
+    // a title alone, but its source can show a mark, so the sheet says no
+    // action, and the kernel takes its word (QUEUE, 2026-10-21).
+    assert!(
+        !row(&r, "unsaid").action,
+        "an unpicked choice row is no action"
+    );
+    assert_eq!(colour(&r, "unsaid-title"), label);
     assert_eq!(colour(&r, "action-title"), colour(&r, "accent"));
     let off = id(&r, "off");
     r.dispatch(off, exact_runner::Event::Press).unwrap();
@@ -234,4 +250,44 @@ fn a_row_that_says_it_is_selected_is_a_choice_not_an_action() {
         "picked, the same row"
     );
     assert_eq!(colour(&r, "off-title"), label);
+}
+
+/// A leading symbol and the title after it follow UIKit's list cell as the
+/// text size changes: the symbol grows with the text through the standard
+/// sizes and returns to its smallest at the accessibility sizes, and the
+/// title starts where UIKit's `textLayoutGuide` does (iOS 27.0).
+#[test]
+fn a_leading_symbols_slot_and_the_title_after_it_follow_the_text_size() {
+    let mut r = boot(SYMBOLS);
+    let place = |r: &Runner<NoData>, t: &str| {
+        let k = r.kernel();
+        let (f, row) = (
+            k.node(id(r, t)).unwrap().frame,
+            k.node(id(r, "written")).unwrap().frame,
+        );
+        ((f.x - row.x) * 100.0).round() / 100.0
+    };
+    let width = |r: &Runner<NoData>| {
+        (r.kernel().node(id(r, "written-icon")).unwrap().frame.width * 100.0).round() / 100.0
+    };
+    for (body, title, symbol) in [
+        (17.0, 56.0, 24.0),
+        (23.0, 63.67, 32.11),
+        (14.0, 52.67, 20.28),
+        (53.0, 86.33, 54.33),
+    ] {
+        r.set_root_font_size(body).unwrap();
+        layout(&mut r);
+        assert_eq!(
+            place(&r, "written-icon"),
+            16.0,
+            "{body}: the symbol at the margin"
+        );
+        assert_eq!(width(&r), symbol, "{body}: the symbol's slot");
+        assert_eq!(
+            place(&r, "written-title"),
+            title,
+            "{body}: the title's inset"
+        );
+    }
 }

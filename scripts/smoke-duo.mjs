@@ -534,6 +534,9 @@ async function suite({ open: openSession, check: record }, reset) {
         if (await rose(s, kb, tag)) {
           check(kb > 100, `${tag}: the software keyboard rose: keyboard-inset-height ${kb}`);
           check(kb > 0 && note.y + note.h <= l2.viewport.h - kb + 0.01 && note.y < noteBefore.y, `${tag}: the field is revealed above the keyboard ${JSON.stringify(note)} kb ${kb} (was ${JSON.stringify(noteBefore)})`);
+          // A fold's segments keep their tops, and the last row ends at the visual viewport's end, the keyboard's top (LLP 1078, the keyboard).
+          const [was, now, end, cols] = [l.env['viewport-segments'] ?? [], l2.env['viewport-segments'] ?? [], l2.viewport.h - kb, l2.env['horizontal-viewport-segments']];
+          check(now.length === was.length && was.every(([, y, , h], i) => near(now[i][1], y) && near(now[i][3], i < was.length - cols ? h : Math.max(0, Math.min(y + h, end) - y), 0.02)), `${tag}: the keyboard ends the last row of segments at the visual viewport's end ${end}: ${JSON.stringify(now)} (were ${JSON.stringify(was)})`);
         }
         // Fold while editing: focus and text survive each fold, the new pose is covered.
         for (const [from, next, fold] of folds(tag, deg)) {
@@ -552,6 +555,7 @@ async function suite({ open: openSession, check: record }, reset) {
         const l3 = await down(s, tag);
         const st3 = await s.state();
         check(st3.slots.focused === false && l3.env['keyboard-inset-height'] === 0 && box(l3, 'note').y === noteBefore.y, `${tag}: dismiss took the keyboard away: focused ${st3.slots.focused}, kb ${l3.env['keyboard-inset-height']}, the field at ${box(l3, 'note')?.y} (was ${noteBefore.y})`);
+        check(JSON.stringify(l3.env['viewport-segments']) === JSON.stringify(l.env['viewport-segments']), `${tag}: the segments are the window's again once the keyboard goes: ${JSON.stringify(l3.env['viewport-segments'])}`);
       });
     } catch (e) { check(false, `insets: ${e.message}`); } finally { await s.close(); }
   }

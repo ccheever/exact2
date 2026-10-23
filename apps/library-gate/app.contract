@@ -13,7 +13,7 @@
 // scripts/library-gate.test.mjs holds the cells to the compiler's IR. No
 // `if`, `for` or `match` in this view: every cell renders.
 use PostCard, AtCard, ProfileHeader, ProfileAlert from "@exact/cards"
-use ActionRow, PostButton, ComposeFrame from "@exact/actions"
+use ActionRow, PostButton, ComposeFrame, BarItem, HeaderButton from "@exact/actions"
 use ListRow, SwitchRow from "@exact/lists"
 
 component App
@@ -97,6 +97,10 @@ component App
         ProfileHeader(id="sample-ph-note", bannerSrc="", avatarSrc="", avatarFlight="", name="Ada Lindqvist", handle="ada.fixture.invalid", badge="none", followsYou=false, followers="1.2K", followersNoun="followers", follows="210", posts="3.4K", alerts=[], note="This account couldn't be loaded.", blocked=false, compact=false, pull=0, openAvatar=press, openFollowers=press, openFollows=press, openAlert=pick)
           box testId="marker-sample-ph-note" press=toggle width=24 height=24 align-items="center" justify-content="center"
             text glyph
+        // A picture avatar (a local symbol, no network): its own sized column.
+        ProfileHeader(id="sample-ph-avatar", bannerSrc="", avatarSrc="symbol:person", avatarFlight="", name="Ada Lindqvist", handle="ada.fixture.invalid", badge="none", followsYou=false, followers="1.2K", followersNoun="followers", follows="210", posts="3.4K", alerts=[], note="", blocked=false, compact=false, pull=0, openAvatar=press, openFollowers=press, openFollows=press, openAlert=pick)
+          box testId="marker-sample-ph-avatar" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
         // The composer's frame: each variant value, one at a time, then the
         // ring near and over its limit (with a post to add) as samples.
         ComposeFrame(id="cf-base", cancelLabel="Cancel", drafts=false, draftsLabel="Drafts", busy=false, postLabel="Post", postDisabled=false, reply=false, gallery=false, camera=false, gif=false, canAdd=false, langLabel="English", count=40, limit=300, cancel=press, openDrafts=press, post=press, choose=press, openCamera=press, gifs=press, addPost=press, languages=press)
@@ -123,6 +127,29 @@ component App
         ComposeFrame(id="sample-cf-over", cancelLabel="Cancel", drafts=true, draftsLabel="Drafts", busy=false, postLabel="Post", postDisabled=false, reply=false, gallery=true, camera=true, gif=true, canAdd=true, langLabel="English", count=320, limit=300, cancel=press, openDrafts=press, post=press, choose=press, openCamera=press, gifs=press, addPost=press, languages=press)
           box testId="marker-sample-cf-over" press=toggle width=24 height=24 align-items="center" justify-content="center"
             text glyph
+        // An app's own bar's items, in a row as a bar holds them: the base,
+        // then selected, a count, a dot and an avatar in the slot as samples.
+        row testId="gate-bar"
+          BarItem(id="bi-base", label="Home", selected=false, d="M4 4h16v16H4zM6 6v12h12V6z", selectedD="M4 4h16v16H4z", iconSize=28, lift=0, badge="", dot=false, press=press)
+            box testId="marker-bi-base" press=toggle width=24 height=24 align-items="center" justify-content="center"
+              text glyph
+          BarItem(id="sample-bi-selected", label="Home", selected=true, d="M4 4h16v16H4zM6 6v12h12V6z", selectedD="M4 4h16v16H4z", iconSize=28, lift=0, badge="", dot=false, press=press)
+            box testId="marker-sample-bi-selected" press=toggle width=24 height=24 align-items="center" justify-content="center"
+              text glyph
+          BarItem(id="sample-bi-badge", label="Home", selected=false, d="M4 4h16v16H4zM6 6v12h12V6z", selectedD="M4 4h16v16H4z", iconSize=28, lift=0, badge="3", dot=false, press=press)
+            box testId="marker-sample-bi-badge" press=toggle width=24 height=24 align-items="center" justify-content="center"
+              text glyph
+          BarItem(id="sample-bi-dot", label="Home", selected=false, d="M4 4h16v16H4zM6 6v12h12V6z", selectedD="M4 4h16v16H4z", iconSize=28, lift=0, badge="", dot=true, press=press)
+            box testId="marker-sample-bi-dot" press=toggle width=24 height=24 align-items="center" justify-content="center"
+              text glyph
+          BarItem(id="sample-bi-avatar", label="Home", selected=false, d="", selectedD="M4 4h16v16H4z", iconSize=28, lift=0, badge="", dot=false, press=press)
+            box testId="marker-sample-bi-avatar" press=toggle width=24 height=24 align-items="center" justify-content="center"
+              text glyph
+        // An app's own header's buttons: each variant value, one at a time.
+        row testId="gate-header" gap=8
+          HeaderButton(id="hb-base", label="Back", d="M3 12l6-6v4h12v4H9v4z", small=false, lead=false, press=press)
+          HeaderButton(id="hb-small", label="Back", d="M3 12l6-6v4h12v4H9v4z", small=true, lead=false, press=press)
+          HeaderButton(id="hb-lead", label="Back", d="M3 12l6-6v4h12v4H9v4z", small=false, lead=true, press=press)
         // The lists' rows sit in a grouped list's section, as the platform's
         // list cells do (LLP 1084): each accessory and a destructive row are
         // samples (structure and an attribute, no recipe).
@@ -132,6 +159,7 @@ component App
             ListRow(id="sample-lr-value", symbol="mail", title="Email", value="ada@fixture.invalid", accessory="value", selected=false, destructive=false, press=press)
             ListRow(id="sample-lr-check", symbol="", title="System", value="", accessory="check", selected=true, destructive=false, press=press)
             ListRow(id="sample-lr-check-off", symbol="", title="Light", value="", accessory="check", selected=false, destructive=false, press=press)
+            ListRow(id="sample-lr-check-symbol", symbol="moon", title="Dark", value="", accessory="check", selected=true, destructive=false, press=press)
             ListRow(id="sample-lr-none", symbol="info", title="Help", value="", accessory="none", selected=false, destructive=false, press=press)
             ListRow(id="sample-lr-destructive", symbol="sign-out", title="Sign out", value="", accessory="none", selected=false, destructive=true, press=press)
             SwitchRow(id="sr-base", symbol="moon", title="Dark mode", checked=switched, set=flip)

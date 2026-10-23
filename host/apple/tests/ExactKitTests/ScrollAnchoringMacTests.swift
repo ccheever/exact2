@@ -98,6 +98,19 @@ final class ScrollAnchoringMacTests: XCTestCase {
         XCTAssertEqual(clip.bounds.minY, 200)
     }
 
+    func testSettingOrClearingPopoverSuppressesTheSameBatchsAnchorCorrection() {
+        for clearing in [false, true] {
+            let (p, clip) = fixture(top: 200)
+            if clearing { p.apply(wireBatch([["op": "props", "id": 2, "set": ["popover": "manual"]]])) }
+            clip.scroll(to: NSPoint(x: 0, y: 200))
+            let prop: [String: Any] = clearing
+                ? ["op": "props", "id": 2, "clear": ["popover"]]
+                : ["op": "props", "id": 2, "set": ["popover": "manual"]]
+            p.apply(wireBatch([prop] + rows(header: 0)))
+            XCTAssertEqual(clip.bounds.minY, 200, clearing ? "back into flow" : "out of flow")
+        }
+    }
+
     func testAnExplicitScrollTopWins() {
         let (p, clip) = fixture(top: 200)
         p.apply(wireBatch([["op": "style", "id": 2, "style": ["height": 0.0]], ["op": "props", "id": 1, "set": ["scrollTop": "100"]]] + rows(header: 0)))

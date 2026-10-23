@@ -95,6 +95,9 @@ extension Presenter {
         supersedePress()
         #endif
         let prevented = keyEvent("key", at: target, KeyPress(held + name, code: code, repeats: repeats))
+        #if os(iOS)
+        if !prevented, (name == "ContextMenu" && held.isEmpty || name == "F10" && held == "Shift+"), contextMenuKey() { return true }
+        #endif
         #if canImport(UIKit)
         if !prevented, name == "Escape", !repeats, menus.dismissPopover() { return true }
         #endif

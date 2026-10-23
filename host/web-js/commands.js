@@ -2,7 +2,7 @@
 // wasm web host runs it (host/web/glue.js, navigation.js), so a command the
 // compiler admits (contract/types/src/checks.rs `HOST_COMMANDS`) is one this
 // runtime carries (files diary F5: `selectText` was refused here).
-import { popoverCommand, setFieldSelection, setFieldRangeText, appRootFontSize, liveById } from "./navigation.js";
+import { popoverCommand, setFieldSelection, setFieldRangeText, appRootFontSize, liveById, declaredScheme } from "./navigation.js";
 import "./prompt-glue.js"; // a prompt's Return (host/web/prompt-glue.js)
 import "./alert-message.js"; // a grouped alert's message box (host/web/alert-message.js)
 import "./menu-rows.js"; // a menu row's popover opens from the menu's invoker (host/web/menu-rows.js, LLP 1021)
@@ -10,7 +10,8 @@ globalThis.exact?.menuRows?.();
 // A development page may hold a fact over the app's own (LLP 1122 T7, theme2's F2 ruling: a copy the design tool pins):
 // the app's choice kept as asked, with how to apply it, and applied only when the fact is not held.
 const asked = (fact, value, apply) => { const x = globalThis.exact; if (!x) return apply(); (x.asked ??= {})[fact] = { value, apply }; if (!x.held?.[fact]) apply(); else x.onAsked?.(); };
-export const commands = say => ({
+// `agentMode`: rt.js's, whether the agent drives the page.
+export const commands = (say, agentMode = () => false) => ({
   // The field's own method, by its id (x2apps codeedit #2); commands run
   // once the commit's tree is in place, so a value set beside it is there.
   removeAllRanges: () => getSelection()?.removeAllRanges(),
@@ -25,14 +26,17 @@ export const commands = say => ({
     if (document.activeElement === e) e.select();
   },
   // An absolute http, https, mailto or tel URL in a new browsing context,
-  // the one scheme allowlist every navigation takes (navigation.js `navigableURL`).
+  // the one scheme allowlist every navigation takes (navigation.js `navigableURL`),
+  // or one of a scheme app.json's `open_url.schemes` declares (`exact.openSchemes`),
+  // which the browser asks about before it hands it to the app registered for it.
   openURL: u => {
-    let to = null;
-    try { const url = new URL(u); if (["http:", "https:", "mailto:", "tel:"].includes(url.protocol)) to = url.href; } catch {}
-    if (to) open(to, "_blank", "noopener,noreferrer");
+    let to = null, declared = false;
+    try { const url = new URL(u); declared = declaredScheme(url.protocol); if (declared || ["http:", "https:", "mailto:", "tel:"].includes(url.protocol)) to = url.href; } catch {}
+    if (to && declared && agentMode()) say(`openURL ${to.slice(0, to.indexOf(":"))}: ${to.slice(0, 200)} (journaled, not opened under the agent)`);
+    else if (to) open(to, "_blank", "noopener,noreferrer");
     // The app's own settings page (LLP 1133.002 D11): a browser has none to open.
     else if (u === "app-settings:") say("openURL refused: app-settings: has no page on the web; a site's permissions are the browser's own (its address bar, its settings)");
-    else say(`openURL refused: ${JSON.stringify(String(u).slice(0, 80))} is not an absolute http, https, mailto or tel URL`);
+    else say(`openURL refused: ${JSON.stringify(String(u).slice(0, 80))} is not an absolute http, https, mailto or tel URL, nor of a scheme app.json's open_url.schemes declares`);
   },
   // The inverse of `message=`: text into the named surface, every post in
   // order, held until the GPU glue loads and drains `pendingPosts`

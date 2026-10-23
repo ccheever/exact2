@@ -824,9 +824,10 @@ final class PopoverMacTests: XCTestCase {
     }
     func testNativeProjectionRequiresOnlyTextButtonsAndSeparators() {
         let p = fixture(), pop = p.views[3]!
+        p.views[5]!.handlers.insert("press")
         XCTAssertFalse(p.menus.isMenuShaped(pop), "a form must never become a menu")
         p.apply(wireBatch([["op": "children", "id": 3, "ids": [5]]]))
-        XCTAssertTrue(p.menus.isMenuShaped(pop), "a hide-only button is still a menu row")
+        XCTAssertTrue(p.menus.isMenuShaped(pop), "an action button is a menu row")
         p.views[5]!.props["accessibilityChecked"] = "true"
         p.views[5]!.props["disabled"] = "true"
         let menu = p.menus.menu(of: pop)
@@ -844,6 +845,7 @@ final class PopoverMacTests: XCTestCase {
     /// HTML's `hr` (LLP 1021 D1) is a menu row: the separator between items.
     func testAnHrRowIsTheMenusSeparator() {
         let p = fixture(), pop = p.views[3]!
+        p.views[5]!.handlers.insert("press")
         p.apply(wireBatch([
             ["op": "create", "id": 9, "kind": "view", "props": ["semanticTag": "hr"]],
             ["op": "create", "id": 10, "kind": "button", "handlers": ["press"], "props": ["popovertarget": "form", "popovertargetaction": "hide"]],
@@ -872,6 +874,7 @@ final class PopoverMacTests: XCTestCase {
     }
     func testNativeAndCustomSymbolRowsKeepTheirMenuFacesAndActions() throws {
         let p = fixture(), pop = p.views[3]!
+        p.views[5]!.handlers.insert("press")
         p.buttonFace = { id in
             var face = ButtonFace()
             if id == 5 { face.label = "Close"; face.symbol = "xmark" }

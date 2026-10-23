@@ -399,6 +399,62 @@ fn a_button_that_styles_its_own_disabled_state_carries_the_mark() {
     assert_eq!(js.matches("disabledstyled").count(), 1, "{js}");
 }
 
+/// A platform button's written padding is named on its axis, as its written
+/// size is: the neutral look's floor steps aside there (element.rs,
+/// neutral.css).
+#[test]
+fn a_native_button_names_its_written_padding() {
+    let plan = contract::compile(
+        "component App\n  view\n    column\n      button padding-top=0 padding-bottom=0 testId=\"block\"\n        text \"One\"\n      button padding=8 testId=\"inset\"\n        text \"Two\"\n      button testId=\"unsaid\"\n        text \"Three\"\n",
+    )
+    .unwrap();
+    let sites = crate::emit::Sites::new(&plan).unwrap();
+    let parts = crate::style::project(&plan, &sites, &mut Vec::new()).unwrap();
+    let said = |name: &str| {
+        parts
+            .iter()
+            .flatten()
+            .find(|part| part.props.get("data-testid").is_some_and(|id| id == name))
+            .unwrap()
+            .props
+            .get("data-exact-said")
+            .cloned()
+    };
+    assert_eq!(said("block").as_deref(), Some("padding-block"));
+    assert_eq!(
+        said("inset").as_deref(),
+        Some("padding-inline padding-block")
+    );
+    assert_eq!(said("unsaid"), None);
+}
+
+#[test]
+fn a_native_button_marks_bound_size_and_padding() {
+    let plan = contract::compile(
+        r#"component App
+  state n = 0
+  view
+    button width=(n + 80) height=(n + 24) padding=n
+      text "Go"
+"#,
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    for name in [
+        "width",
+        "height",
+        "padding-top",
+        "padding-right",
+        "padding-bottom",
+        "padding-left",
+    ] {
+        assert!(
+            js.contains(&format!("\"data-exact-{name}\"")),
+            "{name}: {js}"
+        );
+    }
+}
+
 #[test]
 fn static_authored_clears_keep_inline_css_over_platform_rules() {
     let plan = contract::compile(

@@ -86,8 +86,17 @@ class Element extends Node {
   get firstElementChild() { return this.childNodes.find(c => c.nodeType === 1) ?? null; }
   getElementsByTagName(tag) { return this.childNodes.flatMap(c => c.nodeType === 1 ? [...(tag === '*' || c.localName === tag ? [c] : []), ...c.getElementsByTagName(tag)] : []); }
   querySelectorAll() { return []; } querySelector() { return null; } contains() { return false; }
-  // Simple selectors only (`tag`, `tag[attr]`, `[attr]`, comma-separated): rt.js `on` asks whether a press is native.
-  matches(sel) { return sel.split(',').some(p => { const m = /^([\w-]*)(?:\[([\w-]+)\])?$/.exec(p.trim()); return !!m && (!m[1] || m[1] === this.localName) && (!m[2] || this.hasAttribute(m[2])); }); }
+  // A tag and attributes only (`[a]`, `[a=v]`, `[a~=v]`, the value quoted or not), comma-separated: rt.js `on` asks
+  // whether a press is native, and navigation.js `markBars` reads a header as `barItems` does.
+  matches(sel) {
+    return sel.split(',').some(p => {
+      const m = /^([\w-]*)((?:\[[\w-]+(?:~?=(?:"[^"]*"|[\w-]+))?\])*)$/.exec(p.trim());
+      return !!m && (!m[1] || m[1] === this.localName) && [...m[2].matchAll(/\[([\w-]+)(?:(~?)=(?:"([^"]*)"|([\w-]+)))?\]/g)].every(([, k, word, quoted, bare]) => {
+        const v = this.getAttribute(k), want = quoted ?? bare;
+        return v !== null && (want === undefined || (word ? v.split(/\s+/).includes(want) : v === want));
+      });
+    });
+  }
   get value() { return this.localName === 'textarea' ? this.textContent : this.getAttribute('value') ?? ''; }
   get options() { return this.childNodes.filter(c => c.localName === 'option'); }
   // A select's value is the option that carries it, `selected` (document.rs).
@@ -144,7 +153,7 @@ export function createDocument(shell = '') {
     title: '', head, body, documentElement: body, styleSheets: [], // symbols.js reads a tint from the stylesheets: a render has none
     createElement: t => new Element(t, fonts), createElementNS: (_, t) => new Element(t, fonts),
     createTextNode: t => new Text(t), createComment: () => new Comment(), createDocumentFragment: () => new Fragment(),
-    getElementById: id => (id === 'exact-root' ? root : null),
+    getElementById: id => (id === 'exact-root' ? root : id ? root.getElementsByTagName('*').find(e => e.getAttribute('id') === id) ?? null : null), // navigation.js `opensPopover` names a popover
     querySelector: sel => (/meta\[name="description"\]/.test(sel) ? head.childNodes.find(m => m.getAttribute?.('name') === 'description') ?? null : null),
     querySelectorAll: () => [],
     root, rootHTML: () => root.childNodes.map(c => c.html()).join(''),

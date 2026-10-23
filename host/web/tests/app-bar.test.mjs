@@ -1,7 +1,7 @@
 // LLP 1116.000 D4 in a real browser: a default build's stylesheet and the
 // navigation glue's projection (navigation.js, which both web targets run)
 // over nodes as the hosts write them. A pushed route's app bar draws Back,
-// in the bar's own ink (a route above its stack's root, not a sheet), for the
+// in the app's accent (a route above its stack's root, not a sheet), for the
 // root's `navigationBack` control, which a header holding it does not show, and a block `link` of
 // text is in the accent with the pointing hand while an authored colour, a
 // row inside it, a `role` or a `buttonStyle` keeps the author's look. The
@@ -109,8 +109,8 @@ check('a pushed route draws Back at its app bar\'s leading edge, and goes back a
   expect(await evaluate(`const busy = document.getElementById('exact-root'); busy.setAttribute('aria-busy', 'true'); document.querySelector('#r3 #back').disabled = true; select('2'); const n = backs().length; busy.removeAttribute('aria-busy'); document.querySelector('#r3 #back').disabled = false; n`)).toBe(4);
   // The renderer's children stay its own: the button is the header's shadow root's, before its slot, at the leading edge.
   expect(await evaluate(`[document.querySelector('#r2 > header').children.length, document.querySelector('#r2 > header').shadowRoot.querySelector('button').getBoundingClientRect().right <= document.getElementById('title2').getBoundingClientRect().left]`)).toEqual([1, true]);
-  // It is one of the bar's buttons, so in the bar's ink, the label's (LLP 1116 D1's look drew it in the accent, as UIKit does).
-  expect(await evaluate(`[getComputedStyle(document.querySelector('#r2 > header').shadowRoot.querySelector('button')).color === getComputedStyle(document.getElementById('ink')).color, getComputedStyle(document.getElementById('ink')).color === getComputedStyle(document.getElementById('links')).color]`)).toEqual([true, false]);
+  // It is in the app's accent, not the bar's label ink, as UIKit tints its Back.
+  expect(await evaluate(`[getComputedStyle(document.querySelector('#r2 > header').shadowRoot.querySelector('button')).color === getComputedStyle(document.getElementById('accent')).color, getComputedStyle(document.getElementById('accent')).color === getComputedStyle(document.getElementById('ink')).color]`)).toEqual([true, false]);
 
   // Keyboard: the first Tab stop of the shown route; Enter goes back (the runner's own, with no entry beneath known).
   await evaluate('document.activeElement.blur()');
@@ -137,6 +137,9 @@ check('Escape closes a sheet as its Cancel does; with no Cancel the root names, 
     return evaluate('calls.splice(0)');
   };
   await evaluate(`document.querySelector('#r4 #back').addEventListener('click', () => calls.push('pressed r4')); select('4'); calls.splice(0)`);
+  expect(await escape()).toEqual(['pressed r4']);
+  // It presses a Cancel in the sheet header's closed menu too, as iOS presses the control wherever it is.
+  await evaluate(`{ const menu = document.createElement('div'); menu.popover = 'manual'; document.querySelector('#r4 > header').append(menu); menu.append(document.querySelector('#r4 #back')); } select('4')`);
   expect(await escape()).toEqual(['pressed r4']);
   // A Cancel whose id the root does not name (LLP 1129's probe): the runner's own back, as iOS's swipe down takes it.
   await evaluate(`document.querySelector('#r4 #back').id = 'cancel'; select('4')`);
@@ -234,10 +237,13 @@ check('the browser\'s Back with no navigate handler is the runner\'s own back, h
   expect(await evaluate(`push(1, '/item/1'); back()`)).toEqual([['navigate /', 'host back 1'], '/', 1]);
   // A `navigate` handler still wins: it is the Back, and the runner does nothing of its own.
   expect(await evaluate(`heard = true; push(2, '/item/2'); back().finally(() => { heard = false; })`)).toEqual([['navigate /'], '/', 1]);
-  // A sheet's Back control is what Back presses, as on iOS; a disabled one refuses, and the entry is restored.
+  // A sheet's Back control is what Back presses, as iOS presses it wherever it is: in the sheet header's closed menu too.
   expect(await evaluate(`push(3, '/add', true); back()`)).toEqual([['navigate /', 'pressed 3'], '/', 1]);
+  expect(await evaluate(`push(5, '/add', true); { const header = document.querySelector('[navigationKey="5"] > header'), menu = document.createElement('div'); menu.popover = 'manual'; header.append(menu); menu.append(header.querySelector('#back')); } back()`))
+    .toEqual([['navigate /', 'pressed 5'], '/', 1]);
+  // A disabled one refuses, and the entry is restored.
   expect(await evaluate(`push(4, '/add', true); document.querySelector('[navigationKey="4"] #back').disabled = true; back(2)`))
-    .toEqual([['navigate /', 'log history: Back refused: its id="back" control is disabled, inert or not shown; restoring the entry'], '/add', 2]);
+    .toEqual([['navigate /', 'log history: Back refused: its id="back" control is disabled or inert; restoring the entry'], '/add', 2]);
 }, keyed), 60000);
 
 check('the browser\'s Forward with no navigate handler is the runner\'s own go', () => inChrome(async (evaluate) => {
@@ -344,7 +350,7 @@ check('an app bar Back control remains live inside a modal beneath an inert ance
   `);
   expect(await evaluate(`press('r3'); calls.splice(0)`)).toEqual(['pressed r3']);
   expect(await evaluate(`document.querySelector('#r3 #back').inert = true; press('r3'); calls.splice(0)`))
-    .toEqual(['log app bar: Back refused: its id="back" control is disabled, inert or not shown']);
+    .toEqual(['log app bar: Back refused: its id="back" control is disabled or inert']);
   expect(await evaluate(`document.querySelector('#r3 #back').inert = false; document.querySelector('dialog').inert = true; press('r3'); calls.splice(0)`))
-    .toEqual(['log app bar: Back refused: its id="back" control is disabled, inert or not shown']);
+    .toEqual(['log app bar: Back refused: its id="back" control is disabled or inert']);
 }), 60000);

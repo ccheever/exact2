@@ -161,7 +161,12 @@ pub(super) fn require_table(f: Stdlib, shapes: &Shapes, span: Span) -> Result<()
     Ok(())
 }
 
-pub(super) fn location(f: Stdlib, args: &[Expr], shapes: &Shapes) -> Result<(), TypeError> {
+pub(super) fn location(
+    f: Stdlib,
+    args: &[Expr],
+    scope: &Scope,
+    shapes: &Shapes,
+) -> Result<(), TypeError> {
     if !matches!(
         f,
         Stdlib::Open | Stdlib::Push | Stdlib::Replace | Stdlib::Go
@@ -173,7 +178,7 @@ pub(super) fn location(f: Stdlib, args: &[Expr], shapes: &Shapes) -> Result<(), 
     };
     match &args[1] {
         Expr::Template(parts, span) => {
-            let call = path_call(parts, table)
+            let call = path_call(parts, table, scope, shapes)
                 .map(|c| match c.contains('`') {
                     true => format!(": write `` {c} ``"),
                     false => format!(": write `{c}`"),
@@ -192,7 +197,12 @@ pub(super) fn location(f: Stdlib, args: &[Expr], shapes: &Shapes) -> Result<(), 
 /// whole segment of one route's pattern and simple enough to write back:
 /// `` `/day/${d.key}` `` is `path("day", d.key)`. A query after it is
 /// concatenated, `path("open") + `?u=${u}``.
-fn path_call(parts: &[TemplatePart], table: &exact_route::Table) -> Option<String> {
+fn path_call(
+    parts: &[TemplatePart],
+    table: &exact_route::Table,
+    scope: &Scope,
+    shapes: &Shapes,
+) -> Option<String> {
     // Text that reads the same written back in a string or a template: no
     // escape, quote, backtick or `$` (the generic hint covers the rest).
     fn plain(s: &str) -> bool {
@@ -267,7 +277,15 @@ fn path_call(parts: &[TemplatePart], table: &exact_route::Table) -> Option<Strin
     let mut args = vec![format!("\"{}\"", route.name)];
     for (p, s) in route.pattern.split('/').zip(&segments) {
         match (p.starts_with(':'), s.as_slice()) {
-            (true, [Err(e)]) => args.push(written(e)?),
+            (true, [Err(e)]) => {
+                let value = written(e)?;
+                let ty = infer(e, scope, shapes).ok()?;
+                args.push(if ty.is_string() || ty == Ty::Number {
+                    value
+                } else {
+                    format!("`${{{value}}}`")
+                });
+            }
             (true, [Ok(text)]) => args.push(format!("\"{text}\"")),
             _ => {}
         }

@@ -10,7 +10,7 @@ extension NodeView {
     /// CSS `::placeholder { color }` (LLP 1104 D3); nil, the platform's.
     var placeholderColor: NSColor? { cgColor("placeholder_color").flatMap { NSColor(cgColor: $0) } }
     /// A colour row as Core Graphics draws it (LLP 1100 D2).
-    func cgColor(_ key: String, dark: Bool? = nil) -> CGColor? { style[key].flatMap { $0.cgColor(dark: dark ?? drawsDark, contrast: drawsHighContrast, tint: ownTint(for: $0)) } }
+    func cgColor(_ key: String, dark: Bool? = nil) -> CGColor? { style[key].flatMap { $0.cgColor(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: window is SheetWindow, tint: ownTint(for: $0)) } }
 
     /// The node whose `accent-color` is this view's tint: the nearest at or
     /// above it whose accent is a colour (`auto`, or one naming the tint

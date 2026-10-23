@@ -164,7 +164,10 @@ final class ElementScrollTests: XCTestCase {
         let (p, scroll, window) = try exactFixture()
         defer { withExtendedLifetime(window) {} }
 
-        p.apply(wireBatch([["op": "style", "id": 1, "style": ["overflow_y": "scroll", "scroll_behavior": "smooth"]]]))
+        p.apply(wireBatch([
+            ["op": "content", "id": 1, "w": 200.0, "h": 1000.0],
+            ["op": "style", "id": 1, "style": ["overflow_y": "scroll", "scroll_behavior": "smooth"]],
+        ]))
         let smoothStyle = observeExact(p, scroll: scroll, arguments: ["target", "start", "nearest"])
         if !ExactEnv.agentFreezes {
             XCTAssertLessThan(smoothStyle.first, 368)
@@ -199,7 +202,10 @@ final class ElementScrollTests: XCTestCase {
         for behavior in ["auto", "smooth"] {
             let (p, scroll, window) = try exactFixture()
             defer { withExtendedLifetime(window) {} }
-            p.apply(wireBatch([["op": "style", "id": 1, "style": ["overflow_y": "scroll", "scroll_behavior": behavior]]]))
+            p.apply(wireBatch([
+                ["op": "content", "id": 1, "w": 200.0, "h": 1000.0],
+                ["op": "style", "id": 1, "style": ["overflow_y": "scroll", "scroll_behavior": behavior]],
+            ]))
             var ended = 0
             p.onScrollend = { _ in ended += 1 }
 

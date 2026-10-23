@@ -99,6 +99,30 @@ final class BoundDatePicker: UIDatePicker {
     /// own `date` cannot say.
     var empty = false { didSet { if empty != oldValue { setNeedsLayout() } } }
     private let pill = CALayer(), words = CATextLayer()
+    /// Keep UIKit's exposed elements and their activation; replace only the
+    /// value they announce while the bound value is empty.
+    private func updateEmptyAccessibility() {
+        guard empty else { return }
+        var seen = Set<ObjectIdentifier>()
+        func visit(_ object: NSObject) {
+            guard seen.insert(ObjectIdentifier(object)).inserted else { return }
+            if object !== self, object.isAccessibilityElement {
+                DateAccessibility.value(of: object, follows: self)
+                return
+            }
+            if let elements = object.accessibilityElements, !elements.isEmpty {
+                for case let element as NSObject in elements { visit(element) }
+            } else {
+                let count = object.accessibilityElementCount()
+                if count != NSNotFound, count > 0 {
+                    for i in 0..<count { if let element = object.accessibilityElement(at: i) as? NSObject { visit(element) } }
+                } else if let view = object as? UIView {
+                    for child in view.subviews { visit(child) }
+                }
+            }
+        }
+        visit(self)
+    }
     private static let nothing = "exact.empty-date"
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -116,6 +140,7 @@ final class BoundDatePicker: UIDatePicker {
                 view.layer.mask = nil
             }
         }
+        updateEmptyAccessibility()
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         guard empty else { pill.removeFromSuperlayer(); return }
@@ -147,7 +172,7 @@ final class BoundDatePicker: UIDatePicker {
         pill.superlayer === layer ? ((words.string as? String) ?? "", pill.frame) : nil
     }
     override var accessibilityValue: String? {
-        get { empty ? "" : super.accessibilityValue }
+        get { empty ? placeholder : super.accessibilityValue }
         set { super.accessibilityValue = newValue }
     }
 }

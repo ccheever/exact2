@@ -5,7 +5,7 @@
 // design's `params` block when it has one, else the default as written.
 // Pure functions of `describe`; app.ts's design read uses them.
 import type { Result } from './app.contract.d.ts';
-import { controlOf, numberOf } from './dials.ts';
+import { controlOf, numberOf, sides } from './dials.ts';
 
 type Design = Result<'loadDesign'>;
 type Panel = Design['components'][number];
@@ -124,6 +124,8 @@ export function paramRow(p: Param, tokens: ReadonlySet<string>): Row | null {
     whens: p.set?.whens ?? 0,
     // Whether the app's line is a literal with no `when` branch: the one case its own value wins on both scheme sides.
     levelSelf: false,
+    swatches: [],
+    words: '',
   };
 }
 
@@ -139,7 +141,7 @@ const iconText = (v: unknown) => {
  * component (its identity's file none of the app's own, `own`, describe's
  * `files`) says so: "Set for this app" writes the app's line, the package's
  * own files read only (LLP 1139 D5). */
-export function componentsOf(list: { identity: string; name: string; params: Param[]; variants?: { prop: string; options: string[] }[] }[] | undefined, design: string, tokens: ReadonlySet<string>, own: ReadonlySet<string> = new Set(), tokenOf: (value: string) => string | null = v => (tokens.has(v) ? v : null), packageOf: ReadonlyMap<string, string> = new Map(), bases: ReadonlySet<string> = new Set()): Design['components'] {
+export function componentsOf(list: { identity: string; name: string; params: Param[]; variants?: { prop: string; options: string[] }[] }[] | undefined, design: string, tokens: ReadonlySet<string>, own: ReadonlySet<string> = new Set(), tokenOf: (value: string) => string | null = v => (tokens.has(v) ? v : null), packageOf: ReadonlyMap<string, string> = new Map(), bases: ReadonlySet<string> = new Set(), look: (token: string, p: Param) => { swatches: { label: string; css: string }[]; words: string } = () => ({ swatches: [], words: '' })): Design['components'] {
   return (list ?? []).filter(c => c.params?.length || c.variants?.length).map(c => {
     const groups = new Map<string, Row[]>();
     // (A listing with none of the app's Contract sources, an older server's, says nothing of packages.)
@@ -149,7 +151,9 @@ export function componentsOf(list: { identity: string; name: string; params: Par
       if (!found) continue;
       const token = typeof p.default === 'string' ? tokenOf(p.default) ?? '' : '';
       const reached = p.reaches?.token ?? '';
-      const row = { ...found, package: fromPackage, token, tokenPackage: token ? packageOf.get(token) ?? '' : '', tokenBase: !!token && bases.has(token),
+      // A colour param's colour in each grid column, and the chain to it in words (review2 09:29: the grid's columns,
+      // labelled; the platform's role said as one).
+      const row = { ...found, ...(p.kind === 'color' ? look(token, p) : { swatches: [], words: '' }), package: fromPackage, token, tokenPackage: token ? packageOf.get(token) ?? '' : '', tokenBase: !!token && bases.has(token),
         packageToken: fromPackage && reached && packageOf.has(reached) ? reached : '', appSet: !!p.reaches?.app_set,
         levelSelf: !!p.set && !p.set.whens && /^(#[0-9a-f]{3,8}|-?[\d.]+[a-z%]*)$/i.test(p.set.value.trim()) };
       const g = p.group ?? '';
@@ -168,4 +172,34 @@ export function componentsOf(list: { identity: string; name: string; params: Par
       }),
     };
   });
+}
+
+// A role a page paints by the platform: Exact's (`-exact-…`, any case) or a CSS system colour.
+const SYSTEM = new Set(['canvas', 'canvastext', 'linktext', 'visitedtext', 'activetext', 'buttonface', 'buttontext', 'buttonborder', 'field', 'fieldtext', 'highlight', 'highlighttext', 'selecteditem', 'selecteditemtext', 'mark', 'marktext', 'graytext', 'accentcolor', 'accentcolortext']);
+const isRole = (v: string) => /^-exact-/i.test(v.trim()) || SYSTEM.has(v.trim().toLowerCase());
+
+/** A colour param's look (the second hands-on pass, #4; review2 09:29): its colour in each of the token grid's
+ * columns, in their order and with their labels, and the chain to it in words. A param the app sets, or one naming
+ * no token, reads its own values (one per tuple, its scheme side taken as a swatch shows it); one following a token
+ * reads that token's cells as the grid paints them (a residual by its fallback). The words follow the token: what the
+ * app's row for it follows (its dials) or its value, the platform's role where that is a role (or the token is one
+ * the app does not set), Exact's base for a base name the app leaves unset. */
+export function lookOf(columns: { label: string; tuple: number; dark: boolean }[], stored: ReadonlyMap<string, { css: string; srgb?: string; residual?: boolean; value?: unknown }[][]>, rows: { name: string; start?: string; follows?: string }[]) {
+  return (token: string, p: Param) => {
+    const cells = !p.set && token ? stored.get(token) : undefined;
+    const swatches = columns.map(c => {
+      const v = cells?.[c.tuple]?.[c.dark ? 1 : 0];
+      const css = v ? (v.residual ? v.srgb ?? '' : v.css) : sides(String(p.values?.[c.tuple] ?? ''))[c.dark ? 1 : 0];
+      return { label: c.label, css };
+    // (A role the page alone paints, Exact's or a system colour, has no colour to show here: its words say it.)
+    }).filter(s => s.css && !isRole(s.css));
+    // What the app's row follows (its dials), else its value where every column shares it; else that it differs.
+    const row = rows.find(r => r.name === token), same = new Set((stored.get(token) ?? []).map(t => String(t[0]?.value ?? ''))).size <= 1;
+    const written = row?.follows || (same ? row?.start : 'its value by mode, in its row') || '';
+    const def = typeof p.default === 'string' ? p.default : '';
+    const words = p.set ? `set for this app: ${p.set.value}`
+      : token ? `${token} → ${row ? (isRole(written) ? "the platform's role" : written || "Exact's base") : isRole(token) ? "the platform's role" : "Exact's base"}`
+      : isRole(def) ? `${def} → the platform's role` : '';
+    return { swatches, words };
+  };
 }

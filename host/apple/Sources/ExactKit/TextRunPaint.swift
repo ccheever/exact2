@@ -24,7 +24,8 @@ extension Spec {
     mutating func gatherShadows() {
         let painted = runs.filter { !$0.text.isEmpty }
         guard let first = painted.first else { shadow = nil; return }
-        if painted.allSatisfy({ $0.shadow == first.shadow }) {
+        let tokenShadow = lineClamp > 0 ? (strut ?? first).shadow : first.shadow
+        if tokenShadow == first.shadow, painted.allSatisfy({ $0.shadow == first.shadow }) {
             shadow = first.shadow
             for i in runs.indices { runs[i].shadow = nil }
         } else {
@@ -229,31 +230,46 @@ extension TextLinePaint {
     static func drawShadowed(_ line: CTLine, in ctx: CGContext, scale: CGFloat, pass: Pass = .all) -> Bool {
         let runs = CTLineGetGlyphRuns(line) as! [CTRun]
         var shadows = runs.map(TextRunShadow.of)
+        let advances = runs.map(extent).reduce(CGRect.null) { $0.union($1) }
         func hidden(_ run: CTRun) -> Bool { (CTRunGetAttributes(run) as NSDictionary)[NSAttributedString.Key.exactHidden] as? Bool == true }
+        func draw(_ shown: [CTRun]) {
+            guard !shown.isEmpty else { return }
+            var clips = shown.map(extent)
+            // Decorations occupy advances; italic ink and stroke can pass
+            // the line's edges. Admit that ink in the same clip operation,
+            // so a fractional edge is not composited twice.
+            for run in shown {
+                let attributes = CTRunGetAttributes(run) as NSDictionary
+                let font = attributes[kCTFontAttributeName] as! CTFont
+                let stroke = abs((attributes[NSAttributedString.Key.strokeWidth] as? NSNumber)?.doubleValue ?? 0) * CTFontGetSize(font) / 200
+                let ink = CTRunGetImageBounds(run, nil, CFRange()).insetBy(dx: -stroke - 1, dy: -stroke - 1)
+                if ink.minX < advances.minX {
+                    clips.append(CGRect(x: ink.minX, y: ink.minY, width: min(ink.maxX, advances.minX) - ink.minX, height: ink.height))
+                }
+                if ink.maxX > advances.maxX {
+                    clips.append(CGRect(x: max(ink.minX, advances.maxX), y: ink.minY, width: ink.maxX - max(ink.minX, advances.maxX), height: ink.height))
+                }
+                if ink.minY < advances.minY {
+                    clips.append(CGRect(x: ink.minX, y: ink.minY, width: ink.width, height: min(ink.maxY, advances.minY) - ink.minY))
+                }
+                if ink.maxY > advances.maxY {
+                    clips.append(CGRect(x: ink.minX, y: max(ink.minY, advances.maxY), width: ink.width, height: ink.maxY - max(ink.minY, advances.maxY)))
+                }
+            }
+            ctx.saveGState()
+            ctx.clip(to: clips)
+            ctx.textPosition = .zero
+            CTLineDraw(line, ctx)
+            ctx.restoreGState()
+        }
         switch pass {
         case .all: break
         case .ink: shadows = shadows.map { $0.flatMap { ColorRange.isHDR($0.color) ? nil : $0 } }
         case .caster(let cast):
-            for (run, shadow) in zip(runs, shadows) where shadow == cast && !hidden(run) {
-                ctx.textPosition = .zero
-                CTRunDraw(run, ctx, CFRange())
-            }
+            draw(zip(runs, shadows).filter { $0.1 == cast && !hidden($0.0) }.map { $0.0 })
             return true
         }
         guard shadows.contains(where: { $0 != nil }) || runs.contains(where: hidden) else { return false }
-        if !shadows.contains(where: { $0 != nil }) {
-            // Hidden runs alone: the line as CoreText draws it, clipped to
-            // the runs that show, so their underlines and line-throughs stay
-            // (`CTRunDraw` draws none) and hidden text has neither.
-            let shown = runs.filter { !hidden($0) }.map(extent)
-            guard !shown.isEmpty else { return true }
-            ctx.saveGState()
-            ctx.clip(to: shown)
-            ctx.textPosition = .zero
-            CTLineDraw(line, ctx)
-            ctx.restoreGState()
-            return true
-        }
         var i = 0
         while i < runs.count {
             var j = i + 1
@@ -263,10 +279,9 @@ extension TextLinePaint {
                 s.set(on: ctx, scale: scale)
                 ctx.beginTransparencyLayer(auxiliaryInfo: nil)
             }
-            for k in i..<j where !hidden(runs[k]) {
-                ctx.textPosition = .zero
-                CTRunDraw(runs[k], ctx, CFRange())
-            }
+            // Decorations belong to CTLineDraw; clip inside the transparency
+            // layer so the resulting shadow can extend beyond the run stretch.
+            draw(runs[i..<j].filter { !hidden($0) })
             if shadows[i] != nil { ctx.endTransparencyLayer(); ctx.restoreGState() }
             i = j
         }

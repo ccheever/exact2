@@ -77,8 +77,10 @@ extension Presenter {
     /// route's backdrop), never a row's own. Nil where nothing is painted.
     func bottomEdgeColor() -> UIColor? {
         let b = viewport.bounds.inset(by: pageMargins) // the page's area, not the band under it
-        guard b.height > 1, let hit = viewport.hitTest(CGPoint(x: b.midX, y: b.maxY - 1), with: nil) else { return nil }
-        let chain = Array(sequence(first: hit, next: { $0 === self.viewport ? nil : $0.superview }))
+        // The mount beside the viewport shares its space and has no ground of its own.
+        let port = documentPort
+        guard b.height > 1, let hit = port.hitTest(CGPoint(x: b.midX, y: b.maxY - 1), with: nil) else { return nil }
+        let chain = Array(sequence(first: hit, next: { $0 === port ? nil : $0.superview })) + (port === viewport ? [] : [viewport as UIView])
         let from = chain.firstIndex { $0 is UIScrollView } ?? 0
         return chain[from...].lazy.compactMap { v in
             v.backgroundColor.flatMap { $0.resolvedColor(with: v.traitCollection).cgColor.alpha > 0.99 ? $0 : nil }
@@ -110,7 +112,7 @@ extension Presenter {
         var child: UIView = sv, up = sv.superview
         while let parent = up {
             if let at = parent.subviews.firstIndex(of: child) {
-                for case let sibling as NodeView in parent.subviews[(at + 1)...] where sibling.style["position_type"]?.string == "absolute" {
+                for case let sibling as NodeView in parent.subviews[(at + 1)...] where sibling.layoutPosition == "absolute" {
                     consider(sibling)
                 }
             }
@@ -161,13 +163,10 @@ extension Presenter {
             let high = sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height
             if o.y > high + 0.5 { pinnedRoom.grow(sv, by: o.y - high) }
         }
-        let clamped = { (o: CGPoint, i: UIEdgeInsets) in
-            CGPoint(x: min(max(o.x, -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width)),
-                    y: min(max(o.y, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height)))
-        }
         let insets = sv.adjustedContentInset
-        o = clamped(o, insets)
         guard abs(o.y - sv.contentOffset.y) > 0.5 || abs(o.x - sv.contentOffset.x) > 0.5 else { return false }
+        o = PixelGrid.offset(o, in: sv)
+        guard o != sv.contentOffset else { return false }
         sv.contentOffset = o
         // The bar's large title collapsing as the list scrolls changes its
         // insets inside this assignment, and UIKit moves the offset on by the
@@ -175,8 +174,8 @@ extension Presenter {
         // with the field shown, so no later pass takes it back. The offset
         // asked for, within the new insets, is the least.
         if sv.adjustedContentInset != insets {
-            let held = clamped(o, sv.adjustedContentInset)
-            if abs(held.y - sv.contentOffset.y) > 0.5 || abs(held.x - sv.contentOffset.x) > 0.5 { sv.contentOffset = held }
+            let held = PixelGrid.offset(o, in: sv)
+            if held != sv.contentOffset { sv.contentOffset = held }
         }
         return true
     }
@@ -238,7 +237,7 @@ final class PinnedRoom {
             guard let sv = room.scroll else { continue }
             sv.contentInset.bottom -= room.added
             let high = max(-sv.adjustedContentInset.top, sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)
-            if sv.contentOffset.y > high { sv.contentOffset.y = high }
+            if sv.contentOffset.y > high { sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: high), in: sv) }
         }
         grown = [:]
     }
@@ -301,7 +300,7 @@ extension Presenter {
             var y = list.contentOffset.y
             if frame.maxY > visible.maxY { y += frame.maxY - visible.maxY } else if frame.minY < visible.minY { y -= visible.minY - frame.minY }
             y = min(max(y, -i.top), max(-i.top, list.contentSize.height + i.bottom - list.bounds.height))
-            if ExactEnv.agentFreezes { list.contentOffset.y = y } else { UIView.animate(withDuration: 0.25) { list.contentOffset.y = y } }
+            if ExactEnv.agentFreezes { list.contentOffset = PixelGrid.offset(CGPoint(x: list.contentOffset.x, y: y), in: list) } else { UIView.animate(withDuration: 0.25) { list.contentOffset = PixelGrid.offset(CGPoint(x: list.contentOffset.x, y: y), in: list) } }
             carryRows(laying: list)
         }
         chooseFocus(next)
@@ -342,6 +341,10 @@ extension NavigationHost {
         var frame = root.bounds
         if owner === tabOwner, !ExactEnv.authoredChrome, !presenter.modals.active, presenter.keyboardPolicy == "resizes-content" {
             frame.size.height += presenter.keyboardInset
+        } else if owner === primaryOwner, presenter.keyboardPolicy == "resizes-content" {
+            #if os(iOS)
+            frame.size.height += presenter.keyboardAccessoryHeight
+            #endif
         }
         // The authored tablist the agent paints takes its own place in the
         // root, as on the web; the routes end at its edge, not under it.

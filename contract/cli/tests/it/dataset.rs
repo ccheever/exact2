@@ -92,6 +92,21 @@ fn a_word_a_host_writes_or_html_cannot_spell_is_refused() {
             "written by the web host",
         ),
         (
+            "data-defaultsurface=\"x\"",
+            "lower-data-word",
+            "written by the web host",
+        ),
+        (
+            "data-time-shown=\"x\"",
+            "lower-data-word",
+            "written by the web host",
+        ),
+        (
+            "data-app-poster=\"x\"",
+            "lower-data-word",
+            "written by the web host",
+        ),
+        (
             "data-liststyle=\"x\"",
             "lower-data-word",
             "written by the web host",

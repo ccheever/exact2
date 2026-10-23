@@ -18,6 +18,18 @@ import { bakeOutput, gpuModules, linuxBinary, moduleDirectory, pendingBuildInput
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
+/** Poll host I/O until ready; a bound only ends a hung load. Return its last observation for diagnostics. */
+export async function pollUntil(read, ready, { bound = 60_000, interval = 50, now = Date.now, pause = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
+  const until = now() + bound;
+  while (true) {
+    const value = await read();
+    if (ready(value)) return value;
+    const remaining = until - now();
+    if (remaining <= 0) return value;
+    await pause(Math.min(interval, remaining));
+  }
+}
+
 // The compiler's warnings in a build's output, and the lines a drive says for them: app-cli.mjs, which runs a
 // drive's build first, has them; verify, the dev loop and agent-build.mjs read them from here.
 export { compilerWarnings, warningLines } from './app-cli.mjs';
@@ -455,6 +467,7 @@ export function parseFlags(argv) {
     else if (argv[i] === '--reader') { flags.reader = true; process.env.EXACT_ANDROID_READER = '1'; }
     else if (argv[i] === '--seed') flags.seed = Number(argv[++i]);
     else if (argv[i] === '--locale') flags.locale = argv[++i];
+    else if (argv[i] === '--format-locale') flags.formatLocale = argv[++i];
     else if (argv[i] === '--time-zone') flags.timeZone = argv[++i];
     else if (argv[i] === '--epoch') flags.epoch = argv[++i];
     else if (argv[i] === '--timing') flags.timing = argv[++i];
@@ -476,6 +489,7 @@ export function parseFlags(argv) {
   }
   if ((flags.widget || flags.activity) && !argv.some(arg => arg === '--help' || arg === '-h')) validateWidget(flags, rest);
   if (flags.keepStorage && flags.resetStorage) throw new Error('--keep-storage and --reset-storage are mutually exclusive');
+  if (['ios', 'host-ios'].includes(rest[0]) && flags.phone !== undefined && !flags.device) throw new Error('--phone needs --device; for a simulator use --sim <udid|name> (or EXACT_SIM)');
   // A native drive's store is `default` when it names none (`defaultStore`); an authored test's is its own.
   if ((flags.keepStorage || flags.resetStorage) && (flags.test ? flags.storage : defaultStore(rest[0], flags)) === undefined) throw new Error('--keep-storage and --reset-storage need --storage <name>');
   return { flags, rest };
@@ -560,7 +574,7 @@ export function withEpoch(href, epoch) {
 /** Launch lines from `state.faults` (LLP 1103 D3): a reload relaunches with the table as it is now. */
 export const faultSpecOf = faults => (faults ?? []).map(f => [f.prefix, f.times ?? '-', f.left ?? '-', f.hits, f.armed ? 1 : 0].join('\t')).join('\n');
 
-export function launchFacts({seed, locale, timeZone, epoch, failFetch, env = {}}) {
+export function launchFacts({seed, locale, formatLocale, timeZone, epoch, failFetch, env = {}}) {
   seed = Number(seed ?? env.EXACT_AGENT_SEED ?? 1);
   // An ISO date, Unix milliseconds or `now` (the machine's clock, read here, once); hosts are told milliseconds.
   epoch = String(epoch ?? env.EXACT_AGENT_EPOCH ?? AGENT_EPOCH);
@@ -574,12 +588,15 @@ export function launchFacts({seed, locale, timeZone, epoch, failFetch, env = {}}
   locale = Intl.getCanonicalLocales(locale)[0];
   if (!locale) throw new Error('locale: a BCP 47 language tag');
   new Intl.DateTimeFormat(locale, {timeZone}).format(0);
+  // The Region's format apart from the language (`exactTime().formatLocale`); unsaid, the hosts answer the locale.
+  formatLocale = formatLocale ?? env.EXACT_AGENT_FORMAT_LOCALE;
+  if (formatLocale !== undefined) formatLocale = Intl.getCanonicalLocales(formatLocale)[0];
   failFetch = faultSpec(failFetch ?? env.EXACT_AGENT_FAIL_FETCH);
-  return {seed, locale, timeZone, epoch, ...(failFetch ? {failFetch} : {})};
+  return {seed, locale, timeZone, epoch, ...(formatLocale ? {formatLocale} : {}), ...(failFetch ? {failFetch} : {})};
 }
 
 export function launchEnvironment(facts) {
-  return {EXACT_AGENT_SEED: String(facts.seed), EXACT_AGENT_LOCALE: facts.locale, EXACT_AGENT_TIME_ZONE: facts.timeZone, EXACT_AGENT_EPOCH: String(facts.epoch), ...(facts.failFetch ? {EXACT_AGENT_FAIL_FETCH: facts.failFetch} : {})};
+  return {EXACT_AGENT_SEED: String(facts.seed), EXACT_AGENT_LOCALE: facts.locale, EXACT_AGENT_TIME_ZONE: facts.timeZone, EXACT_AGENT_EPOCH: String(facts.epoch), ...(facts.formatLocale ? {EXACT_AGENT_FORMAT_LOCALE: facts.formatLocale} : {}), ...(facts.failFetch ? {EXACT_AGENT_FAIL_FETCH: facts.failFetch} : {})};
 }
 
 // A build older than what it was made from is refused before launch

@@ -26,6 +26,7 @@ export function useXcode() {
     console.error(`host/apple: xcode-select names the Command Line Tools (${selected}); using ${xcode}`);
   }
 }
+const shellQuote = value => `'${value.replaceAll("'", "'\\''")}'`;
 const read = (cmd, args, opts = {}) => { useXcode(); return spawnSync(cmd, args, { cwd: root, encoding: 'utf8', ...opts }); };
 
 /** A window capture the app drew (`path`, in `r`'s scale), its pixels then the simulator's own screenshot's, as a
@@ -349,7 +350,7 @@ export function installedBuild(udid, id) {
  *  one bundle id, so a benchmark or a person then finds the development build (euxy port); how to put it back, from
  *  the Release bundle at `release` when it was built here. */
 export function replacedNote(udid, app, replaced, release) {
-  const back = existsSync(release) ? `xcrun simctl install ${udid} '${release}'` : `bun host/apple/build.mjs --ios ${app.crate('apple')} --release --sim ${udid}`;
+  const back = existsSync(release) ? `xcrun simctl install ${udid} ${shellQuote(release)}` : `bun host/apple/build.mjs --ios ${app.crate('apple')} --release --sim ${udid}`;
   return `host/apple: this development build replaced the simulator's ${replaced.what} of ${app.id} (one bundle id); put it back with ${back}`;
 }
 
@@ -374,7 +375,7 @@ export function keepInstalledRelease(udid, id, bundle, executable, { records = r
   }
   rmSync(dir, { recursive: true, force: true });
   renameSync(next, dir);
-  return { install: true, note: `the simulator had ${id}'s ${what} installed; this drive installed its development build over it (one bundle id). Put it back with: xcrun simctl install ${udid} '${copy}'` };
+  return { install: true, note: `the simulator had ${id}'s ${what} installed; this drive installed its development build over it (one bundle id). Put it back with: xcrun simctl install ${udid} ${shellQuote(copy)}` };
 }
 
 /** A simulator's software keyboard for a drive: shown for a focused field, as a person's iPhone shows it. Once a Device

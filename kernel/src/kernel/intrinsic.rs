@@ -51,6 +51,15 @@ impl Kernel {
             return Ok(());
         }
         self.arena.set_intrinsic(slot, size);
+        // A native face's image has no layout node; its button owns measurement.
+        let button = self
+            .arena
+            .parent(slot)
+            .filter(|&p| self.arena.is_native_button(p))
+            .and_then(|p| self.arena.taffy(p));
+        if let (Some(button), Some(layout)) = (button, self.layout.as_deref_mut()) {
+            layout.mark_dirty(button);
+        }
         if let Some(r) = &mut self.region {
             r.intrinsic(slot);
         }

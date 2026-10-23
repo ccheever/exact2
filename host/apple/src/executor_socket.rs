@@ -3,7 +3,7 @@
 //! Its reader delivers `open`, then every frame in arrival order, text or
 //! binary, never coalesced, and ends with the closing handshake's code and
 //! reason. Frames wait for the runner in the stream's own queue, bounded at
-//! 256 frames and 1 MiB besides the per-message ceiling; overflow ends the
+//! 256 frames and 1 MiB beyond the per-message ceiling; overflow ends the
 //! stream refused after the frames already queued. A mutation's or a
 //! mapper call's batch ([`exact_runner::SocketSend`]) is checked whole,
 //! then sent in order.
@@ -15,8 +15,9 @@ use ibex2::stdlib::{
 };
 use std::sync::Arc;
 
-/// Undelivered frames a socket may hold, by count and by bytes (D7).
+/// Undelivered frames a socket may hold (D7).
 const RECEIVE_FRAMES: usize = 256;
+/// Bytes allowed beyond the stream's per-message ceiling (D7).
 const RECEIVE_BYTES: usize = 1 << 20;
 /// What one batch and the transport's buffer may hold together:
 /// bytes (D7), and frames, the bound past which both ibex2 transports close
@@ -104,6 +105,7 @@ pub(super) fn read(
     shared: &Shared,
     ticket: u64,
     mut socket: Box<dyn MessageSource>,
+    limit: usize,
     abort: AbortController,
 ) {
     if let Some(sender) = socket.sender() {
@@ -119,7 +121,7 @@ pub(super) fn read(
             event: "open".into(),
             ..Message::default()
         };
-        if matches!(frame(shared, ticket, open), Frame::Gone) {
+        if matches!(frame(shared, ticket, open, limit), Frame::Gone) {
             return gone();
         }
         loop {
@@ -157,7 +159,7 @@ pub(super) fn read(
                 }
                 Err(e) => return failed(FailureKind::Network, e.to_string()),
             };
-            match frame(shared, ticket, m) {
+            match frame(shared, ticket, m, limit) {
                 Frame::Queued => {}
                 // Released, its close on the way: frames are dropped, and the
                 // socket is kept until the far side answers or the abort comes,
@@ -186,9 +188,9 @@ fn closing(shared: &Shared, ticket: u64) -> bool {
 }
 
 /// Queue one frame behind the ones the runner has not taken: never
-/// coalesced. Its bytes are the socket's own bound, beside the stream's
-/// reservation, which covers one message.
-fn frame(shared: &Shared, ticket: u64, message: Message) -> Frame {
+/// coalesced. The stream's reservation covers one message up to its ceiling;
+/// `RECEIVE_BYTES` is the additional byte allowance.
+fn frame(shared: &Shared, ticket: u64, message: Message, limit: usize) -> Frame {
     let mut state = shared.state.lock().unwrap();
     if state.retired {
         return Frame::Gone;
@@ -210,14 +212,17 @@ fn frame(shared: &Shared, ticket: u64, message: Message) -> Frame {
     let (frames, bytes) = state.completed[lane]
         .iter()
         .filter(|done| done.ticket == ticket && done.message)
-        .fold((0, 0), |(n, bytes), done| match &done.outcome {
+        .fold((0, 0usize), |(n, bytes), done| match &done.outcome {
             // `open` is no protocol frame: only those count against the bound.
-            Outcome::Message(m) if m.event != "open" => (n + 1, bytes + size(m)),
+            Outcome::Message(m) if m.event != "open" => (n + 1, bytes.saturating_add(size(m))),
             _ => (n, bytes),
         });
-    if frames >= RECEIVE_FRAMES || bytes + size(&message) > RECEIVE_BYTES {
+    if frames >= RECEIVE_FRAMES
+        || bytes.saturating_add(size(&message)) > RECEIVE_BYTES.saturating_add(limit)
+    {
         return Frame::Overflow;
     }
+    exact_runner::stream_timing::received(ticket);
     state.completed[lane].push_back(Completed {
         elapsed_ms,
         ticket,

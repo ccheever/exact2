@@ -17,10 +17,29 @@ shape Row
   time: string
   streaming: bool
 
+shape Cell
+  key: string
+  text: string
+  align: string
+  first: bool
+
+shape TableRow
+  key: string
+  head: bool
+  cells: Cell[]
+
+// A reply's run of Markdown, or a pipe table drawn as a grid.
+shape Part
+  key: string
+  table: bool
+  text: string
+  rows: TableRow[]
+
 shape Bubble
   id: string
   mine: bool
   body: string
+  parts: Part[]
   error: string
   thinking: string
   thought: string
@@ -213,7 +232,18 @@ component Agents
                       if m.waiting and m.thinking == ""
                         text "Thinking…" color="-exact-secondary-label" testId=`waiting-${m.id}`
                       if m.body != ""
-                        text m.body markup="markdown" user-select="text" overflow-wrap="anywhere" testId=`msg-${m.id}`
+                        column gap=12 testId=`msg-${m.id}`
+                          for p in m.parts key=p.key
+                            if p.table
+                              column border-width=1 border-style="solid" border-color="-exact-separator" border-radius=8 overflow="hidden" testId=`table-${m.id}-${p.key}`
+                                for r in p.rows key=r.key
+                                  row border-top-width=(r.head ? 0 : 1) border-right-width=0 border-bottom-width=0 border-left-width=0 border-style="solid" border-color="-exact-separator"
+                                    background-color=(r.head ? "-exact-secondary-background" : "transparent")
+                                    for c in r.cells key=c.key
+                                      text c.text markup="markdown" user-select="text" overflow-wrap="anywhere" flex="1 1 0" min-width=0
+                                        padding="6px 10px" text-align=c.align border-top-width=0 border-right-width=0 border-bottom-width=0 border-left-width=(c.first ? 0 : 1) border-style="solid" border-color="-exact-separator"
+                            else
+                              text p.text markup="markdown" user-select="text" overflow-wrap="anywhere"
                       if m.error != ""
                         row gap=8 align-items="center" flex-wrap="wrap"
                           image "symbol:alert" width=14 height=14 color="-exact-system-red"

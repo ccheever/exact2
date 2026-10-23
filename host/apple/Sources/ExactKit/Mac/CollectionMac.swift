@@ -428,9 +428,9 @@ extension CollectionHost {
         }
         let observer = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification,
             object: nil, queue: .main) { [weak self] notification in
-                guard let self, let window = notification.object as? NSWindow,
-                      window === presenter?.viewport.window else { return }
-                releaseInteractionLater()
+                guard let self, let window = notification.object as? NSWindow else { return }
+                if presenter?.hosts(window) == true { presenter?.tables.cancelPress() }
+                if window === presenter?.viewport.window { releaseInteractionLater() }
             }
         stopTracking = {
             if let monitor { NSEvent.removeMonitor(monitor) }

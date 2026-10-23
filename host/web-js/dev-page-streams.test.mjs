@@ -107,3 +107,65 @@ test('a page stream on a socket handed to the loop\'s server ends with its clien
     rmSync(dist, { recursive: true, force: true });
   }
 }, 1_200_000);
+
+test('a page whose app replaces fetch still registers and inspects: the dev client keeps the page\'s own', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-page-fetch-')), dist = mkdtempSync(join(tmpdir(), 'exact-page-fetch-dist-'));
+  writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Fetched', app: { id: 'com.exact.fetched', name: 'Fetched' } }));
+  writeFileSync(join(dir, 'app.contract'), 'component App\n  view\n    column gap=8\n      text "above"\n      text "fetched"\n');
+  writeFileSync(join(dir, 'app.tamber'), 'tamber fetched\n\ntheme\n  ink = #000000\n');
+  // As a fixture build does (the clone's copy, data/fixture.ts): every fetch after the app loads is the app's, which
+  // takes no relative URL.
+  writeFileSync(join(dir, 'app.ts'), [
+    "import type { Answer, Sources } from './app.contract.d.ts';",
+    "(globalThis as { fetch: unknown }).fetch = (u: unknown) => { if (!/^[a-z][a-z0-9+.-]*:/i.test(String(u))) throw new TypeError(\"Failed to construct 'URL': Invalid URL\"); return Promise.reject(new Error('the app answers no fetch')); };",
+    "export const appId = 'com.exact.fetched';",
+    "export const grants = '';",
+    "const sources: Sources = {};",
+    "export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);",
+    '',
+  ].join('\n'));
+  const listener = createServer();
+  await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
+  const port = listener.address().port;
+  await new Promise(ok => listener.close(ok));
+  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', dir, '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '', browser, events = '';
+  dev.stdout.on('data', d => { out += d; });
+  dev.stderr.on('data', d => { out = (out + d).slice(-8000); });
+  const until = async (pass, ms, what) => { const end = Date.now() + ms; while (!(await pass())) { if (Date.now() > end) throw new Error(`${what}: not seen in ${out.slice(-2000)}`); await new Promise(ok => setTimeout(ok, 100)); } };
+  const base = `http://127.0.0.1:${port}`;
+  const { token } = await until(() => out.includes(`127.0.0.1:${port}/`) && out.includes('plan ready'), 900_000, 'the first build').then(() => fetch(`${base}/__tamber/token`)).then(r => r.json());
+  const call = async (body) => (await fetch(`${base}/__tamber`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-exact-tamber-token': token }, body: JSON.stringify(body) })).json();
+  const stream = new AbortController();
+  try {
+    // A present client, to turn inspect on, hearing what the page refuses.
+    const sub = await fetch(`${base}/__tamber/subscribe`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-exact-tamber-token': token }, body: '{"client":"probe"}', signal: stream.signal });
+    (async () => { const reader = sub.body.getReader(); for (;;) { const { value, done } = await reader.read(); if (done) return; events += new TextDecoder().decode(value); } })().catch(() => {});
+    browser = await suiteBrowser('chromium');
+    const page = await (await browser.newContext()).newPage();
+    const said = [];
+    page.on('console', m => said.push(m.text()));
+    await page.goto(`${base}/`);
+    await until(async () => (await call({ method: 'hello' })).ok.builds.length === 1, 60_000, `the page's build (the page said: ${said.join(' / ')})`);
+    // Its app's fetch is in place (the stand-in's refusal), and the dev client's register went past it.
+    expect(await page.evaluate(() => { try { fetch('/x'); return 'took a relative URL'; } catch (e) { return e.message; } })).toContain('Invalid URL');
+    const [build] = (await call({ method: 'hello' })).ok.builds;
+    expect((await call({ method: 'inspect', client: 'probe', build: build.id, on: true })).ok).toBeTruthy();
+    expect((await call({ method: 'hello' })).ok.builds[0].inspector).toBe('probe');
+    // A click selects: the page reads its inspect table with its own fetch, so a selection comes, nothing refused.
+    await until(async () => (await page.getByText('fetched', { exact: true }).count()) > 0, 10_000, 'the text');
+    // Inspect mode on in the page itself (its banner shown), not only on the server.
+    await page.locator('#exact-inspect').waitFor({ state: 'visible', timeout: 15_000 });
+    const box = await page.evaluate(() => { const r = [...document.querySelectorAll('[data-exact-text]')].find(e => e.textContent === 'fetched')?.getBoundingClientRect(); return r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null; });
+    // (At its left end: inspect mode's banner sits over the middle of the top.)
+    await page.mouse.click(box.x + 12, box.y + box.height / 2);
+    await until(() => events.includes('"event":"selection"') || events.includes('"event":"unsupported"'), 15_000, 'a selection');
+    expect(events).not.toContain('"event":"unsupported"');
+  } finally {
+    stream.abort();
+    await browser?.close();
+    await dev.stop(30_000);
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(dist, { recursive: true, force: true });
+  }
+}, 1_200_000);

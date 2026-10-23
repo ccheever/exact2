@@ -48,6 +48,17 @@ extension NodeView {
         return text.isEmpty ? nil : text
     }
     var accessibleName: String { authoredLabel ?? accessibleText }
+    #if !os(macOS)
+    /// Referenced labels can arrive or disappear without an image props update.
+    func updateImageAccessibility() {
+        guard !actsAsButton, rangeRole == nil, kind == "image" || props["accessibilityRole"] == "img" else { return }
+        let labelled = authoredLabel != nil
+        // The getter masks CSS-hidden nodes; their stored exposure still changes.
+        isAccessibilityElement = labelled
+        if accessibilityTraits.contains(.image) != labelled { accessibilityTraits.formSymmetricDifference(.image) }
+        if accessibilityValue != nil { accessibilityValue = nil }
+    }
+    #endif
     /// ARIA disabled applies to focusable descendants, without changing input.
     package var ariaUnavailable: Bool {
         #if os(macOS)
@@ -186,10 +197,23 @@ extension NodeView {
     /// changed, and an `alert` as it appears, as a browser's alert event has
     /// it (Core-AAM); one there at launch is read with the screen.
     func liveSpeaks(_ text: String, launching: Bool) -> Bool {
+        #if os(macOS)
+        guard liveAnnouncementView != nil, !text.isEmpty else { return false }
+        #else
         guard accessibilityVisible, !text.isEmpty else { return false }
+        #endif
         if let previous = liveText { return previous != text }
         return liveRole == "alert" && !launching
     }
+    #if os(macOS)
+    var liveAnnouncementView: NSView? {
+        if accessibilityVisible { return paragraphOwner }
+        guard liveRole == "status", !inert, !accessibilityHiddenByProp,
+              let view = presenter?.toolbar.items[id]?.view,
+              view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return nil }
+        return view
+    }
+    #endif
     /// ARIA's range roles (LLP 1116 D8): a value is `aria-valuenow` between
     /// `aria-valuemin` and `aria-valuemax`, and the children are
     /// presentational, so the node is one element. A control's own view
@@ -246,7 +270,7 @@ extension NodeView {
         // An `input`'s `aria-label` names its field, as a text area's names it.
         if let field, field.accessibilityLabel() != authoredLabel { field.setAccessibilityLabel(authoredLabel) }
         #else
-        // UIKit has no property for `aria-required`, `aria-invalid`, `aria-haspopup` or `aria-current`.
+        // UIKit has no property for `aria-required`, `aria-invalid`, `aria-haspopup` or `aria-current` (a button's current is its selected trait, NodeViewIOS).
         let target: UIView = field ?? presenter?.controls.controls[id] ?? textArea as UIView? ?? self
         // Only on change: a set is kept in UIKit's associated object table.
         if target.accessibilityTraits.contains(.notEnabled) != (disabled || ariaUnavailable) { target.accessibilityTraits.formSymmetricDifference(.notEnabled) }
@@ -280,8 +304,10 @@ final class FieldCell: NSTextFieldCell {
     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
         super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { (controlView?.superview as? NodeView)?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
             + (numberField != nil ? [.minValue, .maxValue] : [])
+            + ((controlView as? NSTextField)?.comboOwner != nil ? [.expanded] : [])
     }
     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if let value = (controlView as? NSTextField)?.comboboxAttribute(attribute) { return value }
         if let field = numberField {
             switch attribute {
             case .role: return NSAccessibility.Role.incrementor.rawValue
@@ -601,6 +627,7 @@ extension Presenter {
                 if node.accessibilityLabel() != node.accessibleName { node.setAccessibilityLabel(node.accessibleName) }
                 #else
                 if node.accessibilityLabel != node.accessibleName { node.accessibilityLabel = node.accessibleName }
+                node.updateImageAccessibility()
                 #endif
             }
         }
@@ -618,7 +645,7 @@ extension Presenter {
                 let text = node.accessibleText
                 if node.liveSpeaks(text, launching: launchAutofocusPending) {
                     #if os(macOS)
-                    NSAccessibility.post(element: node.paragraphOwner, notification: .announcementRequested,
+                    NSAccessibility.post(element: node.liveAnnouncementView ?? node.paragraphOwner, notification: .announcementRequested,
                         userInfo: [.announcement: text, .priority: (live == "assertive" ? NSAccessibilityPriorityLevel.high : .low).rawValue])
                     #else
                     UIAccessibility.post(notification: .announcement, argument: NSAttributedString(string: text,
@@ -628,16 +655,20 @@ extension Presenter {
                 node.liveText = text
             } else { node.liveText = nil }
             guard session?.autofocusHeld != true, launchAutofocusReleased || session?.booted != true, !autofocusProcessed.contains(ObjectIdentifier(node)), node.props["autofocus"] == "true",
-                  node.accessibilityVisible, !node.disabled, node.bounds.width > 0, node.bounds.height > 0 else { continue }
+                  !node.disabled else { continue }
+            let shown = node.accessibilityVisible && node.bounds.width > 0 && node.bounds.height > 0
             #if os(macOS)
-            guard let window = node.window else { continue }
-            let current = window.firstResponder
+            guard shown, let window = node.window else { continue }
+            let current = window.firstResponder, click = pressMount(node, in: window)
             if (current as? NodeView)?.returnsPointerFocusToCanvas != true { autofocusProcessed.insert(ObjectIdentifier(node)) }
-            guard current == nil || current === window || current === window.contentView || current === viewport || current === session?.view || (current as? NodeView)?.canvasInput != nil else { continue }
+            guard click != nil || current == nil || current === window || current === window.contentView || current === viewport || current === session?.view || (current as? NodeView)?.canvasInput != nil else { continue }
             // Blocked autofocus stays pending until the pointer hands focus back.
             autofocusProcessed.insert(ObjectIdentifier(node))
             let target = keyView(of: node)
-            if target.acceptsFirstResponder { _ = window.makeFirstResponder(target) }
+            if target.acceptsFirstResponder, window.makeFirstResponder(target), let click,
+               let editor = node.textArea ?? (node.field?.currentEditor() as? NSTextView) {
+                editor.setSelectedRange(NSRange(location: Self.caret(in: editor, at: click), length: 0))
+            }
             #else
             // Any focus a node holds stays, however it came (Charlie, 2026-10-17), except: the session's own
             // view holding it for its shortcuts (ShortcutsIOS), a surface control's from its touch, which the
@@ -645,12 +676,21 @@ extension Presenter {
             // which an autofocus the work mounts takes (PressHandoffIOS).
             func yields(_ view: UIView) -> Bool { (view as? NodeView)?.focusedBySurfaceTouch == true || pressHandsOff(view, to: node) }
             func hasFocus(_ view: UIView) -> Bool { (view.isFirstResponder && (view as? NodeView)?.canvasInput == nil && !yields(view) && !(view is ExactView)) || view.subviews.contains(where: hasFocus) }
-            guard let window = node.window else { continue }
+            // A header's search field is the bar's (NavigationBarIOS), its own node hidden: it takes the focus
+            // as `focus()` gives it, once the push that mounted it settles.
+            let projected = node.headerField != nil
+            guard shown || projected, let window = node.window ?? root.window else { continue }
             autofocusProcessed.insert(ObjectIdentifier(node))
             guard !hasFocus(window) else { continue }
-            let target: UIResponder = node.textArea ?? node.field ?? node
+            if projected {
+                autofocused(node)
+                focusNode(node)
+                continue
+            }
+            let target: UIResponder = node.textArea ?? node.field ?? node, caret = pressCaret(in: node)
             autofocused(node) // the app's focus now, as Tab's and focus(id)'s
             if target.becomeFirstResponder() {
+                if let (input, at) = caret { input.selectedTextRange = input.textRange(from: at, to: at) }
                 autofocusedThisTurn = node
                 DispatchQueue.main.async { [weak self] in self?.autofocusedThisTurn = nil }
             }
@@ -780,8 +820,11 @@ extension Presenter {
               modal.window?.isSheet != true, !(modal.window.map(menus.hosts) ?? false), !landing.namedDialogs.contains(where: { $0 === modal }) else { return }
         landing.namedDialogs.append(modal)
         guard target !== modal, let words = modal.dialogWords else { return }
+        landing.pendingNames += 1
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.dialogNameDelay) { [weak self, weak modal] in
-            guard let self, let modal, macAccessibilityModal === modal else { return }
+            guard let self else { return }
+            defer { landing.pendingNames -= 1 }
+            guard let modal, macAccessibilityModal === modal else { return }
             NSAccessibility.post(element: modal, notification: .announcementRequested,
                 userInfo: [.announcement: words, .priority: NSAccessibilityPriorityLevel.low.rawValue])
         }
@@ -1007,9 +1050,10 @@ extension Presenter {
 }
 
 extension Agent {
-    /// The host's own facts on plain `tree`: focus and an open popover.
+    /// Host facts and pending requests accompanying a normal tree read.
     func decorateTree(_ reply: [String: Any]) -> [String: Any] {
         var reply = reply
+        reply["pending"] = pendingRequests()
         let focus = (stateSections()["focus"] as? [String: Any])?["logical"] as? Int
         #if os(iOS) || os(tvOS)
         // A header node the navigation bar leaves out (LLP 1116 D2).
@@ -1044,5 +1088,7 @@ struct VoiceOverLanding {
     weak var toldFocus: NSView?
     /// The dialogs drawn in the page named as they opened that are still up.
     var namedDialogs: [NodeView] = []
+    /// Deferred naming operations, including those whose dialog has closed.
+    var pendingNames = 0
 }
 #endif

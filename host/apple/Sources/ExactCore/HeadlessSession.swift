@@ -368,7 +368,7 @@ fileprivate final class HeadlessLines {
             let runs = markdown ?? props["text"].map { [TextStyle.run($0, style: style, defaultSize: rootFontSize)] }
                 ?? inline.map(\.lightRun)
             let spec = TextStyle.spec(runs: runs, style: style, props: props,
-                strut: TextStyle.run("", style: style, defaultSize: rootFontSize), language: language)
+                strut: TextStyle.run("", style: style, defaultSize: rootFontSize), language: language, flow: !flow.isEmpty)
             let paragraph = engine.paragraph(spec, width: box.width,
                 flow: flow.map { $0.translated(CGPoint(x: -box.minX, y: -box.minY)) })
             let source = spec.runs.map(\.text).joined() as NSString

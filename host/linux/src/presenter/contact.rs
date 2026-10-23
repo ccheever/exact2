@@ -394,7 +394,7 @@ impl<D: DataSource> Presenter<D> {
                     let Some(n) = kernel.node(id).filter(|n| n.parent.is_some()) else {
                         break;
                     };
-                    if n.style.position_type == exact_kernel::PositionType::Absolute {
+                    if n.layout_position() == exact_kernel::PositionType::Absolute {
                         if self.is_inside(button, id) {
                             return true;
                         }

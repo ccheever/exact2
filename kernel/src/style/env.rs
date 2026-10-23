@@ -301,6 +301,8 @@ pub struct Env {
     /// side occupies one cell. Set by the terminal host on its own kernel;
     /// no other host sees it.
     pub cell_borders: bool,
+    /// Device pixels per point when borders occupy whole device pixels.
+    pub border_scale: Option<f32>,
     /// A terminal's space rule (LLP 1101 §4, LLP 1121 stage 11 (c)): a
     /// padding, margin or gap in points resolves to whole cells on its axis,
     /// rows down and columns across, to the nearest with a tie toward zero.
@@ -351,6 +353,7 @@ impl Env {
             viewport_width: 0.0,
             viewport_height: 0.0,
             cell_borders: false,
+            border_scale: None,
             cell_spaces: false,
             control_text_styles: None,
             button_fonts: None,

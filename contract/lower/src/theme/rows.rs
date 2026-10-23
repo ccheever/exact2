@@ -19,7 +19,10 @@
 //! A row whose value is computed (a name, a template with holes, a choice
 //! with such an arm) is judged whole, as the build judges it: its literal
 //! arms, and, where its type is a string for certain ([`typed`]), every
-//! number token a number row's value may name (stage 13 D2).
+//! number token a number row's value may name (stage 13 D2). Under a `for`
+//! or `match` it is typed and judged in the arm's scope, the names pushed
+//! as lowering pushes them, and through a `let` with its binding typed
+//! (stage 14 E).
 //!
 //! An SVG element's rows are judged as lowering lowers them, renamed and
 //! coerced first (`svg::coerce_lengths`, stage 13 D3): a light's `x` is the
@@ -30,14 +33,26 @@
 //! keyed by the element too: refused once, at the style row, as the build
 //! refuses it (theme2's 02:08 ruling).
 //!
+//! A written shorthand or `flex` row is expanded by lowering's own
+//! `shorthands::component` or `values::flex_component`, and each longhand
+//! judged in row order, the row's own refusal the build's of that row
+//! (theme2's ruling on the shorthand plan).
+//!
 //! Not checked here, and still caught by the build after a miss: a
-//! computed row whose type the root's scope doesn't give (a call, a `for`'s
-//! item), whose number tokens are the build's; a row through a `let`; a
-//! `font` shorthand naming no type token; a state part's row; a style's row
-//! any element applying it leaves to the build (lowering rewrites its class
-//! rows first, it chooses between styles, or a `for` or `match` binds a name
-//! around it: `scan::Said::of`); and refusals outside a style row (an SVG
-//! attribute, a canvas).
+//! computed row whose type its scope doesn't give by its form (a call, an
+//! index, a `let` inside another form), and any computed row in a `for` or
+//! `match` (either arm) whose subject is such, whose number tokens are the
+//! build's (a literal row there is judged as anywhere); a computed
+//! shorthand or `flex`; a state part's row; a style's row any element
+//! applying it leaves to the build (lowering rewrites its class rows first,
+//! it chooses between styles, or the `for` or `match` around it isn't typed:
+//! `scan::Said::of`); and refusals outside a style row (an SVG attribute, a
+//! canvas). Where the build would refuse one of those first, the first
+//! refusal the check says is the build's second: every refusal said is
+//! still the build's, in its words and place, and none is false (theme2's
+//! limit, accepted at the style rows' sign-off and again for stage 14 E's
+//! rows the check can't type; pinned by `tamber_rows_bound`'s
+//! `a_row_left_to_the_build_before_a_judged_one_is_the_stated_limit`).
 
 use super::{bind, fold, profiles, scan, Origin, Refusals, Sink, ThemeEntry};
 use crate::{DeclaredFont, LowerError};
@@ -71,22 +86,40 @@ pub struct Row {
     pub within: Option<Arc<Vec<Fonts>>>,
 }
 
-/// The root's scope and the file's shapes, in which lowering judges a
-/// computed row of a node no `for` or `match` binds a name around
-/// (`values::check_style_value` types its computed arms in them): one for
-/// every row of a build.
+/// The scope lowering judges a computed row in and the file's shapes
+/// (`values::check_style_value` types its computed arms in them): the
+/// root's, or that of the `for` or `match` arm around the node, with the
+/// names it binds pushed as lowering pushes them
+/// (`Scope::push_each_of`, `push_some_of`, `push_none`). One per region
+/// of a build, the shapes shared by all.
 #[derive(Debug, Clone)]
-pub struct Typing(Arc<(contract_types::Scope, contract_types::Shapes)>);
+pub struct Typing {
+    scope: Arc<contract_types::Scope>,
+    shapes: Arc<contract_types::Shapes>,
+}
 
 impl Typing {
     pub(crate) fn new(scope: contract_types::Scope, shapes: contract_types::Shapes) -> Typing {
-        Typing(Arc::new((scope, shapes)))
+        Typing {
+            scope: Arc::new(scope),
+            shapes: Arc::new(shapes),
+        }
+    }
+
+    /// This typing with its scope as `push` leaves it.
+    pub(crate) fn pushed(&self, push: impl FnOnce(&mut contract_types::Scope)) -> Typing {
+        let mut scope = (*self.scope).clone();
+        push(&mut scope);
+        Typing {
+            scope: Arc::new(scope),
+            shapes: self.shapes.clone(),
+        }
     }
 }
 
 impl PartialEq for Typing {
     fn eq(&self, other: &Typing) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
+        Arc::ptr_eq(&self.scope, &other.scope) && Arc::ptr_eq(&self.shapes, &other.shapes)
     }
 }
 
@@ -255,7 +288,12 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
         // a `font` or `font-family` row, whose tokens `tokens_named` judges
         // together (one longhand set, one axis rule): refused where the
         // build's refusal is said. Alike, one value and one type.
-        if computed.is_some() || matches!(a.name.as_str(), "font" | "font-family") {
+        // So is a written shorthand or `flex`: its longhands judged over the
+        // whole choice, as the build expands and judges it (Astra's round 1).
+        if computed.is_some()
+            || matches!(a.name.as_str(), "font" | "font-family")
+            || expanded(&a).is_some()
+        {
             let place = Place {
                 row: a.span,
                 at: a.span,
@@ -332,40 +370,138 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
 
 /// Whether the retention walk keeps `a`, an element's style row [`check`]
 /// judges as the build does, and how. `Some(false)`: a literal value
-/// (strings or numbers, or a `?:` or `match` whose arms all are).
+/// (strings or numbers, or a `?:` or `match` whose arms all are; for a
+/// shorthand or `flex`, `none` arms too, [`cleared`]).
 /// `Some(true)`: a computed one (a name, a template with holes, or a choice
 /// with such an arm beside literal ones), judged whole where its type and
 /// scope are known ([`typed`]): its literal arms, and, in a number row,
 /// every number token a string may name, or its string arms where the
-/// design has none (stage 13 D2). Never through a `let`, which the build
-/// judges through the binding; not a shorthand (the build projects it into
-/// longhands first) but `font`, whose type tokens are judged whole
-/// ([`font_row`]); not a transition's or an animation's, whose motion
+/// design has none (stage 13 D2); through a `let` too, typed with its
+/// binding (stage 14 E). A shorthand or `flex` only literal (its
+/// longhands judged as the build expands them, [`expanded`]), and `font`,
+/// whose type tokens are judged whole ([`font_row`]); not a transition's
+/// or an animation's, whose motion
 /// tokens the loader writes in before this map is read.
 pub(crate) fn kept(a: &Attr) -> Option<bool> {
     let mut leaves = Vec::new();
     match written(&a.value, &mut leaves) {
-        true => style_row(a).then_some(false),
-        false => (!bound(&a.value) && style_row(a)).then_some(true),
+        true => (style_row(a) || expanded(a).is_some()).then_some(false),
+        // A shorthand's or `flex`'s choice may clear with `none` in an arm,
+        // which lowering expands too (Grok's round 3).
+        false if expanded(a).is_some() && cleared(&a.value) => Some(false),
+        false => style_row(a).then_some(true),
     }
 }
 
+/// A written value's type as `expr::compile` gives it: a number, a string,
+/// a choice's arms unified (a choice of both not known, as there).
+fn literal_ty(e: &Expr) -> contract_types::Ty {
+    use contract_types::Ty;
+    let either = |a: &Expr, b: &Expr| literal_ty(a).unify(&literal_ty(b)).unwrap_or(Ty::Unknown);
+    match e {
+        Expr::Number(..) => Ty::Number,
+        Expr::Str(..) => Ty::String,
+        Expr::Ternary(_, a, b, _) => either(a, b),
+        Expr::Match { some, none, .. } => either(some, none),
+        Expr::Let { body, .. } => literal_ty(body),
+        Expr::None(_) => Ty::Option(Box::new(Ty::Unknown)),
+        _ => Ty::Unknown,
+    }
+}
+
+/// Whether `v` is literals and `none`, through `?:` and `match`.
+fn cleared(v: &Expr) -> bool {
+    match v {
+        Expr::Str(..) | Expr::Number(..) | Expr::None(..) => true,
+        Expr::Ternary(_, yes, no, _) => cleared(yes) && cleared(no),
+        Expr::Match { some, none, .. } => cleared(some) && cleared(none),
+        _ => false,
+    }
+}
+
+/// Longhand `index` of shorthand or `flex` row `a`, by the build's own
+/// expansion (`bind_shorthand`'s `component`, the Flex arm's).
+fn component_of(a: &Attr, index: usize) -> Result<Expr, LowerError> {
+    match crate::tags::attr_valued(&a.name, &a.value) {
+        Some(crate::tags::AttrTarget::Flex) => crate::values::flex_component(&a.value, index),
+        _ => crate::shorthands::component(&a.value, &a.name, index),
+    }
+}
+
+/// A shorthand or `flex` row's longhands, as lowering expands it before
+/// judging each (`bind_shorthand`, `values::flex_component`): `None` for
+/// any other row, and for a transition's or an animation's.
+fn expanded(a: &Attr) -> Option<Vec<exact_kernel::StyleId>> {
+    let n = a.name.as_str();
+    // A `font` is a type token's or a text style, never a design's longhands
+    // (`type_font`; `shorthands::font` names only text styles).
+    if n.contains("transition") || n.contains("animation") || n == "font" {
+        return None;
+    }
+    use exact_kernel::StyleId::{FlexBasis, FlexGrow, FlexShrink};
+    match crate::tags::attr_valued(n, &a.value) {
+        Some(crate::tags::AttrTarget::Shorthand) => Some(crate::shorthands::rows(n).to_vec()),
+        Some(crate::tags::AttrTarget::Flex) => Some(vec![FlexGrow, FlexShrink, FlexBasis]),
+        _ => None,
+    }
+}
+
+/// Each longhand of shorthand or `flex` row `a` judged as lowering judges
+/// it: expanded by the build's own function, typed as `expr::compile`
+/// types it ([`literal_ty`]), then
+/// `values::check_style_value` on the one row, in row order, the first
+/// refusal the row's.
+fn judge_expanded(
+    a: &Attr,
+    rows: &[exact_kernel::StyleId],
+    uses: &[crate::FontUse],
+    scope: &contract_types::Scope,
+    shapes: &contract_types::Shapes,
+) -> Result<bool, LowerError> {
+    for (index, row) in rows.iter().enumerate() {
+        let value = component_of(a, index)?;
+        let component = Attr { value, ..a.clone() };
+        let ty = literal_ty(&component.value);
+        crate::values::check_style_value(&component, &[*row], &ty, uses, scope, shapes)?;
+    }
+    Ok(true)
+}
+
 /// `v`'s type as lowering's `expr::compile` gives it, for the values it
-/// types by their form alone in `scope` (a string, a template, a name, a
-/// `?:` of those, a number); `None` for any other (a call, a `match`).
-pub(crate) fn typed(v: &Expr, scope: &contract_types::Scope) -> Option<contract_types::Ty> {
+/// types by their form alone in `typing`'s scope (a string, a template, a
+/// name, a field of a record, a `?:` of those, a number, and a `let` whose
+/// value is one, its body typed with the name pushed as lowering pushes it,
+/// `Scope::push_let`); `None` for any other (a call, a `match`, a `let`
+/// inside another form).
+pub(crate) fn typed(v: &Expr, typing: &Typing) -> Option<contract_types::Ty> {
     use contract_types::Ref;
+    if let Expr::Let {
+        name, value, body, ..
+    } = v
+    {
+        // (The local's index is the compiler's own; no type reads it.)
+        let ty = typed(value, typing)?;
+        return typed(body, &typing.pushed(|s| s.push_let(name, 0, ty)));
+    }
+    let scope = &*typing.scope;
     // Every name it reads, a condition's and a hole's too, one `compile`
-    // loads (a state, a derive, a resource or a mutation): a root prop or
-    // an action as a value is lowering's refusal of its own (Grok's D2
-    // round 2).
+    // loads (a state, a derive, a resource or a mutation, or a name a
+    // `for`, a `match` or a `let` around it binds): a root prop or an action
+    // as a value is lowering's refusal of its own (Grok's D2 round 2).
     let mut loads = true;
     scan::exprs(v, &mut |e| {
         if let Expr::Ident(name, _) = e {
             loads &= matches!(
                 scope.lookup(name),
                 Some((
-                    Ref::Slot(_) | Ref::Derive(_) | Ref::Resource(_) | Ref::Mutation(_),
+                    Ref::Slot(_)
+                        | Ref::Derive(_)
+                        | Ref::Resource(_)
+                        | Ref::Mutation(_)
+                        | Ref::Item(_)
+                        | Ref::Index(_)
+                        | Ref::Bound(_)
+                        | Ref::Local(_),
                     _
                 ))
             );
@@ -374,31 +510,30 @@ pub(crate) fn typed(v: &Expr, scope: &contract_types::Scope) -> Option<contract_
     if !loads {
         return None;
     }
-    shape(v, scope)
+    shape(v, scope, &typing.shapes)
 }
 
 /// [`typed`]'s type of `v` by its form, its names loaded.
-fn shape(v: &Expr, scope: &contract_types::Scope) -> Option<contract_types::Ty> {
+fn shape(
+    v: &Expr,
+    scope: &contract_types::Scope,
+    shapes: &contract_types::Shapes,
+) -> Option<contract_types::Ty> {
     use contract_types::Ty;
     match v {
         Expr::Str(..) | Expr::Template(..) => Some(Ty::String),
         Expr::Number(..) => Some(Ty::Number),
         Expr::Ident(name, _) => scope.lookup(name).map(|(_, t)| t.clone()),
+        // A record's field, as `expr::compile` types `Expr::Member`.
+        Expr::Member(obj, field, _) => {
+            let obj = shape(obj, scope, shapes)?;
+            shapes.member(&obj, field).map(|(_, t)| t.clone())
+        }
         Expr::Ternary(_, yes, no, _) => {
-            let (yes, no) = (shape(yes, scope)?, shape(no, scope)?);
+            let (yes, no) = (shape(yes, scope, shapes)?, shape(no, scope, shapes)?);
             Some(yes.unify(&no).unwrap_or(Ty::Unknown))
         }
         _ => None,
-    }
-}
-
-/// Whether `v` binds a name with a `let` anywhere a leaf may come from.
-fn bound(v: &Expr) -> bool {
-    match v {
-        Expr::Let { .. } => true,
-        Expr::Ternary(_, yes, no, _) => bound(yes) || bound(no),
-        Expr::Match { some, none, .. } => bound(some) || bound(none),
-        _ => false,
     }
 }
 
@@ -424,7 +559,8 @@ fn style_row(a: &Attr) -> bool {
 /// (the build judges its bound literal through the binding, as the row:
 /// QUEUE's) nor a name a derive binds (checked where it is bound). Whether
 /// `v` is so written: a choice with a computed arm is not, and is judged
-/// whole as a computed row ([`kept`]).
+/// whole as a computed row ([`kept`]); a shorthand's or `flex`'s literal
+/// choice is judged whole by its expansion instead ([`judge_expanded`]).
 fn written<'e>(v: &'e Expr, out: &mut Vec<&'e Expr>) -> bool {
     match v {
         Expr::Str(..) | Expr::Number(..) => {
@@ -526,6 +662,23 @@ pub fn check(
             super::leaves(&r.attr.value, &mut Vec::new(), &mut leaves);
             for a in r.fonts.iter().flat_map(|f| &f.attrs) {
                 super::leaves(&a.value, &mut Vec::new(), &mut leaves);
+            }
+            // A longhand's own text too, which an expansion may write
+            // (`flex="none"`'s basis `auto`; Astra's round 3).
+            // One that doesn't expand here, unbound (a word only the design
+            // gives), is reached: judged under the design, as the build does
+            // (Astra's narrow re-check).
+            let longhands: Vec<Expr> = match expanded(&r.attr).map(|rows| {
+                (0..rows.len())
+                    .map(|i| component_of(&r.attr, i))
+                    .collect::<Result<Vec<_>, _>>()
+            }) {
+                Some(Err(_)) => return true,
+                Some(Ok(all)) => all,
+                None => Vec::new(),
+            };
+            for v in &longhands {
+                super::leaves(v, &mut Vec::new(), &mut leaves);
             }
             leaves.iter().any(|l| match l {
                 Expr::Str(text, _) => scan::words(text).any(reaches),
@@ -754,6 +907,9 @@ fn judge(
         return crate::type_tokens::tokens_named(a, kind, uses, &f.declared.fonts, f.children)
             .map(|named| named.is_some());
     }
+    if let Some(rows) = expanded(a).filter(|_| r.computed.is_none()) {
+        return judge_expanded(a, &rows, &uses, scope, shapes);
+    }
     let rows = crate::tags::rows(a);
     let mut leaves = Vec::new();
     super::leaves(&a.value, &mut Vec::new(), &mut leaves);
@@ -761,7 +917,7 @@ fn judge(
         &r.computed,
         leaves.iter().all(|e| matches!(e, Expr::Number(..))),
     ) {
-        (Some((ty, typing)), _) => (ty.clone(), &typing.0 .0, &typing.0 .1),
+        (Some((ty, typing)), _) => (ty.clone(), &*typing.scope, &*typing.shapes),
         (None, true) => (contract_types::Ty::Number, scope, shapes),
         (None, false) => (contract_types::Ty::String, scope, shapes),
     };
@@ -912,6 +1068,23 @@ mod tests {
         assert_eq!(broken.len(), 1, "{broken:?}");
         assert_eq!(broken[0].row.span, row);
         assert!(broken[0].error.message.contains("\"gap\""), "{broken:?}");
+    }
+
+    /// A written shorthand's longhand is typed as `expr::compile` types it:
+    /// a nested choice of a number and strings is a string, its arms unified
+    /// (Astra's round 2), a choice of a number and a string not known.
+    #[test]
+    fn a_written_values_type_is_the_compilers() {
+        use contract_types::Ty;
+        let s = |t: &str| Expr::Str(t.into(), Span::default());
+        let n = |v: f64| Expr::Number(v, Span::default());
+        let c = |a: Expr, b: Expr| {
+            Expr::Ternary(Box::new(s("c")), Box::new(a), Box::new(b), Span::default())
+        };
+        assert_eq!(literal_ty(&n(1.0)), Ty::Number);
+        assert_eq!(literal_ty(&c(s("8px"), s("auto"))), Ty::String);
+        assert_eq!(literal_ty(&c(c(n(8.0), s("auto")), s("auto"))), Ty::String);
+        assert_eq!(literal_ty(&c(n(1.0), s("auto"))), Ty::Unknown);
     }
 
     /// A font file the build read that has changed since leaves the font

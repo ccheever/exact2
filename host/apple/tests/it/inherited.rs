@@ -248,7 +248,7 @@ fn a_node_read_names_where_each_value_came_from() {
     );
     assert!(
         reply.contains(&format!(
-            "\"line_height\":{{\"value\":\"24px\",\"source\":\"inherited\",\"from\":{root}}}"
+            "\"line_height\":{{\"value\":\"24px\",\"source\":\"inherited\",\"from\":{root},"
         )),
         "{reply}"
     );
