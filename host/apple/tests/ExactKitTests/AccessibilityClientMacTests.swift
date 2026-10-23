@@ -243,7 +243,8 @@ final class AccessibilityClientMacTests: XCTestCase {
         let check = try XCTUnwrap(client.attributes(of: "check", keys))
         XCTAssertEqual(check["AXRole"], "AXCheckBox")
         XCTAssertTrue([check["AXTitle"], check["AXDescription"]].contains("Checked"))
-        let secret = try XCTUnwrap(client.attributes(of: "secret", keys))
+        // Read the secure cell by its native subrole so its name remains an assertion.
+        let secret = try XCTUnwrap(client.attributes(of: "AXSecureTextField", keys, matching: "AXSubrole"))
         XCTAssertEqual(secret["AXRole"], "AXTextField")
         XCTAssertTrue([secret["AXTitle"], secret["AXDescription"]].contains("Secret"))
         XCTAssertNotEqual(secret["AXValue"], "hunter2")
