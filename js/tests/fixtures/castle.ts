@@ -231,6 +231,10 @@ function answer(source: string, args: unknown[], store: Store): unknown {
     // A deadline for the whole exchange: a timeout rejects with its kind.
     case "timed": return fetch("https://api.castle.xyz/slow", { exactTimeout: args[0] } as RequestInit)
       .then(r => r.text(), (e: { kind: string; message: string }) => `failed: ${e.kind}: ${e.message}`);
+    // A reply the server may hold (LLP 1016.000 D9): marked on the request; beside a stream, or not a boolean, refused.
+    case "held": return fetch("https://api.castle.xyz/changes", (args[0] === "stream" || args[0] === "yes-stream"
+      ? { exactHeld: args[0] === "stream" ? true : "yes", exactStream: (event: unknown) => event }
+      : { exactHeld: args[0] === "true" ? true : args[0] === "false" ? false : args[0] }) as RequestInit).then(r => r.text(), (e: Error) => `refused: ${e.message}`);
     case "redirected": return fetch("https://api.castle.xyz/moved", {
       ...(args[0] === "" ? {} : { redirect: args[0] }),
     }).then(r => r.status + " " + (r.headers.get("location") ?? ""));
