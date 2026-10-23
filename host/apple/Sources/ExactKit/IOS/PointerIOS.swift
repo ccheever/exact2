@@ -66,7 +66,13 @@ final class PointerRecognizer: UIGestureRecognizer {
         super.touchesBegan(touches, with: event)
         let source = touches.first.flatMap(Self.source)
         if touch == nil, let selection, let first = touches.first {
-            node = selection.paragraph(at: first.location(in: selection.surface)).flatMap { Self.bubbling(from: $0).first }
+            node = selection.paragraph(at: first.location(in: selection.surface)).flatMap { paragraph in
+                guard let owner = selection.owner else { return nil }
+                // The owner and its ancestors already observe the physical surface.
+                return sequence(first: paragraph as UIView, next: { paragraph.presenter?.pointerParent(of: $0) ?? $0.superview })
+                    .compactMap { $0 as? NodeView }
+                    .first { $0 !== owner && $0.isDescendant(of: owner) && $0.wantsPointer && !$0.disabled }
+            }
         }
         if touch == nil, let relay { node = relay.listener(source) { $0.wantsPointer } }
         // A contact going down ends a live press's handoff before its `pointerdown` runs.
