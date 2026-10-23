@@ -961,3 +961,33 @@ fn box_transform_transitions_play_without_sampling_and_reclaim_for_the_agent() {
         .unwrap();
     assert!((x.z - 9.2).abs() < 1e-4, "{x:?}");
 }
+
+#[test]
+fn sticky_translation_transitions_stay_sampled_for_host_placement() {
+    let plan = contract::compile(include_str!("../tests/fixtures/sticky-transition.contract"))
+        .unwrap()
+        .encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        300.0,
+        500.0,
+    )
+    .unwrap();
+    host.svg.box_motion = true;
+    host.svg.play_transitions = true;
+    host.engine.set_lowered_properties(&svg::lowered(true));
+    host.start_on_frame(true, 0.0);
+    host.dispatch_at(id(&host, "move"), Event::Press, 100.0);
+    host.tick_at(112.0, 116.0);
+    let batch = host.tick_at(612.0, 616.0);
+    let node = host.runner.kernel().node(id(&host, "pinned")).unwrap();
+    let key = exact_kernel::motion::motion_node(node.key);
+    assert!(!host.engine.is_played(key, Property::Translate), "{batch}");
+    assert_eq!(host.engine.value(key, Property::Translate).unwrap().x, 50.0);
+    assert!(
+        motion(&batch),
+        "the host needs a sample while placement can change"
+    );
+}

@@ -1078,7 +1078,8 @@ fn box_eligible(
         .iter()
         .any(|p| matches!(p, Property::Translate | Property::Scale | Property::Rotate));
     if turns
-        && (!s.transform_origin.centred()
+        && (n.layout_position() == exact_kernel::PositionType::Sticky
+            || !s.transform_origin.centred()
             || !s.rare.layout_transition.0.is_empty()
             || subtree_any(kernel, n.id, &|id| {
                 interactive(id)
