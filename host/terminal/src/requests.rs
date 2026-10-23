@@ -99,14 +99,11 @@ impl<D: DataSource> Host<D> {
                     self.requests.parked.insert(token, r);
                 }
             }
-            Dispatch::Host(_) | Dispatch::Missing => {
-                let ordered = r.request.is_ordered();
-                self.runner.refuse_request(
-                    r.ticket,
-                    "the terminal host runs only its data module's own work",
-                    ordered,
-                );
-            }
+            // (landing as any outcome does: this host settles no admission refusals of its own)
+            Dispatch::Host(_) | Dispatch::Missing => reply(Outcome::Failed {
+                kind: exact_runner::FailureKind::Refused,
+                message: "the terminal host runs only its data module's own work".into(),
+            }),
         }
     }
 

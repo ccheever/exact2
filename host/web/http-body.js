@@ -359,6 +359,9 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   const failed = (kind, message) => ({ kind, status: 0, headers: '', body: encoder.encode(String(message?.message ?? message)) });
   const { method, url, headers, body, cache } = op;
   if (!active()) return failed(4, 'request source unloaded');
+  // A long poll no host may run (LLP 1016.000 D8) is refused before anything else is tried: a native call, a socket.
+  const pollRefusal = op.longPoll && longPollRefusal(op, method, body);
+  if (pollRefusal) return failed(2, pollRefusal);
   const native = url === 'exact-native:';
   const effective = scopedGrantSet(grantSet, op.scope), invalid = grantError(effective);
   const asset = method === 'GET' && !body && Object.keys(headers).length === 0 && /^\/assets\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(url);
@@ -383,8 +386,6 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   }
   // A long poll asks again and again on its own (D8): an HTTP GET, no body, JSON replies; checked before a socket opens.
   if (op.longPoll) {
-    const refusal = longPollRefusal(op, method, body);
-    if (refusal) return failed(2, refusal);
     const accept = headers.some(([k]) => k.toLowerCase() === 'accept') ? headers : [...headers, ['accept', 'application/json']];
     controllers.add(controller);
     try {

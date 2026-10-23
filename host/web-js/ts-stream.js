@@ -21,6 +21,9 @@ function request(input, init, redirect) {
   const raw = init.body == null ? undefined : new TextEncoder().encode(String(init.body));
   const request = typeof Request === 'function' && input instanceof Request ? input : null;
   const method = methodOf(input, init), url = request ? request.url : String(input);
+  // (a Request's own body comes along when `init` names none: a long poll has none)
+  if (init.exactLongPoll !== undefined && request?.body != null && init.body === undefined)
+    throw new TypeError('exactLongPoll: a long poll is a GET with no body');
   return { method, url, headers: [...new Headers(init.headers ?? request?.headers ?? [])], raw, bodyFrom, redirect, maxResponseBytes: independent ?? 1048576, longPoll: longPollOf(init.exactLongPoll, method, url) };
 }
 // `exactLongPoll` (LLP 1016.000 D8), as js/src/prelude.js `longPollOf` checks it.
