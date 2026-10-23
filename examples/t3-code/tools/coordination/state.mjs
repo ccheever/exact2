@@ -514,6 +514,49 @@ export class Coordination {
       return this.event(s, task, 'device-released', { device });
     });
   }
+  designateDeviceSurplus(thread, proof) {
+    return this.transaction(s => {
+      this.coordinator(s, thread);
+      const age = Date.now() - proof?.observedAtMs;
+      if (!Number.isFinite(age) || age < 0 || age > 60000 ||
+          typeof proof.reason !== 'string' || !proof.reason.trim() || proof.reason.length > 512) fail('fresh surplus reason and observation required');
+      if (!Array.isArray(proof.retainedDevices) || !proof.retainedDevices.length || proof.retainedDevices.length > 2 ||
+          !Array.isArray(proof.inventory)) fail('retained pool and Shutdown inventory required');
+      const entries = [{ expected: proof.expectedDevice, identity: proof.identity }, ...proof.retainedDevices];
+      const records = [], keys = new Set();
+      let parent;
+      for (const { expected, identity } of entries) {
+        const key = `${expected?.host}:${expected?.udid}`, device = s.devices[key];
+        if (keys.has(key) || !device?.created || device.repo !== this.repo || device.status !== 'idle' || device.task || device.thread || device.worktree) fail('distinct released task-created devices from this repository required');
+        keys.add(key);
+        if (!expected || Object.keys(device).sort().join('\0') !== Object.keys(expected).sort().join('\0') ||
+            Object.keys(device).some(k => device[k] !== expected[k])) fail('device record changed');
+        if (typeof identity?.path !== 'string' || !isAbsolute(identity.path) || basename(identity.path) !== device.udid ||
+            basename(dirname(identity.path)) !== 'Devices') fail('exact local simulator directory required');
+        noLinks(identity.path);
+        const stat = lstatSync(identity.path), dir = dirname(identity.path);
+        if (!stat.isDirectory() || stat.dev !== identity.dev || stat.ino !== identity.ino || (parent && dir !== parent)) fail('local simulator directory identity changed');
+        parent = dir;
+        const inventory = proof.inventory.filter(d => d?.host === device.host && d?.udid === device.udid);
+        if (inventory.length !== 1 || inventory[0].state !== 'Shutdown') fail('fresh exact Shutdown inventory required');
+        records.push(device);
+      }
+      const [device, ...retained] = records;
+      if (!retained.some(d => d.class === device.class && d.runtime === device.runtime)) fail('retain a compatible released pool device');
+      if (!Array.isArray(proof.evidence) || !proof.evidence.length || proof.evidence.length > 4) fail('preserved surplus evidence required');
+      for (const path of proof.evidence) {
+        if (typeof path !== 'string' || !inside(join(this.root, 'evidence'), path) ||
+            !Object.values(s.tasks).some(t => t.repo === this.repo && t.evidence.includes(path))) fail('surplus evidence is not preserved by this repository');
+        noLinks(path);
+        if (!lstatSync(path).isFile()) fail('surplus evidence must be a regular file');
+      }
+      const before = { ...device };
+      device.status = 'retiring';
+      return this.event(s, null, 'device-surplus-designated', { before, device: { ...device },
+        retainedDevices: retained.map(d => ({ ...d })), identities: entries.map(e => e.identity),
+        evidence: proof.evidence, reason: proof.reason });
+    });
+  }
   retireDevice(thread, host, udid, inventory) {
     return this.transaction(s => {
       this.coordinator(s, thread);

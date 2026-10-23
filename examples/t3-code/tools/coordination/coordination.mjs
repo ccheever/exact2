@@ -37,6 +37,7 @@ export async function main(argv, overrides) {
     'device-enroll --thread COORDINATOR --task ID --host HOST --udid UDID --class phone|ipad --runtime RUNTIME --inventory FILE --origin created (assign exact new device; inventory must include matching class/runtime)',
     'device-claim --task ID --thread WORKER --host HOST --class phone|ipad --runtime RUNTIME',
     'device-release --task ID --thread WORKER --host HOST --udid UDID --inventory FILE',
+    'device-surplus --thread COORDINATOR --proof FILE (released local simulator; retain the compatible pool)',
     'device-retire --thread COORDINATOR --host HOST --udid UDID --inventory FILE',
     'recover-mutex (only after inspecting its owner.json; dead recorded process required)',
   ] };
@@ -69,6 +70,7 @@ export async function main(argv, overrides) {
     }
     case 'device-claim': return c.claimDevice(task(), thread(), required('host'), required('class'), required('runtime'));
     case 'device-release': return c.releaseDevice(task(), thread(), required('host'), required('udid'), load('inventory'));
+    case 'device-surplus': return c.designateDeviceSurplus(thread(), load('proof'));
     case 'device-retire': return c.retireDevice(thread(), required('host'), required('udid'), load('inventory'));
     case 'recover-mutex': return c.recoverMutex();
     default: throw new Error(`unknown command ${verb}; run help`);
