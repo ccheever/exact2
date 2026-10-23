@@ -3,7 +3,7 @@
 // mapper and the heartbeat mutation send. The data module has no clock: `clock.now` is the latest time a
 // source was given, from the gateway's first turn (its launch epoch) on, which the heartbeat task moves
 // on every second.
-import type { NativeModule, Store as Secrets, StreamEvent, StreamSocket } from './app.contract.d.ts';
+import type { NativeModule, Storage, Store as Secrets, StreamEvent, StreamSocket } from './app.contract.d.ts';
 import { identity, restHeaders, type ClientIdentity, type Host } from './discord/client';
 import { heartbeatDue, initialGateway, nextHeartbeatAt, step, type GatewayState, type StepResult } from './discord/gateway';
 import { cmpId, makeNonce, type NonceState } from './discord/ids';
@@ -47,8 +47,12 @@ export interface Live {
   viewing: { channel: string; guild: string };
   // The guild and channel the session's last op 37 named; a fresh READY forgets it.
   subscribed: string;
-  // The identify record as last kept in secrets.
-  kept: string;
+  // The identify record as last read from app storage, and the IDENTIFY the mapper holds until a
+  // newer record is written there (`recordIdentify`, then `sendIdentify`).
+  kept: number[];
+  held: string | null;
+  // How the held IDENTIFY's record went: "" while it is being written, "ok", or why it failed.
+  recorded: string;
   typedAt: Map<string, number>;
   ackToken: string | null;
   // Channels with a history page in flight: one at a time each (§2).
@@ -61,13 +65,13 @@ export interface Live {
 export function createLive(origins: Origins): Live {
   return { origins, store: S.createStore(), gw: null, socket: null, identity: null, token: '',
     limiter: rest.limiterInit(), nonces: { lastMs: null, sequence: 0 }, applied: new Set(), arrived: new Map(),
-    history: new Map(), sidebar: 0, viewing: { channel: '', guild: '' }, subscribed: '', kept: '', typedAt: new Map(),
+    history: new Map(), sidebar: 0, viewing: { channel: '', guild: '' }, subscribed: '', kept: [], held: null, recorded: '', typedAt: new Map(),
     ackToken: null, paging: new Set(), sends: new Map(), attempt: 0 };
 }
 
-// Secrets are kept per backend, so a fixture build never reads a Discord token, nor the reverse.
+// Kept per backend, so a fixture build never reads a Discord token or record, nor the reverse.
 export const tokenKey = (o: Origins): string => (o.fixture ? 'fixture-token' : 'discord-token');
-export const identifiesKey = (o: Origins): string => (o.fixture ? 'fixture-identifies' : 'discord-identifies');
+export const identifiesPath = (o: Origins): string => `app:/data/${o.fixture ? 'fixture' : 'discord'}-identifies.json`;
 
 /** The host the client identifies as (llp/0001 §2): the app's native module answers on Apple; the web
  * has none. macOS identifies as the web client until Charlie rules on the desktop identity (LLP 0002). */
@@ -136,14 +140,19 @@ export interface Snapshot {
 export function snapshot(live: Live, state?: string, detail = ''): Snapshot {
   const gw = live.gw, store = live.store, channel = live.viewing.channel;
   const retry = gw?.retryAtMs ?? null;
-  return { state: state ?? gw?.phase ?? 'idle', detail: detail || (gw?.stoppedReason ?? ''), me: store.meId ?? '',
+  return { state: state ?? (live.held ? 'recording' : gw?.phase ?? 'idle'), detail: detail || (gw?.stoppedReason ?? ''), me: store.meId ?? '',
     fixture: live.origins.fixture, sidebar: live.sidebar, channel,
     version: channel ? S.channelVersion(store, channel) : 0, history: channel ? live.history.get(channel) ?? 0 : 0,
     retryIn: retry === null ? 0 : Math.max(1, Math.ceil(retry - clock.now)), attempt: live.attempt };
 }
 
 function perform(live: Live, result: StepResult, socket: StreamSocket | null, secrets: Secrets | null): void {
-  if (socket && socket.readyState === 1) for (const frame of result.send) socket.send(frame);
+  for (const frame of result.send) {
+    // An IDENTIFY waits until its record is in app storage (§2: a crash loop stops at the budget only if
+    // every identify it spends is counted, so one whose record cannot be kept is not sent).
+    if (frame.startsWith('{"op":2,')) { live.held = frame; live.recorded = ''; continue; }
+    if (socket && socket.readyState === 1) socket.send(frame);
+  }
   let ready = false;
   for (const change of result.changes) {
     if (change.kind === 'dispatch') {
@@ -155,11 +164,6 @@ function perform(live: Live, result: StepResult, socket: StreamSocket | null, se
       try { secrets?.set(tokenKey(live.origins), change.token); } catch { /* kept in memory for this launch */ }
     }
   }
-  // Each identify is kept before the next launch can spend another (§2: a crash loop stops).
-  const record = live.gw ? JSON.stringify(live.gw.identifies) : live.kept;
-  if (secrets && record !== live.kept) {
-    try { secrets.set(identifiesKey(live.origins), record); live.kept = record; } catch { /* counted for this launch */ }
-  }
   // A fresh session subscribes again to what is on screen, as the official client does after IDENTIFY.
   if (ready && socket) subscribe(live, socket);
   if (result.close && socket && socket.readyState <= 1) socket.close(result.close.code, result.close.reason);
@@ -167,22 +171,41 @@ function perform(live: Live, result: StepResult, socket: StreamSocket | null, se
 
 /** The session resource's answer: the kept token and identify record, read into module state. It is
  * the only answer that reads them, so the gateway's writes of them re-ask it, never the socket. */
-export function loadSession(live: Live, secrets: Secrets): { ready: boolean; signedIn: boolean } {
+export async function loadSession(live: Live, secrets: Secrets, storage: Storage): Promise<{ ready: boolean; signedIn: boolean }> {
   const key = tokenKey(live.origins);
   let token = secrets.get(key);
   // The fixture's account signs in by itself; Discord's waits for the person (stage 2's sign-in).
   if (!token && live.origins.fixture) { token = 'fixture-token'; secrets.set(key, token); }
   live.token = token ?? '';
   if (live.gw && token) live.gw.token = token;
-  live.kept = secrets.get(identifiesKey(live.origins)) ?? '[]';
+  let kept: unknown = [];
+  try { kept = JSON.parse(new TextDecoder().decode(await storage.fs.readFile(identifiesPath(live.origins)))); }
+  catch { /* none yet, or unreadable: the record starts empty and is written before the first identify */ }
+  live.kept = Array.isArray(kept) ? kept.filter((t): t is number => typeof t === 'number' && Number.isFinite(t)) : [];
   return { ready: true, signedIn: !!token };
 }
 
-function keptIdentifies(live: Live): number[] {
+/** Write the identify record, the held IDENTIFY's included, to app storage, and await it. */
+export async function recordIdentify(live: Live, storage: Storage): Promise<void> {
+  if (!live.held || !live.gw) return;
   try {
-    const kept = JSON.parse(live.kept);
-    return Array.isArray(kept) ? kept.filter((t): t is number => typeof t === 'number' && Number.isFinite(t)) : [];
-  } catch { return []; }
+    await storage.fs.atomicWriteFile(identifiesPath(live.origins), new TextEncoder().encode(JSON.stringify(live.gw.identifies)));
+    live.kept = [...live.gw.identifies];
+    live.recorded = 'ok';
+  } catch (error) {
+    live.recorded = `the identify record could not be kept (${error instanceof Error ? error.message : String(error)})`;
+  }
+}
+
+/** Send the held IDENTIFY once its record is kept; else stop, saying why, and close the socket. */
+export function sendIdentify(live: Live): void {
+  const gw = live.gw, frame = live.held;
+  if (!gw || !frame || !live.recorded) return;
+  live.held = null;
+  if (live.recorded === 'ok') { if (live.socket?.readyState === 1) live.socket.send(frame); return; }
+  gw.phase = 'stopped';
+  gw.stoppedReason = live.recorded;
+  if (live.socket && live.socket.readyState <= 1) live.socket.close(4000, 'identify record not kept');
 }
 
 /** The gateway resource's answer: a socket whose mapper inflates each frame, steps the session and
@@ -197,7 +220,7 @@ export function connect(live: Live, secrets: Secrets, native: NativeModule | nul
   if (!live.gw || live.gw.phase === 'stopped') {
     live.identity = identity(hostOf(native), { launchId: launchId(), heartbeatSessionId: launchId(), appState: 'focused' });
     live.gw = initialGateway({ identity: live.identity, token, gatewayUrl: live.origins.gateway,
-      identifyBudget: live.origins.fixture ? BUDGET.fixture : BUDGET.live, identifies: keptIdentifies(live) });
+      identifyBudget: live.origins.fixture ? BUDGET.fixture : BUDGET.live, identifies: live.kept });
   } else live.gw.token = token;
   const gw = live.gw;
   const first = step(gw, gw.phase === 'backoff' ? { type: 'retry', nowMs: clock.now, jitter: random() }

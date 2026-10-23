@@ -20,6 +20,23 @@ function secretsStore() {
   };
 }
 
+// App storage in memory; `refuse` makes every write fail, as a full or unavailable store's does.
+function memoryStorage(refuse = false) {
+  const files = new Map<string, Uint8Array>();
+  const fs = {
+    async readFile(path: string) {
+      const bytes = files.get(path);
+      if (!bytes) throw Object.assign(new Error(`ENOENT: ${path}`), { code: 'ENOENT' });
+      return bytes.slice().buffer;
+    },
+    async atomicWriteFile(path: string, data: ArrayBuffer | Uint8Array) {
+      if (refuse) throw new Error('QuotaExceededError: the store is full');
+      files.set(path, new Uint8Array(data instanceof Uint8Array ? data : new Uint8Array(data)));
+    },
+  };
+  return { fs, files, record: () => JSON.parse(new TextDecoder().decode(files.get('app:/data/fixture-identifies.json') ?? new TextEncoder().encode('[]'))) };
+}
+
 interface Peer {
   server: any;
   socket: StreamSocket;
@@ -139,20 +156,26 @@ function serverForTest() {
     await drain();
     return response.json();
   };
-  const app = async (secrets = secretsStore()) => {
+  const app = async (secrets = secretsStore(), storage = memoryStorage()) => {
     const { answer }: { answer: Answer } = await import('./app.ts?case=' + ++moduleNumber);
     const ask = <T extends Source>(source: T, args: Args<T>) =>
-      answer(source, args, secrets as Store, null as unknown as Storage, null);
+      answer(source, args, secrets as Store, storage as unknown as Storage, null);
     expect(await ask('loadGuilds', [0])).toEqual([]);
-    return { ask, secrets,
-      async dial(epoch = EPOCH) {
+    return { ask, secrets, storage,
+      async dial(epoch = EPOCH, ready = 'ready') {
         const count = peers.length;
         await ask('loadSession', []);
         void ask('gatewayState', [true, epoch]);
         await drain();
+        // The view's `record` task: the IDENTIFY the mapper holds goes out once its record is written.
+        if (peers.at(-1)?.snapshots.at(-1)?.state === 'recording') {
+          await ask('recordIdentify', []);
+          await ask('sendIdentify', []);
+          await drain();
+        }
         expect(peers).toHaveLength(count + 1);
         const peer = peers.at(-1)!;
-        expect(peer.snapshots.at(-1)).toMatchObject({ state: 'ready', me: fixture.world.me.id, fixture: true });
+        expect(peer.snapshots.at(-1)).toMatchObject(ready === 'ready' ? { state: 'ready', me: fixture.world.me.id, fixture: true } : { state: ready });
         return peer;
       },
       window: (channel: string, anchor = '', since = '') => ask('loadWindow', [channel, anchor, 0, since]),
@@ -230,17 +253,23 @@ test('2. the first gateway turn uses the launch epoch and delays its first heart
   await app.ask('heartbeat', [EPOCH + INTERVAL / 2]); await rig.drain();
   expect(await acks()).toBe(1);
   expect(peer.sent.filter(frame => frame.op === 1)).toHaveLength(1);
-  expect(JSON.parse(app.secrets.get('fixture-identifies') ?? '[]')).toEqual([EPOCH]);
+  expect(app.storage.record()).toEqual([EPOCH]);
 });
 
-test('3. identify timestamps survive a fresh app module with the same secrets', async () => {
-  const secrets = secretsStore(), first = await rig.app(secrets), peer = await first.dial();
-  const keptAfterFirst = JSON.parse(secrets.get('fixture-identifies') ?? '[]');
+test('3. identify timestamps survive a fresh app module with the same storage', async () => {
+  const secrets = secretsStore(), storage = memoryStorage(), first = await rig.app(secrets, storage), peer = await first.dial();
+  const keptAfterFirst = storage.record();
   peer.socket.close(1001, 'Relaunch'); await rig.drain();
-  const second = await rig.app(secrets); await second.dial(EPOCH + 1000);
+  const second = await rig.app(secrets, storage); await second.dial(EPOCH + 1000);
   expect((await rig.state()).identify_count).toBe(2);
-  expect([keptAfterFirst, JSON.parse(secrets.get('fixture-identifies') ?? '[]')])
-    .toEqual([[EPOCH], [EPOCH, EPOCH + 1000]]);
+  expect([keptAfterFirst, storage.record()]).toEqual([[EPOCH], [EPOCH, EPOCH + 1000]]);
+});
+
+test('3b. an identify whose record cannot be kept is not sent, and the gateway stops saying why', async () => {
+  const app = await rig.app(secretsStore(), memoryStorage(true)), peer = await app.dial(EPOCH, 'stopped');
+  expect(peer.sent.filter(frame => frame.op === 2)).toEqual([]);
+  expect(peer.snapshots.at(-1)!.detail).toBe('the identify record could not be kept (QuotaExceededError: the store is full)');
+  expect((await rig.state()).identify_count).toBe(0);
 });
 
 test('4. the viewed channel subscribes its guild again after a non-resumable reconnect', async () => {
