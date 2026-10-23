@@ -112,10 +112,10 @@ impl Parser {
             .iter()
             .take_while(|s| !launch_word(s).is_empty())
             .count();
-        // `fail fetch` is a launch line where it leads and a step after (LLP 1103 D3).
-        let late = steps[leading..]
-            .iter()
-            .find(|s| !launch_word(s).is_empty() && !matches!(s, Step::FailFetch { .. }));
+        // Fetch faults and media preferences may also change between steps.
+        let late = steps[leading..].iter().find(|s| {
+            !launch_word(s).is_empty() && !matches!(s, Step::FailFetch { .. } | Step::Prefer { .. })
+        });
         if let Some(late) = late {
             return Err(SyntaxError {
                 id: "syntax-expected-step",
@@ -325,7 +325,7 @@ impl Parser {
                 return self.err(
                     "syntax-expected-step",
                     format!(
-                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `close`, `back`, `screenshot`, `fail fetch`, `pass fetch`, `request`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `fresh`, `before data`, `fail fetch`), found {}",
+                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `close`, `back`, `screenshot`, `fail fetch`, `pass fetch`, `prefer`, `request`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `fresh`, `before data`, `fail fetch`), found {}",
                     describe(&other)
                 ),
                 )
@@ -334,7 +334,19 @@ impl Parser {
         self.next();
         let step = match word.as_str() {
             "tap" if self.at_ident("midi") => return self.tap_midi(span),
-            "prefer" => return self.prefer_midi(span),
+            "prefer" if self.at_ident("midi") => return self.prefer_midi(span),
+            "prefer" => {
+                let (name, _) = self.ident()?;
+                let value = match self.next() {
+                    Token { kind: TokenKind::Ident(value), .. } => value,
+                    token => return Err(SyntaxError {
+                        id: "syntax-expected-step",
+                        message: "`prefer` takes a CSS media feature and its value, as `prefer prefers-color-scheme dark`".into(),
+                        span: token.span,
+                    }),
+                };
+                Step::Prefer { name, value, span }
+            }
             "tap" => {
                 let target = self.str_lit("a testId")?;
                 if self.at_ident("drag") {
@@ -902,7 +914,7 @@ impl Parser {
                 return Err(SyntaxError {
                     id: "syntax-expected-step",
                     message: format!(
-                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `close`, `back`, `screenshot`, `request`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `fresh`, `before data`), found `{other}`"
+                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `close`, `back`, `screenshot`, `prefer`, `request`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `fresh`, `before data`), found `{other}`"
                 ),
                     span,
                 })
@@ -943,7 +955,7 @@ fn during_read(op: &str) -> bool {
 
 /// The words of a test's launch lines, which a test file may also write at
 /// its top level for every test in it (habits F7, calendar F13).
-pub(super) const LAUNCH: [&str; 8] = [
+pub(super) const LAUNCH: [&str; 9] = [
     "size",
     "epoch",
     "time-zone",
@@ -952,11 +964,13 @@ pub(super) const LAUNCH: [&str; 8] = [
     "fresh",
     "before",
     "fail",
+    "prefer",
 ];
 
 /// A launch line's word, or `""` for any other step.
 pub(super) fn launch_word(step: &Step) -> &'static str {
     match step {
+        Step::Prefer { .. } => "prefer",
         Step::Size { .. } => "size",
         Step::Epoch { .. } => "epoch",
         Step::TimeZone { .. } => "time-zone",
@@ -975,9 +989,12 @@ pub fn is_launch(step: &Step) -> bool {
 }
 
 /// Whether two launch lines set the same fact: `fail fetch` lines, the same
-/// prefix (several prefixes may be armed).
+/// prefix; media preferences, the same feature name.
 pub fn same_launch(a: &Step, b: &Step) -> bool {
     if let (Step::FailFetch { prefix: x, .. }, Step::FailFetch { prefix: y, .. }) = (a, b) {
+        return x == y;
+    }
+    if let (Step::Prefer { name: x, .. }, Step::Prefer { name: y, .. }) = (a, b) {
         return x == y;
     }
     let word = launch_word(a);

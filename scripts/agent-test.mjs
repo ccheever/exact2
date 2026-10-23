@@ -7,7 +7,7 @@ import { connect } from 'node:net';
 import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { faultRequest as rawFaultRequest } from './agent-prefer.mjs';
+import { faultRequest as rawFaultRequest, PREFERENCES, preferGroups } from './agent-prefer.mjs';
 import { open } from './agent.mjs';
 import { duringOp } from './agent-drag.mjs';
 import { driveStore, faultSpecOf, launchFacts } from './agent-launch.mjs';
@@ -518,7 +518,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // A test's launch lines lead its steps and override the drive's flags (habits F7).
     // The drive's `--fail-fetch` is every test's, with its own leading `fail fetch` lines added (LLP 1103 D3).
     const facts = { size, seed, locale, formatLocale, timeZone, epoch, failFetch };
-    const lines = [];
+    const lines = [], preferences = [];
+    const media = {};
     let beforeData = false, leading = 0, reset = null;
     // `fail fetch` lines that lead the steps are armed before the app's first data load (LLP 1103 D3).
     const armed = new Map(); // prefix -> the line that armed it with a count
@@ -532,6 +533,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       else if (st.op === 'fresh') reset = st;
       else if (st.op === 'fail-fetch') { early(st); facts.failFetch = [facts.failFetch, st.times == null ? st.prefix : `${st.prefix}\t${st.times}`].filter(Boolean).join('\n'); if (st.times != null) armed.set(st.prefix, st.line); }
       else if (st.op === 'size') facts.size = [st.width, st.height];
+      else if (st.op === 'prefer') preferences.push(st);
       else if (LAUNCH[st.op]) facts[LAUNCH[st.op]] = st.value;
       else break;
       lines.push(st.line);
@@ -565,6 +567,16 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     const reached = async () => { const { clock } = await s.op({ op: 'tags' }).catch(() => ({})); return facts.epoch + Math.floor(Number.isFinite(clock) ? clock : s.now); };
     const launch = (environment) => open({ host, browser, plan, ...facts, env: { ...environment, EXACT_AGENT_EPHEMERAL_PORT: '1' }, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale, port });
     let s = await launch(fresh);
+    const prefer = async (st) => {
+      const facts = { [st.name]: st.value };
+      preferGroups(facts); // Keep the driver's diagnostic for a bad name or value.
+      if (!Object.hasOwn(PREFERENCES, st.name)) throw new Error(`test prefer: expected a CSS media feature: ${Object.keys(PREFERENCES).join(', ')}`);
+      const r = await s.prefer(facts);
+      if (r?.error) throw new Error(r.error);
+      // Preserve last-application order: pointer and hover emulation affect each other.
+      delete media[st.name];
+      Object.assign(media, facts);
+    };
     const mutationClock = testMutationClock();
     // The app's data lands before the first step, as `clock data` lands it: activation and every request in flight,
     // the clock unmoved and no timer fired (habits, pomodoro, kanban: a store opened at launch raced the first step).
@@ -591,6 +603,10 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       facts.epoch = await reached();
       if (s.host === 'web') { await s.carrier.reset({ keep: true, failFetch, epoch: facts.epoch }); s.now = 0; resetLogs(s); s.notes = notes; return; }
       await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale, port }); s.notes = notes;
+      for (const [name, value] of Object.entries(media)) {
+        const r = await s.prefer({ [name]: value });
+        if (r?.error) throw new Error(r.error);
+      }
     };
     // The clock stands still between steps: what an input started (a reply,
     // a mutation's `then`, a timer, a transition) lands at a clock step. A
@@ -625,7 +641,10 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       failures.push(`${message}${failed}${pending.length ? ` (${pending.length} request${pending.length === 1 ? '' : 's'} still in flight: ${pending.join(', ')}; a reply lands at a \`clock\` step, as \`clock settle\`)` : ''}${held}`);
     };
     try {
-      try { await data(); } catch (e) { failures.push(`${t.name}: waiting for the app's data before the first step: ${e.message}`); }
+      for (const st of preferences) {
+        try { await prefer(st); } catch (e) { failures.push(`${t.name}: line ${st.line}: ${e.message}`); break; }
+      }
+      try { if (!failures.length) await data(); } catch (e) { failures.push(`${t.name}: waiting for the app's data before the first step: ${e.message}`); }
       // A counted fault that matched no fetch fails the test at the line that armed it (LLP 1103 D3).
       // A table the host never made (no fetch consulted it) matched nothing either; an unreadable state is said so.
       const unfired = async (prefix) => {
@@ -654,6 +673,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
           if (st.op === 'type') { typed.add(st.target); touched.add(st.target); } else if (INPUTS.has(st.op) || st.op === 'reload') typed.clear();
           switch (st.op) {
             case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': case 'fresh': break; // the session opened with it
+            case 'prefer': if (n >= leading) await prefer(st); break;
             // A driver fault (LLP 1103): a leading one was a launch line; a later one arms (or re-arms) now, a `pass` stops it.
             case 'fail-fetch': {
               if (n < leading) break;
@@ -720,7 +740,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
               const tree = await s.tree();
               const f = treeExpectation(tree.nodes, st.target, st.present);
               // The first step of a test that waited for data cannot see the boot's loading view (authoring bench).
-              const first = !beforeData && t.steps.slice(0, t.steps.indexOf(st)).every((p) => p.op in LAUNCH || p.op === 'size');
+              const first = !beforeData && t.steps.slice(0, t.steps.indexOf(st)).every((p) => p.op in LAUNCH || p.op === 'size' || p.op === 'prefer');
               if (f?.unshown) failures.push(`${at}: ${f.message}`);
               else if (f) await fail(`${at}: ${f.message}${first && st.present ? ' (the test waited for the app\'s data before its first step; `before data`, a launch line, starts without that wait)' : ''}`);
               break;
@@ -815,7 +835,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       }
       if (closedAt == null) for (const prefix of [...armed.keys()]) await unfired(prefix);
       else for (const [prefix, line] of armed) failures.push(`${t.name}: line ${line}: fail fetch ${JSON.stringify(prefix)} matched no fetch before the window closed at line ${closedAt}`);
-      if (atEnd && closedAt == null) end = await atEnd(s, { name: t.name, index: n, size: facts.size, store, failures, reload: t.steps.some((st) => st.op === 'reload'), launch: launchFacts({ ...facts, epoch: first, env: env ?? {} }), reached: await reached(), typed: [...typed], touched: [...touched], expectedRefusals: [...expectedRefusals], ...(s.host === 'web' ? { restart: async () => { await reload(); await data(); } } : {}) }).catch((e) => ({ error: e.message }));
+      if (atEnd && closedAt == null) end = await atEnd(s, { name: t.name, index: n, size: facts.size, store, failures, reload: t.steps.some((st) => st.op === 'reload'), launch: { ...launchFacts({ ...facts, epoch: first, env: env ?? {} }), media: { ...media } }, reached: await reached(), typed: [...typed], touched: [...touched], expectedRefusals: [...expectedRefusals], ...(s.host === 'web' ? { restart: async () => { await reload(); await data(); } } : {}) }).catch((e) => ({ error: e.message }));
       // A failed test shows what the data module logged, the last lines of it (sb4 farm wave 7, E1: 093 rendered
       // values into the view to see them; `logs` had them all along). Advice only.
       if (failures.length && closedAt == null) try {
