@@ -845,3 +845,41 @@ fn id_of<D: exact_runner::DataSource>(host: &Host<D>, test_id: &str) -> u32 {
     let k = host.runner.kernel();
     k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
 }
+
+#[test]
+fn a_delayed_stepped_transition_fills_with_its_uneased_start() {
+    for easing in ["steps(4, jump-start)", "linear(0 25%, 1 75%)"] {
+        let app = format!(
+            r#"component A
+  state on = false
+  action go
+    on = true
+  view
+    column
+      button "Go" testId="go" press=go
+      box testId="fade" width=24 height=24 opacity=(on ? 0 : 1) transition="opacity 1s {easing} 500ms"
+"#
+        );
+        let plan = contract::compile(&app).unwrap().encode();
+        let (mut host, _) = Host::boot(
+            &plan,
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            390.0,
+            844.0,
+        )
+        .unwrap();
+        host.svg.box_motion = true;
+        host.svg.play_transitions = true;
+        host.engine.set_lowered_properties(&svg::lowered(true));
+        host.start_on_frame(true, 0.0);
+        host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
+        let started = host.tick_at(112.0, 116.0);
+        let played = spec(&started, id(&host, "fade"));
+        assert_eq!(
+            played["v"][0], 1.0,
+            "{easing}: backwards fill holds from during the delay: {played}"
+        );
+        assert_eq!(played["t"][0], 0.0);
+    }
+}
