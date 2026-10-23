@@ -53,6 +53,7 @@ extension NodeView {
         var radius: CGFloat = 0
         var corners: CACornerMask = []
         var oneRadius = true
+        var partialCorners = false
         var widths: [CGFloat] = [0, 0, 0, 0]
         var colors: [CGColor] = []
         var oneBorder = true
@@ -115,6 +116,7 @@ extension NodeView {
         p.oneRadius = cornerSizes(in: bounds).allSatisfy { abs($0.width - $0.height) < 0.01 } && radii.allSatisfy { $0 == 0 || abs($0 - p.radius) < 0.01 }
             && p.radius <= min(bounds.width, bounds.height) / 2 + 0.01
         p.corners = cornerMask(radii)
+        p.partialCorners = p.radius > 0 && radii.contains(0)
         let gradient = style["background_image"] != nil
         // A `corner-shape` the layer cannot say draws (LLP 1077 D1).
         let shape = CornerShape(style["corner_shape"])
@@ -178,7 +180,7 @@ extension NodeView {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         if let box = clipBox?.layer {
-            let clipRadius = p.oneRadius && !p.shaped ? p.radius : 0
+            let clipRadius = p.oneRadius && !p.shaped && !p.partialCorners ? p.radius : 0
             if box.cornerRadius != clipRadius { box.cornerRadius = clipRadius }
             if clipRadius > 0, box.maskedCorners != p.corners { box.maskedCorners = p.corners }
             if box.cornerCurve != p.curve { box.cornerCurve = p.curve }
@@ -187,7 +189,7 @@ extension NodeView {
         // (setting one sets `masksToBounds`), so the backing layer carries a
         // radius only where the overflow clips; a rounded box that does not
         // clip fills a sublayer of its own under the children.
-        let layerRadius = clipsToBounds && p.oneRadius && !p.shaped ? p.radius : 0
+        let layerRadius = clipsToBounds && p.oneRadius && !p.shaped && !p.partialCorners ? p.radius : 0
         // A flight interpolates the radius itself (LLP 1013.000 D4).
         if flightLook == nil, layer.cornerRadius != layerRadius { layer.cornerRadius = layerRadius }
         if layerRadius > 0, layer.maskedCorners != p.corners { layer.maskedCorners = p.corners }
@@ -197,25 +199,41 @@ extension NodeView {
         let bg = fillsSublayer ? nil : fill
         if layer.backgroundColor != bg { layer.backgroundColor = bg }
         if fillsSublayer, let fill {
-            let f = boxFill ?? CALayer()
+            // CALayer.render ignores maskedCorners. A path preserves the same
+            // outline in the window and in a filtered ancestor's picture.
+            if let old = boxFill, (old is CAShapeLayer) != p.partialCorners { old.removeFromSuperlayer(); boxFill = nil }
+            let f = boxFill ?? (p.partialCorners ? CAShapeLayer() : CALayer())
             boxFill = f
             if f.superlayer !== layer { insertBoxSublayer(f) }
             if f.frame != bounds { f.frame = bounds }
-            if f.backgroundColor != fill { f.backgroundColor = fill }
-            if f.cornerRadius != p.radius { f.cornerRadius = p.radius }
+            if let shape = f as? CAShapeLayer {
+                shape.path = BorderPaint.roundedRect(bounds, cornerSizes(in: bounds), shape: CornerShape(style["corner_shape"]))
+                shape.fillColor = fill
+            } else {
+                if f.backgroundColor != fill { f.backgroundColor = fill }
+                if f.cornerRadius != p.radius { f.cornerRadius = p.radius }
+            }
             if f.maskedCorners != p.corners { f.maskedCorners = p.corners }
             if f.cornerCurve != p.curve { f.cornerCurve = p.curve }
         } else if let f = boxFill { f.removeFromSuperlayer(); boxFill = nil }
         let cornerRadius = p.oneRadius ? p.radius : 0
-        let ownWidth = p.own && border != nil ? devicePixels(p.widths[0]) : 0
+        let ownWidth = p.own && !p.partialCorners && border != nil ? devicePixels(p.widths[0]) : 0
         if layer.borderWidth != ownWidth { layer.borderWidth = ownWidth }
         if ownWidth > 0, layer.borderColor != border { layer.borderColor = border }
-        guard let border, !p.own else { boxBorder?.removeFromSuperlayer(); boxBorder = nil; return }
-        if let old = boxBorder, (old is CAShapeLayer) != p.edges { old.removeFromSuperlayer(); boxBorder = nil }
-        let b = boxBorder ?? (p.edges ? CAShapeLayer() : CALayer())
+        guard let border, !p.own || p.partialCorners else { boxBorder?.removeFromSuperlayer(); boxBorder = nil; return }
+        if let old = boxBorder, (old is CAShapeLayer) != (p.edges || p.partialCorners) { old.removeFromSuperlayer(); boxBorder = nil }
+        let b = boxBorder ?? ((p.edges || p.partialCorners) ? CAShapeLayer() : CALayer())
         boxBorder = b
-        if b.superlayer !== layer { insertBoxSublayer(b) }
+        if b.superlayer !== layer { if p.own { layer.addSublayer(b) } else { insertBoxSublayer(b) } }
         if b.frame != bounds { b.frame = bounds }
+        if let shape = b as? CAShapeLayer, p.partialCorners {
+            let width = devicePixels(p.widths[0]), cornerShape = CornerShape(style["corner_shape"])
+            let path = BorderPaint.roundedRect(bounds, cornerSizes(in: bounds), shape: cornerShape)
+            path.addPath(BorderPaint.roundedRect(bounds.insetBy(dx: width, dy: width),
+                BorderPaint.radii(style, in: bounds.insetBy(dx: width, dy: width), inset: width), shape: cornerShape))
+            shape.path = path; shape.fillRule = .evenOdd; shape.fillColor = border
+            return
+        }
         if let shape = b as? CAShapeLayer {
             let (w, h) = (bounds.width, bounds.height)
             let path = CGMutablePath()
