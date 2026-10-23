@@ -14,6 +14,9 @@ impl<D: DataSource> Host<D> {
         }
         let writes = self.runner.take_store_writes();
         if self.secrets.is_none() {
+            if changed {
+                crate::store::widget_changed(self.runner.data_ref().app_id());
+            }
             return;
         }
         for write in writes {
