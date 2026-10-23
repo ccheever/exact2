@@ -5,8 +5,8 @@ import CoreText
 import CExact
 @testable import ExactKit
 
-/// Chrome with the simulator's SFUI.ttf loaded as a web font, at scale 1.
-/// UIKit controls keep their own fonts and metrics (SessionControlTextIOS).
+/// Chrome system-ui at scale 1, as the web scroll fixture lays it out.
+/// FieldChromeIOS keeps UIFont.lineHeight for native editors.
 final class TextParityIOSTests: XCTestCase {
     func testRuntimeInstalledFamilyUsesItsOwnFace() throws {
         guard !TextEngine.installedFaces("Menlo").isEmpty else { throw missing("fonts", "Menlo unavailable") }
@@ -24,21 +24,25 @@ final class TextParityIOSTests: XCTestCase {
         let font = engine.font(size: 20, weight: 700, family: 8, italic: false) as CTFont
         XCTAssertEqual(CTFontCopyFamilyName(font) as String, "Menlo")
     }
-    func testNormalLineHeightUsesChromesRuleForTheSameFace() {
+    func testNormalLineHeightIsTheWebHostsSystemUI() {
         let engine = TextEngine(resolve: { _ in nil })
         let cases: [(CGFloat, CGFloat, CGFloat)] = [
-            (11, 13, 10), (12, 14, 11), (13, 15, 12), (14, 16, 13),
-            (15, 18, 14), (16, 19, 15), (17, 20, 16), (20, 24, 19),
-            (24, 29, 23), (28, 34, 27), (34, 40, 32),
+            (11, 13, 11), (12, 15, 12), (13, 16, 13), (14, 17, 14),
+            (15, 18, 15), (16, 18, 15), (17, 20, 16), (20, 23, 19),
+            (24, 28, 23), (28, 33, 27), (34, 40, 33),
         ]
         for (size, height, baseline) in cases {
-            let font = engine.font(size: size, weight: 400, family: 0, italic: false) as CTFont
-            print("SFUI \(size): UIKit \(CTFontGetAscent(font) + CTFontGetDescent(font) + CTFontGetLeading(font)), Chrome \(height)")
             let p = paragraph(engine, "Hxg\nHxg", size: size)
             XCTAssertEqual(p.height, height * 2, "\(size)px")
             XCTAssertEqual(p.firstBaseline, baseline, "\(size)px")
             XCTAssertEqual(p.baselines[1] - p.baselines[0], height, "\(size)px")
         }
+    }
+
+    func testFortyNormal14pxRowsKeepTheSharedScrollLimit() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let rows = (0..<40).map { paragraph(engine, "Row \($0)", size: 14).height }.reduce(0, +)
+        XCTAssertEqual(rows + 39 * 4 + 16 - 200, 652)
     }
 
     func testIntrinsicWidthsAreChromes() { assertChromeWidths() }
