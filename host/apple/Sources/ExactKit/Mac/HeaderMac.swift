@@ -94,7 +94,8 @@ struct WindowHeader {
         func refusal(in node: NodeView) -> String? {
             for child in children(node) where child.style["display"]?.string != "none" {
                 if child === rule.heading { passedHeading = true; continue }
-                if passedHeading, subtitle == nil, child.isParagraph { subtitle = child; continue }
+                if passedHeading, subtitle == nil, child.isParagraph, !items.contains(ObjectIdentifier(child)),
+                   !rule.readouts.contains(where: { $0 === child }) { subtitle = child; continue }
                 if child === rule.tap { return "its heading is inside a pressable (#\(child.id)), and a window's title is not pressed" }
                 // LLP 1075.003 §9.15: iOS's custom-view item; the toolbar makes none.
                 if rule.readouts.contains(where: { $0 === child }) { return "it holds a readout (#\(child.id), `role=\"status\"`), which the toolbar has no item for" }
