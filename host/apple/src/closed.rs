@@ -299,4 +299,36 @@ component App
     fn a_tablist_its_author_kept_keeps_its_box() {
         assert!(!covered(&app(r#" appearance="none""#)));
     }
+
+    /// A box in a closed `dialog` is not laid out, so it does not
+    /// intersect, as in a browser, where the dialog is `display: none`.
+    #[test]
+    fn a_box_in_a_closed_dialog_does_not_intersect() {
+        let source = r#"component App
+  state inside = false
+  action seen(e: IntersectionObserverEntry)
+    inside = e.isIntersecting
+  view
+    column
+      text "page"
+      dialog id="sheet" aria-label="Details"
+        box height=40 intersect=seen testId="target"
+"#;
+        CLOSED_WAIT.set(true);
+        let plan = contract::compile(source).unwrap().encode();
+        let measurer = Box::new(MonospaceMeasurer::default());
+        let (mut host, _) = Host::boot(&plan, NoData, measurer, 390.0, 844.0).unwrap();
+        CLOSED_WAIT.set(false);
+        let kernel = host.runner.kernel();
+        let target = kernel
+            .node_by_key(kernel.find_by_test_id("target")[0])
+            .unwrap()
+            .id;
+        let due = host.runner.intersect_due();
+        let entry = due
+            .iter()
+            .find(|e| e.view == target)
+            .expect("its first observation");
+        assert!(!entry.is_intersecting);
+    }
 }
