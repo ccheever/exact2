@@ -176,8 +176,12 @@ final class MenuHost: NSObject {
     /// The alertdialog the open menu presents, if one does.
     var presentedConfirmation: Confirmation? { entries.last?.confirmation }
     func owns(_ node: NodeView) -> Bool { entries.contains { $0.popover === node && $0.menu == nil } }
-    /// Input inheritance follows the authored tree after top-layer reparenting.
-    func parent(of view: NSView) -> NSView? { authoredParent(of: view) ?? view.superview }
+    /// Input inheritance follows the authored tree after top-layer reparenting,
+    /// and out of a native container a block's root is shown in (a split's
+    /// pane) to the node it is declared under, as `eventParent` does.
+    func parent(of view: NSView) -> NSView? {
+        authoredParent(of: view) ?? (view as? NodeView).flatMap { presenter?.blocks.parent(of: $0) } ?? view.superview
+    }
     /// An open popover's authored parent, nil for any other view.
     func authoredParent(of view: NSView) -> NSView? {
         entries.first(where: { $0.popover === view && $0.menu == nil })?.parent
