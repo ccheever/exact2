@@ -150,7 +150,7 @@ final class NativeButtonMac: NSButton {
         // D7.1): AppKit's tracking must not take the editor beside it. The
         // button accepts first responder for Tab, `focus()` and `autofocus`.
         refusesFirstResponder = true
-        defer { refusesFirstResponder = false }
+        defer { refusesFirstResponder = false; cancelsHeldContact = false }
         clicked = false
         super.mouseDown(with: event)
         owner?.pointerReleased(nil)
@@ -161,7 +161,10 @@ final class NativeButtonMac: NSButton {
     }
     /// The tracking loop sent the action: the click landed.
     private var clicked = false
+    /// AppKit has no cancelled mouse-up; an agent's cancellation withdraws its action.
+    var cancelsHeldContact = false
     override func sendAction(_ action: Selector?, to target: Any?) -> Bool {
+        guard !cancelsHeldContact else { return false }
         clicked = true
         owner?.pointerReleased(nil)
         return super.sendAction(action, to: target)

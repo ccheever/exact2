@@ -98,7 +98,15 @@ final class AgentMouseFormsMacTests: XCTestCase {
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
         let agent = Agent(session: session)
-        for phase in ["up", "cancel"] {
+        let queuedPoint = NSPoint(x: 25, y: 35)
+        let cg = try XCTUnwrap(CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged, mouseCursorPosition: .zero, mouseButton: .left))
+        NSApp.postEvent(try XCTUnwrap(Agent.windowEvent(cg, at: queuedPoint, in: window, flags: [])), atStart: true)
+        let queued = try XCTUnwrap(NSApp.nextEvent(matching: .leftMouseDragged, until: Date(), inMode: .default, dequeue: true))
+        XCTAssertEqual(queued.windowNumber, window.windowNumber)
+        XCTAssertEqual(queued.locationInWindow, queuedPoint, "a queued event keeps window coordinates away from the screen origin")
+        var activations = 0
+        for phase in ["up", "cancel", "up", "cancel"] {
+            if phase == "up" { activations += 1 }
             var acknowledged = false, lifted = false
             // The timer runs inside AppKit's tracking loop too. It is a bounded
             // escape for the regression, so a failed down cannot hang the suite.
@@ -121,17 +129,12 @@ final class AgentMouseFormsMacTests: XCTestCase {
             let down = agent.contact("down", ["id": 1])
             acknowledged = true
             XCTAssertNil(down["error"], "\(down)")
-            let deadline = Date(timeIntervalSinceNow: 1)
+            let deadline = Date(timeIntervalSinceNow: 30)
             while !lifted && Date() < deadline { RunLoop.main.run(mode: .default, before: deadline) }
             timer.invalidate()
             XCTAssertTrue(lifted)
             XCTAssertNil(agent.contact)
-            // QUEUE, "Native macOS held-contact cancellation": an agent's cancel still activates once.
-            XCTExpectFailure("QUEUE: native macOS held-contact cancellation activates (LLP 1104 F6; timing-dependent)", strict: false) {
-                XCTAssertEqual(pressed, [1], "up activates once; cancel never activates")
-            }
-            // Clear ownership left by the old, synchronous down after the escape.
-            if agent.contact != nil { _ = agent.contact("cancel", [:]) }
+            XCTAssertEqual(pressed, Array(repeating: UInt32(1), count: activations), "up activates once; cancel never activates")
         }
     }
 
