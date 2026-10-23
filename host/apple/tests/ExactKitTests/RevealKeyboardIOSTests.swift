@@ -214,5 +214,25 @@ final class RevealKeyboardIOSTests: XCTestCase {
         XCTAssertEqual(session.presenter.viewport.keyboardDismissMode, .interactive)
     }
 
+    func testAHostedNativeEditorIsRevealedWhenTheKeyboardMoves() throws {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { throw missing("scene", "UIKit's responder search needs the native editor in an app scene") }
+        let (session, window) = session("native-editor-reveal", widget: "resizes-visual", scroller: true)
+        defer { window.endEditing(true); window.isHidden = true; session.destroy() }
+        let p = session.presenter, node = try XCTUnwrap(p.views[3])
+        window.isHidden = true
+        window.windowScene = scene
+        let host = UIViewController()
+        window.rootViewController = host
+        host.view.addSubview(p.viewport)
+        let field = UITextField(frame: CGRect(x: 0, y: 0, width: 180, height: 40))
+        node.addSubview(field)
+        window.makeKeyAndVisible()
+        XCTAssertTrue(field.becomeFirstResponder())
+        XCTAssertTrue(p.hasNativeKeyboardEditor)
+        p.applyKeyboard(top: 460, duration: 0, curve: 0)
+        XCTAssertTrue(p.editor === node)
+        XCTAssertLessThanOrEqual(field.convert(field.bounds, to: window).maxY, 460)
+    }
+
 }
 #endif
