@@ -1261,7 +1261,8 @@ mod tests {
                     "12px"
                 ]
             ),
-            serde_json::json!([16, 56, 16, "12px"])
+            // A ramp's value is the 16-point body's in `rem`, so it follows the root size.
+            serde_json::json!([16, "3.4375rem", 16, "12px"])
         );
         // Red when destructive, by its role; the label's colour is no metric.
         assert_eq!(

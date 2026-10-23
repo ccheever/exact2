@@ -119,18 +119,20 @@ final class GroupedCustomRowsIOSTests: GroupedListFixture {
         ]))
         let image = try XCTUnwrap(p.views[30])
         XCTAssertFalse(image.listSymbol, "its author's fit")
-        p.apply(wireBatch([["op": "style", "id": 30, "style": ["font_size": 17.0, "object_fit": "contain"]],
+        p.apply(wireBatch([["op": "style", "id": 30, "style": ["font_size": 17.0, "object_fit": "contain", "written": ["width", "height"]]],
                            ["op": "frame", "id": 30, "x": 16.0, "y": 14.0, "w": 32.0, "h": 32.0]]))
         XCTAssertFalse(image.listSymbol, "its author's size")
-        p.apply(wireBatch([["op": "frame", "id": 30, "x": 16.0, "y": 20.5, "w": 24.0, "h": 20.0]]))
+        // The sheet's slot, at whatever size its ramps give it.
+        p.apply(wireBatch([["op": "style", "id": 30, "style": ["font_size": 17.0, "object_fit": "contain"]],
+                           ["op": "frame", "id": 30, "x": 16.0, "y": 16.5, "w": 32.11, "h": 26.76]]))
         XCTAssertTrue(image.listSymbol, "the sheet's slot")
         // A fit its author wrote, even the sheet's own value, is theirs.
         p.apply(wireBatch([["op": "style", "id": 30, "style": ["font_size": 17.0, "object_fit": "contain", "written": ["object_fit"]]]]))
         XCTAssertFalse(image.listSymbol, "its author's contain")
         p.apply(wireBatch([["op": "style", "id": 30, "style": ["font_size": 17.0, "object_fit": "contain"]]]))
         XCTAssertTrue(image.listSymbol)
-        // At an accessibility size the slot keeps today's drawing (its
-        // medium scale, in its box) until its rows grow with Dynamic Type.
+        // At an accessibility size the slot keeps the default's drawing (its
+        // medium scale, in its box) until UIKit's rule there is measured.
         window.traitOverrides.preferredContentSizeCategory = .accessibilityLarge
         window.layoutIfNeeded() // traits reach the views at layout
         p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "large"]]]))

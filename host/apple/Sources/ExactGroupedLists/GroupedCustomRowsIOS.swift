@@ -15,10 +15,6 @@ struct CustomLook {
 }
 
 extension GroupedListView {
-    /// The sheet's slot for a row's leading symbol on iOS
-    /// (`grouped-symbol-width`, `-height`; `object-fit: contain`).
-    private static let symbolSlot = CGSize(width: 24, height: 20)
-
     /// Marks the custom row `id`'s leading symbol and notes its line, as
     /// it is carried into its cell; a mark it no longer has is cleared, and
     /// a line that moved lays the list out again after the update (or,
@@ -62,23 +58,20 @@ extension GroupedListView {
     }
 
     /// The row's first shown child when it is the sheet's leading symbol: a
-    /// `symbol:` image no accessory names, in the sheet's slot, so an image
-    /// its author sized or fitted otherwise, or one a column row holds, is
-    /// left as laid out, as is one whose fit its author wrote at all
-    /// (`wrote`: the sheet's rows are the compiler's). The host is sent no
-    /// authorship for a width or height, so an author's box exactly the
-    /// sheet's slot is drawn as the sheet's.
+    /// `symbol:` image no accessory names, sized and fitted by the sheet,
+    /// so an image whose size or fit its author wrote at all, or one a
+    /// column row holds, is left as laid out (`wrote`: the sheet's rows are
+    /// the compiler's).
     private func leadingSymbol(of row: NodeView) -> NodeView? {
-        // At an accessibility size the fixed slot (24 by 20, the sheet's at
-        // every size) is too small for the list's scale: today's drawing
-        // stays until the slot's rows grow with Dynamic Type (QUEUE).
+        // At an accessibility size UIKit's cell sizes its image by a rule
+        // not yet measured, and the sheet's slot keeps the default's 24 by
+        // 20 there (QUEUE): the slot's own drawing stays.
         guard !collection.traitCollection.preferredContentSizeCategory.isAccessibilityCategory else { return nil }
         let first = row.container.subviews.lazy.compactMap { $0 as? NodeView }.first { $0.style["display"]?.string != "none" }
         guard let image = first, image.kind == "image", (image.props["imageSource"] ?? "").hasPrefix("symbol:"),
               !["chevron.forward", "chevron.right", "checkmark"].contains(image.props["symbolName"] ?? ""),
               image.style["object_fit"]?.string == "contain", !["object_fit", "width", "height"].contains(where: image.wrote) else { return nil }
-        let size = image.grid?.layout.size ?? image.bounds.size
-        return abs(size.width - Self.symbolSlot.width) < 0.5 && abs(size.height - Self.symbolSlot.height) < 0.5 ? image : nil
+        return image
     }
 
     /// Where the custom row `id`'s line starts from its cell's left edge,

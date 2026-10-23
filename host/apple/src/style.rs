@@ -127,9 +127,15 @@ pub(crate) fn style_json_rows(
         if matches!(id, StyleId::WrapFlow | StyleId::ShapeMargin) {
             continue;
         }
+        let size = matches!(name, "width" | "height");
         if matches!(name, "translate" | "scale" | "rotate" | "opacity")
-            || !keep.has(id) && (presenter_ignores(name) || matches!(name, "width" | "height"))
+            || !keep.has(id) && (presenter_ignores(name) || size)
         {
+            // A size is layout's; that its author wrote one is still said.
+            if size && style.written.has(id) {
+                let comma = if written.is_empty() { "" } else { "," };
+                let _ = write!(written, "{comma}\"{name}\"");
+            }
             continue;
         }
         if !style.mask.has(id) {

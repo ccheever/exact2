@@ -150,8 +150,8 @@ fn custom_rows_follow_the_platforms_cards_and_cell_margins() {
     let (star, lines) = (frame(&r, "star"), frame(&r, "lines"));
     assert_eq!(
         (lines.x, star.x + star.width / 2.0 < lines.x),
-        (80.0, true),
-        "after a symbol, the text 40 past the margin, as UIKit's symbol cell sets it"
+        (79.0, true),
+        "after a symbol, the text 39 past the margin at the 16-point body, as UIKit's symbol cell sets it"
     );
     assert_eq!(
         content(&r, "swiped", "swiped"),

@@ -236,9 +236,10 @@ fn the_sheet_draws_ios_metrics_and_the_author_replaces_it() {
     // (to a float's rounding: the header above is a line of the body style).
     assert!((frame("notes").y - profile.y - 52.0).abs() < 0.01);
     // Each row spans its card (16 in from the list, 370 wide); its
-    // content starts at the text, after an icon, as UIKit's label does.
+    // content starts at the text, after an icon, as UIKit's label does
+    // (55 in at the test's 16-point root, `-exact-list-symbol-inset`).
     assert_eq!((profile.x, profile.width), (16.0, 370.0));
-    assert_eq!(content_x(&r, "profile"), 72.0);
+    assert_eq!(content_x(&r, "profile"), 71.0);
     assert_eq!(content_x(&r, "delete"), 32.0, "no icon: 16 into the group");
     let own = boot(&SETTINGS.replace(
         "destructive=true testId=\"delete\"",
@@ -326,7 +327,7 @@ fn a_symbol_under_a_condition_moves_the_text_with_it() {
     let root = k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id;
     k.compute_layout(root, Offer::definite(402.0, 874.0))
         .unwrap();
-    assert_eq!(x(&r), 72.0, "the symbol shown: the text after it");
+    assert_eq!(x(&r), 71.0, "the symbol shown: the text after it");
     assert_eq!(
         r.kernel().grouped_list(id(&r, "list")).unwrap().sections[0].rows[0]
             .symbol
