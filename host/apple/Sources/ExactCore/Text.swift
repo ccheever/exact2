@@ -289,9 +289,9 @@ package struct SourceMap: Hashable {
     }
 }
 
-/// CSS line boxes use Chrome's rounding of each face's ascent, descent and
-/// gap at scale 1, including iOS faces whose metrics differ from macOS.
-/// Native controls measure through TextPresentation and retain UIKit's metrics.
+/// CSS line boxes use the web host's metrics and Chrome's rounding at scale 1.
+/// On iOS PresentedText.measure returns nil; FieldChromeIOS keeps UIFont.lineHeight
+/// for native editors. Reader line boxes do not change those control metrics.
 package enum CSSLineBox {
     /// A text advance as the browser's layout holds it: rounded up to its
     /// 1/64 px layout unit, never to a whole point (a chip's width).
@@ -299,7 +299,16 @@ package enum CSSLineBox {
 
     /// The content area (an inline background's extent) above and below the baseline.
     package static func content(_ font: CTFont) -> (CGFloat, CGFloat) {
-        (CTFontGetAscent(font).rounded(), CTFontGetDescent(font).rounded())
+        #if canImport(UIKit)
+        // Chrome system-ui uses SFNS's hhea metrics (1980/-432 at 2048 units/em).
+        // SFUI paints the same UI family with different vertical metrics; keep
+        // its glyphs, but use the web's line box for author-laid-out text.
+        if (CTFontCopyPostScriptName(font) as String).hasPrefix(".SFUI-") {
+            let size = CTFontGetSize(font)
+            return ((size * 1980 / 2048).rounded(), (size * 432 / 2048).rounded())
+        }
+        #endif
+        return (CTFontGetAscent(font).rounded(), CTFontGetDescent(font).rounded())
     }
 
     /// Above and below the baseline: `line-height: normal` when `height` is
