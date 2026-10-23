@@ -273,7 +273,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) {
       return results;
     });
     expect(results).toEqual([[true, true, false, 0], [true, true, false, 0], [false, true, false, 0], [false, true, false, 0]]);
-  }));
+  }), 30000);
   test(`${engine}: Back on a covered route retains its visible box`, () => withBackPage(engine, async page => {
     const results = await page.evaluate(() => {
       const route = document.getElementById('detail'), nav = route.parentElement, control = route.querySelector('#back');
@@ -293,7 +293,28 @@ for (const engine of ['chromium', 'firefox', 'webkit']) {
       return results;
     });
     expect(results).toEqual([[true, true, true, true, true, true], [false, true, false, true, true, true]]);
-  }));
+  }), 30000);
+
+  test(`${engine}: a retained modal skips the covered route Back shortcut`, () => withBackPage(engine, async page => {
+    const facts = await page.evaluate(async () => {
+      const { createInputHandlers, backButton } = await import('/input-glue.js');
+      const root = document.getElementById('exact-root'), route = document.getElementById('detail'), nav = route.parentElement;
+      const control = route.querySelector('#back');
+      route.insertAdjacentHTML('beforeend', '<dialog><button id="command" aria-keyshortcuts="Alt+B">Command</button></dialog>');
+      const dialog = route.querySelector('dialog'), command = dialog.querySelector('button');
+      dialog.prepend(control); control.style.display = 'none'; control.setAttribute('aria-keyshortcuts', 'Alt+B');
+      dialog.showModal();
+      nav.insertAdjacentHTML('beforeend', '<div navigationKey="3" navigationPresentation="modal"><header><h2>Sheet</h2></header></div>');
+      nav.setAttribute('navigationKey', '3'); project();
+      window.pressed = []; control.onclick = () => pressed.push('back'); command.onclick = () => pressed.push('command');
+      createInputHandlers({ root, views: new Map(), retiredViews: new WeakSet(), ready: () => true, inertAncestor, dispatch() {} });
+      command.focus();
+      return [dialog.matches(':modal'), route.inert, !!inertAncestor(control), command.checkVisibility({ visibilityProperty: true }), viewBox(control).width > 0, !!backButton(control)];
+    });
+    await page.keyboard.press('Alt+b');
+    const pressed = await page.evaluate(() => window.pressed);
+    expect([facts, pressed]).toEqual([[true, true, false, true, true, false], ['command']]);
+  }), 30000);
 }
 
 // Compiled, through each runtime and the agent: a tap that names the control the bar stands for presses the bar's
