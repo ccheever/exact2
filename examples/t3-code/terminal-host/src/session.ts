@@ -47,6 +47,8 @@ export interface SessionSink {
   authFailed(failed: boolean): void;
   /** Bytes of output written, for the page's stats. */
   received(units: number): void;
+  /** The attach stream answered (its first chunk since the socket opened). */
+  answered(): void;
 }
 
 /** TerminalWriteInput's bound (contracts terminal.ts `isMaxLength(65_536)`, UTF-16 units). */
@@ -104,8 +106,15 @@ export class TerminalSocket {
   private authFailedState = false;
   status: TerminalBufferState["status"] = "closed";
   chunks = 0;
-  /** Milliseconds spent handling the socket's messages, for the page's stats. */
+  /** Milliseconds spent handling the socket's messages, the largest chunk (UTF-16 units of its frame) and the
+   * messages that carried a full window at once (OutputProtocol.ts: 8 chunks or 64 KiB unacknowledged), for the
+   * page's stats. */
   busy = 0;
+  largest = 0;
+  fullWindows = 0;
+  /** The surface shows an earlier stream's output: a snapshot replaces it, even an empty one. */
+  private shown = false;
+  private answeredSinceOpen = false;
 
   constructor(
     private readonly sink: SessionSink,
@@ -124,6 +133,7 @@ export class TerminalSocket {
     socket.onopen = () => {
       if (this.socket !== socket) return;
       this.open = true;
+      this.answeredSinceOpen = false;
       if (this.target.attach) this.attach();
       this.drainAuth();
     };
@@ -240,6 +250,9 @@ export class TerminalSocket {
   private receive(text: string): void {
     let frames: Frame[];
     try { frames = decode(text); } catch { return; }
+    const chunks = frames.filter((frame) => frame._tag === "Chunk").length;
+    if (chunks >= 8 || (chunks > 0 && text.length >= 64 * 1024)) this.fullWindows += 1;
+    if (chunks > 0) this.largest = Math.max(this.largest, Math.round(text.length / chunks));
     for (const frame of frames) {
       const tag = frame._tag;
       if (tag === "Ping") { this.send({ _tag: "Pong" }); continue; }
@@ -248,6 +261,7 @@ export class TerminalSocket {
       if (id === null) continue;
       if (tag === "Chunk") {
         if (id === this.attachId) {
+          if (!this.answeredSinceOpen) { this.answeredSinceOpen = true; this.sink.answered(); }
           this.replied = true;
           this.chunks += 1;
           for (const value of (Array.isArray(frame.values) ? frame.values : []) as TerminalAttachStreamEvent[]) this.apply(value);
@@ -281,9 +295,11 @@ export class TerminalSocket {
     switch (event.type) {
       case "snapshot": case "restarted": {
         const history = String(event.snapshot?.history ?? "");
-        // A first snapshot writes only a history there is (TerminalSessionViewport's setup); a later one replaces it.
+        // A first snapshot writes only a history there is (TerminalSessionViewport's setup); any later one, a
+        // resumed or new stream's included, replaces what the surface shows, as the reference's new buffer does.
         this.output = "";
-        if (this.version > 0 || history !== "") { this.sink.resetAndWrite(history); this.sink.received(history.length); }
+        if (this.shown || history !== "") { this.sink.resetAndWrite(history); this.sink.received(history.length); }
+        this.shown = true;
         this.status = event.snapshot?.status ?? "running"; this.error = null; this.version += 1;
         return;
       }
@@ -293,7 +309,7 @@ export class TerminalSocket {
         this.error = null; this.version += 1;
         return;
       }
-      case "cleared": this.output = ""; this.sink.resetAndWrite(""); this.error = null; this.version += 1; return;
+      case "cleared": this.output = ""; this.sink.resetAndWrite(""); this.shown = true; this.error = null; this.version += 1; return;
       case "exited": this.status = "exited"; this.error = null; this.version += 1; return;
       case "closed": this.status = "closed"; this.error = null; this.version += 1; return;
       case "error": this.status = "error"; this.error = event.message; this.version += 1; return;
@@ -327,5 +343,55 @@ export class TerminalSocket {
     for (const done of this.pending.values()) done("The server is not connected.");
     this.pending.clear();
     if (!this.disposed) this.sink.wantSocket();
+  }
+}
+
+/** How long an unanswered ticket request waits before the page asks again. */
+export const TICKET_TIMEOUT_MS = 5000;
+const SOCKET_RETRY_MS = [500, 1000, 2000, 5000, 10000];
+
+/**
+ * The page's requests for a socket URL: the first at once, each failure (no URL, a lost socket) after a growing
+ * delay, an unanswered request again after TICKET_TIMEOUT_MS. A stream that answers starts the delays over.
+ */
+export class SocketRequests {
+  private attempts = 0;
+  private wanted = false;
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private deadline: ReturnType<typeof setTimeout> | null = null;
+
+  // Wrapped: a browser's setTimeout called as another object's method throws "Illegal invocation".
+  constructor(private readonly ask: () => void, private readonly timers: { set: typeof setTimeout; clear: typeof clearTimeout } =
+    { set: ((run: () => void, ms?: number) => setTimeout(run, ms)) as typeof setTimeout, clear: ((id?: ReturnType<typeof setTimeout>) => clearTimeout(id)) as typeof clearTimeout }) {}
+
+  /** A socket is wanted: ask, unless a request is already waiting. */
+  want(): void {
+    if (this.wanted) return;
+    this.wanted = true;
+    const delay = this.attempts === 0 ? 0 : SOCKET_RETRY_MS[Math.min(this.attempts - 1, SOCKET_RETRY_MS.length - 1)]!;
+    this.attempts += 1;
+    this.timer = this.timers.set(() => {
+      this.timer = null;
+      this.ask();
+      this.deadline = this.timers.set(() => { this.deadline = null; this.wanted = false; this.want(); }, TICKET_TIMEOUT_MS);
+    }, delay);
+  }
+
+  /** The app answered: true when it sent a URL to open. */
+  answered(url: string): boolean {
+    if (!this.wanted) return false;
+    if (this.deadline) { this.timers.clear(this.deadline); this.deadline = null; }
+    this.wanted = false;
+    if (!url) { this.want(); return false; }
+    return true;
+  }
+
+  /** The stream answered: the next loss asks at once again. */
+  reset(): void { this.attempts = 0; }
+
+  dispose(): void {
+    if (this.timer) this.timers.clear(this.timer);
+    if (this.deadline) this.timers.clear(this.deadline);
+    this.timer = this.deadline = null;
   }
 }

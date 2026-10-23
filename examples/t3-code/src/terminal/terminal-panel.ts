@@ -172,7 +172,8 @@ export async function terminalPanelOps(this: T3Client, op: string, id: string, v
   Object.assign(out, { message: '', id, value });
   if (op === 'terminalpanellocal:posted') { terminalFramePosted(this, id, value); return true; }
   if (op === 'terminalpanellocal:menu') { await terminalMenuPick(this, native, id, value); return true; }
-  if (op === 'terminalpanellocal:message') {
+  if (op === 'terminalpanellocal:message' || op === 'terminalpanellocal:ticket') {
+    if (op === 'terminalpanellocal:ticket') op = 'terminalpanellocal:message';
     let message; try { message = obj(JSON.parse(value)); } catch { return true; }
     if (await terminalFrameMessage(this, id, message, { canAddToChat: true, mint: () => mintTerminalSocket(this, native, str(message.environmentId)) })) return true;
     if (message.type === 'command') {

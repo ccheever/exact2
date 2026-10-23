@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CompositionTracker, eventKeyNames, keepConversionContext, matchesChord, observeComposition, parseChords, parseCommandBindings, preventRepeatedTerminalCloseShortcut, preventTerminalCloseShortcut,
+import { CompositionTracker, eventKeyNames, fromApp, keepConversionContext, matchesChord, observeComposition, parseChords, parseCommandBindings, preventRepeatedTerminalCloseShortcut, preventTerminalCloseShortcut,
   terminalInputShortcutData, terminalKeyShortcutData, themeFrom } from "./entry";
 
 const key = (init: Partial<KeyboardEvent> & { key: string; code: string }) => ({
@@ -277,5 +277,19 @@ describe("the terminal theme", () => {
     expect(light?.[15]).toEqual({ r: 0xa5, g: 0xa5, b: 0xa5 });
     // A custom background keeps the scheme's palette.
     expect(themeFrom({ dark: true, background: { r: 1, g: 2, b: 3 } }).theme.palette).toEqual(dark);
+  });
+});
+
+describe("the messages the page takes", () => {
+  const parent = {}, self = {};
+  test("only its app's: the parent, on the web from the page's own origin, on Apple through its own window", () => {
+    const web = { parent, location: { origin: "https://app.example" } };
+    expect(fromApp({ source: parent, origin: "https://app.example", data: "{}" }, web, self)).toBe(true);
+    expect(fromApp({ source: parent, origin: "https://elsewhere.example", data: "{}" }, web, self)).toBe(false);
+    expect(fromApp({ source: {}, origin: "https://app.example", data: "{}" }, web, self)).toBe(false);
+    expect(fromApp({ source: parent, origin: "https://app.example", data: {} }, web, self)).toBe(false);
+    // A bundled page on Apple is its own top document: the host's replies come through its own window.
+    const apple = { parent: self, location: { origin: "exact-app://app" } };
+    expect(fromApp({ source: self, origin: "", data: "{}" }, apple, self)).toBe(true);
   });
 });

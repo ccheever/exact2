@@ -19,7 +19,7 @@ import {
 } from "../vendor/ghostty/surface";
 import { observeSelectionActions, resolveSelectionActionPosition } from "../vendor/lib/selectionActions";
 import { holdInlineHangul } from "./inlineHangul";
-import { TerminalSocket, crlf, type AttachTarget, type AuthTarget, type SocketFactory } from "./session";
+import { SocketRequests, TerminalSocket, crlf, type AttachTarget, type AuthTarget, type SocketFactory } from "./session";
 import { terminalTranscriptUpdate } from "../../src/providers/provider-auth-terminal";
 
 type Message = { readonly type: string; readonly [key: string]: unknown };
@@ -351,12 +351,18 @@ function sessionFrom(value: unknown): SessionConfig {
 /** Bulk output since the last report that makes the page report again (a flood, a long listing; not an echo). */
 const REPORT_BYTES = 64 * 1024;
 const REPORT_IDLE_MS = 500;
-const SOCKET_RETRY_MS = [500, 1000, 2000, 5000, 10000];
 
 /** The framed page's app, reached by `postMessage` only (LLP 1020.001 D5): its parent on the web; on Apple a
- * bundled page is its web view's own top document, and the host forwards what it posts to its own window. */
+ * bundled page is its web view's own top document, and the host forwards what it posts to its own window. Either
+ * way the receiver is the page's own origin (`/`). */
 function post(message: Outbound): void {
-  if (typeof window !== "undefined") window.parent.postMessage(JSON.stringify(message), "*");
+  if (typeof window !== "undefined") window.parent.postMessage(JSON.stringify(message), "/");
+}
+
+/** A message the page takes: from its app (the parent, or on Apple the host through the page's own window), and on
+ * the web only from the app's origin, which a bundled page shares. */
+export function fromApp(event: Pick<MessageEvent, "source" | "origin" | "data">, view: { parent: unknown; location: { origin: string } }, self: unknown): boolean {
+  return typeof event.data === "string" && event.source === view.parent && (view.parent === self || event.origin === view.location.origin);
 }
 
 class TerminalPage {
@@ -378,9 +384,7 @@ class TerminalPage {
   private starting = false;
   private transcriptFlow = "";
   private transcriptWritten = 0;
-  private socketWanted = false;
-  private socketAttempts = 0;
-  private socketTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly sockets = new SocketRequests(() => this.send({ type: "ticket" }));
   /** UTF-16 units of output written, and the bulk output since the last report. */
   private received = 0;
   private burst = { units: 0, startedAt: 0, lastAt: 0 };
@@ -390,9 +394,10 @@ class TerminalPage {
 
   constructor(private readonly mount: HTMLElement, private readonly connect: SocketFactory) {}
 
+  /** `type` leads each message, so the frame can route a ticket request by its prefix (terminal-frame.contract). */
   private send(message: Outbound): void {
-    const identity = this.session?.identity ?? {};
-    post({ ...identity, ...message });
+    const { type, ...rest } = message;
+    post({ type, ...(this.session?.identity ?? {}), ...rest });
   }
 
   /** The app's `config`: the first starts the surface and the session; later ones change what changed. */
@@ -491,22 +496,14 @@ class TerminalPage {
       wantSocket: () => this.wantSocket(),
       authFailed: (failed) => this.send({ type: failed ? "auth-error" : "auth-recovered" }),
       received: (units) => this.output(units),
+      answered: () => this.sockets.reset(),
     }, this.connect, { ...(session.attach ? { attach: session.attach } : {}), ...(session.auth ? { auth: session.auth } : {}), readOnly: session.readOnly });
   }
 
-  /** Asks the app for a socket URL; a request it could not answer is asked again later, backing off. */
-  private wantSocket(): void {
-    if (this.disposed || this.socketWanted) return;
-    this.socketWanted = true;
-    const delay = this.socketAttempts === 0 ? 0 : SOCKET_RETRY_MS[Math.min(this.socketAttempts - 1, SOCKET_RETRY_MS.length - 1)]!;
-    this.socketAttempts += 1;
-    this.socketTimer = setTimeout(() => { this.socketTimer = null; this.send({ type: "ticket" }); }, delay);
-  }
+  private wantSocket(): void { if (!this.disposed) this.sockets.want(); }
 
   private socketReady(url: string): void {
-    this.socketWanted = false;
-    if (!url) { this.wantSocket(); return; }
-    this.socket?.start(url);
+    if (this.sockets.answered(url)) this.socket?.start(url);
   }
 
   private typed(data: string): void {
@@ -538,7 +535,7 @@ class TerminalPage {
     const surface = this.surface;
     const painted = (surface as unknown as { snapshot?: { rowData: ReadonlyArray<{ text: string }> } | null } | null)?.snapshot;
     this.send({ type: "stats", ready: surface !== null, cols: surface?.cols ?? 0, rows: surface?.rows ?? 0, received: this.received,
-      chunks: this.socket?.chunks ?? 0, busy: Math.round(this.socket?.busy ?? 0), attached: this.socket?.attached ?? false, status: this.socket?.status ?? "",
+      chunks: this.socket?.chunks ?? 0, busy: Math.round(this.socket?.busy ?? 0), largest: this.socket?.largest ?? 0, fullWindows: this.socket?.fullWindows ?? 0, attached: this.socket?.attached ?? false, status: this.socket?.status ?? "",
       burst: { units: this.burst.units, ms: Math.round(this.burst.lastAt - this.burst.startedAt) }, echoes: this.echoes.slice(-20),
       text: painted ? painted.rowData.map((row) => row.text.replace(/\s+$/, "")).slice(-12) : [], error: this.lastError });
   }
@@ -635,7 +632,7 @@ class TerminalPage {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    if (this.socketTimer) clearTimeout(this.socketTimer);
+    this.sockets.dispose();
     if (this.reportTimer) clearTimeout(this.reportTimer);
     this.socket?.dispose();
     this.selectionActions?.dispose();
@@ -654,7 +651,7 @@ function boot(): void {
   mount.id = "terminal";
   const page = new TerminalPage(mount, (url) => new WebSocket(url));
   window.addEventListener("message", (event) => {
-    if (event.source !== window.parent || typeof event.data !== "string") return;
+    if (!fromApp(event, window, window)) return;
     let message: Message;
     try { message = JSON.parse(event.data) as Message; } catch { return; }
     if (message && typeof message.type === "string") page.receive(message);

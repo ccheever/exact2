@@ -145,6 +145,8 @@ component TerminalContent
   // The page's messages, its posts taken and its menu's rows, by frame (terminal-frames.ts).
   action message(frameId: string, value: string)
     command(`${view.commandPrefix}:message`, frameId, value, 0)
+  action ticket(frameId: string, value: string)
+    command(`${view.commandPrefix}:ticket`, frameId, value, 0)
   action framePosted(frameId: string, key: string)
     command(`${view.commandPrefix}:posted`, frameId, key, 0)
   action menuPick(frameId: string, value: string)
@@ -166,7 +168,7 @@ component TerminalContent
           for pane in view.panes key=pane.sessionKey
             // ThreadTerminalDrawer.tsx:1511-1530: no pane header; a pane activates when it takes focus (focus-in).
             column flex=1 min-width=0 min-height=0 border-width=0 border-right-width=(view.direction == "row" and view.panes.length > 1 ? 1 : 0) border-bottom-width=(view.direction == "column" and view.panes.length > 1 ? 1 : 0) border-style="solid" border-color=(pane.active ? "light-dark(#e4e4e7, #ffffff1a)" : "light-dark(#e4e4e7b3, #ffffff12)") testId=`terminal-pane-${pane.terminalId}`
-              TerminalFrame(frame=pane.frame, theme=(dark ? look.terminalDark : look.terminalLight), font=look.terminalFace, visible=view.open, keybindings=view.keybindings, closePending=closePending, focusRequest=pane.focusRequest, message=message(pane.frame.id), posted=framePosted(pane.frame.id), pick=menuPick(pane.frame.id), label=pane.label, testId=(pane.active and view.surface == "drawer" ? "terminal-view" : `terminal-view-${pane.terminalId}`))
+              TerminalFrame(frame=pane.frame, theme=(dark ? look.terminalDark : look.terminalLight), font=look.terminalFace, visible=view.open, keybindings=view.keybindings, closePending=closePending, focusRequest=pane.focusRequest, message=message(pane.frame.id), ticket=ticket(pane.frame.id), posted=framePosted(pane.frame.id), pick=menuPick(pane.frame.id), label=pane.label, testId=(pane.active and view.surface == "drawer" ? "terminal-view" : `terminal-view-${pane.terminalId}`))
         if not view.showTabs
           box position="absolute" right="0.5rem" top="0.5rem" z-index=20
             TerminalToolbar(view=view, command=command, confirm=confirm, strip=false)

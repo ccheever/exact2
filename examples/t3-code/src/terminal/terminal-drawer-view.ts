@@ -412,7 +412,7 @@ export async function terminalOps(this: T3Client, op: string, id: string, value:
   if (['new', 'split', 'split-vertical', 'close', 'run-script', 'run-command'].includes(action)) requirePermission(this.scopes, 'terminal:operate');
   if (action === 'posted') { terminalFramePosted(this, id, value); return true; }
   if (action === 'menu') { await terminalMenuPick(this, native, id, value); return true; }
-  if (action === 'message') {
+  if (action === 'message' || action === 'ticket') {
     const message = obj(safeJson(value));
     if (await terminalFrameMessage(this, id, message, { canAddToChat: true, mint: () => mintTerminalSocket(this, native, str(message.environmentId)) })) return true;
     if (message.type === 'command') {

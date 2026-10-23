@@ -4,7 +4,8 @@
 // attach stream in the renderer; here the page holds them and opens its own socket, with a ticket minted here for
 // the terminal's environment (`ticket` → `socket`). This side keeps:
 // - the posts a page has not taken yet (`posts`, acknowledged one at a time by the frame), dropped when the page
-//   boots again, since a new document has none of the old one's state;
+//   boots again, since a new document has none of the old one's state. A taken post leaves the view at once, so a
+//   socket URL's ticket stays in the view only until the frame has posted it;
 // - the selection popup and context menu (ThreadTerminalDrawer.tsx terminalSelectionMenuItems,
 //   terminalContextMenuItems), a menu-shaped popover at the point the page names; a newer gesture or a dismissal
 //   supersedes an older menu before its row can act;
@@ -46,14 +47,13 @@ function frames(owner: object): Map<string, FrameState> {
   return map;
 }
 const emptyMenu = (): TerminalFrameMenu => ({ serial: 0, x: 0, y: 0, rows: [] });
+/** A frame's state, the most recently used last: past MAX_FRAMES the least recently used goes (every view uses the frames it shows). */
 function frame(owner: object, id: string): FrameState {
   const map = frames(owner);
-  let state = map.get(id);
-  if (!state) {
-    state = { serial: 0, posts: [], menu: emptyMenu(), selection: null, stats: '', booted: false, identity: {}, transcript: '' };
-    map.set(id, state);
-    if (map.size > MAX_FRAMES) map.delete(map.keys().next().value!);
-  }
+  const state = map.get(id) ?? { serial: 0, posts: [], menu: emptyMenu(), selection: null, stats: '', booted: false, identity: {}, transcript: '' };
+  map.delete(id);
+  map.set(id, state);
+  if (map.size > MAX_FRAMES) map.delete(map.keys().next().value!);
   return state;
 }
 
@@ -92,7 +92,8 @@ export function terminalFramePosted(owner: object, id: string, key: string): voi
 /** Every frame showing `terminalId` of a thread: a system message for it (`[terminal] <message>`). */
 export function terminalFrameSystemMessage(owner: object, match: (id: string) => boolean, message: string): boolean {
   let written = false;
-  for (const id of frames(owner).keys()) if (match(id)) { postToTerminalFrame(owner, id, { type: 'system', message }); written = true; }
+  // A snapshot of the ids: a post moves its frame to the end of the map (frame, by use).
+  for (const id of [...frames(owner).keys()]) if (match(id)) { postToTerminalFrame(owner, id, { type: 'system', message }); written = true; }
   return written;
 }
 
@@ -116,9 +117,13 @@ export async function terminalFrameMessage(owner: object, id: string, message: O
     case 'boot':
       Object.assign(state, { booted: true, posts: [], menu: emptyMenu(), selection: null, transcript: '' });
       return true;
-    case 'ticket':
-      postToTerminalFrame(owner, id, { type: 'socket', url: await options.mint() });
+    case 'ticket': {
+      // The page waits for an answer: a mint let go (the app moved on) still answers, with no URL, so it asks again.
+      let url = '';
+      try { url = await options.mint(); }
+      finally { postToTerminalFrame(owner, id, { type: 'socket', url }); }
       return true;
+    }
     case 'posted':
       terminalFramePosted(owner, id, str(message.key));
       return true;

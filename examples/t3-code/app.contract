@@ -139,7 +139,7 @@ component T3Code
   // or ends (a connect, a retry or a disconnect changes it inside an answer, which nothing else reads), and once
   // whenever the delivering answer reports a table the tick has not published (a socket closed, a slot's attempt got
   // its URL).
-  derive transportAnswering = `${pending(threadFind)}${pending(threadFindMaintained)}${pending(serverBrowserUploaded)}${pending(data)}${pending(balanceLoaded)}${pending(attachmentUrls)}${pending(home)}${pending(usage)}${pending(usageShortcuts)}${pending(prList)}${pending(prDetail)}${pending(welcome)}${pending(timelineDisclosureChanged)}${pending(timelineReadsRefreshed)}${pending(timelineReadsRefreshedNext)}${pending(workspaceDiscovery)}${pending(workspaceRefreshed)}${pending(palette)}${pending(paletteChanged)}${pending(providerAuthChanged)}${pending(providerUpdateRun)}${pending(changed)}${pending(localChanged)}${pending(filesAdded)}${pending(inlineDocumentChanged)}${pending(prQuickChanged)}${pending(prConfirmChanged)}${pending(secretAnswered)}${pending(prHandoffChanged)}${pending(draftLeft)}${pending(terminalFocusChanged)}${pending(fileCommentChanged)}${pending(lineDragChanged)}${pending(frameReported)}${pending(terminalChanged)}${pending(terminalPageChanged)}${pending(fragmentChanged)}${pending(providerPage)}${pending(providerWizard)}${pending(connectionsPage)}${pending(acpAgents)}${pending(bindings)}${pending(scheduled)}${pending(shortcuts)}${pending(sourceControl)}${pending(integrations)}${pending(storageSettings)}${pending(archives)}${pending(licenses)}${pending(diagnostics)}${pending(snapshotSettings)}${pending(settingsNavigation)}${pending(settingsCore)}${pending(settings)}${pending(projectsSettings)}${pending(sbSshHosts)}${pending(sshPrompt)}${pending(sshAnswered)}${pending(pairFields)}${pending(sbPicker)}${pending(catalog)}${pending(editor)}${pending(chip)}${pending(branches)}${pending(sidebarLaunch)}${pending(automationRecordingServed0)}${pending(automationRecordingServed1)}${pending(automationRecordingServed2)}${pending(automationRecordingServed3)}${pending(themeLive)}${pending(shell)}${pending(details)}${pending(canvas)}${pending(terminalDrawer)}`
+  derive transportAnswering = `${pending(threadFind)}${pending(threadFindMaintained)}${pending(serverBrowserUploaded)}${pending(data)}${pending(balanceLoaded)}${pending(attachmentUrls)}${pending(home)}${pending(usage)}${pending(usageShortcuts)}${pending(prList)}${pending(prDetail)}${pending(welcome)}${pending(timelineDisclosureChanged)}${pending(timelineReadsRefreshed)}${pending(timelineReadsRefreshedNext)}${pending(workspaceDiscovery)}${pending(workspaceRefreshed)}${pending(palette)}${pending(paletteChanged)}${pending(providerAuthChanged)}${pending(providerUpdateRun)}${pending(changed)}${pending(localChanged)}${pending(filesAdded)}${pending(inlineDocumentChanged)}${pending(prQuickChanged)}${pending(prConfirmChanged)}${pending(secretAnswered)}${pending(prHandoffChanged)}${pending(draftLeft)}${pending(terminalTicketChanged)}${pending(fileCommentChanged)}${pending(lineDragChanged)}${pending(frameReported)}${pending(terminalChanged)}${pending(fragmentChanged)}${pending(providerPage)}${pending(providerWizard)}${pending(connectionsPage)}${pending(acpAgents)}${pending(bindings)}${pending(scheduled)}${pending(shortcuts)}${pending(sourceControl)}${pending(integrations)}${pending(storageSettings)}${pending(archives)}${pending(licenses)}${pending(diagnostics)}${pending(snapshotSettings)}${pending(settingsNavigation)}${pending(settingsCore)}${pending(settings)}${pending(projectsSettings)}${pending(sbSshHosts)}${pending(sshPrompt)}${pending(sshAnswered)}${pending(pairFields)}${pending(sbPicker)}${pending(catalog)}${pending(editor)}${pending(chip)}${pending(branches)}${pending(sidebarLaunch)}${pending(automationRecordingServed0)}${pending(automationRecordingServed1)}${pending(automationRecordingServed2)}${pending(automationRecordingServed3)}${pending(themeLive)}${pending(shell)}${pending(details)}${pending(canvas)}${pending(terminalDrawer)}`
   task transportAnswered key=transportAnswering
     after(1, transportPump)
   task transportRepublish when transportInbox.table > transportTable.rev key=transportInbox.table
@@ -721,7 +721,7 @@ component T3Code
       send changed = command("pageslocal:welcome-finish", "", `${wallTime.epochAtZero + performanceNow()}`, 0)
   action welcomeImport(op: string, id: string, value: string) // also the Usage page's pages:usage-* ops
     if op.startsWith("terminal-page")
-      send terminalPageChanged = command(`pageslocal:welcome-${op}`, id, value, 0) // the setup terminal page's messages, in turn
+      command(`pageslocal:welcome-${op}`, id, value, 0) // the setup terminal page's messages: the terminals' mutations
     else if op != "import" and op != "usage-prices-save"
       send localChanged = command(op.startsWith("usage-") ? `pageslocal:${op}` : `pageslocal:welcome-${op}`, id, value, 0)
     else if not commandPending
@@ -1047,22 +1047,13 @@ component T3Code
   mutation prHandoffChanged as shape Change refreshes data // a checkout hand-off's second half, its own send
   // A new thread opened while the draft's launch is in flight: its own send, so the launch's reply is not let go (draft-launch.ts).
   mutation draftLeft as shape Change refreshes data
-  mutation terminalFocusChanged as shape Change refreshes data
+  mutation terminalTicketChanged as shape Change queue refreshes data // a terminal page's socket ticket (terminal-frames.ts)
   mutation fileCommentChanged as shape Change queue refreshes data // the Files preview's line comments (chatLocal)
   mutation lineDragChanged as shape Change queue refreshes data // a diff gutter drag's press, moves and release, each in turn
   mutation frameReported as shape Change queue refreshes data // each Mermaid and math page's report, in turn (chatLocal)
-  mutation terminalChanged as shape Change refreshes data then terminalCompleted
+  mutation terminalChanged as shape Change queue refreshes data then terminalCompleted // the drawer's ops, its pages' messages in turn
   action terminalCompleted
     match terminalChanged
-      case some(result)
-        if result.message == "terminal:focus-composer"
-          focus("composer")
-      case none
-  // The terminal pages' messages, their posts taken and their menus' rows (terminal-frames.ts), each in turn: a later
-  // one must not let go of a socket ticket still being minted.
-  mutation terminalPageChanged as shape Change queue refreshes data then terminalPageCompleted
-  action terminalPageCompleted
-    match terminalPageChanged
       case some(result)
         if result.message == "terminal:focus-composer"
           focus("composer")
@@ -2120,11 +2111,9 @@ component T3Code
       // press before it ran, and `changed` takes one command at a time). The "+"'s press queues behind its drag.
       send lineDragChanged = command(op, id, value, n)
     else
-      if op.endsWith(":focus-in") or op.endsWith(":focus-out")
-        send terminalFocusChanged = command(op, id, value, n)
-      else if (op.startsWith("terminallocal:") or op.startsWith("terminalpanellocal:")) and (op.endsWith(":message") or op.endsWith(":posted") or op.endsWith(":menu"))
-        send terminalPageChanged = command(op, id, value, n)
-      else if op.startsWith("terminallocal:") or op.startsWith("terminalpanellocal:")
+      if op.endsWith(":ticket")
+        send terminalTicketChanged = command(op, id, value, n)
+      else if op.startsWith("terminallocal:") or op.startsWith("terminalpanellocal:") or op.startsWith("pageslocal:welcome-terminal-page")
         send terminalChanged = command(op, id, value, n)
       else if op == "draft" or op == "search" or op == "sidebar" or op == "answer" or op == "choice" or op == "dismiss-error" or op == "close-diff" or op == "diff-view" or op == "favorite-model"
         send localChanged = command(op, id, value, n)
@@ -2410,7 +2399,9 @@ component T3Code
       let target = value == "back" ? max(0, wizardStep - 1) : min(wizardManual ? 1 : 2, value == "next" ? wizardStep + 1 : (value == "2" ? 2 : (value == "1" ? 1 : 0)))
       wizardStep = wizardStep <= 1 and target > 1 and providerWizard.idError != "" ? 1 : target // the window's half marks the attempt
   action providerOp(op: string, id: string, field: string, value: string, apply: bool)
-    if op.startsWith("upkeep:update") and apply
+    if op == "setup:auth-ticket" or op == "setup:auth-event" // the sign-in terminal page's messages: the terminals' mutations
+      send terminalTicketChanged = providerChange(op, id, field, value, providerPage.environment, providerPage.projectIds)
+    else if op.startsWith("upkeep:update") and apply
       send providerUpdateRun = providerChange(op, id, field, value, providerPage.environment, providerPage.projectIds)
     else if (op.startsWith("setup:") or op.startsWith("upkeep:")) and apply
       send providerAuthChanged = providerChange(op, id, field, value, providerPage.environment, providerPage.projectIds)

@@ -485,6 +485,8 @@ component WelcomeSetup
   // Every message of the setup terminal page (its boot and ticket, its exit, its links), its posts taken and its menu's rows.
   action pageMessage(message: string)
     local("terminal-page", terminal.environmentId, message)
+  action pageTicket(message: string)
+    local("terminal-page:ticket", terminal.environmentId, message)
   action pagePosted(key: string)
     local("terminal-page", terminal.environmentId, `{"type":"posted","key":"${key}"}`)
   action pageMenu(value: string)
@@ -499,4 +501,4 @@ component WelcomeSetup
       box height="16rem" width="100%" display="flex"
         if terminal.ready
           for key in [terminal.terminalId] key=key
-            TerminalFrame(frame=terminal.frame, theme=(scheme == "dark" ? terminal.dark : terminal.light), font=terminal.face, visible=true, keybindings="[]", closePending=false, focusRequest=1, message=pageMessage, posted=pagePosted, pick=pageMenu, label=`Install ${terminal.driver}`, testId="welcome-terminal-view")
+            TerminalFrame(frame=terminal.frame, theme=(scheme == "dark" ? terminal.dark : terminal.light), font=terminal.face, visible=true, keybindings="[]", closePending=false, focusRequest=1, message=pageMessage, ticket=pageTicket, posted=pagePosted, pick=pageMenu, label=`Install ${terminal.driver}`, testId="welcome-terminal-view")

@@ -25,6 +25,35 @@ describe('terminal frames', () => {
     expect(texts(owner, id)).toEqual([]);
   });
 
+  test('a mint that fails or is let go still answers the page, with no URL, so it asks again', async () => {
+    const owner = {}, id = 'frame-a';
+    await terminalFrameMessage(owner, id, { type: 'boot' }, { mint });
+    const letGo = Object.assign(new Error('let go'), { name: 'FetchError', kind: 'Aborted' });
+    await expect(terminalFrameMessage(owner, id, { type: 'ticket' }, { mint: async () => { throw letGo; } })).rejects.toBe(letGo);
+    expect(texts(owner, id)).toEqual([{ type: 'socket', url: '' }]);
+  });
+
+  test('the frames are kept by use: a frame in view outlives 64 newer ones', async () => {
+    const owner = {};
+    await terminalFrameMessage(owner, 'in-view', { type: 'boot' }, { mint });
+    postToTerminalFrame(owner, 'in-view', { type: 'focus' });
+    for (let index = 0; index < 100; index++) {
+      terminalFrameView(owner, `other-${index}`, {});
+      terminalFrameView(owner, 'in-view', {});
+    }
+    expect(texts(owner, 'in-view')).toEqual([{ type: 'focus' }]);
+  });
+
+  test('a delivered socket URL leaves the view at once', async () => {
+    const owner = {}, id = 'frame-a';
+    await terminalFrameMessage(owner, id, { type: 'boot' }, { mint });
+    await terminalFrameMessage(owner, id, { type: 'ticket' }, { mint });
+    const [post] = terminalFrameView(owner, id, {}).posts;
+    expect(post!.text).toContain('wsTicket');
+    await terminalFrameMessage(owner, id, { type: 'posted', key: post!.key }, { mint });
+    expect(JSON.stringify(terminalFrameView(owner, id, {}))).not.toContain('wsTicket');
+  });
+
   test('a system line goes to every frame the match names', async () => {
     const owner = {};
     for (const id of ['frame-a', 'frame-b']) await terminalFrameMessage(owner, id, { type: 'boot' }, { mint });

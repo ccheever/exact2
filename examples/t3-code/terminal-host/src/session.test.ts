@@ -2,7 +2,7 @@
 // acknowledgement per chunk, what the surface is written, the write and resize commands, the exit, the
 // read-only observe and the sign-in input's serial queue.
 import { describe, expect, test } from "bun:test";
-import { authSlices, crlf, MAX_WRITE_LENGTH, SCHEMA_REFUSAL, TerminalSocket, type SessionSink } from "./session";
+import { authSlices, crlf, MAX_WRITE_LENGTH, SCHEMA_REFUSAL, SocketRequests, TerminalSocket, TICKET_TIMEOUT_MS, type SessionSink } from "./session";
 
 class FakeSocket {
   sent: Record<string, unknown>[] = [];
@@ -30,6 +30,7 @@ function harness(target: ConstructorParameters<typeof TerminalSocket>[2]) {
     wantSocket: () => log.push("wantSocket"),
     authFailed: (failed) => log.push(`authFailed ${failed}`),
     received: () => undefined,
+    answered: () => log.push("answered"),
   };
   const session = new TerminalSocket(sink, (url) => { const socket = new FakeSocket(url); sockets.push(socket); return socket; }, target);
   return { session, sockets, log };
@@ -52,7 +53,7 @@ describe("the page's attach stream", () => {
     socket.frame({ _tag: "Chunk", requestId: "1", values: [snapshot("$ ls\r\n")] });
     socket.frame([{ _tag: "Chunk", requestId: "1", values: [{ type: "output", threadId: "thread-1", terminalId: "term-1", data: "a" }, { type: "output", threadId: "thread-1", terminalId: "term-1", data: "b" }] }]);
     socket.frame({ _tag: "Ping" });
-    expect(log).toEqual(["reset $ ls\r\n", "write ab"]);
+    expect(log).toEqual(["answered", "reset $ ls\r\n", "write ab"]);
     expect(socket.sent.filter((frame) => frame._tag !== "Request")).toEqual([{ _tag: "Ack", requestId: "1" }, { _tag: "Ack", requestId: "1" }, { _tag: "Pong" }]);
   });
 
@@ -68,6 +69,30 @@ describe("the page's attach stream", () => {
     expect(sockets[1]!.requests("terminal.attach")[0]!.payload).toMatchObject({ resume: true });
     sockets[1]!.frame({ _tag: "Chunk", requestId: sockets[1]!.requests("terminal.attach")[0]!.id, values: [snapshot("one\r\ntwo\r\n")] });
     expect(log.at(-1)).toBe("reset one\r\ntwo\r\n");
+    expect(log.filter((line) => line === "answered")).toHaveLength(2);
+  });
+
+  test("a resumed stream whose history is empty clears what the surface showed", () => {
+    const { session, sockets, log } = harness({ attach, readOnly: false });
+    session.start("ws://host/ws?wsTicket=a");
+    sockets[0]!.open();
+    sockets[0]!.frame({ _tag: "Chunk", requestId: "1", values: [snapshot("old\r\n")] });
+    sockets[0]!.close();
+    session.start("ws://host/ws?wsTicket=b");
+    sockets[1]!.open();
+    sockets[1]!.frame({ _tag: "Chunk", requestId: sockets[1]!.requests("terminal.attach")[0]!.id, values: [snapshot("")] });
+    expect(log.filter((line) => line.startsWith("reset"))).toEqual(["reset old\r\n", "reset "]);
+  });
+
+  test("the stats count the largest chunk and the messages that carried a full window", () => {
+    const { session, sockets } = harness({ attach, readOnly: false });
+    session.start("ws://host/ws?wsTicket=a");
+    sockets[0]!.open();
+    const output = (data: string) => ({ _tag: "Chunk", requestId: "1", values: [{ type: "output", threadId: "thread-1", terminalId: "term-1", data }] });
+    sockets[0]!.frame(output("x"));
+    sockets[0]!.frame(Array.from({ length: 8 }, () => output("y")));
+    expect(session.fullWindows).toBe(1);
+    expect(session.largest).toBeGreaterThan(0);
   });
 
   test("a failed attach shows its error as a system line", () => {
@@ -85,9 +110,54 @@ describe("the page's attach stream", () => {
     sockets[0]!.frame({ _tag: "Chunk", requestId: "1", values: [snapshot("")] });
     sockets[0]!.frame({ _tag: "Chunk", requestId: "1", values: [{ type: "exited", threadId: "thread-1", terminalId: "term-1", exitCode: 0, exitSignal: null }] });
     sockets[0]!.frame({ _tag: "Chunk", requestId: "1", values: [{ type: "activity", threadId: "thread-1", terminalId: "term-1", hasRunningSubprocess: false, label: "zsh" }] });
-    expect(log).toEqual(["system Process exited"]);
+    expect(log).toEqual(["answered", "system Process exited"]);
     await tick();
-    expect(log).toEqual(["system Process exited", "exited"]);
+    expect(log).toEqual(["answered", "system Process exited", "exited"]);
+  });
+});
+
+describe("the page's socket requests", () => {
+  function fakeTimers() {
+    const pending: { at: number; run: () => void; id: number }[] = [];
+    let now = 0, serial = 0;
+    const set = ((run: () => void, ms = 0) => { pending.push({ at: now + ms, run, id: ++serial }); return serial; }) as unknown as typeof setTimeout;
+    const clear = ((id: number) => { const index = pending.findIndex((entry) => entry.id === id); if (index >= 0) pending.splice(index, 1); }) as unknown as typeof clearTimeout;
+    const advance = (ms: number) => {
+      const end = now + ms;
+      for (;;) { pending.sort((a, b) => a.at - b.at); const next = pending[0]; if (!next || next.at > end) break; pending.shift(); now = next.at; next.run(); }
+      now = end;
+    };
+    return { set, clear, advance };
+  }
+
+  test("asks at once, backs off after failures, and starts over once a stream answers", () => {
+    const timers = fakeTimers(), asked: number[] = [];
+    let t = 0;
+    const requests = new SocketRequests(() => asked.push(t), timers);
+    const step = (ms: number) => { t += ms; timers.advance(ms); };
+    requests.want(); step(0);
+    expect(asked).toEqual([0]);
+    for (let loss = 0; loss < 6; loss++) { expect(requests.answered("")).toBe(false); step(10_000); }
+    // The fifth and later losses wait 10 s; an answered stream makes the next ask immediate again.
+    expect(requests.answered("ws://x")).toBe(true);
+    requests.reset();
+    requests.want(); step(0);
+    expect(asked.at(-1)).toBe(t);
+  });
+
+  test("an unanswered request is asked again after the ticket timeout", () => {
+    const timers = fakeTimers();
+    let asked = 0;
+    const requests = new SocketRequests(() => { asked += 1; }, timers);
+    requests.want(); timers.advance(0);
+    expect(asked).toBe(1);
+    timers.advance(TICKET_TIMEOUT_MS - 1);
+    expect(asked).toBe(1);
+    timers.advance(1 + 500);
+    expect(asked).toBe(2);
+    expect(requests.answered("ws://x")).toBe(true);
+    timers.advance(60_000);
+    expect(asked).toBe(2);
   });
 });
 

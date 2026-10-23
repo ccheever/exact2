@@ -381,7 +381,7 @@ export async function welcomeLocal(client: T3Client, native: Native, op: string,
       if (terminal.state.kind !== 'closed') await terminalFrameMenuPick(client, setupFrameId(terminal.state.session), value, text => copyTerminalText(client, native, text));
       return '';
     }
-    if (op === 'terminal-page') { // every message of the setup terminal page: its boot and ticket, its exit, and its links
+    if (op === 'terminal-page' || op === 'terminal-page:ticket') { // every message of the setup terminal page: its boot and ticket, its exit, and its links
       let event: Obj = {}; try { event = obj(JSON.parse(value)); } catch { return ''; }
       if (terminal.state.kind === 'closed') return '';
       const session = terminal.state.session;

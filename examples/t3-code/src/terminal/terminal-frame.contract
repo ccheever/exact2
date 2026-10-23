@@ -36,7 +36,8 @@ component TerminalFrame
     keybindings: string // JSON winning chord/command pairs for terminalFocus
     closePending: bool
     focusRequest: number // focuses the terminal on mount and whenever it changes (0: never)
-    message: action // (payload) every message the page posts
+    message: action // (payload) every message the page posts but a ticket request
+    ticket: action // (payload) the page asks for a socket URL: its own queue, so a slow mint holds no other message
     posted: action // (key) the page took a post
     pick: action // (`<serial>|<row>`) a menu row was chosen
     label: string
@@ -48,7 +49,10 @@ component TerminalFrame
   action received(payload: string)
     if payload == "{\"type\":\"boot\"}"
       boots = boots + 1
-    message(payload)
+    if payload.startsWith("{\"type\":\"ticket\"")
+      ticket(payload)
+    else
+      message(payload)
   view
     box flex=1 min-width=0 min-height=0 position="relative" overflow="hidden"
       iframe id=frame.id src=frame.src message=received aria-label=label testId=testId position="absolute" left=0 top=0 width="100%" height="100%" border-width=0

@@ -121,6 +121,7 @@ export async function scopedUpkeepOp(client: T3Client, native: Native, args: unk
 
 /** The page's sign-in and install commands (`setup:`), on its environment (args[4]). */
 export async function scopedSetupOp(client: T3Client, native: Native, args: unknown[]): Promise<void> {
+  if (args[0] === 'setup:auth-ticket') args = ['setup:auth-event', ...args.slice(1)];
   if (args[0] === 'setup:auth-event' && await authTerminalMessage(client, native, args)) return;
   const host = providersHost(client, String(args[4] ?? ''));
   await providerSetupOp(host, routedNative(host, native), String(args[0] || ''), String(args[1] || ''), String(args[2] ?? ''), String(args[3] ?? ''));
