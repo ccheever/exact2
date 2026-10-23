@@ -36,7 +36,7 @@ extension NodeView {
                 self.hideEditors(true)
             }
         } else { hideEditors(hidden) }
-        materialView?.isHidden = hidden
+        syncMaterialVisibility()
         applyBackdrop()
         #else
         field?.isHidden = hidden

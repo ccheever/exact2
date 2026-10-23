@@ -43,6 +43,7 @@ final class HiddenEffectsTests: XCTestCase {
             #if canImport(UIKit)
             XCTAssertTrue(field.becomeFirstResponder())
             #else
+            XCTAssertTrue(child.isDescendant(of: material), "visible content belongs to the native effect")
             XCTAssertTrue(window.makeFirstResponder(field))
             #endif
             p.apply(wireBatch([["op": "style", "id": 1, "style": ["visibility": "hidden"]]]))
@@ -62,6 +63,8 @@ final class HiddenEffectsTests: XCTestCase {
             XCTAssertNotNil(material.effect)
             #else
             XCTAssertFalse(material.isHidden)
+            XCTAssertTrue(child.isDescendant(of: material), "restored content regains vibrancy and corner clipping")
+            XCTAssertNotNil(field.currentEditor())
             #endif
         }
     }

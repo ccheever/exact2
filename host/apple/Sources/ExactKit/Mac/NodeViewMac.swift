@@ -574,8 +574,27 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             old?.removeFromSuperview()
             oldContent?.removeFromSuperview()
         }
-        materialView?.isHidden = cssVisibilityHidden
+        syncMaterialVisibility()
         applyMaterialRadius()
+    }
+
+    /// Visible content participates in the native effect. Hidden materials
+    /// leave visible descendants outside it, including their focused editor.
+    func syncMaterialVisibility() {
+        guard let material = materialView, let content = materialContent else { return }
+        GlassGroups.moving(in: self) {
+            if cssVisibilityHidden {
+                let parent = material.superview ?? self
+                if content.superview !== parent {
+                    if #available(macOS 26.0, *), let glass = material as? NSGlassEffectView { glass.contentView = nil }
+                    parent.addSubview(content, positioned: .above, relativeTo: material)
+                }
+            } else if !content.isDescendant(of: material) {
+                if #available(macOS 26.0, *), let glass = material as? NSGlassEffectView { glass.contentView = content }
+                else { material.addSubview(content) }
+            }
+            material.isHidden = cssVisibilityHidden
+        }
     }
 
     /// The material's corners: the box's radius as CSS reduces it to fit the
