@@ -176,7 +176,10 @@ fn the_wire_measures_a_kind_and_a_value_as_a_design_does() {
 
 /// Role spellings in quoted families don't each read the role's value
 /// again in the importers' role analysis (Astra's round 3 re-check: 81
-/// million edges from 40,000 spellings).
+/// million edges from 40,000 spellings). Here 30,000 spellings of a role
+/// with a 4 KB value: 62 million edges (about 1 GB) before, 93 thousand
+/// now; the time bound only guards against a gross regression, since
+/// the old edges were cheap to push on this machine.
 #[test]
 fn role_spellings_are_read_once_each_in_role_analysis() {
     let spell = |k: usize| {
@@ -189,14 +192,13 @@ fn role_spellings_are_read_once_each_in_role_analysis() {
         s.into_iter().collect::<String>()
     };
     let mut lines = Vec::new();
-    // The role's value: about 4 KB of words, each a node to follow.
-    let words: Vec<String> = (0..700).map(|k| format!("w{k}")).collect();
+    // The role's value: 4 KB of words, each an edge to follow.
     lines.push(format!(
         "  -exact-secondary-background = {}",
-        words.join(" ")
+        ["w"; 2040].join(" ")
     ));
-    for j in 0..200 {
-        let family: Vec<String> = (0..190).map(|k| spell(j * 190 + k)).collect();
+    for j in 0..300 {
+        let family: Vec<String> = (0..200).map(|k| spell(j * 200 + k)).collect();
         lines.push(format!("  f{j}: family = \"{}\"", family.join(" ")));
     }
     let src = format!("tamber t\n\ntheme\n  ink = #111111\n{}\n", lines.join("\n"));
@@ -209,7 +211,7 @@ fn role_spellings_are_read_once_each_in_role_analysis() {
         &vocab(),
     );
     assert!(
-        began.elapsed() < Duration::from_secs(20),
+        began.elapsed() < Duration::from_secs(5),
         "{:?}",
         began.elapsed()
     );
