@@ -15,6 +15,20 @@
 import AppKit
 
 extension NodeView {
+    var materialPaintsBorder: Bool { let p = boxPlan; return !p.own || p.drawn }
+
+    /// Borders share the material's paint pass so its fill cannot cover them.
+    func drawBoxBorder() {
+        guard !cssVisibilityHidden, surface == nil, let ctx = NSGraphicsContext.current?.cgContext else { return }
+        let uniform = number("border_width")
+        let sides = ["top", "right", "bottom", "left"]
+        let widths = sides.map { number("border_width_" + $0, uniform) }
+        let top = color("border_color_top", .clear)
+        let colors = sides.map { color("border_color_" + $0, top).cgColor }
+        let styles = sides.map { style["border_style_" + $0]?.string ?? "solid" }
+        BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: BorderPaint.radii(style, in: bounds), styles: styles, shape: CornerShape(style["corner_shape"]))
+    }
+
     /// A node whose box can ride its layer: not a paragraph (its raster and
     /// its own drawing hold the box), a canvas or a web view (drawn views).
     var layerBoxEligible: Bool {
@@ -160,7 +174,7 @@ extension NodeView {
         guard let layer else { return }
         let onLayer = !p.drawn
         let away = surface != nil
-        let border = !onLayer || away || cssVisibilityHidden ? nil : p.edges ? p.sideColor : p.widths[0] > 0 ? p.colors[0] : nil
+        let border = (materialContent != nil && !p.own) || !onLayer || away || cssVisibilityHidden ? nil : p.edges ? p.sideColor : p.widths[0] > 0 ? p.colors[0] : nil
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         if let box = clipBox?.layer {

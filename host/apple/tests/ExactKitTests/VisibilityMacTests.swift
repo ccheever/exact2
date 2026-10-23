@@ -86,6 +86,28 @@ final class VisibilityMacTests: XCTestCase {
         }
     }
 
+    func testAnOpaqueMaterialFillKeepsItsBorderAboveTheFill() throws {
+        let p = presenter()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "props": ["backgroundMaterial": "ultra-thin"],
+             "style": ["background_color": [255, 0, 0, 255], "border_width": 1, "border_color_top": [0, 0, 255, 255]]],
+            ["op": "roots", "ids": [1]], ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 120, "h": 100],
+        ]))
+        window?.orderFrontRegardless()
+        for mode in ["layer", "drawn", "clipped"] {
+            var style: [String: Any] = ["background_color": [255, 0, 0, 255], "border_width": 1, "border_color_top": [0, 0, 255, 255]]
+            if mode == "drawn" { style["border_color_right"] = [0, 255, 0, 255] }
+            if mode == "clipped" { style["overflow_x"] = "hidden"; style["overflow_y"] = "hidden" }
+            p.apply(wireBatch([["op": "style", "id": 1, "style": style]]))
+            if mode == "clipped" { XCTAssertEqual(p.views[1]?.layer?.borderWidth, 1, "a clipping border remains above the children") }
+            let rep = try XCTUnwrap(Capture.picture(of: p.viewport))
+            XCTAssertGreaterThan(rgba(rep, 20, 20)[0], 0.9)
+            let top = rgba(rep, 40, 0)
+            XCTAssertGreaterThan(top[2], 0.9, "border stays above the opaque material fill, mode=\(mode): \(top)")
+            XCTAssertLessThan(top[0], 0.1)
+        }
+    }
+
     func testHiddenBackdropBlurIsRemovedAndRestored() throws {
         let p = presenter()
         let blur: [String: Any] = ["backdrop_filter": [["blur": 10.0]]]
