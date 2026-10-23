@@ -421,7 +421,7 @@ fn import_json(kind: &str, import: &Import) -> Value {
         "dials": dials_json(&import.dials),
         "pins": pins_json(&import.pins),
     });
-    // What decided a choice the source didn't say (a Pencil number's kind; *1.16*), when there is one.
+    // What decided a choice the source didn't say (a Pencil number's kind; *1.17*), when there is one.
     if !import.notes.is_empty() {
         out["notes"] = json!(import.notes);
     }

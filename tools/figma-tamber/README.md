@@ -67,7 +67,7 @@ them; it's a client like any other, so every check holds:
 - **Back:** read the tool's variables, write them into that export, and send `import` with the export as
   `baseline`. A person accepts the proposal in the design tool.
 
-Pencil's `.pen` files, kept in the repo, also import directly (*tamber/1.16*): `bun exact.mjs tamber import pen design.pen <url>`, or `import {kind: "pen"}` from a client. Their themes become axes and their variables tokens (`docs/tamber-protocol.md`, `import`).
+Pencil's `.pen` files, kept in the repo, also import directly (*tamber/1.17*): `bun exact.mjs tamber import pen design.pen <url>`, or `import {kind: "pen"}` from a client. Their themes become axes and their variables tokens (`docs/tamber-protocol.md`, `import`).
 
 ## Tests
 
