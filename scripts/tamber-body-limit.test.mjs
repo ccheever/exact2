@@ -79,6 +79,17 @@ test("the design server answers a body over 1 MiB 413, announced or chunked, and
   expect(hello.status).toBe(200);
 }, 60_000);
 
+test("a client's transaction past 1024 operations is refused with tamber-ops-size before any is read; 1024 are not refused for their count", async () => {
+  const headers = { 'content-type': 'application/json', 'x-exact-tamber-token': token };
+  const op = { op: 'set-token', name: 'accent', value: '#123456' };
+  for (const method of ['transaction', 'propose']) {
+    const over = await fetch(`${origin}/__tamber`, { method: 'POST', headers, body: JSON.stringify({ method, client: 'limit', ops: Array(1025).fill(op) }) });
+    expect({ method, status: over.status, body: await over.json() }).toEqual({ method, status: 400, body: { error: { id: 'tamber-ops-size', message: 'a transaction is at most 1024 operations; this one has 1025' } } });
+    const at = await fetch(`${origin}/__tamber`, { method: 'POST', headers, body: JSON.stringify({ method, client: 'limit', ops: Array(1024).fill(op) }) });
+    expect(JSON.stringify(await at.json())).not.toContain('tamber-ops-size');
+  }
+}, 120_000);
+
 test('a client that announces a body over 1 MiB and sends none of it is answered 413 and let go', async () => {
   const { got, ms } = await announce(Number(new URL(origin).port), `x-exact-tamber-token: ${token}\r\n`);
   expect(got).toStartWith('HTTP/1.1 413');

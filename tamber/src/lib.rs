@@ -39,7 +39,7 @@ mod syntax;
 mod trace;
 mod typeface;
 
-pub use bound::MAX_REFERENCE_DEPTH;
+pub use bound::{MAX_AXES, MAX_REFERENCE_DEPTH, MAX_WHENS};
 pub use check::{Checked, MAX_TUPLES};
 pub use component::{Component, Param};
 pub use css::{MAX_VALUE_BYTES, MAX_VALUE_DEPTH};
