@@ -1051,12 +1051,14 @@ fn style_json_shown(
     // A sticky box's vertical insets say whether it sticks while its
     // scroller scrolls: an iOS header's search field stays in view.
     let vertical = [StyleId::Top, StyleId::Bottom];
+    // A dialog used as a popover keeps its insets and is placed as one too.
+    let both = [insets, placed].concat();
+    let placed_box = computed.position_area != PositionArea::None
+        || node.props.str(exact_kernel::PropId::Popover).is_some();
     let crossing: Option<&[StyleId]> =
         if node.props.str(exact_kernel::PropId::SemanticTag) == Some("dialog") {
-            Some(&insets)
-        } else if computed.position_area != PositionArea::None
-            || node.props.str(exact_kernel::PropId::Popover).is_some()
-        {
+            Some(if placed_box { &both } else { &insets })
+        } else if placed_box {
             // A popover is placed by its area, the web's default where its
             // author wrote none (`PositionArea.painted`), its margin box flipping.
             Some(&placed)

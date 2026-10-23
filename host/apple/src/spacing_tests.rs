@@ -247,4 +247,21 @@ fn a_popovers_margins_cross_with_no_authored_area() {
     );
     let pop = style(&host, &ops, "pop");
     assert_eq!(pop["margin_top"], 12.0, "{pop}");
+    // A dialog used as a popover keeps its insets and sends its margins too.
+    let (host, ops) = boot(
+        r#"component App
+  view
+    column width=200 testId="root"
+      button popovertarget="pop" testId="open"
+        text "Open"
+      dialog id="pop" popover="auto" margin=0 margin-top=12 top=4 testId="pop"
+        text "Inside"
+"#,
+    );
+    let pop = style(&host, &ops, "pop");
+    assert_eq!(
+        (pop["margin_top"].as_f64(), pop["top"].as_f64()),
+        (Some(12.0), Some(4.0)),
+        "{pop}"
+    );
 }
