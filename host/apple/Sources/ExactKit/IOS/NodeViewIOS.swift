@@ -747,7 +747,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         let maximum = max(-sv.adjustedContentInset.top, sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)
         anchoredScrollTop = maximum
         guard sv.contentOffset.y >= maximum - 80, abs(sv.contentOffset.y - maximum) > 0.5 else { return false }
-        sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: maximum), animated: true)
+        sv.setContentOffset(PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: maximum), in: sv), animated: true)
         return true
     }
 

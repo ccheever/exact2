@@ -114,7 +114,7 @@ struct ReorderScroller {
         guard next != r.now, delta.isFinite else { return false }
         var offset = scroll.contentOffset
         if vertical { offset.y = next } else { offset.x = next }
-        scroll.setContentOffset(offset, animated: false)
+        scroll.setContentOffset(PixelGrid.offset(offset, in: scroll), animated: false)
         return true
     }
 }

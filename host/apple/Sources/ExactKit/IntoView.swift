@@ -234,12 +234,13 @@ final class ElementScrolls {
     /// it is, and whether it moved says so. A target gone ends it there.
     @discardableResult func retarget(_ scroll: UIScrollView) -> Bool {
         guard let reveal = reveal(on: scroll) else { return false }
-        guard let to = reveal.realigned() else { cutReveal(scroll); return true }
+        guard let destination = reveal.realigned() else { cutReveal(scroll); return true }
+        let to = PixelGrid.offset(destination, in: scroll)
         guard to != reveal.to else { return false }
         revealBegan(scroll, to: to, target: reveal.target, realigned: reveal.realigned, arrived: reveal.arrived)
         cutting = scroll
         defer { cutting = nil }
-        scroll.setContentOffset(to, animated: true)
+        scroll.setContentOffset(PixelGrid.offset(to, in: scroll), animated: true)
         return true
     }
     /// The scroller goes to another list (`NodePool`), its motion stopped.
@@ -306,14 +307,14 @@ extension Presenter {
             // The inner ports, weakly, for a destination asked again later.
             let inners = scrollers[..<index].map { inner in { [weak inner] in inner } }
             let projected = projection(target, through: inners.compactMap { $0() }, grouped: grouped, block: block, inline: inline)
-            let to = elementDestination(target, in: sv, grouped: grouped, block: block, inline: inline, projected: projected).to
+            let to = PixelGrid.offset(elementDestination(target, in: sv, grouped: grouped, block: block, inline: inline, projected: projected).to, in: sv)
             let topInset = sv.adjustedContentInset.top
             // Where this port aligns the target now, the inner ports headed
             // where their reveals are going.
             let realigned = { [weak self, weak target, weak sv, weak grouped, id = target.id, incarnation = target.incarnation] () -> CGPoint? in
                 guard let self, let target, let sv, self.views[id] === target, target.incarnation == incarnation else { return nil }
                 let projected = self.projection(target, through: inners.compactMap { $0() }, grouped: grouped, block: block, inline: inline)
-                return self.elementDestination(target, in: sv, grouped: grouped, block: block, inline: inline, projected: projected).to
+                return PixelGrid.offset(self.elementDestination(target, in: sv, grouped: grouped, block: block, inline: inline, projected: projected).to, in: sv)
             }
             // A jump that collapses a large title moves the offset by the
             // inset it took away, past the range's end near the bottom; the
@@ -322,7 +323,7 @@ extension Presenter {
             let settle = { [weak sv] in
                 guard let sv, sv.adjustedContentInset.top != topInset else { return }
                 sv.layoutIfNeeded()
-                if let settled = realigned(), settled != sv.contentOffset { sv.setContentOffset(settled, animated: false) }
+                if let settled = realigned(), settled != sv.contentOffset { sv.setContentOffset(PixelGrid.offset(settled, in: sv), animated: false) }
             }
             let key = (target.id, target.incarnation)
             // A reveal already headed there goes on: a held request carried
@@ -337,10 +338,10 @@ extension Presenter {
             // A new request replaces a running reveal, even one needing no move.
             elementScrolls.cutReveal(sv)
             guard to != sv.contentOffset else { continue }
-            guard animates else { sv.setContentOffset(to, animated: false); settle(); continue }
+            guard animates else { sv.setContentOffset(PixelGrid.offset(to, in: sv), animated: false); settle(); continue }
             // UIKit's own scroll animation; its end ends the reveal and
             // releases the scroller's `scrollend` (`ScrollEndIOS.swift`).
-            sv.setContentOffset(to, animated: true)
+            sv.setContentOffset(PixelGrid.offset(to, in: sv), animated: true)
             elementScrolls.revealBegan(sv, to: to, target: key, realigned: realigned, arrived: settle)
         }
     }

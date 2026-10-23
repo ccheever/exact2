@@ -41,7 +41,7 @@ extension NodeView {
         // While a finger or a fling moves it, move the offset by the shift
         // only, as UIKit's own content offset adjustment does; at rest, clamp.
         if sv.isTracking || sv.isDecelerating {
-            sv.contentOffset.y += shift
+            sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: sv.contentOffset.y + shift), in: sv, clamped: false)
             return
         }
         let i = sv.adjustedContentInset
@@ -49,7 +49,7 @@ extension NodeView {
         // on a content size change, and a collapsing title may have moved it.
         let y = ScrollAnchoring.adjusted(top: sv.contentOffset.y, before: 0, after: shift, minimum: -i.top,
                                          maximum: sv.contentSize.height + i.bottom - sv.bounds.height)
-        if sv.contentOffset.y != y { sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: y), animated: false) }
+        if sv.contentOffset.y != y { sv.setContentOffset(PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: y), in: sv), animated: false) }
     }
 }
 #endif

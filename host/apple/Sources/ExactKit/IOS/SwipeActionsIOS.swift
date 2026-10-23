@@ -475,7 +475,7 @@ package final class SwipeActionsHost {
             for control in leading + trailing { hide(control) }
             if let scroll = owner.scroll {
                 let start = -scroll.adjustedContentInset.left
-                if scroll.contentOffset.x != start { scroll.contentOffset.x = start }
+                if scroll.contentOffset.x != start { scroll.contentOffset = PixelGrid.offset(CGPoint(x: start, y: scroll.contentOffset.y), in: scroll, clamped: false) }
                 if scroll.isScrollEnabled { scroll.isScrollEnabled = false; stilled = true }
             }
         }

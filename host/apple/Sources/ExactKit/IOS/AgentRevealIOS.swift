@@ -60,6 +60,7 @@ extension Agent {
             o.y = min(max(o.y, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height))
             o.x = min(max(o.x, -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width))
             if let owner = sv.superview as? NodeView, owner.scrollView === sv { o = owner.snappedOffset(o, in: sv, revealing: v) }
+            o = PixelGrid.offset(o, in: sv)
             if o != sv.contentOffset { sv.contentOffset = o; scrolled = true }
         }
         return scrolled

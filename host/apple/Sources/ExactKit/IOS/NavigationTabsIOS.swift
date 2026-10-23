@@ -391,7 +391,7 @@ extension NavigationHost {
         let inset = max(sv.adjustedContentInset.top, node === c.collapseScroll ? node.scrollOrigin : 0)
         guard sv.contentOffset.y > 0.5 - inset else { return restAtTop(sv, in: c) }
         guard scrollsToTopAnimated else { return restAtTop(sv, in: c) }
-        sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: -inset), animated: true)
+        sv.setContentOffset(PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: -inset), in: sv), animated: true)
     }
 
     /// Where `scrollToTop` ends, in one turn, under the agent's frozen clock,
@@ -403,7 +403,7 @@ extension NavigationHost {
     /// unanimated: no frame shows the pull. This is the one place Exact moves
     /// a large title itself.
     func restAtTop(_ sv: UIScrollView, in c: RouteController) {
-        sv.contentOffset.y = -sv.adjustedContentInset.top
+        sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: -sv.adjustedContentInset.top), in: sv, clamped: false)
         // tvOS has no large titles.
         #if !os(tvOS)
         guard c.navigationItem.largeTitleDisplayMode == .always, c.viewIfLoaded?.window != nil,
@@ -414,11 +414,11 @@ extension NavigationHost {
             // UIKit grows the inset by what the pull opened of it.
             for _ in 0..<4 {
                 let top = sv.adjustedContentInset.top
-                sv.contentOffset.y = -top - nav.navigationBar.frame.height
+                sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: -top - nav.navigationBar.frame.height), in: sv, clamped: false)
                 nav.view.layoutIfNeeded()
                 if sv.adjustedContentInset.top <= top + 0.5 { break }
             }
-            sv.contentOffset.y = -sv.adjustedContentInset.top
+            sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: -sv.adjustedContentInset.top), in: sv, clamped: false)
         }
         #endif
     }

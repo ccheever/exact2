@@ -161,12 +161,8 @@ extension Presenter {
             let high = sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height
             if o.y > high + 0.5 { pinnedRoom.grow(sv, by: o.y - high) }
         }
-        let clamped = { (o: CGPoint, i: UIEdgeInsets) in
-            CGPoint(x: min(max(o.x, -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width)),
-                    y: min(max(o.y, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height)))
-        }
         let insets = sv.adjustedContentInset
-        o = clamped(o, insets)
+        o = PixelGrid.offset(o, in: sv)
         guard abs(o.y - sv.contentOffset.y) > 0.5 || abs(o.x - sv.contentOffset.x) > 0.5 else { return false }
         sv.contentOffset = o
         // The bar's large title collapsing as the list scrolls changes its
@@ -175,7 +171,7 @@ extension Presenter {
         // with the field shown, so no later pass takes it back. The offset
         // asked for, within the new insets, is the least.
         if sv.adjustedContentInset != insets {
-            let held = clamped(o, sv.adjustedContentInset)
+            let held = PixelGrid.offset(o, in: sv)
             if abs(held.y - sv.contentOffset.y) > 0.5 || abs(held.x - sv.contentOffset.x) > 0.5 { sv.contentOffset = held }
         }
         return true
@@ -238,7 +234,7 @@ final class PinnedRoom {
             guard let sv = room.scroll else { continue }
             sv.contentInset.bottom -= room.added
             let high = max(-sv.adjustedContentInset.top, sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)
-            if sv.contentOffset.y > high { sv.contentOffset.y = high }
+            if sv.contentOffset.y > high { sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: high), in: sv) }
         }
         grown = [:]
     }
@@ -301,7 +297,7 @@ extension Presenter {
             var y = list.contentOffset.y
             if frame.maxY > visible.maxY { y += frame.maxY - visible.maxY } else if frame.minY < visible.minY { y -= visible.minY - frame.minY }
             y = min(max(y, -i.top), max(-i.top, list.contentSize.height + i.bottom - list.bounds.height))
-            if ExactEnv.agentFreezes { list.contentOffset.y = y } else { UIView.animate(withDuration: 0.25) { list.contentOffset.y = y } }
+            if ExactEnv.agentFreezes { list.contentOffset = PixelGrid.offset(CGPoint(x: list.contentOffset.x, y: y), in: list) } else { UIView.animate(withDuration: 0.25) { list.contentOffset = PixelGrid.offset(CGPoint(x: list.contentOffset.x, y: y), in: list) } }
             carryRows(laying: list)
         }
         chooseFocus(next)
