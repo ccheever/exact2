@@ -446,7 +446,7 @@ impl Painter {
     /// on it; `soft` and `text` are the accent as ink, on a tint of it or on
     /// nothing. A destructive button's accent is the red. Where a pointer
     /// hovers a wash of the ink lies over the fill, and a stronger one while
-    /// pressed, but for `fill`, which shows UIKit's highlight (neutral.css);
+    /// pressed, except `fill` and `text`, which fade their ink (neutral.css);
     /// disabled, the ink is the grey and an accent fill a neutral.
     fn neutral_face(
         &mut self,
@@ -454,6 +454,7 @@ impl Painter {
         shape: &Shape,
         style: &str,
         gray: bool,
+        menu_row: bool,
         ts: Transform,
     ) -> [u8; 4] {
         use look::{fade, number, role};
@@ -526,7 +527,7 @@ impl Painter {
                 let tint = fade(accent, number(metric::BUTTON_TINT_ALPHA));
                 (Some(tint), None, wash, accent)
             }
-            "text" => (None, None, neutral_wash(), accent),
+            "text" => (None, None, menu_row.then(neutral_wash).flatten(), accent),
             _ => {
                 let ink = if destructive { accent } else { label };
                 let fill = gray.then(|| role("-exact-secondary-fill", dark));
@@ -566,8 +567,18 @@ impl Painter {
         ts: Transform,
         face: &exact_kernel::PressFace,
         rows: &ButtonFaceStyle,
-        focused: bool,
+        walk: &super::Walk<'_, '_>,
     ) {
+        let focused = walk.scene.focus == Some(node.id) && self.ringless != Some(node.id);
+        let mut ancestor = node.parent;
+        let mut menu_row = false;
+        while let Some(parent) = ancestor.and_then(|id| walk.scene.kernel.node(id)) {
+            if parent.props.str(PropId::AccessibilityRole) == Some("menu") {
+                menu_row = true;
+                break;
+            }
+            ancestor = parent.parent;
+        }
         let dark = self.dark;
         let neutral = look::neutral();
         let disabled = node.props.bool(PropId::Disabled) == Some(true);
@@ -683,7 +694,7 @@ impl Painter {
                 look::role("GrayText", dark)
             }
             _ if neutral && !look.contains("glass") => {
-                self.neutral_face(node, &shape, look, name == "gray", ts)
+                self.neutral_face(node, &shape, look, name == "gray", menu_row, ts)
             }
             "text" => accent,
             "soft" => {
@@ -810,13 +821,22 @@ impl Painter {
                 by + (ch - layout.symbol) / 2.0,
             )
         };
+        let fade_face =
+            neutral && look == "text" && !disabled && !menu_row && self.presses(node.id);
         let color = |style: &StyleProps, fallback| {
-            if style.mask.has(StyleId::TextColor) {
+            let resolved = if style.mask.has(StyleId::TextColor) {
                 rgba(style.text_color.resolve(dark))
             } else if authored_accent.is_some() {
                 fallback
             } else {
                 dim(fallback)
+            };
+            // Resolve authored ink before fading; an explicitly tinted symbol
+            // bypasses this closure and the focus ring is painted separately.
+            if fade_face {
+                look::fade(resolved, look::number(metric::BUTTON_PRESSED_ALPHA))
+            } else {
+                resolved
             }
         };
         self.backend.push_clip(&Shape::rect(rect), ts);
