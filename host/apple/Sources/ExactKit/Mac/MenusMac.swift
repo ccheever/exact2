@@ -549,9 +549,11 @@ final class MenuHost: NSObject {
         // route mounted after it in the pane, is put back on top, and ranked
         // among its owner's (its depth was its old owner's).
         let painted = entries.filter { $0.menu == nil && $0.native == nil }
+        // One opened with no invoker (`showPopover(id)`) stays where it is.
+        let owner = { (e: Entry) in self.layerHost(e, in: e.source?.window ?? e.layer.window) ?? e.layer.superview }
         for entry in painted {
-            guard let host = layerHost(entry, in: entry.source?.window) else { continue }
-            let mine = painted.filter { layerHost($0, in: $0.source?.window) === host }.map(\.layer)
+            guard let host = owner(entry) else { continue }
+            let mine = painted.filter { owner($0) === host }.map(\.layer)
             let last = host.subviews.suffix(mine.count)
             if entry.layer.superview !== host || last.count != mine.count || !zip(last, mine).allSatisfy({ $0 === $1 }) {
                 for layer in mine { host.addSubview(layer) }
