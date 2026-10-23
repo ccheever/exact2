@@ -1,7 +1,7 @@
 import { parse, jumbo } from './discord/markdown';
 import type { Block as MarkdownBlock, Inline, Mark } from './discord/markdown';
 import type { Result } from './app.contract.d.ts';
-import type { Attachment, Message, User } from './world';
+import type { Attachment, Message, Page, User } from './world';
 import { emojiPath } from './fixture';
 
 export type Row = Result<'loadWindow'>['rows'][number];
@@ -119,9 +119,7 @@ function media(a: Attachment): Media {
 }
 function context(dirs: Directories): Context { return { dirs, block: 0, spoiler: 0, mentionsMe: false }; }
 
-// `previous` is the message before `m`; `unheld` says the store does not hold it (a page's first row
-// whose predecessor was never fetched), so no day divider or group is decided from its absence.
-export function renderMessage(m: Message, previous: Message | undefined, dirs: Directories, unheld = false): Row {
+export function renderMessage(m: Message, previous: Message | undefined, dirs: Directories): Row {
   const ctx = context(dirs), parsed = parse(m.content), isJumbo = jumbo(parsed);
   let blocks = flatten(parsed, ctx);
   const text = plain(blocks);
@@ -156,7 +154,7 @@ export function renderMessage(m: Message, previous: Message | undefined, dirs: D
   const delta = previous ? m.timestamp - previous.timestamp : 0;
   return { key: m.nonce || m.id, id: m.id, authorId: m.author.id, author, tint: m.author.tint,
     initials: author.trim().split(/\s+/).slice(0, 2).map(s => Array.from(s)[0]).join('').toUpperCase(),
-    bot: m.author.bot, at: m.timestamp, prevAt: previous ? previous.timestamp : unheld ? -1 : 0,
+    bot: m.author.bot, at: m.timestamp, prevAt: previous?.timestamp ?? 0,
     grouped: !!previous && previous.author.id === m.author.id && delta >= 0 && delta < 7 * 60000 &&
       previous.type === 0 && m.type === 0 && !m.message_reference && previous.state !== 'failed',
     edited, mine: m.author.id === dirs.me().id, state: m.state, mentionsMe, jumbo: isJumbo,
@@ -165,17 +163,41 @@ export function renderMessage(m: Message, previous: Message | undefined, dirs: D
       src: r.emoji.id ? emojiPath(r.emoji.name) : '', name: r.emoji.name, count: r.count, me: r.me })), reply };
 }
 
-export function createRenderer(dirs: Directories): (m: Message, previous?: Message, unheld?: boolean) => Row {
+export function createRenderer(dirs: Directories): (m: Message, previous?: Message) => Row {
   const cache = new Map<string, { signature: string; row: Row }>();
-  return (m, previous, unheld = false) => {
+  return (m, previous) => {
     const ref = m.message_reference ? dirs.message(m.channel_id, m.message_reference.message_id) : undefined;
     const key = `${m.channel_id}:${m.id}`;
-    const signature = `${unheld}/${m.revision}/${previous?.id}/${previous?.revision}/${ref?.id}/${ref?.revision}`;
+    const signature = `${m.revision}/${previous?.id}/${previous?.revision}/${ref?.id}/${ref?.revision}`;
     const found = cache.get(key);
     if (found?.signature === signature) return found.row;
-    const row = renderMessage(m, previous, dirs, unheld);
+    const row = renderMessage(m, previous, dirs);
     cache.set(key, { signature, row });
     if (cache.size > 1200) cache.delete(cache.keys().next().value!);
     return row;
   };
+}
+
+export type Window = Result<'loadWindow'>;
+const HALF = 100;
+
+// The transcript's window from a store's page. A row is drawn only with the
+// message before it in hand, so its group and day divider are decided once: a
+// first message whose predecessor the store does not hold is left out until a
+// page holds both. `since` is the read position the channel opened at ("" for
+// none): the first message after it carries the New divider.
+export function windowOf(page: Page, channel: string, anchor: string, since: string,
+  render: (m: Message, previous?: Message) => Row): Window {
+  const whole = !!page.previous || !page.hasBefore;
+  const held = whole ? page.messages : page.messages.slice(1);
+  const before = whole ? page.previous : page.messages[0];
+  const rows = held.map((m, i) => {
+    const previous = i ? held[i - 1] : before;
+    const row = render(m, previous);
+    const isNew = since !== '' && m.id > since && (!previous || previous.id <= since);
+    return isNew ? { ...row, isNew } : row;
+  });
+  return { channel, anchor, rows, hasBefore: page.hasBefore, hasAfter: page.hasAfter,
+    firstId: rows[0]?.id ?? '', lastId: rows[rows.length - 1]?.id ?? '',
+    pin: anchor || rows[Math.max(0, rows.length - HALF)]?.id || '' };
 }

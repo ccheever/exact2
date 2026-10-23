@@ -393,3 +393,110 @@ test "a jump whose history arrives later still lands on its target (review: Sol 
   expect state target == ""
   expect state highlight == "0036207094100006756"
   expect tree has "message-0036207094100006756"
+
+// The reviews' second round (Sol, Grok): one test a finding.
+
+test "leaving a channel from its end acknowledges what was on screen (re-check: Grok 4)"
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "fixture"
+  tap "inject-burst"
+  clock data
+  back
+  clock settle
+  expect state gateway.channels.0 .unread == 0
+
+test "scrolling up from the end acknowledges what was on screen (re-check: Grok 4)"
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "fixture"
+  tap "inject-burst"
+  clock data
+  tap "transcript" into "0037258518100009964"
+  clock data
+  expect state away == true
+  expect state gateway.channels.0 .unread == 0
+
+test "an edit settled after leaving its channel leaves the other channel's draft alone (re-check: Sol 1)"
+  tap "channel-random"
+  clock settle
+  type "composer" "a draft for random"
+  back
+  clock settle
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  type "composer" "first try"
+  tap "send"
+  clock +350
+  clock settle
+  tap "row-0037262160000020002" contextmenu
+  tap "menu-edit"
+  type "composer" "second try"
+  tap "send"
+  back
+  tap "channel-random"
+  clock settle
+  expect text "composer" == "a draft for random"
+  expect state editing == ""
+
+test "nothing is acknowledged while the channel list shows (re-check: Sol 2)"
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  clock +1500
+  tap "fixture"
+  tap "toggle-live"
+  back
+  clock settle
+  clock +4000
+  expect state gateway.channels.0 .unread == 1
+
+test "Mark As Read away from the end reads the channel (re-check: Sol 3)"
+  tap "channel-help"
+  clock settle
+  tap "transcript" into "0037152765000001100"
+  clock data
+  expect state away == true
+  tap "mark-read"
+  clock data
+  back
+  clock settle
+  expect state gateway.channels.1 .unread == 0
+
+test "a send while the list is still moving lands at the live end (re-check: Grok new 1)"
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "transcript" into "0037235381600009829"
+  clock settle
+  type "composer" "sent mid-fling"
+  tap "transcript" drag 0 500 over 60
+  tap "send"
+  clock settle
+  expect state anchor == ""
+  expect state away == false
+  expect tree has "message-0037262160000020002"
+
+test "an arrival the reader watches gets no New divider (re-check: Grok new 2)"
+  tap "channel-random"
+  clock settle
+  tap "fixture"
+  tap "inject-message"
+  clock settle
+  expect tree missing "new-divider"
+
+test "paging continues while the pin request is out (re-check: Grok new 3)"
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "fixture"
+  tap "toggle-slow"
+  clock data
+  tap "transcript" into "0037255676300009951"
+  tap "transcript" into "0037235393700009830"
+  clock +400
+  clock settle
+  expect state win.firstId == "0037186915100009701"

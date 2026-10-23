@@ -30,12 +30,10 @@ component MessageRow
     discard: action
     swipe: action
     swipeEnd: action
-  derive dayChange = m.prevAt == 0 or (m.prevAt > 0 and formatDate(m.at, offset, "iso") != formatDate(m.prevAt, offset, "iso"))
+  derive dayChange = m.prevAt == 0 or formatDate(m.at, offset, "iso") != formatDate(m.prevAt, offset, "iso")
   derive leads = not m.grouped or dayChange or isNew or m.reply.length > 0
   view
-    // `scroll-margin-bottom` is the transcript's bottom inset (the typing line), so a
-    // row aligned to the end leaves the list at its true end.
-    column id=`message-${m.key}` testId=`message-${m.key}` padding-top=(leads ? 14 : 1) padding-bottom=1 scroll-margin-bottom=22
+    column id=`message-${m.key}` testId=`message-${m.key}` padding-top=(leads ? 14 : 1) padding-bottom=1
       if dayChange
         row align-items="center" gap=8 padding="6px 16px 4px" testId=`day-${m.key}`
           view flex=1 height="-exact-hairline" background-color="-exact-separator"
