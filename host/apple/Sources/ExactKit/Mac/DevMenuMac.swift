@@ -126,14 +126,27 @@ public enum DevMenu {
     public static let enabled = develops(kind: ExactEnv.appMetadata["ExactBuildKind"] as? String, production: ExactEnv.productionBake,
                                          override: ExactEnv.devMenu)
     /// The session the menu reloads, describes and opens into: the key
-    /// window's, which the adapter that owns the windows keeps current.
+    /// window's. Installing the menu follows that window's key notifications.
     nonisolated(unsafe) public static weak var session: ExactSession?
     /// Where a reload without a connection restarts from: the dev loop's
     /// plan file (`EXACT_DEV_PLAN`) or `EXACT_PLAN`, else the baked plan.
     nonisolated(unsafe) static var planPath: String?
 
+    nonisolated(unsafe) private static var windowKeyObserver: NSObjectProtocol?
     nonisolated(unsafe) private static var widgetGenerationObserver: NSObjectProtocol?
     public static func install(session: ExactSession, planPath: String?) {
+        if windowKeyObserver == nil {
+            windowKeyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { note in
+                guard DevMenu.session != nil, let window = note.object as? NSWindow, let root = window.contentView else { return }
+                func sessions(in view: NSView) -> [ExactSession] {
+                    if let exact = view as? ExactView { return [exact.session] }
+                    return view.subviews.flatMap { sessions(in: $0) }
+                }
+                let owners = sessions(in: root)
+                // An embedding window with several sessions chooses its own commands.
+                if owners.count == 1 { DevMenu.select(session: owners[0]) }
+            }
+        }
         if widgetGenerationObserver == nil {
             widgetGenerationObserver = NotificationCenter.default.addObserver(forName: Notification.Name("ExactWidgetGeneration"), object: nil, queue: .main) { _ in
                 guard let session = DevMenu.session else { return }
