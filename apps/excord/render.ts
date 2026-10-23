@@ -122,8 +122,11 @@ const isImage = (a: Record<string, any>): boolean =>
   String(a.content_type ?? '').startsWith('image/') || /\.(png|jpe?g|gif|webp)$/i.test(String(a.filename ?? ''));
 function context(dirs: Directories): Context { return { dirs, block: 0, spoiler: 0, mentionsMe: false }; }
 
+// A reply is type 19; a local send has no type until Discord answers it.
+const isReply = (m: Stored): boolean => !!m.message_reference?.message_id && (m.type === 19 || m.type === undefined);
+
 function replyOf(m: Stored, dirs: Directories): Row['reply'] {
-  if (!m.message_reference?.message_id || m.type !== 19) return [];
+  if (!isReply(m)) return [];
   const id = String(m.message_reference.message_id);
   const held = dirs.message(m.channel_id, id);
   // Discord sends the original with the reply (`referenced_message`), null when it was deleted.
@@ -172,7 +175,7 @@ export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Dir
     initials: author.trim().split(/\s+/).slice(0, 2).map(s => Array.from(s)[0] ?? '').join('').toUpperCase(),
     bot: m.author?.bot === true, at, prevAt,
     grouped: !!previous && String(previous.author?.id) === authorId && delta >= 0 && delta < 7 * 60000 &&
-      (previous.type ?? 0) === 0 && (m.type ?? 0) === 0 && previous.status !== 'failed',
+      (previous.type ?? 0) === 0 && (m.type ?? 0) === 0 && !isReply(m) && previous.status !== 'failed',
     edited, mine: authorId === me, state: m.status, mentionsMe, jumbo: isJumbo,
     system, plain: system || text, source: content, isNew: false, blocks,
     media: (m.attachments ?? []).filter(isImage).map((a: Record<string, any>) =>
@@ -184,18 +187,19 @@ export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Dir
     reply: replyOf(m, dirs) };
 }
 
-/** A renderer that redraws a row only when its message, its predecessor or its reply's original changed:
- * the store replaces a row's object whenever it changes it. */
+/** A renderer that redraws a row only when its message, its predecessor or its reply's original changed
+ * (or was deleted): the store replaces a row's object whenever it changes it. */
 export function createRenderer(dirs: Directories): (m: Stored, previous?: Stored) => Row {
-  const cache = new Map<string, { m: Stored; previous?: Stored; ref?: Stored; row: Row }>();
+  const cache = new Map<string, { m: Stored; previous?: Stored; ref?: Stored; gone: boolean; row: Row }>();
   return (m, previous) => {
     const refId = m.message_reference?.message_id;
     const ref = refId ? dirs.message(m.channel_id, String(refId)) : undefined;
+    const gone = refId ? dirs.deleted(m.channel_id, String(refId)) : false;
     const key = `${m.channel_id}:${m.key}`, found = cache.get(key);
-    if (found && found.m === m && found.previous === previous && found.ref === ref) return found.row;
+    if (found && found.m === m && found.previous === previous && found.ref === ref && found.gone === gone) return found.row;
     const row = renderMessage(m, previous, dirs);
     cache.delete(key);
-    cache.set(key, { m, previous, ref, row });
+    cache.set(key, { m, previous, ref, gone, row });
     if (cache.size > 1200) cache.delete(cache.keys().next().value!);
     return row;
   };

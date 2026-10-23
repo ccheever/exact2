@@ -1,0 +1,347 @@
+import { expect, test } from 'bun:test';
+import * as S from './discord/store';
+import { snowflakeFromMs } from './discord/ids';
+import { createRenderer, windowOf, type Directories, type Stored, type Unread } from './render';
+import type { Attachment, Message, Reaction, User } from './fixture/world';
+
+const NOW = Date.UTC(2026, 9, 22, 12), DIRECTORY = Date.UTC(2024, 0, 1);
+const gid = snowflakeFromMs(DIRECTORY + 1), cid = snowflakeFromMs(DIRECTORY + 2);
+const help = snowflakeFromMs(DIRECTORY + 3), role = snowflakeFromMs(DIRECTORY + 4);
+const ferris = snowflakeFromMs(DIRECTORY + 5), dance = snowflakeFromMs(DIRECTORY + 6);
+const missing = snowflakeFromMs(DIRECTORY + 7), cdn = 'http://127.0.0.1:4790';
+const me: User = { id: snowflakeFromMs(DIRECTORY), username: 'charlie', global_name: 'Charlie Cheever',
+  discriminator: '0', avatar: null, bot: false };
+const ada: User = { ...me, id: snowflakeFromMs(DIRECTORY, 1), username: 'ada', global_name: 'Ada' };
+const bot: User = { ...me, id: snowflakeFromMs(DIRECTORY, 2), username: 'buildbot', global_name: '', bot: true };
+
+function message(offset = 0, patch: Partial<Message> = {}): Message {
+  return { id: snowflakeFromMs(NOW + offset), channel_id: cid, guild_id: gid, author: ada, content: 'hello',
+    timestamp: new Date(NOW + offset).toISOString(), edited_timestamp: null, attachments: [], embeds: [],
+    reactions: [], mentions: [], mention_roles: [], mention_everyone: false, pinned: false, tts: false,
+    type: 0, flags: 0, ...patch };
+}
+const reference = (id: string) => ({ message_id: id, channel_id: cid, guild_id: gid });
+function fixture(messages: Message[], query: S.HistoryQuery = { limit: 50 }) {
+  const store = S.createStore();
+  S.applyDispatch(store, 'READY', { user: me, users: [me, ada, bot], guilds: [{ id: gid, name: 'Exact Club',
+    roles: [{ id: role, name: 'Maintainers', color: 0, position: 1, permissions: '0',
+      hoist: true, managed: false, mentionable: true }], channels: [
+      { id: cid, name: 'general', type: 0, last_message_id: messages.at(-1)?.id ?? null },
+      { id: help, name: 'help', type: 0, last_message_id: null },
+    ] }], private_channels: [] }, NOW);
+  S.applyHistoryPage(store, cid, query, [...messages].reverse());
+  const dirs: Directories = {
+    me: () => store.meId ?? '',
+    user: id => S.user(store, id),
+    channelName: id => S.channel(store, id)?.name ?? 'unknown-channel',
+    roleName: id => {
+      for (const guild of S.guilds(store)) for (const role of guild.roles ?? []) if (role.id === id) return role.name;
+      return 'unknown-role';
+    },
+    message: (channel, id) => (S.message(store, channel, id) as Stored | null) ?? undefined,
+    deleted: (channel, id) => S.deleted(store, channel, id),
+    emoji: (id, animated) => `${cdn}/emojis/${id}.${animated ? 'gif' : 'png'}`,
+  };
+  const render = createRenderer(dirs);
+  const row = (id: string) => S.message(store, cid, id)!;
+  const view = (w = S.latestWindow(store, cid, 200), anchor = '', since = '',
+    unread: Unread = { count: 0, more: false, at: 0 }) => {
+    const firstKey = w.rows[0] ? (w.rows[0].id ?? w.rows[0].key) : '';
+    const previous = firstKey ? S.windowBefore(store, cid, firstKey, 1).rows[0] : undefined;
+    return windowOf({ rows: w.rows, previous, hasBefore: w.moreBefore, hasAfter: w.moreAfter },
+      cid, anchor, since, unread, render);
+  };
+  return { store, render, row, view };
+}
+
+test('store rows supply the transcript identity, author, clock and declared fields', () => {
+  const m = message(0, { author: me }), f = fixture([m, message(1000, { author: bot })]);
+  const [first, second] = f.view().rows;
+  expect(first).toMatchObject({ key: m.id, id: m.id, authorId: me.id, author: 'Charlie Cheever',
+    initials: 'CC', tint: 0, bot: false, mine: true, at: NOW, prevAt: 0, state: 'sent',
+    grouped: false, edited: false, mentionsMe: false, jumbo: false, system: '', plain: 'hello', source: 'hello',
+    isNew: false, media: [], embeds: [], reactions: [], reply: [] });
+  expect(second).toMatchObject({ author: 'buildbot', initials: 'B', tint: 2, bot: true, mine: false,
+    at: NOW + 1000, prevAt: NOW, grouped: false });
+  expect(Object.keys(first).sort()).toEqual(['at', 'author', 'authorId', 'blocks', 'bot', 'edited', 'embeds',
+    'grouped', 'id', 'initials', 'isNew', 'jumbo', 'key', 'media', 'mentionsMe', 'mine', 'plain', 'prevAt',
+    'reactions', 'reply', 'source', 'state', 'system', 'tint']);
+  expect(f.render(f.row(m.id))).toBe(first);
+});
+
+test('Markdown becomes headings, subtext, lists, quotes, code and marked runs', () => {
+  const content = ['# Title', '## Second', '### Third', '-# A quiet note',
+    '**bold** *italic* __underline__ ~~strike~~ ||secret **bold secret**|| and ||other||', '',
+    '`inline` [**label**](https://example.com) https://example.com/plain', 'line one\nline two', '',
+    '> quoted **text**', '', '- first\n  - nested\n\n  later paragraph\n- second', '',
+    '3. third\n4. fourth', '', '```rust\nlet n = 2;\n```', '', '>>> long quote\nsecond quoted line'].join('\n');
+  const row = fixture([message(0, { content, edited_timestamp: new Date(NOW + 1).toISOString() })]).view().rows[0];
+  const runs = row.blocks.flatMap(b => b.runs);
+  expect(row.blocks.filter(b => b.kind === 'heading').map(b => [b.level, b.runs[0].text]))
+    .toEqual([[1, 'Title'], [2, 'Second'], [3, 'Third']]);
+  expect(row.blocks.find(b => b.kind === 'subtext')?.runs.map(r => r.text)).toEqual(['A quiet note']);
+  expect(row.blocks.find(b => b.kind === 'code')).toMatchObject({ lang: 'rust', text: 'let n = 2;', runs: [] });
+  expect(row.blocks.filter(b => b.kind === 'item').map(b => [b.marker, b.level]))
+    .toEqual([['•', 0], ['•', 1], ['', 0], ['•', 0], ['3.', 0], ['4.', 0]]);
+  expect(row.blocks.filter(b => b.quote).map(b => b.runs.map(r => r.text).join('')))
+    .toEqual(['quoted text', 'long quote\nsecond quoted line (edited)']);
+  for (const mark of ['bold', 'italic', 'underline', 'strike'] as const) {
+    expect(runs.find(r => r.text === mark)).toMatchObject({ [mark]: true });
+  }
+  expect(runs.filter(r => r.spoiler).map(r => [r.text, r.spoiler, r.bold]))
+    .toEqual([['secret ', 's0', false], ['bold secret', 's0', true], ['other', 's1', false]]);
+  expect(runs.find(r => r.text === 'label')).toMatchObject({ kind: 'link', bold: true, href: 'https://example.com' });
+  expect(runs.find(r => r.text === 'https://example.com/plain')).toMatchObject({ kind: 'link', href: 'https://example.com/plain' });
+  expect(runs.find(r => r.kind === 'code')?.text).toBe('inline');
+  expect(runs.at(-1)).toMatchObject({ kind: 'edited', text: ' (edited)' });
+  expect(row).toMatchObject({ edited: true, source: content });
+  expect(row.plain).toContain('line one\nline two');
+  expect(row.plain).not.toContain('(edited)');
+  expect(new Set(runs.map(r => r.id)).size).toBe(runs.length);
+});
+
+test('user, channel and role mentions resolve through READY directories', () => {
+  const content = `<@${me.id}> <@!${ada.id}> <#${help}> <@&${role}> @everyone @here <@${missing}> <#${missing}> <@&${missing}>`;
+  const row = fixture([message(0, { content, mentions: [me, ada], mention_roles: [role], mention_everyone: true })]).view().rows[0];
+  expect(row.blocks[0].runs.filter(r => r.kind !== 'text').map(r => [r.kind, r.text, r.self])).toEqual([
+    ['user', '@Charlie Cheever', true], ['user', '@Ada', false], ['channel', '#help', false],
+    ['role', '@Maintainers', false], ['everyone', '@everyone', false], ['everyone', '@here', false],
+    ['user', `@${missing}`, false], ['channel', '#unknown-channel', false], ['role', '@unknown-role', false],
+  ]);
+  expect(row.plain).toBe(`@Charlie Cheever @Ada #help @Maintainers @everyone @here @${missing} #unknown-channel @unknown-role`);
+  expect(row.mentionsMe).toBe(true);
+});
+
+test('mention flags count wire mentions and leave code and own wire mentions unhighlighted', () => {
+  const patches: Partial<Message>[] = [{ content: `<@${me.id}>` }, { mention_everyone: true }, { mentions: [me] },
+    { content: `\`<@${me.id}>\`` }, { author: me, mentions: [me], mention_everyone: true }, { mentions: [ada] }];
+  const rows = fixture(patches.map((p, i) => message(i, p))).view().rows;
+  expect(rows.map(r => r.mentionsMe)).toEqual([true, true, true, false, false, false]);
+  expect(rows[3].blocks[0].runs[0]).toMatchObject({ kind: 'code', text: `<@${me.id}>`, self: false });
+});
+
+test('Discord timestamp styles become time runs with millisecond instants', () => {
+  const content = ['t', 'T', 'd', 'D', 'R', 'f', 'F'].map(s => `<t:1792692000:${s}>`).join(' ');
+  const row = fixture([message(0, { content })]).view().rows[0];
+  const times = row.blocks.flatMap(b => b.runs).filter(r => r.kind === 'time');
+  expect(times.map(r => [r.at, r.format])).toEqual([
+    [1792692000000, 'time-short'], [1792692000000, 'time-medium'], [1792692000000, 'date-short'],
+    [1792692000000, 'date-long'], [1792692000000, 'relative'], [1792692000000, 'date-long'],
+    [1792692000000, 'time-short'], [1792692000000, 'date-full'], [1792692000000, 'time-short'],
+  ]);
+  expect(times[0].text).toBe('6:00 PM UTC');
+  expect(times[2].text).toBe('October 22, 2026');
+});
+
+test('jumbo custom emoji and reactions use the directory with the animation flag', () => {
+  const reaction = (id: string | null, name: string, count: number, animated = false): Reaction => ({
+    emoji: { id, name, animated }, count, me: count === 2, count_details: { normal: count, burst: 0 },
+    burst_count: 0, me_burst: false, burst_colors: [],
+  });
+  const rows = fixture([message(0, { content: `🎉 <:ferris:${ferris}> <a:dance:${dance}>`, reactions: [
+    reaction(null, '👍', 2), reaction(ferris, 'ferris', 3), reaction(dance, 'dance', 4, true),
+  ] }), message(1, { content: '🎉' }), message(2, { content: `hello <:ferris:${ferris}>` })]).view().rows;
+  expect(rows.map(r => r.jumbo)).toEqual([true, true, false]);
+  expect(rows[0].blocks.map(b => b.kind)).toEqual(['emoji', 'paragraph']);
+  expect(rows[0].blocks[0].runs.map(r => [r.text, r.href]))
+    .toEqual([[':ferris:', `${cdn}/emojis/${ferris}.png`], [':dance:', `${cdn}/emojis/${dance}.gif`]]);
+  expect(rows[0].blocks[1].runs.map(r => r.text).join('').trim()).toBe('🎉');
+  expect(rows[1].blocks[0].runs[0].text).toBe('🎉');
+  expect(rows[2].blocks[0].runs.find(r => r.kind === 'emoji')?.href).toBe(`${cdn}/emojis/${ferris}.png`);
+  expect(rows[0].reactions).toEqual([
+    { id: '👍', emoji: '👍', src: '', name: '👍', count: 2, me: true },
+    { id: ferris, emoji: '', src: `${cdn}/emojis/${ferris}.png`, name: 'ferris', count: 3, me: false },
+    { id: dance, emoji: '', src: `${cdn}/emojis/${dance}.gif`, name: 'dance', count: 4, me: false },
+  ]);
+});
+
+test('image reservations use wire dimensions, MIME types and SPOILER_ filenames', () => {
+  const attachment = (n: number, filename: string, patch: Partial<Attachment> = {}): Attachment => ({
+    id: snowflakeFromMs(NOW, n), filename, url: `${cdn}/media/${n}`, proxy_url: `${cdn}/proxy/${n}`,
+    content_type: 'image/png', size: 1024, ...patch,
+  });
+  const attachments = [attachment(1, 'SPOILER_large.png', { width: 1200, height: 600 }),
+    attachment(2, 'small.png', { width: 64, height: 64 }), attachment(3, 'unknown.png'),
+    attachment(4, 'image', { width: 100, height: 200 }),
+    attachment(5, 'fallback.PNG', { content_type: 'application/octet-stream', width: 640, height: 1280 }),
+    attachment(6, 'notes.txt', { content_type: 'text/plain' })];
+  const row = fixture([message(0, { attachments })]).view().rows[0];
+  expect(row.media).toEqual([
+    { id: attachments[0].id, src: `${cdn}/media/1`, alt: 'SPOILER_large.png', spoiler: true,
+      width: 1200, height: 600, fitWidth: 320, fitHeight: 160 },
+    { id: attachments[1].id, src: `${cdn}/media/2`, alt: 'small.png', spoiler: false,
+      width: 64, height: 64, fitWidth: 64, fitHeight: 64 },
+    { id: attachments[2].id, src: `${cdn}/media/3`, alt: 'unknown.png', spoiler: false,
+      width: 0, height: 0, fitWidth: 0, fitHeight: 0 },
+    { id: attachments[3].id, src: `${cdn}/media/4`, alt: 'image', spoiler: false,
+      width: 100, height: 200, fitWidth: 100, fitHeight: 200 },
+    { id: attachments[4].id, src: `${cdn}/media/5`, alt: 'fallback.PNG', spoiler: false,
+      width: 640, height: 1280, fitWidth: 160, fitHeight: 320 },
+  ]);
+});
+
+test('rich embeds retain metadata and Markdown; image, gifv and video embeds use one picture', () => {
+  const image = { url: `${cdn}/image`, proxy_url: `${cdn}/proxy`, width: 800, height: 1600 };
+  const thumbnail = { ...image, url: `${cdn}/thumb`, width: 32, height: 32 };
+  const row = fixture([message(0, { embeds: [{ type: 'rich', color: 0x0123ab, title: 'Title',
+    url: 'https://example.com', provider: { name: 'Provider' }, author: { name: 'Writer' },
+    description: '**description**', image, thumbnail }, { type: 'image', image, thumbnail },
+    { type: 'gifv', thumbnail }, { type: 'video', thumbnail }] })]).view().rows[0];
+  expect(row.embeds[0]).toMatchObject({ id: 'e0', color: '#0123ab', title: 'Title', url: 'https://example.com',
+    provider: 'Provider', author: 'Writer' });
+  expect(row.embeds[0].description[0].runs[0]).toMatchObject({ kind: 'text', text: 'description', bold: true });
+  expect(row.embeds[0].image).toEqual([{ id: 'e0.image', src: image.url, width: 800, height: 1600,
+    fitWidth: 160, fitHeight: 320, alt: 'Title', spoiler: false }]);
+  expect(row.embeds[0].thumbnail[0]).toMatchObject({ src: thumbnail.url, fitWidth: 32, fitHeight: 32 });
+  expect(row.embeds.slice(1).map(e => [e.image[0].src, e.thumbnail, e.color]))
+    .toEqual([[image.url, [], ''], [thumbnail.url, [], ''], [thumbnail.url, [], '']]);
+});
+
+test('join rows use the author directory and expose their system text as plain text', () => {
+  const row = fixture([message(0, { type: 7, content: '' })]).view().rows[0];
+  expect(row).toMatchObject({ author: 'Ada', system: 'Ada joined the server.', plain: 'Ada joined the server.',
+    source: '', grouped: false, blocks: [] });
+});
+
+test('grouping stops at seven minutes, a different author, replies and system rows', () => {
+  const first = message(0), near = message(7 * 60000 - 1), boundary = message(7 * 60000);
+  const reply = message(1000, { type: 19, message_reference: reference(first.id), referenced_message: first });
+  const join = message(2000, { type: 7 }), other = message(3000, { author: me });
+  const f = fixture([first, reply, join, other, near, boundary]), previous = f.row(first.id);
+  expect(f.render(f.row(near.id), previous)).toMatchObject({ grouped: true, prevAt: NOW });
+  expect(f.render(f.row(boundary.id), previous)).toMatchObject({ grouped: false, prevAt: NOW });
+  for (const m of [reply, join, other]) expect(f.render(f.row(m.id), previous).grouped).toBe(false);
+  for (const m of [reply, join]) expect(f.render(f.row(near.id), f.row(m.id)).grouped).toBe(false);
+  expect(f.render(previous, f.row(near.id)).grouped).toBe(false);
+  expect(f.render(previous)).toMatchObject({ grouped: false, prevAt: 0 });
+});
+
+test('pending sends keep their nonce key when MESSAGE_CREATE supplies the server id', () => {
+  const f = fixture([message(0, { author: me })]), nonce = snowflakeFromMs(NOW + 1000);
+  S.addPending(f.store, cid, { nonce, content: 'on my way', nowMs: NOW + 1000 });
+  const pending = f.view().rows.at(-1)!;
+  expect(pending).toMatchObject({ key: nonce, id: nonce, state: 'pending', at: NOW + 1000,
+    prevAt: NOW, grouped: true, plain: 'on my way', mine: true });
+  const confirmed = message(2000, { author: me, nonce, content: 'on my way' });
+  S.applyDispatch(f.store, 'MESSAGE_CREATE', confirmed, NOW + 2000);
+  expect(f.view().rows.map(r => [r.key, r.id, r.state])).toEqual([
+    [message().id, message().id, 'sent'], [nonce, confirmed.id, 'sent'],
+  ]);
+  expect(f.view().rows[1]).toMatchObject({ key: nonce, id: confirmed.id, at: NOW + 2000, plain: 'on my way' });
+});
+
+test('a failed send breaks the next row group and invalidates its cached rendering', () => {
+  const f = fixture([message(0, { author: me })]), nonce = snowflakeFromMs(NOW + 1000);
+  S.addPending(f.store, cid, { nonce, content: 'first', nowMs: NOW + 1000 });
+  const next = message(2000, { author: me, content: 'second' });
+  S.applyDispatch(f.store, 'MESSAGE_CREATE', next, NOW + 2000);
+  const before = f.view().rows;
+  expect(before.map(r => r.grouped)).toEqual([false, true, true]);
+  S.failPending(f.store, cid, nonce, 'Offline');
+  const after = f.view().rows;
+  expect(after[1]).toMatchObject({ key: nonce, state: 'failed', plain: 'first' });
+  expect(after[2]).toMatchObject({ id: next.id, grouped: false, prevAt: NOW + 1000 });
+  expect(after[2]).not.toBe(before[2]);
+});
+
+test('reply previews prefer held originals, follow edits and report deletions despite old snapshots', () => {
+  const original = message(0, { content: '**original**\nline' });
+  const reply = message(1000, { type: 19, content: 'answer', message_reference: reference(original.id),
+    referenced_message: { ...original, content: 'stale snapshot' } });
+  const f = fixture([original, reply]);
+  expect(f.view().rows[1].reply).toEqual([{ id: original.id, author: 'Ada', tint: 1,
+    preview: 'original line', state: 'present' }]);
+  S.applyDispatch(f.store, 'MESSAGE_UPDATE', { id: original.id, channel_id: cid, content: '**changed**\nline',
+    edited_timestamp: new Date(NOW + 2000).toISOString() }, NOW + 2000);
+  expect(f.view().rows[0]).toMatchObject({ edited: true, plain: 'changed\nline' });
+  expect(f.view().rows[1].reply[0]).toMatchObject({ preview: 'changed line', state: 'present' });
+  S.applyDispatch(f.store, 'MESSAGE_DELETE', { id: original.id, channel_id: cid }, NOW + 3000);
+  expect(f.view().rows[0].reply).toEqual([{ id: original.id, author: '', tint: 0, preview: '', state: 'deleted' }]);
+});
+
+test('unloaded replies distinguish a wire snapshot, an unknown original and a null deleted original', () => {
+  const original = message(0, { content: `**preview**\n${'x'.repeat(110)}` });
+  const replies = [message(1000, { type: 19, message_reference: reference(original.id), referenced_message: original }),
+    message(2000, { type: 19, message_reference: reference(missing) }),
+    message(3000, { type: 19, message_reference: reference(missing), referenced_message: null })];
+  const f = fixture(replies);
+  expect(S.message(f.store, cid, original.id)).toBeNull();
+  expect(f.view().rows.map(r => r.reply[0])).toEqual([
+    { id: original.id, author: 'Ada', tint: 1, preview: `preview ${'x'.repeat(92)}`, state: 'present' },
+    { id: missing, author: '', tint: 0, preview: '', state: 'unknown' },
+    { id: missing, author: '', tint: 0, preview: '', state: 'deleted' },
+  ]);
+});
+
+test('cached rows refresh reactions and late embeds without changing their keys', () => {
+  const m = message(), f = fixture([m]), before = f.view().rows[0];
+  S.applyDispatch(f.store, 'MESSAGE_REACTION_ADD', { channel_id: cid, message_id: m.id,
+    user_id: me.id, emoji: { id: ferris, name: 'ferris' } }, NOW + 1000);
+  const reacted = f.view().rows[0];
+  expect(reacted.reactions).toEqual([{ id: ferris, emoji: '', src: `${cdn}/emojis/${ferris}.png`,
+    name: 'ferris', count: 1, me: true }]);
+  expect(reacted.key).toBe(before.key);
+  expect(reacted).not.toBe(before);
+  S.applyDispatch(f.store, 'MESSAGE_UPDATE', { channel_id: cid, id: m.id, embeds: [{ type: 'image',
+    image: { url: `${cdn}/late.png`, proxy_url: `${cdn}/proxy.png`, width: 640, height: 320 } }] }, NOW + 2000);
+  const embedded = f.view().rows[0];
+  expect(embedded.embeds[0].image).toEqual([{ id: 'e0.image', src: `${cdn}/late.png`, width: 640, height: 320,
+    fitWidth: 320, fitHeight: 160, alt: '', spoiler: false }]);
+  expect(embedded).toMatchObject({ key: m.id, edited: false, plain: 'hello', reactions: reacted.reactions });
+  S.applyDispatch(f.store, 'MESSAGE_REACTION_REMOVE', { channel_id: cid, message_id: m.id,
+    user_id: me.id, emoji: { id: ferris, name: 'ferris' } }, NOW + 3000);
+  expect(f.view().rows[0].reactions).toEqual([]);
+});
+
+test('pending replies show their original and start a group before confirmation', () => {
+  const original = message(0, { author: me, content: 'question' }), f = fixture([original]);
+  const nonce = snowflakeFromMs(NOW + 1000);
+  S.addPending(f.store, cid, { nonce, content: 'answer', nowMs: NOW + 1000, replyTo: { messageId: original.id } });
+  expect(f.view().rows[1]).toMatchObject({ key: nonce, state: 'pending', grouped: false,
+    reply: [{ id: original.id, author: 'Charlie Cheever', tint: 0, preview: 'question', state: 'present' }] });
+});
+
+test('cached replies notice deletion of an original that was never loaded', () => {
+  const reply = message(0, { type: 19, message_reference: reference(missing) }), f = fixture([reply]);
+  expect(f.view().rows[0].reply[0].state).toBe('unknown');
+  S.applyDispatch(f.store, 'MESSAGE_DELETE', { id: missing, channel_id: cid }, NOW + 1000);
+  expect(f.view().rows[0].reply).toEqual([{ id: missing, author: '', tint: 0, preview: '', state: 'deleted' }]);
+});
+
+test('a window withholds an unheld predecessor and keeps shared rows stable when history arrives', () => {
+  const all = Array.from({ length: 12 }, (_, i) => message(i * 1000)), f = fixture(all.slice(6), { limit: 6 });
+  const before = f.view();
+  expect(before.rows.map(r => r.id)).toEqual(all.slice(7).map(m => m.id));
+  expect(before.rows[0]).toMatchObject({ grouped: true, prevAt: NOW + 6000 });
+  expect(before).toMatchObject({ hasBefore: true, hasAfter: false, firstId: all[7].id, lastId: all[11].id, pin: all[7].id });
+  S.applyHistoryPage(f.store, cid, { before: all[6].id, limit: 50 }, all.slice(0, 6).reverse());
+  const after = f.view(S.latestWindow(f.store, cid, 6));
+  expect(after.rows.map(r => r.id)).toEqual(all.slice(6).map(m => m.id));
+  expect(after.rows[0]).toMatchObject({ grouped: true, prevAt: NOW + 5000 });
+  expect(after.rows.slice(1)).toEqual(before.rows);
+  expect(f.view().rows[0]).toMatchObject({ id: all[0].id, grouped: false, prevAt: 0 });
+});
+
+test('the New divider follows the read position only when its predecessor is held', () => {
+  const all = Array.from({ length: 12 }, (_, i) => message(i * 1000)), f = fixture(all.slice(6), { limit: 6 });
+  const since = all[5].id;
+  const unread = { count: 6, more: true, at: NOW + 6000 };
+  const unheld = f.view(S.latestWindow(f.store, cid), '', since, unread);
+  expect(unheld.rows.filter(r => r.isNew)).toEqual([]);
+  expect(unheld).toMatchObject({ unread: 6, unreadMore: true, unreadAt: NOW + 6000 });
+  S.applyHistoryPage(f.store, cid, { before: all[6].id, limit: 50 }, all.slice(0, 6).reverse());
+  const around = f.view(S.windowAround(f.store, cid, since, 6), since, since, { ...unread, more: false });
+  expect(around.rows.filter(r => r.isNew).map(r => r.id)).toEqual([all[6].id]);
+  expect(around).toMatchObject({ channel: cid, anchor: since, pin: since, firstId: all[2].id,
+    lastId: all[7].id, hasBefore: true, hasAfter: true, unread: 6, unreadMore: false, unreadAt: NOW + 6000 });
+  expect(f.view().rows.filter(r => r.isNew)).toEqual([]);
+  S.applyDispatch(f.store, 'MESSAGE_DELETE', { id: all[6].id, channel_id: cid }, NOW + 12000);
+  expect(f.view(undefined, '', since).rows.filter(r => r.isNew).map(r => r.id)).toEqual([all[7].id]);
+});
+
+test('empty windows return empty boundaries and no rendered rows', () => {
+  const f = fixture([]);
+  expect(windowOf({ rows: [], hasBefore: false, hasAfter: false }, cid, '', '',
+    { count: 0, more: false, at: 0 }, f.render)).toEqual({ channel: cid, anchor: '', rows: [],
+    hasBefore: false, hasAfter: false, firstId: '', lastId: '', pin: '', unread: 0, unreadMore: false, unreadAt: 0 });
+});

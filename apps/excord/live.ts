@@ -152,12 +152,13 @@ export function connect(live: Live, secrets: Secrets, native: NativeModule | nul
   const first = step(gw, gw.phase === 'backoff' ? { type: 'retry', nowMs: clock.now, jitter: random() }
     : { type: 'connect', nowMs: clock.now, jitter: random() });
   if (!first.connect || gw.phase !== 'connecting') return snapshot(live);
-  live.attempt++;
+  const attempt = ++live.attempt;
   live.socket = null;
   return fetch(first.connect.url, {
     exactIndependentHttp: { maxResponseBytes: INFLATED_LIMIT },
     exactStream: (event: StreamEvent, socket?: StreamSocket) => {
-      if (live.gw !== gw) return snapshot(live);
+      // Only the newest connection's events reach the session.
+      if (live.gw !== gw || live.attempt !== attempt) return snapshot(live);
       if (socket) live.socket = socket;
       const handle = socket ?? live.socket;
       let result: StepResult;
