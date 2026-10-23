@@ -608,6 +608,13 @@ fn artifact_graph(
         ("sound", !plan.sounds.is_empty()),
         // LLP 1125 D6: the MIDI arm for a plan that asks for ports or hears an input.
         ("midi", exact_runner::uses::uses_midi(plan)),
+        // LLP 1133.005 D13: the listener module for an app granted a listener;
+        // without the grant the executor refuses a listen before it looks for
+        // the module (`executor_listen.rs`).
+        (
+            "listen",
+            listens(inputs["grantCeiling"].as_str().unwrap_or("")),
+        ),
     ]
     .into_iter()
     .filter_map(|(module, reached)| reached.then_some(module))
@@ -639,6 +646,13 @@ fn artifact_graph(
 /// writes for an unknown address (its test id `not-found`), is the first one
 /// the author declared. A route whose background is written or computed is
 /// the author's: the manifest's `background_color` names its launch colour.
+/// Whether `grants` admit a listener (LLP 1133.005 D11): a `net.listen` line.
+fn listens(grants: &str) -> bool {
+    grants
+        .lines()
+        .any(|line| exact_runner::grants::listen_prefix(line.trim()).is_some_and(|p| p.is_ok()))
+}
+
 fn launch_background(plan: &exact_plan::Plan) -> &'static str {
     use exact_kernel::PropId;
     use exact_plan::BindingKind::{Prop, Style};
@@ -792,6 +806,23 @@ mod tests {
         source_map("development", &app, &out, &other, &other.encode());
         assert!(!map.exists(), "a map for other nodes is never written");
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// LLP 1133.005 D13: an app granted a listener carries the listener
+    /// module, and one with no `net.listen` line leaves it out.
+    #[test]
+    fn a_net_listen_grant_loads_the_listener_module() {
+        let plan = exact_plan::builder::PlanBuilder::new(0, 0)
+            .finish()
+            .unwrap();
+        for (grants, loads) in [
+            ("net.fetch https://x.test", json!([])),
+            ("net.listen unix:/tmp/x", json!(["listen"])),
+        ] {
+            let inputs = json!({ "grantCeiling": grants });
+            let graph = artifact_graph(&plan, &inputs, &[], "aarch64-apple-darwin").unwrap();
+            assert_eq!(graph["loads"], loads);
+        }
     }
 
     /// LLP 1096 D8: a declared sound is not a node, so the plan's `sounds`

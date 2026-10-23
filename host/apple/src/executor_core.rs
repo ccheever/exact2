@@ -177,6 +177,8 @@ struct Shared {
     roots: std::sync::OnceLock<Result<ibex2::stdlib::app_fs::AppDirectories, String>>,
     /// Open two-way sockets by stream ticket (LLP 1016.000 D7; `stream.rs`).
     sockets: Mutex<std::collections::HashMap<u64, stream::Socket>>,
+    /// Open listeners' module handles by stream ticket (LLP 1133.005).
+    listeners: Mutex<std::collections::HashMap<u64, u64>>,
 }
 
 impl Shared {
@@ -293,6 +295,7 @@ impl Core {
             root_paths: std::sync::OnceLock::new(),
             roots: std::sync::OnceLock::new(),
             sockets: Mutex::default(),
+            listeners: Mutex::default(),
         });
         let count = if lanes.is_some() {
             asynch::THREADS

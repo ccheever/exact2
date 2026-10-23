@@ -170,6 +170,7 @@ fn request_json(request: &Request) -> Json {
         "headers": request.headers,
         "body": base64(&request.body),
         "stream": request.stream,
+        "listen": request.listen.as_ref().map(|l| l.to_json()),
         "timeout_ms": request.timeout_ms,
         "body_from": request.body_from,
         "redirect": (request.redirect != Redirect::Follow).then(|| request.redirect.name()),
@@ -219,6 +220,12 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
         // A worker's stream only listens: its handle is the main thread's
         // (LLP 1016.000 D7, worker-placed streams).
         socket: false,
+        listen: match &json["listen"] {
+            Json::Null => None,
+            options => Some(Box::new(
+                exact_runner::Listen::from_json(options).map_err(unavailable)?,
+            )),
+        },
         timeout_ms: match &json["timeout_ms"] {
             Json::Null => None,
             value => Some(

@@ -101,6 +101,9 @@ windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32
 test-wait = []
 
 [dev-dependencies]
+# The listener module, linked by the executor's tests instead of opened
+# (LLP 1133.005 D13).
+exact-listen = { path = "../listen" }
 exact-update = { path = "../../update" }
 exact-linux = { path = ".", features = ["test-wait"] }
 cc = "1"

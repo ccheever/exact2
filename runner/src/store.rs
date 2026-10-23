@@ -55,6 +55,7 @@ pub struct Store {
     /// Each open socket's buffered bytes at the start of the turn, by its
     /// resource's index: what its handle's `bufferedAmount` starts from.
     socket_buffered: Vec<(usize, u64)>,
+    listen_buffered: Vec<(usize, u64, u64)>,
     /// Each entry's value before its first write since the open checkpoint:
     /// what a refused transaction puts back. A checkpoint costs what the
     /// transaction writes, not the store's size. Checkpoints do not nest.
@@ -228,6 +229,7 @@ impl Store {
             sockets: Vec::new(),
             answer_sockets: Vec::new(),
             socket_buffered: Vec::new(),
+            listen_buffered: Vec::new(),
             undo: Vec::new(),
             copied: 0,
         }
@@ -541,6 +543,17 @@ impl Store {
     /// index of the resource that owns it.
     pub fn socket_buffered(&self) -> &[(usize, u64)] {
         &self.socket_buffered
+    }
+
+    /// Set the turn's listener snapshot (see `listen_buffered`).
+    pub fn set_listen_buffered(&mut self, snapshot: Vec<(usize, u64, u64)>) {
+        self.listen_buffered = snapshot;
+    }
+
+    /// Each open listener connection's unwritten bytes at the start of this
+    /// turn: (resource, connection, bytes) (LLP 1133.005 D3).
+    pub fn listen_buffered(&self) -> &[(usize, u64, u64)] {
+        &self.listen_buffered
     }
 
     /// The socket operations staged since the last take, left staged.

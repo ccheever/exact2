@@ -1,0 +1,20 @@
+# The local listener (LLP 1133.005): a `unix:` socket an app's source holds
+# as a stream resource, with D4's directory, path and takeover rules. A
+# loaded capability on macOS and Linux — `libexact_listen.dylib` (`.so`),
+# opened by the native executor the first time a source listens, never
+# linked into the host (LLP 1133.005 D13, §12 question 7). The executor's
+# tests link the rlib.
+[package]
+name = "exact-listen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Local listener: unix-socket listening, D4's path rules and takeover, behind a C ABI"
+publish = false
+
+[lib]
+name = "exact_listen"
+crate-type = ["rlib", "cdylib"]
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

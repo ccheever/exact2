@@ -689,7 +689,7 @@ async function main(args, lockHeld = false) {
   const preparedGpu = new Map();
   const webLoadName = 'libexact_web.dylib';
   const videoLoadName = 'libexact_video.dylib';
-  const soundLoadName = 'libexact_sound.dylib', svgLoadName = 'libexact_svg.dylib';
+  const soundLoadName = 'libexact_sound.dylib', svgLoadName = 'libexact_svg.dylib', listenLoadName = 'libexact_listen.dylib';
   const webBuildDir = mkdtempSync(resolve(tmpdir(), 'exact-webarm-'));
   cleanup.push(webBuildDir);
   const webBuilt = resolve(webBuildDir, webLoadName);
@@ -996,6 +996,7 @@ async function main(args, lockHeld = false) {
   const canvasGpu = metal && carries('canvas');
   const lateCrates = fixedPlan && !embedOnly ? [...(carries('svg') ? ['exact-svg-raster'] : []), ...(canvasGpu ? ['exact-canvas-vello'] : [])] : [];
   const lateModules = lateCrates.length ? buildModules(lateCrates, 'late-modules.log') : null;
+  const listenModule = !ios && !tv && !embedOnly && (!Array.isArray(reaches) || reaches.includes('listen')) ? buildModules(['exact-listen'], 'listen-module.log') : null; // @ref LLP 1133.005 D13 — opened when a source first listens; macOS only (§8), for grants that name `net.listen` (the bake's `loads`), which are the binary's
   const env = swiftEnv(libDir, composition, appleLink);
   // The products: the standalone app, and with --host the sample host too
   // (LLP 1031 D10 — the fixture the smoke drives).
@@ -1283,8 +1284,7 @@ async function main(args, lockHeld = false) {
   // work) and the Canvas 2D GPU module (@ref LLP 1056 §8.5: exact-canvas-vello,
   // which Canvas2DGpu.swift dlopens the first time a canvas that animates
   // draws), started above: each its own dylib, never linked into the presenter.
-  await hostModules?.done();
-  await lateModules?.done();
+  await hostModules?.done(); await lateModules?.done(); await listenModule?.done();
   keptRegistry?.keep(app.target, 'app', resolve(app.workspace, 'Cargo.lock'));
   const svgBuilt = resolve(webBuildDir, svgLoadName);
   if (hasSvg) copyFileSync(moduleLib['exact-svg-raster'], svgBuilt);
@@ -1315,7 +1315,7 @@ async function main(args, lockHeld = false) {
 
   const bundleTools = {runApple,appleArtifacts, macInfoPlist, copyAppleStaticTrees, writeUsageStrings, receipt, shippedReceipt, assertAppleIdentity, placeAppleArtifact, infoPlist, distributionKeys, copyAppleGpuProducts, entitlements, appClip};
   if (!ios) {
-    const bundlePath = assembleMac({shared, macWidgets, triple: moduleTripleFor(app, ios, device, tv), appleReach, hasWeb, webLoadName, args, app, paths, binDir, libDir, bin, loadName, hasGpu, dylib, moduleDylibs, looseArms, hasSvg, svgLoadName, modulesLoadName, modulesBuilt, svgBuilt, canvasGpuLoadName, canvasGpuBuilt, sha1, linkRoot, swiftc, buildReceipt, development, bakedCompat, rosterKeys, production, distribution, stampSdk, products, composition, sdk, bakedPlan, cleanup}, bundleTools);
+    const bundlePath = assembleMac({shared, macWidgets, triple: moduleTripleFor(app, ios, device, tv), appleReach, hasWeb, webLoadName, args, app, paths, binDir, libDir, bin, loadName, hasGpu, dylib, moduleDylibs, looseArms, hasSvg, svgLoadName, modulesLoadName, modulesBuilt, svgBuilt, listenLoadName, listenBuilt: listenModule && moduleLib['exact-listen'], canvasGpuLoadName, canvasGpuBuilt, sha1, linkRoot, swiftc, buildReceipt, development, bakedCompat, rosterKeys, production, distribution, stampSdk, products, composition, sdk, bakedPlan, cleanup}, bundleTools);
     publishProducts();
     release();
     rmSync(webBuildDir, { recursive: true, force: true });

@@ -15,6 +15,14 @@ use crate::request::{SocketOp, SocketOrigin, SocketSend};
 /// socket's stream ticket; `None` for a ticket it holds no socket for.
 pub type SocketReader = std::sync::Arc<dyn Fn(u64) -> Option<u64> + Send + Sync>;
 
+/// The host's readers: a socket's, and a listener's connections'
+/// (`listen.rs`).
+#[derive(Default)]
+pub(super) struct Readers {
+    pub socket: Option<SocketReader>,
+    pub listen: Option<super::listen::ListenReader>,
+}
+
 /// What `state.streams` shows of a resource's socket.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SocketState {
@@ -31,7 +39,7 @@ impl<D: DataSource> Runner<D> {
     /// Read each socket's buffered bytes from the host's transport with
     /// `reader`, at the start of every turn that may read a handle.
     pub fn set_socket_reader(&mut self, reader: SocketReader) {
-        self.socket_reader = Some(reader);
+        self.socket_readers.socket = Some(reader);
     }
 
     /// Before every turn that may read a handle (a mutation's, a mapper's,
@@ -49,7 +57,9 @@ impl<D: DataSource> Runner<D> {
                 continue;
             };
             if socket.ready_state == 1 {
-                if let Some(buffered) = self.socket_reader.as_ref().and_then(|r| r(p.ticket)) {
+                if let Some(buffered) =
+                    (self.socket_readers.socket.as_ref()).and_then(|r| r(p.ticket))
+                {
                     socket.buffered = buffered;
                 }
                 let held = (self.sockets.iter().flat_map(|b| &b.ops))
@@ -59,11 +69,12 @@ impl<D: DataSource> Runner<D> {
             }
         }
         self.store.set_socket_buffered(snapshot);
+        self.snapshot_listeners();
     }
 
     /// Socket `ticket`'s buffered bytes now: the host's count, else `last`.
     pub fn socket_buffered(&self, ticket: u64, last: u64) -> u64 {
-        (self.socket_reader.as_ref())
+        (self.socket_readers.socket.as_ref())
             .and_then(|read| read(ticket))
             .unwrap_or(last)
     }
@@ -88,7 +99,8 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Each staged operation addressed to the open socket of the resource
-    /// it names; refused whole when one of them is not open.
+    /// it names, or to an open connection of its listener; refused whole
+    /// when one of them is not open.
     #[allow(clippy::type_complexity)]
     fn address(
         &self,
@@ -96,12 +108,8 @@ impl<D: DataSource> Runner<D> {
     ) -> Result<Vec<(u64, String, SocketOp)>, String> {
         let mut ops = Vec::with_capacity(staged.len());
         for (i, op) in staged {
-            let open = self.pending.iter().find(|p| {
-                p.target == Target::Resource(i)
-                    && p.stream
-                        .and_then(|s| s.socket)
-                        .is_some_and(|s| s.ready_state == 1)
-            });
+            let open = (self.pending.iter())
+                .find(|p| p.target == Target::Resource(i) && super::listen::sendable(p, &op));
             let Some(p) = open else {
                 return Err("InvalidStateError: the socket is not open".into());
             };
@@ -158,7 +166,7 @@ impl<D: DataSource> Runner<D> {
         if staged.iter().any(|(i, _)| Some(*i) != own) {
             return Err("a mapper sends only on its own socket".into());
         }
-        if !(p.stream.and_then(|s| s.socket)).is_some_and(|s| s.ready_state == 1) {
+        if !staged.iter().all(|(_, op)| super::listen::sendable(p, op)) {
             return Err("InvalidStateError: the socket is not open".into());
         }
         let name = self.target_name(p.target);
@@ -206,13 +214,18 @@ impl<D: DataSource> Runner<D> {
             Ok(sockets) => sockets,
             Err(why) => return self.log(refused(&batch.origin, &why)),
         };
-        for (_, name, op) in &batch.ops {
-            self.log(exact_num::text!(
-                "socket {}: {} bytes ({})",
-                op.name(),
-                op.size(),
-                name
-            ));
+        for (ticket, name, op) in &batch.ops {
+            self.log(match op.connection() {
+                Some(id) => exact_num::text!(
+                    "listen {}: {} bytes ({}, connection {})",
+                    op.name(),
+                    op.size(),
+                    name,
+                    id
+                ),
+                None => exact_num::text!("socket {}: {} bytes ({})", op.name(), op.size(), name),
+            });
+            self.listen_sent(*ticket, op);
         }
         for (ticket, sent, buffered) in sockets {
             let socket = self
@@ -239,10 +252,15 @@ pub(super) fn refused(origin: &SocketOrigin, why: &str) -> String {
     )
 }
 
-/// A stream's count for a request: a two-way socket's state too.
+/// A stream's count for a request: a two-way socket's state, or a
+/// listener's, too.
 pub(super) fn stream_count(request: &crate::Request) -> Option<StreamCount> {
     request.stream.then(|| StreamCount {
-        socket: request.socket.then(SocketState::default),
+        socket: (request.socket && !request.is_listen()).then(SocketState::default),
+        listener: request.is_listen().then(|| super::listen::ListenState {
+            address: request.url.clone(),
+            ..Default::default()
+        }),
         ..StreamCount::default()
     })
 }

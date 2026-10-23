@@ -96,6 +96,10 @@ impl Executor {
     pub fn socket_reader(&self) -> exact_runner::SocketReader {
         self.core.socket_reader()
     }
+    /// Each listener connection's unwritten bytes, live (LLP 1133.005 D3).
+    pub fn listen_reader(&self) -> exact_runner::ListenReader {
+        self.core.listen_reader()
+    }
 }
 
 /// What the bridge asks of the I/O executor (LLP 1047.001): the executor's
@@ -126,6 +130,8 @@ pub trait Io {
     fn socket(&self, batch: &exact_runner::SocketSend) -> Result<Vec<(u64, u64, u64)>, String>;
     /// [`Executor::socket_reader`].
     fn socket_reader(&self) -> exact_runner::SocketReader;
+    /// [`Executor::listen_reader`].
+    fn listen_reader(&self) -> exact_runner::ListenReader;
 }
 
 impl Io for Executor {
@@ -164,6 +170,9 @@ impl Io for Executor {
     }
     fn socket_reader(&self) -> exact_runner::SocketReader {
         Executor::socket_reader(self)
+    }
+    fn listen_reader(&self) -> exact_runner::ListenReader {
+        Executor::listen_reader(self)
     }
 }
 

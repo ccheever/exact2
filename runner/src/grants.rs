@@ -50,7 +50,9 @@ pub fn parse_with(spec: &str, link: GrantsLink) -> Result<Grants<'_>, Vec<String
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        if own(line) {
+        if let Some(Err(error)) = listen_prefix(line) {
+            errors.push(format!("line {}: {error}", index + 1));
+        } else if own(line) {
             lines.push(line);
         } else {
             let read = match link {
@@ -100,6 +102,54 @@ pub fn admitting<'a>(spec: &'a str, scope: Option<&'a str>, url: &str) -> Option
     })
 }
 
+/// A `net.listen` line's prefix (LLP 1133.005 D11): `unix:` alone admits
+/// any path, `unix:<absolute path>` the paths under it. `None` for a line
+/// that is not `net.listen`.
+pub fn listen_prefix(line: &str) -> Option<Result<&str, String>> {
+    let rest = line.strip_prefix("net.listen")?;
+    if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+    let mut words = rest.split_whitespace();
+    let read = match (words.next(), words.next()) {
+        (Some(address), None) => match address.strip_prefix("unix:") {
+            Some(prefix) if prefix.is_empty() || prefix.starts_with('/') => Ok(address),
+            Some(_) => Err("net.listen unix: takes an absolute path prefix".into()),
+            None => Err(format!(
+                "net.listen {address}: only unix: addresses are built (LLP 1133.005 D5)"
+            )),
+        },
+        _ => Err("net.listen takes one address: unix: or unix:<absolute path prefix>".into()),
+    };
+    Some(read)
+}
+
+/// The `net.listen` line of `spec` narrowed by `scope` whose prefix holds
+/// `address` as written (`state.streams` names it). The executor admits by
+/// the resolved path (D4); this is the line as the app wrote it.
+pub fn admitting_listen<'a>(
+    spec: &'a str,
+    scope: Option<&'a str>,
+    address: &str,
+) -> Option<&'a str> {
+    let lines = |text: &'a str| text.lines().map(str::trim).filter(|l| !l.is_empty());
+    if scope.is_some_and(|scope| lines(scope).any(|l| !lines(spec).any(|a| a == l))) {
+        return None;
+    }
+    let path = address.strip_prefix("unix:")?;
+    lines(scope.unwrap_or(spec)).find(|line| match listen_prefix(line) {
+        Some(Ok(prefix)) => {
+            let prefix = &prefix["unix:".len()..];
+            prefix.is_empty()
+                || path == prefix
+                || path
+                    .strip_prefix(prefix)
+                    .is_some_and(|rest| prefix.ends_with('/') || rest.starts_with('/'))
+        }
+        _ => false,
+    })
+}
+
 /// What a reader says of a set that did not parse, as the native executor
 /// says it: the set grants nothing, and every refusal carries this.
 pub fn refusal(errors: &[String]) -> String {
@@ -109,11 +159,12 @@ pub fn refusal(errors: &[String]) -> String {
 /// Whether a trimmed line is one of exact2's own grants: enforced by the
 /// presenter (`surface.*`), by the OS and the capability that asks
 /// (`device.*`, LLP 1069.008 D3), by the OS's hardened runtime (`runtime.*`,
-/// D9), by the host's auth arm (`auth.*`, LLP 1069.006) and by the host's
-/// kept documents (`doc.keep`, LLP 1069.010.000 D7), never by the I/O
-/// executor.
+/// D9), by the host's auth arm (`auth.*`, LLP 1069.006), by the host's
+/// kept documents (`doc.keep`, LLP 1069.010.000 D7) and by the listener
+/// module (`net.listen`, LLP 1133.005 D11), never by ibex2's grammar.
 pub(crate) fn own(line: &str) -> bool {
     line == "doc.keep"
+        || listen_prefix(line).is_some()
         || line.starts_with("surface.read ")
         || line.starts_with("surface.write ")
         || crate::device::is_device_line(line)

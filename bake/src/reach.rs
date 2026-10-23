@@ -342,6 +342,7 @@ fn family_enforcement(line: &str) -> &'static str {
             "the host's exact-auth: arm (Apple, web; Linux answers 501)"
         }
         "doc.keep" => "the host's kept documents (macOS; Linux and the web keep nothing yet)",
+        "net.listen" => "the host's listener module (macOS, Linux; absent on the web and iOS)",
         _ => "runtime",
     }
 }

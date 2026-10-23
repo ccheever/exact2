@@ -91,6 +91,11 @@ pub mod router;
 pub use lists::{ListTextPolicy, ListTextPosition};
 mod settlement;
 mod sockets;
+pub use listen::{
+    ConnectionCount, ListenReader, ListenState, DISPLACED as LISTEN_DISPLACED,
+    RESUMED as LISTEN_RESUMED, WAITING as LISTEN_WAITING,
+};
+mod listen;
 pub use sockets::{SocketReader, SocketState};
 mod activities;
 mod apply;
@@ -332,7 +337,7 @@ struct PendingReq {
 
 /// An open stream's messages so far, and those the host coalesced away
 /// (LLP 1016.000 D4, D5). One message landed ends its `pending`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct StreamCount {
     /// Messages delivered to the runner.
     pub messages: u64,
@@ -340,12 +345,14 @@ pub struct StreamCount {
     pub coalesced: u64,
     /// A two-way socket's state (LLP 1016.000 D7); `None` for a listener.
     pub socket: Option<SocketState>,
+    /// A local listener's (LLP 1133.005 D12).
+    pub listener: Option<listen::ListenState>,
 }
 
 impl PendingReq {
     /// In flight: every request, and a stream until its first message.
     fn in_flight(&self) -> bool {
-        self.stream.is_none_or(|s| s.messages == 0)
+        self.stream.as_ref().is_none_or(|s| s.messages == 0)
     }
 }
 
@@ -462,8 +469,9 @@ pub struct Runner<D: DataSource> {
     requests: Vec<RequestOut>,
     /// Socket operations of commits that stood, since the last take (D7).
     sockets: Vec<crate::SocketSend>,
-    /// The host's live count of a socket's buffered bytes (D7), if it has one.
-    socket_reader: Option<sockets::SocketReader>,
+    /// The host's live count of a socket's, and a listener connection's,
+    /// buffered bytes (D7), if it has one.
+    socket_readers: sockets::Readers,
     mutation_requests: u64,
     /// Resources an action asked to re-request; consumed by the next settle
     /// that can ask them (LLP 1054.000.000 D2).
@@ -920,7 +928,7 @@ impl<D: DataSource> Runner<D> {
             held_edges: Vec::new(),
             requests: Vec::new(),
             sockets: Vec::new(),
-            socket_reader: None,
+            socket_readers: sockets::Readers::default(),
             mutation_requests: 0,
             refresh_next: Vec::new(),
             writes: writes::Writes::default(),

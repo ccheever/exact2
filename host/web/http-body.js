@@ -191,6 +191,8 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   const asset = method === 'GET' && !body && Object.keys(headers).length === 0 && /^\/assets\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(url);
   const socket = op.stream && /^wss?:/i.test(url), capability = socket ? 'net.websocket' : 'net.fetch';
   if (invalid) return failed(2, invalid);
+  // A local listener (LLP 1133.005 §8): a page cannot accept connections.
+  if (op.stream && /^unix:/i.test(url)) return failed(3, 'a page cannot listen');
   if (!native && !asset) try { new URL(url); } catch (error) { return failed(1, error); }
   const grant = native || asset ? null : admittingGrant(effective, url, socket ? 'websocket' : 'fetch');
   if (!native && !asset && !grant) return failed(2, `outside the app's grants (${capability})`);

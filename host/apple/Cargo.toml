@@ -40,8 +40,12 @@ exact-runner = { path = "../../runner" }
 ibex2 = { path = "../../vendor/ibex/crates/ibex2", default-features = false, features = ["websocket"] }
 
 serde_json = "1.0"
+# `dlopen` for the listener module (LLP 1133.005 D13), a separate artifact.
+libc = "0.2"
 
 [dev-dependencies]
+# The listener module, linked by the executor's tests instead of opened.
+exact-listen = { path = "../listen" }
 caltrain = { path = "../../apps/caltrain" }
 caltrain-data = { path = "../../apps/caltrain/data" }
 contract = { path = "../../contract/cli" }

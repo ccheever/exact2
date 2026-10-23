@@ -1,0 +1,9 @@
+// The web's half of the listener's conformance (LLP 1133.005 §10, step 2):
+// a page cannot listen, so on both web targets the source finds no
+// `exactListen` global. `host/web-js/conform.mjs` runs this on the wasm
+// host and the JS target; on macOS and Linux the fixture listens instead,
+// which `scripts/agent.mjs` drives with a client.
+
+test "on the web the source finds no listener"
+  expect state control.status == "no listener on this platform"
+  expect text "connections" == "Connections: 0"

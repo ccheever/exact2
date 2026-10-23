@@ -14,7 +14,7 @@
   // 2 store.get(name), 3 store.set(name, value), 4 store.forget(name), 5 storage capability check,
   // 6 native, 7 pure, 8 the answer drew secure randomness, 9/10 canvas text and images,
   // 11 the agent's repeatable random bytes (hex; undefined outside the agent),
-  // 12 the carrier's auth callback ("callback") or a web worker realm's placement.
+  // 12 the carrier's auth callback ("callback"), a web worker realm's placement, or "listen" (LLP 1133.005 §8).
   var host = global.__exact_host;
   delete global.__exact_host;
   // LLP 1027.000: time and seeds are source arguments, so bake and cache
@@ -573,24 +573,22 @@
   }
   FetchError.prototype = Object.create(Error.prototype);
 
-  // A resource's two-way socket (LLP 1016.000 D7): the handle its mapper
-  // receives. Its state is what the mapper has seen: CONNECTING until
-  // `open`, OPEN until the end, CLOSED once the stream ends or its answer
-  // is let go. A mutation's synchronous source and the socket's own mapper
-  // answering `open` or a `message` may send or close: each operation is
-  // copied now, handed over with that turn's answer (`settle`,
-  // `__exact_message`) and published once the commit that settles it stands.
-  // An answer in flight's go to the host as each is made, in any turn of it (amendment of 2026-10-18).
-  var SOCKET_OPS = 256, SOCKET_BYTES = 1048576;
+  // A resource's two-way socket (LLP 1016.000 D7), or one connection of its listener (LLP 1133.005 D6): the
+  // handle its mapper receives. Its state is what the mapper has seen: CONNECTING until `open` (a connection's
+  // own event), OPEN until the end, CLOSED once the stream ends or its answer is let go. A mutation's
+  // synchronous source and the socket's own mapper answering `open` or a `message` may send or close: each
+  // operation is copied now, handed over with that turn's answer (`settle`, `__exact_message`) and published
+  // once the commit that settles it stands. An answer in flight's go to the host as each is made (2026-10-18).
+  var SOCKET_OPS = 256, SOCKET_BYTES = 1048576, LISTEN = Symbol("exactListen");
   // A mutation does one kind of effect, socket operations or a fetch: whichever
   // comes second refuses, and the mutation with it, before either leaves.
   var SOCKET_AND_FETCH = "a mutation cannot both send on a socket and fetch";
-  function socketOwner(ticket, byMutation) {
-    var owner = { ticket: ticket, state: 0 };
+  function socketOwner(ticket, byMutation, connection) {
+    var owner = { ticket: ticket, state: 0, connection: connection };
     // The transport's bytes as this turn began, earlier turns' unsent ones and
     // an answer's this turn (door op 15; none on wasm, whose handle never
     // opens), as WHATWG's `bufferedAmount` counts them at a task's start.
-    function buffered() { try { return Number(host(15, String(ticket), "")) || 0; } catch (e) { return 0; } }
+    function buffered() { try { return Number(host(15, ticket + (connection ? ":" + connection : ""), "")) || 0; } catch (e) { return 0; } }
     function turn() { return mapping && mapping.owner === owner ? mapping : currentCall; } // its own mapper's call, else the turn's
     var closed = function () { return new DOMException("the socket is not open", "InvalidStateError"); }, quota = function (what) { return new DOMException(what, "QuotaExceededError"); };
     function stage(op) {
@@ -605,7 +603,7 @@
       var ops = call.socketOps || (call.socketOps = []), bytes = op.size, mine = op.size, kind = mapper ? "mapper call" : "mutation";
       if (ops.length >= SOCKET_OPS) throw over("socket " + kind + " exceeds 256 operations");
       for (var i = 0; i < ops.length; i++) {
-        if (ops[i].owner === owner && ops[i].op === "close") throw closed();
+        if (ops[i].owner === owner && (ops[i].op === "close" || ops[i].op === "end")) throw closed();
         bytes += ops[i].size;
         if (ops[i].owner === owner) mine += ops[i].size;
       }
@@ -623,9 +621,10 @@
       if (sent.bytes + op.size > SOCKET_BYTES) throw quota("socket answer exceeds 1 MiB");
       if (buffered() + op.size > SOCKET_BYTES) throw quota("socket buffer exceeds 1 MiB");
       sent.ops++; sent.bytes += op.size;
-      if (op.op === "close") sent.closed.push(owner);
-      host(17, String(ticket), JSON.stringify({ op: op.op, data: op.data, code: op.code, reason: op.reason }));
+      if (op.op === "close" || op.op === "end") sent.closed.push(owner);
+      host(17, String(ticket), JSON.stringify({ op: op.op, data: op.data, code: op.code, reason: op.reason, connection: connection }));
     }
+    owner.stage = stage;
     owner.handle = Object.freeze({
       get readyState() { return owner.state; },
       get bufferedAmount() {
@@ -657,7 +656,7 @@
   // A turn's staged operations to the host, with its answer.
   function handSocketOps(call, door) { // door 17: a promise-answering mutation's first answer turn, counted toward its bounds
     var ops = call.socketOps || [], sent = door === 17 && (call.socketSent = { ops: ops.length, bytes: 0, closed: [] }); call.socketOps = null;
-    ops.forEach(function (op) { if (sent) { sent.bytes += op.size; if (op.op === "close") sent.closed.push(op.owner); } host(door || 14, String(op.owner.ticket), JSON.stringify({ op: op.op, data: op.data, code: op.code, reason: op.reason })); });
+    ops.forEach(function (op) { if (sent) { sent.bytes += op.size; if (op.op === "close" || op.op === "end") sent.closed.push(op.owner); } host(door || 14, String(op.owner.ticket), JSON.stringify({ op: op.op, data: op.data, code: op.code, reason: op.reason, connection: op.owner.connection })); });
   }
 
   global.Response = Response;
@@ -763,11 +762,12 @@
     if (signal && signal.aborted) return Promise.reject(signal.reason);
     var ticket = nextTicket++;
     // A WebSocket stream owns a two-way socket (LLP 1016.000 D7).
-    var socket = stream && /^wss?:/i.test(String(url));
-    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, timeout_ms: timeout, body_from: bodyFrom, redirect: redirect }));
+    var socket = stream && /^wss?:/i.test(String(url)), listen = stream && init[LISTEN]; // exactListen's (listen.js)
+    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, listen: listen ? listen.options : undefined, timeout_ms: timeout, body_from: bodyFrom, redirect: redirect }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;
+    if (listen) call.listen = listen.opened(ticket);
     var owner = socket ? (call.socket = socketOwner(ticket, call.mutation)) : null;
     return new Promise(function (resolve, reject) {
       // `early`: made while its answer was still in flight (its body, or its
@@ -1333,11 +1333,9 @@
     var call = calls.get(Number(id));
     return call ? settle(call, final === "final") : fail(new Error("no such call"));
   };
-  // The runner let this call's request go (LLP 1016 D5): drop the call, and
-  // reject the fetches it waits on, so its continuation runs (a `finally`
-  // clears what the call set) rather than vanishing: the runner drops the
-  // reply when it comes. The request may already be on the wire. A send
-  // that needs every reply is a `queue` mutation (LLP 1092).
+  // The runner let this call's request go (LLP 1016 D5): drop the call, and reject the fetches it waits on, so its
+  // continuation runs (a `finally` clears what the call set) rather than vanishing: the runner drops the reply when
+  // it comes. The request may already be on the wire. A send that needs every reply is a `queue` mutation (LLP 1092).
   // One let go between storage steps answers "storage": its steps are
   // running and the chain behind them goes on, so the executor delivers them
   // until `__exact_let_go` says none is left, and its answer is never given
@@ -1346,7 +1344,7 @@
     var call = calls.get(Number(id));
     if (!call) return "";
     // A released resource's socket handle is stale from now on (D7).
-    if (call.socket) call.socket.state = 3;
+    if (call.socket) call.socket.state = 3; if (call.listen) call.listen.forget();
     // Not a fetch another answer has since claimed: that one waits on it.
     var dropped = [];
     for (var i = 0; i < call.tickets.length; i++) {
@@ -1383,20 +1381,19 @@
     var at = headOwner();
     return at && at.letGo ? "storage" : "queued";
   };
-  // One message of the stream answer `id` began, or its end: the mapper's
-  // value, now — a stream's answer never awaits (LLP 1016.000 D1). The end
-  // is `{ type: "error" }` with the failure's kind and message, or the
-  // status and body of a reply that was not an event stream.
+  // One message of the stream answer `id` began, or its end: the mapper's value, now — a stream's answer never
+  // awaits (LLP 1016.000 D1). The end is `{ type: "error" }` with the failure's kind and message, or the status
+  // and body of a reply that was not an event stream. A listener's events are listen.js's (LLP 1133.005 D1).
   global.__exact_message = function (id, outcomeJson) {
     var call = calls.get(Number(id));
     if (!call || !call.stream) return fail(new Error("no stream answer " + id));
-    var o = JSON.parse(outcomeJson), event, socket = call.socket;
-    if (o.message) event = { type: o.message.event || "message", data: o.message.binary !== undefined ? fromBase64(o.message.binary).buffer : o.message.data, lastEventId: o.message.id, coalesced: o.message.coalesced };
+    var o = JSON.parse(outcomeJson), event, socket = call.socket, heard = call.listen && call.listen.heard(o); // a listener's event and its connection's owner
+    if (heard) { event = heard.event; socket = heard.owner; } else if (o.message) event = { type: o.message.event || "message", data: o.message.binary !== undefined ? fromBase64(o.message.binary).buffer : o.message.data, lastEventId: o.message.id, coalesced: o.message.coalesced };
     else if (o.closed) event = { type: "close", data: "", lastEventId: "", coalesced: 0, code: o.closed.code, reason: o.closed.reason, wasClean: o.closed.wasClean };
     else if (o.failed) event = { type: "error", data: "", lastEventId: "", coalesced: 0, kind: o.failed.kind, message: o.failed.message, status: 0 };
     else event = { type: "error", data: o.response.body, lastEventId: "", coalesced: 0, kind: "Response", message: "HTTP " + o.response.status, status: o.response.status };
     // The socket's state as of this event (D7): `open` opens it, an end closes it.
-    if (socket) socket.state = !o.message ? 3 : event.type === "open" && socket.state === 0 ? 1 : socket.state;
+    if (socket && !heard) socket.state = !o.message ? 3 : event.type === "open" && socket.state === 0 ? 1 : socket.state;
     currentCall = call; inMapper = true;
     // Its mapper may reply on it answering `open` or a `message` (never on wasm, where it never opens): handed over however the call ends, sent if the frame's commit stands.
     var turn = mapping = socket && o.message && socket.state === 1 ? { owner: socket, socketOps: null, overload: null } : null;
@@ -1496,4 +1493,6 @@
     else if (o.failed) p.reject(new FetchError(o.failed));
     else p.resolve(new Response(o.response));
   };
+  if (global.__exact_listen_kit) global.__exact_listen_kit({ host: host, LISTEN: LISTEN, socketOwner: socketOwner, utf8Length: utf8Length, call: function () { return currentCall; } }); // native only (listen.js)
+  delete global.__exact_listen_kit;
 })(globalThis);

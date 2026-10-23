@@ -1224,6 +1224,7 @@ dependencies = [
  "exact-color",
  "exact-data",
  "exact-kernel",
+ "exact-listen",
  "exact-markdown",
  "exact-markdown-editor",
  "exact-motion",
@@ -1234,6 +1235,7 @@ dependencies = [
  "exact-svg-file",
  "exact-textflow",
  "ibex2",
+ "libc",
  "serde_json",
  "url",
 ]
@@ -1467,6 +1469,7 @@ dependencies = [
  "exact-grants",
  "exact-kernel",
  "exact-linux",
+ "exact-listen",
  "exact-markdown",
  "exact-motion",
  "exact-plan",
@@ -1516,6 +1519,13 @@ dependencies = [
  "exact-update",
  "ibex2",
  "serde_json",
+]
+
+[[package]]
+name = "exact-listen"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -1648,6 +1658,7 @@ dependencies = [
  "contract",
  "exact-data",
  "exact-kernel",
+ "exact-listen",
  "exact-plan",
  "exact-render",
  "exact-runner",
@@ -2903,6 +2914,37 @@ name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
+
+[[package]]
+name = "listen-fixture-apple"
+version = "0.1.0"
+dependencies = [
+ "exact-apple",
+ "exact-js",
+ "exact-js-bake",
+ "exact-logic",
+]
+
+[[package]]
+name = "listen-fixture-linux"
+version = "0.1.0"
+dependencies = [
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+]
+
+[[package]]
+name = "listen-fixture-web"
+version = "0.1.0"
+dependencies = [
+ "exact-js-bake",
+ "exact-js-web",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+]
 
 [[package]]
 name = "litemap"

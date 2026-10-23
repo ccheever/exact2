@@ -54,6 +54,18 @@ pub(super) fn run(
     if shared.abort.signal().aborted() {
         abort.abort();
     }
+    // A listener's module checks `net.listen` itself, by the resolved path
+    // (LLP 1133.005 D4); a source's scope narrows the app's grants first.
+    if request.is_listen() {
+        let admitted = match request.grants.as_deref() {
+            Some(scope) => exact_data::storage::scope(grants, Some(scope)).map(str::to_string),
+            None => Ok(grants.to_string()),
+        };
+        return match admitted {
+            Ok(admitted) => listen::run(shared, ticket, request, &admitted, abort),
+            Err(why) => complete(shared, ticket, failed(FailureKind::Refused, why)),
+        };
+    }
     let two_way = request.socket;
     let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         // A source's scope narrows the app's grants, as on the workers.
@@ -432,6 +444,9 @@ impl EventStream {
 
 #[path = "executor_socket.rs"]
 mod socket;
+
+#[path = "executor_listen.rs"]
+mod listen;
 
 #[cfg(test)]
 #[path = "executor_stream_tests.rs"]

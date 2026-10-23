@@ -27,6 +27,9 @@ pub fn io_grants(spec: &str) -> String {
 }
 
 /// A data source's answer: a value now, or a request for the host.
+// `Request` is the common answer of a source that does I/O; boxing it would
+// put an allocation on every request for a size lint.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Answer {
     /// The value, now.
@@ -142,6 +145,11 @@ pub struct Request {
     /// coalesced, and a [`Outcome::Closed`] end; mutations send on it
     /// ([`SocketSend`]). Unset, a socket only listens, as in D4.
     pub socket: bool,
+    /// A local listener's options (LLP 1133.005 D1), set by
+    /// [`Request::listen`]. A stream whose URL is `unix:<path>` is a
+    /// listener with or without them (D4): through a path that carries no
+    /// options (a separately linked Rust source) it keeps the defaults.
+    pub listen: Option<Box<Listen>>,
     /// A deadline for the whole exchange, in milliseconds: headers and body.
     /// The host cancels the request when it passes and replies
     /// [`FailureKind::Timeout`]. `None` keeps the host's own limits (on Apple,
@@ -157,6 +165,80 @@ pub struct Request {
     /// What a redirect response does (`fetch`'s `redirect`).
     pub redirect: Redirect,
 }
+
+/// A local listener's options (LLP 1133.005 D1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Listen {
+    /// The newest listener takes the address from a live one (D2, D4).
+    pub takeover: bool,
+    /// Milliseconds a connection has for its first complete line; 0 is
+    /// none. At most [`MAX_FIRST_LINE_TIMEOUT_MS`].
+    pub first_line_timeout_ms: u32,
+    /// The longest line, in bytes; at most [`MAX_LINE_BYTES`].
+    pub max_line_bytes: u32,
+    /// Connections open at once; at most [`MAX_CONNECTIONS`].
+    pub max_connections: u32,
+}
+
+impl Default for Listen {
+    fn default() -> Self {
+        Listen {
+            takeover: false,
+            first_line_timeout_ms: 0,
+            max_line_bytes: 65_536,
+            max_connections: 16,
+        }
+    }
+}
+
+impl Listen {
+    /// As TypeScript's door and a worker's envelope carry it:
+    /// `{"takeover","first_line_timeout_ms","max_line_bytes","max_connections"}`.
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "takeover": self.takeover,
+            "first_line_timeout_ms": self.first_line_timeout_ms,
+            "max_line_bytes": self.max_line_bytes,
+            "max_connections": self.max_connections,
+        })
+    }
+
+    /// Read [`Listen::to_json`]'s form, each option within D1's bounds; a
+    /// missing one keeps its default.
+    pub fn from_json(json: &serde_json::Value) -> Result<Listen, String> {
+        let d = Listen::default();
+        let number = |key: &str, default: u32, low: u32, high: u32| match json.get(key) {
+            None | Some(serde_json::Value::Null) => Ok(default),
+            Some(v) => (v.as_u64())
+                .filter(|n| (u64::from(low)..=u64::from(high)).contains(n))
+                .map(|n| n as u32)
+                .ok_or_else(|| format!("listen: {key} must be an integer from {low} to {high}")),
+        };
+        Ok(Listen {
+            takeover: json
+                .get("takeover")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+            first_line_timeout_ms: number(
+                "first_line_timeout_ms",
+                d.first_line_timeout_ms,
+                0,
+                MAX_FIRST_LINE_TIMEOUT_MS,
+            )?,
+            max_line_bytes: number("max_line_bytes", d.max_line_bytes, 1, MAX_LINE_BYTES)?,
+            max_connections: number("max_connections", d.max_connections, 1, MAX_CONNECTIONS)?,
+        })
+    }
+}
+
+/// The longest `firstLineTimeout` (LLP 1133.005 D1): ten minutes.
+pub const MAX_FIRST_LINE_TIMEOUT_MS: u32 = 600_000;
+/// The largest `maxLineBytes` (D1): 1 MiB.
+pub const MAX_LINE_BYTES: u32 = 1 << 20;
+/// The largest `maxConnections` (D1).
+pub const MAX_CONNECTIONS: u32 = 64;
+/// A listener's undelivered events, by bytes (D3): its lane's charge.
+pub const LISTEN_BYTES: u32 = 4 << 20;
 
 /// The largest file [`Request::body_from`] sends: 64 MiB.
 pub const MAX_BODY_FROM_BYTES: u64 = 64 << 20;
@@ -191,6 +273,7 @@ impl Request {
             body,
             stream: false,
             socket: false,
+            listen: None,
             timeout_ms: None,
             body_from: None,
             redirect: Redirect::Follow,
@@ -247,6 +330,7 @@ impl Request {
             body: Vec::new(),
             stream: false,
             socket: false,
+            listen: None,
             timeout_ms: None,
             body_from: None,
             redirect: Redirect::Follow,
@@ -267,10 +351,30 @@ impl Request {
             body: json.as_bytes().to_vec(),
             stream: false,
             socket: false,
+            listen: None,
             timeout_ms: None,
             body_from: None,
             redirect: Redirect::Follow,
         }
+    }
+
+    /// A local listener at `address` (LLP 1133.005 D1), answered as a
+    /// stream ([`Answer::stream`]): `unix:` and an absolute path. Its lane
+    /// holds the listener's undelivered events, at most 4 MiB (D3).
+    pub fn listen(address: &str) -> Request {
+        Request {
+            http: HttpScheduling::Independent {
+                max_response_bytes: LISTEN_BYTES,
+            },
+            listen: Some(Box::default()),
+            ..Request::get(address)
+        }
+    }
+
+    /// A local listener: a stream whose URL is `unix:`, or one
+    /// [`Request::listen`] made.
+    pub fn is_listen(&self) -> bool {
+        self.stream && (self.listen.is_some() || self.url.starts_with("unix:"))
     }
 
     /// Host storage work as a bounded protocol payload (LLP 1027.001 D2).
@@ -512,23 +616,46 @@ pub enum SocketOp {
         /// The close reason.
         reason: String,
     },
+    /// A line on one connection of a listener (LLP 1133.005 D6), written
+    /// with a `\n` after it.
+    Line {
+        /// The connection's id, from its `connection` event.
+        connection: u64,
+        /// The line, without its newline.
+        text: String,
+    },
+    /// The end of one connection of a listener, once what was sent on it
+    /// before has been written.
+    End {
+        /// The connection's id.
+        connection: u64,
+    },
 }
 
 impl SocketOp {
     /// The payload bytes it puts on the wire (a close's are its reason's).
     pub fn size(&self) -> usize {
         match self {
-            SocketOp::Text(text) => text.len(),
+            SocketOp::Text(text) | SocketOp::Line { text, .. } => text.len(),
             SocketOp::Binary(bytes) => bytes.len(),
-            SocketOp::Close { .. } => 0,
+            SocketOp::Close { .. } | SocketOp::End { .. } => 0,
         }
     }
 
-    /// Its name in the journal: `send` or `close`.
+    /// Its name in the journal: `send`, `close` or `end`.
     pub fn name(&self) -> &'static str {
         match self {
             SocketOp::Close { .. } => "close",
+            SocketOp::End { .. } => "end",
             _ => "send",
+        }
+    }
+
+    /// The listener connection it is addressed to, if any.
+    pub fn connection(&self) -> Option<u64> {
+        match self {
+            SocketOp::Line { connection, .. } | SocketOp::End { connection } => Some(*connection),
+            _ => None,
         }
     }
 }

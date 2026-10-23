@@ -11,11 +11,24 @@ use exact_runner::{SocketOp, Store, Target};
 use serde_json::Value as Json;
 
 /// One operation as the prelude records it: `{"op":"text","data":…}`,
-/// `{"op":"binary","data":base64}` or `{"op":"close","code":…,"reason":…}`.
+/// `{"op":"binary","data":base64}` or `{"op":"close","code":…,"reason":…}`;
+/// on a listener's connection (LLP 1133.005 D6), `{"op":"line","data":…,
+/// "connection":…}` or `{"op":"end","connection":…}`.
 pub(crate) fn op_from_json(text: &str) -> Result<SocketOp, String> {
     let j: Json = serde_json::from_str(text).map_err(|e| e.to_string())?;
     let data = || j.get("data").and_then(Json::as_str).unwrap_or("");
+    let connection = || {
+        (j.get("connection").and_then(Json::as_u64))
+            .ok_or_else(|| "listen: an operation that names no connection".to_string())
+    };
     match j.get("op").and_then(Json::as_str) {
+        Some("line") => Ok(SocketOp::Line {
+            connection: connection()?,
+            text: data().to_string(),
+        }),
+        Some("end") => Ok(SocketOp::End {
+            connection: connection()?,
+        }),
         Some("text") => Ok(SocketOp::Text(data().to_string())),
         Some("binary") => exact_runner::agent::unbase64(data())
             .map(SocketOp::Binary)
@@ -36,18 +49,48 @@ pub(crate) fn op_from_json(text: &str) -> Result<SocketOp, String> {
     }
 }
 
+/// The turn's socket snapshot, by the prelude's stream ticket: what each
+/// handle's buffered bytes start from (op 15).
+#[derive(Default)]
+pub(crate) struct Snapshot {
+    /// A two-way socket's: (ticket, bytes).
+    pub sockets: Vec<(u64, u64)>,
+    /// A listener connection's (LLP 1133.005 D3): (ticket, connection, bytes).
+    pub connections: Vec<(u64, u64, u64)>,
+}
+
+impl Snapshot {
+    /// The bytes of op 15's key: `<ticket>` for a socket,
+    /// `<ticket>:<connection>` for a listener's connection.
+    pub(crate) fn of(&self, key: &str) -> u64 {
+        let number = |text: &str| text.parse::<u64>().ok();
+        match key.split_once(':') {
+            Some((ticket, connection)) => (self.connections.iter())
+                .find(|(t, c, _)| Some(*t) == number(ticket) && Some(*c) == number(connection))
+                .map_or(0, |(.., bytes)| *bytes),
+            None => (self.sockets.iter())
+                .find(|(t, _)| Some(*t) == number(key))
+                .map_or(0, |(_, bytes)| *bytes),
+        }
+    }
+}
+
 /// The turn's socket snapshot, from the runner's by resource to the
-/// prelude's by stream ticket: what each handle's `bufferedAmount` starts
-/// from (op 15).
-pub(crate) fn snapshot(streams: &[(Key, Parked)], store: &Store) -> Vec<(u64, u64)> {
-    (store.socket_buffered().iter())
-        .filter_map(|&(resource, buffered)| {
-            let ticket = streams.iter().find_map(|(key, parked)| {
-                (key.0 == Some(Target::Resource(resource))).then_some(parked.ticket)
-            })?;
-            Some((ticket, buffered))
+/// prelude's by stream ticket.
+pub(crate) fn snapshot(streams: &[(Key, Parked)], store: &Store) -> Snapshot {
+    let ticket = |resource: usize| {
+        streams.iter().find_map(|(key, parked)| {
+            (key.0 == Some(Target::Resource(resource))).then_some(parked.ticket)
         })
-        .collect()
+    };
+    Snapshot {
+        sockets: (store.socket_buffered().iter())
+            .filter_map(|&(resource, buffered)| Some((ticket(resource)?, buffered)))
+            .collect(),
+        connections: (store.listen_buffered().iter())
+            .filter_map(|&(resource, c, buffered)| Some((ticket(resource)?, c, buffered)))
+            .collect(),
+    }
 }
 
 impl Module {

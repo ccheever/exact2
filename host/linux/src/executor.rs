@@ -145,4 +145,8 @@ impl Executor {
     pub fn socket_reader(&self) -> exact_runner::SocketReader {
         self.core.socket_reader()
     }
+    /// Each listener connection's unwritten bytes, live (LLP 1133.005 D3).
+    pub fn listen_reader(&self) -> exact_runner::ListenReader {
+        self.core.listen_reader()
+    }
 }

@@ -796,11 +796,12 @@ impl<D: DataSource> Runner<D> {
             grant: request
                 .stream
                 .then(|| {
-                    crate::grants::admitting(
-                        self.data.grants(),
-                        request.grants.as_deref(),
-                        &request.url,
-                    )
+                    let admitting = if request.is_listen() {
+                        crate::grants::admitting_listen
+                    } else {
+                        crate::grants::admitting
+                    };
+                    admitting(self.data.grants(), request.grants.as_deref(), &request.url)
                 })
                 .flatten()
                 .map(str::to_string),
@@ -933,13 +934,12 @@ impl<D: DataSource> Runner<D> {
     /// An open stream counts only until its first message (LLP 1016.000
     /// D5): after that it is open, not in flight, or `settle` never ends.
     /// A request held for the agent (LLP 1069.007 D3) is not I/O either: no
-    /// clock waits on it. The module's background round is (LLP 1097 D9).
+    /// clock waits on it, nor on a listener waiting for its address (LLP
+    /// 1133.005 D2). The module's background round is (LLP 1097 D9).
     pub fn has_pending(&self) -> bool {
         self.background_ticket().is_some()
-            || self
-                .pending
-                .iter()
-                .any(|p| p.in_flight() && !self.held_for_agent(p))
+            || (self.pending.iter())
+                .any(|p| p.in_flight() && !self.held_for_agent(p) && !Self::listen_waiting(p))
     }
 
     /// A request held for the agent: a device's, or a module's (LLP 1133.002 §6).
@@ -955,7 +955,7 @@ impl<D: DataSource> Runner<D> {
         let mut out: Vec<(String, u64)> = self
             .pending
             .iter()
-            .filter(|p| p.in_flight() && !self.held_for_agent(p))
+            .filter(|p| p.in_flight() && !self.held_for_agent(p) && !Self::listen_waiting(p))
             .map(|p| (self.target_name(p.target), p.ticket))
             .collect();
         out.extend(
@@ -970,7 +970,7 @@ impl<D: DataSource> Runner<D> {
     pub fn streams(&self) -> Vec<(String, u64, StreamCount)> {
         self.pending
             .iter()
-            .filter_map(|p| Some((self.target_name(p.target), p.ticket, p.stream?)))
+            .filter_map(|p| Some((self.target_name(p.target), p.ticket, p.stream.clone()?)))
             .collect()
     }
 
@@ -1042,7 +1042,11 @@ impl<D: DataSource> Runner<D> {
             self.log(super::lines::dropped(ticket, &summary));
             return Ok(None);
         };
-        if let (Some(_), Outcome::Message(_)) = (self.pending[pos].stream, &outcome) {
+        if let (Some(_), Outcome::Message(m)) = (&self.pending[pos].stream, &outcome) {
+            // A listener's host notes commit nothing (LLP 1133.005 D2).
+            if self.listen_note(pos, m) {
+                return Ok(None);
+            }
             return self.message(pos, outcome, &summary);
         }
         let was_poisoned = self.poisoned;
@@ -1087,13 +1091,19 @@ impl<D: DataSource> Runner<D> {
     ) -> Result<Option<CommitReceipt>, RunnerError> {
         let was_poisoned = self.poisoned;
         let checkpoint = self.checkpoint(true);
+        let name = self.target_name(self.pending[pos].target);
         let p = &mut self.pending[pos];
+        let mut heard = None;
         if let (Some(count), Outcome::Message(m)) = (p.stream.as_mut(), &outcome) {
             count.messages += 1;
             count.coalesced += u64::from(m.coalesced);
             sockets::socket_message(count, m);
+            heard = super::listen::listen_message(count, &name, m);
         }
         let p = p.clone();
+        if let Some(line) = heard {
+            self.log(line);
+        }
         self.sync_pending_flags();
         let (ticket, target, name) = (p.ticket, p.target, self.target_name(p.target));
         let what = super::lines::fulfilling(ticket, &name, summary);

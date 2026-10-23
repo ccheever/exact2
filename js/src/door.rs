@@ -155,6 +155,9 @@ pub(crate) unsafe extern "C" fn host_door(
             crypto::hex(&bytes)
         })),
         10 => Ok(wire::canvas_image(state.canvas.as_ref(), &a)),
+        // Whether this target has the local listener (LLP 1133.005 §8):
+        // the prelude defines `exactListen` only where it does.
+        12 if a == "listen" => Ok(LISTENER.then(|| "1".into())),
         12 => Ok(crypto::auth_callback(state, &a)),
         // A journal line the runtime writes (LLP 1097 D8): a failed or
         // refused storage operation, an unhandled rejection. `logs` reads
@@ -181,14 +184,16 @@ pub(crate) unsafe extern "C" fn host_door(
         },
         // The bytes the socket of stream ticket `a` buffered as this turn
         // began (D7), with what an answer has sent on it in this turn: the
-        // start of its handle's `bufferedAmount`.
+        // start of its handle's `bufferedAmount`. `<ticket>:<connection>`
+        // is a listener's connection (LLP 1133.005 D3).
         15 => Ok(Some({
-            let ticket = a.parse::<u64>().ok();
-            let start = (state.socket_buffered.iter())
-                .find(|(s, _)| Some(*s) == ticket)
-                .map_or(0, |(_, buffered)| *buffered);
+            let (ticket, connection) = match a.split_once(':') {
+                Some((t, c)) => (t.parse::<u64>().ok(), c.parse::<u64>().ok()),
+                None => (a.parse::<u64>().ok(), None),
+            };
+            let start = state.socket_buffered.of(&a);
             let handed = (state.answer_ops.iter())
-                .filter(|(t, _)| Some(*t) == ticket)
+                .filter(|(t, op)| Some(*t) == ticket && op.connection() == connection)
                 .map(|(_, op)| op.size() as u64);
             (start + handed.sum::<u64>()).to_string()
         })),
@@ -214,6 +219,11 @@ pub(crate) unsafe extern "C" fn host_door(
         }
     }
 }
+
+/// The targets with a local listener (LLP 1133.005 §8): macOS and the
+/// Linux host. Not iOS (no other process reaches the app's container), not
+/// Android, not Windows (`later`).
+const LISTENER: bool = cfg!(any(target_os = "macos", target_os = "linux"));
 
 /// A malloc'd copy the shim frees.
 pub(crate) fn c_string(text: &str) -> *mut c_char {

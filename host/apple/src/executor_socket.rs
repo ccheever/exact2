@@ -248,8 +248,9 @@ impl Core {
     /// Send one mutation's or mapper call's socket batch, whose commit
     /// stood: every socket it names must still be open and wanted, and each
     /// must take its share without its buffer passing 1 MiB or 256 frames,
-    /// or nothing is sent. For each socket, the frames it accepted and the
-    /// bytes it now buffers.
+    /// or nothing is sent; a listener's connections likewise
+    /// (`executor_listen.rs`). For each socket, the frames it accepted and
+    /// the bytes it now buffers.
     pub(crate) fn socket(&self, batch: &SocketSend) -> Result<Vec<(u64, u64, u64)>, String> {
         let not_open = || "InvalidStateError: the socket is not open".to_string();
         {
@@ -260,9 +261,11 @@ impl Core {
                 return Err(not_open());
             }
         }
+        super::listen::check(&self.shared, batch)?;
+        let own = |op: &SocketOp| op.connection().is_none();
         let mut sockets = self.shared.sockets.lock().unwrap();
         let mut totals: Vec<(u64, usize, u64)> = Vec::new();
-        for (ticket, _, op) in &batch.ops {
+        for (ticket, _, op) in batch.ops.iter().filter(|(.., op)| own(op)) {
             let socket = sockets.get(ticket).filter(|s| !s.closing);
             socket.ok_or_else(not_open)?;
             match totals.iter_mut().find(|(t, ..)| t == ticket) {
@@ -276,13 +279,18 @@ impl Core {
                 return Err("QuotaExceededError: socket buffer exceeds 1 MiB".into());
             }
             let frames = (batch.ops.iter())
-                .filter(|(t, _, op)| t == ticket && !matches!(op, SocketOp::Close { .. }))
+                .filter(|(t, _, op)| {
+                    t == ticket && own(op) && !matches!(op, SocketOp::Close { .. })
+                })
                 .count();
             if sender.buffered_messages() + frames > SEND_FRAMES {
                 return Err("QuotaExceededError: socket buffer exceeds 256 frames".into());
             }
         }
         for (done, (ticket, _, op)) in batch.ops.iter().enumerate() {
+            if !own(op) {
+                continue;
+            }
             let socket = sockets.get_mut(ticket).ok_or_else(not_open)?;
             let sent = match op {
                 SocketOp::Text(text) => socket.sender.send_text(text),
@@ -291,6 +299,7 @@ impl Core {
                     socket.closing = true;
                     socket.sender.close(Some(*code), reason)
                 }
+                SocketOp::Line { .. } | SocketOp::End { .. } => continue,
             };
             // The transport failed partway: what it took is gone, and the
             // journal says how much.
@@ -300,15 +309,17 @@ impl Core {
                 total.expect("totalled above").2 += 1;
             }
         }
-        Ok(totals
-            .into_iter()
+        let mut sent: Vec<(u64, u64, u64)> = (totals.into_iter())
             .map(|(ticket, _, sent)| {
                 let buffered = sockets
                     .get(&ticket)
                     .map_or(0, |s| s.sender.buffered_amount());
                 (ticket, sent, buffered as u64)
             })
-            .collect())
+            .collect();
+        drop(sockets);
+        sent.extend(super::listen::send(&self.shared, batch)?);
+        Ok(sent)
     }
 }
 

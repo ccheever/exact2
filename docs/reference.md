@@ -1232,6 +1232,82 @@ sources and worker-placed TypeScript do not provide the send path (on wasm
 the handle never opens). No ambient `WebSocket` constructor is admitted. SSE
 remains unchanged.
 
+A **local listener** (LLP 1133.005) is the other side: a TypeScript source on
+macOS or the Linux host answers with `exactListen("unix:<absolute path>",
+options)`, in `fetch`'s shape, and listens while its resource holds it. Other
+processes of the user (a command line, a second launch) connect and write
+lines; the mapper answers each event now:
+
+```ts
+import type { ListenConnection } from './app.contract.d.ts';
+const connections = new Map<number, ListenConnection>();
+if (source === "control") {
+  if (!("exactListen" in globalThis)) return { status: "unsupported" };
+  return exactListen(`unix:${path}`, {
+    takeover: true, firstLineTimeout: 5000,
+    exactStream(event, connection) {
+      if (event.type === "connection") connections.set(event.id, connection);
+      if (event.type === "end") connections.delete(event.id);
+      if (event.type === "message" && event.data === "ping") connection.send("pong");
+      return { status: event.type === "error" ? event.message : "listening" };
+    },
+  });
+}
+```
+
+Its events are `listening` (`address`, `port`, 0 for `unix:`), each
+`connection` (`id`), each line as a `message` (`id`, `data` without its
+`\n` or `\r\n`, invalid UTF-8 replaced), and each `end` (`id`, `reason`:
+`peer`, `app`, `timeout` before the first line, or `overflow`); `error`
+(`kind` `Refused`, `AddressInUse`, `Unsupported` or `Network`) ends the
+stream. A connection's handle has `readyState`, `send(line)`, which writes the
+line and a `\n` and refuses one holding a `\n` (`SyntaxError`), and `end()`,
+which closes it once what was sent before is written; a connection is never
+half-open. Sends follow the WebSocket's rules above: the mapper on the
+connection it was handed, a mutation's synchronous source and an answer in
+flight on a handle they kept, with the same bounds (256 operations and 1 MiB a
+turn, and 1 MiB unwritten on each connection) and the same refusals; a batch
+naming a connection that ended before it went out is refused whole, said in
+`logs`. Options: `takeover` (the newest listener takes a live socket's path,
+default false), `firstLineTimeout` (up to 600000 ms; 0 or absent is none),
+`maxLineBytes` (default 65536, at most 1 MiB) and `maxConnections` (default
+16, at most 64). Each connection holds at most 256 undelivered lines and
+1 MiB, the listener 1,024 events and 4 MiB; past them a line ends its
+connection `overflow` and a new connection is closed at once with no event.
+`exactListen` in a mutation throws `InvalidStateError`: only a resource holds
+a listener.
+
+The grant is `net.listen unix:<path prefix>`, or `net.listen unix:` for a path
+computed at run time. The host resolves the path's existing ancestors before
+comparing it with the grant, makes the parent `0700` when it is missing (its
+own parent must exist), refuses a parent that is a symlink, not a directory
+or another user's, and every ancestor writable by others unless it is sticky
+(`/tmp`). The socket is `0600`, bound under a staging name and published by
+`link`, or by `rename` over a stale socket or, with `takeover`, over any
+socket there, without connecting to it, under an `flock` on `<path>.lock`; closing removes the path only while it is
+still this listener's. Without `takeover` a live socket is `AddressInUse`; the
+connection attempt that tells it from a stale one reaches the live listener
+as a connection that ends `peer`, and on macOS a live socket whose backlog is
+full refuses that attempt and is taken for stale.
+Within one process a second listener on the same path waits (`state.streams`
+says `waiting`; no clock waits on it) until the holder lets go; with
+`takeover` the newest takes the path, and the one it displaced keeps its
+connections and takes the path back when the newer lets go. A program that
+publishes on the path without the lock can still race a close. `state.streams`
+lists a listener's `address`, `listener` (`binding`, `waiting`, `listening`)
+and `connections` (lines received and sent); `logs` say when it bound or took
+a path over and when each connection opened and ended, never a line's text.
+
+The listener module is a separate artifact, carried only by an app whose
+grants name `net.listen`: `host/apple/build.mjs` puts `libexact_listen.dylib`
+beside the macOS executable; a Linux host looks for `libexact_listen.so` beside
+its own, which `cargo build -p exact-listen` with the binary's profile makes
+(no Linux build step places it yet). Without a `net.listen` line a listen is
+`Refused` before the module is looked for. **Absent** on the web, iOS, Android, Windows and the
+terminal: there `exactListen` is not defined, so test `"exactListen" in
+globalThis`; a Rust source's `Request::listen` ends with an `Unsupported`
+error. Rust sources only read (no handle).
+
 This first browser implementation targets modest app stores: filesystem
 operations read the app's file records, and each SQLite mutation atomically
 saves the whole database file. Database files share the filesystem namespace,

@@ -1,0 +1,37 @@
+// The listener fixture (LLP 1133.005 §10, step 6): its TypeScript source
+// listens on a `unix:` path and echoes each line it reads. A line `later`
+// waits for Answer, a mutation's reply; `bye` is answered and ends its
+// connection. Stop lets the listener go, and Start listens again.
+
+shape Control
+  status: string
+  connections: string
+  lines: string
+  last: string
+  waiting: string
+
+component ListenFixture
+  state running = true
+  resource control = echo(running) as shape Control
+  mutation answered as shape string
+  action answer
+    send answered = answerLater()
+  action toggle
+    running = !running
+  view
+    column testId="listen" width="100%" height="100%" gap=12 padding=24 box-sizing="border-box"
+      text "Listen Fixture" font-size=24 font-weight=600
+      text control.status testId="status" font-size=16
+      text "Connections: " + control.connections testId="connections" font-size=14
+      text "Lines read: " + control.lines testId="lines" font-size=14
+      text "Last line: " + control.last testId="last" font-size=14
+      text "Waiting for Answer: " + control.waiting testId="waiting" font-size=14
+      button press=answer testId="answer"
+        text "Answer"
+      button press=toggle testId="toggle"
+        text (running ? "Stop" : "Start")
+      match answered
+        case some(a)
+          text a testId="answered" font-size=14
+        case none
+          text "" font-size=14

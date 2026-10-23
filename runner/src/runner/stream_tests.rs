@@ -143,6 +143,7 @@ fn three_messages_then_a_close_commit_four_times() {
                 messages: 3,
                 coalesced: 0,
                 socket: None,
+                listener: None,
             }
         )]
     );
@@ -221,6 +222,7 @@ fn coalesced_messages_are_counted_and_the_newest_lands() {
             messages: 2,
             coalesced: 7,
             socket: None,
+            listener: None,
         }
     );
     let state = crate::agent::state(&r);

@@ -25,6 +25,7 @@ fn main() {
         "src/shim.cc",
         "src/pure.js",
         "src/standard.js",
+        "src/listen.js",
         "src/prelude.js",
         "src/intl.js",
         "tests/fixtures/harden-probe.js",
@@ -103,6 +104,7 @@ fn main() {
     let prelude = [
         "src/pure.js",
         "src/standard.js",
+        "src/listen.js",
         "src/prelude.js",
         "src/intl.js",
     ]
@@ -173,6 +175,7 @@ fn main() {
         "shared-load",
         "overlay",
         "socket",
+        "listen",
         "heap",
         "snapshot",
         "context",

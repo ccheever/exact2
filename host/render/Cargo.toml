@@ -45,6 +45,9 @@ test-wait = []
 
 [dev-dependencies]
 exact-render = { path = ".", features = ["test-wait"] }
+# The listener module, linked by the shared executor's tests instead of
+# opened (LLP 1133.005 D13).
+exact-listen = { path = "../listen" }
 contract = { path = "../../contract/cli" }
 # A scripted socket transport names the URL type its trait takes.
 url = "2.5"

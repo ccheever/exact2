@@ -44,6 +44,11 @@ pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
         },
         stream: j.get("stream").and_then(Json::as_bool).unwrap_or(false),
         socket: j.get("socket").and_then(Json::as_bool).unwrap_or(false),
+        // `exactListen`'s options (LLP 1133.005 D1).
+        listen: match j.get("listen") {
+            None | Some(Json::Null) => None,
+            Some(options) => Some(Box::new(exact_runner::Listen::from_json(options)?)),
+        },
         timeout_ms: match j.get("timeout_ms") {
             None | Some(Json::Null) => None,
             Some(value) => Some(

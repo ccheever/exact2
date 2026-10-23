@@ -760,6 +760,7 @@ impl<D: DataSource> Host<D> {
         self.doc_watch = Some(crate::doc_watch::DocWatch::new(owner, &mut self.runner));
         self.listen(io.waker());
         self.runner.set_socket_reader(io.socket_reader());
+        self.runner.set_listen_reader(io.listen_reader());
     }
     /// The source's native slot, where the host installs the app module.
     pub fn native_slot(&self) -> exact_runner::Native {

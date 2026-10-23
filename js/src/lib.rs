@@ -184,9 +184,9 @@ struct HostState {
     /// The socket operations a turn of an answer sent as it made them (op
     /// 17; the amendment of 2026-10-18), by the same ticket.
     answer_ops: Vec<(u64, exact_runner::SocketOp)>,
-    /// Each open socket's buffered bytes at the start of this turn, by the
-    /// prelude's ticket for its stream (op 15).
-    socket_buffered: Vec<(u64, u64)>,
+    /// Each open socket's, and listener connection's, buffered bytes at
+    /// the start of this turn, by the prelude's ticket for its stream (op 15).
+    socket_buffered: socket::Snapshot,
     native: Option<Box<dyn NativeModule>>,
     /// The native module takes long calls off this thread (`native.later`).
     later: bool,
