@@ -275,9 +275,11 @@ outside this repo writes, so the gaps Excord finds are gaps those authors would 
    `http://127.0.0.1:8767`), so no relay holds the token. The web build identifies
    as Discord's web client, since a browser sets its own `User-Agent`.
 4. **Windows** (stage 6), **Android** (stage 7): the same app; each stage's work is
-   the host's gaps against §3, filed against the host. TypeScript's bidirectional
-   socket is documented on the web, macOS, iOS and Linux only; stage 1's echo
-   shows where Windows and Android stand.
+   the host's gaps against §3, filed against the host. Both hosts are the Linux
+   host's presenter and portable executor, which carry the socket of LLP 1016.000
+   D7. On Windows, Excord (`apps/excord/windows`) reached the fixture's READY and
+   a heartbeat ACK over `ws:` on 2026-10-22; Android's library
+   (`apps/excord/android`) has not run, for want of an emulator or device.
 
 ## 6. What Excord will ask of Exact
 
