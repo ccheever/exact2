@@ -472,6 +472,8 @@ class DialogMacTests: XCTestCase {
         }
         window.makeKeyAndOrderFront(nil)
         p.press(2)
+        XCTAssertEqual(presses, [root.id], "the handlerless opener presses its ancestor")
+        presses.removeAll()
         let content = try XCTUnwrap(p.views[6]), window = try XCTUnwrap(content.window)
         let point = content.convert(NSPoint(x: content.bounds.midX, y: content.bounds.midY), to: nil)
         func event(_ type: NSEvent.EventType) throws -> NSEvent {
