@@ -293,9 +293,10 @@ impl Lowerer<'_> {
         // are refused.
         let identities = crate::params::identities(file);
         let mut overridden: Vec<(String, Span)> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
         for entry in &design.params {
             if let Ok(p) = crate::params::resolve(&kinded, &identities, &entry.name.value) {
-                if !overridden.iter().any(|(t, _)| *t == p.token) {
+                if seen.insert(p.token.clone()) {
                     let span = self.token_span(&origin, entry.name.line, entry.name.col);
                     overridden.push((p.token.clone(), span));
                 }
@@ -335,16 +336,25 @@ impl Lowerer<'_> {
             .flat_map(|d| crate::params::design_tokens(d).0);
         let mut kept: Vec<String> = designed.map(|p| p.token).collect();
         let mut roots = std::collections::BTreeSet::new();
+        // A role's spelling in any case, as the fold reads one: the tokens
+        // and icons by their names lowercased, once (linear: the checker
+        // bound's sweep).
+        let mut by_lower: std::collections::HashMap<String, Vec<&tamber::Token>> =
+            std::collections::HashMap::new();
+        for t in design.tokens.iter().chain(&design.icons) {
+            by_lower
+                .entry(t.name.value.to_ascii_lowercase())
+                .or_default()
+                .push(t);
+        }
         while let Some(name) = kept.pop() {
             if !roots.insert(name.clone()) {
                 continue;
             }
-            for t in design
-                .tokens
-                .iter()
-                .chain(&design.icons)
-                // A role's spelling in any case, as the fold reads one.
-                .filter(|t| t.name.value.eq_ignore_ascii_case(&name))
+            for t in by_lower
+                .get(&name.to_ascii_lowercase())
+                .into_iter()
+                .flatten()
             {
                 let read =
                     std::iter::once(&t.value.value).chain(t.whens.iter().map(|w| &w.value.value));

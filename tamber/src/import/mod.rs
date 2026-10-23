@@ -10,6 +10,7 @@
 
 use crate::edit::{Op, WhenLine};
 pub use crate::export_dials::{marks_of, DialChange, Impact, Pin};
+use crate::syntax::same_conds;
 use crate::{Design, Diagnostic};
 
 pub mod astryx;
@@ -241,10 +242,6 @@ pub(crate) fn squash(v: &str) -> String {
         }
     }
     out
-}
-
-fn same_conds(a: &[(String, String)], b: &[(String, String)]) -> bool {
-    a.len() == b.len() && a.iter().all(|c| b.contains(c))
 }
 
 /// Why a colour the CSS parser reads is no Tamber value yet (`none`
