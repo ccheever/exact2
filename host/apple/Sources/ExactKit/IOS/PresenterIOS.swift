@@ -407,7 +407,7 @@ package final class Presenter {
         let m = pageMargins; var size = viewportSize
         for r in root.subviews {
             let v = r as? NodeView, extent = v.flatMap { $0.scrollView == nil && !$0.overflowClips && !$0.isHidden ? $0.content : nil }
-            let reach = extent.map { r.convert(CGRect(origin: .zero, size: $0), to: root) } ?? .zero // through the root's transform
+            let reach = extent.flatMap { _ in v?.documentOverflow(in: root) } ?? .zero
             size = CGSize(width: max(size.width, r.frame.maxX, reach.maxX), height: max(size.height, r.frame.maxY, reach.maxY))
         }
         let frame = CGRect(origin: CGPoint(x: m.left, y: m.top), size: size)
