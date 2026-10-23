@@ -5,7 +5,7 @@ import XCTest
 @testable import ExactKit
 
 final class SheetSurfaceMacTests: XCTestCase {
-    private func capture(_ window: NSWindow, name: String) throws -> NSBitmapImageRep {
+    private func capture(_ window: NSWindow) throws -> NSBitmapImageRep {
         window.contentView?.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
         CATransaction.flush()
@@ -13,7 +13,6 @@ final class SheetSurfaceMacTests: XCTestCase {
         let symbol = try XCTUnwrap(dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage"))
         let image = try XCTUnwrap(unsafeBitCast(symbol, to: Create.self)(.null, 1 << 3, UInt32(window.windowNumber), 1 << 0)?.takeRetainedValue())
         let rep = NSBitmapImageRep(cgImage: image)
-        try rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "/tmp/b2-sheet-\(name).png"))
         return rep
     }
 
@@ -68,7 +67,7 @@ final class SheetSurfaceMacTests: XCTestCase {
         let limit = Date().addingTimeInterval(5)
         while reference.attachedSheet == nil && Date() < limit { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
         let swiftSheet = try XCTUnwrap(reference.attachedSheet)
-        let expected = try measuredColours(try capture(swiftSheet, name: "swiftui"))
+        let expected = try measuredColours(try capture(swiftSheet))
 
         let f = try SheetFixture(page: """
         component Proof
@@ -93,7 +92,7 @@ final class SheetSurfaceMacTests: XCTestCase {
         f.window.orderFront(nil)
         try f.press("open")
         let actualSheet = try XCTUnwrap(f.window.attachedSheet)
-        let picture = try capture(actualSheet, name: "exact")
+        let picture = try capture(actualSheet)
         let actual = try measuredColours(picture)
         let top = try XCTUnwrap(picture.colorAt(x: picture.pixelsWide / 2, y: 30)?.usingColorSpace(.sRGB))
         let topRGB = [top.redComponent, top.greenComponent, top.blueComponent].map { Int(($0 * 255).rounded()) }
