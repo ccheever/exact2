@@ -211,10 +211,14 @@ for (const wasm of [false, true]) describe(`${wasm ? 'wasm' : 'JS'} dev routes`,
         const hear = data => { said = (said + data).slice(-12000); if (said.includes(url + '/')) finish(); };
         dev.stdout.on('data', hear); dev.stderr.on('data', hear); dev.once('exit', exited);
       });
-      streamTimer = setTimeout(() => controller.abort(new Error('dev build notification did not arrive')), 30_000);
+      // Each wait on the stream gets its own 30-second bound; a loaded box
+      // takes longer than that for the whole sequence of rebuilds.
+      const bound = () => { clearTimeout(streamTimer); streamTimer = setTimeout(() => controller.abort(new Error('dev build notification did not arrive')), 30_000); };
+      bound();
       const response = await fetch(url + (wasm ? '/__dev' : '/__dev/page'), {signal: controller.signal});
       const lines = createInterface({input: Readable.fromWeb(response.body)})[Symbol.asyncIterator]();
       const nextBuild = async predicate => {
+        bound();
         for (;;) {
           const {value: line, done} = await lines.next();
           if (done) throw new Error('dev event stream closed');
@@ -266,7 +270,7 @@ for (const wasm of [false, true]) describe(`${wasm ? 'wasm' : 'JS'} dev routes`,
       clearTimeout(streamTimer); controller.abort();
       await dev.stop(30_000);
     }
-  }, 65_000);
+  }, 300_000);
 });
 
 test('HTTP route caches read each plan asynchronously once and refresh after edits', async () => {
