@@ -14,7 +14,7 @@
 use crate::host::{Host, Key, Mode};
 use crate::image::{protocol_bytes, Protocol};
 use exact_runner::DataSource;
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write};
 use vte::{Params, Parser, Perform};
 
 #[cfg(unix)]
@@ -40,6 +40,13 @@ pub fn run<D: DataSource>(_host: &mut Host<D>) -> std::io::Result<()> {
 /// Whether stdin and stdout are terminals.
 pub fn is_terminal() -> bool {
     std::io::stdout().is_terminal() && std::io::stdin().is_terminal()
+}
+
+// stderr can share stdout's nonblocking open file description. Drop a
+// diagnostic on write failure; waiting for a stopped terminal would stall input
+// and signal handling.
+pub(crate) fn diagnostic(args: std::fmt::Arguments<'_>) {
+    let _ = writeln!(std::io::stderr().lock(), "{args}");
 }
 
 /// What the input decodes to.
