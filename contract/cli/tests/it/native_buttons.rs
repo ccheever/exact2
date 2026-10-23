@@ -216,6 +216,28 @@ fn the_style_is_a_name_in_the_table_on_a_native_button_only() {
 }
 
 #[test]
+fn face_diagnostics_name_images_and_give_rasters_a_custom_layout() {
+    for (body, says) in [
+        (
+            "button appearance=\"auto\"\n  image \"symbol:add\"",
+            "only an image",
+        ),
+        (
+            "button appearance=\"auto\"\n  image \"symbol:add\"\n  image \"symbol:close\"",
+            "one `image`",
+        ),
+    ] {
+        let (_, message) = refused(body);
+        assert!(message.contains(says), "{message}");
+    }
+    let (_, message) =
+        refused("button appearance=\"auto\"\n  image \"photo.png\" width=32\n  text \"Photo\"");
+    assert!(message.contains("raster"), "{message}");
+    assert!(message.contains("appearance=\"none\""), "{message}");
+    assert!(!message.contains("font-size"), "{message}");
+}
+
+#[test]
 fn its_face_is_a_title_a_symbol_or_both() {
     boot(&app("button appearance=\"auto\" press=go aria-label=\"Add\"\n  image (busy ? \"symbol:close\" : \"symbol:add\")"));
     // A role by Apple's name for it or an alias (LLP 1116.007 D3.1).
