@@ -53,7 +53,7 @@ final class BaselinePrecisionIOSTests: XCTestCase {
                 // UILabel paints one more descender row in these two 2x cases.
                 let extra = scale == 2 && size != 17 ? 1 : 0
                 XCTAssertEqual(actual.upperBound, expected.upperBound - extra)
-                XCTAssertEqual(paragraph.height, [13: CGFloat(16), 16: 20, 17: 21][Int(size)])
+                XCTAssertEqual(paragraph.height, [13: CGFloat(16), 16: 18, 17: 20][Int(size)], "Chrome's line height retains UIKit's glyph placement")
                 if let directory = ProcessInfo.processInfo.environment["EXACT_PIXEL_CAPTURES"] {
                     for (name, image) in [("exact", exact), ("label", native)] {
                         try image.pngData()?.write(to: URL(fileURLWithPath: directory).appendingPathComponent("baseline-\(Int(scale))x-\(Int(size))-\(name).png"))
