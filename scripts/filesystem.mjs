@@ -1,5 +1,5 @@
 // Tooling-only bridge to directory-owned operations. @ref LLP 1030.002.
-// The host deployment target every cargo call shares (`withHostDeployment`).
+// The host deployment target and rustc wrapper every cargo call shares (`withHostDeployment`).
 // And the one removal the tooling does itself: a private directory its own run made (`removePrivateTree`);
 // and the checkout's node_modules, installed from its lock when it has none or one did not finish (`installedModules`).
 import { spawn, spawnSync } from 'node:child_process';
@@ -18,9 +18,27 @@ import { createInterface } from 'node:readline';
 // script or not. A macOS app's own build still says its product's target (host/apple/build.mjs).
 export const HOST_MACOS = '14.0';
 
-/** `env` with the host deployment target when it names none (on a Mac). */
+// With a deployment target of 12.0 or later, ld-27037.1 (Xcode 27.1) links with chained fixups and can
+// write a dylib that dyld on macOS 27.0.1 refuses: "mis-aligned LINKEDIT string pool". rustc then fails
+// on the proc macro it cannot load, with that message or as "can't find crate for `zerofrom_derive`".
+// A deployment target is not in a proc macro's fingerprint, so a plain cargo call sharing the target
+// directory (caps' wasm check, a release build) takes such a dylib too. So the scripts' cargo calls run
+// rustc through `scripts/rustc/exact-rustc`, which links proc macros with `-no_fixup_chains`. Cargo
+// leaves RUSTC_WRAPPER out of its fingerprints, so plain and scripted calls still share every unit; it
+// is a name found on PATH so that kept modules' groups, which read it (scripts/kept.mjs), are the same
+// in every checkout. Remove both when ld is fixed.
+const WRAPPER = 'exact-rustc';
+
+/** `env` with the host deployment target when it names none, and the rustc wrapper when it names none (on a Mac). */
 export function withHostDeployment(env) {
-  return process.platform === 'darwin' && !env.MACOSX_DEPLOYMENT_TARGET ? { ...env, MACOSX_DEPLOYMENT_TARGET: HOST_MACOS } : env;
+  if (process.platform !== 'darwin') return env;
+  const out = { ...env, MACOSX_DEPLOYMENT_TARGET: env.MACOSX_DEPLOYMENT_TARGET || HOST_MACOS };
+  if (!out.RUSTC_WRAPPER) {
+    const dir = resolve(root, 'scripts/rustc');
+    out.RUSTC_WRAPPER = WRAPPER;
+    out.PATH = [dir, ...(env.PATH ?? '').split(':').filter((entry) => entry && entry !== dir)].join(':');
+  }
+  return out;
 }
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -56,7 +74,9 @@ function executable() {
   // and toolchain, once per Bun process.
   // An mtime-only shortcut can silently reuse an obsolete helper dependency.
   // The host's deployment target always, whether a build script's (an app's macOS minimum) or not: its own target directory.
-  const env = { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1', ...(process.platform === 'darwin' ? { MACOSX_DEPLOYMENT_TARGET: HOST_MACOS } : {}) };
+  const own = { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1' };
+  delete own.MACOSX_DEPLOYMENT_TARGET;
+  const env = withHostDeployment(own);
   for (const name of ['CARGO_BUILD_TARGET', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTFLAGS', 'RUSTDOCFLAGS']) delete env[name];
   for (const name of ['RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER', 'CARGO_BUILD_RUSTC_WRAPPER', 'CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER']) {
     if (env[name] && basename(env[name]) === 'clippy-driver') delete env[name];
