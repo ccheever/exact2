@@ -549,6 +549,7 @@ final class MenuHost: NSObject {
             if let host = layerHost(entry, in: entry.source?.window), entry.layer.superview !== host {
                 let later = entries[(at + 1)...].first { $0.layer.superview === host }?.layer
                 if let later { host.addSubview(entry.layer, positioned: .below, relativeTo: later) } else { host.addSubview(entry.layer) }
+                entry.layer.setPaintForeground() // its depth among the new owner's, which kept the old one's
             }
             entry.layer.frame = entry.layer.superview?.bounds ?? presenter.viewport.bounds
             let anchor: NSRect = entry.source.map { self.anchor($0, in: entry.layer, run: entry.run) } ?? .zero
