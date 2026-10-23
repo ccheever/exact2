@@ -212,7 +212,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
                 let run = inlineContextTarget(at: touch.location(in: self))
                 if (run?.props["contextPopover"] ?? (run == nil ? props["contextPopover"] : nil))?.isEmpty == false { return false }
             }
-            if let hit = touch.view as? NodeView, let source = hit.contextMenuSource, source !== self { return false }
+            if let hit = touch.view as? NodeView, let source = hit.contextMenuSource(at: touch.location(in: hit)), source !== self { return false }
         }
         #endif
         if hitsNativeEditor(touch.view) { return false }

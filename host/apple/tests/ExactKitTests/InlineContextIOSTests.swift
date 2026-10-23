@@ -120,6 +120,33 @@ final class InlineContextIOSTests: XCTestCase {
         XCTAssertEqual(heard, [2, 10])
     }
 
+    func testAnInlineMenuLeavesTheRowsMenuOnSurroundingText() throws {
+        let p = try presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        p.apply(wireBatch([
+            ["op": "props", "id": 1, "set": ["contextPopover": "row-menu"]],
+            ["op": "create", "id": 5, "kind": "view", "props": ["popover": "auto", "id": "row-menu"]],
+            ["op": "create", "id": 6, "kind": "button", "handlers": ["press"]],
+            ["op": "children", "id": 5, "ids": [6]],
+            ["op": "children", "id": 1, "ids": [2, 3, 5]],
+        ]))
+        let row = try XCTUnwrap(p.views[1]), node = try XCTUnwrap(p.views[2])
+        let outer = try XCTUnwrap(row.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
+        let inner = try XCTUnwrap(node.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
+        let plain = try XCTUnwrap(node.inlineRects(try XCTUnwrap(p.inlineText(11))).first)
+        let point = CGPoint(x: plain.midX, y: plain.midY)
+        XCTAssertNil(p.menus.context.contextMenuInteraction(inner, configurationForMenuAtLocation: point))
+        let config = try XCTUnwrap(p.menus.context.contextMenuInteraction(outer, configurationForMenuAtLocation: row.convert(point, from: node)))
+        XCTAssertEqual((config.identifier as? NSNumber)?.uint32Value, row.id)
+        XCTAssertEqual(p.menus.context.open?.name, "row-menu")
+        let tag = try XCTUnwrap(node.inlineRects(try XCTUnwrap(p.inlineText(10))).first)
+        let tagPoint = CGPoint(x: tag.midX, y: tag.midY)
+        XCTAssertNil(p.menus.context.contextMenuInteraction(outer, configurationForMenuAtLocation: row.convert(tagPoint, from: node)))
+        let tagConfig = try XCTUnwrap(p.menus.context.contextMenuInteraction(inner, configurationForMenuAtLocation: tagPoint))
+        XCTAssertEqual((tagConfig.identifier as? NSNumber)?.uint32Value, 10)
+        XCTAssertEqual(p.menus.context.open?.name, "tag-menu")
+    }
+
     func testPlainAndInertRunsDoNotOpenTheInlineMenu() throws {
         let p = try presenter()
         defer { p.menus.reset(); window.isHidden = true }
