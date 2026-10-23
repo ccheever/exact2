@@ -529,6 +529,24 @@
     if (p) { pending.delete(ticket); p.release(); }
     return p;
   }
+  // --- scheduler.yield (WICG Prioritized Task Scheduling; LLP 1141.001 D10): `settle` parks the
+  // answer as `yielded`, the host asks it again at once (`Dispatch::Again`), and `__exact_yielded`
+  // resolves its yields in that new turn. Counted: an answer awaiting another's yielding work waits.
+  var yielded = 0;
+  function yieldTurn() {
+    if (overlaying) return Promise.reject(inOverlay("scheduler.yield()"));
+    var call = currentCall;
+    if (call && (call.letGo || (call.replied && call.status === "pending"))) return Promise.reject(new DOMException("the answer was let go", "AbortError"));
+    // No answer's turn to end (module evaluation, a mapper, background work, a continuation after its reply): go on.
+    if (!call || call === background || inMapper || call.status !== "pending" || call.replied) return Promise.resolve();
+    return new Promise(function (resolve, reject) { (call.yields || (call.yields = [])).push([resolve, reject]); yielded++; });
+  }
+  // End a call's yields, resolved or rejected with `error`: how many there were.
+  function endYields(call, error) {
+    var ys = call.yields || []; call.yields = []; yielded -= ys.length;
+    ys.forEach(function (y) { if (error) y[1](error); else y[0](); }); return ys.length;
+  }
+  fixed(global, "scheduler", Object.freeze({ yield: yieldTurn, postTask: function () { throw new Error("scheduler.postTask() is unavailable in data sources: there are no timers; split long work with await scheduler.yield()"); } }));
   function Response(r) {
     this.status = r.status;
     this.ok = r.status >= 200 && r.status < 300;
@@ -1113,6 +1131,7 @@
   // background's, so nothing is stranded (kanban F22's reason to wait). On a
   // worker placement, which runs one turn to its end, it still waits.
   function reply(call, text) {
+    endYields(call); // a branch its value did not wait for goes on, as a browser's does
     call.replied = true;
     calls.delete(call.id); cleanUp();
     return text;
@@ -1138,6 +1157,7 @@
       var own = pending.get(call.tickets[i]);
       if (own && !own.claimed && own.call === call && (own.early || !others)) return claim(call, call.tickets[i]);
     }
+    if (!finished && call.yields && call.yields.length) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, yielded: true });
     if (call.storage > 0 && !call.lost) {
       if (finished && moving) {
         // Its value is ready: what it started and did not await is the
@@ -1172,7 +1192,7 @@
       // ticket (D2); an answer awaiting it waits with the module below.
       storing.forEach(function (c) { if (c !== background && !calls.has(c.id)) left = true; });
       if (left) return JSON.stringify({ tag:1, call:call.id, ticket:0 });
-      if (!final && (pending.size || storing.size)) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
+      if (!final && (pending.size || storing.size || yielded)) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
     } else if (moving && !final && background.storage > 0) {
       // The page's realm runs one answer at a time, but background work
       // goes on beside it: an answer awaiting it parks and is asked again
@@ -1336,7 +1356,7 @@
     dropped.forEach(function (p) {
       p.reject(new FetchError({ kind: "Aborted", message: "the answer was let go before this reply; the request may already have been sent" }));
     });
-    var rejected = dropped.length ? " rejected" : "";
+    var rejected = dropped.length + endYields(call, new DOMException("the answer was let go", "AbortError")) ? " rejected" : "";
     if (call.storage > 0 && !call.lost) { call.letGo = true; return "storage" + rejected; }
     call.replied = true;
     calls.delete(call.id); cleanUp();
@@ -1461,6 +1481,8 @@
     storing.delete(call);
     call.error = storageError(message);
   };
+  // A yielded answer's new turn: its yields resolve in the drain that follows.
+  global.__exact_yielded = function (id) { var call = calls.get(Number(id)); if (call) { currentCall = call; endYields(call); } };
   global.__exact_fulfill = function (ticket, outcomeJson) {
     var p = settled(Number(ticket));
     if (!p) return;

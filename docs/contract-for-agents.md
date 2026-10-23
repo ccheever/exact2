@@ -1018,6 +1018,25 @@ macOS, iOS and Linux**; the wasm target and Rust sources remain
 receive-only. See
 [the reference](reference.md#generate-typescript-data-source-types) for bounds and events.
 
+A large response needs a parse that yields. On native hosts each turn of an
+answer has 100 ms: from its call, or from the `fetch` or storage step it
+awaited, until it next awaits one. A turn over that is refused, so a parse
+that passes its tests on a 300 KB thread fails on a 1 MB one.
+`await scheduler.yield()` (the web's [Prioritized Task
+Scheduling](https://wicg.github.io/scheduling-apis/#dom-scheduler-yield)) ends
+the turn, and the answer goes on in a new one with its own 100 ms. Yield every
+few thousand items in a parse or tree walk:
+
+```ts
+for (let i = 0; i < nodes.length; i++) {
+  if (i % 2000 === 1999) await scheduler.yield();
+  comments.push(toComment(nodes[i]));
+}
+```
+
+The function that yields is `async`, and so is every caller that awaits it.
+On the web the page has no such budget, and a yield lets it paint mid-parse.
+
 ### Optimistic writes: the overlay
 
 To show a write before its reply, the mutation declares `refreshes` and the data
