@@ -232,8 +232,8 @@ extension Spec {
     /// soft hyphen keeps only those. An unknown language is the web page's
     /// default `lang="en"`; one CoreFoundation cannot hyphenate is left as
     /// `manual`. The source map takes the inserted characters back out.
-    package mutating func hyphenateAuto() {
-        guard automaticHyphens, source.inserted.isEmpty else { return }
+    package mutating func hyphenateAuto(allowEmergency: Bool = true) {
+        guard automaticHyphens, allowEmergency || !emergencyHyphens, source.inserted.isEmpty else { return }
         let locale = CFLocaleCreate(nil, CFLocaleCreateCanonicalLocaleIdentifierFromString(nil, (language.isEmpty ? "en" : language) as CFString))
         guard CFStringIsHyphenationAvailableForLocale(locale) else { return }
         var shaped = 0
