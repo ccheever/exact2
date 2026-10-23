@@ -49,8 +49,18 @@ export function nativeBuild(host, app, { sample = false, checked = null } = {}) 
   const built = ios ? appleArtifacts(app, { destination: 'ios-simulator', host: sample }).bundle : appleRunBinary(app, sample);
   if (!existsSync(built)) return { built, missing: true, changed: [] };
   const receipt = ios ? resolve(built, 'receipt.json')
-    : [resolve(built, '..', 'receipt.json'), resolve(appleArtifacts(app, { host: sample }).bundle, 'Contents/Resources/receipt.json')].find(existsSync);
-  return { built, receipt, changed: receipt ? receiptChanges(receipt, app, { hashed: !!checked && checked === digestOf(receipt) }) : [] };
+    : [resolve(appleArtifacts(app, { host: sample }).products, 'receipt.json'), resolve(appleArtifacts(app, { host: sample }).bundle, 'Contents/Resources/receipt.json')].find(existsSync);
+  const changed = receipt ? receiptChanges(receipt, app, { hashed: !!checked && checked === digestOf(receipt) }) : [];
+  if (!ios && !sample && receipt) {
+    const bundled = resolve(appleArtifacts(app).bundle, 'Contents/Resources/receipt.json');
+    try {
+      const selected = JSON.parse(readFileSync(receipt, 'utf8')), actual = JSON.parse(readFileSync(bundled, 'utf8'));
+      const identity = r => [r.built, r.started, r.target, r.composition, r.compatibilityId, r.build?.trust, r.build?.binary?.sha256];
+      // The shared .app path can have been replaced by a release in another build namespace.
+      if (actual.build?.trust !== 'development' || JSON.stringify(identity(selected)) !== JSON.stringify(identity(actual))) changed.push(bundled);
+    } catch { changed.push(bundled); }
+  }
+  return { built, receipt, changed };
 }
 
 /** Why a drive must build first, or null when it need not: no build yet, or

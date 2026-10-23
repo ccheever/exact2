@@ -49,6 +49,61 @@ function scratchApp(name) {
   return { dir, write };
 }
 
+test('macOS freshness checks the full product receipt when the bundle carries a reduced receipt', () => {
+  const previous = process.env.EXACT_APP_DIR, { dir, write } = scratchApp('ats-drive');
+  try {
+    process.env.EXACT_APP_DIR = dir;
+    const app = resolveApp('ats-drive'), source = resolve(dir, 'source.swift');
+    write('source.swift', 'before');
+    const paths = appleArtifacts(app), executable = resolve(paths.bundle, 'Contents/MacOS', paths.executable);
+    mkdirSync(dirname(executable), { recursive: true }); writeFileSync(executable, '');
+    const receipt = resolve(paths.products, 'receipt.json'), time = new Date(Date.now() + 60_000);
+    mkdirSync(dirname(receipt), { recursive: true });
+    writeFileSync(receipt, JSON.stringify({ target: paths.target, started: time.toISOString(), build: { trust: 'development', binary: { sha256: 'dev',
+      inputs: [{ name: 'source.swift', path: source, sha256: createHash('sha256').update('before').digest('hex') }], missing: [], directories: [] } } }));
+    utimesSync(receipt, time, time);
+    const bundled = resolve(paths.bundle, 'Contents/Resources/receipt.json');
+    mkdirSync(dirname(bundled), { recursive: true });
+    const shipped = JSON.parse(readFileSync(receipt, 'utf8')); shipped.build.binary = { sha256: 'dev' };
+    writeFileSync(bundled, JSON.stringify(shipped));
+    assert.equal(nativeBuild('macos', app).receipt, receipt);
+    assert.deepEqual(nativeBuild('macos', app).changed, []);
+    write('source.swift', 'after');
+    assert.deepEqual(nativeBuild('macos', app).changed, ['source.swift']);
+    write('source.swift', 'before');
+  } finally {
+    if (previous === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = previous;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a release published after a development build must be rebuilt before an agent drive', () => {
+  const previous = process.env.EXACT_APP_DIR, { dir, write } = scratchApp('release-after-dev');
+  try {
+    process.env.EXACT_APP_DIR = dir;
+    const app = resolveApp('release-after-dev'), paths = appleArtifacts(app), receipt = resolve(paths.products, 'receipt.json');
+    const bundled = resolve(paths.bundle, 'Contents/Resources/receipt.json'), binary = appleRunBinary(app);
+    const development = { built: new Date(Date.now() + 60_000).toISOString(), target: paths.target, composition: paths.composition,
+      build: { trust: 'development', binary: { sha256: 'dev', inputs: [], missing: [], directories: [] } } };
+    write(relative(dir, binary), 'development executable');
+    write(relative(dir, receipt), JSON.stringify(development));
+    write(relative(dir, bundled), JSON.stringify(development));
+    assert.deepEqual(nativeBuild('macos', app).changed, []);
+    const release = { ...development, build: { trust: 'production', binary: { sha256: 'release' } } };
+    write(relative(dir, bundled), JSON.stringify(release));
+    write(relative(dir, binary), 'production executable');
+    const stale = nativeBuild('macos', app);
+    assert.ok(stale.changed.includes(bundled), 'the development source receipt cannot approve a production bundle');
+    assert.throws(() => refuseBuild('macos', stale, app), /build is stale/);
+    write(relative(dir, bundled), JSON.stringify(development));
+    write(relative(dir, binary), 'rebuilt development executable');
+    assert.deepEqual(nativeBuild('macos', app).changed, []);
+  } finally {
+    if (previous === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = previous;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('a missing or stale build is built first, said in one line; a fresh one runs nothing and says nothing', async () => {
   const previous = process.env.EXACT_APP_DIR, macBin = process.env.EXACT_MAC_BIN;
   const { dir, write } = scratchApp('field-log');
