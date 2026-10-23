@@ -237,20 +237,24 @@ final class KeyboardFocusIOSTests: XCTestCase {
         shortcut.frame = CGRect(x: 32, y: 350, width: 100, height: 44)
         shortcut.handlers = ["press"]
         shortcut.applyProps(set: ["accessibilityKeyShortcuts": "Meta+g"], clear: [])
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        func until(_ message: String, _ condition: () -> Bool) {
+            let end = Date(timeIntervalSinceNow: 10)
+            while !condition(), Date() < end { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
+            XCTAssertTrue(condition(), message)
+        }
+        until("the window is key") { window.isKeyWindow && view.window === window }
         XCTAssertTrue(view.becomeFirstResponder())
         button.performPrimaryAction()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
         func containsOption(_ node: UIView) -> Bool {
             (node as? UILabel)?.text == "Blueberry Spread" || node.subviews.contains(where: containsOption)
         }
-        XCTAssertTrue(containsOption(window), "the real UIKit menu opened")
+        until("the real UIKit menu opened") { containsOption(window) && view.isFirstResponder }
         XCTAssertTrue(view.isFirstResponder, "shortcut focus survives opening the menu")
         // nil lets UIKit request its default keyboard for this responder.
         // A nontext responder must instead supply input with no height.
         XCTAssertEqual(view.inputView?.bounds.height, 0, "shortcut focus must not request a system keyboard")
         button.contextMenuInteraction?.dismissMenu()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        until("the menu dismissed and shortcut focus remains") { !containsOption(window) && view.isFirstResponder }
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
         let command = try XCTUnwrap(view.keyCommands?.first { $0.input == "g" && $0.modifierFlags == .command })
@@ -262,7 +266,7 @@ final class KeyboardFocusIOSTests: XCTestCase {
         let field = UITextField(frame: CGRect(x: 32, y: 300, width: 250, height: 44))
         view.addSubview(field)
         XCTAssertTrue(field.becomeFirstResponder())
-        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        until("the text field owns input") { field.isFirstResponder && view.inputView == nil }
         XCTAssertNil(view.inputView, "text entry must not inherit the shortcut responder’s empty input view")
         field.insertText("Glaze")
         XCTAssertEqual(field.text, "Glaze")
