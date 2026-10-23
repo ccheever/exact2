@@ -32,6 +32,7 @@ mod measure;
 mod motion;
 pub mod params;
 mod residual;
+mod selectors;
 mod session;
 mod shadow;
 mod syntax;
