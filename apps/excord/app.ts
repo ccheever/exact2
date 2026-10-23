@@ -4,7 +4,7 @@
 // request, `askAnchor`: a data module has no clock.)
 import type { Answer, Result, Sources } from './app.contract.d.ts';
 import * as world from './world';
-import { createRenderer } from './render';
+import { createRenderer, windowOf } from './render';
 
 export const appId = 'com.exact.excord';
 // Where Discord is: the fixture (`bun apps/excord/fixture/server.ts`) unless the bake says otherwise.
@@ -14,7 +14,7 @@ export const origin = 'http://127.0.0.1:4790';
 export const grants = '';
 
 const render = createRenderer(world);
-const LIMIT = 200, HALF = 100;
+const LIMIT = 200;
 const later = <T>(answer: () => T): Promise<T> => Promise.resolve().then(answer);
 
 function ack(write: () => unknown): Promise<Result<'sendMessage'>> {
@@ -24,20 +24,9 @@ function ack(write: () => unknown): Promise<Result<'sendMessage'>> {
   });
 }
 
-// `since` is the read position the reader opened the channel at: the first row
-// after it is the New divider's.
 function window(channel: string, anchor: string, since: string): Result<'loadWindow'> {
   if (!channel) return { channel: '', anchor, rows: [], hasBefore: false, hasAfter: false, firstId: '', lastId: '', pin: '' };
-  const page = anchor ? world.around(channel, anchor, LIMIT) : world.latest(channel, LIMIT);
-  const rows = page.messages.map((m, i) => {
-    const row = i ? render(m, page.messages[i - 1]) : render(m, page.previous, page.hasBefore && !page.previous);
-    const previousId = i ? page.messages[i - 1].id : page.previous?.id ?? '';
-    const isNew = since !== '' && m.id > since && previousId <= since;
-    return isNew ? { ...row, isNew } : row;
-  });
-  return { channel, anchor, rows, hasBefore: page.hasBefore, hasAfter: page.hasAfter,
-    firstId: rows[0]?.id ?? '', lastId: rows[rows.length - 1]?.id ?? '',
-    pin: anchor || rows[Math.max(0, rows.length - HALF)]?.id || '' };
+  return windowOf(anchor ? world.around(channel, anchor, LIMIT) : world.latest(channel, LIMIT), channel, anchor, since, render);
 }
 
 const sources: Sources = {

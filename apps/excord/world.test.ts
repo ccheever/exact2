@@ -3,7 +3,7 @@ import { answer } from './app';
 import type { Args, Result, Source, Storage, Store } from './app.contract.d.ts';
 import { createWorld, WORLD_NOW } from './world';
 import type { Message } from './world';
-import { createRenderer, renderMessage } from './render';
+import { createRenderer, renderMessage, windowOf } from './render';
 import { generate, photos, emojiNames } from './fixture';
 import { decodePng } from '../../scripts/png.mjs';
 
@@ -247,14 +247,33 @@ test('bundled PNGs decode at their real sizes, stay small and include deliberate
   expect(attachments.filter(a => !a.width).length / attachments.length).toBeCloseTo(0.1, 1);
 });
 
-test('a page carries the message before it, and a first row says when it does not know it (review: Grok 7)', () => {
+test('a page carries the message before it (review: Grok 7)', () => {
   const w = createWorld(), render = createRenderer(w);
   const page = w.around('general', w.latest('general', 300).messages[0].id, 200);
   expect(page.previous?.id).toBe(w.previous('general', page.messages[0].id)?.id);
   expect(render(page.messages[0], page.previous).prevAt).toBe(page.previous!.timestamp);
-  const unheld = render(page.messages[0], undefined, true);
-  expect(unheld.prevAt).toBe(-1);
-  expect(unheld.grouped).toBe(false);
+});
+
+test('a row is drawn only with its predecessor, so its grouping never changes under the reader (re-check: Grok 7)', () => {
+  const w = createWorld(), render = createRenderer(w), all = w.latest('general', 10000).messages;
+  // A message that continues its author's group, whose predecessor a store might not hold.
+  const i = all.findIndex((m, j) => j > 100 && render(m, all[j - 1]).grouped);
+  const whole = windowOf({ messages: all.slice(i - 1, i + 99), previous: all[i - 2], hasBefore: true, hasAfter: true },
+    'general', all[i].id, '', render);
+  const unheld = windowOf({ messages: all.slice(i, i + 100), hasBefore: true, hasAfter: true }, 'general', all[i].id, '', render);
+  expect(unheld.rows[0].id).toBe(all[i + 1].id);
+  const shared = unheld.rows.filter(row => whole.rows.some(r => r.id === row.id));
+  expect(shared.length).toBeGreaterThan(90);
+  for (const row of shared) expect(row).toEqual(whole.rows.find(r => r.id === row.id)!);
+});
+
+test('the New divider is the first message after the read position, never one without a predecessor (re-check: Grok new 2)', () => {
+  const w = createWorld(), render = createRenderer(w), all = w.latest('help', 1200).messages;
+  const since = all[900].id;
+  const page = { messages: all.slice(950, 1150), hasBefore: true, hasAfter: true };
+  expect(windowOf(page, 'help', all[1000].id, since, render).rows.some(r => r.isNew)).toBe(false);
+  const around = windowOf(w.around('help', since, 200), 'help', since, since, render);
+  expect(around.rows.filter(r => r.isNew).map(r => r.id)).toEqual([all[901].id]);
 });
 
 test('a reply tells a deleted original from one the store has not loaded (review: Sol 9)', () => {
