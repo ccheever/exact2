@@ -211,7 +211,8 @@ const componentOfPath = token => {
 /** The packages' tokens from their designs: [{ name, kind }], `kind` a
  * length, a number or (no type) a colour. */
 export function packageTokens(root = ROOT) {
-  return PACKAGES.flatMap(p => [...readFileSync(join(root, 'packages', p, `${p}.tamber`), 'utf8').matchAll(/^\s+([a-z][\w-]*(?:\.[\w-]+)+)(?::\s*([\w-]+))?\s*=/gm)]
+  // An icon token (`name = icon(svg "…")`) is no colour, length or number: no case restyles it.
+  return PACKAGES.flatMap(p => [...readFileSync(join(root, 'packages', p, `${p}.tamber`), 'utf8').matchAll(/^\s+([a-z][\w-]*(?:\.[\w-]+)+)(?::\s*([\w-]+))?\s*=(?!\s*icon\()/gm)]
     .map(m => ({ name: m[1], kind: m[2] ?? 'color' })));
 }
 
