@@ -394,3 +394,82 @@ component App
         assert_eq!(spec["s"], 2.0, "the play starts at reveal, not mount");
     }
 }
+
+#[test]
+fn a_played_morph_is_sampled_again_when_its_scene_gains_markers_or_paint_servers() {
+    let source = r##"component App
+  state up = false
+  state decorated = false
+  action go
+    up = true
+  action decorate
+    decorated = true
+  view
+    column
+      button press=go testId="go"
+        text "Go"
+      button press=decorate testId="decorate"
+        text "Decorate"
+      svg width=100 height=100
+        defs
+          linearGradient id="g"
+            stop offset=0 stop-color="#000"
+            stop offset=1 stop-color="#fff"
+          marker id="m" markerWidth=4 markerHeight=4 refX=2 refY=2
+            circle cx=2 cy=2 r=2
+        path testId="a" d=(up ? "M0 0 L100 0" : "M0 50 L100 50") stroke=(decorated ? "url(#g)" : "#000") transition="d 1000ms linear"
+        path testId="b" d=(up ? "M0 10 L100 10" : "M0 60 L100 60") stroke="#000" transition="d 1000ms linear"
+"##;
+    for source in [
+        source.to_owned(),
+        source.replace(
+            "stroke=(decorated ? \"url(#g)\" : \"#000\")",
+            "stroke=\"#000\" marker-end=(decorated ? \"url(#m)\" : \"none\")",
+        ),
+    ] {
+        let plan = contract::compile(&source).unwrap().encode();
+        let (mut host, _) = Host::boot(
+            &plan,
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            390.,
+            844.,
+        )
+        .unwrap();
+        let id = |host: &Host<NoData>, name: &str| {
+            let k = host.runner.kernel();
+            k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
+        };
+        let keys: Vec<_> = ["a", "b"]
+            .into_iter()
+            .map(|name| {
+                exact_kernel::motion::motion_node(host.runner.kernel().find_by_test_id(name)[0])
+            })
+            .collect();
+        let go = id(&host, "go");
+        host.dispatch_at(go, exact_runner::Event::Press, 0.);
+        for key in &keys {
+            assert!(host.engine.played_path(*key).is_some());
+        }
+        let decorate = id(&host, "decorate");
+        let batch = host.dispatch_at(decorate, exact_runner::Event::Press, 500.);
+        for key in &keys {
+            assert!(
+                host.engine.played_path(*key).is_none(),
+                "the whole scene must be sampled: {batch}"
+            );
+            assert!(host.engine.presented_path(*key).is_some());
+        }
+        let sampled = host.engine.presented_path(keys[0]).unwrap();
+        assert_eq!(sampled.0[0].args[1], 25.);
+        assert_eq!(sampled.0[1].args[1], 25.);
+        assert!(
+            !scene(&batch).to_string().contains("\"k\":\"path\""),
+            "{batch}"
+        );
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&batch).unwrap()["motion"],
+            true
+        );
+    }
+}
