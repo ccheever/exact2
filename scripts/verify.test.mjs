@@ -143,6 +143,12 @@ test('the relaunch keeps a test\'s pinned date, zone, locale and seed', () => {
   assert.equal(pinnedLaunch(test({ ...defaults, timeZone: 'Pacific/Auckland' }), defaults), true);
   assert.equal(pinnedLaunch(test({ ...defaults, locale: 'fr-FR' }), defaults), true);
   assert.equal(pinnedLaunch(test({ ...defaults, seed: 7 }), defaults), true);
+  assert.equal(pinnedLaunch(test({ ...defaults, media: {} }), defaults), false);
+  assert.equal(pinnedLaunch(test({ ...defaults, media: { 'prefers-color-scheme': 'light' } }), defaults), false);
+  const dark = { ...defaults, media: { 'prefers-color-scheme': 'dark', 'prefers-reduced-motion': 'reduce' } };
+  assert.equal(pinnedLaunch(test(dark), defaults), true);
+  assert.deepEqual(relaunchFacts(test(dark)).media, dark.media);
+
   assert.equal(pinnedLaunch({ name: 'saves', end: { keep: true } }, defaults), false); // a test run without launch facts
 
   // The relaunch under October is compared with a fresh launch under October: the month's title is October's in both, so

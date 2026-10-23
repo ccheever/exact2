@@ -291,3 +291,88 @@ test "an expected refusal before reload does not accept the next journal"
     expect(findings[1].lines).toContain('t=0 send saved failed: Refused on purpose; it ends unsent');
   } finally { server.close(); rmSync(dir,{recursive:true,force:true}); }
 },180_000);
+
+test('authored media preferences apply before observations, override by name, and survive reload', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-test-media-'));
+  const contract = join(dir, 'app.contract'), plan = join(dir, 'app.plan'), dist = join(dir, 'dist'), file = join(dir, 'app.test.contract');
+  writeFileSync(contract, `shape Viewport
+  prefersColorScheme: string
+  prefersReducedMotion: bool
+component App
+  resource viewport = exactViewport() as shape Viewport
+  view
+    column
+      text viewport.prefersColorScheme testId="scheme"
+
+`);
+  writeFileSync(file, `prefer prefers-color-scheme dark
+prefer prefers-reduced-motion reduce
+
+test "inherits"
+  before data
+  expect text "scheme" == "dark"
+  expect state viewport.prefersReducedMotion == true
+  reload
+  expect text "scheme" == "dark"
+  prefer prefers-color-scheme light
+  expect text "scheme" == "light"
+  reload
+  expect text "scheme" == "light"
+  prefer prefers-color-scheme dark
+  expect text "scheme" == "dark"
+  prefer prefers-color-scheme light
+
+test "overrides only scheme"
+  prefer prefers-color-scheme light
+  expect text "scheme" == "light"
+  expect state viewport.prefersReducedMotion == true
+
+test "invalid launch value"
+  prefer prefers-color-scheme banana
+  expect text "scheme" == "dark"
+
+test "invalid launch name"
+  prefer unknown dark
+  expect text "scheme" == "dark"
+
+test "invalid later value"
+  expect text "scheme" == "dark"
+  prefer prefers-color-scheme banana
+
+test "page facts are outside the test media grammar"
+  prefer online false
+
+test "a failure does not stop the next test"
+  expect text "scheme" == "dark"
+`);
+  const root = new URL('..', import.meta.url).pathname;
+  const compile = spawnSync(join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), 'debug', 'contract'), ['build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
+  expect(compile.status, compile.stderr).toBe(0);
+  const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd: root, encoding: 'utf8' });
+  expect(build.status, build.stderr).toBe(0);
+  const server = createServer((request, response) => serveBuildTree(dist, request, response));
+  await new Promise(ok => server.listen(0, '127.0.0.1', ok));
+  const ends = [];
+  try {
+    const r = await runTests({ host: 'web', file, app: 'caltrain', url: `http://127.0.0.1:${server.address().port}/`, atEnd: async (s, t) => {
+      if (t.failures.length) return {};
+      const dark = t.launch.media['prefers-color-scheme'] === 'dark';
+      expect(await s.carrier.evaluate("matchMedia('(prefers-color-scheme: dark)').matches")).toBe(dark);
+      await t.restart();
+      expect(textExpectation((await s.tree()).nodes, 'scheme', dark ? 'dark' : 'light')).toBeNull();
+      ends.push(t.launch.media);
+      return {};
+    } });
+    expect(r.results.map(t => t.end?.error)).toEqual(Array(7).fill(undefined));
+    expect(r.results.map(t => t.failures.length)).toEqual([0, 0, 1, 1, 1, 1, 0]);
+    for (const [index, line, name, value] of [[2, 24, 'prefers-color-scheme', 'banana'], [3, 28, 'unknown', 'dark'], [4, 33, 'prefers-color-scheme', 'banana']]) {
+      expect(r.results[index].failures[0]).toContain(`line ${line}: prefer: ${name} ${value}: expected`);
+    }
+    expect(r.results[5].failures[0]).toContain('test prefer: expected a CSS media feature');
+    expect(ends).toEqual([
+      { 'prefers-color-scheme': 'light', 'prefers-reduced-motion': 'reduce' },
+      { 'prefers-color-scheme': 'light', 'prefers-reduced-motion': 'reduce' },
+      { 'prefers-color-scheme': 'dark', 'prefers-reduced-motion': 'reduce' },
+    ]);
+  } finally { server.close(); rmSync(dir, { recursive: true, force: true }); }
+}, 180_000);
