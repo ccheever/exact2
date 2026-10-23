@@ -36,7 +36,7 @@ use crate::wire::codec::{Reader, Writer};
 /// this table; native hosts and the compiler call the parsers directly.
 #[cfg(target_arch = "wasm32")]
 struct Parsers {
-    tracks: fn(&str) -> Option<GridTracks>,
+    tracks: fn(&str, bool) -> Option<GridTracks>,
     placement: fn(&str) -> Option<GridPlacement>,
     tracks_finite: fn(&GridTracks) -> bool,
     tracks_valid: fn(&GridTracks) -> bool,
@@ -230,21 +230,29 @@ impl GridTracks {
     /// Parse the CSS grammar Taffy can lay out. `subgrid`, non-pixel CSS
     /// lengths and calculated `fit-content()` limits remain unsupported.
     pub fn parse(text: &str) -> Option<Self> {
-        #[cfg(target_arch = "wasm32")]
-        return LINKED.get().and_then(|parsers| (parsers.tracks)(text));
-        #[cfg(not(target_arch = "wasm32"))]
-        Self::check(text)
+        Self::parse_with(text, false)
     }
 
-    fn check(text: &str) -> Option<Self> {
+    pub(crate) fn parse_wire(text: &str) -> Option<Self> {
+        Self::parse_with(text, true)
+    }
+
+    fn parse_with(text: &str, canonical: bool) -> Option<Self> {
+        #[cfg(target_arch = "wasm32")]
+        return LINKED
+            .get()
+            .and_then(|parsers| (parsers.tracks)(text, canonical));
+        #[cfg(not(target_arch = "wasm32"))]
+        Self::check(text, canonical)
+    }
+
+    fn check(text: &str, canonical: bool) -> Option<Self> {
         if parse_css_idents(text)
             .is_some_and(|words| words.len() == 1 && words[0].eq_ignore_ascii_case("none"))
         {
             return Some(Self::default());
         }
-        let parsed = text
-            .parse::<TaffyTracks<String, GridTrackComponent>>()
-            .ok()?;
+        let parsed = parse::tracks(text, canonical)?;
         let components = parsed.tracks;
         let line_names = parsed.line_names;
         let css = template_css(&components, &line_names);
@@ -1046,7 +1054,7 @@ fn check_set_dynamic(
                 .ok_or(StyleValueError::UnknownEnumValue { style: id })?;
         }
         StyleId::GridTemplateColumns | StyleId::GridTemplateRows => {
-            let parsed = GridTracks::check(&value.css_text(id)?)
+            let parsed = GridTracks::check(&value.css_text(id)?, false)
                 .ok_or(StyleValueError::BadGridTracks { style: id })?;
             if id == StyleId::GridTemplateColumns {
                 style.rare.grid_template_columns = parsed;
@@ -1271,6 +1279,8 @@ mod tests {
     fn calculated_grid_tracks_parse_and_roundtrip() {
         for value in [
             "calc(50% - 10px)",
+            "min(100%, calc(10px - 20px)) 1fr",
+            "calc((50% - 10px))",
             "repeat(auto-fill, minmax(min(100%, 200px), 1fr))",
             "repeat(auto-fit, minmax(min(100%, 200px), 1fr))",
             "repeat(2, minmax(calc(20% + 10px), max(30%, 120px)))",

@@ -33,5 +33,18 @@ test('the grid filter checks calculation units and functions before browser fold
     expect(result.slice(0, 3)).toEqual(['unset', 'unset', 'unset']);
     expect(result.slice(3, 7)).not.toContain('unset');
     expect(result[7]).toBe('unset');
+    const scientific = await page.evaluate(source + `; [
+      '1e-1%', '1e+1%', '1E-1%', '.1e-1%', '1e2%',
+      'calc(1e-1 * 20px)', 'calc(20px / 1e+1)', 'calc(1e-1 * 20%)',
+      'calc(1e-1 * 1e+2px)', '1e-1fr', '1e+1px'
+    ].map(v => [normal('grid-template-columns', v), gridValue('tracks', v)]);`);
+    for (const [normalized, filtered] of scientific) {
+      expect(normalized).not.toBe('');
+      expect(filtered).toBe(normalized);
+    }
+    const unsupported = await page.evaluate(source + `; [
+      '1e-1em', 'min(1e-1cm, 20px)', 'calc(1e+1 * 2vw)'
+    ].map(v => gridValue('tracks', v));`);
+    expect(unsupported).toEqual(['unset', 'unset', 'unset']);
   } finally { await page.close(); await suite.close(); }
 });

@@ -741,7 +741,7 @@ component App
   action resize
     wide = not wide
   action change
-    columns = "calc(50% - 10px) calc(50% - 10px)"
+    columns = "calc(5e-1 * 100% - 10px) calc(5e-1 * 100% - 10px)"
   view
     view
       button "Resize" press=resize testId="resize"
