@@ -196,6 +196,8 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     var partition: String?
     var agent = false
     var options: [String: Any] = [:]
+    /// The words `applyOptions` set on the current web view.
+    var applied = Set<String>()
     var browser: FrameBrowser?
     /// Loading `about:blank` in place of a refused source: its own
     /// navigation reports nothing.
@@ -268,6 +270,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         web.scrollView.contentInsetAdjustmentBehavior = .never
         web.scrollView.contentInset = .zero
         #endif
+        applied = []
         applyOptions(to: web)
         return web
     }
@@ -359,21 +362,25 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         return webView
     }
 
-    /// The `apple.*` words and `zoom` (@ref LLP 1020.002 §9, D6).
+    /// The `apple.*` words and `zoom` (@ref LLP 1020.002 §9, D6). A word
+    /// never said leaves WebKit's default; one said and then dropped goes
+    /// back to it.
     func applyOptions(to web: WKWebView) {
-        web.pageZoom = CGFloat((options["zoom"] as? NSNumber)?.doubleValue ?? 1)
-        web.allowsBackForwardNavigationGestures = options["allowsBackForwardNavigationGestures"] as? Bool ?? false
+        let said = { (key: String) in self.options[key] != nil || self.applied.contains(key) }
+        if said("zoom") { web.pageZoom = CGFloat((options["zoom"] as? NSNumber)?.doubleValue ?? 1) }
+        if said("allowsBackForwardNavigationGestures") { web.allowsBackForwardNavigationGestures = options["allowsBackForwardNavigationGestures"] as? Bool ?? false }
         #if os(macOS)
-        web.allowsMagnification = options["allowsMagnification"] as? Bool ?? false
+        if said("allowsMagnification") { web.allowsMagnification = options["allowsMagnification"] as? Bool ?? false }
         #endif
-        if #available(macOS 14.0, iOS 17.0, *) {
+        if #available(macOS 14.0, iOS 17.0, *), said("inactiveSchedulingPolicy") {
             switch options["inactiveSchedulingPolicy"] as? String {
             case "suspend": web.configuration.preferences.inactiveSchedulingPolicy = .suspend
             case "none": web.configuration.preferences.inactiveSchedulingPolicy = .none
-            case "throttle": web.configuration.preferences.inactiveSchedulingPolicy = .throttle
-            default: if partition != nil { web.configuration.preferences.inactiveSchedulingPolicy = .throttle }
+            // `throttle` is a partitioned frame's unsaid policy (D1); WebKit's default, `suspend`, an unpartitioned one's.
+            default: web.configuration.preferences.inactiveSchedulingPolicy = partition != nil || options["inactiveSchedulingPolicy"] != nil ? .throttle : .suspend
             }
         }
+        applied = Set(options.keys).subtracting(["partition", "agent"])
     }
 
     /// `partition`, `zoom` and the `apple.*` words, before the web view is
