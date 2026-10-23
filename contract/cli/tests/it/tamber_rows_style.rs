@@ -137,6 +137,12 @@ fn a_style_row_under_a_for_or_match_is_judged() {
         ("rows-style-each-first", "use Card from \"@acme/reading\"\nstyle Pad\n  padding=\"gap\"\ncomponent App\n  state items = [1]\n  view\n    column\n      for i in items key=i\n        row class=Pad\n          text \"a\"\n      row class=Pad\n        Card()\n"),
         ("rows-style-only-match", "use Card from \"@acme/reading\"\nstyle Pad\n  padding=\"gap\"\ncomponent App\n  state picked = some(1)\n  view\n    column\n      match picked\n        case some(p)\n          row class=Pad\n            Card()\n        case none\n          text \"none\"\n"),
     ] {
+        // Refused once, at the style row, however many elements apply it
+        // (Astra's round 1).
+        let dir = reading(&format!("{name}-once"));
+        let refused = refusals(&dir, DESIGN, contract, op.clone()).expect(name);
+        assert_eq!(refused.len(), 1, "{name}: {refused:?}");
+        let _ = std::fs::remove_dir_all(&dir);
         same_words(&reading(name), DESIGN, contract, op.clone(), &written);
     }
 }
@@ -152,6 +158,17 @@ fn a_style_row_under_an_untyped_region_is_left_to_the_build() {
     let contract = "use Card from \"@acme/reading\"\nfn itemsOf(x: number): number[] = [x]\nstyle Pad\n  padding=\"gap\"\ncomponent App\n  state n = 1\n  view\n    column class=Pad\n      for i in itemsOf(n) key=i\n        row class=Pad\n          Card()\n";
     let dir = reading("rows-style-each-call");
     assert_eq!(refusals(&dir, DESIGN, contract, op), None);
+    // The app builds, and the written design is refused by the build at the
+    // style row (Astra's and Grok's round 1).
+    std::fs::write(dir.join("app.tamber"), DESIGN).unwrap();
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        DESIGN.replace("gap = 8px", "gap = #444444"),
+    )
+    .unwrap();
+    let built = contract::compile_path(&dir.join("app.contract")).unwrap_err();
+    assert_eq!((built.span.line, built.span.col), (4, 11), "{built:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
