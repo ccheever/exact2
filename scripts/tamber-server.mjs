@@ -985,8 +985,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       }
     }
     // Its import cancelled while it was planned (an import's `signal`): decided in the same turn as the insert, nothing evicted.
-    if (signal?.aborted) return { status: 503, error: { message: 'the import was cancelled' } };
-    await servedClass(planned.ok); delete planned.ok.texts;
+    await servedClass(planned.ok); // (before the cancellation guard: an import that left while it was checked holds nothing)
+    if (signal?.aborted) return { status: 503, error: { message: 'the import was cancelled' } }; delete planned.ok.texts;
     const id = `prop-${epoch}-${++proposalCount}`;
     const base = Object.fromEntries(Object.entries(planned.ok.files).filter(([path]) => touched.has(path)));
     const expires = Date.now() + HOLD_MS;
