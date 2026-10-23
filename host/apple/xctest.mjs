@@ -91,13 +91,13 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
  *  every process on the Mac shares (the general pasteboard, the active app,
  *  the mouse, a capture of the screen) share one process beside them, one
  *  class after another. A window's key status and first responder belong
- *  to its own process. A class that tracks a menu (`popUp(positioning:)`)
- *  runs after all of them, alone, in a process of its own: an open menu
- *  closes when its app stops being the active one, as another test process
- *  brought forward makes it, and in the shared process it read the menu
- *  items other classes left. The Canvas 2D GPU module (`canvasGpu`) is
- *  loaded only in its own tests' process: loaded, every canvas draws on the
- *  GPU. */
+ *  to its own process. A class whose file opens a menu that tracks, by a
+ *  call of `.popUp(positioning:`, runs after all of them, alone, in a
+ *  process of its own: an open menu closes when its app stops being the
+ *  active one, as another test process brought forward makes it, and in the
+ *  shared process it read the menu items other classes left. The Canvas 2D
+ *  GPU module (`canvasGpu`) is loaded only in its own tests' process:
+ *  loaded, every canvas draws on the GPU. */
 export async function macTests(pkg, scratch, env, canvasGpu) {
   const listed = read('swift', ['test', '--skip-build', '--list-tests', '--scratch-path', scratch], { cwd: pkg, env });
   if (listed.status !== 0) throw new Error(`swift test --list-tests failed: ${listed.stderr}`);
