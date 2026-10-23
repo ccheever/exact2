@@ -802,11 +802,11 @@ final class TextSelectionMacTests: XCTestCase {
     }
 
     func testSelectedRoleDecorationsKeepExclusionFragments() throws {
-        let text = String(repeating: "The river leaves room for the light. ", count: 12)
+        let text = String(repeating: "The  river leaves room for the light. ", count: 12)
         let (session, node) = laidOut(text)
         defer { session.destroy() }
         node.frame.size = NSSize(width: 300, height: 600)
-        node.style = ["font_size": 16.0, "line_height": "24px", "text_decoration_line": "underline",
+        node.style = ["font_size": 16.0, "line_height": "24px", "line_clamp": 100, "text_decoration_line": "underline",
                       "text_color": ["sys": "secondaryLabelColor", "c": [[60, 60, 67, 153], [235, 235, 245, 153]]]]
         session.presenter.apply(wireBatch([
             ["op": "flow", "id": 1, "shapes": [["kind": "Circle", "cx": 150.0, "cy": 150.0, "r": 125.0]]],
@@ -817,7 +817,8 @@ final class TextSelectionMacTests: XCTestCase {
         XCTAssertFalse(paragraph.fragments.isEmpty)
         let p = session.presenter
         p.selection.begin(node, event: mouse(.leftMouseDown, node.convert(NSPoint(x: 5, y: 10), to: nil), clicks: 3))
-        XCTAssertEqual(p.selection.range(node), NSRange(location: 0, length: (text as NSString).length - 1))
+        let normalized = node.paragraphSpec().runs.map(\.text).joined() as NSString
+        XCTAssertEqual(p.selection.range(node), NSRange(location: 0, length: normalized.length))
         XCTAssertNotNil(Capture.picture(of: node), "selection paints every original exclusion fragment")
         XCTAssertTrue(node.paragraphLayout() === paragraph, "painting preserves the measured geometry")
     }
