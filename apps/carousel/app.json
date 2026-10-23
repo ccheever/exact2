@@ -7,6 +7,7 @@
   "display": "standalone",
   "theme_color": "#ffffff",
   "background_color": "#ffffff",
+  "background_color_dark": "#000000",
   "app": {
     "id": "com.exact.carousel",
     "name": "Carousel"
