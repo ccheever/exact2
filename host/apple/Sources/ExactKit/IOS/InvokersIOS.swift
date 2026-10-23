@@ -86,10 +86,18 @@ extension MenuHost {
         }
         return nil
     }
-    /// Dispatches that press; the caller presents what `source` opens.
+    /// Dispatches that press, then runs what `source` invokes unless it
+    /// opens something: the caller presents that. The press itself invokes
+    /// nothing, as `source`, the innermost button, owns activation; so a
+    /// handler that retargets it to hide or close an open popover hides it.
     func pressAsTouched(_ source: NodeView) {
         guard let (node, bubbled) = pressTarget(of: source) else { return }
-        presenting(source) { withoutInvocation(of: node) { presenter?.press(node.id, bubbled: bubbled) } }
+        let token = source.incarnation
+        presenting(source) {
+            withoutInvocation(of: node) { presenter?.press(node.id, bubbled: bubbled) }
+            guard source.incarnation == token, presenter?.views[source.id] === source else { return }
+            invoke(source, bubbled: presenter?.pressBox(of: source, from: source) !== source)
+        }
     }
     /// Another path owns activation; dispatch this node's handler alone.
     func withoutInvocation(of source: NodeView?, _ press: () -> Void) {
