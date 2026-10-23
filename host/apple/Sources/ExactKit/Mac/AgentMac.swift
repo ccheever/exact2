@@ -465,12 +465,15 @@ extension Agent {
                         }
                         CFRunLoopWakeUp(CFRunLoopGetMain())
                     } else {
-                        // AppKit reads these from its tracking queue rather
-                        // than a reentrant sendEvent. Its queue reconstructs
-                        // locationInWindow from the CG event's screen point.
-                        let screen = win.convertPoint(toScreen: e.locationInWindow)
-                        e.cgEvent?.location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - screen.y)
-                        NSApp.postEvent(e, atStart: false)
+                        // NSEvent.cgEvent is a copy. Construct the queued event
+                        // with both its screen and window coordinates in place.
+                        if let cg = CGEvent(mouseEventSource: nil, mouseType: type == .leftMouseUp ? .leftMouseUp : .leftMouseDragged,
+                                            mouseCursorPosition: .zero, mouseButton: .left) {
+                            cg.timestamp = UInt64(t * 1_000_000_000)
+                            if let queued = Self.windowEvent(cg, at: toWindow(p), in: win, flags: contactFlags) {
+                                NSApp.postEvent(queued, atStart: false)
+                            }
+                        }
                     }
                 } else {
                     NSApp.sendEvent(e)
@@ -490,7 +493,8 @@ extension Agent {
             presenter.agentPointer = nil
             contactFlags = named
             let hit = win.contentView?.hitTest(toWindow(p))
-            contactTracksNative = sequence(first: hit, next: { $0?.superview }).contains { $0 is NativeButtonMac }
+            contactButton = sequence(first: hit, next: { $0?.superview }).compactMap { $0 as? NativeButtonMac }.first
+            contactTracksNative = contactButton != nil
             contactWindow = win
             contact = p
             send(.leftMouseDown, p)
@@ -527,12 +531,13 @@ extension Agent {
             contactWindow = nil
             contactFlags = []
             contactTracksNative = false
+            contactButton = nil
             return ["phase": "up", "at": at(p), "delivery": "platform"]
         case "cancel":
             guard let p = contact else { return ["error": "no contact is down"] }
             contactClock += 1.0 / 60
-            // Queue a drag-away and lift to end native tracking. The contact
-            // test still exposes an action on cancel (QUEUE, LLP 1104 F6).
+            contactButton?.cancelsHeldContact = true
+            // End AppKit's tracking loop outside the button's bounds.
             let release = contactTracksNative ? CGPoint(x: -10000, y: -10000) : p
             if contactTracksNative { send(.leftMouseDragged, release) }
             send(.leftMouseUp, release)
@@ -540,6 +545,7 @@ extension Agent {
             contactWindow = nil
             contactFlags = []
             contactTracksNative = false
+            contactButton = nil
             return ["phase": "cancel", "at": at(p), "delivery": "platform"]
         default:
             return ["malformed": true, "error": "unknown phase \(phase) (down, move, hold, up, cancel)"]
