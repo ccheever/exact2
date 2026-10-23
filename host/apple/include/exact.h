@@ -406,6 +406,9 @@ uint32_t exact_entry_timeline(ExactRuntime rt, double now_ms, double remaining_m
 /* Gallery-only query: a fresh data seam and scratch store, no host activation. */
 uint32_t exact_refresh_entry(ExactRuntime rt, double now_ms);
 uint32_t exact_boot_plan(ExactRuntime rt, size_t len, float width, float height);
+/* First root's literal viewport-fit=cover, without settlement. Input plan
+ * bytes of length len, or the baked plan when len is zero. */
+uint32_t exact_plan_covers_viewport(ExactRuntime rt, size_t len);
 uint32_t exact_prepare_plan(ExactRuntime rt, uint64_t token, size_t len, float width, float height);
 /* Check every participant and commit in one owner job, without intervening turns. */
 uint32_t exact_check_prepared(ExactRuntime rt);

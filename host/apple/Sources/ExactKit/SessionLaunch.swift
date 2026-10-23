@@ -1,4 +1,17 @@
 import Foundation
+import CExact
+
+#if os(iOS) || os(tvOS)
+extension ExactSession {
+    /// The initial view needs its layout policy before resources settle.
+    var launchCoversViewport: Bool {
+        runtime.on(busy: false) {
+            let length = app.lastPlan.map { runtime.write($0) } ?? 0
+            return exact_plan_covers_viewport(runtime.rt, length) != 0
+        }
+    }
+}
+#endif
 
 /// Supplied once per session launch and reused by every replacement runner.
 struct LaunchPlace: Equatable {
