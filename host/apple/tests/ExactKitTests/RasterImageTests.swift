@@ -1,6 +1,11 @@
 import XCTest
 import ImageIO
 import CoreGraphics
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 @testable import ExactKit
 
 final class RasterImageTests: XCTestCase {
@@ -15,21 +20,67 @@ final class RasterImageTests: XCTestCase {
         XCTAssertTrue(CGImageDestinationFinalize(destination))
         return bytes as Data
     }
-    func testHalfAlphaPNGOverWhiteMatchesChrome() throws {
-        // Unassociated RGBA(255, 0, 0, 128), encoded independently of ImageIO.
-        let bytes = try XCTUnwrap(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DQAAAEgQGALFXOsAAAAABJRU5ErkJggg=="))
-        let metadata = try RasterMetadata.read(prefix: bytes, encodedBytes: bytes.count)
-        let image = try RasterImage.decode(bytes, metadata: metadata,
-            plan: RasterDecodePlan(metadata: metadata, maxPixel: 1), charge: TestRasterCharge())
+    func testHalfAlphaPNGViewOverWhiteMatchesChrome() throws {
+        // Unassociated RGBA(80, 120, 160, 128), encoded independently of ImageIO.
+        let source = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGMIqFjQAAAEbQHpbOjxOAAAAABJRU5ErkJggg=="
+        #if os(macOS)
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 40, height: 40), styleMask: [], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        #else
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 40, height: 40))
+        #endif
+        let p = Presenter()
+        p.viewport.frame = CGRect(x: 0, y: 0, width: 40, height: 40)
+        #if os(macOS)
+        window.contentView = p.viewport
+        #else
+        let controller = UIViewController()
+        controller.view = p.viewport
+        window.rootViewController = controller
+        #endif
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "props": [:], "handlers": []],
+            ["op": "create", "id": 2, "kind": "image", "props": [:], "handlers": []],
+            ["op": "style", "id": 1, "style": ["background_color": [255, 255, 255, 255]]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 40, "h": 40],
+            ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 40, "h": 40],
+            ["op": "roots", "ids": [1]]
+        ]))
+        let root = try XCTUnwrap(p.views[1]), node = try XCTUnwrap(p.views[2])
+        let loader = RasterLoader()
+        let resolver = AssetResolver(root: URL(fileURLWithPath: "/"))
+        defer {
+            loader.shutdown(); node.raster = nil
+            #if os(macOS)
+            window.close()
+            #else
+            window.isHidden = true
+            #endif
+        }
+        XCTAssertTrue(loader.load(node, source: source, resolver: resolver))
+        let deadline = Date().addingTimeInterval(5)
+        while node.raster == nil, Date() < deadline {
+            loader.reconcile()
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
+        XCTAssertNotNil(node.raster)
+        let capture = try XCTUnwrap(Capture.bitmap(of: root, scale: 1))
+        #if os(macOS)
+        let image = try XCTUnwrap(capture.cgImage)
+        #else
+        let image = try XCTUnwrap(capture.context.makeImage())
+        #endif
         let ctx = try XCTUnwrap(CGContext(data: nil, width: 40, height: 40, bitsPerComponent: 8,
             bytesPerRow: 160, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-        let rect = CGRect(x: 0, y: 0, width: 40, height: 40)
-        ctx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
-        ctx.fill(rect)
-        RasterGeometry.draw(ctx, image.image, in: rect, tint: nil)
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: 40, height: 40))
         let pixels = try XCTUnwrap(ctx.data).assumingMemoryBound(to: UInt8.self)
-        // Chrome's screenshot of the same PNG, scaled to 40 CSS pixels on white.
-        XCTAssertEqual(Array(UnsafeBufferPointer(start: pixels + (20 * 40 + 20) * 4, count: 4)), [255, 127, 127, 255])
+        let actual = Array(UnsafeBufferPointer(start: pixels + (20 * 40 + 20) * 4, count: 4))
+        // Chrome's screenshot of this PNG at 40 CSS pixels over white.
+        for (got, want) in zip(actual, [167, 187, 207, 255]) {
+            XCTAssertEqual(Int(got), want, accuracy: 1)
+        }
     }
 
     func testPlanReconstructedFromAdmittedDimensionsIsIdentical() throws {
