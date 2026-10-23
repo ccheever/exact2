@@ -26,13 +26,15 @@ const INTERFACE: &str = r#"{
       "grants": { "audio": "device.microphone", "video": "device.camera" },
       "options": { "audio": "option<bool>", "video": "option<bool>" },
       "answers": "Reading", "handles": { "id": "track" } },
-    { "send": "stop", "options": { "track": "string" }, "answers": "Reading" },
+    { "send": "stop", "options": { "track": "handle<track>" }, "answers": "Reading" },
+    { "send": "save", "options": { "track": "handle<track>",
+        "path": { "type": "path", "access": "write", "for": "recorder" } }, "answers": "Reading" },
     { "source": "level", "live": true, "poll": "interval",
       "options": { "track": "string", "interval": "option<number>" }, "answers": "Reading" }
   ]
 }"#;
 
-const APP: &str = r#"use open, stop, sensorStatus, level, SensorStatus, Reading from "@fixture/sensor"
+const APP: &str = r#"use open, stop, save, sensorStatus, level, SensorStatus, Reading from "@fixture/sensor"
 
 component App
   state track = "a"
@@ -46,6 +48,8 @@ component App
     send opened = open(video=true)
   action move(to: string)
     track = to
+  action keep(to: string)
+    send opened = save(track=track, path=to)
   view
     column
       text status.state
@@ -89,7 +93,7 @@ impl exact_runner::DataSource for Granted {
         Err(exact_runner::DataError::UnknownSource(source.into()))
     }
     fn grants(&self) -> &str {
-        "device.microphone purpose.microphone\n"
+        "device.microphone purpose.microphone\nfs.write app:/data/takes\n"
     }
 }
 
@@ -117,6 +121,9 @@ fn boot(name: &str) -> (App, Runner<Granted>, Calls) {
             seen.lock().unwrap().push(v.clone());
             let answer = match (v["source"].as_str(), v["send"].as_str()) {
                 (Some("sensorStatus"), _) => json!({ "available": true, "state": "granted" }),
+                (Some("level"), _) if v["args"]["track"] == "gone" => {
+                    json!({ "error": "NotFoundError" })
+                }
                 (Some("level"), _) => {
                     json!({ "id": v["args"]["track"], "level": 0.5, "muted": false })
                 }
@@ -279,6 +286,35 @@ fn a_bound_call_is_admitted_before_its_implementation_answers() {
     );
     assert_eq!(answered["id"], "t1", "{answered}");
     assert_eq!(sent(&calls, "open"), 2);
+}
+
+/// LLP 1133.009 D10 item 4: a path option is admitted against the app's
+/// `fs.write` lines before the implementation hears of the call; a path
+/// outside them, or one that is not a plain `app:/` file, is refused.
+#[test]
+fn a_path_to_write_is_admitted_against_the_app_s_fs_write_lines() {
+    let (_app, mut r, calls) = boot("paths");
+    r.bind_extensions(&["sensor"], &[]);
+    let mut parked = Vec::new();
+    pump(&mut r, &mut parked);
+    let keep = |r: &mut Runner<Granted>, parked: &mut Vec<(u64, u64)>, to: &str| {
+        r.act("keep", vec![exact_runner::Value::str(to)]).unwrap();
+        pump(r, parked);
+    };
+    keep(&mut r, &mut parked, "app:/data/takes/take-1");
+    assert_eq!(sent(&calls, "save"), 1, "{}", logs(&r));
+    let saved = (calls.lock().unwrap().iter())
+        .rev()
+        .find(|c| c["send"] == "save")
+        .cloned();
+    assert_eq!(saved.unwrap()["args"]["path"], "app:/data/takes/take-1");
+    for outside in ["app:/data/other/take", "app:/data/takes/../x", "/tmp/take"] {
+        keep(&mut r, &mut parked, outside);
+        let refused =
+            format!("sensor.save: refused, grant-missing (path={outside} needs fs.write)");
+        assert!(logs(&r).contains(&refused), "{outside}: {}", logs(&r));
+    }
+    assert_eq!(sent(&calls, "save"), 1, "no refused path reaches it");
 }
 
 /// LLP 1133.008 D8 item 9, LLP 1133.009 D10 item 11: under the agent an
@@ -466,4 +502,19 @@ fn a_polled_source_is_asked_once_after_an_advance_that_crossed_its_period() {
         "{}",
         logs(&r)
     );
+
+    // A reader whose answer is an error (a track the session does not hold)
+    // is not polled; asking anew with a held one polls again.
+    r.act("move", vec![exact_runner::Value::str("gone")])
+        .unwrap();
+    pump(&mut r, &mut parked);
+    let asked = levels(&calls);
+    r.advance(6000.0).unwrap();
+    pump(&mut r, &mut parked);
+    assert_eq!(levels(&calls), asked, "an error is not polled");
+    r.act("move", vec![exact_runner::Value::str("b")]).unwrap();
+    pump(&mut r, &mut parked);
+    r.advance(6100.0).unwrap();
+    pump(&mut r, &mut parked);
+    assert_eq!(levels(&calls), asked + 2, "{}", logs(&r));
 }

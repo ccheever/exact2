@@ -113,7 +113,9 @@ impl<D: DataSource> Runner<D> {
 
     /// The body of a call of `row` for its implementation, `{"extension",
     /// "source"|"send", "args"}`; under the agent with the preferred value
-    /// the agent set for it, as `preferred` (LLP 1133.009 D10 item 11). A
+    /// the agent set for it, as `preferred` (LLP 1133.009 D10 item 11); with
+    /// its `origin` when a tool or a wake made it, so an implementation that
+    /// starts a device on a read (a track's first lease, D6) can refuse. A
     /// live source's reader is counted, so its release can be said, and a
     /// Contract reader (`reader`, its resource) with its arguments, so each
     /// argument group's can.
@@ -133,6 +135,13 @@ impl<D: DataSource> Runner<D> {
             if let Some(preferred) = self.extensions.preferred.get(&key) {
                 body["preferred"] = preferred.clone();
             }
+        }
+        let origin = match reader {
+            Some(i) => self.origin_for(Some(crate::runner::Target::Resource(i))),
+            None => self.call_origin(),
+        };
+        if origin != super::CallOrigin::App {
+            body["origin"] = json!(origin.word());
         }
         if row.live && !row.send {
             self.note_poll(row);

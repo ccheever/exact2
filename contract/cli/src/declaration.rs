@@ -139,9 +139,16 @@ fn shapes(json: &Value, span: Span) -> Result<Vec<ShapeDecl>, String> {
 fn fields(map: &Map<String, Value>, span: Span) -> Result<Vec<Field>, String> {
     map.iter()
         .map(|(name, ty)| {
-            let ty = ty
-                .as_str()
-                .ok_or_else(|| format!("`{name}`'s type is a string"))?;
+            // A path option (LLP 1133.009 D10 item 4) is a string to Contract.
+            let ty = match ty {
+                Value::Object(_) if ty["type"] == "path" && ty["optional"] == true => {
+                    "option<string>"
+                }
+                Value::Object(_) if ty["type"] == "path" => "string",
+                ty => ty
+                    .as_str()
+                    .ok_or_else(|| format!("`{name}`'s type is a string, or a path's object"))?,
+            };
             Ok(Field {
                 name: name.clone(),
                 ty: type_expr(ty, span)?,
@@ -197,7 +204,8 @@ fn module(
 /// (`"substitute": "implementation"`, LLP 1133.006 D8); and the name's own
 /// `origin`, `foreground` and the `when` that conditions them, its grant
 /// lines (`nameGrants`: a list, or a line per argument), the answer's
-/// `handles`, and the option a polled source's period is (`poll`).
+/// `handles`, the option a polled source's period is (`poll`), and its path
+/// options (`paths`).
 fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
     let name = entry["source"]
         .as_str()
@@ -228,6 +236,22 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
         true => Ok(()),
         false => Err(format!("`{name}`'s {what}")),
     };
+    // Each path option, by name, with the access admission checks (LLP
+    // 1133.009 D10 item 4).
+    let mut paths = Map::new();
+    for (option, ty) in object(&entry["options"]) {
+        if ty["type"] != "path" {
+            continue;
+        }
+        check(
+            matches!(ty["access"].as_str(), Some("read" | "write")),
+            &format!("path option `{option}` has an `access` of \"read\" or \"write\""),
+        )?;
+        paths.insert(option.clone(), ty.clone());
+    }
+    if !paths.is_empty() {
+        out.insert("paths".into(), Value::Object(paths));
+    }
     for (field, value) in object(entry) {
         match field.as_str() {
             "origin" => check(
@@ -263,8 +287,9 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
 }
 
 /// A declaration's type (LLP 1133.002 D13): `number`, `string`, `bool`,
-/// `option<T>`, `T[]`, `enum<a|b>`, a shape's name, or `strings-key`, a
-/// key of the app's strings table, which is a string here.
+/// `option<T>`, `T[]`, `enum<a|b>`, a shape's name, `strings-key`, a key of
+/// the app's strings table, or `handle<kind>`, the id of a native object the
+/// session holds (LLP 1133.009 D10 item 10); both are strings here.
 fn type_expr(ty: &str, span: Span) -> Result<TypeExpr, String> {
     let ty = ty.trim();
     if let Some(inner) = ty.strip_suffix("[]") {
@@ -279,6 +304,9 @@ fn type_expr(ty: &str, span: Span) -> Result<TypeExpr, String> {
             return Err(format!("`{ty}` has an empty member"));
         }
         return Ok(TypeExpr::Enum(members, span));
+    }
+    if ty.starts_with("handle<") && ty.ends_with('>') {
+        return Ok(TypeExpr::Named("string".to_owned(), span));
     }
     let named = match ty {
         "strings-key" => "string",

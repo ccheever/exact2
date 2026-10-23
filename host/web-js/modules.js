@@ -20,6 +20,7 @@
 import { data, Resources, commit, R, Failed, nextTicket, say, clock, Clocked, After } from "./rt.js";
 import { reportTime } from "./navigation.js";
 import { packageViews } from "./views.js";
+import { appGrantSet, coversPath } from "./admission.js";
 
 // `rows`: source → [extension.name, send, substitute, type, request, options' type, live];
 // `bound`: extension → a loader of its web implementation, where the app binds one
@@ -85,9 +86,12 @@ export function modules(rows, bound = {}, views = {}) {
   };
   const capability = h => h.waits === "permission" ? "permission" : h.waits === "raise" ? h.row.sub.raise.ticket : h.row.sub.ticket;
   // `forward`: the implementation's call, made once the ticket allows it.
+  // A newer ask of the same reader or mutation supersedes its held one, whatever answers the newer (§6: retired).
+  const supersede = (row, name) => {
+    for (const h of held.filter(h => h.name === name)) { retire(h); say(`device ${capability(h)} ${h.ticket} retired`); h.reject(new Failed(`${row.key}: superseded`)); }
+  };
   const hold = (row, waits, name, json = false, timeout = null, forward = null) => {
-    // A newer ask of the same reader or mutation supersedes its held one (§6: retired).
-    for (const h of held.filter(h => h.name === name)) { retire(h); h.reject(new Failed(`${row.key}: superseded`)); }
+    supersede(row, name);
     return new Promise((resolve, reject) => {
       const h = { ticket: nextTicket(), row, waits, name, send: row.send, resolve, reject, json, timeout, forward, deadline: waits === "value" && timeout != null ? clock.now + timeout : null };
       held.push(h);
@@ -105,19 +109,59 @@ export function modules(rows, bound = {}, views = {}) {
   // under the agent (an interface that is its own substitute), or the substitute.
   const extensionOf = row => row.key.slice(0, row.key.indexOf("."));
   const route = row => !bound[extensionOf(row)] ? "substitute" : !clock.agent ? "real" : row.sub.implementation ? "agent" : "substitute";
-  // The bound implementation, loaded on first use (LLP 1133.002 D15), with its context (LLP 1133.009 D10 items 2, 3):
-  // `changed`, `agent`, the session's clock (`now`, the agent's under the agent) and whether the page is in the
-  // foreground (`foreground()`; `foreground(shown)` on the implementation is told each change). The web has no
-  // session end an implementation could finish in.
+  // The bound implementation, loaded on first use (LLP 1133.002 D15), with its context (LLP 1133.009 D10 items 2-6):
+  // `changed`, `agent`, the session's clock (`now`, the agent's under the agent), whether the page is in the
+  // foreground (`foreground()`; `foreground(shown)` on the implementation is told each change), the journal (`log`),
+  // the track table (`tracks`), admitted paths' files (`files`) and the audio session (`audioSession`). The web has
+  // no session end an implementation could finish in.
   const loaded = new Map(), chunks = new Map(), live = new Set();
   const shown = () => typeof document !== "object" || document.visibilityState !== "hidden";
+  // The session's track table (LLP 1133.009 D10 item 6): tracks and streams by id, each track with the
+  // implementation that opened it, its `owner`, through which a consuming implementation subscribes.
+  const table = new Map();
+  const tracks = {
+    add: entry => { table.set(entry.id, entry); },
+    lookup: id => table.get(id) ?? null,
+    remove: id => { table.delete(id); },
+    all: () => [...table.values()],
+    /** `consumer` ({live(source), muted(reason), unmuted(), ended()}) joins track `id`; how = {start, origin}. */
+    subscribe(id, consumer, how = {}) {
+      const entry = table.get(id);
+      if (!entry?.owner?.subscribe) throw Object.assign(new Error(`no track ${id}`), { code: "NotFoundError" });
+      return entry.owner.subscribe(id, consumer, how);
+    },
+  };
+  // An admitted path's file (LLP 1133.009 D10 item 4), in the store `storage.fs` reads: the app's, or the drive's
+  // scratch store under the agent; none when the drive names none.
+  let store = null;
+  const fileStore = () => store ??= import("./storage-environment.js").then(env => {
+    const key = env.storageKey(data.appId);
+    if (key == null) throw Object.assign(new Error(env.agentStorageRefusal), { code: "agent" });
+    return import(new URL("./storage-fs.js", import.meta.url).href).then(m => m.createFileStore(key));
+  });
+  const files = {
+    // A file's first write makes its directory, as a recorder's writer needs it.
+    write: (path, bytes) => fileStore().then(async s => { await s.mkdir(path.slice(0, path.lastIndexOf("/"))); return s.writeFile(path, bytes); }),
+    append: (path, bytes) => fileStore().then(s => s.appendFile(path, bytes)),
+  };
+  // The page's Audio Session (W3C Audio Session; LLP 1133.009 D7): `play-and-record` while any claim on it is held.
+  const claims = new Set();
+  let before = null;
+  const audioSession = {
+    claim() {
+      const claim = { release: () => { claims.delete(claim); if (!claims.size && before != null && navigator.audioSession) { navigator.audioSession.type = before; before = null; } } };
+      if (!claims.size && typeof navigator === "object" && navigator.audioSession) { before = navigator.audioSession.type; navigator.audioSession.type = "play-and-record"; }
+      claims.add(claim);
+      return claim;
+    },
+  };
   // The extension's chunk, and the session's one instance of its implementation, which its names and its views share
   // (LLP 1133.008 D8 item 1).
   const chunk = extension => { if (!chunks.has(extension)) chunks.set(extension, bound[extension]()); return chunks.get(extension); };
   const instance = extension => {
     if (!bound[extension]) return null;
     if (!loaded.has(extension)) loaded.set(extension, chunk(extension).then(m => {
-      const context = { changed: key => byKey.has(key) && reask([key]), agent: clock.agent, now: () => clock.now, foreground: shown };
+      const context = { changed: key => byKey.has(key) && reask([key]), agent: clock.agent, now: () => clock.now, foreground: shown, log: say, tracks, files, audioSession };
       const impl = m.implementation?.(context) ?? null;
       if (clock.agent) impl?.preferred?.(preferredOf(extension));
       return impl;
@@ -149,7 +193,9 @@ export function modules(rows, bound = {}, views = {}) {
     if (row.live && row.sub.poll) {
       polls.set(row.key, clock.now);
       asking.add(row.key);
-      answered.finally(() => { asking.delete(row.key); if (!clock.agent) setTimeout(pollCheck, periodOf(row) ?? 0); });
+      // An error (an id the session does not hold) is not polled again until a reader asks anew.
+      answered.then(json => { if (errorCode(json)) failed.add(row.key); else failed.delete(row.key); }, () => failed.add(row.key))
+        .finally(() => { asking.delete(row.key); if (!clock.agent) setTimeout(pollCheck, periodOf(row) ?? 0); });
     }
     if (row.live && reader) {
       const by = readers.get(row.key) ?? new Map(), told = groups.get(row.key) ?? new Map();
@@ -164,7 +210,7 @@ export function modules(rows, bound = {}, views = {}) {
   // option `poll` names (or its default) while a reader reads them, once after an advance that crossed a period, and
   // on the live clock once a period. No plan timer: a poll never stops a jump, which waits for the ask it made
   // (`polling`). At most one ask of a source is in flight.
-  const polls = new Map(), asking = new Set();
+  const polls = new Map(), asking = new Set(), failed = new Set();
   const periodOf = row => {
     const option = typeof row.sub.poll === "string" ? row.sub.poll : row.sub.poll?.option;
     const asked = [...(readers.get(row.key)?.values() ?? [])].map(a => JSON.parse(a)[option]).filter(ms => typeof ms === "number" && ms > 0);
@@ -173,7 +219,7 @@ export function modules(rows, bound = {}, views = {}) {
   const pollCheck = () => {
     const due = [...polls].filter(([key, last]) => {
       const row = byKey.get(key), period = periodOf(row);
-      return period != null && route(row) !== "substitute" && !asking.has(key) && live.has(key) && clock.now - last >= period;
+      return period != null && route(row) !== "substitute" && !asking.has(key) && !failed.has(key) && live.has(key) && clock.now - last >= period;
     }).map(([key]) => key);
     for (const key of due) { polls.set(key, clock.now); say(`poll ${key}`); }
     if (due.length) reask(due);
@@ -192,6 +238,11 @@ export function modules(rows, bound = {}, views = {}) {
         if (v != null && v !== false && !granted(line)) return `grant-missing (${arg}= needs ${[line].flat().join(" or ")})`;
       }
     }
+    // A path option is the app's own file, within its `fs.read` or `fs.write` lines (LLP 1133.009 D10 item 4).
+    for (const [option, path] of Object.entries(sub.paths ?? {})) {
+      const given = args?.[option], capability = `fs.${path.access}`;
+      if (typeof given === "string" && !(appPath(given) && coversPath(appGrantSet(), capability, given))) return `grant-missing (${option}=${given} needs ${capability})`;
+    }
     const applies = !sub.when || Object.entries(sub.when).every(([k, v]) => args?.[k] === v);
     if (applies && sub.origin === "app" && origin !== "app") return `person-required (${origin} origin)`;
     if (applies && sub.foreground && typeof document === "object" && document.visibilityState === "hidden") return "not in the foreground";
@@ -203,7 +254,10 @@ export function modules(rows, bound = {}, views = {}) {
     if (why) { say(`${row.key}: refused, ${why}`); return { now: { error: "NotAllowedError" } }; }
     const r = route(row);
     if (r === "real") return { forward: true };
-    const d = r === "agent" ? decidePermission(row, send) ?? { forward: true } : decideTimed(row, send, timeout);
+    let d = r === "agent" ? decidePermission(row, send) ?? { forward: true } : decideTimed(row, send, timeout);
+    // A name whose grants are per argument asks permission only for an argument it was given (LLP 1133.009 D3).
+    const g = row.sub.nameGrants, asks = !g || Array.isArray(g) || Object.keys(g).some(a => args?.[a] != null && args[a] !== false);
+    if (d.hold === "permission" && !asks) d = r === "agent" ? { forward: true } : { now: { error: "TypeError" } };
     // Only a person answers a prompt (D12).
     if (d.hold === "permission" && origin !== "app") { say(`${row.key}: refused, person-required (${origin} origin)`); return { now: { error: row.sub.permission.denied } }; }
     return d;
@@ -234,6 +288,7 @@ export function modules(rows, bound = {}, views = {}) {
   };
   for (const row of byKey.values()) {
     reserved[row.source] = (_, args, name) => {
+      supersede(row, name);
       const given = args?.[0] !== undefined ? object(args[0], row.options) : {};
       const timeout = row.send ? timeoutOf(row, args) : null, d = admitted(row, given, "app", row.send, timeout);
       const reader = row.send ? null : name, n = (asked.get(name) ?? 0) + 1;
@@ -393,6 +448,9 @@ export function modules(rows, bound = {}, views = {}) {
     },
   };
 }
+
+/** `app:/<root>/<file…>` with no empty, `.` or `..` segment (the runner's `plain_app_path`). */
+const appPath = p => p.startsWith("app:/") && p.slice(5).split("/").length >= 2 && p.slice(5).split("/").every(s => s && s !== "." && s !== ".." && !s.includes("\0"));
 
 /** The code of an error answer, `{"error": "POSITION_UNAVAILABLE"}`. */
 function errorCode(json) {
