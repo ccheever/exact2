@@ -143,6 +143,28 @@ final class TextSelectionIOSTests: XCTestCase {
         XCTAssertEqual(held.selectedText, "/tmp/work")
     }
 
+    func testUserSelectAllExpandsAcrossItsParagraphsFromEitherEnd() throws {
+        for nested in [false, true] {
+            let p = mounted([
+                box(1, style: ["user_select": nested ? "text" : "all"]),
+                box(4, style: ["user_select": "all"]), box(5, style: ["user_select": "text"]),
+                text(2, "First paragraph"), text(3, "Second paragraph"), text(6, "Outside paragraph"),
+                ["op": "children", "id": 1, "ids": [4, 6]], ["op": "children", "id": 4, "ids": [5, 3]],
+                ["op": "children", "id": 5, "ids": [2]], ["op": "roots", "ids": [1]],
+                frame(1, 0, h: 200, w: 400), frame(4, 0, h: 130), frame(5, 0, h: 60),
+                frame(2, 30, x: 20), frame(3, 80, x: 20), frame(6, 150, x: 20)
+            ])
+            let expected = nested ? "First paragraph\nSecond paragraph" : "First paragraph\nSecond paragraph\nOutside paragraph"
+            for id: UInt32 in [2, 3] {
+                let paragraph = try node(p, id)
+                p.textSelection.clear()
+                XCTAssertNotNil(p.textSelection.selectWord(in: paragraph, at: try point(in: paragraph, of: "paragraph")))
+                let input = try XCTUnwrap(p.textSelection.text(for: paragraph))
+                XCTAssertEqual(input.selectedText, expected, "starting in paragraph \(id), nested \(nested)")
+            }
+        }
+    }
+
     func testAWordIsSelectedFromTheParagraphsOwnLinesAndCopied() throws {
         let p = page()
         let prose = try node(p, 4)
