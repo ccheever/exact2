@@ -1509,14 +1509,14 @@ nothing presses. A secondary click in a modal dialog reaches an ancestor's
 `contextmenu` behind it, but that ancestor's `contextPopover` stays shut,
 since the modal makes it inert; a press bubbling to an invoker behind the
 modal follows the same rule ([Events](#events)).
-On macOS, the unmodified `ContextMenu` key opens it at the focused node's
-visible centre, after `key` handlers run, with `buttons=0` and `pressure=0`.
-A `key` handler's `preventDefault()` cancels it. The nearest `contextmenu`
-handler runs before its `contextPopover` opens; a text field keeps its editing
-menu, and a control in the node (a checkbox, a range, a date) has none, so the
-node's runs. Drive it with `type "row" key "ContextMenu"`. Shift+F10 has no menu
-default on macOS, matching Chrome on that platform. Native context menus retain
-the existing `disabled` guard, including on plain containers.
+On Apple hosts, the unmodified `ContextMenu` key and Shift+F10 open it at the
+focused node's centre, after `key` handlers run, with `buttons=0` and
+`pressure=0`. A `key` handler's `preventDefault()` cancels it. The nearest
+`contextmenu` handler runs before its `contextPopover` opens; either declaration
+is sufficient. A text field keeps its editing menu. Drive it with
+`type "row" key "ContextMenu"` or `type "row" key "Shift+F10"`. UIKit presents
+keyboard-invoked actions through its native menu without the long-press preview.
+Disabled controls and inert nodes do not open menus.
 
 `wheel` is DOM's: a wheel's turn or a trackpad's scroll over the node, heard by
 every node from it up that declares it, innermost first. Its `WheelEvent` is
