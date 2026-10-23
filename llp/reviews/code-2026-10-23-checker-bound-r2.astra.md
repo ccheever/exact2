@@ -1,0 +1,36 @@
+# Code review: the design checker's bound (rt1's PRIORITY finding), round 2 of 3, 2026-10-23 (astra)
+
+- **Family:** OpenAI. GPT-6 Astra via `codex exec`, reasoning effort max, `-s read-only`, a throwaway worktree at `8cb003dc33`.
+- **Method:** one brief (sha256 `71d576d59472af389e233daea7fe962cfaadc549e321d932e5c2654137ccc007`), blind to the other reviewer; 3 rounds (security and write-check work), the last with a security pass, then narrow re-checks until clean. The author (Claude, reload1) is not a reviewer.
+- **Transcription:** the final message, unedited but for the worktree path prefix.
+- **Note:** Reviewed at 8cb003dc33, before the rebase onto exact47's main; that commit is 0860f2a345 there.
+
+1. **BLOCKER — Combined expression/reference depth can exhaust the stack.** [check.rs:1030](tamber/src/check.rs:1030), [measure.rs:614](tamber/src/measure.rs:614). A forward chain of 500 explicitly typed lengths, each wrapping the next reference in 32 `calc()` calls, passes both limits. It retains roughly 16,000 function evaluations, plus `sum`/`product`/`operand` and checker frames. Explicit kinds bypass the inference walk. The bare-alias test does not establish safety on the tests’ 2 MB stack; evaluation needs a combined depth bound or iterative traversal. I could not measure the crash threshold here.
+
+2. **BLOCKER — Icon alias resolution is cubic.** [icon.rs:126](tamber/src/icon.rs:126). Declare `x0 = x1`, …, `xN = icon(sf "house")` in that order. Only one additional alias resolves per pass; each unresolved alias scans the entire icon list. This produces Θ(N³) comparisons with tiny, valid values. Neither the reference-depth guard nor a work budget covers this path.
+
+3. **BLOCKER — Parameter laying is also cubic.** [params.rs:158](tamber/src/params.rs:158). For every declared parameter, `laid()` scans overrides, invoking `named()`—another linear parameter search—for each candidate. N parameters with N full-name overrides in reverse order produce Θ(N³) comparisons. This runs before `check_design()` preflight.
+
+4. **BLOCKER — Dial influence remains quadratic even without dependencies.** [check.rs:1103](tamber/src/check.rs:1103), [check.rs:1144](tamber/src/check.rs:1144). N numeric dials and N constant tokens cause approximately six complete refolds per dial, despite no token reading any dial. All values can be short literals. Dependency pruning or a shared work budget is needed.
+
+5. **BLOCKER — Reimport selector synthesis can enumerate exponentially many subsets.** [export.rs:1233](tamber/src/export.rs:1233), [export.rs:1483](tamber/src/export.rs:1483). Use N−1 singleton axes and one binary axis, then equal-valued `when` clauses with every specificity from 1 through N−1. Changing only one binary mode forces the search past every smaller subset: candidates either affect the unchanged tuple or tie an existing clause. There are only two tuples, yet `subsets()` eagerly allocates exponentially many combinations without charging the import budget.
+
+6. **BLOCKER — Batch refusal can recurse once per edit.** [export_batch.rs:88](tamber/src/export_batch.rs:88). Start with alternating explicit number/length tokens. Propose `q0 = lengthAnchor`, then `qi = q{i−1}` through incoming `fontFamily` strings, which [export_kinds.rs:447](tamber/src/export_kinds.rs:447) accepts as proposed text. Initially only `q0` reports a kind error; downstream failures are silenced. Removing that edit exposes `q1`, then `q2`, and so on. This causes N whole-design checks and N retained recursive calls, outside both depth and work guards.
+
+7. **BLOCKER — Compiler profile substitution bypasses raw-value preflight.** [theme/bind.rs:106](contract/lower/src/theme/bind.rs:106), [theme.rs:373](contract/lower/src/theme.rs:373). A valid `color(--dci-p3 0 0 0)` padded internally with over 4 KiB of whitespace is replaced with `transparent` before folding. The original text is retained separately. The build therefore evades the size refusal that wire validation and direct Tamber checking produce. Shared bounds must run before compiler substitutions.
+
+8. **BLOCKER — Oversized parser and kind diagnostics still escape preflight.** [lib.rs:183](tamber/src/lib.rs:183), [syntax.rs:434](tamber/src/syntax.rs:434), [check.rs:710](tamber/src/check.rs:710). A dial range containing 5,000 digits without `..` is echoed by parsing before preflight runs. Separately, preflight omits `Token.kind`: a 5,000-character kind reaches “`…` is not a kind” intact. Bound raw fields before parser diagnostics, and include kinds in coverage.
+
+9. **BLOCKER — Reimport bounds JSON string values but misses oversized keys.** [import/mod.rs:821](tamber/src/import/mod.rs:821), [export.rs:594](tamber/src/export.rs:594). Add a mode-context key containing thousands of characters to an otherwise valid export, with source `{"$ref":"#/missing"}`. `dtcg_doc()` accepts it because object keys are skipped; `tokens_by_context()` then echoes the entire context key in its refusal.
+
+10. **BLOCKER — Wire and disk validation still disagree.** [edit.rs:383](tamber/src/edit.rs:383), [bound.rs:58](tamber/src/bound.rs:58). `label="` plus 4,090 ASCII characters plus `"` is accepted on disk because the decoded metadata value is below 4,096 bytes. `AddToken` rejects the 4,098-byte metadata word. Oversized names also receive different IDs and wording: wire uses `tamber-edit` / “a name”, whereas preflight uses `tamber-value-size` / “a value”. These need one shared field-validation policy.
+
+11. **SHOULD — The long CSS-name bypass remains for depth.** [import/mod.rs:576](tamber/src/import/mod.rs:576). A custom-property name exceeding 256 bytes causes its declaration to be discarded before `source_bound()`. If its value contains 33 nested functions but remains below 4 KiB, the import reports only the long name and avoids `tamber-value-depth`. The round-one fix handles byte size here, but leaves depth uncovered.
+
+12. **SHOULD — Preflight applies CSS nesting rules to literal text.** [css.rs:53](tamber/src/css.rs:53), [bound.rs:60](tamber/src/bound.rs:60). The scanner ignores only double-quoted strings, so an explicitly typed family containing 33 parentheses inside single quotes is rejected although the family reader accepts it. Decoded metadata labels containing those parentheses are likewise mistaken for nested functions. Separate byte bounds from syntax-specific depth checks.
+
+13. **NIT — Several preflight positions identify the wrong word.** [bound.rs:54](tamber/src/bound.rs:54), [bound.rs:67](tamber/src/bound.rs:67), [bound.rs:93](tamber/src/bound.rs:93). Conditions point at the `when` value, range endpoints and metadata point at the default value, and axis values point at the axis name.
+
+The residual accumulation changes and runtime platform-colour depth guard address their reported gaps. I found no acyclic kind-inference regression below the new limits. Colour, typeface, motion and `under_value` references converge on the guarded value path; the combined-depth issue above still applies. Preflight itself is linear in the parsed text it visits.
+
+No files changed. Cargo could not create its target directory in this read-only sandbox, so Rust tests, corpus acceptance and actual stack limits remain unverified.
