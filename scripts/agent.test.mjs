@@ -818,3 +818,14 @@ test('a native missing target names the requests in its tree without another tra
   await assert.rejects(() => s.find('new-row'), e => /no view matches/.test(e.message) && !/still in flight/.test(e.message));
   assert.ok(requests.every(op => op === 'tree'));
 });
+
+test('main parses drag after a quoted target and across tab separators', async () => {
+  const calls = [];
+  const fake = { tap: async (target, opts) => { calls.push([target, opts.drag]); return { tapped: 7 }; }, close: async () => {} };
+  const ops = ['tap "Please drag me" drag 0 120', 'tap\tgrip\tdrag\t0\t120',
+    'tap "Please drag me"\tdrag\t0 120 hold 500 during "state" then 0 -120'];
+  for (const op of ops) assert.equal(await main(['web', op], { open: async () => fake, driveServer: async () => null }), 0);
+  assert.deepEqual(calls.map(([target, drag]) => [target, drag.dx, drag.dy]), [['Please drag me', 0, 120], ['grip', 0, 120], ['Please drag me', 0, 120]]);
+  assert.equal(calls[2][1].during.length, 1);
+  assert.deepEqual(calls[2][1].path, [{ dx: 0, dy: -120 }]);
+});
