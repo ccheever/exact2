@@ -544,11 +544,20 @@ impl Kernel {
             // the shell too. No failed derived cache is reused on recovery.
             self.layout = Some(Box::new(LayoutTree::rebuild(&mut self.arena)));
         }
-        if result.is_ok() && region.provisional_chrome {
+        let counted = result.is_ok() && region.provisional_chrome;
+        if counted {
             self.provisional_layouts += 1;
         }
         let mut result = result?;
-        self.lay_out_blocks(slot, &mut result.shell)?;
+        // The shell's popovers, each in its block: recovered, and counted
+        // when provisional, as the region's own pass is.
+        if let Err(e) = self.lay_out_blocks(slot, &mut result.shell) {
+            self.layout = Some(Box::new(LayoutTree::rebuild(&mut self.arena)));
+            return Err(e.into());
+        }
+        if !counted && engine(&mut self.layout).provisional_chrome() {
+            self.provisional_layouts += 1;
+        }
         Ok(result)
     }
 

@@ -67,6 +67,15 @@ fn a_popover_is_placed_by_its_insets_in_the_grid() {
         (15, 0, 10, 2),
         "centred between its insets by auto margins"
     );
+    let mut host = boot(
+        "left=0 right=0 margin-left=\"auto\" margin-right=0 top=0",
+        Mode::Fullscreen,
+    );
+    assert_eq!(
+        layer(&mut host),
+        (30, 0, 10, 2),
+        "one auto margin takes the room left"
+    );
 }
 
 /// The runner reads the popover where it paints: `frame` and

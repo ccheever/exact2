@@ -79,6 +79,9 @@ pub(crate) struct Held {
     hidden: bool,
     given: Option<HostBlock>,
     implied: Option<HostBlock>,
+    /// Whether a box above it was replaced whole when it was last styled
+    /// (`apply` makes it `display: none` then).
+    buried: bool,
 }
 
 impl Blocks {
@@ -157,6 +160,7 @@ impl Blocks {
                 hidden: false,
                 given,
                 implied,
+                buried: false,
             }),
             (None, None) => {}
         }
@@ -354,6 +358,29 @@ impl Kernel {
             self.arena.blocks.imply(slot, want);
             self.block_changed(slot, before);
         }
+        // A block moved under a box replaced whole, or out from under one
+        // (its ancestors reparented), is styled again: `apply` reads that.
+        let arena = &self.arena;
+        let moved: Vec<u32> = (arena.blocks.0.iter())
+            .filter(|b| b.buried != replaced_above(arena, b.slot))
+            .map(|b| b.slot)
+            .collect();
+        for slot in moved {
+            self.restyle_block(slot);
+        }
+    }
+
+    /// `slot`'s block root styled again, as its block or what is above it
+    /// now says.
+    fn restyle_block(&mut self, slot: u32) {
+        let buried = replaced_above(&self.arena, slot);
+        if let Some(held) = self.arena.blocks.held_mut(slot) {
+            held.buried = buried;
+        }
+        if let (Some(node), Some(layout)) = (self.arena.taffy(slot), self.layout.as_deref_mut()) {
+            layout.restyle(&self.arena, slot, node);
+            layout.mark_dirty(node);
+        }
     }
 
     /// `slot`'s block was `before`: restyled for the one it has now, and if
@@ -363,10 +390,7 @@ impl Kernel {
         if before == block {
             return;
         }
-        if let (Some(node), Some(layout)) = (self.arena.taffy(slot), self.layout.as_deref_mut()) {
-            layout.restyle(&self.arena, slot, node);
-            layout.mark_dirty(node);
-        }
+        self.restyle_block(slot);
         if before.is_some() == block.is_some() {
             return;
         }
@@ -395,9 +419,9 @@ impl Kernel {
     /// Where a top-layer box laid out in the viewport's block sits in a
     /// viewport `width` by `height`, as a fixed box does by its authored
     /// insets (the block unset them, so its frame is at its margins): a
-    /// side's inset from that side, its margin past it; both insets with
-    /// both margins `auto` centre it between them; no inset on an axis, at
-    /// its margin. Its border box's origin; `None` when the kernel implies
+    /// side's inset from that side, its margin past it; with both insets an
+    /// `auto` margin takes the room left, two sharing it; no inset on an
+    /// axis, at its margin. Its border box's origin; `None` when the kernel implies
     /// no block for `view`. What a host that draws the top layer itself
     /// places it by (the terminal), and where the runner reads one no host
     /// has said it shows.
@@ -415,19 +439,24 @@ impl Kernel {
         let length = |d: crate::Dimension, basis: f32| {
             (d.resolve(env) != crate::Dimension::Auto).then(|| d.at_basis(env, basis))
         };
-        let auto = |m: [crate::Dimension; 2]| m.iter().all(|m| *m == crate::Dimension::Auto);
+        let auto = |m: crate::Dimension| m == crate::Dimension::Auto;
+        // CSS 2 §10.3.7: with both insets, an `auto` margin takes the room
+        // left; two share it, the start's at least zero.
         let axis = |inset: [crate::Dimension; 2],
-                    margin,
+                    margin: [crate::Dimension; 2],
                     at: f32,
                     size: f32,
                     used: f32,
                     room: f32| {
+            let end_margin = used - at - size;
             match (length(inset[0], room), length(inset[1], room)) {
-                (Some(start), Some(end)) if auto(margin) => {
-                    start + ((room - start - end - size) / 2.0).max(0.0)
-                }
-                (Some(start), _) => start + at,
-                (None, Some(end)) => room - end - (used - at - size) - size,
+                (Some(start), Some(end)) => match (auto(margin[0]), auto(margin[1])) {
+                    (true, true) => start + ((room - start - end - size) / 2.0).max(0.0),
+                    (true, false) => room - end - end_margin - size,
+                    _ => start + at,
+                },
+                (Some(start), None) => start + at,
+                (None, Some(end)) => room - end - end_margin - size,
                 (None, None) => at,
             }
         };
@@ -448,6 +477,13 @@ impl Kernel {
             height,
         );
         Some((x, y))
+    }
+
+    /// `view`'s node, unless it is laid out in a block of its own (a
+    /// host's, or a popover's viewport): its frame is in that block's space,
+    /// not its parent's.
+    pub fn node_unblocked(&self, view: ViewId) -> Option<crate::NodeRef<'_>> {
+        self.node(view).filter(|_| self.host_block(view).is_none())
     }
 
     /// Whether `view`'s block is the one the kernel implies (a top-layer

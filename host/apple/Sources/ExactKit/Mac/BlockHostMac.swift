@@ -176,6 +176,9 @@ final class BlockHost {
     /// a sheet keeps what it showed while it leaves (RouteSheetMac.swift).
     var onDestroyed: ((NodeView) -> Void)?
 
+    /// The runtime is replaced: no rectangle it sent stands.
+    func forgetRects() { rects = [:] }
+
     /// The node is gone, and its block with it.
     func destroyed(_ id: UInt32) {
         if let node = entries[id]?.node { onDestroyed?(node) }

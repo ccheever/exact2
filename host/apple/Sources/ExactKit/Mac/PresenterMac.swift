@@ -594,6 +594,7 @@ package final class Presenter {
         focusEvents.reset()
         pointerHeld = nil; pointerPath = []; pointerSource = nil; mouseChain.bubbledPress?.cancel()
         elements.reset()
+        blocks.forgetRects() // the new runtime's ids are its own
         resetFlights()
         viewport.invalidateDocumentFit()
         session?.regions.reset()
