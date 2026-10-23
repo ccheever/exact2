@@ -357,6 +357,8 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         return shortcut.keyEquivalent
     }
     func sync() {
+        if let selected = DevMenu.session, selected.presenter !== presenter,
+           let menu = viewMenu, menu.supermenu === NSApp.mainMenu { return }
         guard let fileMenu else { return }
         var file: [NSMenuItem] = []
         var application: [NSMenuItem] = []
