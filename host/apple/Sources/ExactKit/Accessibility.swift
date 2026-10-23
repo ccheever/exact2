@@ -1016,9 +1016,10 @@ extension Presenter {
 }
 
 extension Agent {
-    /// The host's own facts on plain `tree`: focus and an open popover.
+    /// Host facts and pending requests accompanying a normal tree read.
     func decorateTree(_ reply: [String: Any]) -> [String: Any] {
         var reply = reply
+        reply["pending"] = pendingRequests()
         let focus = (stateSections()["focus"] as? [String: Any])?["logical"] as? Int
         #if os(iOS) || os(tvOS)
         // A header node the navigation bar leaves out (LLP 1116 D2).
