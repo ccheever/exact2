@@ -1504,6 +1504,14 @@ The journal names a top level slower than 50 ms.
   seconds` line of the whole run, read the verdict from it, then kill the
   `xcodebuild test` PID whose `-derivedDataPath` is under your own checkout.
   `build.mjs` then reports `BUILD INTERRUPTED`, which is not a test failure.
+- **A manual iOS XCTest relink crashes with `no __TEXT,__exact_compat`.**
+  A normal app build left an archive that reads its compatibility document
+  from a Mach-O section; Xcode's test bundle supplies none. Before
+  `xcodebuild build-for-testing`, rebuild the embedded test archive with the
+  Cargo step in `host/apple/build.mjs`'s `test` function, without
+  `EXACT_BAKED` or a linked bake. Then relink and run the focused class.
+  (QUEUE 638 review, 2026-10-23.)
+
 - **`build.mjs <app> --test` can break tests that assume Caltrain data.** The
   Swift suite links the named app's plan and sources; its owner and batch tests
   call `defaultLocation`. Use `build.mjs --test` for the full AppKit suite, then
