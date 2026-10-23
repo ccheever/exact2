@@ -97,14 +97,6 @@ impl<D: DataSource> Runner<D> {
         if let Some(settled) = crate::auth::take_any_settled(self) {
             return Some(settled);
         }
-        self.take_admission_refusal(allow_ordered)
-    }
-
-    /// [`Runner::take_request_refusal`] without an auth session's answer: an
-    /// admission refusal alone, the host's or the runner's own (a long poll
-    /// no host may run, LLP 1016.000 D8), for a host that settles auth its
-    /// own way (the web's page).
-    pub fn take_admission_refusal(&mut self, allow_ordered: bool) -> Option<(u64, Outcome)> {
         let at = self.pending.iter().position(|p| {
             p.refusal
                 .is_some_and(|(_, ordered)| !ordered || allow_ordered)
