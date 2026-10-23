@@ -31,14 +31,18 @@ answers by the app-owned authorized principal and auth generation.
 
 ## Where the server lives
 
-`test` and `verify` start the server themselves on an empty database and stop it after; start
-none of your own for them. They find it this way:
+`test`, `verify` and `agent --test` start the server themselves on an empty database
+and stop it after; start none of your own for them. They find it this way:
 
 - **Its entry:** `server.ts`, `server/index.ts` or `server/server.ts`, or the one `app.json` names:
   `"commands": { "server": ["bun", "server/main.ts"] }`.
+  Arguments after the entry in `commands.server` are passed through in order.
 - **Its address:** the first `http://127.0.0.1:<port>` in `app.ts` (or a module it imports, as the
   starter's `API`). To use another port, change it there; the server reads it from the same constant.
 - **Its database:** the path in `DB`, which the entry or a module it imports reads:
-  `new Database(process.env.DB ?? 'data.db')`. Without it they refuse to run, saying so.
+  `new Database(process.env.DB ?? 'data.db')`.
+  If the server keeps no database, set `"server": { "database": false }` beside
+  `commands` to omit `DB` and skip scratch database creation and removal; otherwise
+  an entry that does not read `DB` is refused.
 
 A dev server already on that port makes them stop and name its pid: stop it first.

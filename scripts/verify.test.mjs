@@ -384,7 +384,7 @@ test('the app\'s server: its entry, the URL app.ts calls, and why it cannot be r
   const reads = "const db = new Database(process.env.DB ?? 'data.db');\n";
   try {
     put({ 'app.ts': "const API = 'http://127.0.0.1:6810'; // a phone reaches http://192.168.1.2:6810\n", 'server/index.ts': reads });
-    assert.deepEqual(appServer(dir), { entry: 'server/index.ts', url: 'http://127.0.0.1:6810', port: 6810, why: null, refusal: null });
+    assert.deepEqual(appServer(dir), { entry: 'server/index.ts', args: [], database: true, url: 'http://127.0.0.1:6810', port: 6810, why: null, refusal: null });
     put({ 'app.ts': "export const API = 'http://127.0.0.1:8787';\n", 'server.ts': reads, 'srv/main.ts': reads, 'app.json': JSON.stringify({ commands: { server: ['bun', '--watch', 'srv/main.ts'] } }) });
     assert.equal(appServer(dir).entry, 'srv/main.ts');
     put({ 'app.ts': "import type { Answer } from './app.contract.d.ts';\nimport { API } from './api';\n", 'api.ts': "export const API = 'http://localhost:3000/v1/';\n", 'server/server.ts': 'const DB = Bun.env.DB;\n' });
@@ -413,6 +413,167 @@ test('the app\'s server: its entry, the URL app.ts calls, and why it cannot be r
     put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.ts': "export * from './a';\n", 'a.ts': "import('./b');\n", 'b.ts': "import './a';\nconst x = require('./c');\n", 'c.js': 'new Database("data.db");\n' });
     assert.match(appServer(dir).refusal, /^server\.ts does not read/); // the cycle ends
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// A real child records its arguments and environment. The port lock, HTTP readiness and process listing are stubbed,
+// in a separate process so Bun's module mock cannot replace the lock for other tests.
+function stubServerRun(body) {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-server-command-'));
+  const script = `
+    import assert from 'node:assert/strict';
+    import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+    import { resolve } from 'node:path';
+    import { spawnSync } from 'node:child_process';
+    import { mock, spyOn } from 'bun:test';
+    const dir = ${JSON.stringify(dir)}, scripts = ${JSON.stringify(import.meta.dir)};
+    const argv = ['--world', 'transcript', '--label', 'two words', '--reset-on-identify'];
+    const manifest = { name: 'Server test', app: { id: 'dev.exact.server-test', name: 'Server test' }, commands: { server: ['bun', 'server.ts', ...argv] }, server: { database: false } };
+    const save = () => writeFileSync(resolve(dir, 'app.json'), JSON.stringify(manifest));
+    save();
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\\n  view\\n    text "Test"\\n');
+    writeFileSync(resolve(dir, 'app.ts'), 'export const origin = "http://127.0.0.1:4790";');
+    const ready = resolve(dir, 'ready.json');
+    const serving = ${JSON.stringify("import { writeFileSync } from 'node:fs';\nwriteFileSync('ready.json', JSON.stringify({ argv: process.argv.slice(2), db: process.env['D' + 'B'] ?? null, port: process.env.PORT }));\nsetInterval(() => {}, 1000);\n")};
+    writeFileSync(resolve(dir, 'server.ts'), serving);
+    const record = () => JSON.parse(readFileSync(ready, 'utf8'));
+    let taken = 0, given = 0;
+    mock.module(resolve(scripts, 'port-lock.mjs'), () => ({ holderOf: async () => null, takePort: async (port) => {
+      assert.equal(port, 4790); taken++; return () => { given++; };
+    } }));
+    spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      if (!existsSync(ready)) throw new Error('not ready');
+      return new Response('ready');
+    });
+    const children = [], spawn = Bun.spawn;
+    spyOn(Bun, 'spawn').mockImplementation((...args) => { const child = spawn(...args); children.push(child); return child; });
+    const processes = await import('node:child_process'), spawnSyncReal = processes.spawnSync;
+    mock.module('node:child_process', () => ({ ...processes, spawnSync: (command, args, options) => command === 'ps'
+      ? { stdout: children.some((child) => child.pid === Number(args.at(-1))) ? 'bun server.ts' : '' }
+      : spawnSyncReal(command, args, options) }));
+    const { appServer, startServer, withAppServer, driveServer } = await import(resolve(scripts, 'verify.mjs'));
+    process.env.DB = resolve(dir, 'inherited.db');
+    try { ${body} }
+    finally { for (const child of children) { if (child.exitCode == null) child.kill('SIGKILL'); await child.exited; } }
+  `;
+  try {
+    const r = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 20_000 });
+    assert.equal(r.status, 0, r.stdout + r.stderr + (r.error ?? ''));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
+test('server command arguments reach the child in order, with DB and PORT for a database server', () => {
+  stubServerRun(`
+    delete manifest.server; save();
+    writeFileSync(resolve(dir, 'server.ts'), "import { writeFileSync as write } from 'node:fs'; write(process.env.DB, 'scratch');\\n" + serving);
+    const server = appServer(dir);
+    assert.equal(server.refusal, null);
+    const running = await startServer(dir, server, 'test');
+    const db = resolve(dir, '.exact/test/db.sqlite');
+    assert.deepEqual(record(), { argv, db, port: '4790' });
+    assert.equal(readFileSync(db, 'utf8'), 'scratch');
+    assert.equal(readFileSync(resolve(dir, '.exact/test/owner'), 'utf8').trim(), String(process.pid));
+    await running.stop();
+    assert.notEqual(await children[0].exited, 0);
+    assert.equal(existsSync(resolve(dir, '.exact/test')), false);
+    assert.deepEqual([taken, given], [1, 1]);
+  `);
+});
+
+test('database: false omits inherited DB, preserves database files, and keeps refusal and cleanup behavior', () => {
+  stubServerRun(`
+    const server = appServer(dir);
+    assert.equal(server.refusal, null);
+    const runDir = resolve(dir, '.exact/test');
+    mkdirSync(runDir, { recursive: true });
+    const files = ['db.sqlite', 'db.sqlite-wal', 'db.sqlite-shm', 'db.sqlite-journal'];
+    for (const file of files) writeFileSync(resolve(runDir, file), 'untouched');
+    await assert.rejects(withAppServer(dir, async () => {
+      assert.deepEqual(record(), { argv, db: null, port: '4790' });
+      throw new Error('test failed');
+    }, { verb: 'test', optional: true }), /test failed/);
+    for (const file of files) assert.equal(readFileSync(resolve(runDir, file), 'utf8'), 'untouched');
+    assert.equal(existsSync(resolve(runDir, 'owner')), false);
+    assert.notEqual(await children[0].exited, 0);
+    assert.deepEqual([taken, given], [1, 1]);
+    assert.equal(await withAppServer(dir, () => assert.fail('an answering server must be refused'), { verb: 'test' }), 1);
+    assert.equal(children.length, 1);
+    assert.deepEqual([taken, given], [2, 2]);
+    rmSync(ready);
+    rmSync(runDir, { recursive: true });
+    const running = await startServer(dir, server, 'test');
+    assert.deepEqual(record(), { argv, db: null, port: '4790' });
+    assert.deepEqual(readdirSync(runDir), ['owner']);
+    await running.stop();
+    assert.equal(existsSync(runDir), false);
+    delete manifest.server; save();
+    assert.match(appServer(dir).refusal, /does not read its database's path from DB/);
+    assert.equal(await withAppServer(dir, () => assert.fail('a database server without DB must be refused'), { optional: true }), 1);
+    assert.equal(children.length, 2);
+  `);
+});
+
+test('agent --test starts and stops the app server on web, ios and macos, and reuses its parent server', () => {
+  stubServerRun(`
+    const { main } = await import(resolve(scripts, 'agent.mjs'));
+    const args = ['--app', dir, '--test', resolve(dir, 'app.test.contract')];
+    for (const host of ['web', 'ios', 'macos']) {
+      const code = await main([host, ...args], { runTests: async (options) => {
+        assert.equal(options.host, host);
+        assert.equal(options.file, args[3]);
+        assert.deepEqual(record(), { argv, db: null, port: '4790' });
+        assert.equal(children.at(-1).exitCode, null);
+        return { results: [], passed: 1, failed: 0 };
+      } });
+      assert.equal(code, 0);
+      assert.notEqual(await children.at(-1).exited, 0);
+      assert.equal(existsSync(resolve(dir, '.exact/test')), false);
+      rmSync(ready);
+    }
+    const result = await withAppServer(dir, async () => {
+      const source = 'const { main } = await import(' + JSON.stringify(resolve(scripts, 'agent.mjs')) + ');' +
+        'process.exit(await main(' + JSON.stringify(['web', ...args]) + ', { runTests: async () => ({ results: [], passed: 1, failed: 0 }) }));';
+      const child = spawnSync(process.execPath, ['-e', source], { encoding: 'utf8', timeout: 10_000 });
+      assert.equal(child.status, 0, child.stdout + child.stderr);
+      assert.equal(children.at(-1).exitCode, null, 'the parent server still runs');
+      return 0;
+    }, { verb: 'test', optional: true });
+    assert.equal(result, 0);
+    assert.notEqual(await children.at(-1).exited, 0);
+    assert.deepEqual([taken, given], [4, 4]);
+    rmSync(ready);
+    rmSync(resolve(dir, 'server.ts'));
+    assert.equal(await main(['web', ...args], { runTests: async () => ({ results: [], passed: 0, failed: 1 }) }), 1);
+    assert.equal(children.length, 4, 'an app with no server still runs its tests');
+  `);
+});
+
+test('an agent drive passes server arguments without DB or a scratch database', () => {
+  stubServerRun(`
+    const lease = resolve(dir, '.exact/agent-server');
+    mkdirSync(lease, { recursive: true });
+    const old = resolve(lease, 'db.sqlite');
+    writeFileSync(old, 'untouched');
+    const running = await driveServer(dir, 'one', () => {}, { fresh: true });
+    assert.deepEqual(record(), { argv, db: null, port: '4790' });
+    assert.equal(existsSync(resolve(dir, '.exact/agent/one')), false);
+    await running.stop();
+    assert.notEqual(await children[0].exited, 0);
+    assert.equal(readFileSync(old, 'utf8'), 'untouched');
+    assert.deepEqual(readdirSync(lease), ['db.sqlite']);
+  `);
+});
+
+test('Excord declares its transcript fixture without a database', async () => {
+  const { readManifest, validate } = await import('./app.mjs');
+  const schema = JSON.parse(readFileSync(resolve(import.meta.dir, 'app.schema.json'), 'utf8'));
+  for (const server of [{}, { database: false }, { database: true }]) assert.deepEqual(validate(server, schema.properties.server, 'server', schema), []);
+  assert.notEqual(validate({ database: 'false' }, schema.properties.server, 'server', schema).length, 0);
+  const dir = resolve(import.meta.dir, '../apps/excord');
+  assert.deepEqual(readManifest(dir, 'excord').server, { database: false });
+  assert.deepEqual(appServer(dir), {
+    entry: 'fixture/server.ts', args: ['--world', 'transcript', '--reset-on-identify'], database: false,
+    url: 'http://127.0.0.1:4790', port: 4790, why: null, refusal: null,
+  });
 });
 
 // The rest pattern, verified as a builder would with a data.db of their own: verify runs its server on an empty
