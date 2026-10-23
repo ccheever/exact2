@@ -6,6 +6,8 @@ use std::sync::{Arc, Mutex};
 
 #[path = "abi_entry_tests.rs"]
 mod entries;
+#[path = "abi_longpoll_tests.rs"]
+mod long_poll;
 #[cfg(unix)]
 #[path = "abi_native_settle_tests.rs"]
 mod native_settle;

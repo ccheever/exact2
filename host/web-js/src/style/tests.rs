@@ -331,7 +331,7 @@ fn a_computed_transition_is_checked_as_an_authors() {
     // LLP 1081 D5: the new tint becomes the property the browser
     // animates; the old spelling, the host's own name (behind a comment
     // too) and any old name are dropped, as the native parser refuses
-    // them; springs are the engine's.
+    // them; the physics spring stays with the engine.
     let values = [
         "-exact-tint-color 1s",
         "tint-color 1s, opacity 1s",
@@ -351,6 +351,64 @@ fn a_computed_transition_is_checked_as_an_authors() {
             "none"
         ])
     );
+}
+
+#[test]
+fn bound_spring_transitions_match_the_static_css_writer() {
+    assert_spring_transitions(&TRANSITION_MAP);
+}
+
+pub(crate) fn assert_spring_transitions(map: &str) {
+    let values = [
+        "color -exact-spring()",
+        "font-weight -exact-spring(100, 20, 1)",
+        "font-stretch -exact-spring(100, 30, 1) 0s 125ms",
+        "color -exact-spring() 0s 100000008s",
+        "background-color -exact-spring(250, 3, 0.01)",
+        "fill -exact-spring(250, 300, 100)",
+        "stroke -exact-spring(1, 0, 1)",
+        "border-color -exact-spring(180, 14, 1)",
+        "-exact-tint-color -exact-spring(0.001, 0.0002, 0.00001)",
+        "all -exact-spring() 0s 0.1s",
+        "-exact-spring(100, 20, 1)",
+        "color 0.25s ease 0s, color -exact-spring()",
+        "all -exact-spring(), color 0.25s ease 0s",
+        "translate -exact-spring(), scale -exact-spring(), rotate -exact-spring(), opacity -exact-spring(), height -exact-spring()",
+    ];
+    let actual = run(map, &values);
+    for (i, value) in values.iter().enumerate() {
+        let transitions = exact_motion::Transitions::parse(value).unwrap();
+        let (expected, _) = exact_web::css::transition_css(&transitions);
+        let expected = if expected.is_empty() {
+            "none"
+        } else {
+            &expected
+        };
+        assert_eq!(actual[i], expected, "{value}");
+    }
+    let values: Vec<_> = [0.0001, 0.1, 1.0, 100.0, 10000.0]
+        .into_iter()
+        .flat_map(|mass: f64| {
+            [0.0, 0.1, 0.5, 1.0, 1.5, 4.0].map(move |ratio| {
+                let stiffness = 120.0 * mass;
+                let damping = 2.0 * (stiffness * mass).sqrt() * ratio;
+                format!("color -exact-spring({stiffness}, {damping}, {mass})")
+            })
+        })
+        .chain(
+            [-96, 87, 90]
+                .map(|exponent| format!("color -exact-spring() 0s {}s", 2.0_f64.powi(exponent))),
+        )
+        .collect();
+    let actual = run(map, &values.iter().map(String::as_str).collect::<Vec<_>>());
+    for (i, value) in values.iter().enumerate() {
+        let transitions = exact_motion::Transitions::parse(value).unwrap();
+        assert_eq!(
+            actual[i],
+            exact_web::css::transition_css(&transitions).0,
+            "{value}"
+        );
+    }
 }
 
 /// LLP 1034 §8: a bound `color-scheme` writes `light` or `dark`, and a

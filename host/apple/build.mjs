@@ -51,6 +51,7 @@ import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { appleImplementations } from '../../js/bake/src/typescript.mjs';
+import { composedModule } from './compose.mjs';
 import { writeDataKeys } from './data-keys.mjs';
 import { compileFixtures, iosTestRuns, macTests } from './xctest.mjs';
 import { appIcon, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyMacResources, signingOrder, helperEntitlements, plistFile, wrapFramework, signedGpuProduct, assertArchiveFrameworks } from './assets.mjs';
@@ -1089,7 +1090,10 @@ async function main(args, lockHeld = false) {
   // @ref LLP 1133.001 D4, D5 — the modules' Swift implementations the app names, each package compiled as a Swift
   // module of its own and composed into the app's one module by an adapter written here (never committed).
   const packages = appleImplementations(app.dir, tv ? 'tvos' : ios ? 'ios' : 'macos'), composing = modules.apple.length > 0 || packages.length > 0;
-  const composed = resolve(linkRoot, `ExactComposed-${app.id}.swift`), packageObjects = packages.map(p => resolve(packageDir, `${p.module}.o`));
+  // Each package compiles against `ExactPackage` (host/apple/modules/ExactPackage.swift), a Swift module of its own
+  // compiled first and linked into the app's module with them.
+  const seam = resolve(root, 'host/apple/modules/ExactPackage.swift');
+  const composed = resolve(linkRoot, `ExactComposed-${app.id}.swift`), packageObjects = packages.length ? [resolve(packageDir, 'ExactPackage.o'), ...packages.map(p => resolve(packageDir, `${p.module}.o`))] : [];
   // Each package's Swift copied as it is when the build begins (an edit meanwhile lands in the next build, as the app's
   // own sources do): what it compiles from and what an arm linking it is keyed by.
   const packageCopies = packages.map(p => p.sources.map((f, i) => {
@@ -1097,7 +1101,7 @@ async function main(args, lockHeld = false) {
     mkdirSync(dirname(copy), { recursive: true });
     copyFileSync(f, copy);
     return copy;
-  })), packageSources = packageCopies.flat();
+  })), packageSources = packages.length ? [seam, ...packageCopies.flat()] : [];
   if (composing) writeFileSync(composed, composedModule(packages, modules.apple.length > 0));
   if (composing) writeDataKeys(app, dataKeys, ios ? 'ios' : 'macos');
   // @ref LLP 1121 D12 — the token names `contract tamber gen swift` writes from the design (never committed).
@@ -1142,12 +1146,18 @@ async function main(args, lockHeld = false) {
   // Each package's Swift module for this target, before the app's module links it: once, and only when an arm
   // linking it is compiled anew (its copied sources and `packageStamp` are that arm's key; its objects' paths this
   // build's own). A failed package stays unplaced, so the next arm that needs it compiles it again and says why.
-  const packageArgs = (p, i) => ['--sdk', sdkName, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), '-parse-as-library', '-wmo', '-O', '-swift-version', '5', '-module-name', p.module, '-emit-module', '-emit-module-path', resolve(packageDir, `${p.module}.swiftmodule`), '-c', ...packageCopies[i], '-o', resolve(packageDir, `${p.module}.o`), ...(ios ? ['-target', moduleTripleFor(app, true, device, tv), '-sdk', sdk] : macTarget)];
+  const swiftModuleArgs = (name, sources) => ['--sdk', sdkName, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), '-parse-as-library', '-wmo', '-O', '-swift-version', '5', '-module-name', name, '-emit-module', '-emit-module-path', resolve(packageDir, `${name}.swiftmodule`), '-I', packageDir, '-c', ...sources, '-o', resolve(packageDir, `${name}.o`), ...(ios ? ['-target', moduleTripleFor(app, true, device, tv), '-sdk', sdk] : macTarget)];
+  const packageArgs = (p, i) => swiftModuleArgs(p.module, packageCopies[i]);
   // What an arm linking the packages adds to its key: each package, its sources by name, and how it compiles.
   const packageStamp = JSON.stringify(packages.map((p, i) => [p.module, p.sources, packageArgs(p, i).map(a => a.replaceAll(packageDir, '<packages>'))]));
+  const seamArgs = () => swiftModuleArgs('ExactPackage', [seam]);
   let placed = false;
   const placePackages = () => {
     if (placed) return;
+    if (packages.length) {
+      const r = spawnSync('xcrun', seamArgs(), { encoding: 'utf8' });
+      if (r.status !== 0) throw new Error(`host/apple: ExactPackage.swift did not compile:\n${r.stderr ?? ''}`);
+    }
     packages.forEach((p, i) => {
       const r = spawnSync('xcrun', packageArgs(p, i), { encoding: 'utf8' });
       // Each copy's real path first (the temporary directory's `/private/var/…`), as `snapshot.authored` maps the app's.
@@ -1477,22 +1487,4 @@ export function rebuildArgs(args, dir = process.env.EXACT_APP_DIR) {
   const ios = ['--ios', '--device', '--tvos'].some((flag) => args.includes(flag));
   const rest = args.filter((a) => a !== '--ios' && !(a.endsWith('-apple') && !a.startsWith('-')));
   return [`(cd ${quote(dir)} && bun exact.mjs ${ios ? 'ios' : 'mac'}`, ...rest.map(quote)].join(' ') + ')';
-}
-
-/** The app's module composed with its packages' implementations (LLP 1133.001 D5): an adapter over each package's
- * class (its shape, host/apple/modules/ExactExtensions.swift), the table that names them, and, for an app with no
- * module of its own, an empty one. */
-function composedModule(packages, ownModule) {
-  const lines = ['// Written by host/apple/build.mjs (LLP 1133.001 D5); never edited.', ...packages.map(p => `import ${p.module}`)];
-  for (const p of packages) lines.push(
-    `final class ExactAdapter_${p.module}: ExactExtensionAdapter {`,
-    `    let impl: ${p.className}`,
-    `    init(_ context: ExactModuleContext) { impl = ${p.className}(changed: { [weak context] topic in context?.changed(topic) }, agent: context.agent, log: { [weak context] line in context?.diagnostics.log(line) }) }`,
-    '    override func later(_ name: String, _ args: [String: Any], reply: ExactReply) { impl.later(name, args) { reply.send($0) } }',
-    '    override func call(_ name: String, _ args: [String: Any]) throws -> [String: Any] { try impl.call(name, args) }',
-    '    override func release(_ name: String) { impl.release(name) }',
-    '}');
-  lines.push(`let exactExtensions: [String: (ExactModuleContext) -> ExactExtensionAdapter] = [${packages.map(p => `${JSON.stringify(p.extension)}: { ExactAdapter_${p.module}($0) }`).join(', ') || ':'}]`);
-  if (!ownModule) lines.push('final class ExactComposedModule: ExactModule {}', 'let exactModule: ExactModule.Type = ExactComposedModule.self');
-  return lines.join('\n') + '\n';
 }

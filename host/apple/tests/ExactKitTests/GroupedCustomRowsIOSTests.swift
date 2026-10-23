@@ -76,32 +76,30 @@ final class GroupedCustomRowsIOSTests: GroupedListFixture {
         XCTAssertEqual(line.minX - frame.minX, 16, accuracy: 0.5, "the line where the content now starts")
     }
 
-    /// Right to left the line is UIKit's own (the row's views are not
-    /// mirrored), and a row the model drops takes its mark with it.
+    /// Right to left the kernel mirrors the row's insets, and the line starts
+    /// past its symbol from the right; a row the model drops takes its mark
+    /// with it.
     func testRightToLeftTheLineIsTheKernelsAndADroppedRowTakesItsMark() throws {
         var dropped = false
-        let p = presenter { dropped ? GroupedListModel(style: "inset-grouped", sections: [.init(view: 2, header: nil, footer: nil, rows: [
+        let p = presenter(style: ["direction": "rtl"]) { dropped ? GroupedListModel(style: "inset-grouped", sections: [.init(view: 2, header: nil, footer: nil, rows: [
             Row(view: 10, symbol: "person.circle", title: "Profile", accessory: "disclosure", pressable: true),
         ])]) : self.customFirst() }
         p.apply(wireBatch([
             ["op": "create", "id": 30, "kind": "image", "props": ["imageSource": "symbol:person", "symbolName": "person.circle"], "style": ["font_size": 17.0, "object_fit": "contain"]],
             ["op": "children", "id": 21, "ids": [30]],
             ["op": "frame", "id": 21, "x": 0.0, "y": 0.0, "w": 370.0, "h": 61.0],
-            ["op": "frame", "id": 30, "x": 16.0, "y": 20.5, "w": 24.0, "h": 20.0],
+            ["op": "frame", "id": 30, "x": 330.0, "y": 20.5, "w": 24.0, "h": 20.0],
         ]))
         let row = try XCTUnwrap(p.views[21]), image = try XCTUnwrap(p.views[30])
-        row.kernelContentBox = CGRect(x: 56, y: 0, width: 298, height: 61)
+        row.kernelContentBox = CGRect(x: 16, y: 0, width: 298, height: 61)
         let l = try list(p)
-        l.collection.semanticContentAttribute = .forceRightToLeft
+        XCTAssertEqual(l.collection.effectiveUserInterfaceLayoutDirection, .rightToLeft, "the list's direction")
         p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "custom"]]]))
         l.collection.collectionViewLayout.invalidateLayout()
         l.collection.layoutIfNeeded()
-        let custom = try cell(p, 21)
-        func lines(_ v: UIView) -> [UIView] { (String(describing: type(of: v)).contains("Separator") ? [v] : []) + v.subviews.flatMap(lines) }
-        let frame = custom.convert(custom.bounds, to: l.collection)
-        let line = try XCTUnwrap(lines(l.collection).map { $0.convert($0.bounds, to: l.collection) }.first { abs($0.maxY - frame.maxY) < 1.5 })
-        XCTAssertNil(try list(p).lineStart(21), "no line of ours right to left")
-        XCTAssertEqual(frame.maxX - line.maxX, 16, accuracy: 0.5, "UIKit's own: its margin")
+        // Where UIKit draws it is not read here: this fixture's window has no
+        // scene, and the list layout's environment stays left to right in it.
+        XCTAssertEqual(try XCTUnwrap(try list(p).lineStart(21)), 56, accuracy: 0.5, "from the right, past the symbol")
         XCTAssertTrue(image.listSymbol)
         dropped = true
         p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "dropped"]]]))

@@ -96,6 +96,9 @@ struct Completed {
     light: bool,
     /// A re-ask's marker (counted in `agains`).
     again: bool,
+    /// A long poll's reply that is no event (LLP 1016.000 D8,
+    /// `LONG_POLL_REPLY`): an event that follows takes its place.
+    reply: bool,
 }
 /// A place behind the ordered barrier.
 enum Fenced {
@@ -177,6 +180,9 @@ struct Shared {
     roots: std::sync::OnceLock<Result<ibex2::stdlib::app_fs::AppDirectories, String>>,
     /// Open two-way sockets by stream ticket (LLP 1016.000 D7; `stream.rs`).
     sockets: Mutex<std::collections::HashMap<u64, stream::Socket>>,
+    /// Long polls waiting to ask again, by stream ticket (LLP 1016.000 D8;
+    /// `executor_longpoll.rs`): the attempt, when it asks, and what failed.
+    retrying: Mutex<std::collections::HashMap<u64, (u32, std::time::Instant, String)>>,
 }
 
 impl Shared {
@@ -293,6 +299,7 @@ impl Core {
             root_paths: std::sync::OnceLock::new(),
             roots: std::sync::OnceLock::new(),
             sockets: Mutex::default(),
+            retrying: Mutex::default(),
         });
         let count = if lanes.is_some() {
             asynch::THREADS
@@ -444,11 +451,12 @@ impl Core {
     ) -> Result<(), (&'static str, Option<OwnedWork>)> {
         let ordered = r.request.is_ordered();
         let mut state = self.shared.state.lock().unwrap();
-        // A deadline on work that cannot take one (a stream, a continuation,
-        // native work) is refused here, before any path.
+        // A deadline on work that cannot take one (a stream, a continuation, native work), or a long
+        // poll that is no stream's HTTP GET (LLP 1016.000 D8), is refused here, before any path.
         let checked = r
             .request
-            .timeout_refusal()
+            .long_poll_refusal()
+            .or(r.request.timeout_refusal())
             .or(r.request.body_from_refusal())
             .map_or_else(|| reservation(&r.request), Err)
             .and_then(|charge| state.book.reserve_inline_copy(&r.request, charge));
@@ -959,6 +967,7 @@ fn settle_again(state: &mut State, ticket: u64) -> bool {
         stream: false,
         light: true,
         again: true,
+        reply: false,
     });
     true
 }
@@ -1061,6 +1070,7 @@ fn complete(shared: &Shared, ticket: u64, outcome: Outcome) {
         stream: run.stream,
         light: run.read,
         again: false,
+        reply: false,
     });
     if has_ready(&state) {
         wake(&mut state);
@@ -1320,7 +1330,7 @@ fn execute(
         Ok(b) => b,
         Err(unbound) => return failed(FailureKind::Refused, unbound),
     };
-    if let Some(why) = request.timeout_refusal() {
+    if let Some(why) = request.timeout_refusal().or(request.long_poll_refusal()) {
         return failed(FailureKind::Refused, why);
     }
     let limit = match request.http {

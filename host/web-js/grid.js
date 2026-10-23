@@ -13,7 +13,7 @@ export function gridValue(kind, value) {
   if (value == null) return value;
   // A design token's property (LLP 1121 D7): each tuple's value was checked as this row's when it was built.
   // A base name's (LLP 1121 stage 11 B2): one length of the kernel's scale, exactly these nine (base_scale.rs).
-  if (/^\s*var\((?:--x-[\w-]+|--exact-(?:space-(?:xs|sm|md|lg|xl)|radius-(?:sm|md|lg|full)))\)\s*$/.test(String(value))) return value;
+  if (kind === "tracks" && /^\s*var\((?:--x-[\w-]+|--exact-(?:space-(?:xs|sm|md|lg|xl)|radius-(?:sm|md|lg|full)))\)\s*$/.test(String(value))) return value;
   const prop = kind === "tracks" ? "grid-template-columns" : kind === "placement" ? "grid-column" : kind === "flow" ? "grid-auto-flow" : "justify-items", v = normal(prop, String(value));
   const refuse = why => { say(`unset ${prop}: ${JSON.stringify(value)} (${why})`); return "unset"; };
   if (!v) return refuse("the browser rejected it");
@@ -28,7 +28,14 @@ export function gridValue(kind, value) {
     if (/\bfit-content\(\s*(?:calc|min|max|clamp)\(/.test(sizes)) return refuse("calculated fit-content() limits are unsupported");
     if (trackCount(lower) > 10000) return refuse("Taffy supports at most 10000 explicit tracks");
   }
-  if (kind === "placement" && lower.split(/[ \/]+/).some(x => /^-?\d+$/.test(x) && Math.abs(Number(x)) > 10000)) return refuse("Taffy supports grid indexes and spans through 10000");
+  if (kind !== "tracks") {
+    // In browser-accepted CSS, keep escapes (including a hex escape's trailing space)
+    // inside their token: escaped digits are names, and an escaped '(' is not a function.
+    for (const [, token, functionStart] of v.matchAll(/((?:\\(?:[0-9a-f]{1,6}[ \t\n\r\f]?|[^\n\r\f])|[^ \t\n\r\f/\\()])+)(\()?/gi)) {
+      if (functionStart) return refuse("calculated/custom/environment values are unsupported");
+      if (kind === "placement" && /^[+-]?\d+$/.test(token) && Math.abs(Number(token)) > 10000) return refuse("Taffy supports grid indexes and spans through 10000");
+    }
+  }
   if (kind === "justify" && /^(?:last baseline|legacy(?: (?:left|right|center))?|(?:left|right|center) legacy)$/.test(lower)) return refuse("Taffy has no such alignment mode");
   return v;
 }

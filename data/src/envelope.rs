@@ -46,6 +46,12 @@ pub fn encode(result: Result<Answer, DataError>, local: &mut Store, logs: Vec<St
     let mut body = json!({"turn": 1, "reads": local.reads(), "topics": local.take_topics(), "writes": writes, "logs": logs});
     match result {
         Ok(Answer::Now(value)) => body["value"] = Json::String(base64(&value.to_bytes())),
+        // A long poll no host may run (LLP 1016.000 D8) is refused before it crosses: the envelope carries
+        // no surface, so its far side couldn't tell.
+        Ok(Answer::Later(request)) if request.long_poll_refusal().is_some() => {
+            let why = request.long_poll_refusal().unwrap_or_default();
+            body["error"] = error_json(&unavailable(why));
+        }
         Ok(Answer::Later(request)) => body["request"] = request_json(&request),
         Err(error) => body["error"] = error_json(&error),
     }
@@ -170,6 +176,9 @@ fn request_json(request: &Request) -> Json {
         "headers": request.headers,
         "body": base64(&request.body),
         "stream": request.stream,
+        "long_poll": request.long_poll.as_ref().map(|p| json!({
+            "cursor": p.cursor, "from": p.from, "same_cursor_event": p.same_cursor_event,
+        })),
         "timeout_ms": request.timeout_ms,
         "body_from": request.body_from,
         "redirect": (request.redirect != Redirect::Follow).then(|| request.redirect.name()),
@@ -198,7 +207,7 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
         })
         .transpose()?
         .unwrap_or_default();
-    Ok(Request {
+    let request = Request {
         surface: None,
         continuation: json["continuation"].as_u64(),
         http: match &json["max_response_bytes"] {
@@ -222,6 +231,28 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
         // stream: a body that is not events is its one answer.
         socket: false,
         bytes: false,
+        // A long poll (LLP 1016.000 D8) a worker's source asked for: its
+        // terms, checked as the prelude checks them.
+        long_poll: match &json["long_poll"] {
+            Json::Null => None,
+            poll => {
+                let name = |key: &str| {
+                    (poll[key].as_str())
+                        .filter(|s| (1..=256).contains(&s.chars().count()))
+                        .map(str::to_string)
+                        .ok_or_else(|| unavailable("turn reply: invalid long poll terms"))
+                };
+                Some(Box::new(exact_runner::LongPoll {
+                    cursor: name("cursor")?,
+                    from: name("from")?,
+                    same_cursor_event: match &poll["same_cursor_event"] {
+                        Json::Null => false,
+                        Json::Bool(b) => *b,
+                        _ => return Err(unavailable("turn reply: invalid long poll terms")),
+                    },
+                }))
+            }
+        },
         timeout_ms: match &json["timeout_ms"] {
             Json::Null => None,
             value => Some(
@@ -239,7 +270,12 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
         redirect: Redirect::parse(json["redirect"].as_str())
             .map_err(|_| unavailable("turn reply: an invalid redirect mode"))?,
         held: json["held"].as_bool().unwrap_or(false),
-    })
+    };
+    // A long poll's terms, checked as every host checks them (LLP 1016.000 D8).
+    match request.long_poll_refusal() {
+        Some(why) => Err(unavailable(format!("turn reply: {why}"))),
+        None => Ok(request),
+    }
 }
 
 /// Standard base64 with padding, as the runner's agent module spells it.
@@ -314,6 +350,37 @@ mod tests {
             Answer::Later(r) => assert!(r.stream && !r.socket && !r.bytes, "{r:?}"),
             _ => panic!("a yield"),
         }
+    }
+
+    #[test]
+    fn a_worker_s_long_poll_keeps_its_terms() {
+        let request = Request {
+            stream: true,
+            ..Request::get("https://x.test/changes?since=0")
+                .independent_http(4096)
+                .long_poll("since", "seq")
+        };
+        let outcome = encode(
+            Ok(Answer::Later(request.clone())),
+            &mut Store::default(),
+            vec![],
+        );
+        match apply(outcome, &mut Store::default(), &mut Vec::new()).unwrap() {
+            Answer::Later(r) => assert_eq!(r.long_poll, request.long_poll),
+            _ => panic!("a yield"),
+        }
+    }
+
+    #[test]
+    fn a_long_poll_no_host_may_run_is_refused_before_it_crosses() {
+        // The envelope carries no surface: a long poll on one (here a continuation) is refused on this side.
+        let request = Request::continuation(3).long_poll("since", "seq");
+        let outcome = encode(Ok(Answer::Later(request)), &mut Store::default(), vec![]);
+        let refused = apply(outcome, &mut Store::default(), &mut Vec::new()).unwrap_err();
+        assert!(
+            format!("{refused:?}").contains("exactLongPoll"),
+            "{refused:?}"
+        );
     }
 
     #[test]
