@@ -6,6 +6,9 @@ use std::sync::{Arc, Mutex};
 
 #[path = "abi_entry_tests.rs"]
 mod entries;
+#[cfg(unix)]
+#[path = "abi_native_settle_tests.rs"]
+mod native_settle;
 #[path = "abi_refusal_tests.rs"]
 mod refusals;
 
@@ -288,9 +291,29 @@ fn pending_native_preparation_keeps_the_running_app_and_carries_later_input() {
         844.0,
     );
     assert!(bridge.prepared.is_some());
+    let kernel = bridge.host.as_ref().unwrap().runner().kernel();
+    let button = kernel
+        .node_by_key(kernel.find_by_test_id("increment")[0])
+        .unwrap()
+        .id;
+    bridge.dispatch(button, 0, 0, 0.0);
+    let latest = bridge.host.as_ref().unwrap().carry();
+    assert_ne!(latest.slots, carried.slots);
+    let length = bridge.commit_plan();
+    let batch = String::from_utf8_lossy(bridge.output_bytes(length as usize));
+    assert!(batch.contains("\"pending\":true"), "{batch}");
+    assert_eq!(bridge.host.as_ref().unwrap().carry().slots, latest.slots);
+    bridge.input_write(&bytes);
+    bridge.prepare_module(
+        [bytes.len(), 0, 0],
+        source.clone(),
+        Hooks::none(),
+        390.0,
+        844.0,
+    );
     bridge.commit_plan();
-    assert_eq!(bridge.host.as_ref().unwrap().carry().slots, carried.slots);
-    assert_eq!(*source.calls.lock().unwrap(), ["validate"]);
+    assert_eq!(bridge.host.as_ref().unwrap().carry().slots, latest.slots);
+    assert_eq!(*source.calls.lock().unwrap(), ["validate", "validate"]);
 }
 
 #[test]
