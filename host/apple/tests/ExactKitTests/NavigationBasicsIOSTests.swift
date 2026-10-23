@@ -877,16 +877,27 @@ final class NavigationBasicsIOSTests: XCTestCase {
                       "and the stack beneath is as it was")
     }
 
-    /// LLP 1116.020 D2: a presented stack's title is inline at any level, as
-    /// UIKit's sheets and Apple's are; a level-1 heading pushed in the stack
-    /// beneath is large.
-    func testASheetsLevelOneTitleIsInline() throws {
+    /// LLP 1141.001 D7: a sheet whose heading says level 1 has a large title,
+    /// as its author asked (a Settings sheet's).
+    func testASheetsLevelOneTitleIsLarge() throws {
         let (session, _, _) = try bars("bars-titled-sheet")
         let navigation = session.presenter.navigation
         try tapNode(session, "start-open-titled")
         until("the sheet has its own stack") { navigation.modalNavigation?.viewControllers.count == 1 }
         let route = try XCTUnwrap(navigation.modalNavigation?.topViewController as? RouteController)
         XCTAssertEqual(route.navigationItem.title, "Titled")
+        XCTAssertEqual(route.navigationItem.largeTitleDisplayMode, .always, "the author's level 1 is a large title")
+    }
+
+    /// LLP 1116.020 D2: a sheet's heading of no level is an inline title, as
+    /// UIKit's sheets and Apple's are.
+    func testASheetsHeadingOfNoLevelIsInline() throws {
+        let (session, _, _) = try bars("bars-glass-title")
+        let navigation = session.presenter.navigation
+        try tapNode(session, "start-open-glass")
+        until("the sheet has its own stack") { navigation.modalNavigation?.viewControllers.count == 1 }
+        let route = try XCTUnwrap(navigation.modalNavigation?.topViewController as? RouteController)
+        XCTAssertEqual(route.navigationItem.title, "Glass")
         XCTAssertEqual(route.navigationItem.largeTitleDisplayMode, .never, "a sheet's title is inline")
     }
 
