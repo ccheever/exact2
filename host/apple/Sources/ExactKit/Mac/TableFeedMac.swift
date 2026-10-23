@@ -67,7 +67,10 @@ final class TableRowCell: NSTableCellView {
     /// failing one at whatever text field it finds in the cell (measured on
     /// macOS 27.0: an author's field at the row's end took the separator
     /// with it). So the separator is inset to the row's text, by AppKit.
-    var paintsSelection: Bool { row.flatMap { feed?.row(of: $0) }.flatMap { feed?.pressing($0) }?.authorsPress != true }
+    var paintsSelection: Bool {
+        guard let node = row.flatMap({ feed?.row(of: $0) }).flatMap({ feed?.pressing($0) }) else { return true }
+        return !node.authorsPress || !node.pressed
+    }
     private var paintedSelection = true
     func syncSelectionPaint() {
         let paints = paintsSelection

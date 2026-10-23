@@ -583,10 +583,44 @@ final class TableFeedKeyMacTests: XCTestCase {
         }
     }
 
+    func testPressContactTemporarilySuppressesSelectionAndSelectedInk() throws {
+        let source = TableFixture.source(count: 20).replacingOccurrences(of: "row press=open(r)", with: "row press=open(r) -exact-press-opacity=0.4")
+        let f = try TableFixture(count: 20, source: source)
+        fixture = f
+        f.window.orderFrontRegardless()
+        XCTAssertTrue(f.window.makeFirstResponder(f.table))
+        f.settle()
+        f.table.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        let row = try f.node("row-1"), title = try f.node("title-1")
+        let cell = try XCTUnwrap(f.table.rowView(atRow: 1, makeIfNecessary: true)?.view(atColumn: 0) as? TableRowCell)
+        cell.backgroundStyle = .emphasized
+        XCTAssertTrue(cell.paintsSelection)
+        XCTAssertTrue(title.inEmphasizedRow)
+        let point = title.convert(NSPoint(x: title.bounds.midX, y: title.bounds.midY), to: nil)
+        f.presenter.tables.pointer(mouse(.leftMouseDown, point, f.window))
+        XCTAssertTrue(row.pressed)
+        XCTAssertFalse(cell.paintsSelection)
+        XCTAssertFalse(title.inEmphasizedRow)
+        XCTAssertEqual(f.table.selectedRow, 1)
+        f.presenter.tables.pointer(mouse(.leftMouseUp, point, f.window))
+        XCTAssertFalse(row.pressed)
+        XCTAssertTrue(cell.paintsSelection)
+        XCTAssertTrue(title.inEmphasizedRow)
+        XCTAssertEqual(f.table.selectedRow, 1)
+        f.table.keyDown(with: NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.function, .numericPad], timestamp: 0,
+                                       windowNumber: f.window.windowNumber, context: nil, characters: "\u{F701}", charactersIgnoringModifiers: "\u{F701}", isARepeat: false, keyCode: 125)!)
+        f.settle()
+        XCTAssertEqual(f.table.selectedRow, 2)
+        let next = try XCTUnwrap(f.table.rowView(atRow: 2, makeIfNecessary: true)?.view(atColumn: 0) as? TableRowCell)
+        next.backgroundStyle = .emphasized
+        XCTAssertTrue(next.paintsSelection)
+        XCTAssertTrue(try f.node("title-2").inEmphasizedRow)
+    }
+
     func testAuthoredPressedPaintFollowsTheTablesClickWithoutReplacingSelection() throws {
         let source = TableFixture.source(count: 20).replacingOccurrences(of: "row press=open(r)", with: "row press=open(r) -exact-press-opacity=0.4 -exact-press-background-color=\"#ff0000\" -exact-press-color=\"#00ff00\"")
         let f = try keyed(count: 20, source: source)
-        let row = try f.node("row-1")
+        let row = try f.node("row-1"), title = try f.node("title-1")
         XCTAssertTrue(row.authorsPress)
         var observed = false
         click(try f.node("title-1"), in: f) {
@@ -601,8 +635,19 @@ final class TableFeedKeyMacTests: XCTestCase {
         XCTAssertEqual(f.table.selectedRow, 1)
         XCTAssertTrue(f.window.firstResponder === f.table)
         XCTAssertTrue(f.status.hasPrefix("opened 1 presses 1 "), f.status)
-        XCTAssertLessThan(chroma(try fill(1, in: f)), 0.02, "only the selection paint is suppressed")
-        XCTAssertFalse(try f.node("title-1").inEmphasizedRow, "selected-item ink needs the selected-item ground")
+        XCTAssertGreaterThan(chroma(try fill(1, in: f)), 0.08, "release restores the selected-item ground")
+        XCTAssertTrue(try f.node("title-1").inEmphasizedRow)
+        let cell = try XCTUnwrap(f.table.rowView(atRow: 1, makeIfNecessary: false)?.view(atColumn: 0) as? TableRowCell)
+        click(title, in: f) {
+            XCTAssertTrue(row.pressed)
+            XCTAssertFalse(cell.paintsSelection)
+            XCTAssertFalse(title.inEmphasizedRow)
+        }
+        XCTAssertGreaterThan(chroma(try fill(1, in: f)), 0.08)
+        down(in: f)
+        XCTAssertEqual(f.table.selectedRow, 2)
+        XCTAssertGreaterThan(chroma(try fill(2, in: f)), 0.08)
+        XCTAssertTrue(try f.node("title-2").inEmphasizedRow)
     }
 
     func testAContextClickAndADoubleClickOnARowAreTheRowsOwn() throws {
