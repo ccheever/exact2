@@ -185,7 +185,10 @@ export function sharedWidgetCore({ app, prepared, libDir, crate, env, runApple, 
     copyFileSync(dylib, temporary);
     runApple('xcrun', ['install_name_tool', '-id', frameworkInstallName('ExactCore', platform === 'macos' ? 'MacOSX' : 'iPhoneOS'), temporary]);
     renameSync(temporary, layout.binary);
-    for (const name of ['ExactCore', 'ExactSnapshot']) cpSync(resolve(bin, `${name}.swiftmodule`), resolve(layout.modules, `${name}.swiftmodule`), { recursive: true, preserveTimestamps: true });
+    for (const name of ['ExactCore', 'ExactSnapshot']) {
+      const moduleName = `${name}.swiftmodule`, nested = resolve(bin, 'Modules', moduleName);
+      cpSync(existsSync(nested) ? nested : resolve(bin, moduleName), resolve(layout.modules, moduleName), { recursive: true, preserveTimestamps: true });
+    }
     writeFileSync(layout.info, plistFile({ CFBundleIdentifier: `${app.id}.runtime`, CFBundleName: 'ExactCore', CFBundleExecutable: 'ExactCore', CFBundlePackageType: 'FMWK', CFBundleVersion: '1', CFBundleShortVersionString: '0.1.0', CFBundleSupportedPlatforms: [platform === 'macos' ? 'MacOSX' : platform === 'watchos' ? 'WatchSimulator' : device ? 'iPhoneOS' : 'iPhoneSimulator'], ...(platform === 'macos' ? { LSMinimumSystemVersion: app.manifest.host?.macos?.minimumOS ?? '14.0' } : { MinimumOSVersion: platform === 'watchos' ? '10.0' : app.manifest.host?.ios?.minimumOS ?? '17.0' }) }));
     if (!existsSync(resolve(xcframework, 'Info.plist'))) runApple('xcrun', ['xcodebuild', '-create-xcframework', '-allow-internal-distribution', '-framework', framework, '-output', xcframework]);
     else {

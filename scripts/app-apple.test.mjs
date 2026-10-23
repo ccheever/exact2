@@ -729,7 +729,7 @@ test('Mac versioned runtime publication serves both bare products (LLP 1126.001 
 });
 
 
-test('Mac shared-core rebuild replaces an existing versioned XCFramework slice', async () => {
+for (const moduleDirectory of ['', 'Modules']) test(`Mac shared-core rebuild publishes ${moduleDirectory || 'root'} modules and replaces its XCFramework slice`, async () => {
   if (process.platform !== 'darwin') return;
   const { sharedWidgetCore } = await import('../host/apple/widgets.mjs');
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-core-recopy-'));
@@ -749,7 +749,7 @@ test('Mac shared-core rebuild replaces an existing versioned XCFramework slice',
       writeFileSync(source, `int exact_value(void) { return ${version}; }`);
       writeFileSync(archive, `archive ${version}`);
       for (const module of ['ExactCore', 'ExactSnapshot']) {
-        const path = resolve(bin, module + '.swiftmodule'); mkdirSync(path, { recursive: true });
+        const path = resolve(bin, moduleDirectory, module + '.swiftmodule'); mkdirSync(path, { recursive: true });
         writeFileSync(resolve(path, 'fixture'), `module ${version}`);
       }
       sharedWidgetCore({ app: { id: 'com.exact.test', manifest: {} }, prepared, libDir: dir, crate: 'fixture', env: process.env, runApple });
