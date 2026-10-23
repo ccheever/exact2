@@ -1232,7 +1232,15 @@ pub fn reimport_against(
             'size: for size in 0..=axes.len() {
                 for pick in crate::selectors::subsets(axes.len(), size) {
                     tried += 1;
-                    if tried > crate::selectors::SELECTORS {
+                    // Each candidate charged to the re-import's budget for
+                    // the tuples and `when` lines it is held against (the
+                    // checker's work in token counts): past it, the line
+                    // naming every axis, and the re-import is refused at
+                    // its next charge.
+                    let cost = tuples.len() * (1 + decl.whens.len() + token_ops.len());
+                    if tried > crate::selectors::SELECTORS
+                        || crate::budget::spend(cost as u64).is_err()
+                    {
                         break 'size;
                     }
                     let conds: Modes = pick.iter().map(|&k| axes[k].clone()).collect();
