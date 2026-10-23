@@ -316,6 +316,18 @@ final class HeaderMacTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(readout.image).size.width, first, "changing digits retain their spacing")
     }
 
+    func testUnauthoredReadoutFollowsBoldTextPreference() throws {
+        let previous = DisplayPreferences.agentBoldText
+        defer { DisplayPreferences.agentBoldText = previous }
+        DisplayPreferences.agentBoldText = true
+        let p = fixture(extra: view(16, "text", ["text": "Saved", "accessibilityRole": "status"])
+            + [children(10, [11, 12, 16, 13, 14])])
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        let image = try XCTUnwrap((p.toolbar.items[16]?.view as? NSImageView)?.image)
+        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+        XCTAssertEqual(image.size.width, ceil(("Saved" as NSString).size(withAttributes: [.font: font]).width))
+    }
+
     func testAuthoredDotAndFontKeepTheirToolbarFace() throws {
         let p = fixture(extra: view(130) + view(131, "text", ["text": "Clock"])
             + [["op": "style", "id": 130, "style": ["width": 8, "height": 8, "background_color": [20, 200, 40, 255]]],

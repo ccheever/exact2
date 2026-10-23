@@ -31,7 +31,7 @@ struct MacBarFace {
                 var font = fonted ? child.text?.font(size: child.number("font_size", PageFacts.defaultRootFontSize),
                     weight: Int(child.number("font_weight", 400)), family: Int(child.number("font_family")),
                     italic: child.style["font_style"]?.string == "italic") ?? NSFont.systemFont(ofSize: child.number("font_size", 13))
-                    : NSFont.systemFont(ofSize: NSFont.systemFontSize)
+                    : NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: DisplayPreferences.boldText ? .semibold : .regular)
                 if Int(child.number("font_variant_numeric")) & 1 != 0 {
                     let settings = [[kCTFontOpenTypeFeatureTag: "tnum", kCTFontOpenTypeFeatureValue: 1]] as CFArray
                     let descriptor = CTFontDescriptorCreateWithAttributes([kCTFontFeatureSettingsAttribute: settings] as CFDictionary)
