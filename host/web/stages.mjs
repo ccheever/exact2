@@ -34,6 +34,11 @@ const FEATURES = ['--enable-bulk-memory', '--enable-nontrapping-float-to-int', '
 
 const run = (command, args, options = {}) => spawnSync(command, args, { encoding: 'utf8', maxBuffer: 1 << 28, ...options });
 
+export function normalizeDemangled(name) {
+  // GNU prints unpadded crate hashes; LLVM omits them. Keep slices like [f64].
+  return name.replace(/\[[0-9a-f]+\](?=::)/g, '');
+}
+
 /** Why this machine can't split, or null when it can. */
 export function unsplitReason() {
   const version = run('wasm-split', ['--version']);
@@ -66,7 +71,7 @@ export function planStages(named, stages = STAGES) {
   for (const name of [...calls.keys(), ...callers.keys()]) if (!nodes.has(name)) nodes.set(name, { root: false });
   const raw = [...nodes.keys()];
   const plain = run('c++filt', [], { input: raw.join('\n') }).stdout.split('\n');
-  const demangled = new Map(raw.map((name, i) => [name, (plain[i] ?? name).replace(/\[[0-9a-f]{16}\]/g, '')]));
+  const demangled = new Map(raw.map((name, i) => [name, normalizeDemangled(plain[i] ?? name)]));
   const entries = new Map(stages.map(stage => [stage.name, raw.filter(name => stage.seam.test(demangled.get(name)))]));
   const seams = new Set([...entries.values()].flat());
   const reach = (starts, blocked) => {
