@@ -533,7 +533,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
     func updateSymbol() {
         guard kind == "image", let source = imageSource, source.hasPrefix("symbol:") else { return }
-        isAccessibilityElement = false
         let name = props["symbolName"] ?? "", points = number("font_size", PageFacts.defaultRootFontSize), weight = number("font_weight", 400)
         let key = "\(source):\(name):\(points):\(weight):\(symbolLookKey)"
         if symbolKey != key {
@@ -1150,8 +1149,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             if #available(iOS 18, tvOS 18, *) {
                 accessibilityExpandedStatus = props["accessibilityExpanded"].map { $0 == "true" ? .expanded : .collapsed } ?? .unsupported
             }
-        } else if props["accessibilityRole"] == "img" {
-            // `role="img"` (an svg's) is one labelled image, as on the web (habits F16).
+        } else if kind == "image" || props["accessibilityRole"] == "img" {
+            // A labelled image is one element; an unlabelled image is decoration.
             isAccessibilityElement = authoredLabel != nil
             if authoredLabel != nil { accessibilityTraits.insert(.image) } else { accessibilityTraits.remove(.image) }
         } else if rangeRole != nil {
