@@ -622,6 +622,12 @@ Supply every declared prop exactly once; props have no defaults (pass `none` for
 an option). An `action` prop can receive a reference with
 captured arguments; the eventual event payload is appended at invocation.
 
+A prop or inject named like an app `fn` is refused when an expression in the
+component calls that name and inlining could substitute the prop into the call.
+Rename either declaration. Handler-only uses are allowed. An expression's
+`match` or arrow binder protects its bound name; a view's `for` or `match`
+binder does not protect call heads.
+
 A child's action may call its `action` props and injected actions, with the
 arguments after those captured where they were bound: the parent's action runs
 in the same commit, and the child never writes the parent's state itself. A
