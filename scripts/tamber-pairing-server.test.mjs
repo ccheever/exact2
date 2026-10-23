@@ -72,6 +72,7 @@ test("a paired client below write scope may not re-hold another client's held pr
   const theirs = await post({ method: 'propose', hold: true, client: 'tablet', review: { ...held.review, from: held.proposal }, ops }, p.token);
   expect([theirs.status, theirs.error?.id]).toEqual([400, 'tamber-ops-size']);
   await post({ method: 'drop', client: 'owner', proposal: held.proposal });
+  await post({ method: 'revoke', client: p.client });
 }, 120_000);
 
 test('a paired client works at its scope, as the client its token names; local methods are the local token\'s alone', async () => {

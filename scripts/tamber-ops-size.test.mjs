@@ -40,7 +40,7 @@ const post = async request => {
 };
 
 test("past 1024 operations: a held import's accept and revert are the server's own, and a re-hold of a held proposal passes only within it (theme2's ruling on tamber-ops-size)", async () => {
-  const n = 1500;
+  const n = 3000;
   const css = `@theme {\n${Array.from({ length: n }, (_, k) => `  --color-c${k}: #${(k + 0x100000).toString(16).slice(-6)};`).join('\n')}\n}\n`;
   const imported = await post({ method: 'import', kind: 'tailwind', client: 'big', source: css });
   expect(imported.status, JSON.stringify(imported).slice(0, 400)).toBe(200);
@@ -62,10 +62,10 @@ test("past 1024 operations: a held import's accept and revert are the server's o
   // Naming no held proposal: refused.
   const none = await post({ method: 'propose', hold: true, client: 'big', review: { ...held.review, from: 'nope' }, ops });
   expect([none.status, none.error?.id]).toEqual([400, 'tamber-ops-size']);
-  // The held import accepted whole: the server applies its 1500 operations.
+  // The held import accepted whole: the server applies its 3000 operations.
   const accepted = await post({ method: 'accept', client: 'person', proposal: one.ok.proposal });
   expect(accepted.status, JSON.stringify(accepted).slice(0, 400)).toBe(200);
-  expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toContain('tw.c1499 = ');
+  expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toContain('tw.c2999 = ');
   // And reverted: the server holds the revert's operations, past 1024 too.
   gitIn('add', 'app.tamber');
   gitIn('commit', '-q', '-m', 'a large import');
