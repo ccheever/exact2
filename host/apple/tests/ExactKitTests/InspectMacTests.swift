@@ -88,4 +88,70 @@ final class InspectMacTests: XCTestCase {
         XCTAssertEqual(Inspect.left, 7, "the exit is kept until the server hears it")
     }
 }
+
+/// `select {up}` (tamber/1.16) over a real session, as on iOS (InspectIOSTests): the first level with a node
+/// above the selection, the outermost there, by the runner's own tree; an ask for a selection that moved, or
+/// one with nothing of its levels above, is nil, the selection as it is now. (The levels are the node's own
+/// ancestors' sites, standing in for the server's map.)
+final class InspectSelectUpMacTests: XCTestCase {
+    private func plan(_ source: String) throws -> Data {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try source.write(to: dir.appendingPathComponent("app.contract"), atomically: true, encoding: .utf8)
+        let compiler = Process()
+        compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"]))
+        compiler.arguments = ["build", dir.appendingPathComponent("app.contract").path, "-o", dir.appendingPathComponent("app.plan").path]
+        try compiler.run(); compiler.waitUntilExit()
+        XCTAssertEqual(compiler.terminationStatus, 0)
+        return try Data(contentsOf: dir.appendingPathComponent("app.plan"))
+    }
+
+    func testSelectUpLandsOnTheOutermostAncestorOfTheFirstLevelWithOneAndAStaleAskOnNone() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy() }
+        let source = """
+        component App
+          view
+            column width="100%" height="100%"
+              Card(label="one")
+              Card(label="two")
+
+        component Card
+          props
+            label: string
+          view
+            column testId="card"
+              row testId="line"
+                text label testId="leaf"
+
+        """
+        XCTAssertNil(session.boot(plan: try plan(source), size: CGSize(width: 400, height: 300)).error)
+        Inspect.set(true, seq: 4)
+        defer { Inspect.set(false, seq: 4) }
+        func above(_ id: UInt32) -> [(view: Int, site: Int)] {
+            let o = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"ancestors\",\"id\":\(id)}").utf8))) as? [String: Any]
+            return (o?["ancestors"] as? [[Any]] ?? []).dropFirst().compactMap { p in (p[0] as? Int).flatMap { v in (p[1] as? Int).map { (v, $0) } } }
+        }
+        let node = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "leaf" })
+        let ancestors = above(node.id)
+        let selected = try XCTUnwrap(Inspect.select(session, id: node.id, clicked: true)?["selected"] as? [String: Any])
+        func ask(_ levels: [[Int]], plan: Any? = nil, instance: Any? = nil) -> [String: Any] {
+            ["up": 1, "levels": levels, "plan": plan ?? selected["planDigest"] ?? NSNull(), "from": selected["site"] ?? NSNull(), "instance": instance ?? selected["instance"] ?? []]
+        }
+        // The card's row and column: the column is the outermost of the two.
+        let level = [ancestors[0].site, try XCTUnwrap(ancestors.first { $0.site != ancestors[0].site }, "\(ancestors)").site]
+        XCTAssertNil(Inspect.selectUp(session, ask([[-1]])), "nothing of its levels above it")
+        XCTAssertNil(Inspect.selectUp(session, ask([level], plan: "another plan")), "asked of another plan's selection")
+        XCTAssertNil(Inspect.selectUp(session, ask([level], instance: [["key": "elsewhere"]])), "asked of another copy")
+        XCTAssertEqual(Inspect.selected?.id, node.id, "a stale ask leaves the selection")
+        let body = try XCTUnwrap(Inspect.selectUp(session, ask([[-1], level])))
+        let outermost = try XCTUnwrap(ancestors.last { level.contains($0.site) })
+        XCTAssertEqual((body["selected"] as? [String: Any])?["node"] as? Int, outermost.view, "\(ancestors)")
+        XCTAssertEqual(session.presenter.views[UInt32(outermost.view)]?.props["testId"], "card")
+        XCTAssertNotNil(body["click"] as? String, "selected as a click selects it")
+        XCTAssertEqual(Inspect.selected?.id, UInt32(outermost.view))
+    }
+}
 #endif

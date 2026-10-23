@@ -86,6 +86,32 @@ enum Inspect {
         return body
     }
 
+    /// `{select: {up, levels, plan, from, instance}}` (tamber/1.16), as the web pages' (host/web/dev.js
+    /// `selectUp`): the selection moves up its call sites, as a tap on the node it lands on would select it.
+    /// It lands in the first of `levels` (each enclosing copy's plan sites, nearest first, by the server's map
+    /// for the selection at `from`, instance path `instance`, under `plan`) with a node above the selection,
+    /// on the outermost there. A selection that moved since (another generation, plan, site or instance), or
+    /// none above it of that copy, is staleness, not inability: nil, for the selection as it is now.
+    static func selectUp(_ s: ExactSession, _ select: [String: Any]) -> [String: Any]? {
+        guard on, let was = selected, ObjectIdentifier(s) == was.session, let levels = select["levels"] as? [[Any]] else { return nil }
+        let plan = select["plan"] as? String, from = (select["from"] as? NSNumber)?.intValue
+        guard s.generation == was.generation, plan == was.plan, from == was.site, canonical(select["instance"]) == was.instance else { return nil }
+        // Its ancestors and their sites, innermost first, in one read with no node's rows (the runner's
+        // `ancestors`), the selection itself left out.
+        guard let data = s.agent("{\"op\":\"ancestors\",\"id\":\(was.id)}").data(using: .utf8),
+              let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        let above: [(view: UInt32, site: Int?)] = (o["ancestors"] as? [[Any]] ?? []).dropFirst().compactMap { pair in
+            guard pair.count == 2, let view = (pair[0] as? NSNumber)?.uint32Value else { return nil }
+            return (view, (pair[1] as? NSNumber)?.intValue)
+        }
+        for level in levels {
+            let want = Set(level.compactMap { ($0 as? NSNumber)?.intValue })
+            // The outermost of the level: the last met, walking out.
+            if let found = above.last(where: { $0.site.map(want.contains) ?? false }) { return Inspect.select(s, id: found.view, clicked: true) }
+        }
+        return nil
+    }
+
     /// Whether an outline answers a click of this inspect session: then it
     /// scrolls nothing (the copy clicked is under the finger).
     static func answersClick(_ frame: [String: Any]) -> Bool {
@@ -122,9 +148,9 @@ extension ExactApp {
     /// channel (BuildChannel.swift).
     func inspectCommand(_ frame: [String: Any]) {
         if frame["kind"] as? String == "outline" { InspectHost.outline(self, frame); return }
-        // `select: {up, sites}` (tamber/1.16) is the web pages' alone so far: said so, inspect mode left as it is.
-        if frame["select"] != nil {
-            connection?.report(["kind": "unsupported", "what": "inspect", "detail": "this build cannot move its selection up (select): click the node instead"])
+        // `select: {up, levels, plan, from, instance}` (tamber/1.16): the selection moves up its call sites.
+        if let select = frame["select"] as? [String: Any] {
+            DispatchQueue.main.async { [weak self] in self?.selectUp(select) }
             return
         }
         if frame["refresh"] as? Bool == true {
@@ -240,6 +266,14 @@ extension ExactApp {
         if r.reason != nil { MainActor.assumeIsolated { HeldState.frame = nil; HeldState.end(revision) } }
         if r.unsupported { MainActor.assumeIsolated { HeldState.frame = nil; HeldState.end(revision) }; report(["kind": "unsupported", "what": "hold", "state": state, "detail": "this host holds no \(state)"]); return }
         report(r.reason.map { ["kind": "held", "state": NSNull(), "reason": $0] } ?? ["kind": "held", "state": state])
+    }
+
+    /// `{select: {up, …}}` (tamber/1.16) on the selection's session: the node it lands on reported as a
+    /// tap would report it, or the selection as it is now (Inspect.selectUp).
+    func selectUp(_ select: [String: Any]) {
+        guard Inspect.on, let was = Inspect.selected, let s = sessions.first(where: { ObjectIdentifier($0) == was.session }),
+              let body = Inspect.selectUp(s, select) else { refreshSelection(); return }
+        reportSelected(body)
     }
 
     /// The selection reported again (the server's `{refresh}`): its node in
