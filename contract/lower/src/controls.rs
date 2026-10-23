@@ -842,14 +842,14 @@ impl Lowerer<'_> {
         if faces.iter().any(|f| f.0 > 2 || f.1 > 1) {
             return err(
                 "lower-button-style-attr",
-                "a native button shows at most two `text`s and one symbol `image` at a time; write a custom `button` (without `appearance=\"auto\"`) for more",
+                "a native button shows at most two `text`s and one `image` at a time; write a custom `button` (without `appearance=\"auto\"`) for more",
                 span,
             );
         }
         if !labelled && faces.contains(&(0, 1)) {
             return err(
                 "lower-button-content",
-                "a native button that shows only a symbol needs an `aria-label` that is never empty",
+                "a native button that shows only an image needs an `aria-label` that is never empty",
                 span,
             );
         }
@@ -926,9 +926,8 @@ fn symbol_source(source: &Expr) -> bool {
     }
 }
 
-/// Every face a native button's children can show, as (texts, symbol
-/// images), saturated above two texts/one image; refusing what a face cannot
-/// hold (LLP 1069.011.001 D3, D12): repeated/arbitrary children and non-face
+/// Every face a native button's children can show, as (texts, images),
+/// saturated above two texts/one image; refusing what a face cannot hold (LLP 1069.011.001 D3, D12): repeated/arbitrary children and non-face
 /// rows, after each child's class merge.
 fn face_counts(
     lower: &Lowerer<'_>,
@@ -981,6 +980,7 @@ fn face_counts(
                     if !allowed {
                         // LLP 1116.018: each edit keeps what the attribute was for.
                         let message = match (tag.as_str(), a.name.as_str()) {
+                            ("image", "width" | "height") if !positional.first().is_some_and(symbol_source) => format!("a raster face needs `button appearance=\"none\"`; put `{}` on its image there to size the picture's box", a.name),
                             ("image", "width" | "height") => format!("write `font-size=…` for the symbol's size in a native button, not `{}`: there a symbol's `font-size` is its point size and `width` would size a box (LLP 1069.011.001 D4); a box of that size is a custom `button`", a.name),
                             (_, name) if name == "role" || name.starts_with("aria-") => format!("put the `{name}` on a node beside the button: a button's content is presentational (WAI-ARIA 1.2, a button's children are presentational), so it is not announced inside it; name the button with `aria-label` if its words differ"),
                             _ => format!("a native button's `{tag}` takes no `{}`; write a custom `button` for other face rows", a.name),
