@@ -79,7 +79,9 @@ final class TextUpdateIOSTests: XCTestCase {
     }
 
     func testWordsReuseTheParagraphsBoxLayer() throws {
-        let p = Presenter()
+        let session = ExactApp.shared.makeSession(label: "word-updates")
+        defer { session.destroy() }
+        let p = session.presenter
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 2200))
         p.viewport.frame = window.bounds
         window.addSubview(p.viewport)
@@ -100,22 +102,51 @@ final class TextUpdateIOSTests: XCTestCase {
         window.layoutIfNeeded()
         let nodes = try (2...101).map { try XCTUnwrap(p.views[UInt32($0)]) }
         nodes.forEach { $0.layer.displayIfNeeded() }
+        func pixels(_ node: NodeView) throws -> [UInt8] {
+            let c = try XCTUnwrap(CGContext(data: nil, width: 380, height: 20, bitsPerComponent: 8, bytesPerRow: 1520,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            node.layer.render(in: c)
+            return Array(UnsafeBufferPointer(start: try XCTUnwrap(c.data).assumingMemoryBound(to: UInt8.self), count: 380 * 20 * 4))
+        }
+        p.paintVisibleText()
+        let firstNode = try XCTUnwrap(nodes.first)
+        XCTAssertNotNil(firstNode.text)
+        let before = try pixels(firstNode)
+        XCTAssertTrue(before.enumerated().contains { $0.offset % 4 == 3 && $0.element > 0 }, "the initial words have ink")
         var invalidations = 0
         let start = CACurrentMediaTime()
         for batch in 0..<16 {
+            var updates: [[String: Any]] = []
             for (index, node) in nodes.enumerated() {
-                node.applyProps(set: ["text": "Message \(batch + index + 1)"], clear: [])
+                let words = "Replacement \(batch + index + 1)"
+                updates += [["op": "props", "id": node.id, "set": ["text": words], "clear": []],
+                    ["op": "paragraph", "id": node.id, "runs": [["id": node.id + 1000, "parent": node.id,
+                        "paint": true, "props": ["text": words], "style": [:], "handlers": []]]]]
+            }
+            p.apply(wireBatch(updates))
+            for node in nodes {
                 if node.layer.needsDisplay() { invalidations += 1 }
                 node.layer.displayIfNeeded()
             }
+            XCTAssertEqual(firstNode.textRasterKey?.spec.runs.map(\.text).joined(), "Replacement \(batch + 1)")
+            XCTAssertTrue(firstNode.textRasterReady, "replacement ink is published in this batch")
         }
-        print("D3 words updates=1600 box_displays=\(invalidations) ms=\((CACurrentMediaTime() - start) * 1000)")
+        print("D3 real words updates=1600 box_displays=\(invalidations) ms=\((CACurrentMediaTime() - start) * 1000)")
         XCTAssertEqual(invalidations, 0, "words have their own raster; the box has not changed")
+        let after = try pixels(firstNode)
+        XCTAssertNotEqual(before, after, "the replacement words reach the window's layers")
+        XCTAssertTrue(after.enumerated().contains { $0.offset % 4 == 3 && $0.element > 0 })
         let first = try XCTUnwrap(nodes.first)
         first.applyProps(set: ["accessibilityLabel": "Latest message"], clear: [])
         XCTAssertEqual(first.accessibilityLabel, "Latest message")
-        first.applyStyle(["background_color": [1, 0, 0, 1]])
+        p.apply(wireBatch([["op": "style", "id": first.id, "style": ["background_color": [1, 0, 0, 1]]]]))
         XCTAssertTrue(first.layer.needsDisplay(), "a changed box still displays")
+        p.apply(wireBatch([["op": "style", "id": first.id, "style": ["background_clip": "text"]]]))
+        first.layer.displayIfNeeded()
+        p.apply(wireBatch([["op": "paragraph", "id": first.id, "runs": [["id": 2000, "parent": first.id,
+            "paint": true, "props": ["text": "Fallback ink"], "style": [:], "handlers": []]]]]))
+        XCTAssertFalse(first.canRasterText, "background-clip text uses the drawing fallback")
+        XCTAssertTrue(first.layer.needsDisplay(), "fallback text still displays")
     }
 }
 #endif
