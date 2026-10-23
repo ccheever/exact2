@@ -531,7 +531,7 @@ impl<'a> Checker<'a> {
                 DialKind::Color => {
                     let folded = css::parse(&d.value.value)
                         .map_err(|m| FoldError {
-                            id: syntax(&d.value.value),
+                            id: syntax(&d.value.value, &m),
                             message: m,
                         })
                         .and_then(|items| fold::color(&items, &mut Literal { roles: &self.roles }));
@@ -1156,7 +1156,7 @@ impl<'a> Checker<'a> {
             Ok(items) => items,
             Err(_) if shadow => Vec::new(),
             Err(m) => {
-                self.at(value, "tamber-syntax", m);
+                self.at(value, syntax(&value.value, &m), m);
                 return None;
             }
         };
@@ -1218,7 +1218,7 @@ impl<'a> Checker<'a> {
         let items = match css::parse(&value.value) {
             Ok(items) => items,
             Err(m) => {
-                self.at(value, syntax(&value.value), m);
+                self.at(value, syntax(&value.value, &m), m);
                 return None;
             }
         };
@@ -1475,7 +1475,7 @@ impl Names for Scope<'_, '_> {
 }
 
 /// A value's refusal id when it isn't read: the checker's own bound
-/// (`css::over_limit`), else `tamber-syntax`.
-fn syntax(text: &str) -> &'static str {
-    css::over_limit(text).map_or("tamber-syntax", |(id, _)| id)
+/// (`css::refusal_id`), else `tamber-syntax`.
+fn syntax(text: &str, why: &str) -> &'static str {
+    css::refusal_id(text, why)
 }
