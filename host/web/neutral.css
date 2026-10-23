@@ -51,16 +51,27 @@
      or a grey button takes red ink. */
   #exact-root button[data-button-style] { min-height: 2.25em; min-width: 2.25em; border: 1px solid transparent; padding: .4375em 1em; line-height: 1.25; --exact-said-line-height: ; }
   #exact-root button[data-button-style]:has(> img:only-child):not([navigationPresentation="modal"] > header button[aria-label]) { padding-inline: .5em; }
-  /* A mini or small button writes `--exact-touch-floor: 0px` (LLP 1069.011.001 D8), so on a touch device it keeps the
-     floor it has under a mouse, as UIKit's does. The look takes that answer on Android too, where Material keeps a
-     48 dp target; at a 16 px root the button is 32 px, which meets WCAG 2.5.8's 24 px minimum. */
+  /* Mini and small keep their mouse floor on touch devices (`--exact-touch-floor: 0px`, LLP 1069.011.001 D8).
+     Written padding removes the floor, as UIKit's contentInsets do, and can make targets smaller than WCAG 2.5.8's
+     24 px minimum. This follows UIKit even when adjacent small targets cannot meet the spacing exception. */
   @media (any-pointer: coarse) { #exact-root button[data-button-style] { min-height: max(2.25em, var(--exact-touch-floor, 44px)); min-width: max(2.25em, var(--exact-touch-floor, 44px)); } }
-  /* The floor and the padding are the look's, and a size the author wrote is the author's (LLP 1115: what is written
-     wins). In CSS a minimum outranks a size, and a border box is never narrower than its padding, so the host names a
-     written `width` or `height` (`data-exact-said`, D2's bit) and on that axis the look steps aside: the minimum is
-     CSS's own again and the label is centred in the box that was written, which is the box the kernel lays out. */
-  #exact-root button[data-button-style][data-exact-said~="height"] { min-height: auto; padding-block: 0; }
+  /* Remove the look's minimum and padding on an authored size axis (LLP 1115: author > platform).
+     Otherwise CSS minimums and padding can enlarge the requested box. Literal sizes use `data-exact-said`;
+     the JS writer marks bound sizes with `data-exact-width` and `data-exact-height`. */
+  #exact-root button[data-button-style]:is([data-exact-said~="height"], [data-exact-height]) { min-height: auto; padding-block: 0; }
   #exact-root button[data-button-style]:is([data-exact-said~="width"], [data-exact-width]):not([navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source])))) { min-width: auto; padding-inline: 0; }
+  /* Written padding is UIKit's contentInsets (LLP 1069.011.001 D15): content plus insets, with no minimum; an
+     unsaid side keeps its default inset. Bound sides carry per-side marks from the JS writer. The 1 px edge also
+     yields, except the bordered style's outline (transparent in a bar) and every edge under forced colours.
+     Tabs, segments, menu and chooser rows keep their own boxes, as their native counterparts are not UIButtons. */
+  #exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *) {
+    &:is([data-exact-said~="padding-block"], [data-exact-padding-top], [data-exact-padding-bottom]) { min-height: auto; }
+    &:is([data-exact-said~="padding-inline"], [data-exact-padding-left], [data-exact-padding-right]) { min-width: auto; }
+    @media (forced-colors: none) {
+      &:not([data-button-style="bordered"]):is([data-exact-said~="padding-block"], [data-exact-padding-top], [data-exact-padding-bottom]) { border-block-width: 0; }
+      &:not([data-button-style="bordered"]):is([data-exact-said~="padding-inline"], [data-exact-padding-left], [data-exact-padding-right]) { border-inline-width: 0; }
+    }
+  }
   /* Symbols. A symbol drawn for an SF Symbol (a role, or an icon with an `sf` source) is SF's size at its font size.
      Its path keeps to about the 20-unit live area of a 24-unit box, and an SF Symbol's glyph fills its point size (a
      circle is 1em across, in a 1.18em image), so its box is 1.2em, as the image is on iOS. On a button's face UIKit
@@ -89,7 +100,7 @@
      line height under about 1.1, the clip cuts about .03em off either end of a lock. A symbol alone is not clipped,
      as UIButton does not clip its image, but takes no hits, which stay in the button's own box, as UIView's do. A
      sheet bar's word, which takes a symbol's place, is not a symbol. */
-  #exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *, [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source]))))[data-exact-said~="height"]:has(> img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"]):not(:only-child)) { padding-block: calc(.125em * (1 - var(--exact-button-stacked, 0))); }
+  #exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *, [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source])))):is([data-exact-said~="height"], [data-exact-height]):has(> img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"]):not(:only-child)) { padding-block: calc(.125em * (1 - var(--exact-button-stacked, 0))); }
   #exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *, [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source])))):has(> img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"]):only-child) { overflow: visible; }
   #exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *, [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source])))) > img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"]):only-child { pointer-events: none; }
   #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]) { background-color: transparent; color: var(--exact-label); }

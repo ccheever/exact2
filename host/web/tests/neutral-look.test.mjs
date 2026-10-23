@@ -836,15 +836,37 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a bar's
 
 // What the author writes wins (LLP 1115). In CSS a minimum outranks a size and a border box is never narrower than
 // its padding, so the look's floor and padding would redraw `button width=84 height=24` as 84 by 36. The hosts name a
-// written size (`data-exact-said`, host/web/src/element.rs) and the sheet steps aside on that axis.
-test('a size the author wrote on a platform button is its box, and an unsized button keeps the look\'s floor', async () => {
-  const browser = await launch('chromium');
+// written size (`data-exact-said`, host/web/src/element.rs) and the sheet steps aside on that axis. A written padding
+// is UIKit's `contentInsets`, which no floor raises in any style, so there the button is its title's line and that
+// padding, under a mouse and on a touch device, written inline (as the wasm runtime writes it) or in a class (the JS
+// target's); an outline stays drawn around the padding.
+for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a size or a padding the author wrote on a platform button is its box, and an unsaid one keeps the look's floor`, async () => {
+  const browser = await launch(engine);
   try {
-    const page = await browser.newPage({ viewport: { width: 600, height: 400 }, colorScheme: 'light' });
-    const button = (id, style, said) => `<button type="button" data-native data-button-style="bordered" id="${id}" style="${style}"${said ? ` data-exact-said="${said}"` : ''}>Go</button>`;
-    await page.setContent(`<style>${sheet()}</style><div id="exact-root">${button('unsized', '')}${button('sized', 'width:84px;height:24px', 'width height')}${button('square', 'width:28px;height:28px', 'width height')}${button('short', 'height:24px', 'height')}${button('unsaid', 'width:28px;height:28px')}</div><script>${helpers}</script>`);
-    const got = await page.evaluate(() => ({ unsized: box('unsized')[3], sized: box('sized').slice(2), square: box('square').slice(2), short: box('short')[3], unsaid: box('unsaid').slice(2) }));
-    expect(got).toEqual({ unsized: 36, sized: [84, 24], square: [28, 28], short: 24, unsaid: [36, 36] }); // `unsaid`: the floor, were the host not to say
+    for (const touch of [false, true]) {
+      const context = await browser.newContext({ viewport: { width: 600, height: 400 }, hasTouch: touch, ...(touch && engine === 'chromium' ? { isMobile: true } : {}) });
+      const page = await context.newPage();
+      const button = (id, style, said, look = 'bordered', own = '') => `<button type="button" data-native data-button-style="${look}" id="${id}"${own && ` class="${own}"`} style="display:grid;${style}"${said ? ` data-exact-said="${said}"` : ''}><span data-exact-text>Go</span></button>`;
+      await page.setContent(`<meta name="viewport" content="width=device-width, initial-scale=1"><style>${sheet()} #exact-root#exact-root { & .flush { padding-top: 0; padding-bottom: 0; } }</style><div id="exact-root">
+        ${button('unsized', '')}${button('sized', 'width:84px;height:24px', 'width height')}${button('square', 'width:28px;height:28px', 'width height')}${button('short', 'height:24px', 'height')}${button('unsaid', 'width:28px;height:28px')}
+        ${button('plain', 'padding-top:0;padding-bottom:0', 'padding-block', 'plain')}${button('borderless', '', 'padding-block', 'borderless', 'flush')}${button('gray', '', 'padding-block', 'gray', 'flush')}${button('filled', 'padding:0', 'padding-inline padding-block', 'filled')}
+        ${button('outline', 'padding:0', 'padding-inline padding-block')}${button('inset', 'padding-top:4px;padding-bottom:4px', 'padding-block', 'plain')}${button('padding-unsaid', 'padding-top:0;padding-bottom:0', '', 'plain')}
+        ${button('one-side', 'padding-top:0', 'padding-block', 'plain')}
+        <div role="radiogroup">${button('segment', 'padding:0', 'padding-block padding-inline', 'gray').replace('type="button"', 'type="button" role="radio"')}</div>
+        <div role="menu">${button('menu-row', 'padding:0', 'padding-block padding-inline', 'plain')}</div>
+        ${button('bound', 'padding-top:0;padding-bottom:0', '', 'plain').replace('data-native', 'data-native data-exact-padding-top data-exact-padding-bottom')}
+
+      </div><script>${helpers}</script>`);
+      // A box less its title's, each way.
+      const got = await page.evaluate(() => {
+        const around = (id) => { const title = document.querySelector(`#${id} > span`).getBoundingClientRect(), b = box(id); return [b[2] - title.width, b[3] - title.height].map((v) => Math.round(v * 100) / 100); };
+        return { line: Math.round(document.querySelector('#plain > span').getBoundingClientRect().height * 100) / 100, unsized: box('unsized')[3], sized: box('sized').slice(2), square: box('square').slice(2), short: box('short')[3], unsaid: box('unsaid').slice(2), plain: around('plain')[1], borderless: around('borderless')[1], gray: around('gray')[1], filled: around('filled'), outline: around('outline'), inset: around('inset')[1], paddingUnsaid: box('padding-unsaid')[3], oneSide: around('one-side')[1], segment: box('segment')[3], menu: box('menu-row')[3], bound: around('bound')[1] };
+      });
+      const floor = touch ? 44 : 36;
+      // `unsaid` and `paddingUnsaid`: the floor, were the host not to say.
+      expect([engine, touch, got]).toEqual([engine, touch, { line: 20, unsized: floor, sized: [84, 24], square: [28, 28], short: 24, unsaid: [floor, floor], plain: 0, borderless: 0, gray: 0, filled: [0, 0], outline: [2, 2], inset: 8, paddingUnsaid: floor, oneSide: 7, segment: touch ? 38 : 30, menu: touch ? 44 : 32, bound: 0 }]);
+      await context.close();
+    }
   } finally { await browser.close(); }
 }, 90000);
 
