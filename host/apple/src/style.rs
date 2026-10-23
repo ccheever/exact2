@@ -999,7 +999,7 @@ fn style_json_shown(
     }
     // The presenter must inset editors/images and paint the same border area
     // that the kernel laid out. Authored widths survive separately in the node.
-    let widths = computed.border_widths();
+    let widths = computed.border_widths_in(env);
     for (id, width) in [
         StyleId::BorderWidthTop,
         StyleId::BorderWidthRight,
