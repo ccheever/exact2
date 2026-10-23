@@ -43,6 +43,26 @@ final class ReplyPumpTests: XCTestCase {
         XCTAssertFalse(session.ownerInFlight)
     }
 
+    func testDestroyCancelsAReplyWaitingBehindTheOwner() {
+        let session = ExactApp.shared.makeSession(label: "reply-cancel")
+        let entered = DispatchSemaphore(value: 0)
+        Owner.shared.post {
+            entered.signal()
+            Owner.shared.callMain {
+                XCTAssertTrue(session.runtime.destroyed, "destruction starts before the queued pump")
+            }
+        }
+        XCTAssertEqual(entered.wait(timeout: .now() + 5), .success)
+        session.pumpReplies()
+        // Destroy waits on the owner and serves the barrier's main callback.
+        session.runtime.destroy()
+        session.destroy()
+        session.drainFill()
+        XCTAssertEqual(session.repliesInFlight, 0)
+        XCTAssertTrue(session.replySubmissions.isEmpty)
+        XCTAssertFalse(session.ownerInFlight)
+    }
+
     func testRepliesLandBeforeALaterBatchAndOldGenerationsAreDropped() {
         let session = ExactApp.shared.makeSession(label: "reply-order")
         defer { session.destroy() }
