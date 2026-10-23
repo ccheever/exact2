@@ -2952,6 +2952,16 @@ ends the drag on another node (refused by name when it is not mounted or off
 screen); a drag that should autoscroll a list or a board is `drag dx dy hold ms`. On iOS
 without `--touch platform` a drag scrolls the scroll or list it starts on with the
 finger, no fling; any other drag there is refused, naming the flag.
+On an iOS simulator, append `then dx dy [over ms] [hold ms] [during "op" …]`
+to script another leg with the same finger. For example:
+`tap handle drag 0 120 over 300 hold 500 during "layout" then 0 -120 over 300 hold 500 during "state"`.
+Each delta starts at the previous endpoint. All legs play in one XCTest
+synthesizer record, with one down and one up. Reads run inside their leg's hold;
+if they outlast it, the drive fails. The complete path must stay inside the
+viewport, last at most 10 seconds, and spend at most 2 seconds moving, across
+at most eight legs. Library calls use `drag.path: [{dx, dy, over, hold, during}]`
+for the additional legs, with `during` read functions. Separate requests never
+keep an iOS contact down.
 Under `--touch platform` a tap replies `viewGone: true` when its view left the
 window before the finger lifted, so that view had no lift (UIKit rebuilds a
 grouped row's detail button in the first seconds after the list appears), and
