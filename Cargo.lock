@@ -1265,6 +1265,7 @@ dependencies = [
  "exact-kernel",
  "exact-plan",
  "exact-runner",
+ "exact-svg-file",
  "exact-update",
  "serde_json",
  "sha2",
