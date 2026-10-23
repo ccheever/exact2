@@ -115,7 +115,7 @@ final class PressPaintTests: XCTestCase {
         XCTAssertEqual(v.style["background_color"], ink(blue), "then let go")
         // The release eases back to rest: read where it settles, not the fade
         // in flight, which a run loop slept past (a loaded machine) finds
-        // already gone (a later refresh drops a settled release's fade).
+        // already completed and gone.
         if let back = fade(v) { XCTAssertEqual(try XCTUnwrap(back.toValue as? Float), 0, "easing back") }
         XCTAssertFalse(v.pressPaint.down)
         XCTAssertEqual(v.pressPaint.ease.to, 0)
