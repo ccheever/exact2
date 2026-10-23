@@ -544,8 +544,12 @@ final class MenuHost: NSObject {
     }
     func layout() {
         guard let presenter else { return }
-        for entry in entries where entry.menu == nil && entry.native == nil {
-            if let host = layerHost(entry, in: entry.source?.window), entry.layer.superview !== host { host.addSubview(entry.layer) }
+        for (at, entry) in entries.enumerated() where entry.menu == nil && entry.native == nil {
+            // Moved to a new owner, it goes under the layers opened after it there.
+            if let host = layerHost(entry, in: entry.source?.window), entry.layer.superview !== host {
+                let later = entries[(at + 1)...].first { $0.layer.superview === host }?.layer
+                if let later { host.addSubview(entry.layer, positioned: .below, relativeTo: later) } else { host.addSubview(entry.layer) }
+            }
             entry.layer.frame = entry.layer.superview?.bounds ?? presenter.viewport.bounds
             let anchor: NSRect = entry.source.map { self.anchor($0, in: entry.layer, run: entry.run) } ?? .zero
             var box = entry.frame
