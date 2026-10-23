@@ -63,6 +63,34 @@ final class ReplyPumpTests: XCTestCase {
         XCTAssertFalse(session.ownerInFlight)
     }
 
+    func testAStaleReplyRetiresOnlyItsOwnPendingActivation() {
+        for newerPending in [false, true] {
+            let session = ExactApp.shared.makeSession(label: "reply-activation")
+            defer { session.destroy() }
+            let old = session.generation
+            session.pendingActivation = (old, 17)
+            session.activatedGeneration = old
+            session.pumpReplies()
+            session.commitForTests()
+            if newerPending {
+                session.pendingActivation = (session.generation, 23)
+                session.activatedGeneration = session.generation
+            }
+            session.drainFill()
+            if newerPending {
+                XCTAssertEqual(session.pendingActivation?.generation, session.generation)
+                XCTAssertEqual(session.pendingActivation?.token, 23)
+                XCTAssertEqual(session.activatedGeneration, session.generation)
+                session.pumpReplies()
+                session.drainFill()
+                XCTAssertNil(session.pendingActivation)
+                XCTAssertEqual(session.activatedGeneration, session.generation, "the matching wake retries firstDrawn")
+            } else {
+                XCTAssertNil(session.pendingActivation, "a discarded generation must not keep waiting for a spent wake")
+            }
+        }
+    }
+
     func testRepliesLandBeforeALaterBatchAndOldGenerationsAreDropped() {
         let session = ExactApp.shared.makeSession(label: "reply-order")
         defer { session.destroy() }
