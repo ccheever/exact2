@@ -207,13 +207,16 @@ final class KeptDocumentsMacTests: XCTestCase {
         _ = listed(["c.md"])
         KeptDocuments.watchLate()
         XCTAssertEqual(listed(["c.md", "a.md"]), ["c.md", "a.md"])
-        // The only document forgotten, reopened before its late clear lands: it comes back after it.
+        // The only document forgotten, reopened before its late clear lands: it comes back after it. (A generation
+        // of its own, so no watch from above looks before the test sees the clear land.)
         clear()
+        KeptDocuments.generation += 1
         KeptDocuments.late = ([], KeptDocuments.generation)
         KeptDocuments.note(urls[1])
         _ = listed(["b.md"])
-        KeptDocuments.watchLate()
         controller.clearRecentDocuments(nil)
+        XCTAssertEqual(listed([]), [])
+        KeptDocuments.watchLate()
         XCTAssertEqual(listed(["b.md"]), ["b.md"])
     }
 }
