@@ -214,8 +214,15 @@ final class RouteSheetMacTests: XCTestCase {
         XCTAssertFalse(window.firstResponder === editor)
         XCTAssertNil(field.currentEditor())
         XCTAssertTrue(try XCTUnwrap(f.presenter.leaving[root.id]).members.contains { $0 === route })
+        XCTAssertTrue(f.window.attachedSheet === window)
+        XCTAssertTrue(route.window === window)
+        XCTAssertTrue(route.routeInert)
+        XCTAssertTrue(route.isAccessibilityHidden())
+        f.presenter.apply(wireBatch([]))
+        XCTAssertTrue(f.window.attachedSheet === window, "exit retains the route sheet until destroy")
         f.presenter.apply(wireBatch([["op": "destroy", "id": Int(root.id)]]))
         XCTAssertNil(route.superview)
+        XCTAssertNil(f.window.attachedSheet)
     }
 
     func testPushesStayInTheirModalSegmentAndBackReturnsWithinTheSheet() throws {
