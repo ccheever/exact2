@@ -61,7 +61,7 @@ extension NodeView {
 
     #if os(iOS) || os(tvOS)
     /// The point size whose large scale UIKit's list cell draws its image at
-    /// at each accessibility text size: a star measured on iOS 27.1 under the
+    /// at each accessibility text size: a star measured on iOS 27.0 under the
     /// system's text size (ink 30.33, 35, 34.33, 40.33 and 45.33 points wide,
     /// 23.67 at the default's 17), about 0.76 of the checkmark accessory's
     /// growth, stepping back at AX3 as it does.
