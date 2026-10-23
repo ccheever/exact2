@@ -83,3 +83,22 @@ fn a_static_owner_over_a_popover_registers() {
     ready(&mut k, 400., 1);
     assert_eq!(k.node(7).unwrap().frame.width, 200.);
 }
+
+/// A region whose owner is in the top layer is refused: the owner is laid
+/// out in its own block, after the shell, where no trial can place it.
+#[test]
+fn a_region_owner_in_a_popover_is_refused() {
+    let mut k = fixture();
+    k.apply(
+        0,
+        0,
+        &[Op::SetProp {
+            id: 2,
+            prop: PropId::Popover,
+            value: "manual".into(),
+        }],
+    )
+    .unwrap();
+    let b = binding(&k);
+    assert!(k.set_content_region(Some(b)).is_err());
+}

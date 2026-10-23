@@ -6,12 +6,17 @@ use super::*;
 fn app(insets: &str) -> String {
     format!(
         r#"component App
+  state at = []
+  state hit = ""
+  action read
+    at = [frame("pop").x, frame("pop").y, frame("pop").width]
+    hit = match elementFromPoint(24, 40) {{ case some(id) => id, case none => "none" }}
   view
     scroll id="page" height="100%"
       box height=1000
       box id="narrow" position="relative" width=40 height=32
         column id="pop" popover="manual" width=80 height=32 {insets}
-          button id="inside"
+          button id="inside" width=80
             text "In"
       box height=1000
 "#
@@ -53,6 +58,36 @@ fn a_popover_is_placed_by_its_insets_in_the_grid() {
     );
     let mut host = boot("", Mode::Fullscreen);
     assert_eq!(layer(&mut host), (15, 9, 10, 2), "centred with no inset");
+    let mut host = boot(
+        "left=0 right=0 margin-left=\"auto\" margin-right=\"auto\" top=0",
+        Mode::Fullscreen,
+    );
+    assert_eq!(
+        layer(&mut host),
+        (15, 0, 10, 2),
+        "centred between its insets by auto margins"
+    );
+}
+
+/// The runner reads the popover where it paints: `frame` and
+/// `elementFromPoint` through the block's rectangle the host tells it.
+#[test]
+fn the_runner_reads_a_popover_where_it_paints() {
+    let mut host = boot("top=32 left=16", Mode::Fullscreen);
+    layer(&mut host);
+    host.act("read");
+    let at = host.runner.slot("at").cloned();
+    let n = |v: f64| exact_runner::Value::Number(v);
+    assert_eq!(
+        at,
+        Some(exact_runner::Value::list(vec![n(16.0), n(32.0), n(80.0)]))
+    );
+    let hit = host.runner.slot("hit").cloned();
+    assert_eq!(
+        hit,
+        Some(exact_runner::Value::str("inside")),
+        "a point in its painted cells"
+    );
 }
 
 /// Inline, the offer's height is the content's: no viewport, so no block,
@@ -61,6 +96,10 @@ fn a_popover_is_placed_by_its_insets_in_the_grid() {
 fn inline_a_popover_is_anchored_to_the_bottom() {
     let mut host = boot("top=32 left=16", Mode::Inline);
     let pop = node(&host, "pop");
+    assert!(
+        host.runner.kernel().host_block(pop).is_none(),
+        "no viewport inline"
+    );
     host.open_layer(pop, false);
     let r = host.render(0, 6).layer.expect("a layer");
     assert_eq!((r.y, r.h), (4, 2));

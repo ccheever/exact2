@@ -214,9 +214,9 @@ final class OwnerBlocks {
     private(set) var blockRects: [UInt32: CGRect] = [:]
     init(_ presenter: Presenter) { self.presenter = presenter }
 
-    /// The batch's `block` op.
+    /// The batch's `block` op; one with no size takes the block away.
     func applied(_ op: BatchOp) {
-        if let rect = op.blockRect { blockRects[op.id] = rect }
+        if op.payload["op"] as? String == "block" { blockRects[op.id] = op.blockRect }
     }
 
     /// Every route a navigation holds, the primary stacks' first and each
@@ -381,6 +381,7 @@ final class OwnerBlocks {
         teardown()
         resetting = false
         told = [:]
+        blockRects = [:]
         revealOwed = false
     }
 }

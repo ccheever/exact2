@@ -259,3 +259,31 @@ fn no_viewport_no_block_and_destroy_drops_it() {
     k.compute_layout(1, OFFER).unwrap();
     assert!(!k.arena.blocks.any());
 }
+
+/// What-if heights read a popover's own layout: its block's subtree, laid
+/// out under the offer given, at that offer's viewport.
+#[test]
+fn heights_are_measured_in_the_popovers_block_at_the_offers_viewport() {
+    let long = "word ".repeat(60);
+    let mut k = page(
+        &[(StyleId::Width, t("50%")), (StyleId::Height, n(200.0))],
+        Some(&long),
+    );
+    let key = k.node(3).unwrap().key;
+    let (auto, _) = k.measure_auto_height(key).unwrap();
+    assert!(auto.height < 200.0, "its content's height, {}", auto.height);
+    // At a narrower viewport the text wraps more: the measure reads that
+    // viewport, not the last layout's.
+    let rows = [
+        (StyleId::Width, t("50%")),
+        (StyleId::BoxSizing, t("border-box")),
+    ];
+    let mut k = page(&rows, Some(&long));
+    let key = k.node(3).unwrap().key;
+    let wide = frame(&k, 3).height;
+    let narrow = Offer::definite(400.0, 600.0);
+    let measured = k.measure_height_targets(1, narrow, &[key]).unwrap()[0].px;
+    k.compute_layout(1, narrow).unwrap();
+    assert_eq!(measured, frame(&k, 3).height);
+    assert!(measured > wide, "{measured} wraps more than {wide}");
+}

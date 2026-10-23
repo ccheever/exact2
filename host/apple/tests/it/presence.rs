@@ -389,3 +389,17 @@ fn a_box_crossing_into_its_block_does_not_move() {
     }
     assert!(!kernel(&host), "and back");
 }
+
+/// A transition declared on a box already in its block (an open popover)
+/// plays: it crossed nothing, so its old box is where it moves from.
+#[test]
+fn a_transition_added_inside_a_block_plays() {
+    let mut host = boot_source(
+        "component App\n  state go = false\n  action start\n    go = true\n  view\n    column\n      button \"Go\" press=start testId=\"go\"\n      view testId=\"box\" popover=\"manual\" position=\"absolute\" height=50 width=(go ? 200 : 100) -exact-layout-transition=(go ? \"1s linear\" : \"none\")\n",
+    );
+    let box_id = view(&host, "box").unwrap();
+    assert!(host.runner().kernel().host_block(box_id).is_some());
+    host.dispatch_at(view(&host, "go").unwrap(), Event::Press, 0.0);
+    let mid = layout(&host.tick(500.0), box_id).expect("it moves");
+    assert_ne!(mid[2], 1.0, "its width grows over the second: {mid:?}");
+}

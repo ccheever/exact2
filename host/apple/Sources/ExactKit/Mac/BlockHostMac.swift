@@ -162,7 +162,7 @@ final class BlockHost {
 
     /// The batch's `block` op: a block's used size.
     func applied(_ op: BatchOp) {
-        if let rect = op.blockRect { rects[op.id] = rect }
+        if op.payload["op"] as? String == "block" { rects[op.id] = op.blockRect } // none: no block
         guard op.payload["op"] as? String == "block", entries[op.id] != nil,
               let w = op.payload["w"] as? NSNumber, let h = op.payload["h"] as? NSNumber else { return }
         let size = CGSize(width: w.doubleValue, height: h.doubleValue)
