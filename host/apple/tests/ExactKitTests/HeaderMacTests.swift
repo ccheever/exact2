@@ -572,6 +572,24 @@ final class HeaderMacTests: XCTestCase {
         XCTAssertTrue(attach(["commandfor": "more", "command": "toggle-popover"]).identifiers.contains("exact.menu.16"), "a command-only menu item")
     }
 
+    func testAFormWithAuthoredPopoverPlacementKeepsItsPaintedHeader() throws {
+        for style: [String: Any] in [
+            ["position_area": "top", "margin_bottom": 12],
+            ["position_area": "right", "margin_left": 12],
+            ["margin_top": 12],
+        ] {
+            let form = symbolButton(16, "Rename", "pencil", ["popovertarget": "rename"])
+                + view(40, "view", ["popover": "auto", "id": "rename"]) + view(41, "input", ["type": "text"])
+                + [["op": "style", "id": 40, "style": style], children(40, [41]), children(10, [11, 12, 13, 14, 16]), children(2, [10, 15, 40])]
+            let p = fixture(extra: form)
+            XCTAssertTrue(p.toolbar.attach(to: window))
+            XCTAssertFalse(try node(p, 10).isHidden, "authored placement needs the button's page box: \(style)")
+            XCTAssertNil(p.toolbar.items[16])
+            p.toolbar.detach()
+            window.close()
+        }
+    }
+
     /// A header's button that opens a menu is AppKit's menu item: the menu
     /// is the item's own to pop up, filled from the popover's rows as it
     /// opens, after the button's own press; a chosen row presses its
