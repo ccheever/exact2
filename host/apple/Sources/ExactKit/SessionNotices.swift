@@ -7,8 +7,32 @@ import UIKit
 import AppKit
 #endif
 import ExactCore
+import QuartzCore
 
 extension ExactSession {
+    func pumpReplies() {
+        guard state != .destroyed else { return }
+        let began = CACurrentMediaTime()
+        let captured = generation, time = now()
+        repliesInFlight += 1
+        // Keep parsing, settlement and batch decoding on the existing owner.
+        // Publication joins fills and ticks before any later synchronous batch.
+        runtime.later([{ $0.pump(now: time) }]) { [weak self] batch in
+            self?.publish(.reply, batch, captured)
+        }
+        replySubmissions.append((CACurrentMediaTime() - began) * 1000)
+    }
+
+    func retryActivation() {
+        if let p = pendingActivation {
+            pendingActivation = nil
+            if p.generation == generation {
+                activatedGeneration = nil
+                firstDrawn(generation: p.generation, token: p.token)
+            }
+        }
+    }
+
     /// What a system notice tells the runtime (the app became active, a
     /// window moved, a preference changed) while the owner activates the data
     /// source, sent there without main waiting (LLP 1027.007 P1): on a cold
