@@ -62,6 +62,18 @@ const subscribe = async (token, client) => {
   return { status: res.status, ended };
 };
 
+test("a paired client below write scope may not re-hold another client's held proposal past 1024 operations (tamber-ops-size), as it may not replace it today", async () => {
+  const css = `@theme {\n${Array.from({ length: 1500 }, (_, k) => `  --color-r${k}: #${(k + 0x200000).toString(16).slice(-6)};`).join('\n')}\n}\n`;
+  const imported = await post({ method: 'import', kind: 'tailwind', client: 'owner', source: css });
+  expect(imported.status, JSON.stringify(imported).slice(0, 300)).toBe(200);
+  const held = imported.ok;
+  const p = await paired('propose', 'tablet');
+  const ops = held.ops.map(o => o.op);
+  const theirs = await post({ method: 'propose', hold: true, client: 'tablet', review: { ...held.review, from: held.proposal }, ops }, p.token);
+  expect([theirs.status, theirs.error?.id]).toEqual([400, 'tamber-ops-size']);
+  await post({ method: 'drop', client: 'owner', proposal: held.proposal });
+}, 120_000);
+
 test('a paired client works at its scope, as the client its token names; local methods are the local token\'s alone', async () => {
   const p = await paired('propose', 'laptop');
   expect(p).toMatchObject({ client: 'remote:laptop#1', scope: 'propose' });
