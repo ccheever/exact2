@@ -8,6 +8,8 @@ use exact_kernel::{Kernel, PropValue};
 use exact_plan::Value;
 use exact_runner::{DataError, DataSource, Event, Runner};
 
+mod values;
+
 /// `items()` answers two `Item`s, `x` and `y`; nothing else answers.
 struct NoData;
 impl DataSource for NoData {
