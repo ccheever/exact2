@@ -276,7 +276,7 @@ fn a_margin_that_is_no_length_is_refused() {
 }
 
 /// Two sections without headers are 35 apart, as a hand-built inset-grouped
-/// list's are on iOS 27.1: the sheet's top meets the 17.33 under the section
+/// list's are on iOS 27.0: the sheet's top meets the 17.33 under the section
 /// before it as 35, so the laid-out list is as tall as UIKit draws it (a list
 /// sized to its content clipped UIKit's footer when it was not).
 #[test]
