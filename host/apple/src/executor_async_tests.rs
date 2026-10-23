@@ -859,7 +859,7 @@ fn reader_spawn_failure_and_panics_settle_and_release_the_lane() {
         assert_eq!(
             script.wait(1),
             1,
-            "{phase:?}: the second upload never reached the transport: the lane wasn't released"
+            "{phase:?}: the second upload never reached the transport"
         );
         script.answer("https://a.example.test/", b"alive");
         assert!(matches!(
