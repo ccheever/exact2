@@ -3286,6 +3286,20 @@ draw the system blur approximation described in LLP 1053.000 §3.
 Shorthands may be literal choices; computed strings are refused. A scroller
 with `min-height=0` and positive shrink fits under a bounded flex column.
 
+`display="grid"` takes `grid-template-columns` and `grid-template-rows` as
+CSS track lists: px, %, fr, `auto`, `min-content`, `max-content`, named lines,
+`fit-content(px or %)`, `minmax()` and `repeat()` (fixed counts, `auto-fill`,
+or `auto-fit`). Track lengths also accept `calc()`, `min()`, `max()` and
+`clamp()` over px and %, including inside `minmax()` and valid repetitions:
+`grid-template-columns="repeat(auto-fill, minmax(min(100%, 200px), 1fr))"`.
+Percentages use the grid's content box in that axis; when it is indefinite,
+they act as `auto` during intrinsic sizing and resolve against the resulting
+size. Negative calculated sizes clamp to zero. The wire and web use equivalent
+canonical CSS, so whitespace and simplified expressions may differ from the source.
+Calculated `fit-content()` limits, other length units, `var()` and `env()`
+remain unsupported here; `grid-auto-columns` and `grid-auto-rows` are not yet
+Contract attributes. See [CSS Grid's track sizing](https://www.w3.org/TR/css-grid-2/#track-sizes).
+
 Dimension rows (width/height, their min/max, padding/margins, offsets and
 border radii) accept `vw`, `vh`, `vmin`, `vmax`, and `svw/svh/lvw/lvh/dvw/dvh`.
 On native, all viewport variants follow the window; on web, CSS resolves

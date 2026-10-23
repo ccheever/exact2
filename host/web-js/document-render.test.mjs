@@ -729,3 +729,50 @@ component ProgressDocument
     await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
   }
 }, 180000);
+
+// The same CSS also supplies the independently measured kernel cases.
+test('calculated grid tracks survive web build, adoption, resize and a bound write', async () => {
+  const cards = 'repeat(auto-fill, minmax(min(100%, 200px), 1fr))';
+  const source = `routes nav
+  home "/" render=build
+component App
+  state columns = "${cards}"
+  state wide = false
+  action resize
+    wide = not wide
+  action change
+    columns = "calc(50% - 10px) calc(50% - 10px)"
+  view
+    view
+      button "Resize" press=resize testId="resize"
+      button "Change" press=change testId="change"
+      view display="grid" width=(wide ? 650 : 150) grid-template-columns=columns testId="cards"
+        view min-height=30
+        view min-height=30
+        view min-height=30
+      view display="grid" width=100 height=200 grid-template-rows="clamp(20px, 25%, 80px) max(10px, 20%)" testId="rows"
+        view
+        view
+`;
+  await renderedPages(source, async (_, html, dist) => {
+    expect(html('')).toContain(cards);
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    let browser;
+    try {
+      browser = await open({ host: 'web', url: server.url.href });
+      const widths = () => browser.carrier.evaluate(`Array.from(document.querySelector('[data-testid="cards"]').children, e => e.getBoundingClientRect().width)`);
+      expect(await widths()).toEqual([150, 150, 150]);
+      expect(await browser.carrier.evaluate(`getComputedStyle(document.querySelector('[data-testid="rows"]')).gridTemplateRows`)).toBe('50px 40px');
+      await browser.tap('resize');
+      expect(await widths()).toEqual([216.65625, 216.671875, 216.671875]);
+      await browser.tap('change');
+      expect(await widths()).toEqual([315, 315, 315]);
+      await browser.tap('resize');
+      expect(await widths()).toEqual([65, 65, 65]);
+      expect(await browser.carrier.evaluate(`globalThis.exact.journal.filter(l => l.includes('unset grid-template'))`)).toEqual([]);
+    } finally { await browser?.close(); server.stop(true); }
+  });
+}, 180000);
