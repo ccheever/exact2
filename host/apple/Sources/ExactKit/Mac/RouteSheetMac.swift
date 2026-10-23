@@ -123,7 +123,8 @@ final class RouteChromeLine: NSView {
 /// A sheet's own push button. It is a Tab stop as Keyboard Navigation has
 /// an `NSButton`, by the setting the session reads (a drive's or a test's
 /// stands in for the person's, KeyViewLoopMac.swift).
-final class RouteChromeButton: NSButton {
+final class RouteChromeButton: NSButton, AgentOwned {
+    var agentViewId: UInt32? { tag > 0 ? UInt32(exactly: tag) : nil }
     override var acceptsFirstResponder: Bool { KeyboardNavigation.on && isEnabled }
     override var canBecomeKeyView: Bool { acceptsFirstResponder && !isHiddenOrHasHiddenAncestor }
 }
@@ -392,6 +393,8 @@ extension DialogHost {
         chrome.back.isEnabled = presenter.navigation.back != nil
         let changed = chrome.show(title: header?.title, back: back, cancel: back ? nil : row(header?.cancel), confirm: row(header?.confirm),
                                   escapes: dismissalOwner(of: entry.dialog).props["closedby"] != "none")
+        chrome.cancel.setAccessibilityIdentifier(back ? nil : header?.cancel?.props["testId"])
+        chrome.confirm.setAccessibilityIdentifier(header?.confirm?.props["testId"])
         guard fits, changed else { return }
         // Its rows take another height: the content's maximum and the window's size follow.
         if let block = block(of: entry) { presenter.blocks.resize(entry.dialog, block) }
