@@ -305,9 +305,15 @@ export function closeFilesystemReader() {
 }
 export function filesystemRead(input) {
   if (input.op !== 'get') return Promise.reject(new Error('read session only accepts get'));
-  reader ??= createReader();
-  return reader.send(input);
+  // A helper that exits with reads pending (killed, or crashed) answered none of them, and a caller would take the
+  // failure for a missing file (serve.mjs's 404). A get changes nothing, so each is asked once more of a fresh
+  // helper; a second exit is the read's failure. A close (`closeFilesystemReader`) is not retried.
+  return (reader ??= createReader()).send(input).catch((error) => {
+    if (error.code !== READER_EXITED) throw error;
+    return (reader ??= createReader()).send(input);
+  });
 }
+const READER_EXITED = 'EXACT_FS_READER_EXITED';
 function createReader() {
   const child = spawn(executable(), ['--serve-reads'], {stdio:['pipe','pipe','pipe']});
   const lines = createInterface({input:child.stdout});
@@ -331,9 +337,11 @@ function createReader() {
     lines.close(); child.stdin.destroy(); child.kill(); reference(false);
   };
   child.on('error', fail);
-  child.stdin.on('error', fail);
+  // Its input pipe breaking (EPIPE: it exited before reading) is its exit too, whichever is seen first.
+  const gone = error => fail(Object.assign(new Error(`filesystem reader exited (${error.message})`), { code: READER_EXITED, cause: error }));
+  child.stdin.on('error', gone);
   child.stderr.on('data', data => { stderr = (stderr + data).slice(-8192); });
-  child.on('close', (code, signal) => fail(new Error(`filesystem reader exited (status ${code}, signal ${signal ?? 'none'})${stderr ? `: ${stderr}` : ''}`)));
+  child.on('close', (code, signal) => fail(Object.assign(new Error(`filesystem reader exited (status ${code}, signal ${signal ?? 'none'})${stderr ? `: ${stderr}` : ''}`), { code: READER_EXITED })));
   lines.on('line', line => {
     const item = pending.shift();
     if (!item) { fail(new Error('unexpected filesystem reply')); return; }
@@ -345,7 +353,7 @@ function createReader() {
     reference(true);
     return new Promise((resolve, reject) => {
       pending.push({resolve, reject});
-      child.stdin.write(`${JSON.stringify(request(input))}\n`, error => { if (error) fail(error); });
+      child.stdin.write(`${JSON.stringify(request(input))}\n`, error => { if (error) gone(error); });
     });
   }, close() { fail(new Error('filesystem reader closed')); }};
   reference(false);
