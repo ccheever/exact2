@@ -13,28 +13,19 @@ use crate::Diagnostic;
 pub(crate) struct Walk {
     pub(crate) on: Vec<bool>,
     pub(crate) known: Vec<Option<Kind>>,
-    pub(crate) cycles: usize,
-    /// Kinds inferred, which only a cycle repeats (a kind found without
-    /// meeting one is kept): past [`Walk::budget`] the rest are colours,
-    /// as a cycle's are, so a small cycle read twice a level is no 2^n.
-    pub(crate) steps: usize,
     /// The names followed to here: never past [`MAX_REFERENCE_DEPTH`].
     pub(crate) depth: usize,
-}
-
-impl Walk {
-    /// The kinds a design's walk may infer: every token's once, four times
-    /// over, which no design without a cycle reaches.
-    pub(crate) fn budget(&self) -> usize {
-        4 * self.on.len() + 64
-    }
+    /// The first token reached past [`MAX_REFERENCE_DEPTH`], which the design
+    /// is refused at.
+    pub(crate) deep: Option<usize>,
 }
 
 /// The deepest a chain of tokens naming one another may go (the checker's
 /// own bound, beside a value's bytes and nesting): each name followed is a
 /// level of recursion, so a longer one is refused before it would overflow
-/// the stack (`tamber-reference-depth`).
-pub const MAX_REFERENCE_DEPTH: usize = 256;
+/// the stack (`tamber-reference-depth`). Past the importers' own 256 links,
+/// so every chain they write folds.
+pub const MAX_REFERENCE_DEPTH: usize = 512;
 
 /// Every value, name and word a design holds, past `css::over_limit` or a
 /// name's bytes: each refused where it is written, before aliasing, kind
@@ -106,4 +97,12 @@ pub(crate) fn preflight(design: &Design) -> Vec<Diagnostic> {
         value(&e.value, pos(e));
     }
     out
+}
+
+/// A chain of names past [`MAX_REFERENCE_DEPTH`]: its id and words.
+pub(crate) fn too_deep() -> (&'static str, String) {
+    (
+        "tamber-reference-depth",
+        format!("a chain of tokens naming one another is at most {MAX_REFERENCE_DEPTH} deep"),
+    )
 }
