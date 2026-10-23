@@ -168,7 +168,7 @@ component ProfileHeader
                 height="cards.alert-icon"
                 flex-shrink=0
                 aria-hidden=true
-                -exact-tint-color="param.alert"
+                color="param.alert"
               text a.label font-size="cards.small-size" font-weight=600 color="param.alert"
         // The counts, or a note in their place; across a block, neither.
         column part="counts" display=(blocked ? "none" : "flex")
