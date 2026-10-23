@@ -18,7 +18,7 @@ export function importReview(imported) {
     ops.push(...o.ops);
     return { role: o.role, token: o.token, items, note: o.note };
   });
-  // (a choice the source didn't say, and what decided it: a Pencil number's kind, *1.16*)
+  // (a choice the source didn't say, and what decided it: a Pencil number's kind, *1.17*)
   return { ops, review: { importer: imported.importer, counted: imported.counted, unmapped: imported.unmapped, offers, tokens: imported.ops.length, ...(imported.notes?.length ? { notes: imported.notes } : {}), ...marked(ops, imported.dials, imported.pins) } };
 }
 

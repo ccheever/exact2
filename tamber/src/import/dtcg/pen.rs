@@ -266,7 +266,10 @@ fn readers(v: &Value, at: At, out: &mut BTreeMap<String, Uses>) -> Result<(), St
         }
         Value::Object(m) => {
             crate::budget::spend(m.len() as u64)?;
-            let ty = m.get("type").and_then(Value::as_str);
+            // (a `descendants` map's keys are node ids: none is its type)
+            let ty = (!at.ids)
+                .then(|| m.get("type").and_then(Value::as_str))
+                .flatten();
             let gradient = at.gradient || ty == Some("gradient");
             // (a map of the author's names only as a typed object's property: a descendant's id is none)
             let opaque =
@@ -282,8 +285,9 @@ fn readers(v: &Value, at: At, out: &mut BTreeMap<String, Uses>) -> Result<(), St
                 if at.ids && !x.is_object() {
                     continue;
                 }
+                // (a node's overrides are read as a node is: its id no property, their parent none of them)
                 let inner = At {
-                    key: Some(k),
+                    key: if at.ids { Some("descendants") } else { Some(k) },
                     parent: at.key,
                     holder: ty,
                     outer: at.holder,
