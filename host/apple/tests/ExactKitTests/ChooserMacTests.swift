@@ -405,6 +405,22 @@ final class ChooserMacTests: XCTestCase {
         XCTAssertEqual(menu.midX, invoker.midX, accuracy: 12, "centred on it")
     }
 
+    func testAMenuRetainsARowWhosePressIsDelegatedToAnAncestor() throws {
+        let p = chooser(cancels: 0)
+        defer { p.menus.reset() }
+        let pop = try XCTUnwrap(p.views[2])
+        pop.props["accessibilityRole"] = "menu"
+        pop.handlers.insert("press")
+        try XCTUnwrap(p.views[3]).handlers.remove("press")
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let menu = p.menus.menu(of: pop)
+        let item = try XCTUnwrap(menu.items.first { $0.title == "Apple Maps" })
+        try send(item)
+        turn()
+        XCTAssertEqual(pressed, [2], "the native row dispatches the same ancestor as a button press")
+    }
+
     func testAMenuIsTitledByItsLabelAndFitsARowsBitmap() throws {
         _ = NSApplication.shared
         let p = Presenter()
