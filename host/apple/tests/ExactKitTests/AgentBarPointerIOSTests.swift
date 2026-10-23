@@ -89,6 +89,37 @@ final class AgentBarPointerIOSTests: XCTestCase {
         try assertVisibleSegmentPoint(session, "filter-done")
     }
 
+    func testABarReadoutBubblesPointersWithoutPressing() throws {
+        let session = try fixture(), p = session.presenter, agent = Agent(session: session)
+        p.press(try node(session, "open-plain").id)
+        until { (p.navigation.primaryNavigation?.topViewController as? RouteController)?.node.props["testId"] == "route-plain" && !p.navigation.inTransition }
+        try node(session, "navigation").handlers.formUnion(["pointerdown", "pointerup"])
+        let readout = try node(session, "readout-plain")
+        let route = try XCTUnwrap(p.navigation.primaryNavigation?.topViewController as? RouteController)
+        var events: [String] = [], presses: [UInt32] = []
+        p.onPointer = { _, kind, sample in
+            events.append(kind == .down ? "down" : "up")
+            guard let visible = route.readouts[readout.id]?.customView else { return XCTFail("the readout has a native view") }
+            let expected = p.client(visible.convert(CGPoint(x: visible.bounds.midX, y: visible.bounds.midY), to: nil))
+            XCTAssertEqual(sample.clientX, Double(expected.x), accuracy: 0.5)
+            XCTAssertEqual(sample.clientY, Double(expected.y), accuracy: 0.5)
+        }
+        p.onPress = { presses.append($0) }
+        for testId in ["readout-plain", "readout-text"] {
+            events = []
+            let readout = try node(session, testId)
+            let reply = agent.tap(["id": Int(readout.id)])
+            XCTAssertNil(reply["error"], "\(reply)")
+            XCTAssertEqual(reply["native"] as? String, "bar-readout")
+            XCTAssertEqual(events, ["down", "up"], testId)
+            XCTAssertTrue(presses.isEmpty, "a readout has no press action")
+        }
+        var checked = false
+        let refused = p.navigation.activateChrome(readout, before: { _ in checked = true; return false })
+        XCTAssertTrue(checked)
+        XCTAssertNotNil(refused?["error"], "a refused pointer delivery is not acknowledged as a tap")
+    }
+
     func testABarSegmentRechecksARIAAfterPointerHandlers() throws {
         let session = try fixture(), p = session.presenter
         let tab = try node(session, "segment-missed"), root = try node(session, "navigation")
