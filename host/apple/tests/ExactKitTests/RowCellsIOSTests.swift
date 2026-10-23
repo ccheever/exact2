@@ -58,12 +58,22 @@ final class RowCellsIOSTests: XCTestCase {
     private func ground(_ p: Presenter) -> RowGroundView? {
         p.views[2]?.container.subviews.compactMap { $0 as? RowGroundView }.first
     }
-    /// The separators a list draws, top to bottom.
+    /// Each row's separator layer: the row carries its line.
+    private func rowLines(_ p: Presenter) -> [(row: NodeView, layer: CAShapeLayer)] {
+        (p.views[2]?.container.subviews.compactMap { $0 as? NodeView } ?? []).flatMap { row in
+            (row.layer.sublayers ?? []).compactMap { $0 as? RowLineLayer }.map { (row, $0 as CAShapeLayer) }
+        }
+    }
+    /// The separators a list draws, top to bottom, in the list's space.
     private func separators(_ p: Presenter) -> [CGRect] {
         var rects: [CGRect] = []
-        lines(p)?.shape.path?.applyWithBlock { element in
-            if element.pointee.type == .moveToPoint { rects.append(CGRect(origin: element.pointee.points[0], size: .zero)) }
-            if element.pointee.type == .addLineToPoint, let last = rects.popLast() { rects.append(last.union(CGRect(origin: element.pointee.points[0], size: .zero))) }
+        for (row, layer) in rowLines(p) {
+            var own: [CGRect] = []
+            layer.path?.applyWithBlock { element in
+                if element.pointee.type == .moveToPoint { own.append(CGRect(origin: element.pointee.points[0], size: .zero)) }
+                if element.pointee.type == .addLineToPoint, let last = own.popLast() { own.append(last.union(CGRect(origin: element.pointee.points[0], size: .zero))) }
+            }
+            rects += own.map { $0.offsetBy(dx: row.frame.minX, dy: row.frame.minY) }
         }
         return rects.sorted { $0.minY < $1.minY }
     }
@@ -78,7 +88,9 @@ final class RowCellsIOSTests: XCTestCase {
             XCTAssertEqual(rect.height, RowCells.thickness, accuracy: 0.001, "a point thick")
         }
         let view = try XCTUnwrap(lines(p))
-        XCTAssertEqual(view.shape.fillColor, RowCells.separator.resolvedColor(with: view.traitCollection).cgColor, "in UIKit's separator colour")
+        for (_, layer) in rowLines(p) {
+            XCTAssertEqual(layer.fillColor, RowCells.separator.resolvedColor(with: view.traitCollection).cgColor, "in UIKit's separator colour")
+        }
         XCTAssertNil(view.hitTest(CGPoint(x: 100, y: 44), with: nil), "a touch on a separator is the row's")
         // A row that goes: the lines follow the rows.
         p.apply(wireBatch([["op": "children", "id": 2, "ids": [10, 11, 12]]]))
