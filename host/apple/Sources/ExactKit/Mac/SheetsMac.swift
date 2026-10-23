@@ -111,7 +111,7 @@ extension NodeView {
     /// The subtree moved into a sheet's window, or out of it: its boxes on
     /// the window's ground are painted again, on the ground they now have.
     func sheetGroundChanged() {
-        if groundIsTheWindows { applyBoxLayer(); needsDisplay = true }
+        if groundIsTheWindows { applyBoxLayer(); materialContent?.needsDisplay = true; needsDisplay = true }
         for case let child as NodeView in container.subviews { child.sheetGroundChanged() }
     }
 }
