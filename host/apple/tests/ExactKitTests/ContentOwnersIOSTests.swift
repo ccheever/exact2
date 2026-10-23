@@ -380,27 +380,6 @@ final class ContentOwnersIOSTests: XCTestCase {
                        .init(top: 106, right: 0, bottom: 83, left: 0), "the whole view's route: the bar and the status bar")
     }
 
-    func testASheetScrollsToItsBottomRegardlessOfTheDocumentsViewportFit() throws {
-        let size = UIScreen.main.bounds.size
-        let session = try fixture("owner-cover-sheet", size, plan: "EXACT_COVER_SCROLL_PLAN")
-        let p = session.presenter
-        p.press(try node(session, "open-picker").id)
-        _ = try mountSheet(at: CGRect(x: 0, y: 300, width: size.width, height: size.height - 300))
-        let route = try node(session, "route-picker")
-        let c = try XCTUnwrap(p.navigation.controllers[route.id])
-        // This window manually mounts the sheet without UIKit's completed
-        // presentation. Supply the edge-attached sheet's home-indicator inset.
-        c.additionalSafeAreaInsets.bottom = 34
-        c.view.layoutIfNeeded()
-        let scroll = try node(session, "picker-scroll")
-        until("the sheet has its own block") { self.laidOut(session, route.id) == c.view.bounds.size }
-        XCTAssertTrue(c.edgeScroll === scroll, "the document's cover setting must not clip the sheet above the home indicator")
-        let sv = try XCTUnwrap(scroll.scrollView)
-        XCTAssertEqual(scroll.convert(scroll.bounds, to: c.view).maxY, c.view.bounds.maxY, accuracy: 0.5)
-        until("UIKit insets the sheet's scroller") { sv.adjustedContentInset.bottom >= 34 }
-        XCTAssertGreaterThanOrEqual(sv.adjustedContentInset.bottom, c.view.safeAreaInsets.bottom)
-    }
-
     /// A sheet's route ends only at a docked keyboard (LLP 1123 C26): the
     /// sheet's keyboard layout guide counts none without the keys, so a
     /// focused field with no keyboard up (a hardware keyboard, as in this
@@ -435,34 +414,51 @@ final class ContentOwnersIOSTests: XCTestCase {
         }
         // The whole screen, so the window reaches the home indicator.
         let session = try fixture("owner-sheet-edge", scene.screen.bounds.size, plan: "EXACT_NAVIGATION_BARS_PLAN")
+        try assertSheetScrollerReachesItsBottom(session, opener: "start-open-form", route: "route-form", scroller: "form-scroll")
+    }
+
+    /// The same under a `viewport-fit="cover"` document, whose own route's
+    /// scroller keeps the cover (`reachBottom`): the document's insets are
+    /// not the sheet's, so a sheet's scroller still reaches the sheet's edge.
+    func testASheetsEdgeScrollerReachesItsBottomUnderACoverDocument() throws {
+        guard let scene = UIApplication.shared.connectedScenes.first(where: { $0 is UIWindowScene }) as? UIWindowScene else {
+            throw missing("scene", "a sheet is presented, with its safe area, only in a scene's window")
+        }
+        let session = try fixture("owner-cover-sheet", scene.screen.bounds.size, plan: "EXACT_COVER_SCROLL_PLAN")
+        try assertSheetScrollerReachesItsBottom(session, opener: "open-picker", route: "route-picker", scroller: "picker-scroll")
+    }
+
+    private func assertSheetScrollerReachesItsBottom(_ session: ExactSession, opener: String, route routeID: String, scroller: String,
+                                                     file: StaticString = #filePath, line: UInt = #line) throws {
         let p = session.presenter
-        p.press(try node(session, "start-open-form").id)
+        p.press(try node(session, opener).id)
         until("UIKit has presented the sheet") {
             guard let sheet = self.host?.presentedViewController else { return false }
             return sheet.view.window != nil && !sheet.isBeingPresented && sheet.transitionCoordinator == nil
         }
-        let route = try node(session, "route-form")
-        let controller = try XCTUnwrap(p.navigation.controllers[route.id])
-        let sheetView = try XCTUnwrap(controller.view)
+        let route = try node(session, routeID)
+        let controller = try XCTUnwrap(p.navigation.controllers[route.id], file: file, line: line)
+        let sheetView = try XCTUnwrap(controller.view, file: file, line: line)
         // Layout crosses the host ABI as f32; compare UIKit's bounds at that precision.
         until("the sheet's route takes the sheet's size: kernel \(String(describing: self.laidOut(session, route.id))), UIKit \(sheetView.bounds.size)") {
             let size = CGSize(width: CGFloat(Float(sheetView.bounds.width)), height: CGFloat(Float(sheetView.bounds.height)))
             return self.laidOut(session, route.id) == size
         }
-        let form = try node(session, "form-scroll"), sv = try XCTUnwrap(form.scroll)
-        XCTAssertTrue(controller.edgeScroll === form, "the scroller ends the route")
+        let form = try node(session, scroller), sv = try XCTUnwrap(form.scroll, file: file, line: line)
+        XCTAssertTrue(controller.edgeScroll === form, "the scroller ends the route", file: file, line: line)
         let bottom = { form.convert(form.bounds, to: sheetView).maxY }
         until("the scroller reaches the sheet's bottom edge, inset by the sheet's bottom safe area") {
             sheetView.safeAreaInsets.bottom > 0 && abs(bottom() - sheetView.bounds.maxY) < 0.5
                 && abs(sv.adjustedContentInset.bottom - sheetView.safeAreaInsets.bottom) < 0.5
         }
-        XCTAssertGreaterThan(sheetView.safeAreaInsets.bottom, 0, "the sheet has a bottom safe area")
-        XCTAssertEqual(bottom(), sheetView.bounds.maxY, accuracy: 0.5, "the scroller ends at the sheet's bottom edge")
-        XCTAssertEqual(sv.adjustedContentInset.bottom, sheetView.safeAreaInsets.bottom, accuracy: 0.5)
+        XCTAssertGreaterThan(sheetView.safeAreaInsets.bottom, 0, "the sheet has a bottom safe area", file: file, line: line)
+        XCTAssertEqual(bottom(), sheetView.bounds.maxY, accuracy: 0.5, "the scroller ends at the sheet's bottom edge", file: file, line: line)
+        XCTAssertEqual(sv.adjustedContentInset.bottom, sheetView.safeAreaInsets.bottom, accuracy: 0.5, "UIKit's inset alone", file: file, line: line)
         var view: UIView? = sv
         while let v = view, v !== sheetView {
             if v.clipsToBounds {
-                XCTAssertEqual(v.convert(v.bounds, to: sheetView).maxY, sheetView.bounds.maxY, accuracy: 0.5, "\(type(of: v)) clips at the sheet's edge")
+                XCTAssertEqual(v.convert(v.bounds, to: sheetView).maxY, sheetView.bounds.maxY, accuracy: 0.5, "\(type(of: v)) clips at the sheet's edge",
+                               file: file, line: line)
             }
             view = v.superview
         }
