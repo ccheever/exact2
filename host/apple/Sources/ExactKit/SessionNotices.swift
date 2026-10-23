@@ -18,9 +18,14 @@ extension ExactSession {
         // Keep parsing, settlement and batch decoding on the existing owner.
         // Publication joins fills and ticks before any later synchronous batch.
         runtime.pumpAsync(now: time) { [weak self] batch in
-            self?.publish(.reply, batch, captured)
+            self?.publish(batch == nil ? .cancelledReply : .reply, batch ?? Batch(ops: [], timers: false, motion: false, clock: nil, error: nil), captured)
         }
         replySubmissions.append((CACurrentMediaTime() - began) * 1000)
+    }
+
+    func retireReply() -> Double {
+        repliesInFlight -= 1
+        return replySubmissions.removeFirst()
     }
 
     func retryActivation() {

@@ -319,10 +319,10 @@ package final class Runtime {
     /// Every queued reply into the runner: the batch of their commits.
     package func pump(now: Double) -> Batch { on { read(exact_pump(rt, now)) } }
     /// Capture native presentation on the caller before parsing replies on the owner.
-    package func pumpAsync(now: Double, done: @escaping (Batch) -> Void) {
+    package func pumpAsync(now: Double, done: @escaping (Batch?) -> Void) {
         let (open, modal) = topLayer?() ?? ([], nil)
         Owner.shared.post { [self] in
-            guard !destroyed else { return }
+            guard !destroyed else { done(nil); return }
             installTopLayer(open, modal: modal)
             done(read(exact_pump(rt, now)))
         }
