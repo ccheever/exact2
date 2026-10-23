@@ -18,6 +18,12 @@ abstract class ExactExtension(protected val context: ExtensionContext) {
     /** The last reader of live source [name] is gone: stop what it started (LLP 1133.002 D5). */
     open fun release(name: String) {}
 
+    /**
+     * The agent's preferred values for this extension's names, by name, when it is bound under the agent and
+     * whenever one changes (LLP 1133.008 D8 item 9): an implementation that is its own substitute answers by them.
+     */
+    open fun preferred(values: JSONObject) {}
+
     /** The activity is in front again: what changed in Settings meanwhile is read again (Android has no event). */
     open fun resumed() {}
 }
@@ -65,7 +71,10 @@ internal object Extensions {
         if (roster.isNotEmpty()) Exact.bindExtensions(roster.keys.joinToString("\n"))
     }
 
-    /** Request [id]'s call, the runner's body (`{"extension", "source"|"send", "args"}` or `{"extension", "release"}`). */
+    /**
+     * Request [id]'s call, the runner's body: `{"extension", "source"|"send", "args"}`, `{"extension", "release"}` or
+     * `{"extension", "preferred"}`.
+     */
     fun call(id: Int, body: String) {
         var answered = false
         val reply = { answer: JSONObject -> if (!answered) { answered = true; Exact.answer(id, answer.toString()) } }
@@ -77,6 +86,10 @@ internal object Extensions {
             val released = request.optString("release")
             if (released.isNotEmpty()) {
                 extension.release(released)
+                return reply(JSONObject())
+            }
+            request.optJSONObject("preferred")?.let {
+                extension.preferred(it)
                 return reply(JSONObject())
             }
             val declared = request.optString("source").ifEmpty { request.optString("send") }

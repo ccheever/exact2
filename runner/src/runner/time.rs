@@ -237,7 +237,8 @@ impl<D: DataSource> Runner<D> {
                 None => which.push(i),
             }
         }
-        self.recommit(which, "changed")
+        // Each reader asks again under its own last ask's origin (LLP 1133.002 D12).
+        self.reasking(|r| r.recommit(which, "changed"))
     }
 
     pub(super) fn time_answer(&self, i: usize) -> Result<Value, DataError> {
