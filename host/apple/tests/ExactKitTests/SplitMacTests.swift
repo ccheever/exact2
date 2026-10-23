@@ -869,6 +869,17 @@ final class SplitMacTests: XCTestCase {
                     windowNumber: window.windowNumber, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
                 XCTAssertTrue(p.menus.key(escape))
                 XCTAssertFalse(p.menus.isOpen(pop), "Escape from the pane's field")
+                // Open again, then the split ends (the driver's own chrome): the
+                // route goes back into the page, and the open popover's layer with it.
+                try press("pop-open")
+                let again = Date().addingTimeInterval(3)
+                while !p.menus.isOpen(pop), Date() < again { settle() }
+                XCTAssertTrue(pop.isDescendant(of: pane))
+                p.navigation.split.painted = true
+                settle()
+                XCTAssertFalse(p.navigation.split.active, "no split")
+                XCTAssertTrue(p.menus.isOpen(pop))
+                XCTAssertTrue(pop.isDescendant(of: p.viewport), "its layer follows the route into the page")
             }
             session.destroy(); self.session = nil; window.close(); self.window = nil
         }
