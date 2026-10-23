@@ -795,7 +795,11 @@ public final class ExactSession {
     /// Boot the plan baked into the library (or `EXACT_PLAN`'s file, an
     /// adapter's choice, through `boot(plan:)`) under a viewport.
     @discardableResult
-    public func boot(size: CGSize) -> Batch {
+    public func boot(size: CGSize) -> Batch { boot(size: size, fallbackSize: nil) }
+
+    @discardableResult
+    func boot(size: CGSize, fallbackSize: (() -> CGSize)?) -> Batch {
+        var size = size
         let t = CACurrentMediaTime()
         primePreferences()
         primeTime()  // `prepare` primes again; the fallback boot reads this
@@ -811,6 +815,7 @@ public final class ExactSession {
             if !app.fallBackFromInitial(reason: reason) {
                 return finishBoot(Batch(ops: [], timers: false, motion: false, clock: nil, error: reason), started: t)
             }
+            size = fallbackSize?() ?? size
         }
         let cp = text.checkpoint()
         runtime.setProfileResolver(app.resolver)

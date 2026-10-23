@@ -355,7 +355,7 @@ public final class ExactView: UIView {
         return fold.ending(at: visual ? CGSize(width: size.width, height: size.height - presenter.keyboardInset) : size, lastRow: visual)
     }
 
-    func fit() {
+    func fit(boot: Bool = true) {
         let presenter = session.presenter
         // A native callback served for the owner cannot resize the runtime
         // yet. Keep the latest geometry pending until that callback returns.
@@ -528,7 +528,12 @@ public final class ExactView: UIView {
             lastInsets = insets
             presenter.insets = insets
             lastFold = segments
-            session.boot(size: size)
+            guard boot else { return }
+            session.boot(size: size, fallbackSize: {
+                // Refusal can change the root policy before the bake settles.
+                self.fit(boot: false)
+                return self.lastSize
+            })
             // The first batch made the roots: one that covers the screen is
             // framed to it now, before anything is drawn. A refused boot made
             // none, and fitting it again would boot again, without end.
