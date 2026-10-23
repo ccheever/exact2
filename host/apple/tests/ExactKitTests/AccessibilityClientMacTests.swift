@@ -216,6 +216,41 @@ final class AccessibilityClientMacTests: XCTestCase {
         return p
     }
 
+    func testTheAccessibilityFixturesHiddenContentAndNativeCellNamesAtTheClient() throws {
+        let p = try fixture([
+            ["op": "create", "id": 20, "kind": "text", "props": ["text": "•", "accessibilityElementsHidden": "true", "testId": "decoration"]],
+            ["op": "create", "id": 21, "kind": "view", "props": ["inert": "true", "testId": "inert-box"]],
+            ["op": "create", "id": 22, "kind": "button", "handlers": ["press"], "props": ["accessibilityLabel": "Hidden", "testId": "inert-button"]],
+            ["op": "create", "id": 23, "kind": "control", "handlers": ["change"],
+             "props": ["type": "checkbox", "accessibilityLabel": "Checked", "testId": "check"]],
+            ["op": "create", "id": 24, "kind": "input", "props": ["type": "password", "accessibilityLabel": "Secret", "value": "hunter2", "testId": "secret"]],
+            ["op": "children", "id": 21, "ids": [22]],
+            ["op": "children", "id": 1, "ids": [2, 20, 21, 23, 24]],
+            ["op": "frame", "id": 20, "x": 0, "y": 35, "w": 100, "h": 20],
+            ["op": "frame", "id": 21, "x": 0, "y": 60, "w": 200, "h": 40],
+            ["op": "frame", "id": 22, "x": 0, "y": 0, "w": 100, "h": 30],
+            ["op": "frame", "id": 23, "x": 0, "y": 110, "w": 100, "h": 30],
+            ["op": "frame", "id": 24, "x": 0, "y": 150, "w": 100, "h": 30],
+        ])
+        let client = AXClient()
+        // Absence means nothing until a visible control is reachable from
+        // the application's AX root, outside the driver's viewport walk.
+        guard client.element("page-button") != nil else { return XCTFail("the AX client cannot reach this window's visible control") }
+        let ids = client.identifiers()
+        XCTAssertFalse(ids.contains("decoration"))
+        XCTAssertFalse(ids.contains("inert-button"))
+        let keys = ["AXRole", "AXTitle", "AXDescription", "AXValue"]
+        let check = try XCTUnwrap(client.attributes(of: "check", keys))
+        XCTAssertEqual(check["AXRole"], "AXCheckBox")
+        XCTAssertTrue([check["AXTitle"], check["AXDescription"]].contains("Checked"))
+        let secret = try XCTUnwrap(client.attributes(of: "secret", keys))
+        XCTAssertEqual(secret["AXRole"], "AXTextField")
+        XCTAssertTrue([secret["AXTitle"], secret["AXDescription"]].contains("Secret"))
+        XCTAssertNotEqual(secret["AXValue"], "hunter2")
+        XCTAssertEqual(p.views[20]?.props["accessibilityElementsHidden"], "true")
+        XCTAssertEqual(p.views[21]?.props["inert"], "true", "naming is checked while suppression stays in force")
+    }
+
     /// A `role="menu"` box is AppKit's menu and its rows (`menuitem`, a
     /// box's `menuitemcheckbox`) are menu items, as WebKit serves them
     /// (Core-AAM), so VoiceOver says "menu" and "menu item" where it said
