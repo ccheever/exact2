@@ -865,6 +865,7 @@ on the web and these on Hermes (macOS, iOS, Linux):
 | `crypto.getRandomValues`, `crypto.randomUUID`, `crypto.subtle` | Inside an answer; `subtle` digests (SHA-256/384/512) and ECDSA P-256 keys (LLP 1069.005), and refuses the rest by name |
 | `AbortController`, `AbortSignal` | `AbortSignal.timeout()` refuses: no timers |
 | `queueMicrotask`, `Promise` | |
+| `scheduler.yield()` | Ends the answer's turn; it goes on in a new one with a budget of its own (below). Outside an answer's turn it resolves at once; for an answer let go it rejects with an `AbortError`. `scheduler.postTask` refuses: no timers |
 | `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.Collator`, `localeCompare`, `toLocaleString` | Date formatting needs an explicit timestamp. No `Intl.PluralRules`, `RelativeTimeFormat`, `ListFormat`, `Segmenter` or `DisplayNames` (Apple's engine; Linux's is built `--intl`). `Intl.Locale` is the prelude's on every Hermes host (the engine has none): a tag parsed and canonicalized as Chrome does, its options and getters, and `getWeekInfo()` with Chrome's `{firstDay, weekend}` from CLDR's week data, by the tag's region, its `-u-rg-`, or its language's likely region (two-letter languages and a few others; another reads Monday and a Saturday-Sunday weekend), and `-u-fw-`. It has no `maximize`, `minimize` or other `get…()` list, does not canonicalize aliases (`iw` stays `iw`, `en-840` keeps `840`, and its week is then the default, Monday, where Chrome's is `en-US`'s), a formatter given a `Locale` object rather than its string uses the default locale, and `structuredClone` copies a `Locale` as `{}` where Chrome refuses it. Apple's `ja-JP` long date puts a space before the weekday (`10月6日 火曜日`, Chrome `10月6日火曜日`). Apple's engine has no `notation: "compact"`: the prelude formats its short display as Chrome does for a decimal in en, en-GB, en-IN, de, fr, fr-CA, es, es-MX, it, pt, pt-PT, nl, sv, da, nb, fi, pl, ru, uk, cs, tr, ja, zh, zh-TW, ko, hi, he, id, th and vi (and their regions); `compactDisplay: "long"`, another locale or a compact currency is printed in full and said once in the logs. Apple's engine rounds a tie to even and ignores `roundingMode` (`$0.82` for 0.825 dollars, Chrome `$0.83`); the prelude rounds the number first, as Chrome does: from its shortest digits, by the formatter's `roundingMode` (half away from zero unless it names another), which `resolvedOptions()` then reports; a compact it prints in full rounds so too, to its style's digits (`$0.83` for a compact 0.825 dollars). A `unit` keeps the engine's rounding, since that engine converts it to the locale's unit (`0.622mi` for 1 kilometer). Apple's engine has no `formatToParts` |
 | `console` | To the runner's logs after each answer and reply, including refused calls; available through the agent's `logs` on native hosts |
 
@@ -929,6 +930,19 @@ not independent by default, because a source may depend on its replies
 arriving in order. Leave writes, and any read whose parse depends on an
 earlier reply, in the queue. Storage steps and native continuations cannot
 opt out of it.
+
+On Hermes each turn of an answer has 100 ms of wall clock: its call, or its
+resumption after a `fetch`, storage step or yield it awaited, until it awaits
+the next. A turn over it is refused as `Unavailable` (`` `walk` took 401.8 ms,
+over the 100 ms budget for one turn; … ``), and the message names the repair:
+`await scheduler.yield()` every few thousand items of a long loop
+([the guide](contract-for-agents.md#data-requests-and-side-effects) shows one).
+The host asks a yielded answer again at once, in its place among the source's
+requests, with no work and no clock, so an agent's `clock settle` runs it to its
+end without moving the clock. The browser keeps no such budget and
+yields to its own `scheduler.yield` where it has one (Chrome does), else to
+a task posted on a `MessageChannel`. Bun has no `scheduler`: a Bun test of a
+module that yields defines one (`globalThis.scheduler ??= { yield: async () => {} }`).
 
 Not in a data module, by design (LLP 1027.000): timers (`setTimeout`,
 `setInterval`), `performance.now()`, `Date.now()`, `new Date()` without a value
