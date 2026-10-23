@@ -1,7 +1,6 @@
 // The UIKit presenter (LLP 1008 §9): a viewport scroll view over a content-sized
 // document, one `NodeView` per kernel node, host batches, keyboard insets and
-// field reveal. It belongs to one session (LLP 1031 D1) and reaches that session's
-// canvases, web views and menus.
+// field reveal, owned by one session (LLP 1031 D1).
 #if os(iOS) || os(tvOS)
 import UIKit
 import CoreText
@@ -13,7 +12,7 @@ package final class Presenter {
     var autofocusProcessed: Set<ObjectIdentifier> = []
     weak var autofocusedThisTurn: NodeView? // taken out of the window this turn, it has not had its autofocus (NodeViewIOS)
     var pressHandoff: PressHandoff? // the press whose work may hand its control's focus on (PressHandoffIOS)
-    /// Set the turn after the session's first activation. A booted session's autofocus waits for it.
+    /// A booted session's autofocus waits for its first activation.
     var launchAutofocusReleased = false
     private var projectionSyncOwed = false
     /// Nodes whose frame or content box applied since the batch or projection
@@ -49,7 +48,6 @@ package final class Presenter {
     /// The `aria-modal` view VoiceOver was last moved into, and the views
     /// made modal, which a cleared prop drops from the index (`syncModal`).
     var announcedModal: (id: UInt32, incarnation: UInt64)?
-    /// The `.screenChanged` post, replaceable in tests.
     static var postScreenChanged: (Any?) -> Void = { UIAccessibility.post(notification: .screenChanged, argument: $0) }
     let modalViews = NSHashTable<NodeView>.weakObjects()
     /// The session this presenter shows (LLP 1031 D1).
@@ -814,6 +812,9 @@ package final class Presenter {
                 #endif
                 if moved { session?.natives.refreshWorldGeometry() }
                 flushPendingFocus(); elementScrolls.flush()
+                #if os(iOS)
+                session?.view?.syncKeyboardFocus()
+                #endif
             }
         }
         var beganGeometry = false, touchedIDs: [UInt32] = []
