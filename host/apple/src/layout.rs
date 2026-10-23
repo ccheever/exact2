@@ -464,8 +464,19 @@ impl<D: DataSource> Host<D> {
     /// the tree to collect it.
     fn emit_collections(&mut self, batch: &mut Batch) -> Result<(), String> {
         let collections = if self.native_mode() {
+            self.collection_heads = None;
             self.native_collections_json()?
         } else {
+            // Revisions cover rows, extent and corrections. A newer feedback
+            // sequence alone needs no snapshot or serialization.
+            let mut heads = self.runner.collections_shallow();
+            for head in &mut heads {
+                head.scroll_sequence = 0;
+            }
+            if self.collection_heads.as_ref() == Some(&heads) {
+                return Ok(());
+            }
+            self.collection_heads = Some(heads);
             self.runner.collections_json()
         };
         if collections != self.collections_json {
