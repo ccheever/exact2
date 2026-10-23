@@ -24,6 +24,8 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
     const base = `http://127.0.0.1:${port}`;
     const devSaid = lines(dev);
     await devSaid.until(l => l.includes(`127.0.0.1:${port}/`), 600_000);
+    // Its design reader built: before it is, a live edit is proposed as a rebuild (theme2 10:01), and this test scrubs.
+    await devSaid.until(l => l === 'design reader ready', 600_000);
     tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
     // What the dev loop serves its builds now (`/__dev/design`), the frame's
@@ -175,7 +177,7 @@ async function kindsOnTheJsLoop() {
     const devSaid = lines(dev);
     await devSaid.until(l => l.includes(`127.0.0.1:${port}/`), 600_000);
     // Its design reader built: before it is, a live edit is proposed as a rebuild (theme2 10:01), and this test scrubs.
-    await devSaid.until(l => l.startsWith('the design reader is built'), 600_000);
+    await devSaid.until(l => l === 'design reader ready', 600_000);
     tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
     const seen = [];
