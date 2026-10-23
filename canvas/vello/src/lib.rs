@@ -15,13 +15,17 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod gpu;
+mod images;
 pub mod kernels;
 pub mod paint;
 pub mod replay;
 pub mod surface;
 
+#[cfg(test)]
+mod image_tests;
+
+use images::Images;
 use replay::Host;
-use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CString};
 use std::sync::{Arc, Mutex, OnceLock};
 use surface::IOSurfaceRef;
@@ -76,8 +80,6 @@ pub struct EcgHost {
 
 /// Decoded images, by the host's (pointer, width, height): the same handle
 /// is the same `ImageData`, so vello's atlas keeps it between replays.
-type Images = HashMap<(usize, u32, u32), ImageData>;
-
 fn images() -> &'static Mutex<Images> {
     static IMAGES: OnceLock<Mutex<Images>> = OnceLock::new();
     IMAGES.get_or_init(Default::default)
@@ -124,10 +126,11 @@ impl Host for AbiHost<'_> {
         let mut cache = images().lock().unwrap_or_else(|e| e.into_inner());
         let key = (p as usize, w, hh);
         if let Some(i) = cache.get(&key) {
-            return Some(i.clone());
+            return Some(i);
         }
         // SAFETY: premultiplied RGBA8, tightly packed, valid for the replay.
-        let px = unsafe { std::slice::from_raw_parts(p, (w * hh * 4) as usize) }.to_vec();
+        let len = (w as usize).checked_mul(hh as usize)?.checked_mul(4)?;
+        let px = unsafe { std::slice::from_raw_parts(p, len) }.to_vec();
         let image = ImageData {
             data: Blob::new(Arc::new(px)),
             format: ImageFormat::Rgba8,
@@ -327,12 +330,7 @@ pub unsafe extern "C" fn ecg_canvas_unsupported(c: *mut c_void) -> *const c_char
 #[no_mangle]
 pub extern "C" fn ecg_memory() -> u64 {
     let gpu = gpu::made().map_or(0, |g| g.renderer.memory());
-    let images: u64 = images()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .values()
-        .map(|i| u64::from(i.width) * u64::from(i.height) * 4)
-        .sum();
+    let images: u64 = images().lock().unwrap_or_else(|e| e.into_inner()).bytes as u64;
     gpu + images
 }
 
