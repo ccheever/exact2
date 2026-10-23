@@ -3,11 +3,21 @@
 // the subset the contract admits — the same on iOS's and macOS's top layers,
 // and the point macOS pops a chooser's NSMenu up at.
 import CoreGraphics
+#if os(macOS)
+import AppKit
+#endif
 
 enum PositionArea {
     /// A box's resolved margins, in points.
     struct Margins: Equatable {
         var top: CGFloat = 0, right: CGFloat = 0, bottom: CGFloat = 0, left: CGFloat = 0
+        #if os(macOS)
+        /// The margin facing an invoker the box sits beyond `edge` of, in a
+        /// flipped view (`minY` above it, `maxY` below, `maxX` right, `minX` left).
+        func gap(_ edge: NSRectEdge) -> CGFloat {
+            edge == .minY ? bottom : edge == .maxY ? top : edge == .maxX ? left : right
+        }
+        #endif
     }
 
     /// The fallbacks the web's UA sheet gives a popover (`neutral.css`:
