@@ -79,7 +79,7 @@ final class AddressedTapIOSTests: XCTestCase {
         }
         let unsupported = agent.tap(["id": 10])
         XCTAssertEqual(unsupported["delivery"] as? String, "unsupported")
-        XCTAssertTrue((unsupported["reason"] as? String ?? "").contains("--touch platform"))
+        XCTAssertTrue((unsupported["reason"] as? String ?? "").contains("an iOS simulator can use --touch platform"), "\(unsupported)")
     }
 
     func testARowWithItsOwnPressIsPressedBesideTheCardAtItsMiddle() throws {
