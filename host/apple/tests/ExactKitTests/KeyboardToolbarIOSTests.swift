@@ -121,5 +121,21 @@ final class KeyboardToolbarIOSTests: XCTestCase {
         XCTAssertEqual(replacement.contentOffset.y, 1500, accuracy: 0.5)
     }
 
+    func testAToolbarInAnotherMountUsesTheWindowKeyboardEvenWhenTheDocumentHasNoOverlap() throws {
+        let (session, window) = fixture()
+        defer { window.isHidden = true; session.destroy() }
+        let p = session.presenter, bar = try XCTUnwrap(p.views[3])
+        // A presentation can extend below the document that presented it.
+        window.addSubview(p.root)
+        p.viewport.frame.size.height = 400
+        p.applyKeyboard(top: 460, duration: 0, curve: 0)
+        XCTAssertEqual(p.keyboardInset, 0)
+        XCTAssertEqual(bar.keyboardLift, 306)
+        XCTAssertEqual(p.views[2]?.scrollView?.contentInset.bottom, 306)
+        p.applyKeyboard(top: nil, duration: 0, curve: 0)
+        XCTAssertEqual(bar.keyboardLift, 0)
+        XCTAssertEqual(p.views[2]?.scrollView?.contentInset.bottom, 0)
+    }
+
 }
 #endif

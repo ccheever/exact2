@@ -123,7 +123,7 @@ extension Presenter {
     /// presentation, whose editor waits for the keys to settle
     /// (`keyboardSettled`).
     func revealEditorAsTheKeysMove() {
-        if editor.map({ !modals.mounts($0) }) ?? true { reveal(editor) }
+        if editor.map({ !modals.mounts($0) }) ?? true { revealFocusedEditor() }
     }
 
     #if !os(tvOS)
@@ -140,13 +140,36 @@ extension Presenter {
     #endif
 
     /// The editor being edited.
-    var editor: NodeView? { editing ?? views.values.first { $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true } }
+    var editor: NodeView? {
+        if let own = editing ?? views.values.first(where: { $0.selectionField?.isFirstResponder == true || $0.textArea?.isFirstResponder == true }) { return own }
+        guard let native = FirstResponder.current as? UIView, native is UIKeyInput, mounts(native) else { return nil }
+        return NodeView.innermost(native)
+    }
+
+    /// A native module's input may fill a large wrapper: reveal its caret,
+    /// not that wrapper's far edge. The input keeps its own internal scrolling.
+    func revealFocusedEditor() {
+        guard let editor else { return }
+        if editor.field == nil, editor.textArea == nil,
+           let native = FirstResponder.current as? UIView, let input = native as? UITextInput,
+           let end = input.selectedTextRange?.end, let view = input.textInputView {
+            let caret = input.caretRect(for: end)
+            if !caret.isNull, !caret.isInfinite {
+                let height = min(caret.height, view.bounds.height)
+                let y = min(max(caret.minY, view.bounds.minY), view.bounds.maxY - height)
+                let rect = native is UITextField ? view.bounds : CGRect(x: caret.minX, y: y, width: caret.width, height: height)
+                reveal(editor, rect: view.convert(rect, to: editor))
+                return
+            }
+        }
+        reveal(editor)
+    }
 
     /// Reveals the editor of a presentation's route while the keys are up.
     func revealSheetEditor() {
         guard keyboardTop != nil, let editor,
               modals.mounts(editor) else { return }
-        if ExactEnv.agentFreezes { reveal(editor) } else { UIView.animate(withDuration: 0.25) { self.reveal(editor) } }
+        if ExactEnv.agentFreezes { revealFocusedEditor() } else { UIView.animate(withDuration: 0.25) { self.revealFocusedEditor() } }
     }
 }
 #endif
