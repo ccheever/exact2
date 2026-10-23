@@ -188,6 +188,9 @@ object Native {
     /** The session's clock, ms, as of the host's last turn and moved on by the wall's outside the agent
      * ([ExtensionContext.now]). Any thread. */
     @JvmStatic external fun now(): Double
+
+    /** The file an `app:/data|cache|tmp/…` path names, or null (`ExtensionContext.file`). */
+    @JvmStatic external fun appFile(path: String): String?
     /** Whether extension [name] is told it runs under the agent ([ExtensionContext.agent]). Any thread. */
     @JvmStatic external fun underAgent(name: String): Boolean
     /** What the app's Kotlin hatches ask, for node [node] or 0 for their module (LLP 1115.001.000 D4; the kinds are
