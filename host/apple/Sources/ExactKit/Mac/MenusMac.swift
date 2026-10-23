@@ -176,12 +176,8 @@ final class MenuHost: NSObject {
     /// The alertdialog the open menu presents, if one does.
     var presentedConfirmation: Confirmation? { entries.last?.confirmation }
     func owns(_ node: NodeView) -> Bool { entries.contains { $0.popover === node && $0.menu == nil } }
-    /// Input inheritance follows the authored tree after top-layer reparenting,
-    /// and out of a native container a block's root is shown in (a split's
-    /// pane) to the node it is declared under, as `eventParent` does.
-    func parent(of view: NSView) -> NSView? {
-        authoredParent(of: view) ?? (view as? NodeView).flatMap { presenter?.blocks.parent(of: $0) } ?? view.superview
-    }
+    /// Input inheritance follows the authored tree after top-layer reparenting.
+    func parent(of view: NSView) -> NSView? { authoredParent(of: view) ?? view.superview }
     /// An open popover's authored parent, nil for any other view.
     func authoredParent(of view: NSView) -> NSView? {
         entries.first(where: { $0.popover === view && $0.menu == nil })?.parent
@@ -201,9 +197,17 @@ final class MenuHost: NSObject {
         entries.filter { $0.source === source && $0.menu == nil && $0.native == nil }.map(\.popover)
     }
     func live(_ node: NodeView) -> Bool { presenter?.views[node.id] === node }
+    /// In the page: under its root, a block's root (a route in a split's
+    /// pane) by the node it is declared under, or in a presented dialog.
+    /// Only whether it is in the page goes through the block's home; what
+    /// hides it or makes it inert stays where it is shown.
     private func connected(_ view: NSView) -> Bool {
         guard let presenter else { return false }
-        return contains(presenter.root, view) || presenter.dialogs.presented.contains { contains($0, view) }
+        let out = { (at: NSView) -> NSView? in
+            self.authoredParent(of: at) ?? (at as? NodeView).flatMap { presenter.blocks.owns($0) ? presenter.blocks.parent(of: $0) : nil } ?? at.superview
+        }
+        let paged = sequence(first: view, next: out).contains { $0 === presenter.root }
+        return paged || presenter.dialogs.presented.contains { contains($0, view) }
     }
     func hidden(_ view: NSView) -> Bool {
         sequence(first: view, next: { self.parent(of: $0) }).contains {
