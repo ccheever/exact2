@@ -240,7 +240,7 @@ extension NodeView {
     /// carried outside it by transforms, stopping at each clipping boundary.
     func documentOverflow(in document: SpaceView) -> CGRect {
         var reach = drawnRect(CGRect(origin: .zero, size: content ?? bounds.size), in: document)
-        var below = container.subviews.compactMap { $0 as? NodeView }
+        var below = [self]
         while let child = below.popLast() {
             guard child.style["display"]?.string != "none", child.props["semanticTag"] != "dialog",
                   child.props["popover"] == nil else { continue }
@@ -252,6 +252,7 @@ extension NodeView {
             }
             #if canImport(UIKit)
             let scrolls = child.scrollView != nil
+            if !scrolls, !child.overflowClips, let flat = presenter?.flats.documentOverflow(of: child, in: document) { reach = reach.union(flat) }
             #else
             let scrolls = child.scroll != nil
             #endif
