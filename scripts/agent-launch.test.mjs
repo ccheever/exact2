@@ -511,6 +511,25 @@ test('keyed grants select an exact origin and become the string native evaluatio
   }
 });
 
+test('keyed grants name each origin once, as written canonically, and any spelling of the origin finds it', async () => {
+  const {injectBackendOrigin, staticFacts} = await import('../js/bake/src/typescript.mjs');
+  const {parseSync} = await import('rolldown/utils');
+  const table = (origin, keys) => `export const origin = '${origin}';\nexport const grants = {\n${keys.map(k => `  ${JSON.stringify(k)}: 'secret.keep ${k.length}',`).join('\n')}\n};`;
+  // A key that is not already its origin is refused, with what to write; so is a second spelling of one origin.
+  for (const [key, canonical] of [['https://api.example.com:443', 'https://api.example.com'], ['https://api.example.com/', 'https://api.example.com'],
+    ['https://API.example.com', 'https://api.example.com'], ['http://127.0.0.1:80', 'http://127.0.0.1']]) {
+    for (const keys of [[key], ['https://api.example.com', key]])
+      expect(() => injectBackendOrigin(table('https://api.example.com', keys), null, parseSync))
+        .toThrow(`grants: write the origin key ${JSON.stringify(key)} as ${JSON.stringify(canonical)}`);
+  }
+  // The literal or the selection, in any spelling of the origin, finds its one entry.
+  for (const [literal, selection] of [['https://api.example.com:443', null], ['https://api.example.com', null],
+    ['http://127.0.0.1:4790', 'https://api.example.com'], ['https://API.example.com', null]]) {
+    const code = injectBackendOrigin(table(literal, ['https://api.example.com', 'http://127.0.0.1:4790']), selection, parseSync);
+    expect(staticFacts(code, parseSync).grants).toBe(`secret.keep ${'https://api.example.com'.length}`);
+  }
+});
+
 test('keyed grants refuse every nonliteral form by name and place, even in an unselected entry', async () => {
   const {injectBackendOrigin} = await import('../js/bake/src/typescript.mjs');
   const {parseSync} = await import('rolldown/utils');
