@@ -323,6 +323,15 @@ test('coordinator designates only an exact released local surplus and retains th
     await expect(c.designateDeviceSurplus('coordinator', proof)).rejects.toThrow('released task-created');
   }
   writeFileSync(stateFile, JSON.stringify(initial));
+  const duplicate = { ...initial.devices[target], host: 'local' };
+  const aliased = structuredClone(initial); aliased.devices['local:surplus-ipad'] = duplicate;
+  writeFileSync(stateFile, JSON.stringify(aliased));
+  await expect(c.designateDeviceSurplus('coordinator', { ...proof,
+    retainedDevices: [{ expected: duplicate, identity: proof.identity }],
+    inventory: [...inventory, { ...duplicate, state: 'Shutdown' }],
+  })).rejects.toThrow('distinct local simulator directories');
+  expect((await c.status()).devices).toEqual(aliased.devices);
+  writeFileSync(stateFile, JSON.stringify(initial));
   const alias = join(f.dir, 'alias', 'Devices'); mkdirSync(alias, { recursive: true });
   symlinkSync(join(directory, 'surplus-ipad'), join(alias, 'surplus-ipad'));
   await expect(c.designateDeviceSurplus('coordinator', { ...proof, identity: { ...proof.identity, path: join(alias, 'surplus-ipad') } })).rejects.toThrow('symlink');
