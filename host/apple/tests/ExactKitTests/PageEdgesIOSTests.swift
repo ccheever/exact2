@@ -240,6 +240,43 @@ final class PageEdgesIOSTests: XCTestCase {
         XCTAssertEqual(filter.convert(filter.bounds, to: route.view).minY, route.view.safeAreaInsets.top + 8, accuracy: 1)
     }
 
+    func testLargeTitleRidersRequireBothEdgesAndTheBarsPaintOrder() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the title belongs to a scene window") }
+        guard #available(iOS 26.0, *) else { throw XCTSkip("control bars require iOS 26") }
+        let (session, _) = try fixture("CONTROL_BARS")
+        let p = session.presenter
+        p.press(try node(session, "pick-large").id)
+        let filter = try node(session, "filter"), list = try node(session, "list")
+        p.apply(wireBatch([["op": "props", "id": Int(filter.id), "set": ["accessibilityRole": "group"]]]))
+        let route = try XCTUnwrap(p.navigation.activeRoute)
+        until("the filter is page content and its bar has settled") { route.scoped == nil && !Agent(session: session).nativeInFlight() }
+        let nav = try XCTUnwrap(route.navigationController)
+        XCTAssertTrue(route.collapseScroll === list)
+        p.onCovers = nil
+        let originalStyle = list.style, originalFrame = list.frame
+        list.style["written"] = .array([.string("z_index")])
+        list.style["z_index"] = .number(100)
+        list.setRank(filter.paintRank + 100)
+        for _ in 0..<2 {
+            p.navigation.prepareRoutes([route], in: nav)
+            p.reachPageEdges()
+            XCTAssertNil(route.collapseScroll, "a scroller above its bar cannot drive collapse")
+            XCTAssertTrue(route.ridingBars.isEmpty)
+            XCTAssertEqual(list.pageBand.top, 0)
+            XCTAssertEqual(filter.controlRide, 0)
+        }
+        list.style = originalStyle
+        list.setRank(filter.paintRank - 1)
+        list.frame = CGRect(x: originalFrame.minX, y: originalFrame.minY, width: originalFrame.width, height: originalFrame.height - 40)
+        for _ in 0..<2 {
+            p.navigation.prepareRoutes([route], in: nav)
+            p.reachPageEdges()
+            XCTAssertNil(route.collapseScroll, "an open opposite edge must reach the route's edge")
+            XCTAssertTrue(route.ridingBars.isEmpty)
+            XCTAssertEqual(list.pageBand.top, 0)
+        }
+    }
+
     func testAControlBarMayIncludeACaptionButACaptionAloneIsNotABar() {
         let p = Presenter()
         p.apply(wireBatch([

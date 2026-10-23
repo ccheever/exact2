@@ -125,13 +125,19 @@ extension Presenter {
     /// the route's edge on one side, and that side's other edge is banded or
     /// open, both reach the route's edges, the covers included; an edge the
     /// bar's collapse or the bottom edge already took is there already. None
-    /// under a large title.
+    /// under a large title unless the eligible top bars ride its safe area.
     private func routeBands(of v: NodeView, _ sv: UIScrollView, in c: RouteController, _ judge: ControlBars) -> Bands {
         #if os(iOS)
         if let nav = c.navigationController, navigation.routeShowsBar(c, in: nav), c.navigationItem.largeTitleDisplayMode == .always, c.ridingBars.isEmpty { return Bands() }
         #endif
         if !c.ridingBars.isEmpty, case .edges(let edges)? = navigation.covers[c.node.id], edges.top > 0.5 { return Bands() }
-        let route = c.node, r = v.convert(v.bounds, to: route)
+        return controlBands(of: v, in: c.node, judge)
+    }
+
+    /// Collapse adoption and banding must agree about both edges and paint order.
+    func controlBands(of v: NodeView, in route: NodeView, _ judge: ControlBars) -> Bands {
+        guard let sv = v.scrollView else { return Bands() }
+        let r = v.convert(v.bounds, to: route)
         guard let top = judge.bars(of: v, in: route, top: true), let bottom = judge.bars(of: v, in: route, top: false),
               !top.isEmpty || !bottom.isEmpty, Self.over(top, v), Self.over(bottom, v) else { return Bands() }
         let band = UIEdgeInsets(top: max(0, r.minY), left: 0, bottom: max(0, route.bounds.height - r.maxY), right: 0)
