@@ -2296,8 +2296,9 @@ workload controls. This is a headless diagnostic, not a physical-display FPS tes
 
 On macOS, the driver’s `resize 900x700` requests 900 points of full content
 width (including a sidebar) and 700 points of page height. A page with
-`viewport-fit="cover"` includes the titlebar in that height; other pages start
-below the window’s bars. Its reply reports the page’s actual viewport separately.
+`viewport-fit="cover"` or an active `window-controls-overlay` includes the titlebar
+in that height; other pages start below the window’s bars. Its reply reports the
+page’s actual viewport separately.
 
 After building a native app, `bun scripts/native-resize-metrics.mjs macos
 --app messages-stress` interleaves window resizing, typing and scrolling, then
