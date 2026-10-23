@@ -510,7 +510,7 @@ extension NodeView {
         if isFirstResponder, !formDisabled, !inert, reorderKey(name) { return true }
         guard !disabled, name == "Enter" || (name == " " && props["href"] == nil && UIDevice.current.userInterfaceIdiom != .tv) else { return false }
         #if os(iOS)
-        if kind == "button", let presenter, presenter.invocation(of: self) != nil {
+        if isButton, let presenter, presenter.invocation(of: self) != nil {
             guard !inert else { return false }
             // Keyboard activation has no hit test; menu overlays own only touches.
             let target = sequence(first: self as UIView, next: { presenter.listenerParent(of: $0) })
@@ -573,7 +573,7 @@ extension NodeView {
     }
     package override func accessibilityActivate() -> Bool {
         #if os(iOS)
-        if kind == "button", presenter?.invocation(of: self) != nil { return activateKey("Enter", handoff: true) }
+        if isButton, presenter?.invocation(of: self) != nil { return activateKey("Enter", handoff: true) }
         #endif
         return activate(at: convert(CGPoint(x: bounds.midX, y: bounds.midY), to: nil)) != nil
     }
