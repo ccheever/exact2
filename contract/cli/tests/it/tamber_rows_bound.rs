@@ -230,6 +230,17 @@ fn a_row_left_to_the_build_before_a_judged_one_is_the_stated_limit() {
         (7, 8),
         "{w}"
     );
-    assert_eq!(d["id"], built.id);
+    // And B's refusal is the build's own there: its id, words and place
+    // among every refusal the build says (Astra's round 3).
+    let Err(all) = contract::compile_path_all(&dir.join("app.contract"), false) else {
+        panic!("the written design builds")
+    };
+    let b = all
+        .iter()
+        .find(|e| e.span.line == 8)
+        .expect("the build refuses B too");
+    assert_eq!(d["id"], b.id, "{w}");
+    assert_eq!(d["message"], b.message, "{w}");
+    assert_eq!(d["col"], b.span.col, "{w}");
     let _ = std::fs::remove_dir_all(&dir);
 }
