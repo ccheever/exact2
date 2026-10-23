@@ -88,16 +88,17 @@ final class IconShapeMacTests: XCTestCase {
 
     private let canvas = CGSize(width: 48, height: 48)
 
-    private func props(_ icon: Icon) -> [String: Any] {
-        let d = Self.d(icon)
+    private func props(_ icon: Icon) -> [String: Any] { props(Self.d(icon)) }
+    private func props(_ d: String) -> [String: Any] {
         return ["imageSource": "symbol:icon||0 0 24 24|\(d)|icons/probe.svg", "symbolName": "", "symbolPath": d, "symbolViewBox": "0 0 24 24"]
     }
 
     /// A page holding image node 2, a path icon, in black at `frame`.
-    private func presenter(_ icon: Icon, frame: CGRect, style: [String: Any] = [:], extra: [String: Any] = [:]) -> Presenter {
+    private func presenter(_ icon: Icon, frame: CGRect, style: [String: Any] = [:], extra: [String: Any] = [:],
+                           window make: (NSRect) -> NSWindow = { NSWindow(contentRect: $0, styleMask: [.titled], backing: .buffered, defer: false) }) -> Presenter {
         _ = NSApplication.shared
         let p = Presenter()
-        window = NSWindow(contentRect: NSRect(origin: .zero, size: canvas), styleMask: [.titled], backing: .buffered, defer: false)
+        window = make(NSRect(origin: .zero, size: canvas))
         window.isReleasedWhenClosed = false; windows.append(window)
         window.appearance = NSAppearance(named: .aqua)
         window.contentView = p.viewport
@@ -376,6 +377,85 @@ final class IconShapeMacTests: XCTestCase {
         XCTAssertTrue(image.isTemplate)
         XCTAssertTrue(node.faceImage === image, "a native control's face is the template image, as before")
         XCTAssertTrue(node.symbolFound)
+    }
+
+    // MARK: Round 1
+
+    /// Coverage of a whole-pixel 1x render at (x, y) points.
+    private func alpha(_ a: [UInt8], _ x: Int, _ y: Int) -> Int { Int(a[y * Int(canvas.width) + x]) }
+
+    /// A translucent tint is applied once over the union of the paths, as
+    /// the template image was tinted once: where two `;` paths overlap the
+    /// ink is no darker, and the whole matches the union filled once at
+    /// that alpha (an independent Core Graphics fill). For a written
+    /// rgba(0,0,0,.5) and for the label colour (alpha about .85).
+    @MainActor func testATranslucentTintIsAppliedOnceOverOverlappingPaths() throws {
+        let two: Icon = [Self.rect(2, 2, 12, 12), Self.rect(8, 8, 12, 12)]
+        let frame = CGRect(x: 12, y: 12, width: 24, height: 24)
+        let label: [String: Any] = ["sys": "labelColor", "c": [[0, 0, 0, 217], [255, 255, 255, 217]]]
+        for (name, ink) in [("rgba .5", [0, 0, 0, 128] as Any), ("labelColor", label as Any)] {
+            let p = presenter(two, frame: frame, style: ["text_color": ink])
+            let node = try XCTUnwrap(p.views[2]), leaf = try XCTUnwrap(node.symbolShape)
+            let opacity = leaf.alphaValue
+            XCTAssertLessThan(opacity, 1, "\(name): the tint's alpha is the leaf's layer opacity")
+            XCTAssertEqual(CGFloat(try XCTUnwrap(leaf.layer).opacity), opacity, accuracy: 0.0001)
+            XCTAssertEqual(leaf.shapes.first?.fillColor?.alpha, 1, "\(name): each path is filled opaque")
+            let host = render(try XCTUnwrap(p.views[1]), scale: 1)
+            let overlap = alpha(host, 12 + 11, 12 + 11), single = alpha(host, 12 + 4, 12 + 4), other = alpha(host, 12 + 17, 12 + 17)
+            print("C1 r1 \(name): opacity \(opacity), overlap \(overlap), first only \(single), second only \(other)")
+            XCTAssertEqual(overlap, single, "\(name): the overlap is no darker")
+            XCTAssertEqual(overlap, other, "\(name)")
+            // The union filled once at that alpha.
+            let w = Int(canvas.width), h = Int(canvas.height)
+            let ctx = try XCTUnwrap(CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            ctx.translateBy(x: 0, y: CGFloat(h)); ctx.scaleBy(x: 1, y: -1)
+            ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: opacity))
+            ctx.addRect(CGRect(x: 14, y: 14, width: 12, height: 12)); ctx.addRect(CGRect(x: 20, y: 20, width: 12, height: 12)); ctx.fillPath(using: .winding)
+            let data = try XCTUnwrap(ctx.data).assumingMemoryBound(to: UInt8.self)
+            var worst = 0
+            for i in 0..<(w * h) { worst = max(worst, abs(Int(host[i]) - Int(data[i * 4 + 3]))) }
+            print("C1 r1 \(name): worst alpha difference from the union filled once: \(worst)")
+            XCTAssertLessThanOrEqual(worst, 1, "\(name): the union filled once at that alpha")
+            p.reset()
+        }
+    }
+
+    /// A path that runs past its viewBox is clipped to the placed em square,
+    /// as the template image's bounds clipped it: a 48x24 `contain` box
+    /// keeps its side gutters empty.
+    @MainActor func testAPathIsClippedToItsPlacedEmSquare() throws {
+        let p = presenter([], frame: CGRect(x: 0, y: 12, width: 48, height: 24), style: ["font_size": 24.0, "object_fit": "contain"])
+        p.apply(wireBatch([["op": "props", "id": 2, "set": props("M -12 8 L 36 8 L 36 16 L -12 16 Z"), "clear": []]]))
+        let host = render(try XCTUnwrap(p.views[1]), scale: 1)
+        var gutter = 0, square = 0
+        for y in 12..<36 { for x in 0..<48 {
+            if x < 12 || x >= 36 { gutter = max(gutter, alpha(host, x, y)) } else { square = max(square, alpha(host, x, y)) }
+        } }
+        print("C1 r1 gutters: most ink in the gutters \(gutter), in the square \(square)")
+        XCTAssertEqual(gutter, 0, "the gutters stay empty")
+        XCTAssertEqual(square, 255, "the bar inks the square")
+        XCTAssertEqual(alpha(host, 12, 24), 255, "from its left edge")
+        XCTAssertEqual(alpha(host, 35, 24), 255, "to its right edge")
+    }
+
+    /// A window whose backing scale changes: the shape layers' contentsScale
+    /// follows (AppKit's `viewDidChangeBackingProperties`, sent here by hand,
+    /// since a test can't move a window to another screen).
+    @MainActor func testTheContentsScaleFollowsTheBackingScale() throws {
+        final class Scaled: NSWindow {
+            static var scale: CGFloat = 3
+            override var backingScaleFactor: CGFloat { Scaled.scale }
+        }
+        Scaled.scale = 3
+        let p = presenter(Self.ring, frame: Self.frame(.zero), window: { Scaled(contentRect: $0, styleMask: [.titled], backing: .buffered, defer: false) })
+        let leaf = try XCTUnwrap(p.views[2]?.symbolShape)
+        XCTAssertEqual(leaf.shapes.map(\.contentsScale), [3, 3])
+        XCTAssertEqual(leaf.group.contentsScale, 3)
+        Scaled.scale = 1
+        leaf.viewDidChangeBackingProperties()
+        XCTAssertEqual(leaf.shapes.map(\.contentsScale), [1, 1])
+        XCTAssertEqual(leaf.group.contentsScale, 1)
     }
 }
 #endif
