@@ -2294,6 +2294,10 @@ http://127.0.0.1:4318 --seconds 10 --target-hz 120` samples typing-to-echo and
 frame-callback gaps (`CHROME` selects the browser). Repeat `--tap <testId>` for
 workload controls. This is a headless diagnostic, not a physical-display FPS test.
 
+On macOS, the driver’s `resize 900x700` requests 900 points of full content
+width (including a sidebar) and 700 points of content-layout height below
+the window’s bars. Its reply reports the page’s actual viewport separately.
+
 After building a native app, `bun scripts/native-resize-metrics.mjs macos
 --app messages-stress` interleaves window resizing, typing and scrolling, then
 checks geometry, echo and recovery. Substitute `linux` on an actual Linux host

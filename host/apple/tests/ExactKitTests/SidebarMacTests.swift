@@ -156,6 +156,19 @@ final class SidebarMacTests: XCTestCase {
         split.release()
     }
 
+    func testDriverResizeKeepsTheRequestedPageHeightUnderSidebarChrome() throws {
+        let session = try boot(size: CGSize(width: 700, height: 500))
+        let view = ExactView(session: session)
+        let split = compose(view)
+        let reply = session.agentInstance.resizeWindow(CGSize(width: 900, height: 700))
+        XCTAssertNil(reply["error"])
+        let window = try XCTUnwrap(self.window)
+        XCTAssertEqual(window.contentLayoutRect.height, 700, accuracy: 0.01)
+        XCTAssertEqual(view.bounds.height, 700, accuracy: 0.01)
+        XCTAssertEqual(view.bounds.width, 900 - split.sidebarWidth - split.splitView.dividerThickness, accuracy: 1)
+        XCTAssertEqual(reply["viewport"] as? [Double], [Double(view.bounds.width), 700])
+    }
+
     func testShowSidebarFollowsTheSelectedWindowSession() throws {
         let session = try boot(size: CGSize(width: 700, height: 500))
         let view = ExactView(session: session)

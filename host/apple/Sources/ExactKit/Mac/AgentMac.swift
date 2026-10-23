@@ -107,9 +107,10 @@ extension Agent {
     }
 
     /// Diagnostic tap {resize:[w,h]} (LLP 1041 §8). Resize the containing
-    /// NSWindow, allowing ExactView's ordinary fit/inset path to follow.
-    /// Never assign the viewport frame or subtract titlebar/toolbar heights:
-    /// AppKit owns that geometry. This is repeated programmatic window resize,
+    /// NSWindow: its content-layout height and full content width, including
+    /// a sidebar. ExactView's ordinary fit/inset path follows. AppKit's
+    /// contentLayoutRect supplies the chrome allowance for full-size content.
+    /// This is repeated programmatic window resize,
     /// not a simulated titlebar drag or a physical frame-presentation receipt.
     func resizeWindow(_ size: CGSize) -> [String: Any] {
         guard contact == nil else { return ["error": "release the held contact before resizing"] }
@@ -117,9 +118,12 @@ extension Agent {
             return ["error": "no window to resize"]
         }
         window.setContentSize(size)
+        let initial = window.contentRect(forFrameRect: window.frame).size
+        let allowance = size.height - window.contentLayoutRect.height
+        if allowance != 0 { window.setContentSize(CGSize(width: initial.width, height: initial.height + allowance)) }
         content.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
-        let actual = window.contentRect(forFrameRect: window.frame).size
+        let actual = window.contentLayoutRect.size
         let viewport = presenter.viewport.contentView.bounds.size
         let dimensions = { (s: CGSize) -> [Double] in [Agent.r2(s.width), Agent.r2(s.height)] }
         return ["resized": dimensions(actual), "viewport": dimensions(viewport),
