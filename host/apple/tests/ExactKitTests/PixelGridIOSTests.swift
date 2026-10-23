@@ -116,6 +116,25 @@ final class PixelGridIOSTests: XCTestCase {
         }
     }
 
+    func testAnUnclampedWritePreservesOnlyAnActualRubberBand() {
+        for (scale, fraction) in [(CGFloat(2), CGFloat(0.4)), (3, 0.6)] {
+            let scroll = UIScrollView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+            scroll.traitOverrides.displayScale = scale; scroll.updateTraitsIfNeeded()
+            scroll.contentInsetAdjustmentBehavior = .never
+            scroll.contentInset.top = fraction
+            scroll.contentSize = CGSize(width: 100, height: 200 + fraction)
+            let high = 100 + fraction
+            XCTAssertEqual(PixelGrid.offset(CGPoint(x: 0, y: high), in: scroll, clamped: false).y,
+                           (high * scale).rounded(.down) / scale, accuracy: 1e-6)
+            XCTAssertEqual(PixelGrid.offset(CGPoint(x: 0, y: -fraction), in: scroll, clamped: false).y,
+                           (-fraction * scale).rounded(.up) / scale, accuracy: 1e-6)
+            for outside in [-fraction - 1, high + 1] {
+                XCTAssertEqual(PixelGrid.offset(CGPoint(x: 0, y: outside), in: scroll, clamped: false).y,
+                               PixelGrid.round(outside, scale: scale), accuracy: 1e-6)
+            }
+        }
+    }
+
     func testEachEdgeRoundsHalfUpAndTheSizeIsBetweenThem() {
         // At 3x, x = 10.1667 is 30.5 device pixels and rounds up to 31; its
         // right edge, 90.5, to 91. A 0.5 pt height from 0 is 0 to 1.5: 0 to 2.

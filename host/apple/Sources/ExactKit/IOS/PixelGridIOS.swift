@@ -96,14 +96,17 @@ package enum PixelGrid {
 }
 
 extension PixelGrid {
-    /// Programmatic offsets use the scroller's display. During a pan or
-    /// fling, preserve UIKit's rubber band by rounding without clamping.
+    /// Programmatic offsets use the scroller's display. Unclamped writes
+    /// preserve a rubber band past the native range; in-range targets snap inward.
     package static func offset(_ point: CGPoint, in scroll: UIScrollView, clamped: Bool = true) -> CGPoint {
         let s = max(1, scroll.traitCollection.displayScale)
-        if !clamped { return CGPoint(x: round(point.x, scale: s), y: round(point.y, scale: s)) }
         let i = scroll.adjustedContentInset
-        return CGPoint(x: clamp(point.x, -i.left, scroll.contentSize.width + i.right - scroll.bounds.width, scale: s),
-                       y: clamp(point.y, -i.top, scroll.contentSize.height + i.bottom - scroll.bounds.height, scale: s))
+        func snap(_ value: CGFloat, low: CGFloat, high: CGFloat) -> CGFloat {
+            if !clamped, value < low || value > max(low, high) { return round(value, scale: s) }
+            return clamp(value, low, high, scale: s)
+        }
+        return CGPoint(x: snap(point.x, low: -i.left, high: scroll.contentSize.width + i.right - scroll.bounds.width),
+                       y: snap(point.y, low: -i.top, high: scroll.contentSize.height + i.bottom - scroll.bounds.height))
     }
 }
 
