@@ -425,6 +425,8 @@ final class NativeViews {
     }
     #endif
     private static let kinds = ["press", "change", "hover", "focus", "blur", "key", "submit", "load", "message"]
+    /// LLP 1024 §9: the entire UTF8 JSON aggregate shares one update budget.
+    private static let maximumPropsBytes = 64 * 1024
 
     private func log(_ line: String) {
         session?.log("native \(line)")
@@ -752,8 +754,18 @@ final class NativeViews {
         log("\(entry.name) #\(entry.id): \(state): \(message)")
     }
 
+    private func admitProps(_ props: String, _ entry: NativeEntry) -> Bool {
+        let bytes = props.utf8.count
+        guard bytes > Self.maximumPropsBytes else { return true }
+        let message = "native-props-too-large: \(bytes) bytes exceeds \(Self.maximumPropsBytes)"
+        if entry.error != message { fail(entry, "error", message) }
+        return false
+    }
+
     private func attach(_ entry: NativeEntry) {
         guard let owner = entry.owner, entries[entry.id] === entry else { return }
+        let props = owner.props["nativeViewProps"] ?? "{}"
+        guard admitProps(props, entry) else { return }
         // A key check on plan bytes: a doctored plan that skipped the bake dies here.
         guard NativeViews.admitted(entry.name) else { return fail(entry, "error", "refused module name \"\(entry.name)\"") }
         let table: NativeTable
@@ -778,7 +790,6 @@ final class NativeViews {
         NativeProcess.set(nonce, nonce)
         entry.nonce = nonce
         entry.instance = nonce
-        let props = owner.props["nativeViewProps"] ?? "{}"
         var error = [UInt8](repeating: 0, count: 512)
         let tag = Data(entry.name.utf8), json = Data(props.utf8)
         let handle = tag.withUnsafeBytes { t in json.withUnsafeBytes { p in
@@ -894,9 +905,19 @@ final class NativeViews {
             }
             return
         }
-        guard let handle = entry.handle, case .success(let table)? = NativeProcess.table else { return }
         let props = owner.props["nativeViewProps"] ?? "{}"
-        guard props != entry.props else { return }
+        let sizeRefused = entry.error?.hasPrefix("native-props-too-large:") == true
+        guard admitProps(props, entry) else { return }
+        if sizeRefused, entry.handle == nil {
+            entry.state = "loading"; entry.error = nil
+            if gateOpen, canReuse(entry.name) || holds?(owner) != true { attach(entry) }
+            return
+        }
+        guard let handle = entry.handle, case .success(let table)? = NativeProcess.table else { return }
+        guard props != entry.props else {
+            if sizeRefused { entry.state = "ready"; entry.error = nil }
+            return
+        }
         var error = [UInt8](repeating: 0, count: 512)
         let json = Data(props.utf8)
         let status = json.withUnsafeBytes { p in table.setProps(handle, p.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count), &error, UInt32(error.count)) }
