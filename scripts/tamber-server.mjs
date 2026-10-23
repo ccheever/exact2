@@ -102,15 +102,15 @@ import { canvasGateway } from './tamber-canvas.mjs'; import { answerCanvasCheck,
 import { packageDesigns } from './tamber-package-designs.mjs'; import { editHeld } from './tamber-edit-held.mjs'; import { replacedProposals } from './tamber-replaced.mjs';
 import { serveTool, toolPage } from './tamber-tool-files.mjs'; import { generationOf } from '../host/web/generations.mjs';
 export { serveTool, serveToolFiles } from './tamber-tool-files.mjs';
+export { op } from './tamber-op.mjs';
 import { allows, needs, pairing, PAIR_TTL_MS, parseDuration, refusal } from './tamber-pairing.mjs';
+import { opsRefusal, overOps } from './tamber-ops-limit.mjs';
 import { earlyAnswer, probeTool, readBody, parseRequest as parse, tooDeep, upstream, viaDoor, waitForAnswer } from './tamber-request.mjs'; import { cursorOf, eventsQuery, LONG_POLL_PRESENT_MS } from './tamber-events-get.mjs'; import { TIMING } from './tamber-timing.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 // The server's own line limit, less room for the id this adds and an import's `recognised` digests (64, stage 10b).
 const LINE_LIMIT = 1 << 20;
 const BODY_LIMIT = LINE_LIMIT - 64 - 64 * 72;
-/** The most operations a client's request carries (`tamber-ops-size`, tamber/1.17). */
-const OPS_LIMIT = 1024;
 const body = (req, res) => readBody(req, BODY_LIMIT, res); // over it, answered before the connection closes
 const ANSWER_MS = 120_000, POLL_MS = TIMING.poll, KEPT = 256, HOLD_MS = 15 * 60_000, HELD = 64;
 // A paired client's name (scripts/tamber-pairing.mjs): no local client takes one.
@@ -548,12 +548,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // A local client may not name itself as a paired one (`remote:`).
     if (request && who.client) request.client = who.client;
     else if (request && !(url.pathname === '/__tamber' && request.method === 'revoke') && typeof request.client === 'string' && request.client.startsWith(REMOTE)) { json(res, 400, { error: { message: `a client named \`${REMOTE}…\` is a paired client's; name yours otherwise` } }); return true; }
-    // A client's transaction is at most OPS_LIMIT operations (tamber/1.17,
-    // `tamber-ops-size`), refused before any is read. Operations the server
-    // applies itself (a held import's accept, a revert's) are no client's
-    // request; a re-hold of a held proposal (`reholds`) is a size the
-    // server planned.
-    if (request && Array.isArray(request.ops) && request.ops.length > OPS_LIMIT && !reholds(request, scope)) { json(res, 400, { error: { id: 'tamber-ops-size', message: `a transaction is at most ${OPS_LIMIT} operations; this one has ${request.ops.length}` } }); return true; }
+    // A client's operations, at most OPS_LIMIT (scripts/tamber-ops-limit.mjs), refused before any is read.
+    if (request && overOps(request, scope, proposals)) { json(res, 400, { error: opsRefusal(request) }); return true; }
     if (url.pathname === '/__tamber/subscribe') {
       if (down) { json(res, 503, { error: { message: who.local ? down : scrubText(down) } }); return true; }
       const snapshot = namedPaths({ event: 'subscribed', seq, epoch, files: Object.fromEntries(known), proposals: held(), builds: channel.list() }, appDir);
@@ -953,21 +949,6 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   /** The proposals held now, as a reconnecting client reads them. */
   // A paired client past its deadline is shown as revoked before its end runs.
   const held = () => [...proposals].map(([id, p]) => (gone(p.client) && !p.shown.revoked ? { ...p.shown, revoked: true } : p.shown));
-  /** Whether `request` re-holds a held proposal past OPS_LIMIT (theme2's
-   * 20:5x ruling): a `propose` with `hold` naming the proposal it derives
-   * from (`review.from`), with at most that proposal's operations, every one
-   * on a target (its kind and its token's or param's name) the proposal has,
-   * by a client that may replace it (its own, or one with write scope).
-   * Every value is still checked as any write's is. */
-  function reholds(request, scope) {
-    const from = request.review?.from, p = typeof from === 'string' ? proposals.get(from) : undefined;
-    if (request.method !== 'propose' || request.hold !== true || !p || request.ops.length > p.ops.length) return false;
-    if (p.client !== request.client && !allows(scope, 'write')) return false;
-    const target = op => JSON.stringify([op?.op, op?.name ?? null]);
-    const targets = new Set(p.ops.map(target));
-    return request.ops.every(op => targets.has(target(op)));
-  }
-
   async function hold(client, ops, files, replaces, review, requires, scope = 'write', signal = undefined, restoring = false, editedBy = undefined) {
     expire();
     // A state part's write without a `file` is any Contract source's (as a write's `prepare`).
@@ -1467,35 +1448,6 @@ export async function forward(req, res, url, access, target) {
     else if (!gone.signal.aborted) json(res, 502, { error: { message: `the dev loop at ${target} did not answer: ${e.message}` } });
   }
   return true;
-}
-
-/** `bun exact.mjs tamber op <url> <request JSON>|subscribe`: the scripted
- * client. It takes the token as any local client does, from that origin and
- * no other (no redirect is followed), then prints the reply, or each event
- * as it comes. */
-export async function op(argv) {
-  const [base, what] = argv;
-  if (!base || !what) { console.error('usage: bun exact.mjs tamber op <server url> <request JSON>|subscribe'); return 2; }
-  const origin = new URL(base).origin;
-  const got = await fetch(`${origin}/__tamber/token`, { redirect: 'error' });
-  if (!got.ok) { console.error(`tamber op: ${origin} gave no token (${got.status}); it answers this machine's loopback only`); return 1; }
-  const { token } = await got.json();
-  const headers = { 'content-type': 'application/json', 'x-exact-tamber-token': token };
-  if (what === 'subscribe') {
-    const res = await fetch(`${origin}/__tamber/subscribe`, { method: 'POST', headers, redirect: 'error' });
-    if (!res.ok) { console.error(`tamber op: ${await res.text()}`); return 1; }
-    const decoder = new TextDecoder();
-    let buf = '';
-    for await (const chunk of res.body) {
-      buf += decoder.decode(chunk, { stream: true });
-      const parts = buf.split('\n\n'); buf = parts.pop();
-      for (const part of parts) if (part.startsWith('data: ')) console.log(part.slice(6));
-    }
-    return 0;
-  }
-  const res = await fetch(`${origin}/__tamber`, { method: 'POST', headers, body: what, redirect: 'error' });
-  console.log(await res.text());
-  return res.ok ? 0 : 1;
 }
 
 /** Whether an operation writes the app's own Contract, with no `file`

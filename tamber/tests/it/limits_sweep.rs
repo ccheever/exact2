@@ -157,7 +157,7 @@ fn long_whens_compare_in_moments() {
         at: None,
         comment: None,
     };
-    within(20, "history", || {
+    let _ = within(20, "history", || {
         exact_tamber::history::edits(Some(&design), Some(&design)).map(|e| e.len())
     });
     within(20, "set-token", || {
@@ -174,7 +174,7 @@ fn a_large_tailwind_import_lands_or_is_refused_in_moments() {
         css += &format!("  --color-c{k}: var(--color-c{});\n", k + 1);
     }
     css += "  --color-c30000: #102030;\n}\n";
-    within(30, "tailwind", || {
+    let _ = within(30, "tailwind", || {
         exact_tamber::import::tailwind::import(&css, "tw", &parse("tamber app\n").unwrap())
             .map(|i| i.ops.len())
             .map_err(|d| d[0].id)
@@ -190,7 +190,7 @@ fn many_astryx_variables_group_in_moments() {
     let side = format!("{{{}}}", side.join(","));
     let json =
         format!("{{\"source\": \"t\", \"core\": \"t\", \"light\": {side}, \"dark\": {side}}}");
-    within(30, "astryx", || {
+    let _ = within(30, "astryx", || {
         exact_tamber::import::astryx::import(
             &json,
             "astryx",
