@@ -5,6 +5,7 @@ import { createHash, X509Certificate } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { plistFile, wrapFramework, frameworkLayout, frameworkInstallName } from './assets.mjs';
 import { assertCapabilityFrameworks } from './link.mjs';
+import { linkedPlanArgs } from '../../scripts/linked-plan.mjs';
 import { installedProfiles, decodeProfile, profilesFor, profileMisfit, byExpiry, METHODS, iosProfile } from './devices.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname), pkg = resolve(root, 'host/apple');
 export const accessoryFamilies = ['accessoryCircular', 'accessoryRectangular', 'accessoryInline', 'accessoryCorner'];
@@ -154,7 +155,7 @@ export function prepareWidgetCore({ app, directory, swiftBuildRoot, swiftArgs, s
   const base = resolve(directory, key.digest('hex').slice(0, 20));
   return { base, scratch, args, triple, device, platform, framework: resolve(base, 'ExactCore.framework'), xcframework: resolve(base, 'ExactCore.xcframework') };
 }
-export function sharedWidgetCore({ app, prepared, libDir, crate, env, runApple }) {
+export function sharedWidgetCore({ app, prepared, libDir, crate, env, runApple, linkedPlan = null }) {
   const { base, args, framework, xcframework, device, platform } = prepared;
   mkdirSync(base, { recursive: true });
   const coreEnv = { ...env, EXACT_WIDGET_CORE: '1' };
@@ -168,15 +169,15 @@ export function sharedWidgetCore({ app, prepared, libDir, crate, env, runApple }
   }
   const dylib = resolve(bin, 'libExactCore.dylib');
   const archive = resolve(libDir, `lib${crate.replaceAll('-', '_')}.a`);
-  const digest = createHash('sha256').update(readFileSync(archive)).digest('hex');
+  const digest = createHash('sha256').update(readFileSync(archive)).update(linkedPlan?.digest ?? '').digest('hex');
   const stamp = resolve(base, 'archive');
-  // SwiftPM does not track an external archive. Invalidate only its link;
+  // SwiftPM tracks neither an external archive nor the linked plan. Invalidate only its link;
   // the objects/module stay incremental, including on a kernel-only edit.
   if (!existsSync(stamp) || readFileSync(stamp, 'utf8') !== digest) rmSync(dylib, { force: true });
-  runApple('swift', [...args, '--product', 'ExactCore'], options);
+  runApple('swift', [...args, ...linkedPlanArgs(linkedPlan?.dir), '--product', 'ExactCore'], options);
   // Only the extension links the snapshot target. Keeping it out of the shared
   // runtime keeps SwiftUI and WidgetKit out of an ordinary app launch.
-  runApple('swift', [...args, '--product', 'ExactSnapshot'], options);
+  runApple('swift', [...args, ...linkedPlanArgs(linkedPlan?.dir), '--product', 'ExactSnapshot'], options);
   const changed = !existsSync(stamp) || readFileSync(stamp, 'utf8') !== digest || !existsSync(resolve(framework, 'ExactCore'));
   if (changed) {
     const layout = frameworkLayout(framework, 'ExactCore', platform === 'macos' ? 'MacOSX' : 'iPhoneOS');
