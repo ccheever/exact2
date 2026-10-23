@@ -260,7 +260,7 @@ mod tests {
             (
                 "grouped-card-fill",
                 Text("light-dark(#ffffff, #1c1c1e)"),
-                Text("light-dark(#f9f9f9, rgba(255, 255, 255, 0.03))"),
+                Text("-exact-platform-color(macos exactGroupedCardColor, light-dark(#f9f9f9, #272727))"),
             ),
             (
                 "grouped-destructive-color",
@@ -273,6 +273,13 @@ mod tests {
             assert_eq!(value(m, Column::Web), ios, "{name} on the web");
             assert_eq!(value(m, Column::Mac), mac, "{name} on the Mac");
         }
+        let MetricValue::Text(card) = value(metric("grouped-card-fill"), Column::Mac) else {
+            panic!("the Mac card is a surface colour")
+        };
+        let card = crate::ColorValue::parse_light_dark(card).unwrap();
+        assert_eq!(card.resolve(false), crate::style::Color(0xf9f9_f9ff));
+        assert_eq!(card.resolve(true), crate::style::Color(0x2727_27ff));
+        assert!(matches!(card, crate::ColorValue::Platform(_)));
         // The web's first look is iOS's whole: the surfaces too, which stay
         // the sheet's pairs there. As roles the ground would be a device's
         // palette on Android, which reads this column, under cards that
