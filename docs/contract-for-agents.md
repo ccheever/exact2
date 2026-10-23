@@ -2220,6 +2220,9 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
 - A modal route (`navigationPresentation="modal"`) is opaque: its unsaid
   `background-color` is `-exact-background` (the grouped one when it scrolls a grouped
   list), so the route under it, dimmed, never shows through; write one to say another.
+  On iOS that unsaid ground is the sheet's: below its large detent the sheet is
+  UIKit's glass, as a hand-built one is, and at the large detent the system
+  background. A `background-color="transparent"` is clear at every detent.
   Its corners are UIKit's: on iOS 26 and later a large sheet is rounded like the
   display and inset from the bottom edge, as Apple's own are. A `border-radius` on the
   route is the sheet's corner radius (its top-left one; `preferredCornerRadius`), which
