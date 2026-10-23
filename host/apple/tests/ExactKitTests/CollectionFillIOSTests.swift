@@ -4,13 +4,12 @@ import XCTest
 @testable import ExactKit
 
 final class CollectionFillIOSTests: XCTestCase {
-    func testCoveredScrollDefersItsReportAndAGapRescuesOnlyWhatShows() throws {
+    private func fixture() throws -> (Presenter, UIWindow, UIScrollView) {
         let p = Presenter()
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 300, height: 200))
         window.addSubview(p.viewport)
         p.viewport.frame = window.bounds
         window.makeKeyAndVisible()
-        defer { p.reset(); window.isHidden = true }
         var ops: [[String: Any]] = [
             ["op": "create", "id": 1, "kind": "list", "style": ["overflow_y": "scroll", "padding_top": 20]],
             ["op": "collections", "items": [["view": 1, "revision": 1, "scrollSequence": 0,
@@ -28,6 +27,13 @@ final class CollectionFillIOSTests: XCTestCase {
         p.apply(wireBatch(ops))
         window.layoutIfNeeded()
         let scroll = try XCTUnwrap(p.views[1]?.scroll)
+        return (p, window, scroll)
+    }
+
+    // Baseline coverage: callback rationing predates this lane.
+    func testCoveredScrollDefersItsReportAndAGapRescuesOnlyWhatShows() throws {
+        let (p, window, scroll) = try fixture()
+        defer { p.reset(); window.isHidden = true }
         var reports: [Data] = []
         p.collections.onFeedback = { reports.append($0) }
         let start = CACurrentMediaTime()
@@ -46,5 +52,36 @@ final class CollectionFillIOSTests: XCTestCase {
         XCTAssertEqual(limit(try XCTUnwrap(reports.last)), 2, "visible rows plus two, rather than a whole window")
         print("D3 scroll callbacks=1000 covered_reports=0 ms=\(milliseconds) slice_limit=5 rescue_limit=2")
     }
+    func testCoveredScrollPublishesItsDeferredReportThroughTheScheduledPump() throws {
+        let (p, window, scroll) = try fixture()
+        defer { p.reset(); window.isHidden = true }
+        p.collections.onFeedback = { _ in }
+        p.collections.flush()
+        let ready = expectation(description: "initial collection reports drained")
+        DispatchQueue.main.async { ready.fulfill() }
+        wait(for: [ready], timeout: 5)
+        let reported = expectation(description: "covered scroll's pump report")
+        var inScrollCallback = true
+        var reports: [Data] = []
+        p.collections.onFeedback = {
+            XCTAssertFalse(inScrollCallback, "row reports run after UIKit's offset callback")
+            reports.append($0)
+            if reports.count == 1 { reported.fulfill() }
+        }
+        let started = CACurrentMediaTime()
+        scroll.contentOffset.y = 40
+        XCTAssertTrue(p.collections.covers(1))
+        XCTAssertTrue(p.collections.fillPending.contains(1))
+        XCTAssertTrue(reports.isEmpty)
+        inScrollCallback = false
+        wait(for: [reported], timeout: 5)
+        XCTAssertEqual(reports.count, 1)
+        XCTAssertFalse(p.collections.fillPending.contains(1), "the scheduled pump services the queued fill")
+        let limit = try XCTUnwrap(reports.first).withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 88, as: UInt32.self) }
+        XCTAssertGreaterThan(limit, 0)
+        XCTAssertLessThan(limit, UInt32.max - 1, "the pump rations its slice")
+        print("D3 scheduled scroll reports=\(reports.count) limit=\(limit) elapsed_ms=\((CACurrentMediaTime() - started) * 1000)")
+    }
+
 }
 #endif
