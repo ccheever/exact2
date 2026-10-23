@@ -62,6 +62,26 @@ const subscribe = async (token, client) => {
   return { status: res.status, ended };
 };
 
+test("the local token's body may be 16 MiB (a CLI import's sources); a paired client's is 1 MiB, refused before it is read; a remote importer-marked hold gets no exemption from the ops cap", async () => {
+  // About 10 MiB of DTCG: 2,500 colours, each with a long description.
+  const note = 'n'.repeat(4000);
+  const tokens = Object.fromEntries(Array.from({ length: 2600 }, (_, k) => [`c${k}`, { $type: 'color', $value: `#${(k + 0x300000).toString(16).slice(-6)}`, $description: note }]));
+  const source = JSON.stringify(tokens);
+  expect(source.length).toBeGreaterThan(10 << 20);
+  const local = await post({ method: 'import', kind: 'dtcg', client: 'big-local', name: 'tokens.json', source });
+  expect(local.status, JSON.stringify(local).slice(0, 300)).toBe(200);
+  expect(local.ok.ops.length).toBeGreaterThan(2000);
+  await post({ method: 'drop', client: 'big-local', proposal: local.ok.proposal });
+  const p = await paired('write', 'far');
+  const remote = await post({ method: 'import', kind: 'dtcg', client: 'far', name: 'tokens.json', source }, p.token);
+  expect(remote.status).toBe(413);
+  // An importer-marked hold from a paired client: capped as any.
+  const ops = Array.from({ length: 1025 }, (_, k) => ({ op: 'add-token', name: `r.c${k}`, value: '#000000' }));
+  const held = await post({ method: 'propose', hold: true, client: 'far', ops, review: { importer: 'dtcg', tokens: 1025, offers: [] } }, p.token);
+  expect([held.status, held.error?.id]).toEqual([400, 'tamber-ops-size']);
+  await post({ method: 'revoke', client: p.client });
+}, 300_000);
+
 test("a paired client below write scope may not re-hold another client's held proposal past 1024 operations (tamber-ops-size), as it may not replace it today", async () => {
   const css = `@theme {\n${Array.from({ length: 1500 }, (_, k) => `  --color-r${k}: #${(k + 0x200000).toString(16).slice(-6)};`).join('\n')}\n}\n`;
   const imported = await post({ method: 'import', kind: 'tailwind', client: 'owner', source: css });
