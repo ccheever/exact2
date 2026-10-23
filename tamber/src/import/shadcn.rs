@@ -124,6 +124,16 @@ pub fn import(
     design: &Design,
     vocab: &Vocab,
 ) -> Result<Import, Vec<Diagnostic>> {
+    super::bounded(import_unbounded(css, prefix, design, vocab))
+}
+
+/// [`import`] before the checker's bound at import (`super::bounded`).
+fn import_unbounded(
+    css: &str,
+    prefix: &str,
+    design: &Design,
+    vocab: &Vocab,
+) -> Result<Import, Vec<Diagnostic>> {
     let mut source = 0;
     let mut unmapped = Vec::new();
     let report = |unmapped: &mut Vec<Unmapped>,
@@ -148,6 +158,7 @@ pub fn import(
             .to_ascii_lowercase()
     };
     let (blocks, deep) = css_read(css);
+    super::source_read(&blocks, &deep)?;
     // A rule the reader did not read: one value, reported with its line.
     for d in &deep {
         source += 1;

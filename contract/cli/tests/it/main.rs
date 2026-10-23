@@ -166,6 +166,7 @@ mod tamber_gen;
 mod tamber_held;
 mod tamber_icons;
 mod tamber_levels;
+mod tamber_limits;
 mod tamber_measures;
 mod tamber_motion;
 mod tamber_native_params;
