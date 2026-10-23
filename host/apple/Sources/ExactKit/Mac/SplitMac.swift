@@ -112,6 +112,16 @@ final class SplitHost {
     var active: Bool { shown != nil && capable }
     /// The session's document spans both panes while its window is split.
     var agentRoot: NSView { active ? controller?.view ?? presenter.viewport : presenter.viewport }
+    /// Captures keep the layout/pointer origin at the page's clip, and
+    /// extend across the detail rather than including the window's chrome.
+    var agentCaptureArea: CGRect {
+        let root = agentRoot
+        guard active else { return CGRect(origin: .zero, size: root.bounds.size) }
+        let clip = presenter.viewport.contentView, rect = root.convert(clip.bounds, from: clip)
+        let x = rect.minX - root.bounds.minX
+        let y = root.isFlipped ? rect.minY - root.bounds.minY : root.bounds.maxY - rect.maxY
+        return CGRect(x: x, y: y, width: root.bounds.width - x, height: clip.bounds.height)
+    }
     private var capable: Bool { controller?.holds(presenter) == true }
     /// Whether the window's owner should compose a controller: a stack of
     /// this session has split. It stays wanted while the session runs, so a
