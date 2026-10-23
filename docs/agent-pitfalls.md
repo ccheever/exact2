@@ -339,6 +339,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   (`xcrun simctl io <udid> recordVideo launch.mp4`, then `simctl launch`) and read its
   frames (the euxy port's white launch, 2026-10-21).
 
+- **A sticky child under the bar covers the first row at rest.** Cause: a `top` written
+  as the bar's height to clear it (React Conf's day picker, `top=114`). A route's
+  scroller begins at the bar's bottom, as a web scroller begins below a header in flow,
+  and `top` counts from there: at `scrollTop` 0 the box is moved down by `top` over
+  what follows, as Chrome draws it, and once scrolled it pins that far below the bar.
+  Fix: `position="sticky" top=0` pins it at the bar's bottom, in flow at rest. `check`
+  names the covered row ("under … at rest").
 - **Edge-swipe back does nothing.** Cause: the pop gesture presses the control named
   by the root's `navigationBack`, and a route that declares one that is disabled
   refuses it (the log says "back gesture refused" and why). A route with no such
