@@ -776,6 +776,8 @@ final class MenuHost: NSObject {
             if row.props["popover"] != nil { continue } // a submenu authored inside its parent
             if row.props["semanticTag"] == "hr" { menu.addItem(.separator()); continue }
             guard row.isButton else { continue }
+            // Escape and outside clicks cancel NSMenu; a hide-only row adds no action.
+            if !row.handlers.contains("press"), closes(row, pop) { continue }
             if let sub = submenu(of: row, path: popovers) {
                 let item = menuItem(of: row, action: nil)
                 menuOpener.pops.append(Weak(pop: sub)) // a row chosen in it opens from the same opener
