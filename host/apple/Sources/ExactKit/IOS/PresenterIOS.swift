@@ -50,7 +50,6 @@ package final class Presenter {
     var announcedModal: (id: UInt32, incarnation: UInt64)?
     static var postScreenChanged: (Any?) -> Void = { UIAccessibility.post(notification: .screenChanged, argument: $0) }
     let modalViews = NSHashTable<NodeView>.weakObjects()
-    /// The session this presenter shows (LLP 1031 D1).
     weak package var session: ExactSession?
     /// The document: the roots live here, content-sized like a page.
     package let root = PlainView(frame: .zero)
@@ -83,6 +82,7 @@ package final class Presenter {
     package var reorderGroup: ReorderGroupHold?
     var reorderGroupCalls: ReorderGroupCalls?
     lazy package var transformGeometry = TransformGeometryHost(self)
+    lazy var nativeGeometry = NativeGeometry(self)
     /// Nodes showing a `background-attachment: fixed` gradient (LLP 1066
     /// D7): re-aimed at the viewport when anything scrolls or a batch lands.
     let fixedGradients = NSHashTable<NodeView>.weakObjects()
@@ -395,7 +395,7 @@ package final class Presenter {
         listViews.removeAll()
         heightBindings.removeAll()
         transformBindings.removeAll()
-        transformGeometry.reset()
+        transformGeometry.reset(); nativeGeometry.reset()
         videoVisibility?.reset()
     }
 
