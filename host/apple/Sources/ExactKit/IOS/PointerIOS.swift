@@ -249,6 +249,8 @@ final class PressContact {
     weak var responderContact: PressContact?
     var responderIncarnation: UInt64?
     var responderUsesCanvas = false
+    /// Whether this contact’s down was taken here rather than forwarded.
+    var ownsPress = false
     var cancelled = false
     var cancelledByReparenting = false
     /// A handlerless custom invoker's look, independent of the forwarded press: nil when it owns none.
@@ -394,7 +396,10 @@ extension NodeView {
         // A Markdown run's link has no view of its own (MarkupRuns): its target is the press.
         if !contact.bubbled, let href = inlineLink(at: local(touch.location(in: nil))) { linkPressed = href; return }
         if handlers.contains("press") || defaultLink != nil || presenter?.menus.closesPresentedContent(self) == true
-            || contact.bubbled && isNativeButton && presenter?.invocation(of: self) != nil { pressed = true } else {
+            || contact.bubbled && isNativeButton && presenter?.invocation(of: self) != nil {
+            contact.ownsPress = true
+            pressed = true
+        } else {
             if !isNativeButton, presenter?.showsPopoverPress(of: self) == true {
                 setInvokerLook(contact, true)
             }
@@ -414,7 +419,7 @@ extension NodeView {
         guard let contact = currentPressContact(touches) else { return }
         inlinePressed = nil; linkPressed = nil
         if contact.invokerLook != nil { setInvokerLook(contact, touches.first.map(pressLands) ?? false) }
-        if pressed { pressFollows(inside: touches.first.map(pressLands) ?? false) } else { contact.destination?.touchesMoved(touches, with: event) }
+        if contact.ownsPress { pressFollows(inside: overlayHoldsPress || (touches.first.map(pressLands) ?? false)) } else { contact.destination?.touchesMoved(touches, with: event) }
     }
     package override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         if canvasTouches(touches, phase: "up", event: event) { return }
@@ -448,7 +453,7 @@ extension NodeView {
         // Resolve before focus changes, as `activate` does: the field losing
         // it lowers the keyboard, and under `resizes-content` that moves this
         // control (a composer's toolbar) out from under the finger at once.
-        let ownsPress = pressed
+        let ownsPress = contact.ownsPress
         let inside = ownsPress && (touches.first.map(pressLands) ?? false)
         // The press's target settles the focus, its hit resolved, from the
         // node the touch landed in; a touch that presses nothing settles it
@@ -497,7 +502,7 @@ extension NodeView {
         contact.cancelled = true
         setInvokerLook(contact, nil)
         inlinePressed = nil; linkPressed = nil; svgPressed = nil
-        if pressed { pressed = overlayHoldsPress } else { contact.destination?.touchesCancelled(touches, with: event) }
+        if contact.ownsPress { pressed = overlayHoldsPress } else { contact.destination?.touchesCancelled(touches, with: event) }
     }
 
     /// A press delivered by the rule a touch gets: to this node when it has
