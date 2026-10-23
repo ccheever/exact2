@@ -163,7 +163,7 @@ component TypeTour
               text "Settings" font-family="Exciting Lilt" font-weight=700 font-size=34 line-height="41px" margin-top=10 margin-bottom=12
               row height=36 border-radius=10 background-color="-exact-fill" align-items="center" padding-left=10 gap=8
                 box width=12 height=12 border-radius=6 border-style="solid" border-width=2 border-color="-exact-secondary-label"
-                text "Search" font-size=17 color="-exact-placeholder"
+                text "Search" font-size=17 color="-exact-secondary-label"
               button press=go("settings") testId="settings-profile" width="100%" margin-top=22 display="flex" flex-direction="row" align-items="center" gap=14 padding=12 border-radius=12 background-color="-exact-secondary-grouped-background" text-align="start"
                 column width=58 height=58 border-radius=29 color-scheme="dark" background-color="-exact-tertiary-background" align-items="center" justify-content="center" flex-shrink=0
                   text "CC" font-family="Exciting Lilt" font-weight=700 font-size=24 color="-exact-label"
@@ -281,7 +281,7 @@ component TypeTour
                 text "Messages" font-family="Exciting Lilt" font-weight=700 font-size=34 line-height="41px" padding-left=16 padding-right=16 padding-top=4 padding-bottom=10
                 row margin-left=16 margin-right=16 margin-bottom=8 height=36 border-radius=10 background-color="-exact-fill" align-items="center" padding-left=10 gap=8
                   box width=12 height=12 border-radius=6 border-style="solid" border-width=2 border-color="-exact-secondary-label"
-                  text "Search" font-size=17 color="-exact-placeholder"
+                  text "Search" font-size=17 color="-exact-secondary-label"
                 Conversation(id="nico", initials="N", name="Nico", preview="The Lilt terminals look great on the 4a Pro. Can you push the v4 build to Silver tonight?", time="9:12 AM", unread=true, scale=scale, press=openThread)
                 Conversation(id="crew", initials="TC", name="Type Crew", preview="James: I still think the g needs a smaller ear", time="8:47 AM", unread=true, scale=scale, press=openThread)
                 Conversation(id="mom", initials="M", name="Mom", preview="Call me when you land 🩵", time="Yesterday", unread=false, scale=scale, press=openThread)
