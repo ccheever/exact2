@@ -115,8 +115,9 @@ impl<D: DataSource> Runner<D> {
             }
         }
         let pending = &mut self.pending[at?];
-        let (reason, ordered) = pending.refusal.take().unwrap();
-        pending.refused = ordered;
+        let (reason, _) = pending.refusal.take().unwrap();
+        // Ordered or not, the host has no later reply for it: a settlement its shaped failure traps in lets it go.
+        pending.refused = true;
         Some((
             pending.ticket,
             Outcome::Failed {
@@ -315,6 +316,18 @@ mod tests {
         assert!(r.fulfill(ticket, outcome).unwrap().is_some());
     }
 
+    /// An unordered request's refusal (an independent HTTP request the host would not run): taken in any turn.
+    fn refuse_unordered(r: &mut Runner<Source>, ticket: u64) {
+        r.refuse_request(
+            ticket,
+            "the app's grants do not reach https://example.test",
+            false,
+        );
+        let (refused, outcome) = r.take_request_refusal(false).unwrap();
+        assert_eq!(refused, ticket);
+        assert!(r.fulfill(ticket, outcome).unwrap().is_some());
+    }
+
     fn response(status: u16) -> Outcome {
         Outcome::Response(Response {
             status,
@@ -388,6 +401,20 @@ mod tests {
         assert_failed_without_replay(&mut r, request.ticket);
         let failure = r.failed_why[0].as_ref().unwrap();
         assert_eq!(failure.code, FailureCode::Error);
+        assert!(failure.message.contains("UnwrapNone"), "{failure:?}");
+    }
+
+    #[test]
+    fn an_unordered_refusal_that_traps_in_a_derive_releases_its_ticket_too() {
+        let mut r = boot(true);
+        r.data().shape_refusal = true;
+        let request = ask(&mut r);
+        // As the ordered one above: the host has no later reply for it, so the trapped commit lets it go rather
+        // than leaving it pending forever (and a clock or a `pending(…)` waiting on it).
+        refuse_unordered(&mut r, request.ticket);
+        assert!(!r.is_poisoned());
+        assert_failed_without_replay(&mut r, request.ticket);
+        let failure = r.failed_why[0].as_ref().unwrap();
         assert!(failure.message.contains("UnwrapNone"), "{failure:?}");
     }
 
