@@ -61,10 +61,15 @@ pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
                 Some(Box::new(exact_runner::LongPoll {
                     cursor: name("cursor")?,
                     from: name("from")?,
-                    same_cursor_event: lp
-                        .get("same_cursor_event")
-                        .and_then(Json::as_bool)
-                        .unwrap_or(false),
+                    same_cursor_event: match lp.get("same_cursor_event") {
+                        None | Some(Json::Null) => false,
+                        Some(Json::Bool(b)) => *b,
+                        Some(_) => {
+                            return Err(
+                                "exactLongPoll.sameCursor is \"heartbeat\" or \"event\"".into()
+                            )
+                        }
+                    },
                 }))
             }
         },
