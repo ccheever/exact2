@@ -134,6 +134,14 @@ additional standalone showcase apps wait behind this composition; existing full
 stress workloads and controls remain intact. No new UI framework, general job
 scheduler or cross-device synchronization service is implied.
 
+**Expanded (Charlie, 2026-10-22: "Let's build a Discord app for iOS, MacOS, web,
+Windows, Android"):** Excord (`apps/excord/llp/0001-excord.rfc.md`), a client
+for the real Discord whose messages list and composer are its bar, built to find
+Exact's gaps. Unblocks a real service's chat on every host as the consumer for
+the transcript work. Take: waived by Charlie's ask. Voice, video, uploads beyond
+images, and push notifications stay out (its §1); no Discord protocol enters
+Exact itself.
+
 **Expanded (Charlie, 2026-09-20: "make an app that shows off clones of" the
 Pretext demos):** Reflow (`apps/reflow`) is a seventh showcase — balls, the
 illustrated dragon, masonry, a drag-to-reflow magazine, proportional ASCII
@@ -179,7 +187,17 @@ watching, the compact folder layout) wait behind it; no rich value type,
 collaboration or HTML paste import. **Lifted (Charlie, 2026-10-15, LLP
 1069.010.000 stage 1):** file watching comes off that wait, the editor being
 built: a `doc:` watch re-asks the answer that reads the path, with no new
-take. **Refined (Charlie, 2026-09-21:
+take. **Expanded (Daehyeon Mun, 2026-10-23; trade; LLP 1045.000):** inline
+atoms in the editor and the reader: a span of the source (a link with a
+scheme the app names, a relative link or a prefix token the app's faces name)
+drawn as one pill with the app's label, icon and title, kept whole by the
+crate's editing rules and pressed as `atompress`; the value stays the
+source. Unblocks T3 Code's composer chips and transcript citations without a
+References row or app editing rules. Take: the Apple hosts' adoption of the
+crate's other hidden syntax (`QUEUE.md`, "Markdown editor") waits behind
+atoms. Still out: pill padding and radius, a second control inside a pill,
+atoms in the Linux, Windows and Android editors (they show the source), and
+inline math (a child RFC's). **Refined (Charlie, 2026-09-21:
 "move forward with your plan"):** Native editing stays on TextKit 2;
 dependable source editing precedes further marker hiding, with Interview as
 the first consumer. **Refined again (Charlie, 2026-09-22: "let's remove
@@ -201,7 +219,7 @@ takes files and folders of any type, and a paste carries its files
 (`ClipboardEvent.files`, pasted image data as a PNG), each a `doc:` handle
 (LLP 1069.010, "Files dropped or pasted").
 Specific `accept` types remain bounded as above. `capture` stays refused
-(the camera is a native module, §Components, 2026-10-02). Linux editing is v2
+(the camera is the `@exact/camera` package, §Components, 2026-10-23). Linux editing is v2
 (Charlie, 2026-09-21): web, iOS and macOS first; Linux reads.
 
 **Expanded (Charlie, 2026-09-21):** ship the full game engine from Black's
@@ -350,6 +368,13 @@ OK for now". The coding-agent desktop app (#141) is the consumer (LLP 1021
 §5.3). Take: none named; Charlie's approval admits this bounded extension.
 Built 2026-10-12: placement and root removal of the fixed standard-item ids
 in LLP 1021 §5.3. Develop remains in development builds.
+**Expanded (2026-10-21; built 2026-10-22):** the menu bar's own items for the
+T3 Code clone (LLP 1021 §5.3.1): app-menu and Help items enabled outside the
+key window and under a sheet or modal; `-exact-menu="about"` and `"none"`;
+removal ids for Go ▸ Back, Develop (its chords stay), Edit's template items,
+Help's book item and View's zoom; View ▸ Actual Size, Zoom In and Zoom Out
+over the root font size. Take: none; still Mac-only hints other hosts ignore,
+with no dock menu, status item or Windows menu bar.
 
 ## Surfaces
 
@@ -475,6 +500,21 @@ native hosts has it; D7 lists the host deviations and what remains. D7's
 amendments let the mapper answer its own frames (2026-10-16) and an answer
 in flight send its own requests (2026-10-18).
 
+**Expanded (Daehyeon Mun, 2026-10-23; LLP 1133.005):** a local listener,
+`exactListen("unix:<path>", options)`: a data capability in `fetch`'s shape
+whose connections reach the stream mapper with LLP 1016.000 D7's sends, under
+a `net.listen` grant, on macOS (Linux built with a fixture, accepted with a
+Linux consumer); a loopback callback `http://127.0.0.1:<port>/<path>` with a
+fixed port for `openAuthSession` on macOS (RFC 8252 §7.3), through the default
+browser; and a bare `focus()` for the window, best effort. Unblocks T3 Code's
+`t3 app <dir>` handoff and its Codex sign-in, and the 1,038 lines of the
+clone's Swift that do them. Take: waived (Daehyeon Mun, 2026-10-23): the
+listener is a transport the runner's streams own, as `fetch` is, and no
+doing-list item is in this area. Still out: listening beyond loopback, binary
+framing and raw byte streams, Rust replies, peer credentials and abstract
+sockets, the ephemeral-port callback, an HTTP server for content, and `tcp:`
+and `http:` addresses, which are written down only (LLP 1133.005 §11, D5).
+
 
 **Expanded (Charlie, 2026-10-08, issue #283; focus lane, 2026-10-12):**
 DOM `focusin`/`focusout` with target and related target information bubble to
@@ -488,7 +528,14 @@ names no take; `:focus-within` remains out.
   does — we design nothing that closes it: an owned-pixel surface is a leaf node
   with a kernel-owned box (like `NativeView`), GPU content never influences layout,
   the host owns the frame, and animatable properties are extensible (CSS
-  `@property`). When it is built, it compiles no shaders at runtime (LLP 0559 F8).
+  `@property`). **Ruled (Charlie, 2026-10-22):** it compiles nothing on the
+  boot path (LLP 1009 D4, D5): a GPU module compiles its shaders at a canvas's
+  first use, after the first pixel, and Canvas 2D's module on Apple ships
+  them compiled (LLP 1056 §8.5). The exception is the Linux host's GPU
+  painter (LLP 1015 §7), which compiles its shaders on the first launch on
+  a machine and reads them from a pipeline cache after. That first launch
+  is accepted over the cold-start budget: on RADV, device creation and
+  shaders alone cost 170 ms (93 + 77 ms; LLP 1015 §6).
 - ~~Server generation in every form: SSR, streaming, static export, progressive
   forms, hydration, route payloads, response caching.~~ Moved 2026-09-23 (Charlie,
   LLP 1048): static and per-request pages, streaming, adoption in place of
@@ -507,6 +554,16 @@ names no take; `:focus-within` remains out.
   main executable has a consumer. The likely first, an in-process wasmtime loader
   (LLP 1028), would need only `allow-jit` or `allow-unsigned-executable-memory`,
   never `disable-library-validation`.
+- **Admitted (Daehyeon Mun, 2026-10-23, waived; LLP 1133.007):** desktop
+  processes (`spawn`, `execFile`, supervision, the login environment) and
+  `home:` and `bundle:` paths on macOS and Linux (Windows at stage 3,
+  unclaimed until it is driven), absent elsewhere; a password field's held
+  secret on every host with the field.
+  Consumer: the T3 Code clone's local server and SSH environments. Take:
+  waived (Daehyeon Mun, 2026-10-23): nothing refuses processes by name, no
+  doing-list item is in this area, and the change retires app Swift. Still
+  refused: a pseudo-terminal, shell command lines, daemons that outlive
+  the app, and processes on iOS, Android and the web.
 - ~~Snapback / update economy.~~ Moved 2026-09-03 (Charlie: "you can pull out snapback
   for now"), in LLP 1026 D11's minimal form only: an installed app fetches a signed
   bundle of static files from a baked-in origin, after first pixel, into an on-disk
@@ -573,6 +630,17 @@ names no take; `:focus-within` remains out.
   "Use my location", which shows its button, its position or a way to Settings
   by that fact. Take: waived. Notifications' own permission fact, and
   everything else this entry refuses, stay refused until notifications' RFC.
+  **Expanded (Daehyeon Mun, 2026-10-23, waived; LLP 1133.004 stage 1):** the
+  notifications module completed: `silent` and `data`, a click delivered as
+  `notificationclick` to the app's root, posting from data code, the app badge
+  by the Badging API's names, and notifications' permission fact and request,
+  on the web, macOS and iOS. Consumer: the T3 Code clone's thread and
+  review-guide notifications. Unblocks a notification click without a router
+  and the clone's notifications without app Swift. Take: waived: no doing-list
+  item is a fair trade; the move is the roster's own wave-1 item (LLP 1133.000
+  §5), and geolocation's matching move was waived (2026-10-18, above). Still
+  refused: push delivery, repeating schedules, and actions and replies until
+  stage 2's ruling.
 
 **Components** — roughly 15 built-in tags, not 40; roughly 12 Facet components, not 47.
 
@@ -602,6 +670,22 @@ reading. Nothing that isn't HTML is added by it.
   `host-context-changed` updates. Take: QUEUE "Shared elements, stage 2" (LLP 1013.000
   §3) moves to Later. Structured clone, broadcast, a permission broker and Linux
   delivery stay no.
+- **Expanded (Daehyeon Mun, 2026-10-23; trade; LLP 1020.002):** a browser shell on
+  the `iframe`: `partition` makes a guest a top-level page with its own storage (LLP
+  1020's `top` topology, for a partitioned frame only); its new windows, external
+  schemes, dialogs, files, downloads and fullscreen get the platform's answers,
+  and its permission requests are denied (navigation policy, with no veto);
+  `navigate`, `traverseHistory`, `reload(id)`, `stopLoading` and
+  `captureScreenshot` of an `iframe` join `HOST_COMMANDS`, with the Navigation
+  API's events (the controller ops); `clearSiteData`, `zoom`, and
+  WebDriver BiDi automation under the `browser.automation` grant in production
+  builds. macOS and iOS first; the web a detectable subset; Android and Windows
+  later; Linux absent. Unblocks T3 Code's Browser panel without app-owned
+  `WKWebView` Swift. Take: QUEUE "Web view rows: memory against SwiftUI" (LLP 1020
+  §10) moves to Later. Still no: a veto on the guest's own navigation, `allow` and
+  a permission broker, author-facing `srcdoc`, a bridge in a partitioned page's
+  world, a picture of any element but an `iframe`, cookie import, and LLP
+  1020.002 §13's other uses.
 - **Expanded (LLP 1096; admitted by the orchestrator under Charlie's
   2026-10-04 delegation, "make decisions without me"):** short sounds an
   action can schedule: a `sound` declaration (a WAV in `assets/`, at most 10
@@ -619,8 +703,9 @@ reading. Nothing that isn't HTML is added by it.
   orchestrator's waiver under the same delegation. Still out: synthesis,
   loops, fades and gain automation, effects, a handle to one voice, a stop
   at a future time, compressed formats, sound produced by a data module,
-  microphone input, and output on Linux and Windows (LLP 1096 §7; rate and
-  pan came in with LLP 1125 D10). No tag is added.
+  the microphone as a sound source (recording it to a file is LLP
+  1133.009's, §Components), and output on Linux and Windows (LLP 1096 §7;
+  rate and pan came in with LLP 1125 D10). No tag is added.
 - **Expanded (LLP 1125; Charlie, 2026-10-16: "once happy with it, go ahead
   and implement"):** a sequence (`sequence NAME when COND`, `play(tracks,
   bpm=, from=, countIn=, clock=, clockOut=, ended=)`) that the runner expands
@@ -665,6 +750,22 @@ reading. Nothing that isn't HTML is added by it.
   `source` and `track` children, a media controller (play, load, seek,
   fullscreen and PiP requests with results), DRM, and downloads and caches
   (LLP 1098 §7). No tag is added.
+- **Expanded (Daehyeon Mun, 2026-10-23; LLP 1133.003):** video decode by
+  WebCodecs' names in data code (`VideoDecoder`, `EncodedVideoChunk`,
+  imported from `@exact/webcodecs`), its frames written to a track that a
+  `video` shows (`srcObject=`) and a GPU surface samples, on the web,
+  macOS and iOS; Android, Windows, tvOS and Linux `later`, the terminal
+  absent. With it, LLP 1016.000 gains a byte stream (`fetch(…,
+  {exactStream})`), built first as the module's throughput gate.
+  Consumer: the T3 Code clone's device streams. Unblocks live H.264 from
+  a server without an app-owned decoder. Take: `QUEUE.md`'s "Re-measure
+  VideoArm's position read with many autoplaying videos" moves to Later.
+  Still out, each until a consumer asks (LLP 1133.003 §13): controls,
+  full screen and picture in picture for a track on Apple; presentation
+  by timestamp; `VideoEncoder`, `AudioDecoder` and `ImageDecoder`; frames
+  in data code; HDR output; `ExternalTexture` as a tier 2 word; a third
+  party's decoder; tracks from other producers; WebRTC; Rust data code's
+  binding.
 - ~~No camera anything.~~ Moved 2026-10-02 (Charlie: "I don't know why camera is so
   aggressively deferred. Can we change that and record the change? It's time to work
   on it"; take waived, none offered): a camera is an app native module in LLP
@@ -673,6 +774,47 @@ reading. Nothing that isn't HTML is added by it.
   an agent substitute before the OS (LLP 1069.007). Unblocks taking a photo in an
   app, on the web, iOS and macOS first. Not a built-in tag. Video recording and
   barcode or document scanning stay out until a consumer asks.
+  **Expanded (Charlie, 2026-10-23, "Accept the take", on LLP 1133.008 §14
+  question 7):** the camera is the `@exact/camera` package, in place of the
+  app native module above, over `@exact/media-capture` (Media Capture's
+  `getUserMedia`, tracks, devices and permission facts, shared with
+  recording): a viewfinder (`exact-camera srcObject=`) and a photo by Image
+  Capture's `takePhoto`, on the web, iOS, macOS and Android, Android in a
+  fixture app; with the seam a package's view and an Android implementation's
+  Maven libraries need (LLP 1133.008 D8). Consumer: the photo editor, which
+  takes a photo and then edits it. Unblocks a photo in an app without app
+  Swift. Take: the photo editor's Android port moves to later. Still out,
+  each until a consumer asks (LLP 1133.008 §12): video recording, a camera
+  track in `video srcObject=` and frames to code, two cameras at once on
+  iOS, barcode and document scanning, constraint dictionaries, zoom on the
+  web, `input capture` and the system camera UI, and the Windows, Linux,
+  tvOS, visionOS and watchOS cells.
+- **Expanded (Charlie, 2026-10-23, "Expand, no take", on LLP 1133.009 §15
+  question 6):** recording the microphone to a file and reading its level,
+  by Media Capture's and MediaStream Recording's names (`getUserMedia(audio=)`
+  from `@exact/media-capture`; `startMediaRecorder`, `audioLevel` and the
+  rest from `@exact/recording`), on the web, iOS, macOS and Android, a
+  capture being a claim on the host's one audio session (LLP 1096 D8).
+  Consumer: the recorder, whose own module the package replaces. Unblocks a
+  recording without app Swift that leaves the app's own sounds playing.
+  Take: none; waived by that ruling. Still out, each until a consumer asks
+  (LLP 1133.009 §13): the microphone as a sound source, monitoring and
+  effects (the LLP 1096 entry's), data while recording, starting a capture
+  in the background, Android's background recording, constraint
+  dictionaries, two inputs at once, `getDisplayMedia`, and the Windows,
+  Linux, tvOS, visionOS and watchOS cells.
+- **Expanded (Daehyeon Mun, 2026-10-23; trade; LLP 1133.006):** the
+  clipboard's `write([new ClipboardItem(…)])` from data code, by the
+  Clipboard API's names, for `image/png` (the app converts other images
+  with `compressImage`) and `text/plain`, as the `@exact/clipboard`
+  extension on the web, macOS and iOS; `copyText` stays a command, and
+  under the agent both write a private pasteboard. Unblocks T3 Code's Copy
+  image without app Swift. Take: `QUEUE.md`'s "Chrome conformance steps for
+  Paste and Match Style and for a clipboard event with nothing focused"
+  moves to Later. Still out, each until a consumer asks: `read` and
+  `readText` outside a paste, `text/html` and RTF, custom formats, file
+  promises, several items in one write, a Contract `write`, a
+  clipboard-change event, and the Linux, Windows and Android cells.
 - ~~No gradient style rows. A gradient with anything on it is a canvas surface with
   children (LLP 1014 §5 — the take for widening `canvas`; the three rows return when a
   host earns them).~~ Moved 2026-09-26 (Seth Webster, for grnl; LLP 1066): one CSS
@@ -1009,7 +1151,11 @@ This half matters more than the feature half.
   expected — the deciding already happened upstream. Specifying something nobody is
   assigned to build is not written at all. The old corpus is 330 RFCs of deliberation
   against 52 specs of conclusion; the new repo imports conclusions.
-- **No refine loops.** No dual-family review rounds, no READY verdicts, no revision ledgers.
+- **No refine loops** (narrowed by Charlie, 2026-10-22). No rounds repeated
+  until every reviewer says READY, no reviewer verdict deciding whether work
+  lands, no revision ledgers, and no scope growth because a review asked for
+  it. Blind review by two model families is allowed within `RULES.md`
+  §Loop shape's fix-round limit.
 - **No per-PR ceremony.** No framework decision log, no lane debt ledger, no provenance
   headers on hand-written files.
 - **No blocking check the author did not run locally in under a minute.**
@@ -1053,7 +1199,10 @@ an app to AppDrop without a stub profile; refused for apps with GPU modules,
 whose baked digests a re-signer would break. No AppDrop adapter is added; the
 distributable IPA and EAS/AppDrop adapter above stay deferred otherwise.
 
-**AppDrop lane, 2026-10-14 (Eliot; Charlie's waiver or a take still owed):**
+**AppDrop lane, 2026-10-14 (Eliot; Charlie, waiver, 2026-10-22):** "for decisions,
+recs are ok", accepting the recommendation to waive the take for this lane and
+admit AppDrop as the remote tester-install path, TestFlight later (LLP 1030.003
+§6 Q4).
 `deploy.appdrop` makes an iOS binary row of `exact deploy --yes` build the
 `--archive --unsigned` `.ipa` against the stream's release record and publish it
 to AppDrop (creating the link the first time, writing it to app.json), and the

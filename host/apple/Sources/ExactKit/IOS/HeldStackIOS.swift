@@ -148,10 +148,11 @@ extension NavigationHost {
 
     /// A held tab that waited (`realizeWaits`) is built by a sync once the
     /// transition is over, whatever batch comes or does not: at the running
-    /// coordinator's completion (at once if it has finished), or after a
-    /// short wait where there is none or it never completes, whichever is
-    /// first. A sync that finds a transition still running (a cancelled
-    /// interactive dismissal, the next one) arms it again (`syncTabs`).
+    /// coordinator's completion, or after 0.25 seconds, whichever is first.
+    /// A declined completion retries at once only when no transition remains;
+    /// otherwise the timer retries. A sync that finds a transition still
+    /// running (a cancelled interactive dismissal, the next one) arms it
+    /// again (`syncTabs`).
     func syncAfterTransition() {
         guard !syncAfterTransitionArmed else { return }
         syncAfterTransitionArmed = true
@@ -167,7 +168,7 @@ extension NavigationHost {
         }
         let coordinator = tabController?.transitionCoordinator
             ?? (Array(tabNavigations.values) + presentedNavigations).lazy.compactMap(\.transitionCoordinator).first
-        if coordinator?.animate(alongsideTransition: nil, completion: { _ in resync() }) == false { resync() }
+        if coordinator?.animate(alongsideTransition: nil, completion: { _ in resync() }) == false, !realizeWaits { resync() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { resync() }
     }
 

@@ -11,10 +11,12 @@ import AppKit
 /// horizontally corner-adapted safe area begins.
 enum TitleBarAreaMac {
     /// x, y, width, height from the view's top left; all zero while the
-    /// title bar is hidden (full screen) or a toolbar fills it (LLP 1115.002
-    /// D2); `nil` where the page does not underlap the title bar, so every
-    /// variable is undefined and its fallback applies, as in a browser tab.
-    static func rect(of view: NSView, cover: Bool) -> [CGFloat]? {
+    /// title bar is hidden (full screen) or a route's toolbar fills it (LLP
+    /// 1115.002 D2); `nil` where the page does not underlap the title bar, so
+    /// every variable is undefined and its fallback applies, as in a browser
+    /// tab. `overlay`: the toolbar is `window-controls-overlay`'s empty one,
+    /// whose band is the title bar's (LLP 1039 D8).
+    static func rect(of view: NSView, cover: Bool, overlay: Bool = false) -> [CGFloat]? {
         guard cover, let window = view.window, window.styleMask.contains(.titled),
               window.styleMask.contains(.fullSizeContentView) else { return nil }
         if window.styleMask.contains(.fullScreen) { return [0, 0, 0, 0] }
@@ -25,7 +27,7 @@ enum TitleBarAreaMac {
         let band = view.convert(bar.bounds, from: bar).intersection(bounds)
         // A view below the title bar, embedded lower in the window, does not underlap it.
         guard !band.isNull, band.width > 0, band.height > 0 else { return nil }
-        if window.toolbar?.isVisible == true { return [0, 0, 0, 0] }
+        if window.toolbar?.isVisible == true, !overlay { return [0, 0, 0, 0] }
         var left = band.minX
         let shown = buttons.filter { !$0.isHidden && $0.superview === bar }
         if let first = shown.map(\.frame.minX).min(), let last = shown.map(\.frame.maxX).max() {

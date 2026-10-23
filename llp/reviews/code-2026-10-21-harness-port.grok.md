@@ -1,0 +1,18 @@
+# Code review: design-tool-harness's port after another file loaded the port module (grok)
+
+- **Family:** xAI. Grok via its CLI, reasoning effort xhigh, Edit and Write denied, a throwaway worktree.
+- **Method:** one round (a quick review: a test-only fix); one brief (sha256 `198e8608ccb26f45566e1876b74ae8fecd38c9c0eeb64f158aa9601ecc8d178a`), shared by both reviewers, each blind to the other's review; HEAD `33b40499ba`. The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited (from its findings; its narration before them left out).
+- **Verdict:** 1 BLOCKER
+- **Disposition:**
+  Both reviewers found the same BLOCKER, and it is fixed post-round, in its own commit: the test cleared EXACT_TOOL_PORT, loaded the harness (which caches its constants and sets the variable), then deleted the variable again, so a later file in the same process would spawn children with no port (7740) against a harness on the checkout's. The test now runs its scenario in a subprocess with the variable unset: no environment and no cached module reach another file. Astra's SHOULD-FIX (an explicit override lost) goes with it. The fix is confirmed: tamber-server.test.mjs and design-tool-pair.test.mjs run in one process, 31 of 31, the trusted-tunnel T6 among them (it failed there at main). The new test is red at main's harness. Grok notes the lane's glue step runs `bun test --parallel`, which isolates files, so the flake hit only a run by hand of several files together.
+
+1. **BLOCKER** `scripts/design-tool-harness.test.mjs:20`
+The test clears `EXACT_TOOL_PORT`, then imports the harness. That import publishes the checkout port (`scripts/design-tool-harness.mjs:17`) and caches the module. The `finally` deletes the variable again whenever it was unset on entry. `bun test ./scripts/` (the documented script run) shares one environment and one module registry across files; file order is not fixed. The glue step does not: `bun test --parallel` implies `--isolate`. When this file runs before `design-tool-pair.test.mjs`, `design-tool.test.mjs`, or `design-tool-scale.test.mjs`, those files see the harness already evaluated, so the `??=` does not run again and the variable stays unset. Their `tamber tool` and dev-loop children inherit that environment (`scripts/design-tool-pair.test.mjs:24`, `scripts/design-tool.test.mjs:768`, `scripts/design-tool-harness.mjs:107`) and serve 7740, while the cached harness still waits on the checkout origin. That is the 600s hang. If the variable was already set to another port, the clear makes the first harness evaluation latch the checkout port, the assertion expects the saved value, and the restored value disagrees with the cached module for every later file. Restore the environment the harness published, or run this check in a subprocess.
+
+The query import is a second evaluation of `tamber-tool-port.mjs`. `?port=` is only a cache key. Its root is still this checkout (`new URL('..', import.meta.url)` drops the query), `TOOL_DIST` is `target/design-tool-web-<port>`, and `stageTool` closes over that same port and origin. A child is a new process: it imports the module without the query, reads the same `EXACT_TOOL_PORT`, and stages and serves that dist.
+
+`tamber-server.mjs:91` stays on the first evaluation. `FRAME_ANCESTORS` (`scripts/tamber-server.mjs:1253`) and `tamberServer`'s default `toolDir` (`scripts/tamber-server.mjs:152`) stay with it. The design-tool files do not read those bindings. The framed page's CSP is the dev child's header, and that child loads `tamber-server` itself with the environment it was given.
+
+`scripts/design-tool.test.mjs` is unchanged. It still takes `TOOL_ORIGIN`, `TOOL_DIST`, and the spawns from the harness.
+grok exit 0

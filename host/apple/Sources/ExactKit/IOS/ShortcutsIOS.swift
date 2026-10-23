@@ -68,6 +68,10 @@ extension Presenter {
             .filter { $0.isButton && ($0.handlers.contains("press") || $0.isSurfaceControl || $0.isNativeButton && invocation(of: $0) != nil)
                 && $0.accessibilityVisible }
     }
+    var needsKeyboardFocus: Bool {
+        shortcutButtons.contains { !chords($0).isEmpty }
+            || keyRoot.map { !$0.handlers.isDisjoint(with: ["key", "keyup", "keycapture", "cut", "copy", "paste"]) } == true
+    }
     /// Whether the focus is a text field or area, whose typing a plain key is.
     private var editingText: Bool { focusedNode.map { $0.field != nil || $0.textArea != nil } ?? false }
 

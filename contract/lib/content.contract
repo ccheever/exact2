@@ -181,7 +181,8 @@ component EmptyState
 // `section` it is the row; in a `row`, or anywhere a list of records is
 // drawn, it takes the width. Its space above and below is the lines'
 // margin, not the row's padding: a grouped row's minimum height is its
-// content's, so padding there made a one-line row 72 points tall.
+// content's, so padding there made a one-line row 72 points tall. Its
+// texts hyphenate, as the value cell's labels do.
 // Call: RowText(title="Oat milk", detail="2 in stock", value=some("$3.50"))
 component RowText
   props
@@ -189,7 +190,7 @@ component RowText
     detail: string
     value: option<string>
   view
-    row flex=1 min-width=0
+    row flex=1 min-width=0 hyphens="auto"
       row flex=1 min-width=0 flex-wrap="wrap" align-items="center" column-gap="-exact-accessibility-stack-gap" row-gap=2 margin-top=10 margin-bottom=10
         column flex-grow=1 min-width=0 gap=2
           text title

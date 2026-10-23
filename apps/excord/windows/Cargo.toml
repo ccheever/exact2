@@ -1,0 +1,27 @@
+# Excord on the Windows host (llp/0001 §5): one executable with the runner,
+# the kernel, the baked plan, the app's TypeScript data module as Hermes
+# bytecode (both written by build.rs, never committed), the lean Hermes VM that
+# runs it, and the host's window (`host/windows`). `bun host/windows/build.mjs
+# excord` builds and packages it on Windows.
+[package]
+name = "excord-windows"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Excord on the Windows host: the app's executable"
+publish = false
+build = "build.rs"
+
+[[bin]]
+name = "excord-windows"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-windows = { path = "../../../host/windows" }
+exact-js = { path = "../../../js" }
+
+[build-dependencies]
+exact-js-bake = { path = "../../../js/bake" }

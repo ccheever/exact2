@@ -261,6 +261,77 @@ final class TextPaintTests: XCTestCase {
         XCTAssertNil(engine.attributed(same).attribute(.exactShadow, at: 4, effectiveRange: nil))
     }
 
+    func testShadowedRunsKeepTheWholeLinesDecorations() throws {
+        let font = engine.font(size: 32, weight: 400, family: 1, italic: false)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font, .foregroundColor: PlatformColor.black,
+            .underlineStyle: 1, .strikethroughStyle: 1,
+            .underlineColor: PlatformColor.red, .strikethroughColor: PlatformColor.blue,
+        ]
+        let plain = NSAttributedString(string: "MM  WW  II", attributes: attributes)
+        let shadowed = NSMutableAttributedString(attributedString: plain)
+        let shadow = TextRunShadow([0, 8, 0, 0, 0, 0, 0])
+        shadowed.addAttribute(.exactShadow, value: shadow, range: NSRange(location: 4, length: 4))
+        func capture(_ string: NSAttributedString, pass: TextLinePaint.Pass = .all) throws -> [UInt8] {
+            let ctx = try XCTUnwrap(CGContext(data: nil, width: 240, height: 60, bitsPerComponent: 8,
+                bytesPerRow: 240 * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            TextLinePaint.draw(CTLineCreateWithAttributedString(string), at: CGPoint(x: 10, y: 40), in: ctx, pass: pass)
+            return Array(UnsafeBufferPointer(start: try XCTUnwrap(ctx.data).assumingMemoryBound(to: UInt8.self), count: 240 * 60 * 4))
+        }
+        let reference = try capture(plain)
+        for pass: TextLinePaint.Pass in [.all, .ink] {
+            let actual = try capture(shadowed, pass: pass)
+            let error = zip(reference, actual).reduce(0) { $0 + abs(Int($1.0) - Int($1.1)) }
+            XCTAssertLessThan(error, 500, "a transparent run shadow keeps glyphs, underline and line-through")
+        }
+        let hidden = NSMutableAttributedString(attributedString: plain)
+        hidden.addAttribute(.exactHidden, value: true, range: NSRange(location: 0, length: 4))
+        hidden.addAttribute(.exactHidden, value: true, range: NSRange(location: 8, length: 2))
+        XCTAssertTrue(try capture(shadowed, pass: .caster(shadow)) == capture(hidden),
+                       "the separate shadow caster includes decorations and excludes neighbouring runs")
+    }
+
+    func testRunShadowClipsPreserveItalicInkAndThickStroke() throws {
+        let font = engine.font(size: 32, weight: 400, family: 1, italic: true)
+        let plain = NSAttributedString(string: "f   MM   f", attributes: [
+            .font: font, .foregroundColor: PlatformColor.black,
+            .strokeWidth: -25, .strokeColor: PlatformColor.blue,
+            .underlineStyle: 1, .strikethroughStyle: 1, .underlineColor: PlatformColor.red,
+        ])
+        let shadowed = NSMutableAttributedString(attributedString: plain)
+        shadowed.addAttribute(.exactShadow, value: TextRunShadow([0, 8, 0, 0, 0, 0, 0]),
+                              range: NSRange(location: 4, length: 2))
+        func capture(_ source: NSAttributedString, pass: TextLinePaint.Pass, reference: Bool = false) throws -> [UInt8] {
+            let ctx = try XCTUnwrap(CGContext(data: nil, width: 240, height: 80, bitsPerComponent: 8,
+                bytesPerRow: 240 * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            let line = CTLineCreateWithAttributedString(source)
+            if reference {
+                ctx.translateBy(x: 20, y: 50)
+                ctx.scaleBy(x: 1, y: -1)
+                ctx.textPosition = .zero
+                CTLineDraw(line, ctx)
+            } else {
+                TextLinePaint.draw(line, at: CGPoint(x: 20, y: 50), in: ctx, pass: pass)
+            }
+            return Array(UnsafeBufferPointer(start: try XCTUnwrap(ctx.data).assumingMemoryBound(to: UInt8.self), count: 240 * 80 * 4))
+        }
+        let reference = try capture(shadowed, pass: .all, reference: true)
+        let end = 20 + CTLineGetTypographicBounds(CTLineCreateWithAttributedString(shadowed), nil, nil, nil)
+        for pass: TextLinePaint.Pass in [.all, .ink] {
+            let actual = try capture(shadowed, pass: pass)
+            var error = 0, ink = 0
+            for y in 0..<80 { for x in 0..<240 where x < 20 || Double(x) > end {
+                let i = (y * 240 + x) * 4
+                ink += Int(reference[i + 3])
+                for channel in 0..<4 { error += abs(Int(reference[i + channel]) - Int(actual[i + channel])) }
+            } }
+            XCTAssertGreaterThan(ink, 10_000, "the reference has stroked italic ink beyond its advances")
+            XCTAssertLessThan(error, 500, "the run clips preserve the line's overhanging ink")
+        }
+    }
+
     /// A run's own shadow past the raster's 256-point ink allowance stays in
     /// its pixels, as the layer shadow a uniform paragraph casts would, up
     /// to `maxShadowReach`; a huge one is cut there (LLP 1077 D3).
@@ -347,6 +418,79 @@ final class TextPaintTests: XCTestCase {
             XCTAssertEqual(firstPixels.frame, laidOut.frame)
             XCTAssertEqual(rasterBytes(firstPixels), rasterBytes(laidOut), "first pixels: clamp \(clamp), align \(align)")
             XCTAssertNotEqual(rasterBytes(try XCTUnwrap(job(nil).render())), rasterBytes(laidOut), "the clamp paints its ellipsis")
+        }
+    }
+
+    func testAClampTokensPaintChoosesTheRasterFormatAndCasters() throws {
+        let hdr: BatchValue = ["cs": [["s": "srgb-linear", "v": [4, 4, 4, 1]]], "c": [255, 255, 255, 255]]
+        let bright = try XCTUnwrap(hdr.textChannels(dark: false))
+        let black: [Double] = [0, 0, 0, 255]
+        let wide: [Double] = [255, 0, 0, 255, 1, 1, 0, 0, 1]
+        func raster(_ blockColor: [Double], shadow: [Double]? = nil) throws -> TextRasterImage {
+            var red = run("Red words fill the line and carry on to another line")
+            red.color = [255, 0, 0, 255]
+            var spec = Spec(runs: [red], align: 0, lineClamp: 1, color: blockColor)
+            spec.strut = run("")
+            spec.strut?.color = blockColor
+            spec.strut?.shadow = shadow
+            spec.gatherShadows()
+            let paragraph = engine.paragraph(spec, width: 100)
+            let geometry = try XCTUnwrap(engine.measuredBreaks(spec, width: 100))
+            let box = CGRect(x: 0, y: 0, width: 100, height: 40)
+            var job = TextRasterJob(source: engine.attributed(spec), ranges: geometry.ranges, baselines: paragraph.baselines,
+                                    flush: 0, box: box, size: box.size, scale: 1, clamped: geometry.clamped)
+            #if os(iOS) || os(tvOS)
+            job.tints = true
+            #endif
+            return try XCTUnwrap(job.render())
+        }
+        let ordinary = try raster(black)
+        XCTAssertNil(ordinary.tint, "red text and a black token cannot share one tint")
+        if ordinary.tint == nil {
+            let pixels = rasterPixels(ordinary)
+            XCTAssertGreaterThan(pixels.filter { $0.w > 0.5 && max($0.x, $0.y, $0.z) < 0.05 }.count, 5,
+                                 "the ellipsis paints black while all source glyphs paint red")
+        }
+        let p3 = try raster(wide)
+        #if os(macOS)
+        let space = IOSurfaceCopyValue(p3.surface, kIOSurfaceColorSpace).flatMap { CGColorSpace(propertyListPlist: $0) }
+        #else
+        let space = p3.image.colorSpace
+        #endif
+        XCTAssertEqual(space?.name, CGColorSpace.displayP3, "the token alone requires wide storage")
+        let light = try raster(bright)
+        XCTAssertEqual(light.headroom, 4, accuracy: 0.01)
+        XCTAssertGreaterThan(rasterPixels(light).map(\.x).max() ?? 0, 1, "the token's raster retains HDR light")
+        let shadowed = try raster(black, shadow: [12, 0, 0] + bright)
+        let cast = try XCTUnwrap(shadowed.cast, "the token alone casts this HDR shadow")
+        XCTAssertEqual(shadowed.castHeadroom, 4, accuracy: 0.01)
+        let castImage = TextRasterImage(cast, frame: shadowed.frame, covered: shadowed.covered, headroom: shadowed.castHeadroom)
+        XCTAssertGreaterThan(rasterPixels(castImage).map(\.x).max() ?? 0, 1, "the shadow has HDR pixels")
+    }
+
+    private func rasterPixels(_ image: TextRasterImage) -> [SIMD4<Float>] {
+        #if os(macOS)
+        let width = image.surface.width, height = image.surface.height, row = image.surface.bytesPerRow
+        let deep = image.surface.bytesPerElement == 8
+        #else
+        let width = image.image.width, height = image.image.height, row = image.image.bytesPerRow
+        let deep = image.image.bitsPerComponent == 16
+        #endif
+        let data = rasterBytes(image)
+        return data.withUnsafeBytes { raw in
+            (0..<height).flatMap { y in (0..<width).map { x in
+                if let tint = image.tint?.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .relativeColorimetric, options: nil)?.components {
+                    let alpha = Float(raw.load(fromByteOffset: y * row + x, as: UInt8.self)) / 255
+                    return SIMD4(Float(tint[0]) * alpha, Float(tint[1]) * alpha, Float(tint[2]) * alpha, alpha)
+                }
+                let channels: [Float] = (0..<4).map { channel in
+                    if deep {
+                        return Float(Float16(bitPattern: raw.loadUnaligned(fromByteOffset: y * row + x * 8 + channel * 2, as: UInt16.self)))
+                    }
+                    return Float(raw.load(fromByteOffset: y * row + x * 4 + (channel == 3 ? 3 : 2 - channel), as: UInt8.self)) / 255
+                }
+                return SIMD4(channels[0], channels[1], channels[2], channels[3])
+            } }
         }
     }
 

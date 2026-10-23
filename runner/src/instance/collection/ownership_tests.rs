@@ -59,7 +59,7 @@ fn collections(h: &Harness) -> Vec<&Collection> {
         .iter()
         .map(|child| {
             let Child::Node(node) = child else { panic!() };
-            node.collection.as_deref().unwrap()
+            node.collection().unwrap()
         })
         .collect()
 }

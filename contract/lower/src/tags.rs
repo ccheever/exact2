@@ -433,6 +433,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "metadata" => AttrTarget::MediaMetadata,
         "decorations" => AttrTarget::Prop(PropId::Decorations),
         "alertPart" => AttrTarget::Prop(PropId::AlertPart),
+        "defaultSurface" => AttrTarget::Prop(PropId::DefaultSurface),
         "seekbackward" => AttrTarget::Handler("seekbackward"),
         "seekforward" => AttrTarget::Handler("seekforward"),
         "seekto" => AttrTarget::Handler("seekto"),

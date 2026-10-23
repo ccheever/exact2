@@ -43,6 +43,11 @@ final class SessionClockTimerTests: XCTestCase {
         for _ in 0..<64 { XCTAssertLessThan(LaunchPlace(environment: [:]).seed, 1 << 32) }
         XCTAssertEqual(LaunchPlace(environment: ["EXACT_AGENT": "1", "EXACT_AGENT_SEED": "4294967296"]).seed, 1)
         XCTAssertEqual(custom.epoch, 1_790_000_000_000)
+        // The Region's format: the agent's own, else none (the runner answers
+        // the locale); off the agent, `Locale.current`.
+        XCTAssertEqual(defaults.formatLocale, "")
+        XCTAssertEqual(LaunchPlace(environment: ["EXACT_AGENT": "1", "EXACT_AGENT_FORMAT_LOCALE": "en-KR"]).formatLocale, "en-KR")
+        XCTAssertEqual(LaunchPlace(environment: [:]).formatLocale, Locale.current.identifier(.bcp47))
         let session = ExactApp.shared.makeSession()
         defer { session.destroy() }
         let launch = session.launchPlace
@@ -191,6 +196,39 @@ final class SessionClockTimerTests: XCTestCase {
         XCTAssertEqual(SessionClockTimer.wake(due: 1100, now: 100), .timeout(1000))
         XCTAssertEqual(SessionClockTimer.wake(due: nil, now: 100), .none)
         XCTAssertEqual(SessionClockTimer.wake(due: 116, now: 100, agent: true), .none)
+        XCTAssertEqual(SessionClockTimer.wake(due: 116, now: 100, quiet: true), .timeout(16))
+        XCTAssertEqual(SessionClockTimer.wake(due: 1100, now: 100, quiet: true), .timeout(1000))
+        XCTAssertEqual(SessionClockTimer.wake(due: 116, now: 100, hidden: true, quiet: true), .timeout(16))
+    }
+
+    /// Two timer advances that show nothing (a `sent` reader off screen,
+    /// LLP 1125 D6) leave the display link off until the next deadline,
+    /// which a one-shot timer waits for (`FrameAdvanceMacTests` fires it).
+    /// A batch that applies puts near deadlines back on the link.
+    func testAQuietTimerWaitsForItsDeadlineOnATimer() throws {
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy() }
+        session.clock = nil
+        let empty = { batchFixture(ops: [], timers: true, motion: false, clock: nil, error: nil, timerDueMs: $0) }
+        session.applyUnlessEmpty(empty(session.now() + 40), timer: true)
+        XCTAssertFalse(session.timersQuiet, "one shows nothing")
+        XCTAssertTrue(session.frames.timerSoon, "its next deadline is still the link's")
+        session.applyUnlessEmpty(empty(session.now() + 40), timer: true)
+        XCTAssertTrue(session.timersQuiet, "a second shows nothing too")
+        let due = try XCTUnwrap(session.timerDue)
+        XCTAssertFalse(session.frames.timerSoon)
+        XCTAssertNil(session.frames.link, "no frames before the deadline")
+        let timer = try XCTUnwrap(session.clockTimer)
+        XCTAssertEqual(session.clockDue, due)
+        session.scheduleClock(due: due)
+        XCTAssertTrue(session.clockTimer === timer, "the same deadline keeps the armed timer")
+        // Any batch that reaches `apply` (here another event's empty one).
+        session.apply(batchFixture(ops: [], timers: true, motion: false, clock: nil, error: nil, timerDueMs: session.now() + 40))
+        XCTAssertFalse(session.timersQuiet, "a batch that applies may show what the next timer changes")
+        XCTAssertTrue(session.frames.timerSoon)
+        XCTAssertNotNil(session.frames.link)
+        XCTAssertNil(session.clockTimer)
+        XCTAssertFalse(timer.isValid)
     }
 
     func testNestedTransformBatchPreservesTimerDeadline() throws {

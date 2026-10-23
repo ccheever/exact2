@@ -138,6 +138,12 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     s.push_str("{\"op\":\"locale\",\"value\":");
                     q(tag, &mut s);
                 }
+                Step::Prefer { name, value, .. } => {
+                    s.push_str("{\"op\":\"prefer\",\"name\":");
+                    q(name, &mut s);
+                    s.push_str(",\"value\":");
+                    q(value, &mut s);
+                }
                 Step::Seed { seed, .. } => {
                     s.push_str(&format!("{{\"op\":\"seed\",\"value\":{seed}"));
                 }

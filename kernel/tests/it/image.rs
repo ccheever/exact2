@@ -242,7 +242,7 @@ fn one_dimension_set_gives_the_other_by_the_intrinsic_ratio() {
     assert_eq!(frame(&mut kernel, image), (96.0, 36.0));
     // A set ratio row wins over the intrinsic one.
     let mut square = StyleProps::default();
-    square.aspect_ratio = exact_kernel::ratio::AspectRatio::parse("1").unwrap();
+    square.rare.aspect_ratio = exact_kernel::ratio::AspectRatio::parse("1").unwrap();
     square.mask.set(StyleId::AspectRatio);
     kernel
         .apply(

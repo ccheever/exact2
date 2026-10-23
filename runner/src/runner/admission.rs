@@ -219,6 +219,7 @@ mod tests {
         deferred: bool,
         write_first: bool,
         shape_refusal: bool,
+        none_reply: bool,
         asks: usize,
         synchronous_effects: usize,
         delivered_writes: usize,
@@ -257,6 +258,7 @@ mod tests {
                     self.delivered_writes += 1;
                     Ok(Answer::Later(Request::get("https://example.test/read")))
                 }
+                Outcome::Response(_) if self.none_reply => Ok(Answer::Now(Value::NONE)),
                 Outcome::Response(_) => Ok(Answer::Now(Value::some(Value::str("fresh")))),
                 Outcome::Failed { .. } if self.shape_refusal => Ok(Answer::Now(Value::NONE)),
                 Outcome::Failed { kind, message } => Err(DataError::Failed(
@@ -311,6 +313,18 @@ mod tests {
         r.refuse_request(ticket, "native executor admission limit reached", true);
         assert!(r.take_request_refusal(false).is_none());
         let (refused, outcome) = r.take_request_refusal(true).unwrap();
+        assert_eq!(refused, ticket);
+        assert!(r.fulfill(ticket, outcome).unwrap().is_some());
+    }
+
+    /// An unordered request's refusal (an independent HTTP request the host would not run): taken in any turn.
+    fn refuse_unordered(r: &mut Runner<Source>, ticket: u64) {
+        r.refuse_request(
+            ticket,
+            "the app's grants do not reach https://example.test",
+            false,
+        );
+        let (refused, outcome) = r.take_request_refusal(false).unwrap();
         assert_eq!(refused, ticket);
         assert!(r.fulfill(ticket, outcome).unwrap().is_some());
     }
@@ -388,6 +402,34 @@ mod tests {
         assert_failed_without_replay(&mut r, request.ticket);
         let failure = r.failed_why[0].as_ref().unwrap();
         assert_eq!(failure.code, FailureCode::Error);
+        assert!(failure.message.contains("UnwrapNone"), "{failure:?}");
+    }
+
+    #[test]
+    fn an_unordered_refusal_that_traps_in_a_derive_releases_its_ticket_too() {
+        let mut r = boot(true);
+        r.data().shape_refusal = true;
+        let request = ask(&mut r);
+        // As the ordered one above: the host has no later reply for it, so the trapped commit lets it go rather
+        // than leaving it pending forever (and a clock or a `pending(…)` waiting on it).
+        refuse_unordered(&mut r, request.ticket);
+        assert!(!r.is_poisoned());
+        assert_failed_without_replay(&mut r, request.ticket);
+        let failure = r.failed_why[0].as_ref().unwrap();
+        assert!(failure.message.contains("UnwrapNone"), "{failure:?}");
+    }
+
+    #[test]
+    fn a_delivered_reply_that_traps_in_a_derive_releases_its_ticket() {
+        let mut r = boot(true);
+        r.data().none_reply = true;
+        let request = ask(&mut r);
+        // The host delivers its one reply; the source takes it (`none` conforms), and the derive's unwrap traps the
+        // commit. Nothing is left to answer it: it is let go, keeping the standing value, not pending forever.
+        assert!(r.fulfill(request.ticket, response(200)).unwrap().is_some());
+        assert!(!r.is_poisoned());
+        assert_failed_without_replay(&mut r, request.ticket);
+        let failure = r.failed_why[0].as_ref().unwrap();
         assert!(failure.message.contains("UnwrapNone"), "{failure:?}");
     }
 

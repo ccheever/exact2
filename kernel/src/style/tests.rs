@@ -138,7 +138,9 @@ fn env_lengths_parse_by_the_css_grammar_and_resolve_against_the_environment() {
 
 #[test]
 fn defaults_are_the_css_defaults() {
+    assert!(std::mem::size_of::<taffy::Style>() <= 304);
     let s = StyleProps::default().to_taffy(NodeType::View, &Env::default());
+    assert!(s.rare.is_initial());
     assert_eq!(s.display, taffy::style::Display::Block);
     assert_eq!(s.box_sizing, taffy::style::BoxSizing::ContentBox);
     assert_eq!(s.flex_direction, taffy::style::FlexDirection::Row);
@@ -407,9 +409,16 @@ fn grid_tracks_lower_to_engine_tracks() {
     ]);
     p.rare.grid_row = GridPlacement::from_lines(GridLine::Line(1), GridLine::Span(2));
     let s = p.to_taffy(NodeType::View, &Env::default());
-    assert_eq!(s.grid_template_columns.len(), 3);
-    assert_eq!(s.grid_row.start, line(1));
-    assert_eq!(s.grid_row.end, span(2));
+    assert_eq!(s.rare.grid_template_columns.len(), 3);
+    assert_eq!(s.rare.grid_row.start, line(1));
+    assert_eq!(s.rare.grid_row.end, span(2));
+    assert!(!s.rare.is_initial());
+    p.rare.grid_template_columns = GridTracks::default();
+    p.rare.grid_row = GridPlacement::default();
+    assert!(p
+        .to_taffy(NodeType::View, &Env::default())
+        .rare
+        .is_initial());
 }
 
 /// Content regions check padding and border without the engine's style;

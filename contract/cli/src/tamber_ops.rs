@@ -125,8 +125,10 @@ pub(crate) fn parse_ops(ops: &Value, design: &str) -> Result<Vec<(String, Op)>, 
 /// The app's params as the design's folds take them (LLP 1121 D15).
 pub(crate) fn params(app: &contract::tamber_params::AppParams) -> exact_tamber::params::Params {
     // And its packages' tokens (LLP 1121 D11), which every plan folds beside the design.
+    let (joined, joined_icons) = contract::tamber_params::joined_all(app);
     exact_tamber::params::Params {
-        joined: contract::tamber_params::joined(app),
+        joined,
+        joined_icons,
         ..contract_lower::params::folds(&app.tokens, &app.identities)
     }
 }
@@ -250,11 +252,21 @@ pub(crate) fn param_values(
                 }
             })),
             Ok(folding) if refused.is_empty() => {
-                // An icon param's SVG is the app's file (D10), as the build
-                // reads it.
+                // An icon param's SVG is a file beside the design it is
+                // written in (D10; a package's default's, its package's, stage 13), as the build reads it.
                 for i in folding.icons.iter().filter(|i| i.name.starts_with(contract_lower::params::PREFIX)) {
-                    if let Some(svg) = i.svg.as_ref().filter(|f| !dir.join("assets").join(f).is_file()) {
-                        refused.push(json!({"file": file, "id": "tamber-icon-svg", "message": message(&format!("`{}`: `assets/{svg}` is no file of the app", i.name))}));
+                    let home = contract_lower::icons::Home::of(i, Some(dir), &app.packages, list);
+                    let whose = home.package.map_or_else(|| "the app".to_string(), |p| format!("the package `{p}`"));
+                    if let Some(svg) = i.svg.as_ref() {
+                        // A package's confined to its own `assets/` (round 1, Astra 4).
+                        let why = match home.svg(svg) {
+                            Some(p) if home.leaves(&p) => Some("leaves"),
+                            Some(p) if p.is_file() => None,
+                            _ => Some("is no file of"),
+                        };
+                        if let Some(why) = why {
+                            refused.push(json!({"file": file, "id": "tamber-icon-svg", "message": message(&format!("`{}`: `assets/{svg}` {why} {whose}", i.name))}));
+                        }
                     }
                 }
                 // A value set charged to its line, a default to its own.

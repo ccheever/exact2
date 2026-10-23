@@ -147,7 +147,8 @@ enum DisplayPreferences {
     static let displayModes = ["standalone", "browser", "fullscreen", "minimal-ui", "window-controls-overlay", "picture-in-picture", "tabbed"]
     static func displayMode(_ view: PlatformView?) -> UInt32 {
         #if os(macOS)
-        return view?.window?.styleMask.contains(.fullScreen) == true ? 2 : 0
+        if view?.window?.styleMask.contains(.fullScreen) == true { return 2 }
+        return (view as? ExactView)?.controlsOverlay == true ? 4 : 0
         #else
         return 0
         #endif

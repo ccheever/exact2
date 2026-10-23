@@ -14,11 +14,11 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createServer, request } from 'node:http';
-import { copyFileSync, existsSync, lstatSync, readFileSync, realpathSync, renameSync, rmSync, statSync, utimesSync, watch, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, utimesSync, watch, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { acceptsHTML, appDocumentPath, webRequestURL } from '../../scripts/origin.mjs';
 import { compilerWarnings, INPUT_TREE, OUTPUT, listenOn } from '../../scripts/agent-launch.mjs';
-import { alsoOnIPv6Loopback, appManifestDigest, buildFileCards, buildTreeFile, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
+import { alsoOnIPv6Loopback, appManifestDigest, buildFileCards, buildTreeFileAsync as buildTreeFile, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
 import { localInstaller } from '../web/local-install.mjs';
 import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-server.mjs';
 import { pluginOnLoopback } from '../../scripts/tamber-remote.mjs';
@@ -28,6 +28,7 @@ import { serveCommands, serveReport, streamFrame } from '../../scripts/tamber-bu
 import { fresh, freshCompiler, webCompiler } from './module.mjs';
 import { INSPECT_EVENTS } from './inspect-dev.js';
 import { galleryLoop } from './dev-gallery.mjs';
+import { inlineWhy as inlineWhyOf } from './dev-inline.mjs';
 
 const CHECKPOINT_BYTES = 16 * 1024 * 1024, CHECKPOINTS = 8;
 
@@ -90,7 +91,9 @@ function mapDesignSource(app, dir) {
  * it was and resolves `{superseded}`: what it read is older than the files.
  * With none, it is published whatever moved. */
 function build(app, dist, keep = () => false, compiler = null, superseded = null) {
-  const stage = resolve(app.target, 'web-js-dev-stage');
+  // One stage per dist: two loops on one target/ (two apps outside a workspace, or one CARGO_TARGET_DIR) never
+  // build into each other's.
+  const stage = resolve(app.target, 'web-js-dev-stage', createHash('sha256').update(resolve(dist)).digest('hex').slice(0, 16));
   rmSync(stage, { recursive: true, force: true });
   const began = Date.now();
   // The app's own inputs beside its Contract sources, and which were there.
@@ -349,7 +352,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
         return;
       }
       if (!tool.ready && !signal) console.log(`the design reader did not build (design edits take the full build):\n${readerFailure(err)}`);
-      if (tool.ready) console.log('design reader ready');
+      if (tool.ready) console.log('design reader ready'); // (until then a live proposal is taken as a rebuild, dev-inline.mjs)
     });
   };
   // Ready, and built from the compiler's sources as they are (a compiler
@@ -372,7 +375,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   const inspectTable = (digest) => {
     if (!tables.has(digest)) {
       tables.set(digest, new Promise((done) => {
-        const out = resolve(app.target, `inspect-${digest}.json`);
+        // (this loop's own: another loop on one target/ may make the same plan's table, and removes its own)
+        const out = resolve(app.target, `inspect-${digest}-${process.pid}.json`);
         const compiler = toolFresh() ? { cmd: tool.path, pre: [], done() {} } : webCompiler();
         const child = spawn(compiler.cmd, [...compiler.pre, 'inspect-table', resolve(dist, 'app.plan'), out], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'] });
         let err = '';
@@ -706,12 +710,12 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // A checkpoint the server refuses (403: a canvas below `write`, LLP 1121
   // stage 10 C) reloads afresh, so a reader still sees the new build.
   // A gallery page's (dev-gallery.mjs): its own stream, design and checkpoint routes, `page: 'gallery'`, no `navigate`.
-  const client = (n, revision, { base = '/__dev', stream = '/__dev/page', page = null } = {}) => `<script>(()=>{const seq=${n},logicRevision=${JSON.stringify(revision)},es=new EventSource('${stream}');let o,reloading=false;
+  const client = (n, revision, { base = '/__dev', stream = '/__dev/page', page = null } = {}) => `<script>(()=>{const fetch=globalThis.fetch.bind(globalThis),seq=${n},logicRevision=${JSON.stringify(revision)},es=new EventSource('${stream}');let o,reloading=false;
 const show=t=>{if(!t){o?.remove();o=null;return}o??=document.body.appendChild(Object.assign(document.createElement('pre'),{style:'position:fixed;left:0;right:0;bottom:0;margin:0;padding:12px;background:#300;color:#fdd;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;z-index:2147483647',onclick:()=>show()}));o.textContent=t+'\\n(click to dismiss)'};
 const encode=v=>typeof v==='number'&&(!Number.isFinite(v)||Object.is(v,-0))?{$exactNumber:Object.is(v,-0)?'-0':String(v)}:Array.isArray(v)?v.map(encode):v;
 const children=e=>[...(e?.children??[])].filter(x=>x.hasAttribute('data-carry-type')||x.hasAttribute('data-listitemkey'));
 const capture=logic=>{const x=globalThis.exact,active=document.activeElement?.closest?.('[data-carry-type]');let focus=null;if(active){const path=[];for(let el=active,p;el&&el.id!=='exact-root';el=p){p=el.parentElement;path.unshift(children(p).indexOf(el))}if(!path.includes(-1))focus={path,type:active.getAttribute('data-carry-type')}}return{time:x.clock.now,slots:[...x.state[0],...[...(globalThis.__exactDevPanels?.live??[])].filter(s=>!s.n.gone)].map(s=>[s.n.devName,s.n.devType,encode(s())]).concat(globalThis.__exactDevPanels?.left()??[]),answers:logic?[]:x.resources.filter(r=>!r.owned&&!r.failed&&!r.ticket&&!r.waiting&&!r.ov&&r.settled!==undefined).map(r=>[r.name,r.source,encode(r.settled),encode(r.value),r.devType,!!r.store]),carryAnswers:!logic,modes:ch.before?.mode??x.modes?.read()??null,focus}};
-const restored=document.querySelector('script[type="application/vnd.exact.dev-checkpoint"]'),q=new URLSearchParams(location.search),devKeys=new Set(['agent','seed','locale','timeZone','epoch','storage']),admission=q.has('agent')?[...q].filter(([k])=>devKeys.has(k)):null;
+const restored=document.querySelector('script[type="application/vnd.exact.dev-checkpoint"]'),q=new URLSearchParams(location.search),devKeys=new Set(['agent','seed','locale','formatLocale','timeZone','epoch','storage']),admission=q.has('agent')?[...q].filter(([k])=>devKeys.has(k)):null;
 if(restored){const restoredSeq=Number(restored.dataset.seq);console.info('exact dev reload: restored',restoredSeq);const t=setInterval(()=>{const b=document.getElementById('exact-root')?.dataset.bootMs;if(b!=null){clearInterval(t);Promise.resolve(globalThis.exact?.ready).then(()=>{console.info('exact dev reload: runtime up',restoredSeq);fetch('${base}/reloaded?seq='+restoredSeq+'&boot='+b+'&at='+Date.now(),{method:'POST'})})}},2)}
 const ready=()=>globalThis.exact?Promise.resolve(globalThis.exact.ready):new Promise(ok=>{const t=setInterval(()=>{if(globalThis.exact){clearInterval(t);Promise.resolve(globalThis.exact.ready).then(ok)}},2)});
 let liveQ=Promise.resolve(),liveStatus=null;const live=m=>{liveQ=liveQ.then(async()=>{const x=await ready().then(()=>globalThis.exact),was=x?.designDigest;let sc=m.scrub;const out=x?.design?.(m);if(out?.live==='stale'){const r=await fetch('${base}/design',{cache:'no-store'});if(r.status===200){const f=await r.json();sc=f.scrub;x.design(f)}}if(x?.designDigest!==was&&ch.nonce){clearTimeout(liveStatus);if(sc)liveStatus=setTimeout(status,150);else status()}}).catch(e=>console.error('exact dev:',e))};
@@ -720,11 +724,11 @@ const here=()=>{const at=location.pathname+location.search+location.hash;return 
 const asked=()=>{const p=ch.pin,k=globalThis.exact?.asked??{};if(!cp||!p)return null;const o={},val=f=>k[f]?.value;if(p.scheme&&val('scheme')!=null&&val('scheme')!==p.scheme)o.scheme=String(val('scheme')).slice(0,32);if(p.rootFontSize&&val('rootFontSize')!=null&&val('rootFontSize')!==p.rootFontSize)o.rootFontSize=String(val('rootFontSize')).slice(0,64);const md=Object.fromEntries(Object.keys(p.mode??{}).filter(a=>val('mode:'+a)!=null&&val('mode:'+a)!==p.mode[a]&&a.length<=64&&String(val('mode:'+a)).length<=64).map(a=>[a,val('mode:'+a)]));if(Object.keys(md).length&&new TextEncoder().encode(JSON.stringify(md)).length<=800)o.mode=md;return Object.keys(o).length?o:null};
 const facts=()=>{const s=getComputedStyle(document.documentElement),cs=s.colorScheme,x=globalThis.exact;return{kind:'status',scheme:/dark/.test(cs)&&!/light/.test(cs)?'dark':/light/.test(cs)&&!/dark/.test(cs)?'light':x?.systemScheme??(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'),contrast:matchMedia('(prefers-contrast: more)').matches?'more':matchMedia('(prefers-contrast: less)').matches?'less':'no-preference',mode:x?.modes?.read?.()??null,rootFontSize:parseFloat(s.fontSize),plan:null,planDigest:x?.plan??null,design:x?.designDigest??null,revision:ch.revision,location:here(),app:asked()??undefined}},status=()=>{clearTimeout(liveStatus);liveStatus=null;const b=facts();ch.told=JSON.stringify(b);rep(b)};for(const q of['(prefers-color-scheme: dark)','(prefers-contrast: more)','(prefers-contrast: less)'])matchMedia(q).addEventListener?.('change',()=>{if(ch.nonce)status()});
 let gate=null,held=(()=>{try{return sessionStorage.getItem('exact.dev.inspect${page ? `:${page}` : ''}')!=null}catch{return false}})();const early=()=>{for(const id of['exact-inspect-early','exact-inspect-early-shield'])document.getElementById(id)?.remove()},letGo=exit=>{held=false;early();try{const k=sessionStorage.getItem('exact.dev.inspect${page ? `:${page}` : ''}');if(exit&&k)sessionStorage.setItem('exact.dev.inspect${page ? `:${page}` : ''}.left',k);sessionStorage.removeItem('exact.dev.inspect${page ? `:${page}` : ''}')}catch{}};if(held){const sh=document.head.appendChild(Object.assign(document.createElement('style'),{id:'exact-inspect-early-shield',textContent:'iframe, frame, embed, object { pointer-events: none !important; }'}));const c=Object.assign(document.createElement('div'),{id:'exact-inspect-early'});c.style.cssText='position:fixed;inset:0;z-index:2147483644;background:transparent;touch-action:none';(document.body??document.documentElement).append(c)}for(const ty of ${JSON.stringify([...INSPECT_EVENTS, 'pointermove', 'focusin'])})addEventListener(ty,e=>{if(gate)return gate(e);if(!held)return;if(ty==='keydown'&&e.key==='Escape')letGo(true);if((ty==='focusin'||ty==='blur')&&document.activeElement?.tagName==='IFRAME')document.activeElement.blur();e.preventDefault();e.stopImmediatePropagation()},{capture:true,passive:false});
-const inspector=ready().then(()=>import('/__dev/inspect.js')).then(m=>{m.install({${page ? `key:'exact.dev.inspect:${page}',` : ''}report:rep,status:async()=>status(),facts:()=>({plan:null,design:globalThis.exact?.designDigest??null,revision:ch.revision}),nonce:()=>ch.nonce});gate=m.gate;return m}).catch(e=>{letGo(false);throw e});
+const inspector=ready().then(()=>import('/__dev/inspect.js')).then(m=>{m.install({${page ? `key:'exact.dev.inspect:${page}',` : ''}fetch,report:rep,status:async()=>status(),facts:()=>({plan:null,design:globalThis.exact?.designDigest??null,revision:ch.revision}),nonce:()=>ch.nonce});gate=m.gate;return m}).catch(e=>{letGo(false);throw e});
 let due=false;const moved=()=>{if(due||!ch.nonce)return;due=true;setTimeout(()=>{due=false;const b=facts();if(JSON.stringify(b)!==ch.told){ch.told=JSON.stringify(b);rep(b)}},0)},seen=new MutationObserver(moved);if(cp)ready().then(()=>{globalThis.exact.onAsked=moved});seen.observe(document.documentElement,{attributes:true,attributeFilter:['style','data-x-modes']});seen.observe(document.head,{childList:true,subtree:true,characterData:true});for(const k of['pushState','replaceState']){const w=history[k];history[k]=function(...a){const o=w.apply(this,a);moved();return o}}addEventListener('popstate',moved);addEventListener('hashchange',moved);
 const nav=m=>{liveQ=liveQ.then(async()=>{await ready();const mine=()=>m.stream===ch.nonce;if(!mine())return;const x=globalThis.exact,u=new URL(m.location,location.origin),to=u.pathname+u.search,no=d=>{if(mine())rep({kind:'unsupported',what:'navigate',detail:String(d).slice(0,1024),revision:m.seq})};if(u.origin!==location.origin||u.pathname.startsWith('//'))return no("the location is no path on this page's origin");const there=()=>history.state?.url===to||location.pathname+location.search===to,before=history.state?.url;try{if(!there()){const why=typeof x?.goTo==='function'?x.goTo(to):'this page has no router';if(why)return no(why)}for(let i=0;i<100&&!there()&&history.state?.url===before;i++)await new Promise(ok=>setTimeout(ok,10));if(mine()&&there()&&u.hash!==location.hash)history.replaceState(history.state,'',location.origin+location.pathname+location.search+u.hash)}catch(e){return no(String(e))}moved()}).catch(e=>console.error('exact dev:',e))};
 const pin=m=>{liveQ=liveQ.then(async()=>{await ready();const r=document.documentElement.style,p=m.pin,x=globalThis.exact,was=x.held;let rm=0;x.held=cp&&p?Object.fromEntries([['scheme',!!p.scheme],['rootFontSize',!!p.rootFontSize],...Object.keys(p.mode??{}).map(a=>['mode:'+a,true])]):null;ch.before??={fontSize:r.fontSize,hostFont:r.getPropertyValue('--exact-host-font-size'),mode:x?.modes?.read?.()??{}};const sh=document.getElementById('exact-dev-pin')??document.head.appendChild(Object.assign(document.createElement('style'),{id:'exact-dev-pin'}));sh.textContent=p?.scheme?':root{color-scheme:'+p.scheme+(cp?'!important':'')+'}':'';if((x.systemScheme??null)!==(p?.scheme??null)){x.systemScheme=p?.scheme??null;dispatchEvent(new Event('resize'))}r.removeProperty('font-size');if(cp&&p?.rootFontSize)r.setProperty('font-size',p.rootFontSize+'px','important');else r.fontSize=p?.rootFontSize?p.rootFontSize+'px':ch.before.fontSize;if(p?.rootFontSize)r.setProperty('--exact-host-font-size',r.fontSize);else if(ch.before.hostFont)r.setProperty('--exact-host-font-size',ch.before.hostFont);else r.removeProperty('--exact-host-font-size');const last=ch.pin?.mode??{},back=Object.fromEntries(Object.entries(ch.before.mode??{}).filter(([a])=>a in last&&!(a in(p?.mode??{}))&&!(cp&&x.asked?.['mode:'+a]))),mode=Object.entries(p?(cp?{...back,...(p.mode??{})}:{...ch.before.mode,...(p.mode??{})}):back);if(mode.length&&x?.modes?.set){const why=x.modes.set(mode);if(why){rm=1;rep({kind:'unsupported',what:'pin.mode',detail:why,revision:m.revision});if(!cp)x.modes.set(Object.entries(ch.before.mode));if(x.held){for(const k of Object.keys(x.held))if(k.startsWith('mode:'))delete x.held[k];for(const [k,on]of Object.entries(was??{}))if(on&&k.startsWith('mode:'))x.held[k]=true}}dispatchEvent(new Event('resize'))}if(p?.contrast)rep({kind:'unsupported',what:'pin.contrast',detail:"a web page cannot pin the browser's contrast",revision:m.revision});for(const [f,on]of Object.entries(was??{}))if(on&&!x.held?.[f])x.asked?.[f]?.apply();if(!p)ch.before=null;ch.pin=p?(cp&&rm?{...p,mode:last}:p):null;ch.revision=m.revision;status()}).catch(e=>console.error('exact dev:',e))};
-es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==='tamber-snapshot'){live(m);return}if(m.kind==='pin'){pin(m);return}if(m.kind==='navigate'){m.stream=ch.nonce;nav(m);return}if(m.kind==='inspect'||m.kind==='outline'||m.kind==='hold'){m.stream=ch.nonce;inspector.then(i=>i.frame(m)).catch(e=>rep({kind:'unsupported',what:m.kind,detail:String(e)}));return}if(m.nonce&&m.nonce!==ch.nonce){const n=ch.nonce=m.nonce;ch.registered=ready().then(async()=>{const id=await bid,ok=(await post(n,{kind:'register',id,host:'web-js',capabilities:${page ? `['pin','inspect','hold'],page:'${page}'` : "['pin','inspect','hold','navigate']"},plan:null,planDigest:globalThis.exact?.plan??null,design:globalThis.exact?.designDigest??null})).ok;if(ok&&window!==parent)parent.postMessage({type:'exact-build',id},'*');return ok}).catch(()=>false);status()}if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('${base}/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(saved.status===403){console.info('exact dev reload: no checkpoint at this scope; a fresh load');location.reload();return}if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
+es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==='tamber-snapshot'){live(m);return}if(m.kind==='pin'){pin(m);return}if(m.kind==='navigate'){m.stream=ch.nonce;nav(m);return}if(m.kind==='inspect'||m.kind==='outline'||m.kind==='hold'){m.stream=ch.nonce;inspector.then(i=>i.frame(m)).catch(e=>rep({kind:'unsupported',what:m.kind,detail:String(e)}));return}if(m.nonce&&m.nonce!==ch.nonce){const n=ch.nonce=m.nonce;ch.registered=ready().then(async()=>{const id=await bid,got=await post(n,{kind:'register',id,host:'web-js',capabilities:${page ? `['pin','inspect','hold'],page:'${page}'` : "['pin','inspect','hold','navigate']"},plan:null,planDigest:globalThis.exact?.plan??null,design:globalThis.exact?.designDigest??null}),ok=got.ok;if(!ok)console.warn('exact dev: the dev loop refused the register of this page ('+got.status+'), so no tool sees it');if(ok&&window!==parent)parent.postMessage({type:'exact-build',id},'*');return ok}).catch(e=>{console.warn('exact dev: this page could not register with the dev loop, so no tool sees it: '+e);return false});status()}if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('${base}/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(saved.status===403){console.info('exact dev reload: no checkpoint at this scope; a fresh load');location.reload();return}if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
   const checkpoints = new Map();
   /** A scrub's design: the compiler's, with its text in place of the design file's; written nowhere. */
   const scrubDesign = designOf;
@@ -819,21 +823,11 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     }
     return {};
   }
-  /** Why a live proposal's texts would not apply in place on these pages:
-   * a token they write inline (the design read says which: a font-weight
-   * number, an SVG attribute's) whose value moves, or null.
-   * Only with the design reader built, so a proposal never waits on a
-   * compile; with none, the session's class stands and the release rebuilds. */
-  async function inlineWhy(texts) {
-    const file = relative(app.dir, designPath(app.dir));
-    if (!(file in texts) || !toolReady()) return null;
-    const next = await scrubDesign(texts[file], { readOnly: true });
-    // The design the pages run once it is read (a build may land meanwhile).
-    const from = scrubbed ?? design;
-    if (next.error || !from || next.tokens.length !== from.tokens.length) return null;
-    const inline = next.tokens.find((t, i) => t.inline && t.name === from.tokens[i].name && !same(t, from.tokens[i]));
-    return inline ? `\`${inline.name}\` is written inline on this page (${inline.writer ?? 'a font weight, an SVG attribute'})` : null;
-  }
+  /** Why a live proposal's texts would not apply in place on these pages
+   * (dev-inline.mjs): the built reader only, so a proposal never waits on a
+   * compile; with none yet, a rebuild is assumed. */
+  const inlineWhy = (texts) => inlineWhyOf({ texts, file: relative(app.dir, designPath(app.dir)), ready: toolReady,
+    read: (text) => scrubDesign(text, { readOnly: true }), pages: () => scrubbed ?? design, same });
   /** A scrub ended without its write: the pages back on the committed design. */
   function scrubRestore(frame) {
     released = false;
@@ -925,13 +919,17 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     if (url.pathname === '/__dev/page') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
       const opened = tamber?.channel.open(frame => res.write(`data: ${JSON.stringify(frame)}\n\n`));
-      req.on('close', () => opened?.close());
+      // Ended once, by whichever close comes first: under Bun a request on a socket handed to the server
+      // (emit('connection'): the TLS door's, an old [::1] door's) never fires req 'close'; its res 'close' does.
+      let done = false;
+      const end = () => { if (done) return; done = true; opened?.close(); clients.delete(res); };
+      req.on('close', end);
+      res.on('close', end);
       res.write(`data: ${JSON.stringify({ ...(error ? { error } : {}), reload: seq, revision: logicRevision, ...(opened ? { nonce: opened.nonce } : {}) })}\n\n`);
       // The design the pages run, after value-only edits since the build.
       if (snapshot) res.write(`data: ${JSON.stringify(notice(snapshot))}\n\n`);
       clients.add(res);
       console.log(`page connected (${clients.size})`);
-      req.on('close', () => clients.delete(res));
       return;
     }
     if (url.pathname === '/__dev/design' && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -975,7 +973,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     // to it (below), started at the first such request.
     if (url.pathname === '/exact.json' || url.pathname === '/__dev' || url.pathname === '/__dev/open' || url.pathname.startsWith('/__dev/generation/')
       || (url.pathname === '/' && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json'))) { forward(req, res); return; }
-    const found = buildTreeFile(dist, url.pathname, req.headers.accept);
+    const found = await buildTreeFile(dist, url.pathname, req.headers.accept);
     // No build yet (the first failed): a blank page that shows the errors and reloads when one lands.
     if (!found && error && (url.pathname === '/' || appDocumentPath(url.pathname, acceptsHTML(req.headers.accept)))) { res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); res.end(`<!doctype html><meta charset="utf-8"><body>${client(seq, logicRevision)}`); return; }
     if (!found) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
@@ -1009,8 +1007,11 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
       const internal = probe.address().port;
       probe.close(() => {
         console.log(`native client: starting the resident loop's producers (loopback :${internal})`);
+        // (one per dist, as the stage: its parent made here, since the publication's lock sits beside it)
+        const residentDist = resolve(app.target, 'web-dist-resident', createHash('sha256').update(resolve(dist)).digest('hex').slice(0, 16));
+        mkdirSync(dirname(residentDist), { recursive: true });
         residentChild = spawn(process.execPath, [resolve(root, 'host/web/dev.mjs'), '--app', app.name, '--wasm', '--port', String(internal), '--serve-as', String(port), ...(lan ? ['--lan'] : []), ...allowHosts.flatMap((name) => ['--allow-host', name])],
-          { cwd: root, env: { ...process.env, EXACT_WEB_DIST: resolve(app.target, 'web-dist-resident'), EXACT_LAUNCHER_PID: String(process.pid), EXACT_MAP_FD: '3' }, stdio: ['ignore', 'pipe', 'inherit', 'pipe'] });
+          { cwd: root, env: { ...process.env, EXACT_WEB_DIST: residentDist, EXACT_LAUNCHER_PID: String(process.pid), EXACT_MAP_FD: '3' }, stdio: ['ignore', 'pipe', 'inherit', 'pipe'] });
         // Its plans and their maps' cards, on the pipe given for that alone.
         let cards = '';
         residentChild.stdio[3].on('data', (d) => {

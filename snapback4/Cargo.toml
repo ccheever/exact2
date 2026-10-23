@@ -48,3 +48,11 @@ codegen-units = 1
 panic = "abort"
 incremental = false
 strip = true
+
+# Build scripts and proc macros load as dylibs, and Xcode 27's strip leaves
+# them unloadable under a deployment target, which every Mac cargo call of
+# exact2's tooling carries (scripts/filesystem.mjs, withHostDeployment).
+# Nothing of theirs ships. Release strips debuginfo by default and `wasm`
+# strips all, inheriting this (the root's release.build-override, here).
+[profile.release.build-override]
+strip = false

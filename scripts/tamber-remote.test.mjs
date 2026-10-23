@@ -210,6 +210,42 @@ test('the real wire on the remote door: the local token works nowhere there, nor
   } finally { await remote.close(); await wire.close(); }
 });
 
+// The ghost builds' follow-up (review2's condition 1): under Bun a request on a socket handed to the HTTP server, as
+// every TLS door request is, never fires req 'close'. A paired client's subscription there still ends when the client
+// goes, on res 'close': it is present while the stream is open and not after.
+test('a subscription through the TLS door ends when its client leaves', async () => {
+  const wire = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {} });
+  const doors = await openRemote(wire, { remote: { host: '127.0.0.1', port: 0 } }, { say: () => {} });
+  let stream;
+  try {
+    const port = Number(new URL(doors.info().origin).port);
+    let token = null, text = '';
+    await wire.handle({ method: 'GET', headers: {} }, { writeHead() {}, setHeader() {}, end(t) { token = JSON.parse(t).token; } }, new URL('http://127.0.0.1/__tamber/token'), { allowed: true, local: true });
+    const req = Object.assign(new PassThrough(), { method: 'POST', headers: { 'x-exact-tamber-token': token }, socket: { remoteAddress: '127.0.0.1' } });
+    queueMicrotask(() => req.end(JSON.stringify({ method: 'pair-code', scope: 'write', name: 'laptop' })));
+    await wire.handle(req, { writeHead() {}, setHeader() {}, write(t) { text += t; }, end(t) { text += t ?? ''; } }, new URL('http://127.0.0.1/__tamber'), { allowed: true, local: true });
+    const paired = JSON.parse((await send(true, port, { method: 'POST', path: '/__tamber/pair', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: JSON.parse(text).ok.code, name: 'laptop' }) })).text).ok.token;
+    const headers = { 'x-exact-tamber-token': paired, 'content-type': 'application/json' };
+    // A pin is a present client's: 409 when it is not.
+    const pin = async () => (await send(true, port, { method: 'POST', path: '/__tamber', headers, body: JSON.stringify({ method: 'pin', build: 'nowhere', scheme: 'dark' }) })).status;
+    expect(await pin()).toBe(409);
+    const first = await new Promise((ok, fail) => {
+      // (its first event whole, however the bytes come)
+      stream = secureRequest({ host: '127.0.0.1', port, method: 'POST', path: '/__tamber/subscribe', headers: { host: `127.0.0.1:${port}`, ...headers }, rejectUnauthorized: false }, res => { let got = ''; res.on('data', d => { got += d; if (got.includes('\n\n')) ok(got); }); });
+      stream.on('error', fail);
+      stream.end('{}');
+    });
+    expect(first).toContain('"event":"subscribed"');
+    expect(await pin()).not.toBe(409);
+    stream.destroy();
+    const end = Date.now() + 5_000;
+    while ((await pin()) !== 409) {
+      if (Date.now() > end) throw new Error('the subscription outlived its client');
+      await new Promise(ok => setTimeout(ok, 100));
+    }
+  } finally { stream?.destroy(); await doors.close(); await wire.close(); }
+}, 30_000);
+
 test('a connection slow to send its request, silent, trickling its head, or idle after an answer is closed; an answer that takes long is not', async () => {
   // (A wire reads the request's body before it answers, as the real one does.)
   const wire = { async handle(req, res) { for await (const _ of req); await new Promise(ok => setTimeout(ok, 600)); res.end('{}'); return true; } };
@@ -771,7 +807,7 @@ test('no answer to a remote client names this machine\'s directories; authored t
     for (const [who, request] of asked) replies.push([request, await app.remote(who, request)]);
     const body = i => JSON.parse(replies[i][1].text);
     expect(body(0).ok.app).toBe(basename(dir));
-    expect(body(0).ok.protocol).toBe('tamber/1.15'); // this change opened 1.15
+    expect(body(0).ok.protocol).toBe('tamber/1.17');
     const sites = body(4).ok.sites;
     expect(sites.length).toBeGreaterThan(0);
     const linkedName = sites[0].file;

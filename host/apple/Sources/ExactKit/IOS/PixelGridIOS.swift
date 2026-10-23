@@ -83,7 +83,12 @@ package enum PixelGrid {
     /// onto the grid inward: a scroll offset UIKit will not clamp off it.
     package static func clamp(_ v: CGFloat, _ low: CGFloat, _ high: CGFloat, scale s: CGFloat) -> CGFloat {
         let k = CGFloat(scale(s))
-        let lo = (low * k).rounded(.up) / k, hi = max(lo, (high * k).rounded(.down) / k)
+        // Native inset sums can miss an integral pixel by a few ULP.
+        func pixels(_ value: CGFloat) -> CGFloat {
+            let value = value * k, nearest = value.rounded()
+            return abs(value - nearest) <= max(1e-9, value.ulp * 8) ? nearest : value
+        }
+        let lo = pixels(low).rounded(.up) / k, hi = max(lo, pixels(high).rounded(.down) / k)
         return min(max(round(v, scale: s), lo), hi)
     }
 
@@ -91,6 +96,22 @@ package enum PixelGrid {
     package static func round(_ v: CGFloat, scale s: CGFloat) -> CGFloat {
         let scale = scale(s)
         return CGFloat(pixel(v, scale: scale)) / CGFloat(scale)
+    }
+
+}
+
+extension PixelGrid {
+    /// Programmatic offsets use the scroller's display. Unclamped writes
+    /// preserve a rubber band past the native range; in-range targets snap inward.
+    package static func offset(_ point: CGPoint, in scroll: UIScrollView, clamped: Bool = true) -> CGPoint {
+        let s = max(1, scroll.traitCollection.displayScale)
+        let i = scroll.adjustedContentInset
+        func snap(_ value: CGFloat, low: CGFloat, high: CGFloat) -> CGFloat {
+            if !clamped, value < low || value > max(low, high) { return round(value, scale: s) }
+            return clamp(value, low, high, scale: s)
+        }
+        return CGPoint(x: snap(point.x, low: -i.left, high: scroll.contentSize.width + i.right - scroll.bounds.width),
+                       y: snap(point.y, low: -i.top, high: scroll.contentSize.height + i.bottom - scroll.bounds.height))
     }
 }
 
@@ -196,7 +217,7 @@ extension Presenter {
         regridSlots()
         let s = gridScale
         for id in scrollers {
-            guard let v = views[id], let sv = v.scroll, !flying(v) else { continue }
+            guard let v = views[id], let sv = v.scrollView, !flying(v) else { continue }
             v.fitScroll()
             let i = sv.adjustedContentInset
             let offset = CGPoint(x: PixelGrid.clamp(sv.contentOffset.x, -i.left, sv.contentSize.width + i.right - sv.bounds.width, scale: s),

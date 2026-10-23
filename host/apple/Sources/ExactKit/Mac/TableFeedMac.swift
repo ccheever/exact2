@@ -36,6 +36,10 @@ import AppKit
 private final class TableSeparatorRowView: NSTableRowView {
     var separates = true { didSet { if separates != oldValue { needsDisplay = true } } }
     weak var appearanceSource: NodeView? { didSet { if appearanceSource !== oldValue { needsDisplay = true } } }
+    override func drawSelection(in dirtyRect: NSRect) {
+        guard (view(atColumn: 0) as? TableRowCell)?.paintsSelection != false else { return }
+        super.drawSelection(in: dirtyRect)
+    }
     private func drawSystemSeparator(in dirtyRect: NSRect) { super.drawSeparator(in: dirtyRect) }
     override func drawSeparator(in dirtyRect: NSRect) {
         guard separates else { return }
@@ -63,6 +67,18 @@ final class TableRowCell: NSTableCellView {
     /// failing one at whatever text field it finds in the cell (measured on
     /// macOS 27.0: an author's field at the row's end took the separator
     /// with it). So the separator is inset to the row's text, by AppKit.
+    var paintsSelection: Bool {
+        guard let node = row.flatMap({ feed?.row(of: $0) }).flatMap({ feed?.pressing($0) }) else { return true }
+        return !node.authorsPress || !node.pressed
+    }
+    private var paintedSelection = true
+    func syncSelectionPaint() {
+        let paints = paintsSelection
+        guard paints != paintedSelection else { return }
+        paintedSelection = paints
+        superview?.needsDisplay = true
+        row?.rowEmphasisChanged(paints && backgroundStyle == .emphasized)
+    }
     private let lead = NSTextField(labelWithString: "")
     init(feed: TableFeed) {
         self.feed = feed
@@ -77,7 +93,7 @@ final class TableRowCell: NSTableCellView {
     /// its window key and the table first responder. What Exact paints in
     /// the row takes the selected item's ink then (TableInkMac.swift).
     override var backgroundStyle: NSView.BackgroundStyle {
-        didSet { if backgroundStyle != oldValue { row?.rowEmphasisChanged(backgroundStyle == .emphasized) } }
+        didSet { if backgroundStyle != oldValue { row?.rowEmphasisChanged(paintsSelection && backgroundStyle == .emphasized) } }
     }
 
     /// Take `node` in. It is placed when the cell is in its row's view
@@ -85,6 +101,7 @@ final class TableRowCell: NSTableCellView {
     func adopt(_ node: NodeView) {
         if row !== node { sendHome(); textMoved = true }
         row = node
+        syncSelectionPaint()
         if node.superview !== self {
             // Where the presenter has it: layout's frame, in the document.
             kernel = (node.superview as? TableRowCell)?.kernel ?? node.frame
@@ -93,7 +110,7 @@ final class TableRowCell: NSTableCellView {
             feed?.moved()
             textMoved = true
             node.rowDisclosure(hidden: true)
-            if backgroundStyle == .emphasized { node.rowEmphasisChanged(true) }
+            if backgroundStyle == .emphasized { node.rowEmphasisChanged(paintsSelection) }
         }
         place()
     }

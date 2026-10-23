@@ -29,6 +29,122 @@ final class VisibilityMacTests: XCTestCase {
         return [c.redComponent, c.greenComponent, c.blueComponent, c.alphaComponent]
     }
 
+    func testHidingAnEditedFieldDefersItsChangeUntilAfterTheStyleBatch() throws {
+        let p = presenter(), window = try XCTUnwrap(window)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "input", "props": ["value": "Before"], "handlers": ["input", "change"]],
+            ["op": "roots", "ids": [1]], ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 150, "h": 40]
+        ]))
+        let node = try XCTUnwrap(p.views[1]), field = try XCTUnwrap(node.field)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor())
+        editor.string = "After"
+        field.stringValue = "After"
+        p.typed(1, "After", input: false)
+        var changes: [String] = []
+        var styling = true
+        p.onChange = { _, value in XCTAssertFalse(styling); changes.append(value) }
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["visibility": "hidden"]]]))
+        styling = false
+        XCTAssertEqual(changes, [])
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while changes.isEmpty, Date() < deadline { RunLoop.main.run(mode: .default, before: deadline) }
+        XCTAssertEqual(changes, ["After"])
+        XCTAssertTrue(field.isHidden)
+    }
+
+    func testAuthoredBackgroundPaintsAboveTheNativeMaterial() throws {
+        let p = presenter()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "props": ["backgroundMaterial": "ultra-thin"], "style": ["background_color": [255, 0, 0, 255]]],
+            ["op": "create", "id": 2, "kind": "view", "style": ["background_color": [0, 0, 255, 255]]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 120, "h": 100],
+            ["op": "frame", "id": 2, "x": 40, "y": 40, "w": 20, "h": 20],
+        ]))
+        let node = try XCTUnwrap(p.views[1]), child = try XCTUnwrap(p.views[2])
+        window?.orderFrontRegardless()
+        func picture() throws -> NSBitmapImageRep { try XCTUnwrap(Capture.picture(of: p.viewport)) }
+        var rep = try picture()
+        XCTAssertGreaterThan(rgba(rep, 20, 20)[0], 0.9)
+        let materialRed = rgba(rep, 20, 20)
+        XCTAssertGreaterThan(materialRed[0], 2 * materialRed[1])
+        XCTAssertGreaterThan(rgba(rep, 50, 50)[2], 0.9, "content stays above the fill")
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["background_color": [0, 255, 0, 255]]]]))
+        rep = try picture()
+        XCTAssertGreaterThan(rgba(rep, 20, 20)[1], 0.9)
+        XCTAssertLessThan(rgba(rep, 20, 20)[0], 0.1)
+        p.apply(wireBatch([["op": "props", "id": 1, "clear": ["backgroundMaterial"]]]))
+        rep = try picture()
+        XCTAssertGreaterThan(rgba(rep, 20, 20)[1], 0.9)
+        XCTAssertNil(node.materialView)
+        XCTAssertTrue(child.superview === node.container)
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["background_color": [255, 0, 0, 255]]]]))
+        let plainRed = rgba(try picture(), 20, 20)
+        for (material, plain) in zip(materialRed, plainRed) {
+            XCTAssertEqual(material, plain, accuracy: 1.0 / 255, "an opaque authored fill is unchanged by the material below")
+        }
+    }
+
+    func testAnOpaqueMaterialFillKeepsItsBorderAboveTheFill() throws {
+        let p = presenter()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "props": ["backgroundMaterial": "ultra-thin"],
+             "style": ["background_color": [255, 0, 0, 255], "border_width": 1, "border_color_top": [0, 0, 255, 255]]],
+            ["op": "roots", "ids": [1]], ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 120, "h": 100],
+        ]))
+        window?.orderFrontRegardless()
+        for mode in ["layer", "drawn", "clipped"] {
+            var style: [String: Any] = ["background_color": [255, 0, 0, 255], "border_width": 1, "border_color_top": [0, 0, 255, 255]]
+            if mode == "drawn" { style["border_color_right"] = [0, 255, 0, 255] }
+            if mode == "clipped" { style["overflow_x"] = "hidden"; style["overflow_y"] = "hidden" }
+            p.apply(wireBatch([["op": "style", "id": 1, "style": style]]))
+            if mode == "clipped" { XCTAssertEqual(p.views[1]?.layer?.borderWidth, 1, "a clipping border remains above the children") }
+            let rep = try XCTUnwrap(Capture.picture(of: p.viewport))
+            XCTAssertGreaterThan(rgba(rep, 20, 20)[0], 0.9)
+            let top = rgba(rep, 40, 0)
+            XCTAssertGreaterThan(top[2], 0.9, "border stays above the opaque material fill, mode=\(mode): \(top)")
+            XCTAssertLessThan(top[0], 0.1)
+        }
+    }
+
+    func testAMaterialLeavesUnauthoredSheetGroundUnpainted() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        let sheet = SheetWindow(contentRect: NSRect(x: 0, y: 0, width: 120, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        sheet.isReleasedWhenClosed = false
+        sheet.appearance = NSAppearance(named: .darkAqua)
+        sheet.contentView = p.viewport
+        window = sheet
+        let ground: [String: Any] = ["sys": "windowBackgroundColor", "c": [[255, 255, 255, 255], [30, 30, 30, 255]]]
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "props": ["backgroundMaterial": "ultra-thin"], "style": ["background_color": ground]],
+            ["op": "roots", "ids": [1]], ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 120, "h": 100],
+        ]))
+        let node = try XCTUnwrap(p.views[1]), content = try XCTUnwrap(node.materialContent)
+        XCTAssertTrue(node.standsOnSheetGround)
+        func alpha() throws -> CGFloat { rgba(try XCTUnwrap(Capture.picture(of: content)), 30, 30)[3] }
+        XCTAssertLessThan(try alpha(), 0.01, "the material shows the sheet's native ground")
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["background_color": ground, "written": ["background_color"]]]]))
+        XCTAssertFalse(node.standsOnSheetGround)
+        XCTAssertGreaterThan(try alpha(), 0.99, "an explicitly authored system colour still paints")
+    }
+
+    func testHiddenBackdropBlurIsRemovedAndRestored() throws {
+        let p = presenter()
+        let blur: [String: Any] = ["backdrop_filter": [["blur": 10.0]]]
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "props": ["id": "blur"], "style": blur],
+            ["op": "roots", "ids": [1]], ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 100, "h": 100]
+        ]))
+        let layer = try XCTUnwrap(p.views[1]?.layer)
+        XCTAssertFalse(layer.backgroundFilters?.isEmpty ?? true)
+        p.apply(wireBatch([["op": "style", "id": 1, "style": blur.merging(["visibility": "hidden"]) { $1 }]]))
+        XCTAssertTrue(layer.backgroundFilters?.isEmpty ?? true)
+        p.apply(wireBatch([["op": "style", "id": 1, "style": blur]]))
+        XCTAssertFalse(layer.backgroundFilters?.isEmpty ?? true)
+    }
+
     func testAVisibleDescendantOfAHiddenBoxPaintsAndIsHit() throws {
         let p = presenter()
         p.apply(wireBatch([

@@ -2,7 +2,7 @@
 //! and free names share a small pool, substituting then evaluating agrees
 //! with evaluating each replacement first and binding its value.
 
-use super::substituted;
+use super::subst::substituted;
 use crate::ast::{BinOp, Expr};
 use crate::Span;
 use std::collections::BTreeMap;
@@ -260,7 +260,7 @@ fn a_shared_derive_is_evaluated_exactly_where_its_readers_evaluated_it() {
         let src = derive_source(&mut rng, derives);
         let file = crate::parse(&src).unwrap_or_else(|e| panic!("{e}\n{src}"));
         let c = &file.components[0];
-        let resolved = super::resolved_derives(c, &Default::default()).unwrap();
+        let resolved = super::resolved_derives(c).unwrap();
         let authored: BTreeMap<String, Expr> = c
             .derives
             .iter()
@@ -406,4 +406,32 @@ component Editor
         plain.owners.last(),
         Some(super::Owner::Arm { arm: 0, .. })
     ));
+}
+
+#[test]
+fn a_renamed_expression_let_preserves_call_heads_and_renames_value_references() {
+    let span = Span::default();
+    let id = |name: &str| Expr::Ident(name.into(), span);
+    let call = |name: &str, args| Expr::Call(name.into(), args, span);
+    let expr = Expr::Let {
+        name: "pick".into(),
+        value: Box::new(Expr::Number(7.0, span)),
+        body: Box::new(call("pick", vec![id("pick"), id("extra")])),
+        span,
+    };
+    let map = BTreeMap::from([
+        ("pick".into(), call("choose", vec![Expr::Number(3.0, span)])),
+        ("extra".into(), id("pick")),
+    ]);
+    let records = Default::default();
+    let got = substituted(&expr, &map, &records);
+    let Expr::Let { name, body, .. } = got else {
+        panic!("{got:?}")
+    };
+    assert_ne!(name, "pick");
+    assert_eq!(*body, call("pick", vec![id(&name), id("pick")]));
+    assert_eq!(
+        substituted(&call("pick", vec![id("extra")]), &map, &records),
+        call("choose", vec![Expr::Number(3.0, span), id("pick")])
+    );
 }

@@ -9,10 +9,11 @@ import { runInNewContext } from 'node:vm';
 const moduleSource = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8');
 const withoutPrompt = ['prompt-glue', 'alert-message'].reduce((source, name) => { const out = source.replace(new RegExp(`^import\\s+["']\\./${name}\\.js["'];[^\\n]*\\n`, 'm'), ''); if (out === source) throw new Error(`input glue must retain its ${name} side-effect import`); return out; }, moduleSource);
 const source = withoutPrompt.replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput');
-function page(chords) {
+// `shown`: the buttons have boxes; `marked`: each is a Back control its route's bar stands for (navigation.js).
+function page(chords, { shown = true, marked = false } = {}) {
   const clicks = [], listeners = [];
-  const buttons = chords.map(chord => ({ isConnected: true, disabled: false, getClientRects: () => [{}],
-    getAttribute: () => chord, click() { clicks.push(chord); } }));
+  const buttons = chords.map(chord => ({ isConnected: true, disabled: false, getClientRects: () => (shown ? [{}] : []),
+    hasAttribute: name => marked && name === 'data-exact-bar-back', getAttribute: () => chord, click() { clicks.push(chord); } }));
   const context = {
     document: { addEventListener(kind, fn, capture) { if (kind === 'keydown' && capture) listeners.push(fn); }, activeElement: { closest: () => null },
       getElementById: id => (id === 'exact-snap' ? {} : null), styleSheets: [] },
@@ -54,4 +55,11 @@ test('the fallback keeps the chord\'s modifiers and refuses keys it cannot name'
     p.key('ㅠ', 'IntlRo'), p.key('ㅠ', undefined), p.key(undefined, 'KeyB'), p.key('Process', 'KeyB')]).toEqual([false, false, false, false, false, false, false]);
   expect(p.key('ㅠ', 'KeyB', { metaKey: false, ctrlKey: true })).toBe(true);
   expect(p.clicks).toEqual(['Control+B']);
+});
+
+// LLP 1116.000 D4: a Back control the bar stands for is not shown, and its chord still presses it; a button that is
+// not shown otherwise takes none.
+test('a Back control the bar stands for keeps its chord', () => {
+  const hidden = page(['Meta+['], { shown: false }), marked = page(['Meta+['], { shown: false, marked: true });
+  expect([hidden.key('[', 'BracketLeft'), hidden.clicks, marked.key('[', 'BracketLeft'), marked.clicks]).toEqual([false, [], true, ['Meta+[']]);
 });

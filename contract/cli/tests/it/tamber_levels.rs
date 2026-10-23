@@ -382,8 +382,8 @@ fn icon_params_param_aliases_and_literals() {
     let lift = ask(&mut s, "explain", &format!("{MAP}.lift"));
     assert_eq!(lift.get("levels"), Some(&Value::Null), "{lift}");
     drop(s);
-    // An app component's icon param naming the app's icon (a package's
-    // icons are not read yet).
+    // An app component's icon param naming the app's icon (a package's,
+    // stage 13: `package_icons.rs`).
     std::fs::write(dir.join("app.contract"), "use Card from \"@acme/reading\"\ncomponent Badge\n  params\n    mark: icon = \"icon.app\"\n  view\n    image \"symbol:param.mark\"\ncomponent App\n  view\n    column\n      Card()\n      Badge()\n").unwrap();
     let mut s = Serve::start(&dir, &[]);
     let mark = ask(&mut s, "resolve", "app.contract#Badge.mark");

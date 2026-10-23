@@ -353,6 +353,9 @@ extension ExactSession {
         readsOnLineKnown = (generation, reads)
         apply(runtime.setPage(PageFacts.bits(pageWindow, page: view?.window, readsOnLine: reads)))
         apply(runtime.setRootFontSize(PageFacts.rootFontSize))
+        #if os(macOS)
+        if rootZoom != 1 { apply(runtime.setRootFontZoom(rootZoom)) } // a new runner's, View ▸ Zoom In (ZoomMac.swift)
+        #endif
         tellDisplayScale()
     }
     /// LLP 1115.000 D10.3: the display's scale, told with the page's facts

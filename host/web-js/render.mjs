@@ -82,7 +82,10 @@ export function renderer(dist) {
       const digest = createHash('sha256').update(out.root).digest('hex').slice(0, 16);
       const rest = `${fields}\n<div id="exact-root"${rootAttrs}>${out.root}</div>${shell.slice(root + ROOT[0].length, entry)}`
         + `<script type="application/vnd.exact.checkpoint" data-digest="${digest}" data-activate="${info.activate}">${checkpoint.replace(/</g, '\\u003c')}</script>${shell.slice(entry + ENTRY.length)}`;
-      return { html: head + rest, rest, status: info.notfound ? 404 : 200, settled: !out.pending.length, render: out.render, location, policy: info.policy };
+      // A complete page marks html; a streamed head has gone already, so mark it before the body, as page.rs does.
+      const markedHead = out.scrollDocument ? head.replace('<html ', '<html data-scrolldocument ') : head;
+      const mark = out.scrollDocument ? '<script>document.documentElement.setAttribute("data-scrolldocument","")</script>\n' : '';
+      return { html: markedHead + rest, rest: mark + rest, status: info.notfound ? 404 : 200, settled: !out.pending.length, render: out.render, location, policy: info.policy };
     } };
   }
   const render = async (location, deadline = DEADLINE) => (await begin(location)).finish(deadline);

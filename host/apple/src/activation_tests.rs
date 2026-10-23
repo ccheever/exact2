@@ -415,6 +415,41 @@ fn app_side_writes_publish_without_reasking_a_time_varying_reader() {
         "{\"ops\":[],\"unchanged\":true}",
         "an archive without I/O performs no commit"
     );
+    struct UnboundWriter(bool);
+    impl DataSource for UnboundWriter {
+        fn app_id(&self) -> &str {
+            "test.exact.wp12-self"
+        }
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            unreachable!()
+        }
+        fn take_storage_changed(&mut self) -> bool {
+            std::mem::take(&mut self.0)
+        }
+    }
+    let before_unbound = counter();
+    let plan = contract::compile("component App\n  view\n    text \"Widget\"\n")
+        .unwrap()
+        .encode();
+    let (_unbound, _) = Host::boot_stored(
+        &plan,
+        UnboundWriter(true),
+        Box::new(MonospaceMeasurer::default()),
+        300.,
+        200.,
+        None,
+        Vec::new(),
+        None,
+    )
+    .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while counter() <= before_unbound && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(
+        counter() > before_unbound,
+        "an app:/ write publishes even without an endowed secrets store"
+    );
     // The publisher owns only queued paths; wait for both the boot and action counters before removal.
     let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
     while std::fs::read_to_string(root.join("widget-store-generation"))
@@ -738,4 +773,226 @@ fn refused_data_ready_survives_an_unrelated_change_and_store_refusals_are_journa
         .runner
         .journal()
         .any(|line| line.contains("store changed refused")));
+}
+
+struct RefusedWrite {
+    refusing: Arc<AtomicBool>,
+    attempts: Arc<Mutex<Vec<exact_runner::StoreWrite>>>,
+}
+impl crate::store::KeptStore for RefusedWrite {
+    fn snapshot(&self, previous: Vec<(String, Vec<u8>)>) -> crate::store::StoreRead {
+        crate::store::StoreRead {
+            values: previous,
+            omitted: Vec::new(),
+            complete: true,
+        }
+    }
+    fn write(&self, write: &exact_runner::StoreWrite) -> Result<(), String> {
+        self.attempts.lock().unwrap().push(write.clone());
+        if self.refusing.load(Ordering::SeqCst) {
+            Err("injected storage full".into())
+        } else {
+            Ok(())
+        }
+    }
+    fn kept_failures(&self) -> Vec<String> {
+        Vec::new()
+    }
+}
+
+#[test]
+fn failed_persistence_is_reported_and_retried_without_another_value_change() {
+    let plan = contract::compile("component App\n  state count = 0 persist\n  action step\n    count = count + 1\n  action keep\n    count = count\n  view\n    text \"State\"\n").unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        ChangingReader {
+            asks: Arc::new(AtomicUsize::new(0)),
+        },
+        Box::new(MonospaceMeasurer::default()),
+        300.,
+        200.,
+    )
+    .unwrap();
+    host.runner.take_store_writes();
+    let refusing = Arc::new(AtomicBool::new(true));
+    let attempts = Arc::new(Mutex::new(Vec::new()));
+    host.secrets = Some(Box::new(RefusedWrite {
+        refusing: refusing.clone(),
+        attempts: attempts.clone(),
+    }));
+    let mut act = |name| {
+        let receipt = host.runner.act(name, vec![]).unwrap();
+        serde_json::from_str::<serde_json::Value>(
+            &host.commit(&[Timed { at_ms: 0., receipt }], None),
+        )
+        .unwrap()
+    };
+    let failed = act("step");
+    assert!(
+        failed["error"].is_null(),
+        "committed work is accepted: {failed}"
+    );
+    refusing.store(false, Ordering::SeqCst);
+    let retried = act("keep");
+    assert!(retried["error"].is_null(), "{retried}");
+    assert_eq!(
+        attempts.lock().unwrap().len(),
+        2,
+        "an unchanged value still retries its failed write"
+    );
+    refusing.store(true, Ordering::SeqCst);
+    act("step");
+    refusing.store(false, Ordering::SeqCst);
+    act("step");
+    act("keep");
+    let attempts = attempts.lock().unwrap();
+    let values: Vec<serde_json::Value> = attempts
+        .iter()
+        .map(|w| serde_json::from_slice(w.value.as_ref().unwrap()).unwrap())
+        .collect();
+    assert_eq!(
+        values,
+        serde_json::json!([1, 1, 2, 3])
+            .as_array()
+            .unwrap()
+            .as_slice(),
+        "a newer value supersedes the pending write; success clears it"
+    );
+}
+
+#[test]
+fn persistence_failure_does_not_refuse_navigation_or_completed_activation() {
+    let plan = contract::compile(
+        r#"routes nav
+  home "/"
+  next "/next"
+component App
+  state count = 0 persist
+  action step
+    count = count + 1
+  action go
+    nav = push(nav, "/next")
+  view
+    text top(nav).name
+"#,
+    )
+    .unwrap()
+    .encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        ChangingReader {
+            asks: Arc::new(AtomicUsize::new(0)),
+        },
+        Box::new(MonospaceMeasurer::default()),
+        300.,
+        200.,
+    )
+    .unwrap();
+    host.runner.take_store_writes();
+    host.secrets = Some(Box::new(RefusedWrite {
+        refusing: Arc::new(AtomicBool::new(true)),
+        attempts: Arc::new(Mutex::new(Vec::new())),
+    }));
+    for name in ["step", "go"] {
+        let receipt = host.runner.act(name, vec![]).unwrap();
+        let batch: serde_json::Value =
+            serde_json::from_str(&host.commit(&[Timed { at_ms: 0., receipt }], None)).unwrap();
+        assert!(batch["error"].is_null(), "{name} committed: {batch}");
+    }
+    assert!(host
+        .runner
+        .journal()
+        .any(|s| s.contains("injected storage full")));
+    assert_eq!(host.pending_store_writes.len(), 1);
+
+    let plan = contract::compile("shape Text\n  value: string\ncomponent App\n  resource favourite = favourite() as shape Text\n  view\n    text favourite.value\n").unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        DeferredChangingReader {
+            asks: Arc::new(AtomicUsize::new(0)),
+            ready: false,
+        },
+        Box::new(MonospaceMeasurer::default()),
+        300.,
+        200.,
+    )
+    .unwrap();
+    host.secrets = Some(Box::new(RefusedWrite {
+        refusing: Arc::new(AtomicBool::new(true)),
+        attempts: Arc::new(Mutex::new(Vec::new())),
+    }));
+    let batch: serde_json::Value = serde_json::from_str(&host.activate_data()).unwrap();
+    assert!(batch["error"].is_null(), "data_ready succeeded: {batch}");
+    assert_eq!(batch["storeActivationPending"], false);
+    assert_eq!(batch["storeReadPending"], false);
+    assert!(!host.pending_store_writes.is_empty());
+}
+
+#[test]
+fn accepted_peer_snapshot_supersedes_a_failed_local_write() {
+    struct SharedWrites {
+        values: Arc<Mutex<std::collections::BTreeMap<String, Vec<u8>>>>,
+        refusing: Arc<AtomicBool>,
+    }
+    impl crate::store::KeptStore for SharedWrites {
+        fn snapshot(&self, _: Vec<(String, Vec<u8>)>) -> crate::store::StoreRead {
+            crate::store::StoreRead {
+                values: self.values.lock().unwrap().clone().into_iter().collect(),
+                omitted: vec![],
+                complete: true,
+            }
+        }
+        fn write(&self, write: &exact_runner::StoreWrite) -> Result<(), String> {
+            if self.refusing.load(Ordering::SeqCst) {
+                return Err("injected I/O failure".into());
+            }
+            let mut values = self.values.lock().unwrap();
+            if let Some(value) = &write.value {
+                values.insert(write.name.clone(), value.clone());
+            } else {
+                values.remove(&write.name);
+            }
+            Ok(())
+        }
+        fn kept_failures(&self) -> Vec<String> {
+            vec![]
+        }
+    }
+    let plan = contract::compile("component App\n  state count = 0 persist\n  action step\n    count = count + 1\n  view\n    text `${count}`\n").unwrap().encode();
+    let values = Arc::new(Mutex::new(std::collections::BTreeMap::new()));
+    let refusing = Arc::new(AtomicBool::new(true));
+    let mut hosts: Vec<_> = (0..2)
+        .map(|i| {
+            let (mut host, _) = Host::boot(
+                &plan,
+                ChangingReader {
+                    asks: Arc::new(AtomicUsize::new(0)),
+                },
+                Box::new(MonospaceMeasurer::default()),
+                300.,
+                200.,
+            )
+            .unwrap();
+            host.activate_data();
+            host.runner.take_store_writes();
+            host.secrets = Some(Box::new(SharedWrites {
+                values: values.clone(),
+                refusing: if i == 0 {
+                    refusing.clone()
+                } else {
+                    Arc::new(AtomicBool::new(false))
+                },
+            }));
+            host
+        })
+        .collect();
+    for i in [0, 1, 1] {
+        let receipt = hosts[i].runner.act("step", vec![]).unwrap();
+        hosts[i].commit(&[Timed { at_ms: 0., receipt }], None);
+    }
+    refusing.store(false, Ordering::SeqCst);
+    hosts[0].refresh_store();
+    assert_eq!(hosts[0].runner.slot("count"), Some(&Value::Number(2.)));
+    assert_eq!(values.lock().unwrap()["exact.state.count"], b"2");
+    assert!(hosts[0].pending_store_writes.is_empty());
 }

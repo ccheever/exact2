@@ -199,3 +199,29 @@ test("the JS loop: an edit to theme-fixture's `when` token builds with setMode a
     rmSync(dir, { recursive: true, force: true });
   }
 }, 1_200_000);
+
+test('the JS loop: two loops on two apps under one target/ build at once, each into its own stage', async () => {
+  const app = (name) => {
+    const dir = mkdtempSync(join(tmpdir(), `exact-stage-${name}-`));
+    writeFileSync(join(dir, 'app.json'), JSON.stringify({ name, app: { id: `com.exact.${name}`, name } }));
+    writeFileSync(join(dir, 'app.contract'), `component App\n  view\n    text "${name}"\n`);
+    writeFileSync(join(dir, 'app.tamber'), `tamber ${name}\n\ntheme\n  ink = #000000\n`);
+    return dir;
+  };
+  const dirs = [app('stagea'), app('stageb')];
+  let loops = [];
+  try {
+    // The first's end held 8 s: the second's whole build lands inside it (one stage between them was emptied under
+    // the first, which then built nothing, or the other's files).
+    // One target/ for both, named (an app outside a workspace otherwise gets <its dir>/target).
+    const target = process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target');
+    loops = await Promise.all([devLoop(dirs[0], { EXACT_DEV_BUILD_HOLD_MS: '8000', CARGO_TARGET_DIR: target }), devLoop(dirs[1], { CARGO_TARGET_DIR: target })]);
+    for (const [i, name] of ['stagea', 'stageb'].entries()) {
+      expect(loops[i].said()).not.toContain('does not build');
+      expect(JSON.parse(readFileSync(join(loops[i].dist, '.exact-build.json'), 'utf8')).app.id).toBe(`com.exact.${name}`);
+    }
+  } finally {
+    await Promise.all(loops.map(l => l.stop()));
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+  }
+}, 1_200_000);

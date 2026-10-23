@@ -1,0 +1,651 @@
+// Excord (apps/excord/llp/0001): a Discord client. Stage 1 is the transcript and
+// its composer on iOS, against the fixture server (§3, §4.2, §4.4).
+//
+// The data seam is §4.2's: `gatewayState` is the gateway's stream and its small
+// snapshot (a version for the lists and one per channel); each list is a
+// resource taking its version, and the transcript is one resource, `loadWindow`,
+// answering one contiguous run of at most 200 messages around `anchor` ("" is
+// the live tail).
+// Paging moves the anchor a page ahead of the reader (`scrolled`, with
+// `reachstart` and `reachend` behind it); a jump replaces the window and places
+// its target with `scrollIntoView`.
+
+use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Gateway, Session, Ack, Sent from "./shapes.contract"
+use MessageRow from "./transcript.contract"
+use Badge from "exact:content"
+
+shape Time
+  epochAtZero: number
+  utcOffset: number
+
+// Where a reader left a channel, kept for the session (§3.3).
+shape Place
+  channel: string
+  anchor: string
+  key: string
+  offset: number
+  atEnd: bool
+
+routes nav
+  home "/"
+    channel "/c/:channel"
+
+fn channelOf(cs: Channel[], id: string): Channel = match first(cs.filter(c => c.id == id)) { case some(c) => c, case none => Channel(id="", guild="", name="", topic="", version=0, unread=0, mentions=0, firstUnread="", firstUnreadAt=0, lastRead="", arrived=0, typing="") }
+// The gateway holds a session, or is opening one, so the heartbeat runs.
+fn connected(state: string): bool = state == "awaiting-hello" or state == "identifying" or state == "resuming" or state == "ready"
+
+// Drafts are kept per channel, across launches, as `channel\ttext` entries.
+fn draftOf(drafts: string[], channel: string): string = match first(drafts.filter(d => d.startsWith(`${channel}\t`))) { case some(d) => d.slice(channel.length + 1), case none => "" }
+fn withDraft(drafts: string[], channel: string, text: string): string[] = drafts.filter(d => not d.startsWith(`${channel}\t`)).concat(text == "" ? [] : [`${channel}\t${text}`])
+
+fn placeOf(places: Place[], channel: string): Place = match first(places.filter(p => p.channel == channel)) { case some(p) => p, case none => Place(channel="", anchor="", key="", offset=0, atEnd=true) }
+
+// A row's key for a message id: a send confirmed here keeps its nonce as key.
+fn keyOf(rows: Message[], id: string): string = match first(rows.filter(r => r.id == id)) { case some(r) => r.key, case none => id }
+// The page's visibility, for acknowledging what the reader sees (§2: an ack is a
+// write, sent as the official client sends it).
+shape Page
+  visibilityState: string
+
+component Excord
+  state now = 0
+  state open = ""
+  state anchor = ""
+  state since = ""
+  state away = false
+  state endGap = 0
+  state settling = false
+  state topKey = ""
+  state topOffset = 0
+  state places: Place[] = []
+  state drafts: string[] = [] persist
+  state replyTo = ""
+  state replyName = ""
+  state editing = ""
+  state editError = ""
+  state stash = ""
+  state savingChannel = ""
+  state savingId = ""
+  state savingStash = ""
+  state unreadBar = false
+  state unreadLabel = ""
+  state ackTries = 0
+  state pageTries = 0
+  state baseArrived = 0
+  state followed = 0
+  state highlight = ""
+  state target = ""
+  state targetBlock = "center"
+  state restoreOffset = 0
+  state jumpFromAnchor = ""
+  state jumpFromKey = ""
+  state jumpFromOffset = 0
+  state revealed: string[] = []
+  state aimed = ""
+  state aimedId = ""
+  state aimedText = ""
+  state aimedMine = false
+  state aimedAuthor = ""
+  state swipeKey = ""
+  state swipeX = 0
+  state dragging = false
+  state live = false
+  state slow = false
+  state lagAnchor = ""
+  state lagVersion = 0
+  resource time = exactTime() as shape Time
+  resource page = exactPage() as shape Page
+  // The gateway opens once the kept credentials are read, which only `session` reads, so
+  // keeping a new identify or token re-asks it and not the socket. The launch's epoch makes
+  // the session clock real from its first step.
+  resource session = loadSession() as shape Session else empty()
+  resource gateway = gatewayState(session.ready) with time.epochAtZero as shape Gateway else empty(state="connecting")
+  resource guilds = loadGuilds(gateway.sidebar) as shape Guild[] else empty()
+  derive guild = match first(guilds) { case some(g) => g, case none => Guild(id="", name="", unread=false, mentions=0) }
+  resource channels = loadChannels(guild.id, gateway.sidebar) as shape Channel[] else empty()
+  resource dms = loadDms(gateway.sidebar) as shape Channel[] else empty()
+  // The snapshot carries the versions of the channel on screen; until it names the
+  // one just opened, the lists' version stands in, which moves with its changes too.
+  derive chanVersion = gateway.channel == open ? gateway.version : gateway.sidebar
+  derive histVersion = gateway.channel == open ? gateway.history : gateway.sidebar
+  resource chan = loadChannel(open, chanVersion) as shape Channel else empty()
+  // Slow history (the fixture's): the window is asked with the anchor and version as of
+  // the last pump, every 150 ms of the test clock, as a real store's page takes a while.
+  // The delay is in the request because a data module has no clock, and a native
+  // host refuses an answer that waits on a promise another call settles.
+  derive askAnchor = slow ? lagAnchor : anchor
+  derive askVersion = slow ? lagVersion : histVersion
+  resource win = loadWindow(open, askAnchor, askVersion, since) as shape Window else empty()
+  // A send shows at once (`echoed`, the local row), then posts (`sent`).
+  mutation echoed as shape Sent queue refreshes win, chan then postEchoed
+  mutation sent as shape Ack queue refreshes win, chan, channels
+  mutation changed as shape Ack queue refreshes win, chan, channels, dms, guilds
+  mutation edited as shape Ack refreshes win then afterEdit
+  // An ack changes the read state, not the history the window shows.
+  mutation acked as shape Ack queue refreshes chan, channels, dms, guilds then afterAck
+  // The page the window names (`win.need`), one at a time.
+  mutation paged as shape Ack queue refreshes win, chan then afterPage
+  mutation beat as shape Ack
+  // The clock moved on and the gateway asked again: a backoff's retry.
+  mutation redialed as shape Ack refreshes gateway
+  // An IDENTIFY goes out only once its record is kept (`recorded`), else the gateway stops.
+  mutation recorded as shape Ack then identifyNow
+  mutation identified as shape Ack
+  mutation typed as shape Ack
+  mutation joined as shape Ack
+  derive rows = win.channel == open ? win.rows : []
+  derive keys = rows.map(r => r.key)
+  derive lastKey = match rows.at(-1) { case some(r) => r.key, case none => "" }
+  derive dividerKey = match first(rows.filter(r => r.isNew)) { case some(r) => r.key, case none => "" }
+  // The window answers the reader's present request (a page or a jump has
+  // landed). A window's pin asks for the same rows, so pinning it keeps it current.
+  // A window still lacking the page that holds its anchor (or its tail) answers nothing yet.
+  derive current = win.channel == open and (win.anchor == anchor or win.pin == anchor) and win.need != "around" and win.need != "latest"
+  // The transcript is on screen, not the channel list.
+  derive reading = top(nav).name == "channel"
+  derive draft = draftOf(drafts, open)
+  derive editFailure = match edited { case some(r) => (r.ok ? "" : r.error), case none => "" }
+  derive clock = time.epochAtZero + now
+  derive newCount = max(0, chan.arrived - baseArrived)
+  derive unreadText = `${win.unread}${win.unreadMore ? "+" : ""} new ${win.unread == 1 and not win.unreadMore ? "message" : "messages"} since ${formatTime(win.unreadAt, time.utcOffset, "short")}`
+
+  task tick mount
+    every(60000, step)
+  // The heartbeat is the gateway session's (`discord/gateway.ts`); this asks it each
+  // second whether one is due, which is also the data module's clock.
+  task heartbeat when connected(gateway.state)
+    every(1000, beatNow)
+  // A dropped connection resumes once its backoff has passed.
+  task redial when gateway.state == "backoff"
+    every(1000, redialNow)
+  task record when gateway.state == "recording"
+    after(1, recordNow)
+  task traffic when live and open != ""
+    every(2500, trafficTick)
+  // Discord's typing lasts ten seconds unless sent again.
+  task typingEnds when chan.typing != "" key=chan.version
+    after(10000, stopTyping)
+  task unhighlight when highlight != "" key=highlight
+    after(2500, clearHighlight)
+  // A jump, a restored place or a return to the present lands once the window
+  // holding it has.
+  task land when target != "" and current key=target
+    after(1, landJump)
+  // A message arriving while the reader is within a row of the end is followed
+  // (§3.7); the list follows by itself only from the end exactly.
+  task follow when current and anchor == "" and not away and chan.arrived > followed key=chan.arrived
+    after(1, followEnd)
+  // What the reader has seen at the end is acknowledged a second after it shows,
+  // while the transcript is in front: at most one ack a second. Leaving the end
+  // or the channel acknowledges at once what was on screen (`scrolled`, `back`).
+  // It is asked again when the channel changes (a message reached the tail after the
+  // ack chose its newest) and after a failed ack, at most three times.
+  task ack when reading and current and anchor == "" and not away and chan.unread > 0 and page.visibilityState == "visible" key=`${chan.version}/${ackTries}`
+    after(1000, ackNow)
+  // The page the window lacks; a failed one is asked again, at most three times.
+  task fetchPage when win.channel == open and win.need != "" and pageTries < 3 and not pending(paged) key=`${win.channel}/${win.need}/${win.cursor}/${pageTries}`
+    after(1, pageNow)
+  // The bar says what was unread when the channel opened: its label is held from
+  // the first window that answers it, as arrivals and sends move the count on.
+  task unreadLands when unreadBar and unreadLabel == "" and win.channel == open
+    after(1, holdUnread)
+  task pumping when slow
+    every(150, pumpNow)
+
+  action step
+    now = performanceNow()
+  action beatNow
+    send beat = heartbeat(time.epochAtZero + performanceNow())
+  action redialNow
+    send redialed = heartbeat(time.epochAtZero + performanceNow())
+  action recordNow
+    send recorded = recordIdentify()
+  action identifyNow
+    send identified = sendIdentify()
+  action trafficTick
+    send changed = inject(open, "message", topKey, time.epochAtZero + performanceNow())
+  action stopTyping
+    send changed = expireTyping(time.epochAtZero + performanceNow())
+  action clearHighlight
+    highlight = ""
+  action ackNow
+    if not away
+      send acked = markRead(open)
+  action afterAck
+    match acked
+      case some(r)
+        ackTries = r.ok ? 0 : min(3, ackTries + 1)
+      case none
+        ackTries = 0
+  action pageNow
+    send paged = loadPage(win.channel, win.need, win.cursor)
+  action afterPage
+    match paged
+      case some(r)
+        pageTries = r.ok ? 0 : pageTries + 1
+      case none
+        pageTries = 0
+  action followEnd
+    followed = chan.arrived
+    if not away and endGap > 0.5
+      scrollIntoView("transcript", lastKey, offset=1000000, behavior="smooth")
+
+  // Opening a channel: at its newest (§3.1), at its first unread with the bar
+  // (§3.2), or where this session left it (§3.3).
+  action openChannel(id: string)
+    let c = channelOf(channels.concat(dms), id)
+    let p = placeOf(places, id)
+    now = performanceNow()
+    open = id
+    replyTo = ""
+    editing = ""
+    editError = ""
+    highlight = ""
+    away = false
+    // A New divider only for what was unread on opening: what arrives while the
+    // reader watches is not new to them.
+    since = c.unread > 0 ? c.lastRead : ""
+    unreadBar = c.unread > 0
+    unreadLabel = ""
+    baseArrived = c.arrived
+    followed = c.arrived
+    if p.channel == id and not p.atEnd
+      anchor = p.anchor
+      target = p.key
+      restoreOffset = p.offset
+      targetBlock = "offset"
+    else
+      anchor = ""
+      target = ""
+    ackTries = 0
+    pageTries = 0
+    send joined = viewChannel(id)
+    nav = push(nav, path("channel", id))
+  // Leaving keeps the reader's place, puts an unsaved edit away and acknowledges
+  // what was on screen at the end.
+  action leave(url: string)
+    leaving()
+    nav = go(nav, url)
+  action back
+    leaving()
+    nav = back(nav)
+  action leaving
+    places = places.filter(p => p.channel != open).concat([Place(channel=open, anchor=anchor, key=topKey, offset=topOffset, atEnd=not away)])
+    if editing != ""
+      drafts = withDraft(drafts, open, stash)
+      editing = ""
+      editError = ""
+      stash = ""
+    if not away and anchor == "" and chan.unread > 0
+      send acked = markRead(open)
+    send joined = viewChannel("")
+
+  // The window: the reader's place decides which run of history it holds.
+  // The reader is at the end within the last row's height of it (§3.7). The
+  // window anchors at its first (last) row when the first visible row comes
+  // within 15 rows of that edge, and the data module then fetches the one page
+  // (50 rows) beyond it (§2: the next page only as the reader moves toward the
+  // edge): `reachstart` alone gives one viewport of lead, which a fling
+  // overruns. A page is asked only of a window that answers the present
+  // request, whatever else is refreshing.
+  action scrolled(x: number, y: number, e: ScrollEvent)
+    let k = match e.firstVisibleKey { case some(k) => k, case none => "" }
+    let at = keys.indexOf(k)
+    let gap = e.scrollHeight - e.scrollTop - e.clientHeight
+    let isAway = gap > max(1, frame(`message-${lastKey}`).height)
+    // Rows arriving below grow the gap without the reader moving (and the live
+    // window shedding its oldest row moves the offset): only a reader whose first
+    // visible row or its offset moved changes whether they are at the end.
+    // While a send's return to the end is owed or still settling, a fling's remaining
+    // reports do not decide it (`scrollEnded` puts the list back at its end).
+    let moved = k != topKey or max(e.firstVisibleOffset - topOffset, topOffset - e.firstVisibleOffset) > 0.5
+    if isAway != away and moved and target == "" and not settling
+      away = isAway
+      if isAway
+        baseArrived = chan.arrived
+        if anchor == "" and chan.unread > 0 and reading
+          send acked = markRead(open)
+        if anchor == ""
+          anchor = win.pin
+      else
+        followed = chan.arrived
+        if anchor != "" and not win.hasAfter
+          anchor = ""
+    if at >= 0 and current and target == ""
+      if at < 15 and win.hasBefore
+        anchor = win.firstId
+      else
+        if at > keys.length - 15 and win.hasAfter
+          anchor = win.lastId
+    endGap = gap < 1 ? 0 : round(gap)
+    topKey = k
+    topOffset = e.firstVisibleOffset
+  // A send's return to the end settles at a scrollend that finds the list there;
+  // momentum that carried it off is undone once the live window is in.
+  action scrollEnded
+    if settling and target == ""
+      if endGap > 0.5
+        scrollIntoView("transcript", lastKey, offset=1000000, behavior="instant")
+      else
+        settling = false
+  action older
+    if win.hasBefore and current and target == ""
+      anchor = win.firstId
+  action newer
+    if win.hasAfter and current and target == ""
+      anchor = win.lastId
+
+  // "The end" is the last row with an offset past it, which the list clamps to the
+  // end of its range: the bottom inset (the typing line) included.
+  // A jump: in the window it scrolls; outside it the window is replaced around
+  // the target, which is placed in the same commit when the window is already
+  // there and by `land` when it arrives (§3.6). While a jump is owed (`target`)
+  // the window does not page.
+  action jumpTo(id: string)
+    highlight = id
+    if rows.map(r => r.id).includes(id)
+      scrollIntoView("transcript", keyOf(rows, id), block="center", behavior="instant")
+    else
+      jumpFromAnchor = anchor
+      jumpFromKey = topKey
+      jumpFromOffset = topOffset
+      anchor = id
+      target = id
+      targetBlock = "center"
+      scrollIntoView("transcript", id, block="center", behavior="instant")
+  // The New divider is on the first row after the read position the channel
+  // opened at, so a deleted first unread message moves it to the next one.
+  action jumpToUnread
+    unreadBar = false
+    if dividerKey != ""
+      scrollIntoView("transcript", dividerKey, block="start", behavior="instant")
+    else
+      if since != ""
+        anchor = since
+        target = "new"
+  action dismissUnread
+    unreadBar = false
+    send acked = markRead(open)
+  action toPresent
+    away = false
+    if anchor == ""
+      scrollIntoView("transcript", lastKey, offset=1000000, behavior="smooth")
+    else
+      anchor = ""
+      target = "end"
+  action landJump
+    let key = keyOf(rows, target)
+    if target == "end"
+      scrollIntoView("transcript", lastKey, offset=1000000, behavior="instant")
+      target = ""
+    else
+      if target == "new"
+        if dividerKey != ""
+          scrollIntoView("transcript", dividerKey, block="start", behavior="instant")
+        target = ""
+      else
+        if keys.includes(key)
+          if targetBlock == "offset"
+            scrollIntoView("transcript", key, offset=restoreOffset, behavior="instant")
+          else
+            scrollIntoView("transcript", key, block="center", behavior="instant")
+          target = ""
+        else
+          // The target is not in history (deleted since its reply was drawn):
+          // the reader goes back to where they were.
+          highlight = ""
+          if targetBlock == "offset"
+            target = ""
+          else
+            anchor = jumpFromAnchor
+            target = jumpFromKey
+            targetBlock = "offset"
+            restoreOffset = jumpFromOffset
+
+  // The composer. A send returns a reader in history to the live tail, at its end
+  // (§3.9). An edit keeps its text until the server takes it.
+  action edit(v: string)
+    drafts = withDraft(drafts, open, v)
+    if v.trim() != "" and editing == ""
+      send typed = sendTyping(open, time.epochAtZero + performanceNow())
+  action keyed(k: string, e: KeyboardEvent)
+    if k == "Enter" and not e.shiftKey
+      preventDefault()
+      post()
+  action post
+    if draft.trim() != ""
+      if editing != ""
+        savingChannel = open
+        savingId = editing
+        savingStash = stash
+        send edited = editMessage(open, editing, draft.trim())
+      else
+        send echoed = echoMessage(open, draft.trim(), replyTo, time.epochAtZero + performanceNow())
+        replyTo = ""
+        drafts = withDraft(drafts, open, "")
+        if away or anchor != ""
+          away = false
+          anchor = ""
+          target = "end"
+          settling = true
+    focus("composer")
+  action postEchoed
+    match echoed
+      case some(r)
+        if r.ok
+          send sent = postMessage(r.channel, r.key)
+      case none
+        aimed = aimed
+  // An edit's reply settles the edit it answers, in its own channel: one the
+  // reader has since left or cancelled is not reopened or overwritten.
+  action afterEdit
+    if open == savingChannel and editing == savingId
+      if editFailure == ""
+        editing = ""
+        editError = ""
+        drafts = withDraft(drafts, savingChannel, savingStash)
+        stash = ""
+      else
+        editError = editFailure
+  action cancelReply
+    replyTo = ""
+  action cancelEdit
+    editing = ""
+    editError = ""
+    drafts = withDraft(drafts, open, stash)
+    stash = ""
+
+  // A message's own controls. `aimedText` is the message's Markdown as sent.
+  action reveal(key: string)
+    revealed = revealed.concat([key])
+  action aim(key: string, id: string, mine: bool, text: string, author: string)
+    aimedAuthor = author
+    aimed = key
+    aimedId = id
+    aimedMine = mine
+    aimedText = text
+  action replyAimed
+    replyTo = aimedId
+    replyName = aimedAuthor
+    focus("composer")
+  action editAimed
+    if editing == ""
+      stash = draft
+    editing = aimedId
+    editError = ""
+    drafts = withDraft(drafts, open, aimedText)
+    focus("composer")
+  action askDelete
+    showModal("confirm-delete")
+  action deleteAimed
+    send changed = deleteMessage(open, aimed)
+  action copyAimed
+    copyText(aimedText)
+  action copyLink
+    copyText(`https://discord.com/channels/@me/${open}/${aimedId}`)
+  action reactAimed(emoji: string)
+    send changed = react(open, aimedId, emoji)
+  action toggleReaction(id: string, emoji: string)
+    send changed = react(open, id, emoji)
+  action retry(key: string)
+    send echoed = retrySend(open, key)
+  action discard(key: string)
+    send changed = deleteMessage(open, key)
+  action swipe(key: string, dx: number, dy: number)
+    swipeKey = key
+    swipeX = min(80, max(0, swipeX - dx))
+    dragging = true
+  action swipeEnd(id: string, author: string, vx: number, vy: number)
+    if swipeX >= 56
+      replyTo = id
+      replyName = author
+      haptic("impact-light")
+      focus("composer")
+    swipeX = 0
+    dragging = false
+
+  // The fixture's traffic (§4.4), on the drive's clock.
+  action injectNow(what: string)
+    send changed = inject(open, what, topKey, time.epochAtZero + performanceNow())
+  action toggleLive
+    live = not live
+  action toggleSlow
+    slow = not slow
+    lagAnchor = anchor
+    lagVersion = histVersion
+  action holdUnread
+    unreadLabel = unreadText
+  action pumpNow
+    lagAnchor = anchor
+    lagVersion = histVersion
+
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=leave interactive-widget="resizes-content" width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        if e.name == "home"
+          column navigationKey=`${e.id}` navigationScroll="channels" position="absolute" inset=0
+            header
+              h1 (guild.name != "" ? guild.name : "Excord")
+            list id="channels" appearance="auto" flex=1 min-height=0
+              if gateway.state == "stopped"
+                section
+                  text `Not connected: ${gateway.detail}` color="-exact-system-red" testId="stopped"
+              section
+                for c in channels key=c.id
+                  button press=openChannel(c.id) testId=`channel-${c.name}` aria-label=`${c.name}${c.unread > 0 ? ", unread" : ""}`
+                    row gap=8 align-items="center" flex=1 min-width=0
+                      text "#" color="-exact-secondary-label"
+                      text c.name font-weight=(c.unread > 0 ? 600 : 400) flex=1 min-width=0
+                      if c.mentions > 0
+                        Badge(label=`${c.mentions}`, tint=some("-exact-system-red"))
+              if dms.length > 0
+                section
+                  header
+                    text "Direct Messages"
+                  for c in dms key=c.id
+                    button press=openChannel(c.id) testId=`dm-${c.id}` aria-label=`${c.name}${c.unread > 0 ? ", unread" : ""}`
+                      row gap=8 align-items="center" flex=1 min-width=0
+                        text c.name font-weight=(c.unread > 0 ? 600 : 400) flex=1 min-width=0
+                        if c.mentions > 0
+                          Badge(label=`${c.mentions}`, tint=some("-exact-system-red"))
+        else
+          column navigationKey=`${e.id}` navigationScroll="transcript" position="absolute" inset=0
+            header
+              h2 (chan.guild != "" ? `# ${chan.name}` : chan.name)
+              if gateway.fixture
+                button popovertarget="fixture-menu" aria-label="Fixture traffic" testId="fixture"
+                  image "symbol:more"
+            column id="fixture-menu" popover="auto" role="menu" aria-label="Fixture traffic"
+              button press=injectNow("message") popovertarget="fixture-menu" popovertargetaction="hide" testId="inject-message"
+                text "Receive a message"
+              button press=injectNow("burst") popovertarget="fixture-menu" popovertargetaction="hide" testId="inject-burst"
+                text "Receive a burst"
+              button press=injectNow("typing") popovertarget="fixture-menu" popovertargetaction="hide" testId="inject-typing"
+                text "Someone types"
+              hr
+              button press=injectNow("edit-above") popovertarget="fixture-menu" popovertargetaction="hide" testId="inject-edit-above"
+                text "Edit a message above"
+              button press=injectNow("delete-above") popovertarget="fixture-menu" popovertargetaction="hide" testId="inject-delete-above"
+                text "Delete a message above"
+              button press=injectNow("react-above") popovertarget="fixture-menu" popovertargetaction="hide" testId="inject-react-above"
+                text "React to a message above"
+              button press=injectNow("embed-above") popovertarget="fixture-menu" popovertargetaction="hide" testId="inject-embed-above"
+                text "Embed arrives above"
+              button press=injectNow("delete-unread") popovertarget="fixture-menu" popovertargetaction="hide" testId="inject-delete-unread"
+                text "Delete the first unread message"
+              hr
+              button press=toggleSlow popovertarget="fixture-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=slow testId="toggle-slow"
+                text "Slow history"
+              button press=injectNow("fail-next") popovertarget="fixture-menu" popovertargetaction="hide" testId="inject-fail-next"
+                text "Fail the next send"
+              button press=toggleLive popovertarget="fixture-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=live testId="toggle-live"
+                text "Live traffic"
+            column flex=1 min-height=0 position="relative"
+              list id="transcript" testId="transcript" appearance="none" virtualized=true estimated-item-height=72
+                scroll-start="end" scrollFollowEnd=true scroll-behavior="smooth"
+                reachstart=older reachend=newer scroll=scrolled scrollend=scrollEnded
+                flex=1 min-height=0 padding-top=8 padding-bottom=22
+                for m in rows key=m.key
+                  MessageRow(m=m, clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, swipeX=(m.key == swipeKey ? swipeX : 0), dragging=(dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd)
+              column id="message-menu" popover="auto" role="menu"
+                button press=replyAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-reply"
+                  text "Reply"
+                  image "symbol:reply"
+                button press=reactAimed("👍") popovertarget="message-menu" popovertargetaction="hide" testId="menu-thumbs"
+                  text "👍 Thumbs Up"
+                button press=reactAimed("❤️") popovertarget="message-menu" popovertargetaction="hide" testId="menu-heart"
+                  text "❤️ Heart"
+                button press=reactAimed("😂") popovertarget="message-menu" popovertargetaction="hide" testId="menu-laugh"
+                  text "😂 Laugh"
+                hr
+                button press=copyAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-copy"
+                  image "symbol:copy"
+                  text "Copy Text"
+                button press=copyLink popovertarget="message-menu" popovertargetaction="hide" testId="menu-link"
+                  image "symbol:link"
+                  text "Copy Message Link"
+                if aimedMine
+                  hr
+                  button press=editAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-edit"
+                    image "symbol:pencil"
+                    text "Edit Message"
+                  button press=askDelete destructive=true popovertarget="message-menu" popovertargetaction="hide" testId="menu-delete"
+                    image "symbol:delete"
+                    text "Delete Message"
+              dialog id="confirm-delete" role="alertdialog" aria-label="Delete Message"
+                text "Are you sure you want to delete this message?"
+                button press=deleteAimed destructive=true commandfor="confirm-delete" command="close" testId="delete-confirm"
+                  text "Delete"
+                button commandfor="confirm-delete" command="close" testId="delete-cancel"
+                  text "Cancel"
+              if unreadBar and unreadLabel != ""
+                row position="absolute" top=0 left=0 right=0 align-items="center" column-gap=12 padding="0px 16px" flex-wrap="wrap" background-color="AccentColor" testId="unread"
+                  button appearance="none" press=jumpToUnread testId="unread-bar" flex="1 1 12rem" min-width=0 padding="9px 0px"
+                    text unreadLabel color="AccentColorText" font="-exact-footnote" font-weight=600
+                  button appearance="none" press=dismissUnread testId="mark-read" padding="9px 0px"
+                    text "Mark As Read" color="AccentColorText" font="-exact-footnote" font-weight=600
+              if chan.typing != ""
+                text chan.typing testId="typing" position="absolute" left=16 right=16 bottom=2 font="-exact-caption1" color="-exact-secondary-label" line-clamp=1
+              if away and (newCount > 0 or win.hasAfter)
+                button press=toPresent buttonStyle="filled" testId="jump-present" position="absolute" bottom=28 right=16
+                  text (newCount > 0 ? `${newCount} new ${newCount == 1 ? "message" : "messages"}` : "Jump to Present")
+            column padding="4px 12px 6px"
+              if replyTo != ""
+                row align-items="center" gap=8 padding="4px 4px"
+                  text `Replying to ${replyName}` font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0 testId="replying"
+                  button press=cancelReply aria-label="Cancel reply" testId="cancel-reply"
+                    image "symbol:close"
+              if editing != ""
+                row align-items="center" gap=8 padding="4px 4px"
+                  text "Editing message" font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0 testId="editing"
+                  button press=cancelEdit aria-label="Cancel edit" testId="cancel-edit"
+                    image "symbol:close"
+                if editError != ""
+                  text `Not saved: ${editError}` font="-exact-footnote" color="-exact-system-red" padding="0px 4px 4px" testId="edit-error"
+              row align-items="flex-end" padding="4px 4px 4px 12px" border-radius=20 border="1px solid -exact-separator"
+                textarea id="composer" value=draft input=edit key=keyed rows=1 field-sizing="content" max-height="9rem"
+                  placeholder=`Message #${chan.name}` aria-label="Message" testId="composer" flex=1 min-width=0
+                  border="none" background-color="transparent"
+                button press=post disabled=(draft.trim() == "") buttonStyle="filled"
+                  retainFocus=true aria-label="Send" testId="send"
+                  image "symbol:send"

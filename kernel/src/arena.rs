@@ -78,6 +78,10 @@ pub struct NodeArena {
     pub(crate) measured_symbols: SlotSet,
     /// Slots that are `position: sticky` (LLP 1083 D3).
     pub(crate) sticky_slots: SlotSet,
+    /// Slots in HTML's top layer: popovers, unless their author made them
+    /// sticky (`top_layer::lifted`). Each is laid out in the viewport, a
+    /// block the kernel implies (`Kernel::imply_blocks`).
+    pub(crate) top_layer_slots: SlotSet,
     /// The timeline-bearing nodes and what each follower's name resolves
     /// to (LLP 1057.003 D4), kept by the linked lookup after each commit.
     pub(crate) timelines: crate::timeline::Registry,
@@ -182,6 +186,7 @@ impl Clone for NodeArena {
             symbols_owed: self.symbols_owed.clone(),
             measured_symbols: self.measured_symbols.clone(),
             sticky_slots: self.sticky_slots.clone(),
+            top_layer_slots: self.top_layer_slots.clone(),
             timelines: self.timelines.clone(),
             root_font_size_next: self.root_font_size_next,
             display_scale: self.display_scale,
@@ -268,6 +273,7 @@ impl NodeArena {
         self.symbols_owed.clear();
         self.measured_symbols.clear();
         self.sticky_slots.clear();
+        self.top_layer_slots.clear();
         self.timelines = Default::default();
         for slot in 0..self.live.len() {
             self.live[slot] = false;
@@ -916,6 +922,7 @@ impl NodeArena {
         self.looks.remove(&slot);
         self.fit_scales.remove(&slot);
         self.sticky_slots.remove(slot);
+        self.top_layer_slots.remove(slot);
         self.layout_dirty.remove(slot);
         self.flow.remove(&slot);
         let s = slot as usize;
@@ -939,7 +946,7 @@ impl NodeArena {
         self.grouped_margins.retain(|(s, _)| *s != slot);
         self.list_margins.retain(|(s, _)| *s != slot);
         self.alert_prefixes.remove(slot);
-        self.blocks.set(slot, None);
+        self.blocks.remove(slot);
         self.taffy[s] = None;
         if self.is_root[s] {
             self.roots.retain(|r| *r != slot);

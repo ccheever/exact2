@@ -23,6 +23,9 @@ final class PressHandoff {
     /// node that asked for focus, a field the press focused, else the
     /// press's target.
     weak var control: UIView?
+    /// Where a touch's press landed, in window coordinates; none for
+    /// VoiceOver's or a key's.
+    var point: CGPoint?
     private weak var presenter: Presenter?
     /// Its dispatch is running.
     private var dispatching = true
@@ -94,6 +97,19 @@ extension Presenter {
         guard let handoff = pressHandoff, let control = handoff.control,
               view === control || !(control is NodeView) && view.isDescendant(of: control) else { return false }
         return handoff.allows(candidate)
+    }
+    /// Where the caret goes in `field`, an `autofocus` text field or text
+    /// view the live press's own dispatch mounted under its touch: the
+    /// position nearest the touch, or the end below the text, as a tap in a
+    /// text view places it. Nil for any other autofocus.
+    func pressCaret(in field: NodeView) -> (UIView & UITextInput, UITextPosition)? {
+        guard let handoff = pressHandoff, handoff.working, let point = handoff.point,
+              let input: UIView & UITextInput = field.textArea ?? field.field else { return nil }
+        let local = input.convert(point, from: nil)
+        guard input.bounds.contains(local) else { return nil }
+        let end = input.endOfDocument
+        if local.y > input.caretRect(for: end).maxY { return (input, end) }
+        return input.closestPosition(to: local).map { (input, $0) }
     }
     /// An autofocus took the focus: one the press's handoff allowed spends it.
     func autofocused(_ node: NodeView) {

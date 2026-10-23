@@ -165,7 +165,8 @@ impl Builder<'_> {
         let l = self.tree.layout(node);
         let (x, top) = (px + l.location.x, py + l.location.y);
         let bottom = top + l.size.height;
-        if s.position_type == PositionType::Absolute {
+        // A popover lays out absolute too, out of the columns' flow (`style::top_layer`).
+        if crate::style::top_layer::layout_position(arena, slot) == PositionType::Absolute {
             let in_flow = self.containing_block_in_flow(slot);
             self.flow.absolutes.push(Absolute {
                 slot,
@@ -288,12 +289,7 @@ impl Builder<'_> {
             if s == self.container {
                 return false;
             }
-            if self
-                .arena
-                .computed_source(s, crate::StyleId::PositionType)
-                .position_type
-                != PositionType::Static
-            {
+            if crate::style::top_layer::layout_position(self.arena, s) != PositionType::Static {
                 return true;
             }
             at = self.arena.parent(s);

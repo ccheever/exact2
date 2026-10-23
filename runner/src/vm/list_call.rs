@@ -90,7 +90,11 @@ pub(super) fn list_call(
         (Stdlib::Slice, Some(Value::Number(a)), Some(Value::Number(b))) => {
             let kept = crate::lists::slice(items, *a, *b);
             step(steps, kept.len(), pc)?;
-            kept.to_vec()
+            // Measured where they are and copied once, into the list.
+            let e = extents.built(kept, pc)?;
+            let v = Value::List(exact_plan::Items::from(kept));
+            extents.remember(&v, e);
+            return Ok(Some(v));
         }
         (Stdlib::Includes, Some(x), _) => {
             let at = crate::lists::position(items, x);

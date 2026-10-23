@@ -10,7 +10,7 @@ import AppKit
 package final class ChainingScrollView: NSScrollView {
     /// Empty document and clip hits take this view. The node owns their
     /// mouse contact, even if a handler removes the scroll view mid-press.
-    weak var pointerOwner: NodeView?
+    weak var pointerOwner: NodeView? { didSet { followScrollerStyle() } }
     package override func accessibilityChildrenInNavigationOrder() -> [any NSAccessibilityElementProtocol]? { treeNavigationOrder }
     private var mouseHeld = false
     private var removeAfterMouseUp = false
@@ -59,15 +59,42 @@ package final class ChainingScrollView: NSScrollView {
     /// thread follows it (LLP 1002 D4; LLP 1044 F3).
     package override class var isCompatibleWithResponsiveScrolling: Bool { true }
 
-    /// Always overlay: a `scroll` node's scrollbars take no layout space
-    /// (LLP 1010: the kernel's `scrollbar_width` is 0). AppKit sets every
-    /// scroll view to the system's preferred style when it posts
-    /// `NSPreferredScrollerStyleDidChangeNotification` — on a Mac with a
-    /// mouse, legacy, whose 15-point scrollers would take a node's clip
-    /// narrower and shorter than the box the kernel laid out.
-    package override var scrollerStyle: NSScroller.Style {
-        get { super.scrollerStyle }
-        set { super.scrollerStyle = .overlay }
+    private var styleObserver: NSObjectProtocol?
+    package override init(frame: NSRect) {
+        super.init(frame: frame)
+        followScrollerStyle()
+        styleObserver = NotificationCenter.default.addObserver(forName: NSScroller.preferredScrollerStyleDidChangeNotification,
+            object: nil, queue: .main) { [weak self] _ in self?.followScrollerStyle() }
+    }
+    required init?(coder: NSCoder) { nil }
+    deinit { if let styleObserver { NotificationCenter.default.removeObserver(styleObserver) } }
+
+    private func followScrollerStyle() {
+        // Region surfaces own their layout separately; this claim is for
+        // ordinary overflow boxes, whose children the kernel lays out.
+        scrollerStyle = ExactEnv.agentMode || pointerOwner == nil ? .overlay : NSScroller.preferredScrollerStyle
+        tile()
+        pointerOwner?.fitScroll()
+    }
+
+    package override func tile() {
+        if let owner = pointerOwner, userInterfaceLayoutDirection != owner.userInterfaceLayoutDirection {
+            userInterfaceLayoutDirection = owner.userInterfaceLayoutDirection
+        }
+        super.tile()
+        guard let owner = pointerOwner else { return }
+        // Clip geometry can differ through rounding or insets even without
+        // a scrollbar. Only a visible legacy scroller occupies a gutter.
+        let right = scrollerStyle == .legacy && verticalScroller?.isHidden == false ? verticalScroller?.frame.width ?? 0 : 0
+        let bottom = scrollerStyle == .legacy && horizontalScroller?.isHidden == false ? horizontalScroller?.frame.height ?? 0 : 0
+        owner.presenter?.covers.report("scroller-\(owner.id)", [owner.id: .gutter(right: right, bottom: bottom)])
+    }
+
+    /// Taffy reserves an RTL vertical gutter on the left. AppKit keeps
+    /// its scroller on the right even with an RTL layout direction.
+    var kernelDocumentOrigin: CGPoint {
+        let gutter = scrollerStyle == .legacy && verticalScroller?.isHidden == false ? verticalScroller?.frame.width ?? 0 : 0
+        return CGPoint(x: userInterfaceLayoutDirection == .rightToLeft ? gutter : 0, y: 0)
     }
 
     /// Whether a wheel this view takes is applied here, at once, and not
@@ -283,6 +310,17 @@ package final class ChainingScrollView: NSScrollView {
             contentView.scroll(to: target)
             reflectScrolledClipView(contentView)
         }
+    }
+}
+
+extension NodeView {
+    /// Kernel frames include the gutter; the document starts at the clip.
+    func frameInScrollDocument(_ frame: NSRect) -> NSRect {
+        guard let clip = superview?.superview as? NSClipView,
+              let scroll = clip.superview as? ChainingScrollView,
+              scroll.documentView === superview else { return frame }
+        let origin = scroll.kernelDocumentOrigin
+        return frame.offsetBy(dx: -origin.x, dy: -origin.y)
     }
 }
 

@@ -93,6 +93,8 @@ final class RegionReaderParagraph {
     private var shapeWidth: CGFloat?
     private var serial: UInt64 = 0
     private var wantedRaster: RegionRasterRequest?
+    private var wantedSelection: RegionSelectionRequest?
+    private var selectionGeometry: [RegionSelectionSnapshot] = []
     private var failed: String?
     private lazy var service = RegionService { [weak self] in self?.receive($0) }
     private let profile: NativeProfile
@@ -135,6 +137,7 @@ final class RegionReaderParagraph {
         source = nil; candidate = nil; accepted = nil; raster = nil; image = nil
         ink.contents = nil; ink.removeFromSuperlayer()
         shapeWidth = nil; wantedRaster = nil; candidateTop = nil; failed = nil
+        wantedSelection = nil; selectionGeometry = []
         waitingForPixels = false
         travel = RegionReaderTravel()
         let reply = pointReply; pointReply = nil; pointRequest = nil
@@ -194,8 +197,18 @@ final class RegionReaderParagraph {
     }
 
     private func requestViewport() {
-        guard !waitingForPixels, let node, let artifact = pointRequest == nil ? candidate ?? accepted : accepted,
+        guard let node, let artifact = pointRequest == nil ? candidate ?? accepted : accepted,
               failed == nil else { return }
+        let ranges = node.presenter?.selection.rectangleRanges(node) ?? []
+        if !ranges.isEmpty, !ranges.allSatisfy({ range in selectionGeometry.contains { $0.artifact == artifact.id && $0.range == range } }) {
+            let request = RegionSelectionRequest(artifact: artifact.id, ranges: ranges)
+            if wantedSelection != request {
+                wantedSelection = request
+                service.submit(.selection(request))
+            }
+            return
+        }
+        guard !waitingForPixels else { return }
         let p = artifact.metadata
         let content = node.contentBox()
         let port = node.presenter?.textScrollportRect(node) ?? node.visibleRect
@@ -224,7 +237,8 @@ final class RegionReaderParagraph {
         let focused = PageFacts.hasFocus(node.window)
         let selected = selection.length > 0 ? TextSelection.rasterColors(focused: focused, in: node.effectiveAppearance, space: .sRGB) : nil
         let next = RegionRasterRequest(serial: serial + 1, publication: artifact.id, generation: 0,
-            rows: [RegionPaintRow(artifact: artifact.id, box: box, selection: selection)],
+            rows: [RegionPaintRow(artifact: artifact.id, box: box, selection: selection,
+                selectionRanges: node.presenter?.selection.rectangleRanges(node) ?? [])],
             scroll: CGPoint(x: -32, y: band.y), size: CGSize(width: width, height: band.height), scale: scale,
             profile: profile, format: RegionRasterRequest.compositedFormat,
             // The existing view owns CSS backgrounds, including rounded corners
@@ -277,6 +291,11 @@ final class RegionReaderParagraph {
             shapeWidth = nil; candidate = artifact
             candidateTop = anchoredTop(artifact.metadata)
             requestViewport()
+        case .selection(let request, let snapshots):
+            guard wantedSelection == request, (candidate ?? accepted)?.id == request.artifact else { return }
+            wantedSelection = nil; selectionGeometry = snapshots
+            node.presenter?.selection.readerGeometryReady()
+            requestViewport()
         case .raster(let value):
             if let reply = value.interaction, reply.query == pointRequest {
                 let complete = pointReply
@@ -298,6 +317,7 @@ final class RegionReaderParagraph {
             raster = value; self.image = image
             imageFrame = CGRect(origin: value.request.scroll, size: value.request.size)
             wantedRaster = nil
+            if !value.selectionSnapshots.isEmpty { node.presenter?.selection.readerGeometryReady() }
             publishing = true
             if changed, let session = node.presenter?.session {
                 session.apply(session.runtime.textReady(index: index, generation: generation, revision: revision))
@@ -322,6 +342,7 @@ final class RegionReaderParagraph {
             shapeWidth = nil; update(node)
         case .refused(let job, let reason):
             switch job {
+            case .selection(let request): guard wantedSelection == request else { return }
             case .shape(let request): guard request.width == wantedWidth else { return }
             case .raster(let request): guard request.serial == wantedRaster?.serial else { return }
             }
@@ -399,6 +420,11 @@ final class RegionReaderParagraph {
             (label as NSString).draw(at: CGPoint(x: box.minX, y: max(box.minY, dirty.minY)),
                 withAttributes: [.font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.secondaryLabelColor])
         }
+    }
+
+    func selectionRects(_ range: NSRange) -> [CGRect]? {
+        guard let artifact = candidate ?? accepted else { return nil }
+        return selectionGeometry.first { $0.artifact == artifact.id && $0.range == range }?.rects
     }
 
     func offset(at point: CGPoint, node: NodeView) -> Int? {

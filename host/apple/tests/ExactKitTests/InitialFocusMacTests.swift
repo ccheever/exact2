@@ -44,6 +44,80 @@ final class InitialFocusMacTests: XCTestCase {
         """
     }
 
+    private func read(_ op: String, from session: ExactSession) throws -> [String: Any] {
+        let pipe = Pipe(), savedOut = Agent.out, savedRoutes = Agent.routes
+        Agent.out = pipe.fileHandleForWriting
+        Agent.routes = [("launch", session)]
+        defer { Agent.out = savedOut; Agent.routes = savedRoutes }
+        Agent.handle("{\"op\":\"\(op)\"}")
+        try pipe.fileHandleForWriting.close()
+        return try XCTUnwrap(try JSONSerialization.jsonObject(with: pipe.fileHandleForReading.readDataToEndOfFile()) as? [String: Any])
+    }
+
+    func testTheFirstAgentReadDrainsTheQueuedLaunchAutofocus() throws {
+        _ = NSApplication.shared
+        let bytes = try plan(source(autofocus: true))
+        for op in ["tree", "state", "layout"] {
+            let session = ExactApp.shared.makeSession()
+            defer { session.destroy() }
+            XCTAssertNil(session.boot(plan: bytes, size: CGSize(width: 400, height: 300)).error)
+            let view = ExactView(session: session)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = view
+            defer { window.close() }
+            let p = session.presenter
+            p.releaseLaunchAutofocus()
+            XCTAssertTrue(p.launchAutofocusPending)
+            let reply = try read(op, from: session)
+            XCTAssertNil(reply["error"], "\(op): \(reply)")
+            XCTAssertFalse(p.launchAutofocusPending, "\(op) drains the launch before replying")
+            XCTAssertEqual(p.focusedNode?.props["testId"], "second", op)
+            let expected = try XCTUnwrap(p.focusedNode).id
+            let next = try read(op, from: session)
+            for observation in [reply, next] {
+                XCTAssertNil(observation["error"], "\(op): \(observation)")
+                if op == "tree" {
+                    let nodes = try XCTUnwrap(observation["nodes"] as? [[String: Any]])
+                    XCTAssertEqual(nodes.first { $0["focused"] as? Bool == true }?["id"] as? Int, Int(expected))
+                } else if op == "state" {
+                    XCTAssertEqual((observation["focus"] as? [String: Any])?["logical"] as? Int, Int(expected))
+                } else {
+                    // Layout carries geometry, not focus; read its focus through state below.
+                    let nodes = try XCTUnwrap(observation["nodes"] as? [[String: Any]])
+                    XCTAssertTrue(nodes.contains { $0["id"] as? Int == Int(expected) })
+                }
+            }
+            let state = try read("state", from: session)
+            XCTAssertEqual((state["focus"] as? [String: Any])?["logical"] as? Int, Int(expected), "the next read reports the same focus")
+        }
+    }
+
+    func testAnUnshownWindowAnswersAgentReadsWithoutAnExplicitAutofocusRelease() throws {
+        _ = NSApplication.shared
+        let bytes = try plan(source(autofocus: true))
+        for op in ["tree", "state", "layout"] {
+            let session = ExactApp.shared.makeSession()
+            defer { session.destroy() }
+            XCTAssertNil(session.boot(plan: bytes, size: CGSize(width: 400, height: 300)).error)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            let view = ExactView(session: session)
+            view.isHidden = true
+            window.contentView = view
+            defer { window.close() }
+            XCTAssertFalse(window.isVisible)
+            XCTAssertNil(session.activatedGeneration)
+            XCTAssertTrue(session.presenter.launchAutofocusPending)
+            let reply = try read(op, from: session)
+            guard reply["error"] == nil else { XCTFail("\(op): \(reply)"); return }
+            XCTAssertFalse(window.isVisible)
+            XCTAssertTrue(view.isHidden)
+            XCTAssertEqual(session.activatedGeneration, session.generation, "AppKit drew the layers while the window stayed hidden")
+            XCTAssertFalse(session.presenter.launchAutofocusPending)
+        }
+    }
+
     /// The launch autofocus, and with it the window's first key view, as the
     /// session runs them the turn after its first frame.
     private func launched(_ p: Presenter) {

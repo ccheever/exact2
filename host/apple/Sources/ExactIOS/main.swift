@@ -56,6 +56,9 @@ final class Adapter: ExactSessionDelegate {
             session.log("openURL app-settings: opens the app's page in Settings\(agentMode ? " (not under the agent)" : "")")
             if !agentMode, let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
         case "openURL":
+            // A scheme the app declares (OpenURL.swift), else the web's, mail's and the phone's.
+            if let value = args.first as? String, let url = URL(string: value),
+               session.openDeclaredScheme(url, open: { url, done in UIApplication.shared.open(url, options: [:], completionHandler: done) }) { return }
             guard args.count == 1, let value = args.first as? String,
                   let url = URL(string: value),
                   ["http", "https", "mailto", "tel"].contains(url.scheme?.lowercased() ?? "") else {
@@ -132,7 +135,7 @@ func agentReady() {
 /// The build's launch colour (the manifest's `launch`); unset, the
 /// platform's background, as the system's own launch screen then is and
 /// the view under it (`ExactView`): never a fixed white (LLP 1115 D2).
-let launchColor = UIColor(named: "ExactLaunch") ?? .platformBackground(in: nil)
+let launchColor = launchScreenColor ?? .platformBackground(in: nil)
 
 final class Controller: UIViewController {
     #if os(tvOS)

@@ -22,6 +22,7 @@ mod snapshot;
 mod socket;
 mod storage;
 mod superseded;
+mod walk;
 mod watch;
 mod windows_lean;
 

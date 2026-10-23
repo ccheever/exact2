@@ -217,11 +217,11 @@ component DuoLab
                     // Partially folded like a laptop (two segments down), the sheet keeps below the
                     // header and on the lower segment, where Apple's talk puts controls, down to the
                     // route's end: the viewport's bottom, as this screen hides the tab bar. The
-                    // keyboard covers that segment and ends the route above it while the segments
-                    // stay where the window has them. The step `(segment top - 100%) * 1000`, at
-                    // most zero while the route reaches the segment and past any cap once it ends a
-                    // point or more above it, then lifts the segment's cap, and the sheet riding the
-                    // keyboard takes the room below the header.
+                    // keyboard covers that segment and ends the route above it; the segment keeps its
+                    // top, 0 tall (LLP 1078, the keyboard). The step `(segment top - 100%) * 1000`,
+                    // at most zero while the route reaches the segment and past any cap once it ends
+                    // a point or more above it, then lifts the segment's cap, and the sheet riding
+                    // the keyboard takes the room below the header.
                     column id="note-sheet" testId="note-sheet" position="absolute" bottom=0 left=paneLeft right=0 height=sheetPx max-height=(twoDown ? "min(calc(100% - env(-exact-safe-area-corners-inset-top) - 72px), max(calc(100% - env(viewport-segment-top 0 1)), calc((env(viewport-segment-top 0 1) - 100%) * 1000)))" : "calc(100% - 72px)") box-sizing="border-box" padding=16 padding-right="calc(env(-exact-safe-area-corners-inset-right) + 16px)" padding-bottom="calc(env(-exact-safe-area-corners-inset-bottom) + 16px)" padding-left=(twoAcross ? "16px" : "calc(env(-exact-safe-area-corners-inset-left) + 16px)") gap=12 background-color="-exact-secondary-background" border-top-left-radius=20 border-top-right-radius=20 transition="height -exact-spring(300, 30, 1)"
                       column heightDragFor="note-sheet" heightrelease=snapSheet touch-action="none" testId="sheet-handle" aria-label="Resize the note sheet" gap=3
                         text "Note" font-size=18 font-weight=600

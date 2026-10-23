@@ -256,7 +256,7 @@ test('a played contact refuses input and waiting clocks between, cancels with no
 /** `realTap`'s still touch on node 7 (a view that reports it reached it, `reports`), its log saying it reached it on
  *  log read `reachedAt` (never, when null); the runner lifts when an op calls `lift`, else after `liftAfter` ms. */
 function stillTouch({ reachedAt, liftAfter }) {
-  const aim = { orientation: 'portrait', session: 'main', generation: 1, screen: { x: 0, y: 0, w: 400, h: 800 }, point: [30, 20], viewport: [400, 800], at: [30, 20], window: [30, 20], seq: 4, hit: 7 };
+  const aim = { orientation: 'portrait', session: 'main', generation: 1, screen: { x: 0, y: 0, w: 400, h: 800 }, point: [30, 20], fixed: [30, 20], fixedAxes: [[1, 0], [0, 1]], display: [400, 800], viewport: [400, 800], at: [30, 20], window: [30, 20], seq: 4, hit: 7 };
   const began = { seq: 5, touch: 1, phase: 'began', t: 1, at: [30, 20], view: 'NativeButtonIOS', reports: true, node: 7, session: 'main', generation: 1 };
   const t = { reads: 0, after: 0, lifted: false };
   const ask = async (req) => {
@@ -264,10 +264,14 @@ function stillTouch({ reachedAt, liftAfter }) {
     // Ended in the read after the one that follows the ops, or once the runner lifted on its own.
     t.reads += 1;
     if (t.lift?.done) t.after += 1;
-    return { log: t.after > 1 || t.lifted ? [began, { ...began, seq: 6, phase: 'ended', t: 2 }] : [began], reached: reachedAt != null && t.reads >= reachedAt ? [1] : [], truncated: false };
+    const lifted = t.after > 1 || t.lifted;
+    const moved = t.end?.some((v, i) => v !== began.at[i]) ? [{ ...began, seq: 6, phase: 'moved', at: t.end }] : [];
+    return { now: 1 + (Date.now() - t.started) / 1000, log: lifted ? [began, ...moved, { ...began, seq: 7, phase: 'ended', t: 2, at: t.end ?? began.at }] : [began], reached: reachedAt != null && t.reads >= reachedAt ? [1] : [], truncated: false };
   };
   const touches = { async ask(req) {
     if (req.op === 'foreground') return { state: 'runningForeground' };
+    t.started = Date.now();
+    t.end = req.path?.at(-1)?.to ?? req.to;
     return new Promise((done) => {
       t.lift = () => { t.lift.done = true; done({ injected: {} }); };
       if (liftAfter) setTimeout(() => { t.lifted = true; done({ injected: {} }); }, liftAfter);
@@ -351,7 +355,8 @@ function tickTouch({ pages, runner = { injected: {} }, liftAfter = 2000 }) {
   const t = { reads: 0, settled: false };
   const ask = async (req) => {
     if (req.aim) return { aim };
-    const page = pages[Math.min(t.reads++, pages.length - 1)];
+    let page = pages[Math.min(t.reads++, pages.length - 1)];
+    if (typeof page === 'function') page = await page(t);
     if (page instanceof Error) throw page;
     return { truncated: false, reached: [], ...page };
   };
@@ -360,7 +365,7 @@ function tickTouch({ pages, runner = { injected: {} }, liftAfter = 2000 }) {
     return new Promise((done) => {
       const end = () => { t.settled = true; done(runner); };
       t.lift = end;
-      setTimeout(end, liftAfter);
+      if (liftAfter != null) setTimeout(end, liftAfter);
     });
   } };
   return { t, run: (drag) => realTap({ ask, touches, id: 7, drag: { dx: 0, dy: 0, press: 0, over: 0, hold: 400, ...drag } }) };
@@ -480,4 +485,73 @@ test('a hold whose ops moved the clock moves it only by the rest', async () => {
   await e.run({ dx: 0, dy: 0, hold: 1000, during: [() => e.s.clock('+1200 real')] });
   expect(e.s.now).toBe(2200);
   expect(e.ran).toEqual(['clock +1200 real row']);
+});
+
+test('a scripted drag validates every leg and its complete duration', async () => {
+  const { dragArguments } = await import('./agent-drag.mjs');
+  expect(() => dragArguments({ dx: 0, dy: 40, hold: 300, path: [{ dx: 0, dy: -40, over: 0 }] })).toThrow('over > 0');
+  expect(() => dragArguments({ dx: 0, dy: 40, hold: 6000, path: [{ dx: 0, dy: -40, hold: 6000 }] })).toThrow('gesture lasts past');
+});
+
+
+test('CLI path reads belong to each held leg and malformed paths refuse before injection', async () => {
+  const { parseDrag } = await import('./agent-drag.mjs');
+  const s = { state: async () => 'held' };
+  const drag = parseDrag(s, '0 120 over 300 hold 500 during "state" then 0 -120 over 300 hold 500 during "state"');
+  expect(drag.path).toHaveLength(1);
+  expect(drag.path[0]).toEqual(expect.objectContaining({ dx: 0, dy: -120, over: 300, hold: 500 }));
+  expect(await drag.during[0]()).toBe('held');
+  expect(await drag.path[0].during[0]()).toBe('held');
+  expect(() => parseDrag(s, '0 120 hold 500 during "tap other" then 0 -120')).toThrow('not a read');
+  expect(() => parseDrag(s, '0 120 then 0')).toThrow('finite');
+});
+
+
+test('an initial stationary checkpoint waits for view delivery even when a later leg moves', async () => {
+  const a = stillTouch({ reachedAt: 8, liftAfter: 650 }), seen = [];
+  const r = await a.run({ hold: 500, during: [async () => { seen.push(a.t.reads >= 8); return 'pressed'; }],
+    path: [{ dx: 0, dy: 100, over: 100, hold: 0 }] });
+  expect(seen).toEqual([true]);
+  expect(r.during).toEqual(['pressed']);
+  expect(r.reached).toEqual(expect.any(Number));
+
+  const b = stillTouch({ reachedAt: null, liftAfter: 250 }), ran = [];
+  await expect(b.run({ hold: 100, during: [async () => { ran.push('unpressed'); }],
+    path: [{ dx: 0, dy: 100, over: 100, hold: 0 }] })).rejects.toThrow('did not reach the view');
+  expect(ran).toEqual([]);
+});
+
+test('a missed reversal endpoint reports the net displacement asked', async () => {
+  const aim = { orientation: 'portrait', session: 'main', generation: 1, screen: { x: 0, y: 0, w: 400, h: 800 }, point: [30, 20], fixed: [30, 20], fixedAxes: [[1, 0], [0, 1]], display: [400, 800], viewport: [400, 800], at: [30, 20], window: [30, 20], seq: 4, hit: 7 };
+  const began = { seq: 5, touch: 1, phase: 'began', t: 1, at: [30, 20], view: 'Control', node: 7, session: 'main', generation: 1 };
+  await expect(realTap({ id: 7,
+    drag: { dx: 0, dy: 40, press: 0, over: 100, hold: 0, path: [{ dx: 0, dy: -40, over: 100, hold: 0 }] },
+    ask: async (req) => req.aim ? { aim } : { log: [began,
+      { ...began, seq: 6, phase: 'moved', t: 1.1, at: [30, 60] },
+      { ...began, seq: 7, phase: 'ended', t: 1.2, at: [30, 22] }], truncated: false },
+    touches: { async ask(req) { return req.op === 'foreground' ? { state: 'runningForeground' } : { injected: {} }; } },
+  })).rejects.toThrow('not the asked (0, 0)');
+});
+
+
+test('a runner that finishes during the hold log read advances no remaining clock', async () => {
+  const a = tickTouch({ pages: [{ log: [began] }, { log: [began] }, t => { t.lift(); return { log: [began] }; }],
+    runner: { error: 'XCTest stopped during the read' }, liftAfter: null });
+  const steps = [], s = { now: 0, held: null, async clock(spec) { steps.push(spec); } };
+  await expect(a.run({ hold: 100, tick: heldTick(s, 100, 'row') })).rejects.toThrow('XCTest stopped during the read');
+  expect(steps).toEqual([]);
+  expect(s.held).toBe(null);
+});
+
+test('a real clock step stops advancing as soon as its held touch ends', async () => {
+  const { open } = await import('./agent.mjs');
+  const { launchFacts } = await import('./agent-launch.mjs');
+  const requests = [];
+  let down = true;
+  const s = await open({ reuse: { host: 'web', browser: 'chrome', launchFacts: launchFacts({}), reset() {},
+    async ask(req) { requests.push(req); down = false; return { clock: req.to }; } } });
+  await heldTick(s, 1000, 'row')(Date.now() + 10_000, async () => down);
+  expect(requests).toHaveLength(1);
+  expect(s.now).toBe(requests[0].to);
+  expect(s.held).toBe(null);
 });

@@ -25,6 +25,23 @@ final class TextInlineBoxTests: XCTestCase {
         XCTAssertNotEqual(TextMetricKey.hash(spec),TextMetricKey.hash(bigger))
         XCTAssertGreaterThanOrEqual(engine.paragraph(bigger,width:110).height,50)
     }
+    func testFlowKeepsAnAtomicBoxOnItsSharedBaseline() throws {
+        let engine = TextEngine(resolve: { _ in nil })
+        let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: 20, letterSpacing: 0)
+        var before = base; before.text = "Hello "
+        var object = base; object.text = "\u{fffc}"
+        object.inlineBox = TextInlineBox(width: 36, height: 32, baseline: 32)
+        var after = base; after.text = " after the emoji"
+        let spec = Spec(runs: [before, object, after], align: 0, lineClamp: 0, color: [0, 0, 0, 255], strut: base)
+        let paragraph = engine.paragraph(spec, width: 200, flow: [TextFlowShape(kind: 0, x: 300, y: 1000, a: 10)])
+        XCTAssertFalse(paragraph.fragments.isEmpty)
+        XCTAssertFalse(paragraph.flowIncomplete)
+        XCTAssertGreaterThanOrEqual(paragraph.firstBaseline, 32)
+        let position = try XCTUnwrap(paragraph.atomicPositions(spec, width: 200).first)
+        XCTAssertEqual(position.1.y + 32, paragraph.firstBaseline, accuracy: 0.01)
+        XCTAssertGreaterThanOrEqual(paragraph.height, 32)
+    }
+
     func testRtlObjectUsesItsVisualGlyphOrigin() {
         let engine=TextEngine(resolve:{_ in nil})
         let word=Run(text:"אבג ",size:16,weight:400,family:0,italic:false,lineHeight:20,letterSpacing:0)

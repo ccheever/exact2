@@ -20,10 +20,13 @@ fn main() {
     std::fs::write(out_dir.join("app.plan"), baked.encode()).unwrap();
     let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let target = std::env::var("TARGET").unwrap_or_default();
-    let platform = match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
-        // Its crop handles and pinch need a touchscreen, which an Apple TV lacks.
-        Ok("tvos") => panic!("Photo Editor has no tvOS build: its editing needs a touchscreen"),
-        Ok("ios" | "watchos") => "ios",
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS");
+    // Its crop handles and pinch need a touchscreen, which an Apple TV lacks.
+    if target_os.as_deref() == Ok("tvos") {
+        panic!("Photo Editor has no tvOS build: its editing needs a touchscreen");
+    }
+    let platform = match target_os.as_deref() {
+        Ok("ios" | "tvos" | "watchos") => "ios",
         _ => "macos",
     };
     let manifest = contract::Manifest::read(&app_dir).unwrap_or_else(|e| panic!("app.json: {e}"));

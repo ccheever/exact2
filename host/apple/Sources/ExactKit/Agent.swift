@@ -79,6 +79,7 @@ public final class Agent {
     var contactFlags: NSEvent.ModifierFlags = []
     /// A native button's nested tracking loop consumes queued drag/up events.
     var contactTracksNative = false
+    weak var contactButton: NativeButtonMac?
     #endif
     weak var canvasContact: NodeView?
     /// The last point the agent's pointer sent its canvas (iOS), for its motion.
@@ -191,6 +192,11 @@ public final class Agent {
             #endif
             return
             #endif
+        }
+        if ["tree", "state", "layout"].contains(op), presenter.viewport.window != nil,
+           !drainLaunch(until: Date(timeIntervalSinceNow: 20)) {
+            Agent.reply(["error": "launch work is still pending"])
+            return
         }
         guard session.canvases.waitUntilReady() else {
             Agent.reply(["error": "canvas creation is still in flight"])
@@ -425,6 +431,16 @@ public final class Agent {
 
     package static func r2(_ x: CGFloat) -> Double { (Double(x) * 100).rounded() / 100 }
 
+    /// `layout <node>` for a live node the host mounted no view for (a native
+    /// button's face draws its svg): the runner's rows, no box, and why.
+    static func unmounted(_ node: [String: Any], into reply: [String: Any], now: Double) -> [String: Any] {
+        var node = node, reply = reply
+        node["native"] = ["mounted": false, "reason": "no view of its own: the host draws it inside another's (a native control's face)"]
+        node["observed"] = ["clock": now, "wall": Date().timeIntervalSince1970 * 1000]
+        reply["node"] = node
+        return reply
+    }
+
     // Whole logical points, with an area ceiling to keep this diagnostic
     // from asking the software painter for arbitrarily large allocations.
     static let resizeError = "tap resize needs exactly two integer dimensions in 64...4096, area <= 8388608, and no other input fields"
@@ -623,8 +639,10 @@ public final class Agent {
         let deadline = Date(timeIntervalSinceNow: 0.3)
         while ReservedRegions.available, !presenter.hingeReported, Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
         if presenter.hasFold { return ["error": "prefer: posture and segments: the device decides (it has a fold)"] }
-        #endif
+        var next = session.view?.agentFold ?? presenter.fold
+        #else
         var next = presenter.fold
+        #endif
         var gap: CGFloat = 0, grid = false
         for (name, raw) in fold {
             let number = (raw as? NSNumber).map(\.doubleValue) ?? Double("\(raw)")
@@ -646,6 +664,9 @@ public final class Agent {
             // The window's segments, as the host sends them (LLP 1075.003 §9.11).
             do { next.rects = try Segments.even(viewport: session.screenSize ?? presenter.viewportSize, cols: next.cols, rows: next.rows, gap: gap) } catch { return ["error": "prefer: \(error)"] }
         }
+        #if os(iOS) || os(tvOS)
+        if let view = session.view { return view.prefer(next).map { ["error": "prefer: \($0)"] } }
+        #endif
         return session.segments(next).map { ["error": "prefer: \($0)"] }
     }
 
@@ -670,7 +691,23 @@ public final class Agent {
         return ["tapped": Int(v.id), "into": into]
     }
 
+    /// `clock`, its reply naming the requests the server holds, which no
+    /// clock waited on (LLP 1016.000 D9): `held` and `heldTargets`, as the
+    /// web hosts' do. An error reply is left as it is.
     func clock(_ req: [String: Any]) -> [String: Any] {
+        var out = clockStep(req)
+        guard out["error"] == nil,
+              let d = session.agent("{\"op\":\"held\"}").data(using: .utf8),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return out }
+        let held = o["held"] as? [[String: Any]] ?? [] // the runner's `held`, not the whole `state`
+        if !held.isEmpty {
+            out["held"] = held.count
+            out["heldTargets"] = held.compactMap { $0["name"] as? String }
+        }
+        return out
+    }
+
+    private func clockStep(_ req: [String: Any]) -> [String: Any] {
         session.natives.hatchClock.beginCommand()
         // @ref LLP 1080.000 §12 — platform timing, before any `clock`: the
         // host has run on the wall's time (motion and holds included) while
@@ -1012,20 +1049,23 @@ public final class Agent {
         return true
     }
 
-    /// How many requests the runner has in flight (`state.pending`).
-    func pendingCount() -> Int {
+    /// Runner requests whose replies can still change the tree. A held device
+    /// observation is excluded: it waits for the person, rather than I/O.
+    func pendingRequests() -> [[String: Any]] {
         guard let d = session.agent("{\"op\":\"state\"}").data(using: .utf8),
-              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return 0 }
-        // A Canvas 2D image being decoded is a reply still to come (LLP 1056 D9).
-        // A held device request is not I/O in flight (LLP 1069.007 D3).
-        let inFlight = (o["pending"] as? [[String: Any]])?.filter { $0["device"] == nil }.count ?? 0
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return [] }
+        return (o["pending"] as? [[String: Any]] ?? []).filter { $0["device"] == nil }
+    }
+
+    /// How many requests the runner and the presenter's pictures have in flight.
+    func pendingCount() -> Int {
         #if os(iOS) || os(tvOS)
-        // A filtered SVG picture being drawn off the main thread (LLP 1055.000 D14).
         let pictures = SvgFilterLive.inFlight
         #else
         let pictures = 0
         #endif
-        return inFlight + session.presenter.canvas2d.loadingCount + pictures
+        // A reply the server holds is no I/O a clock waits on (LLP 1016.000 D9).
+        return pendingRequests().filter { $0["held"] == nil }.count + session.presenter.canvas2d.loadingCount + pictures
     }
 
     /// `clock settle`'s bound on requests in flight: a network's worth.

@@ -108,9 +108,8 @@ fn logical_copy_omits_control_labels_in_unmounted_rows() {
     let view = h.snapshot().view;
     let mounted = h.snapshot().rows.len();
     assert!(mounted < 128);
-    let sites = crate::instance::SiteIndex::new(&h.plan);
     let mut ids = Ids::default();
-    let mut u = Update::new(env(&h.plan, &h.slots), &sites, &mut ids);
+    let mut u = Update::new(env(&h.plan, &h.slots), &h.sites, &mut ids);
     for policy in [crate::ListTextPolicy::Web, crate::ListTextPolicy::MacOS] {
         let copied = h.tree.list_text(&mut u, view, None, policy).unwrap();
         let rows = |range: std::ops::Range<usize>| {
@@ -222,9 +221,8 @@ fn logical_copy_omits_hidden_and_inert_text() {
     let view = h.snapshot().view;
     let mounted = h.snapshot().rows.len();
     assert!(mounted < 128);
-    let sites = crate::instance::SiteIndex::new(&h.plan);
     let mut ids = Ids::default();
-    let mut u = Update::new(env(&h.plan, &h.slots), &sites, &mut ids);
+    let mut u = Update::new(env(&h.plan, &h.slots), &h.sites, &mut ids);
     let rows = |range: std::ops::Range<usize>| {
         range
             .map(|i| format!("{i}\n\nAgain"))
@@ -284,9 +282,8 @@ fn logical_text_reads_unmounted_rows_and_wrappers_publish_their_place() {
     );
     assert_eq!(h.tree.list_index(view, "n:127"), Some(127));
     assert_eq!(h.tree.list_index(view, "n:128"), None);
-    let sites = crate::instance::SiteIndex::new(&h.plan);
     let mut ids = Ids::default();
-    let mut u = Update::new(env(&h.plan, &h.slots), &sites, &mut ids);
+    let mut u = Update::new(env(&h.plan, &h.slots), &h.sites, &mut ids);
     let all = h
         .tree
         .list_text(&mut u, view, None, crate::ListTextPolicy::Web)

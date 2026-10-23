@@ -9,6 +9,8 @@ mod rekey;
 mod reorder;
 mod reorder_api;
 mod reorder_group;
+#[cfg(test)]
+mod reorder_tests;
 mod reuse;
 pub(crate) mod shown;
 use shown::in_collection_row;
@@ -516,6 +518,7 @@ impl Collection {
         }
         self.instant = instant;
         let anchor = if changed { self.anchor()? } else { None };
+        let drop_anchor = if changed { self.drop_anchor()? } else { None };
         // Items that changed in place: the same keys in the same order, and
         // no input of the rows' bodies or keys changed (a live tick's prices).
         let mut in_place: Option<Vec<usize>> = None;
@@ -589,6 +592,7 @@ impl Collection {
             if kept.is_some_and(|p| p + 1 < self.index.len() || self.index.len() > count) {
                 self.edge_armed[1] = true;
             }
+            let anchor = self.committed_anchor(anchor, drop_anchor);
             self.restore(anchor)?;
         }
         self.start_at_end();
@@ -749,7 +753,7 @@ impl Collection {
                 // moved it). One not yet acknowledged by a report is still
                 // the host's to apply: this one moves on from where it began.
                 let from = match self.correction {
-                    _ if !self.index.kept_row(&anchor, g.port_main, corrected) => None,
+                    _ if !self.index.kept_row(&anchor, g.port_main) => None,
                     Some(c) if c.scroll_sequence == g.scroll_sequence => c.from,
                     Some(_) => None,
                     None => Some(g.offset),
@@ -1076,7 +1080,7 @@ impl Collection {
         mut mounted: Mounted,
         text: &str,
     ) -> Result<(), InstanceError> {
-        views::validate_row(u.env.plan, &mounted.row.roots)?;
+        views::validate_row(u.env.plan, u.sites, &mounted.row.roots)?;
         let position = mounted.position;
         let count = self.index.len();
         if mounted.published != (position, count) {

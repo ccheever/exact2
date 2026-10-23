@@ -959,6 +959,36 @@ test('the canvas port (C2): on B\'s doors with the same certificate, the entry p
   } finally { await v.stop(); }
 });
 
+// The ghost builds' follow-up (theme2's per-door test): a canvas framed through the TLS door's canvas port stops being
+// a build when it goes. Its requests are handed to the port's HTTP server, whose req 'close' never fires under Bun;
+// the gateway ends the loop's page stream upstream on res 'close'.
+test('a page stream through the canvas port on the TLS door ends upstream when its client leaves', async () => {
+  const w = await wired('default');
+  let doors = null, stream = null;
+  try {
+    const p = await w.pair('read', 'far');
+    doors = await openRemoteCanvas(w.tamber, { remote: { host: '127.0.0.1', port: 0 }, tunnel: null }, loopBase, { say: () => {}, warn: () => {} });
+    const { origin: tool, fingerprint } = doors.info();
+    const canvas = w.tamber.canvas.origin;
+    const minted = JSON.parse((await pinned(`${tool}/__tamber`, fingerprint, { method: 'POST', headers: { 'content-type': 'application/json', 'x-exact-tamber-token': p.token }, body: '{"method":"canvas"}' })).text).ok;
+    const entry = await pinned(minted.url, fingerprint, { method: 'POST', headers: { origin: canvas, 'content-type': 'application/json' }, body: JSON.stringify({ grant: minted.grant }) });
+    const cookie = entry.headers['set-cookie'][0].split(';')[0];
+    closed.length = 0;
+    const u = new URL(canvas);
+    const first = await new Promise((ok, fail) => {
+      stream = httpsRequest({ host: u.hostname, port: u.port, path: '/__dev/page', headers: { cookie }, rejectUnauthorized: false }, res => { let got = ''; res.on('data', d => { got += d; if (got.includes('\n\n')) ok(got); }); });
+      stream.on('error', fail);
+      stream.end();
+    });
+    expect(first).toContain('"reload":1');
+    expect(closed).not.toContain('/__dev/page');
+    stream.destroy();
+    const t0 = performance.now();
+    while (!closed.includes('/__dev/page') && performance.now() - t0 < 5000) await new Promise(ok => setTimeout(ok, 5));
+    expect(closed).toContain('/__dev/page');
+  } finally { stream?.destroy(); await doors?.close(); await w.stop(); }
+}, 30_000);
+
 test('plain HTTP from a LAN peer (a --lan bind): no session, grant or entry page is honoured by the gateway, and `canvas` is not minted for it', async () => {
   const g = await gateway();
   try {

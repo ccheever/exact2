@@ -1,0 +1,29 @@
+# Code review: exact2's menu rule (a popover a menu row opens, opened from the menu's own invoker), round 2, 2026-10-21 (grok)
+
+- **Family:** xAI. Grok 4.7 via `grok -p`, reasoning effort xhigh, no subagents, Edit and Write denied, a throwaway worktree at `unknown`.
+- **Method:** one brief (sha256 `2fd74a160be639d238d5a0fed8ba2657069f24865447f31ab6d514dd3c3d73ca`). The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited.
+- **Verdict:** WRONG
+- **Disposition:** all findings taken in 2498455129 and 36fc7c2792
+
+**VERDICT: WRONG**
+
+The top-level case is fixed on all three hosts. A row of the menu that the button or the context-menu node opened — Charlie's emoji picker — is shown from that invoker, and the menu closes without taking it. `commandfor` with `show-popover` or `toggle-popover` wins over `popovertarget`, a hide of any case is left alone, and `exactOpener` is gone: the opener is `beforetoggle`'s source (`popoverSource`, `host/web/navigation.js:1486`). The wasm host loads the module from `afterPaint` (`host/web/glue.js:21`); the JS target imports it at boot from `host/web-js/commands.js:8`, which is outside the wasm two-file boot graph. The note is literal-only, skips a dynamic role and confirmations, and runs on the expanded tree (`contract/lower/src/warnings.rs:73`). Line caps hold: `MenusIOS.swift` 1492, `glue.js` 1499, `warnings.rs` 1499. `preventDefault` on the button's `click` cancels invoker activation in the HTML model (the activation is that click's default action, and a capture listener sets the flag before it); Enter and Space on a `<button>` both synthesize that click. I did not run the suites.
+
+`submenu(of:)` now requires `role="menu"` (`MenusMac.swift:685`, still also menu-shaped; `MenusIOS.swift:1487`). That matches the ruling. A menu-shaped popover with no role is an ordinary row again.
+
+1. **Blocker** — `host/apple/Sources/ExactKit/Mac/MenusMac.swift:301-310`. A row of a nested menu still never opens its popover. `menuOpener` remembers only the top menu (`:691`, and the context menu at `:396`). `show` substitutes that opener only when `contains` (`:187`) finds the row inside that top pop. A submenu popover is a sibling, so a row inside it fails the test. By the time `pick` runs, `popUp` has returned and `close` has hidden the menu (`:448`; unowned popovers stay hidden at `:514-516`). `show` then keeps the hidden row as `source` and returns at the `hidden` guard (`:310`). The press still fires (`:858-863` into `command` at `:261`). `Pick` already stores the top invoker for every submenu level (`:776`, `:784`) and `show` never reads it. The same path is keyboard selection. The iOS `UIMenu` action does pass that original opener through (`MenusIOS.swift:1453-1455`). `MenuRowPopoverMacTests.swift:79-91` chooses only the top item, via `sendAction` while `nativeTracking` is 0.
+
+2. **Should-fix** — `host/web/menu-rows.js:27-35`, `MenusMac.swift:302-304`, `MenusIOS.swift:846-848`. Where the popover does open from a submenu row, its source is the submenu's own invoker: the parent row, which still sits inside the open parent menu. The web takes `closest` menu and `popoverSource` of that menu (`menu-rows.js:27`, `:30`). A painted or agent menu uses the innermost open entry's `source` (`MenusMac.swift:302-304`). `agentShow` does the same with `agentOpen.values.first` (`MenusIOS.swift:846-848`), and that dictionary is unordered when the row is inside more than one open menu. `showPopover({ source })` then nests the popover in the parent, and dismissing the parent drops it (`MenusIOS.swift:851-858` and `drop` at `:767-768`). The docs require the button that opened the menu, or the node the context menu opened on, beside where the menu came from (`docs/contract-for-agents.md:1318-1323`). The iOS `UIMenu` path is the one that does that.
+
+3. **Should-fix** — `host/web/menu-rows.js:27-28`. The click is classified before the row's press. The `setTimeout` re-read (`:32-35`) runs only after that classification already matched a non-menu popover. A press that adds `popovertarget` or `commandfor`, or that changes a submenu or a hide into a picker, takes the early return. HTML then reads the attributes after the listeners and nests the new target in the menu. The Mac re-reads the invocation after the press (`MenusMac.swift:252-261`). The other direction is handled: picker to picker, or picker to a menu, is resolved again inside the timeout.
+
+4. **Nit** — `host/web/menu-rows.js:34`. The default action is toggle, and `toggle-popover` counts as opening. If the target is already `:popover-open`, `preventDefault` has cancelled the hide and the timeout returns, so the row cannot close it.
+
+5. **Nit** — `contract/lower/src/menu_rows.rs:121-123`. Once a node is inside a `role="menu"` popover, every descendant button stays in that menu, including a button inside a non-menu popover written inside it. A target that is itself inside the menu is still noted. The message says the inside-the-menu case stays nested, which is the exception the note is pointing at.
+
+6. **Nit** — `docs/contract-for-agents.md:1319`. The prose names `command="show-popover"` only. The runtime (`menu-rows.js:17`) and the note (`menu_rows.rs:84`) both treat `toggle-popover` as opening.
+
+7. **Nit** — `host/web/tests/menu-rows.test.mjs:26`, `MenuRowPopoverMacTests.swift:79-91`. No host test opens a popover from a row of a submenu (`deep` has no target). Also untested on the web: Space, a row with both attributes, toggling a popover that is already open, and a context-menu opener. Those gaps are what leave findings 1–3 uncaught.
+
+8. **Nit** — `host/web/glue.js:21`, `host/web/navigation.js:482`. The listener is installed after two animation frames, or one second. A click in that gap follows HTML and nests the popover in the menu. Same window as the other after-paint modules.

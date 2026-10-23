@@ -44,6 +44,9 @@ private final class RasterSource: RasterSourceOwner, @unchecked Sendable {
     var inspecting = false
     var metadata: RasterMetadata?
     var input: RasterInput?
+    /// A remote source's downloaded body, or why not, for a worker to read
+    /// the header of (`RasterBackend.inspectOne`).
+    var fetched: Result<RasterInput, Error>?
     var cancellation = RasterCancellation()
     var failure: String?
     /// The decodes whose last attempt failed in ImageIO or Core Graphics over
@@ -186,12 +189,21 @@ private final class RasterBackend: @unchecked Sendable {
         let source = stopped || paused ? nil : sources.values.compactMap(\.value).filter { $0.users > 0 && !$0.inspecting && $0.metadata == nil && $0.failure == nil }.min { $0.id < $1.id }
         source?.inspecting = true
         let cancellation = source?.cancellation
+        let fetched = source?.fetched
+        source?.fetched = nil
         lock.unlock()
         guard let source, let cancellation else { return false }
+        // A remote source downloads on URLSession's queue, never on a worker,
+        // and stays `inspecting` (so its release cancels it) until its body
+        // is here: the workers go on reading headers and decoding meanwhile.
+        if fetched == nil, let url = RasterInput.remote(source.name) {
+            RasterInput.fetch(url, cancellation: cancellation) { [weak self] result in self?.downloaded(source, cancellation, result) }
+            return true
+        }
         var metadata: RasterMetadata?, input: RasterInput?, failure: String?
         do {
             guard let resolver = source.resolver else { throw RasterFailure.decode }
-            input = try RasterInput.open(source.name, resolver: resolver, cancellation: cancellation)
+            input = try fetched?.get() ?? RasterInput.open(source.name, resolver: resolver, cancellation: cancellation)
             metadata = try input!.metadata()
         } catch { failure = error is RasterFailure || error is RasterHTTPStatus ? String(describing: error) : error.localizedDescription }
         lock.lock()
@@ -207,6 +219,17 @@ private final class RasterBackend: @unchecked Sendable {
         lock.unlock()
         wake()
         return true
+    }
+    /// A remote source's body arrived: a worker reads its header next. One
+    /// let go of meanwhile is asked for again from the start, and the room
+    /// it held at the metadata cap may admit a waiting image.
+    private func downloaded(_ source: RasterSource, _ cancellation: RasterCancellation, _ result: Result<RasterInput, Error>) {
+        lock.lock()
+        if cancellation.isCancelled { source.cancellation = RasterCancellation() } else { source.fetched = result }
+        source.inspecting = false
+        lock.unlock()
+        exact_raster_session_control(id, 5)
+        wake()
     }
     func decode(_ work: ExactRasterWork) {
         let charge = NativeRasterCharge(work.charge)
@@ -607,9 +630,14 @@ final class RasterLoader {
     /// pixel size, which is the concrete object size the picture is drawn at
     /// (LLP 1011.001 D1); nil for a bitmap or another fit.
     private static func svgAspect(_ view: NodeView, _ metadata: RasterMetadata) -> (Int, Int)? {
-        guard metadata.svg, (view.style["object_fit"]?.string ?? "fill") == "fill", view.bounds.width > 0, view.bounds.height > 0 else { return nil }
+        #if os(iOS) || os(tvOS)
+        let box = view.buttonRasterView == nil ? view.bounds.size : metadata.naturalSize
+        #else
+        let box = view.bounds.size
+        #endif
+        guard metadata.svg, (view.style["object_fit"]?.string ?? "fill") == "fill", box.width > 0, box.height > 0 else { return nil }
         let scale = displayScale(view)
-        return (max(1, Int((view.bounds.width * scale).rounded())), max(1, Int((view.bounds.height * scale).rounded())))
+        return (max(1, Int((box.width * scale).rounded())), max(1, Int((box.height * scale).rounded())))
     }
     /// The decoded image's longest side: enough device pixels for the box
     /// at its object-fit (`cover` and `fill` scale the image until both axes
@@ -620,6 +648,13 @@ final class RasterLoader {
         let scale = view.window?.backingScaleFactor ?? 1
         #else
         let scale = view.traitCollection.displayScale
+        #endif
+        #if os(iOS) || os(tvOS)
+        // A native face displays the image at its natural dimensions, even
+        // before metadata has enlarged the button's image-free layout box.
+        if view.buttonRasterView != nil, let natural = metadata?.naturalSize {
+            return max(64, min(4096, Int(ceil(max(natural.width, natural.height) * scale))))
+        }
         #endif
         let box = view.bounds.size
         var longest = max(box.width, box.height)
@@ -959,7 +994,12 @@ final class RasterLoader {
     private func report(_ landed: [(view: NodeView, generation: Int, size: CGSize)]) {
         guard let presenter = landed.first?.view.presenter else { return }
         let sizes = landed.compactMap { item -> (UInt32, CGSize?)? in
-            item.view.loadGeneration == item.generation && presenter.views[item.view.id] === item.view ? (item.view.id, item.size) : nil
+            guard item.view.loadGeneration == item.generation, presenter.views[item.view.id] === item.view else { return nil }
+            #if os(iOS) || os(tvOS)
+            return (item.view.buttonRasterView ?? item.view.id, item.size)
+            #else
+            return (item.view.id, item.size)
+            #endif
         }
         if !sizes.isEmpty { presenter.onIntrinsic?(sizes) }
     }

@@ -43,7 +43,7 @@ extension NodeView {
             addGestureRecognizer(gesture); hoverRecognizer = gesture
         }
         #endif
-        setNeedsDisplay()
+        if !canRasterText { setNeedsDisplay() }
         #endif
     }
     // Accessibility needs the source, not a colour-resolved layout specification.
@@ -56,6 +56,13 @@ extension NodeView {
         guard !inlineText.isEmpty else { return paragraphText }
         return inlineText.filter { $0.paints && !$0.run(dark: drawsDark).hidden }.map { run in
             run.isBox ? (run.props["accessibilityLabel"] ?? presenter?.views[run.id]?.visibleParagraphText ?? "") : run.text
+        }.joined()
+    }
+
+    func visibleInlineText(in range: NSRange, source: NSString) -> String {
+        inlineText.filter { $0.paints && !$0.run(dark: drawsDark).hidden }.compactMap { run in
+            let visible = NSIntersectionRange(run.range, range)
+            return visible.length > 0 ? source.substring(with: visible) : nil
         }.joined()
     }
     /// A heading's level, 1–6, which is what assistive technology is told:
@@ -219,7 +226,7 @@ private final class InlineAccessibility: NSAccessibilityElement, AgentOwned {
         setAccessibilityParent(owner)
         setAccessibilityRole((run.props["href"] ?? "").isEmpty ? .staticText : .link)
         setAccessibilityIdentifier(run.props["testId"])
-        setAccessibilityLabel(run.props["accessibilityLabel"] ?? text.substring(with: run.range))
+        setAccessibilityLabel(run.props["accessibilityLabel"] ?? owner.visibleInlineText(in: run.range, source: text))
         if let href = run.props["href"] { setAccessibilityURL(URL(string: href)) }
     }
     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
@@ -264,7 +271,7 @@ private final class InlineAccessibility: UIAccessibilityElement, AgentOwned {
         super.init(accessibilityContainer: owner)
         accessibilityIdentifier = run.props["testId"]
         accessibilityLanguage = owner.presenter?.documentLanguage
-        accessibilityLabel = run.props["accessibilityLabel"] ?? text.substring(with: run.range)
+        accessibilityLabel = run.props["accessibilityLabel"] ?? owner.visibleInlineText(in: run.range, source: text)
         accessibilityTraits = (run.props["href"] ?? "").isEmpty ? .staticText : .link
         if owner.presenter?.inlineAriaUnavailable(id) == true { accessibilityTraits.insert(.notEnabled) }
     }

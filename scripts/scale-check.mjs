@@ -123,7 +123,7 @@ export const RADIUS_FULL = 9999;
 
 /** Length `name`'s value on `host`, in points: the design's own token
  * (`overrides`), else a base name's in the kernel's table, in the host's
- * column (a metric's reference read in that column; radius.full
+ * column (a metric's reference read in that column, a stretch's too; radius.full
  * [`RADIUS_FULL`]; the terminal's cells by `grid`'s width); undefined for a
  * name neither has, a host with no column, or cells with no grid. */
 export function baseLength(schema, overrides, name, host, grid = null) {
@@ -131,6 +131,8 @@ export function baseLength(schema, overrides, name, host, grid = null) {
   const row = schema.scale.find(r => r[0] === name), column = COLUMN[host];
   if (!row || !column) return undefined;
   let cell = row[SCALE_CELL[column]];
+  // A stretch reads its metric as `=metric` does (stage 13 D5).
+  if (typeof cell?.stretch === 'string') cell = cell.stretch;
   if (typeof cell === 'string' && cell.startsWith('=')) {
     const metric = schema.metrics.find(r => r[0] === cell.slice(1));
     if (!metric) return undefined;

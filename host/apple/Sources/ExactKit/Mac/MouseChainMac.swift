@@ -146,7 +146,9 @@ final class BubbledPress {
         validate()
         guard !cancelled else { return }
         node.pressed = false
-        presenter.press(node.id, held: KeyCodes.held(event.modifierFlags), bubbled: true)
+        presenter.menus.activating(from: source ?? node, pressing: node) {
+            presenter.press(node.id, held: KeyCodes.held(event.modifierFlags), bubbled: true, click: event)
+        }
     }
 }
 
@@ -159,6 +161,7 @@ final class MouseChain {
         let path: PressPath
     }
     private var received: ReceivedDown?
+    var pressSource: NodeView? { bubbledPress?.source ?? received?.source }
     private(set) var bubbledPress: BubbledPress?
     func completed(_ contact: BubbledPress?, at source: NodeView) {
         // A cancelled click ends at whichever view hears its up.

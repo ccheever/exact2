@@ -1,21 +1,28 @@
-// What scripts/design-tool.test.mjs and design-tool-pair.test.mjs share: the
+// What scripts/design-tool*.test.mjs and design-tool-pair.test.mjs share: the
 // tool on this checkout's own port (EXACT_TOOL_PORT), taken in turn; a drive
 // of it; and the tool through a proxy in front of an app's design server.
 import { afterEach, beforeEach } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { checkoutPort, takePort } from './port-lock.mjs';
+import { checkoutPort, claimPort, takePort } from './port-lock.mjs';
 import { spawnOwned, stopAll } from './test-children.mjs';
+import { upstream } from './tamber-request.mjs';
 
 export const ROOT = resolve(new URL('..', import.meta.url).pathname);
-// The tool's port for these runs: this checkout's own (one of 200 above 17740,
-// by its path), not the 7740 a person's tool holds, so a run here waits on
-// another checkout's only where their paths share a port (then it takes its
-// turn); EXACT_TOOL_PORT names another. Every child the tests spawn serves and
-// frames that origin.
-process.env.EXACT_TOOL_PORT ??= String(checkoutPort(ROOT));
-export const { TOOL_DIST, TOOL_ORIGIN, TOOL_PORT, stageTool } = await import('./tamber-server.mjs');
+// The tool's port for this run: one of its own, held for the whole run (`claimPort`, from this checkout's own on,
+// one of 200 above 17740, never the 7740 a person's tool holds), so two runs at once (one checkout's or two's) each
+// have one and neither waits; EXACT_TOOL_PORT names one instead, taken in turn by each test. Every child the tests
+// spawn serves and frames that origin (and has its turn, EXACT_PORT_TURNS).
+// (From one past the checkout's own, which its contract tests' stub takes in turn, so neither keeps the other waiting.)
+const claimed = process.env.EXACT_TOOL_PORT === undefined ? await claimPort(checkoutPort(ROOT) + 1, { label: `the design tool's tests in ${ROOT}`, except: [checkoutPort(ROOT)] }) : null;
+if (claimed) process.env.EXACT_TOOL_PORT = String(claimed.port);
+// The port module reads the port once, at its first import: a file run before these in the same process
+// (tamber-server.test.mjs) loads it with none (7740), where these runs' children serve this checkout's; then
+// these take an instance of their own (a query is a module of its own).
+const loaded = await import('./tamber-tool-port.mjs');
+export const { TOOL_DIST, TOOL_ORIGIN, TOOL_PORT, stageTool } = String(loaded.TOOL_PORT) === process.env.EXACT_TOOL_PORT ? loaded : await import(`./tamber-tool-port.mjs?port=${process.env.EXACT_TOOL_PORT}`);
 // The app a drive names: the staged tool (no server of its own) on another port, so no drive starts the stub on 7740.
 export const DRIVEN = TOOL_PORT === 7740 ? { args: ['--app', 'design-tool'], env: process.env } : { args: [], env: { ...process.env, EXACT_APP_DIR: stageTool().dir } };
 // The stub's app (its components' params, which the stub's design sets):
@@ -30,7 +37,8 @@ export function toolTurns() {
 let givePort = () => {};
 beforeEach(async () => {
   const port = Number(new URL(TOOL_ORIGIN).port);
-  givePort = await takePort(port, { label: `the design tool's tests in ${ROOT}` });
+  // (A port this run claimed is its own already: no turn to wait for.)
+  givePort = claimed ? () => {} : await takePort(port, { label: `the design tool's tests in ${ROOT}` });
   const pid = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8' }).stdout.trim().split('\n')[0];
   if (pid) {
     givePort();
@@ -49,9 +57,13 @@ export function lines(child) {
   let buf = '';
   child.stdout.setEncoding('utf8');
   child.stdout.on('data', d => { buf += d; const all = buf.split('\n'); buf = all.pop(); seen.push(...all); });
+  // Its stderr's tail too, said when a wait fails (a child that exits, or waits on a lock, says why there).
+  let err = '';
+  child.stderr?.setEncoding?.('utf8');
+  child.stderr?.on?.('data', d => { err = (err + d).slice(-3000); });
   const until = async (pass, ms) => {
     const end = Date.now() + ms;
-    while (!seen.some(pass)) { if (Date.now() > end || child.exitCode !== null) throw new Error(`not seen: ${seen.join('\n')}`); await Bun.sleep(50); }
+    while (!seen.some(pass)) { if (Date.now() > end || child.exitCode !== null) throw new Error(`not seen${child.exitCode !== null ? ` (it exited ${child.exitCode})` : ` in ${ms} ms`}: ${seen.join('\n')}${err ? `\n--- its stderr's tail:\n${err}` : ''}`); await Bun.sleep(50); }
     return seen.find(pass);
   };
   return { seen, until };
@@ -90,7 +102,7 @@ export async function proxied(app, before = () => {}) {
     await before(request);
     const headers = new Headers(req.headers);
     headers.delete('host'); headers.delete('content-length');
-    const res = await fetch(`${origin}${url.pathname}${url.search}`, { method: req.method, headers, body, redirect: 'manual' });
+    const res = await upstream(`${origin}${url.pathname}${url.search}`, { method: req.method, headers, body, redirect: 'manual' });
     const bytes = await res.arrayBuffer();
     if (request.method === 'transaction' || request.method === 'undo' || request.method === 'accept') {
       const reply = JSON.parse(new TextDecoder().decode(bytes));
@@ -105,4 +117,26 @@ export async function proxied(app, before = () => {}) {
   tool.stderr.on('data', d => { said = (said + d).slice(-4000); });
   const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000).catch(e => { throw new Error(`${e.message}\n${said}`); });
   return { url, origin, writes, close: async () => { await stop(tool); proxy.stop(true); await stop(serve); } };
+}
+
+/** Where two texts differ, in order: the first line that differs, the
+ * lines taken out there and the lines put in. */
+export const edit = (a, b) => {
+  const [x, y] = [a.split('\n'), b.split('\n')];
+  let i = 0, j = 0;
+  while (i < x.length && i < y.length && x[i] === y[i]) i++;
+  while (j < x.length - i && j < y.length - i && x[x.length - 1 - j] === y[y.length - 1 - j]) j++;
+  return { at: i, removed: x.slice(i, x.length - j), added: y.slice(i, y.length - j) };
+};
+
+/** A copy of the dials stub (its design and app) in a git repository of its own, one commit in. */
+export function repo(name) {
+  const app = mkdtempSync(join(tmpdir(), `exact-design-tool-${name}-`));
+  writeFileSync(join(app, 'app.tamber'), readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8'));
+  writeFileSync(join(app, 'app.contract'), STUB_APP);
+  const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app, encoding: 'utf8' });
+  git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
+  // Who the server's commit is by, here, whatever this machine's git says.
+  git('config', 'user.email', 't@example.test'); git('config', 'user.name', 't');
+  return { app, git };
 }

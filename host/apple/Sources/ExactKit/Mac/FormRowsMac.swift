@@ -6,8 +6,7 @@
 // the Mac's column and `none` in every other, on a row sized as the button
 // (24 points high, its title 13 in from the bezel's ends). The row stays
 // Exact's pressable, with its handlers, its focus and its accessibility; the
-// bezel under its parts is the platform's picture of it. The whole row
-// takes the press, where the reference takes it on the button alone.
+// bezel under its parts is the platform's picture of it and bounds its hit.
 #if os(macOS)
 import AppKit
 
@@ -19,6 +18,13 @@ private final class RowBezel: NSButton {
 }
 
 extension NodeView {
+    var inGroupedForm: Bool {
+        for view in sequence(first: self as NSView, next: \.superview) {
+            if let node = view as? NodeView, node.kind == "list" { return node.props["listStyle"] != nil }
+        }
+        return false
+    }
+
     /// A pressable that is no control, on which the sheet's `appearance` is
     /// `auto`: a row the platform draws as its push button.
     var drawsRowBezel: Bool { kind != "control" && pressable && style["appearance"]?.string == "auto" }
@@ -41,10 +47,14 @@ extension NodeView {
         if bezel.frame != frame { bezel.frame = frame }
     }
 
+    var rowBezelRect: NSRect? {
+        guard let bezel = subviews.first(where: { $0 is RowBezel }) else { return nil }
+        return bezel.alignmentRect(forFrame: bezel.frame)
+    }
+
     /// What the driver's `state` says of it: the view, and its box in the row.
     var rowBezelObservation: [String: Any]? {
-        guard let bezel = subviews.first(where: { $0 is RowBezel }) else { return nil }
-        let box = bezel.alignmentRect(forFrame: bezel.frame)
+        guard let box = rowBezelRect else { return nil }
         return ["view": "NSButton(push)", "frame": [Agent.r2(box.minX), Agent.r2(box.minY), Agent.r2(box.width), Agent.r2(box.height)]]
     }
 }

@@ -1280,7 +1280,7 @@ T2c went before T2b's JS half (the lead's order, 2026-10-17).
 | A shadow list (inset, token colours) scrubs live; Keep writes one line | **Met** on `shadow.header`. A blur and an unsaid spread were edited; the untouched words were kept as written. |
 | A motion edit rebuilds | **Met**: "Rebuilds" before the gesture, no scrub, Apply only. |
 | Icons read only | **Met**: the clone's 64 icons, listed with their sources. |
-| theme-fixture's JS-loop e2e | **Met** (`kindsOnTheJsLoop`, every run of scripts/design-tool.test.mjs). |
+| theme-fixture's JS-loop e2e | **Met** (`kindsOnTheJsLoop`, every run of scripts/design-tool-scrub.test.mjs, split from design-tool.test.mjs). |
 
 ### T3, components (step 1 `4600797f5`, `fcfca3753`, `80544178c`, `5684f39d3`, `a8cfb59f7`, `18bf8d9d8`; steps 2-3 `a8c3a089a`, `31290cd65`, `ed742c171`, `5dc1d9dc4`; step 4 `212c41b73`, `8e20080a6`, `b372bf692`, `f45cc65ed`, `8209bcef9`; optional *1.11* rung `param`)
 

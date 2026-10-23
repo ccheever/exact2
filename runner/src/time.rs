@@ -3,7 +3,9 @@
 //! date now is `epochAtZero + performanceNow()`. Beside it, where the viewer is: their
 //! locale and IANA time zone, so a source formats a date the way the device
 //! would (`new Intl.DateTimeFormat(time.locale, { timeZone: time.timeZone })`)
-//! without reading either from ambient state.
+//! without reading either from ambient state. `formatLocale` is the regional
+//! format where the platform keeps one apart from the language (macOS and
+//! iOS's Region, POSIX `LC_TIME`): what the device's own formatters use.
 //! @ref LLP 1027.000.000 (Draft; the Bluesky client is its consumer)
 
 use exact_plan::Value;
@@ -15,6 +17,7 @@ pub const FIELDS: &[&str] = &[
     "epochAtZero",
     "utcOffset",
     "locale",
+    "formatLocale",
     "resolvedLocale",
     "timeZone",
     "seed",
@@ -171,6 +174,12 @@ pub struct Place {
     /// source mixes with the date and a counter for ids (LLP 1027.000's
     /// seed, supplied). Zero until the host says.
     pub seed: f64,
+    /// BCP 47, the regional format the platform's own date and number
+    /// formatters use (macOS and iOS's `Locale.current`, Electron's
+    /// `app.getSystemLocale()`, Java's `Locale.Category.FORMAT`). Empty where
+    /// the host keeps none apart from `locale`, which `formatLocale` answers
+    /// then.
+    pub format_locale: String,
 }
 
 impl Default for Place {
@@ -179,14 +188,15 @@ impl Default for Place {
             locale: "en-US".into(),
             time_zone: "UTC".into(),
             seed: 0.0,
+            format_locale: String::new(),
         }
     }
 }
 
 impl Place {
     /// The place a host tells before a boot, as `set_place`'s input:
-    /// `locale NUL timeZone NUL seed`, the seed required; `None` unless it
-    /// validates.
+    /// `locale NUL timeZone NUL seed`, the seed required, then optionally
+    /// `NUL formatLocale`; `None` unless it validates.
     pub fn launched(text: &str) -> Option<Place> {
         let mut fields = text.split('\0');
         let (locale, time_zone) = (fields.next()?, fields.next()?);
@@ -195,6 +205,7 @@ impl Place {
             locale: locale.into(),
             time_zone: time_zone.into(),
             seed,
+            format_locale: fields.next().unwrap_or("").into(),
         };
         place.validate().is_ok().then_some(place)
     }
@@ -209,6 +220,7 @@ impl Place {
                     .all(|c| c.is_ascii_alphanumeric() || c == '-' || extra.contains(&c))
         };
         if fine(&self.locale, &[])
+            && (self.format_locale.is_empty() || fine(&self.format_locale, &[]))
             && fine(&self.time_zone, &['/', '_', '+'])
             && self.seed.is_finite()
             && self.seed >= 0.0
@@ -225,6 +237,11 @@ impl Place {
     pub fn field(&self, name: &str) -> Option<Value> {
         match name {
             "locale" => Some(Value::str(&self.locale)),
+            "formatLocale" => Some(Value::str(if self.format_locale.is_empty() {
+                &self.locale
+            } else {
+                &self.format_locale
+            })),
             "timeZone" => Some(Value::str(&self.time_zone)),
             "seed" => Some(Value::Number(self.seed)),
             _ => None,

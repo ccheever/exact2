@@ -1,0 +1,881 @@
+// Harmony: team chat in channels and direct messages, with reactions, pins,
+// replies, typing and custom emoji. One source for the iPhone, the Mac and
+// the web: the tab bar is the Mac's sidebar, a channel row pushes beside its
+// list in a wide window, a long press is a right-click's menu.
+//
+// app.ts answers every source through Snapback4; six development personas
+// stand in for accounts and the You tab switches between them.
+use Badge, EmptyState from "exact:content"
+
+routes nav
+  tab channels "/"
+    room "/c/:id"
+    newChannel "/new-channel"
+  tab dms "/dm"
+    dm "/dm/:id"
+    newDm "/new-message"
+  tab you "/you"
+    newEmoji "/you/new-emoji"
+
+shape Clock
+  epochAtZero: number
+  utcOffset: number
+
+shape Person
+  key: string
+  principal: string
+  name: string
+  handle: string
+  status: string
+  hue: number
+  initials: string
+
+shape Reaction
+  emoji: string
+  count: number
+  mine: bool
+  custom: bool
+  path: string
+  fill: string
+  who: string
+
+shape Msg
+  id: string
+  authorId: string
+  author: string
+  initials: string
+  hue: number
+  body: string
+  at: number
+  newDay: bool
+  head: bool
+  edited: bool
+  pinned: bool
+  mine: bool
+  mentionsMe: bool
+  replyAuthor: string
+  replyBody: string
+  replyDeleted: bool
+  pending: bool
+  reactions: Reaction[]
+
+shape Pin
+  id: string
+  author: string
+  body: string
+  at: number
+
+shape Room
+  id: string
+  kind: string
+  name: string
+  handle: string
+  topic: string
+  category: string
+  unread: number
+  latestAuthor: string
+  latestBody: string
+  latestAt: number
+  hue: number
+  initials: string
+  status: string
+
+shape Category
+  name: string
+  rooms: Room[]
+
+
+shape Thread
+  id: string
+  kind: string
+  title: string
+  topic: string
+  typing: string
+  unread: number
+  messages: Msg[]
+  pins: Pin[]
+  members: Person[]
+
+shape Emoji
+  id: string
+  name: string
+  path: string
+  fill: string
+  mine: bool
+
+shape Hit
+  id: string
+  roomId: string
+  roomKind: string
+  roomName: string
+  author: string
+  body: string
+  at: number
+
+// Everything the view reads, in one answer: natively the Snapback device
+// serves one answer at a time, so reads never wait on another read's round.
+shape World
+  loaded: bool
+  online: bool
+  people: Person[]
+  channels: Category[]
+  dms: Room[]
+  emoji: Emoji[]
+  thread: Thread
+  threadMissing: bool
+  hits: Hit[]
+
+// Snapback's change feed for the persona: `seq` moves when anything they can
+// see changes (-1 before the first event or after an error).
+shape Live
+  seq: number
+  state: string
+shape EmojiShape
+  name: string
+  path: string
+
+shape Ack
+  ok: bool
+  id: string
+
+fn hueToken(h: number): string = h == 1 ? "hue.rose" : h == 2 ? "hue.sky" : h == 3 ? "hue.moss" : h == 4 ? "hue.amber" : h == 5 ? "hue.violet" : "hue.teal"
+// A token named by data (a custom emoji's fill) is spelled out here, so the
+// native hosts see each brand token as a literal and resolve it.
+fn fillToken(name: string): string = name == "hue.rose" ? "hue.rose" : name == "hue.sky" ? "hue.sky" : name == "hue.moss" ? "hue.moss" : name == "hue.amber" ? "hue.amber" : name == "hue.violet" ? "hue.violet" : "hue.teal"
+fn nobody(key: string): Person = Person(key=key, principal=`dev:${key}`, name="", handle=key, status="", hue=1, initials="")
+fn emptyThread(): Thread = Thread(id="", kind="", title="", topic="", typing="", unread=0, messages=[], pins=[], members=[])
+fn bodyOf(messages: Msg[], id: string): string = match first(messages.filter(m => m.id == id)) { case some(m) => m.body, case none => "" }
+fn authorOf(messages: Msg[], id: string): string = match first(messages.filter(m => m.id == id)) { case some(m) => m.author, case none => "" }
+fn isMine(messages: Msg[], id: string): bool = messages.filter(m => m.id == id and m.mine).length > 0
+fn isPinned(messages: Msg[], id: string): bool = messages.filter(m => m.id == id and m.pinned).length > 0
+fn handleOk(name: string): bool = name.length >= 2 and name.length <= 32
+
+component Harmony
+  // Who you are: one of the six personas, kept across launches.
+  state persona = "ada" persist
+  state sampledAt = 0
+  state query = ""
+  state draft = ""
+  state replyTo = ""
+  state editing = ""
+  state aimed = ""
+  state hovered = ""
+  state pickerFor = ""
+  state lastTyped = -10000
+  state newName = ""
+  state newTopic = ""
+  state newCategory = "Text Channels"
+  state emojiName = ""
+  state emojiShape = "bolt"
+  state emojiFill = "hue.sky"
+  state statusDraft = ""
+  resource time = exactTime() as shape Clock
+  derive now = time.epochAtZero + sampledAt
+  derive roomId = (top(nav).name == "room" or top(nav).name == "dm") ? top(nav).params.id : ""
+  // The clock and zone ride after `with`: the kept answer then shows at the
+  // next launch before the first round (its arguments match without them).
+  // Pushed, not polled: each change Snapback reports (`live.seq`) reads the
+  // world again, so another person's message, reaction or typing shows at once.
+  // The read follows the feed through `seenSeq`, moved only between reads:
+  // natively a read whose arguments change mid-round is superseded, and its
+  // round's next device call, outside any answer, is refused.
+  resource live = live(persona) with liveEpoch as shape Live else empty()
+  // A feed that ends (the network, a backend restart) opens again.
+  state liveEpoch = 0
+  state seenSeq = -1
+  resource world = snapshot(persona, roomId) with query.trim(), now, time.utcOffset, seenSeq as shape World else empty()
+  derive people = world.people
+  derive emoji = world.emoji
+  derive hits = world.hits
+  derive thread = world.thread
+  derive unreachable = failed(world) and not world.loaded
+  derive me = match first(people.filter(p => p.key == persona)) { case some(p) => p, case none => nobody(persona) }
+  derive others = people.filter(p => p.key != persona)
+  derive shown = thread.id == roomId ? thread : emptyThread()
+  // The newest message, for tests and the room's own summary.
+  derive latest = match shown.messages.at(-1) { case some(m) => m, case none => Msg(id="", authorId="", author="", initials="", hue=1, body="", at=0, newDay=false, head=false, edited=false, pinned=false, mine=false, mentionsMe=false, replyAuthor="", replyBody="", replyDeleted=false, pending=false, reactions=[]) }
+  derive aimedMine = isMine(shown.messages, aimed)
+  derive aimedPinned = isPinned(shown.messages, aimed)
+  derive shapeList = [EmojiShape(name="bolt", path="M13 2L3 14h8l-1 8 10-12h-8z"), EmojiShape(name="heart", path="M12 21s-7-4.5-9.5-9A5.5 5.5 0 0 1 12 6a5.5 5.5 0 0 1 9.5 6c-2.5 4.5-9.5 9-9.5 9z"), EmojiShape(name="star", path="M12 2l3 7 7 .6-5.3 4.7 1.6 7.2L12 17.8 5.7 21.5l1.6-7.2L2 9.6 9 9z"), EmojiShape(name="hex", path="M12 2l8.66 5v10L12 22l-8.66-5V7z"), EmojiShape(name="plane", path="M2 21l21-9L2 3v7l15 2-15 2z"), EmojiShape(name="spark", path="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4z"), EmojiShape(name="drop", path="M12 2s7 7.5 7 12a7 7 0 0 1-14 0c0-4.5 7-12 7-12z"), EmojiShape(name="check", path="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z")]
+  derive hueList = ["hue.rose", "hue.sky", "hue.moss", "hue.amber", "hue.violet", "hue.teal"]
+  derive shapePath = match first(shapeList.filter(s => s.name == emojiShape)) { case some(s) => s.path, case none => "" }
+  derive emojiHint = emojiName.trim() == "" ? "Name it: people will type :name: to use it." : not handleOk(emojiName.trim()) ? "Two to 32 letters, digits or underscores." : `People will type :${emojiName.trim()}:`
+  derive emojiRefusal = match failure(emojiCreated) { case some(f) => f.code == "EMOJI_EXISTS" ? "That name is taken." : "Couldn’t save the emoji. Try again.", case none => "" }
+  derive channelRefusal = match failure(channelCreated) { case some(f) => "Couldn’t create the channel. Try again.", case none => "" }
+  derive sendRefusal = match failure(sent) { case some(f) => f.code == "NOT_MEMBER" ? "You’re not in this room." : "Couldn’t send. Try again.", case none => "" }
+
+  mutation sent as shape Ack queue refreshes world then afterSend
+  mutation edited as shape Ack queue refreshes world then afterEdit
+  mutation removed as shape Ack queue refreshes world then resync
+  mutation reacted as shape Ack queue refreshes world then resync
+  mutation pinToggled as shape Ack queue refreshes world then resync
+  mutation typed as shape Ack queue
+  mutation readMarked as shape Ack queue refreshes world
+  mutation channelCreated as shape Ack refreshes world then afterChannel
+  mutation dmOpened as shape Ack refreshes world then afterDm
+  mutation profileSaved as shape Ack refreshes world
+  mutation emojiCreated as shape Ack refreshes world then afterEmoji
+  mutation emojiRemoved as shape Ack refreshes world
+  derive writing = pending(sent) or pending(edited) or pending(removed) or pending(reacted) or pending(pinToggled) or pending(typed) or pending(readMarked) or pending(channelCreated) or pending(dmOpened) or pending(profileSaved) or pending(emojiCreated) or pending(emojiRemoved)
+
+  // Changes arrive through `live`; the clock still moves every ten seconds,
+  // between writes, for what changes with time alone (a typing line that
+  // expires, "Today"), and as a fallback should the feed drop.
+  task clock when not writing
+    every(10000, tick)
+  // The open room is read as soon as it is seen, and again as messages arrive.
+  task follow when live.seq != seenSeq and not pending(world) key=live.seq
+    after(1, catchUp)
+  task relive when live.state == "error" key=liveEpoch
+    after(2000, reconnect)
+  task readOpen when roomId != "" and shown.unread > 0 and not pending(world) key=roomId
+    after(300, markOpen)
+  task fillStatus when world.loaded key=persona
+    after(1, loadStatus)
+  action tick
+    if not pending(world)
+      sampledAt = performanceNow()
+  action reconnect
+    liveEpoch = liveEpoch + 1
+  action catchUp
+    if not pending(world)
+      seenSeq = live.seq
+  action markOpen
+    if roomId != "" and shown.unread > 0 and not pending(readMarked)
+      send readMarked = markRead(persona, roomId)
+  action loadStatus
+    statusDraft = me.status
+
+  action pick(name: string)
+    nav = select(nav, name)
+  action back
+    nav = back(nav)
+  // A row is a link to its room; in a wide window the open room is replaced.
+  action follow(url: string)
+    nav = (top(nav).name == "room" or top(nav).name == "dm") and (url.startsWith("/c/") or url.startsWith("/dm/")) ? replace(nav, url) : go(nav, url)
+    draft = ""
+    replyTo = ""
+    editing = ""
+    query = ""
+    sampledAt = performanceNow()
+  action search(v: string)
+    query = v
+
+  action edit(v: string)
+    draft = v
+    if roomId != "" and v.trim() != "" and editing == "" and not pending(world) and performanceNow() - lastTyped > 2500
+      lastTyped = performanceNow()
+      send typed = setTyping(persona, roomId)
+  // Enter sends, Shift+Enter breaks the line; Escape leaves a reply or an edit.
+  action composeKey(k: string, e: KeyboardEvent)
+    if k == "Enter" and not e.shiftKey
+      preventDefault()
+      if draft.trim() != "" and roomId != "" and not pending(sent) and not pending(edited)
+        if editing != ""
+          send edited = editMessage(persona, editing, draft.trim())
+        else
+          send sent = sendMessage(persona, roomId, draft.trim(), replyTo == "" ? none : some(replyTo))
+    if k == "Escape" and (replyTo != "" or editing != "")
+      replyTo = ""
+      editing = ""
+      draft = ""
+  action post
+    if draft.trim() != "" and roomId != "" and not pending(sent) and not pending(edited)
+      if editing != ""
+        send edited = editMessage(persona, editing, draft.trim())
+      else
+        send sent = sendMessage(persona, roomId, draft.trim(), replyTo == "" ? none : some(replyTo))
+    focus(`composer-${top(nav).id}`)
+  action afterSend
+    draft = ""
+    replyTo = ""
+    sampledAt = performanceNow()
+  action afterEdit
+    draft = ""
+    editing = ""
+    sampledAt = performanceNow()
+  // After a message write the view showed predicted, the read that delivers it.
+  action resync
+    sampledAt = performanceNow()
+  action cancelCompose
+    replyTo = ""
+    editing = ""
+    draft = ""
+    focus(`composer-${top(nav).id}`)
+
+  action aim(id: string)
+    aimed = id
+  action hover(id: string, on: bool)
+    hovered = on ? id : (hovered == id ? "" : hovered)
+  action startReply(id: string)
+    replyTo = id
+    editing = ""
+    focus(`composer-${top(nav).id}`)
+  action startEdit
+    editing = aimed
+    replyTo = ""
+    draft = bodyOf(shown.messages, aimed)
+    focus(`composer-${top(nav).id}`)
+  action askRemove
+    showModal("remove")
+  action remove
+    send removed = deleteMessage(persona, aimed)
+  action togglePin
+    haptic("selection")
+    send pinToggled = pin(persona, aimed)
+  action react(id: string, emoji: string)
+    haptic("selection")
+    send reacted = react(persona, id, emoji)
+  action pickFor(id: string)
+    pickerFor = id
+  // From the message menu, the picker opens beside the message itself:
+  // exact2's menu rule would open it from what opened the menu, and the
+  // hover row's More button that can open it goes as the pointer leaves.
+  action pickFromMenu
+    pickerFor = aimed
+    showPopover("emoji-picker", source=`message-${aimed}`)
+  action pickForComposer
+    pickerFor = ""
+  action pickEmoji(e: string)
+    if pickerFor == ""
+      draft = draft + e
+      focus(`composer-${top(nav).id}`)
+    else
+      haptic("selection")
+      send reacted = react(persona, pickerFor, e)
+
+  action openNewChannel
+    newName = ""
+    newTopic = ""
+    newCategory = "Text Channels"
+    nav = push(nav, "/new-channel")
+  action editName(v: string)
+    newName = v
+  action editTopic(v: string)
+    newTopic = v
+  action pickCategory(v: string)
+    newCategory = v
+  action createChannel
+    if newName.trim() != "" and not pending(channelCreated)
+      send channelCreated = createChannel(persona, newName.trim().toLowerCase().replaceAll(" ", "-"), newTopic.trim(), newCategory)
+  action afterChannel
+    match channelCreated
+      case some(r)
+        let n = back(nav)
+        nav = go(n, path("room", r.id))
+      case none
+        newName = newName
+
+  action openNewDm
+    nav = push(nav, "/new-message")
+  action startDm(principal: string)
+    if not pending(dmOpened)
+      send dmOpened = openDm(persona, principal)
+  action afterDm
+    match dmOpened
+      case some(r)
+        let n = back(nav)
+        nav = go(n, path("dm", r.id))
+      case none
+        draft = draft
+
+  action switchTo(key: string)
+    haptic("selection")
+    persona = key
+    draft = ""
+    replyTo = ""
+    editing = ""
+  action editStatus(v: string)
+    statusDraft = v
+  action saveStatus(value: string)
+    statusDraft = value
+    if value.trim() != me.status
+      send profileSaved = setProfile(persona, me.name, me.handle, value.trim(), me.hue)
+  action openNewEmoji
+    emojiName = ""
+    emojiShape = "bolt"
+    emojiFill = "hue.sky"
+    nav = push(nav, "/you/new-emoji")
+  action editEmojiName(v: string)
+    emojiName = v
+  action pickShape(name: string)
+    haptic("selection")
+    emojiShape = name
+  action pickFill(token: string)
+    haptic("selection")
+    emojiFill = token
+  action saveEmoji
+    if handleOk(emojiName.trim()) and not pending(emojiCreated)
+      send emojiCreated = createEmoji(persona, emojiName.trim().toLowerCase(), shapePath, emojiFill)
+  action afterEmoji
+    nav = back(nav)
+  action removeEmoji(id: string)
+    send emojiRemoved = deleteEmoji(persona, id)
+
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow interactive-widget="resizes-content" testId="app"
+      width="100%" height="100%" display="flex" flex-direction="column"
+      column flex=1 min-height=0 position="relative"
+        for t in nav.tabs key=t.name
+          column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
+            for e in t.stack key=e.id
+              if e.name == "channels"
+                column navigationKey=`${e.id}` navigationScroll="channels-list" position="absolute" inset=0 display="flex" flex-direction="column"
+                  header display="flex" flex-wrap="wrap" align-items="center" gap=8 padding="8px 16px"
+                    text "Harmony" role="heading" aria-level=1 flex=1
+                    button press=openNewChannel aria-label="New Channel" testId="new-channel"
+                      image "symbol:add"
+                    input type="search" value=query input=search placeholder="Search messages" aria-label="Search messages"
+                      testId="search" width="100%"
+                  if query.trim() != ""
+                    if hits.length == 0 and not pending(world)
+                      EmptyState(symbol="symbol:search", title=`No Results for “${query.trim()}”`, message="Search matches the start of a word in any room you’re in.")
+                    else
+                      list id="channels-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                        section
+                          header
+                            text (hits.length == 1 ? "1 message" : `${hits.length} messages`) testId="hit-count"
+                          for h in hits key=h.id
+                            link href=(h.roomKind == "dm" ? path("dm", h.roomId) : path("room", h.roomId)) display="flex" align-items="center" gap=12 testId=`hit-${h.id}`
+                              column flex=1 min-width=0 gap=2
+                                row gap=8 align-items="baseline"
+                                  text h.author font-weight=600 flex-shrink=0
+                                  text (h.roomKind == "dm" ? "Direct message" : `#${h.roomName}`) font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0 line-clamp=1
+                                  text formatDay(h.at, now, time.utcOffset, "list") font="-exact-footnote" color="-exact-secondary-label" flex-shrink=0
+                                text h.body line-clamp=2
+                              image "symbol:forward-chevron"
+                  else if unreachable
+                    EmptyState(symbol="symbol:alert", title="Can’t Reach Harmony", message="Check that the backend is running, then try again.")
+                      button press=tick testId="retry"
+                        text "Try Again"
+                  else if world.channels.length == 0 and world.loaded
+                    EmptyState(symbol="symbol:hashtag", title="No Channels", message="Create the first channel for your team.")
+                      button press=openNewChannel testId="empty-new-channel"
+                        text "New Channel"
+                  else
+                    list id="channels-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                      for c in world.channels key=c.name
+                        section
+                          header
+                            text c.name
+                          for r in c.rooms key=r.id
+                            link href=path("room", r.id) display="flex" align-items="center" testId=`room-${r.name}`
+                              image "symbol:hashtag" aria-hidden=true color="-exact-secondary-label"
+                              column flex=1 min-width=0
+                                text r.name font-weight=(r.unread > 0 ? 600 : 400) line-clamp=1 testId=`room-name-${r.name}`
+                                if r.topic != ""
+                                  text r.topic line-clamp=1 font="-exact-footnote" color="-exact-secondary-label"
+                              if r.unread > 0
+                                Badge(label=`${r.unread}`, tint=some("AccentColor"))
+                              image "symbol:forward-chevron"
+              if e.name == "room" or e.name == "dm"
+                RoomScreen(routeKey=`${e.id}`, thread=shown, loading=(pending(world) and shown.id == ""), missing=(world.threadMissing and world.loaded), now=now, offset=time.utcOffset,
+                  draft=draft, replyTo=replyTo, editing=editing, hovered=hovered, sending=(pending(sent) or pending(edited)), sendRefusal=sendRefusal,
+                  edit=edit, composeKey=composeKey, post=post, cancelCompose=cancelCompose, aim=aim, react=react, pickFor=pickFor, pickForComposer=pickForComposer, hover=hover, reply=startReply)
+              if e.name == "newChannel"
+                column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="new-channel-form" position="absolute" inset=0
+                  header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
+                    button id="back" press=back aria-label="Cancel" testId="new-channel-cancel"
+                      image "symbol:close"
+                    text "New Channel" role="heading"
+                    button press=createChannel buttonStyle="bordered-prominent" aria-label="Create" testId="new-channel-save"
+                      disabled=(newName.trim() == "" or pending(channelCreated))
+                      image "symbol:checkmark"
+                  list id="new-channel-form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                    section
+                      row
+                        column flex=1 min-width=0 gap=4
+                          input value=newName input=editName placeholder="Channel name" aria-label="Channel name" autofocus=true submit=createChannel
+                            autocapitalize="none" autocorrect="off" aria-invalid=(channelRefusal != "") testId="new-channel-name"
+                          if channelRefusal != ""
+                            text channelRefusal font="-exact-footnote" color="-exact-system-red" testId="new-channel-error"
+                      footer
+                        text (newName.trim() == "" ? "Lowercase, with dashes for spaces: #design-review." : `#${newName.trim().toLowerCase().replaceAll(" ", "-")}`) testId="new-channel-hint"
+                    section
+                      row
+                        input value=newTopic input=editTopic placeholder="Topic (optional)" aria-label="Topic" submit=createChannel testId="new-channel-topic" flex=1 min-width=0
+                      row
+                        text "Category"
+                        select value=newCategory change=pickCategory aria-label="Category" testId="new-channel-category"
+                          option value="Text Channels"
+                            text "Text Channels"
+                          option value="Projects"
+                            text "Projects"
+                          option value="Information"
+                            text "Information"
+              if e.name == "dms"
+                column navigationKey=`${e.id}` navigationScroll="dm-list" position="absolute" inset=0 display="flex" flex-direction="column"
+                  header display="flex" align-items="center" padding="8px 16px"
+                    text "Messages" role="heading" aria-level=1 flex=1
+                    button press=openNewDm aria-label="New Message" testId="new-dm"
+                      image "symbol:compose"
+                  if world.dms.length == 0 and world.loaded
+                    EmptyState(symbol="symbol:messages", title="No Direct Messages", message="Start a conversation with someone on the team.")
+                      button press=openNewDm testId="empty-new-dm"
+                        text "New Message"
+                  else
+                    list id="dm-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                      section
+                        for d in world.dms key=d.id
+                          link href=path("dm", d.id) display="flex" align-items="center" gap=12 testId=`dm-${d.handle}`
+                            Avatar(initials=d.initials, hue=d.hue, size="2.75rem", font="1.1rem")
+                            column flex=1 min-width=0 gap=1
+                              row gap=8 align-items="baseline"
+                                text d.name font-weight=(d.unread > 0 ? 600 : 400) flex=1 min-width=0 line-clamp=1 testId=`dm-name-${d.handle}`
+                                if d.latestAt > 0
+                                  text formatDay(d.latestAt, now, time.utcOffset, "list") font="-exact-footnote" color="-exact-secondary-label" flex-shrink=0
+                              text (d.latestBody == "" ? d.status : `${d.latestAuthor}: ${d.latestBody}`) line-clamp=1 font="-exact-subheadline" color="-exact-secondary-label"
+                            if d.unread > 0
+                              Badge(label=`${d.unread}`, tint=some("AccentColor"))
+                            image "symbol:forward-chevron"
+              if e.name == "newDm"
+                column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="new-dm-list" position="absolute" inset=0
+                  header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
+                    button id="back" press=back aria-label="Cancel" testId="new-dm-cancel"
+                      image "symbol:close"
+                    text "New Message" role="heading"
+                    box width="2rem"
+                  list id="new-dm-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                    section
+                      header
+                        text "To"
+                      for p in others key=p.key
+                        button press=startDm(p.principal) disabled=pending(dmOpened) testId=`to-${p.key}`
+                          Avatar(initials=p.initials, hue=p.hue, size="2.25rem", font="0.9rem")
+                          column flex=1 min-width=0
+                            text p.name
+                            text p.status line-clamp=1 font="-exact-footnote" color="-exact-secondary-label"
+              if e.name == "you"
+                column navigationKey=`${e.id}` navigationScroll="you-list" position="absolute" inset=0 display="flex" flex-direction="column"
+                  header display="flex" align-items="center" padding="8px 16px"
+                    text "You" role="heading" aria-level=1 flex=1
+                  list id="you-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                    section
+                      row padding-top=8 padding-bottom=8
+                        Avatar(initials=me.initials, hue=me.hue, size="3.5rem", font="1.4rem")
+                        column flex=1 min-width=0 gap=2
+                          text me.name font="-exact-title3" font-weight=600 testId="me-name"
+                          text `@${me.handle}` color="-exact-secondary-label" testId="me-handle"
+                      row
+                        text "Status"
+                        input value=statusDraft input=editStatus change=saveStatus placeholder="What are you up to?" aria-label="Status"
+                          testId="status" flex=1 min-width=0 text-align="end"
+                    section
+                      header
+                        text "Switch Account"
+                      for p in people key=p.key
+                        button press=switchTo(p.key) aria-pressed=(p.key == persona) testId=`switch-${p.key}`
+                          Avatar(initials=p.initials, hue=p.hue, size="2.25rem", font="0.9rem")
+                          column flex=1 min-width=0
+                            text p.name
+                            text p.status line-clamp=1 font="-exact-footnote" color="-exact-secondary-label"
+                          if p.key == persona
+                            image "symbol:checkmark" aria-label="Current" color="AccentColor" testId="current-account"
+                      footer
+                        text "Harmony has no sign-in yet: choose who you are. Each person keeps their own copy of every room on this device, unread marks included."
+                    section
+                      header
+                        text "Custom Emoji"
+                      for em in emoji key=em.id
+                        row delete=removeEmoji(em.id) disabled=(not em.mine) testId=`emoji-${em.name}`
+                          Glyph(emoji=`:${em.name}:`, custom=true, path=em.path, fill=em.fill, size="1.5rem")
+                          text `:${em.name}:` flex=1 min-width=0 font-family="ui-monospace, monospace"
+                          if em.mine
+                            text "Yours" font="-exact-footnote" color="-exact-secondary-label"
+                      button press=openNewEmoji testId="new-emoji"
+                        image "symbol:add"
+                        text "Add Custom Emoji"
+                      footer
+                        text "Swipe to delete one of yours. Everyone on the team can use them."
+                    section
+                      header
+                        text "About"
+                      row
+                        text "Built with Exact"
+                        text "One source, every platform" color="-exact-secondary-label"
+                      row
+                        text "Backend"
+                        text "Snapback4" color="-exact-secondary-label"
+              if e.name == "newEmoji"
+                column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="new-emoji-form" position="absolute" inset=0
+                  header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
+                    button id="back" press=back aria-label="Cancel" testId="new-emoji-cancel"
+                      image "symbol:close"
+                    text "New Emoji" role="heading"
+                    button press=saveEmoji buttonStyle="bordered-prominent" aria-label="Save" testId="new-emoji-save"
+                      disabled=(not handleOk(emojiName.trim()) or pending(emojiCreated))
+                      image "symbol:checkmark"
+                  list id="new-emoji-form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                    section
+                      row
+                        column flex=1 min-width=0 gap=4
+                          input value=emojiName input=editEmojiName placeholder="name" aria-label="Name" autofocus=true submit=saveEmoji
+                            autocapitalize="none" autocorrect="off" aria-invalid=(emojiRefusal != "") testId="new-emoji-name"
+                          if emojiRefusal != ""
+                            text emojiRefusal font="-exact-footnote" color="-exact-system-red" testId="new-emoji-error"
+                      footer
+                        text emojiHint testId="new-emoji-hint"
+                    section
+                      header
+                        text "Shape"
+                      row padding-top=8 padding-bottom=8
+                        row role="radiogroup" aria-label="Shape" flex=1 min-width=0 flex-wrap="wrap" gap=4
+                          for s in shapeList key=s.name
+                            button role="radio" aria-checked=(emojiShape == s.name) press=pickShape(s.name) aria-label=s.name testId=`shape-${s.name}`
+                              appearance="none" padding=6 border-radius=10 border=(emojiShape == s.name ? "2px solid AccentColor" : "2px solid transparent")
+                              row color=fillToken(emojiFill)
+                                svg width="1.75rem" height="1.75rem" viewBox="0 0 24 24" aria-hidden=true
+                                  path d=s.path fill="currentcolor"
+                      row padding-top=8 padding-bottom=8
+                        row role="radiogroup" aria-label="Colour" flex=1 min-width=0 flex-wrap="wrap" gap=10
+                          for h, i in hueList key=h
+                            button role="radio" aria-checked=(emojiFill == h) press=pickFill(h) aria-label=`Colour ${i + 1}` testId=`fill-${i}`
+                              appearance="none" width="1.75rem" height="1.75rem" border-radius="50%" background-color=fillToken(h)
+                              border=(emojiFill == h ? "3px solid -exact-label" : "3px solid transparent")
+                    section
+                      header
+                        text "Preview"
+                      row justify-content="center" padding-top=16 padding-bottom=16 gap=16 align-items="center" color=fillToken(emojiFill)
+                        svg width="3rem" height="3rem" viewBox="0 0 24 24" aria-label="Large preview"
+                          path d=shapePath fill="currentcolor"
+                        svg width="1.25rem" height="1.25rem" viewBox="0 0 24 24" aria-label="Small preview"
+                          path d=shapePath fill="currentcolor"
+        // The long-press (right-click) menu for a message: it acts on `aimed`.
+        column id="message-menu" popover="auto" role="menu" testId="message-menu"
+          button press=react(aimed, "👍") popovertarget="message-menu" popovertargetaction="hide" testId="menu-thumbs"
+            text "👍 Thumbs Up"
+          button press=react(aimed, "❤️") popovertarget="message-menu" popovertargetaction="hide" testId="menu-heart"
+            text "❤️ Heart"
+          button press=react(aimed, "😂") popovertarget="message-menu" popovertargetaction="hide" testId="menu-laugh"
+            text "😂 Laugh"
+          button press=pickFromMenu popovertarget="message-menu" popovertargetaction="hide" testId="menu-add-reaction"
+            image "symbol:icon.add-reaction"
+            text "Add Reaction…"
+          button press=startReply(aimed) popovertarget="message-menu" popovertargetaction="hide" testId="menu-reply"
+            image "symbol:reply"
+            text "Reply"
+          button press=togglePin popovertarget="message-menu" popovertargetaction="hide" testId="menu-pin"
+            image "symbol:pin"
+            text (aimedPinned ? "Unpin Message" : "Pin Message")
+          if aimedMine
+            button press=startEdit popovertarget="message-menu" popovertargetaction="hide" testId="menu-edit"
+              image "symbol:pencil"
+              text "Edit Message"
+            button press=askRemove destructive=true popovertarget="message-menu" popovertargetaction="hide" testId="menu-delete"
+              image "symbol:delete"
+              text "Delete Message"
+        // The emoji picker: for the composer (`pickerFor` empty) or a message's reaction.
+        column id="emoji-picker" popover="auto" testId="emoji-picker" padding=12 gap=10 width="19rem" max-width="92vw" max-height="70vh" overflow-y="auto"
+          text (pickerFor == "" ? "Emoji" : "Add Reaction") role="heading" aria-level=3 font="-exact-headline"
+          if emoji.length > 0
+            text "Harmony" font="-exact-caption1" font-weight=600 color="-exact-secondary-label"
+            row flex-wrap="wrap" gap=2
+              for em in emoji key=em.id
+                button press=pickEmoji(`:${em.name}:`) popovertarget="emoji-picker" popovertargetaction="hide" aria-label=em.name title=`:${em.name}:`
+                  appearance="none" padding=6 border-radius=8 testId=`pick-${em.name}`
+                  Glyph(emoji=`:${em.name}:`, custom=true, path=em.path, fill=em.fill, size="1.6rem")
+          text "Popular" font="-exact-caption1" font-weight=600 color="-exact-secondary-label"
+          row flex-wrap="wrap" gap=2
+            for u, i in ["👍", "❤️", "😂", "🎉", "🔥", "👀", "🚀", "🤯", "😭", "🙏", "✅", "👋", "🤔", "💯", "🐶", "☕️", "🎧", "✨", "😄", "👏", "🫡", "🥳", "😎", "🙌"] key=u
+              button press=pickEmoji(u) popovertarget="emoji-picker" popovertargetaction="hide" aria-label=u appearance="none" padding=6 border-radius=8 testId=`pick-${i}`
+                text u font-size="1.6rem" line-height=1.2
+        dialog id="remove" role="alertdialog" aria-label="Delete Message?"
+          text "This can’t be undone."
+          button press=remove destructive=true commandfor="remove" command="close" testId="remove-confirm"
+            text "Delete"
+          button commandfor="remove" command="close" testId="remove-cancel"
+            text "Cancel"
+      row role="tablist" testId="tabs"
+        button role="tab" aria-controls="panel-channels" aria-selected=(nav.tab == "channels") press=pick("channels") testId="tab-channels" flex=1
+          image "symbol:hashtag"
+          text "Channels"
+        button role="tab" aria-controls="panel-dms" aria-selected=(nav.tab == "dms") press=pick("dms") testId="tab-dms" flex=1
+          image "symbol:messages"
+          text "Messages"
+        button role="tab" aria-controls="panel-you" aria-selected=(nav.tab == "you") press=pick("you") testId="tab-you" flex=1
+          image "symbol:person"
+          text "You"
+
+// One room: its bar, the transcript open at the newest message, the composer.
+component RoomScreen
+  props
+    routeKey: string
+    thread: Thread
+    loading: bool
+    missing: bool
+    now: number
+    offset: number
+    draft: string
+    replyTo: string
+    editing: string
+    hovered: string
+    sending: bool
+    sendRefusal: string
+    edit: action
+    composeKey: action
+    post: action
+    cancelCompose: action
+    aim: action
+    react: action
+    pickFor: action
+    pickForComposer: action
+    hover: action
+    reply: action
+  derive isDm = thread.kind == "dm"
+  derive title = isDm ? thread.title : `#${thread.title}`
+  derive replyAuthor = authorOf(thread.messages, replyTo)
+  view
+    column navigationKey=routeKey navigationScroll=`transcript-${routeKey}` position="absolute" inset=0 display="flex" flex-direction="column"
+      header display="flex" align-items="center" gap=8 padding="8px 16px"
+        text (thread.id == "" ? "" : title) role="heading" aria-level=2 flex="1 0 auto" testId="room-title"
+        if thread.topic != ""
+          text thread.topic flex="0 1 auto" min-width=0 line-clamp=1 color="-exact-secondary-label"
+        button popovertarget=`pins-${routeKey}` aria-label="Pinned Messages" title="Pinned Messages" testId="pins"
+          image "symbol:pin"
+        button popovertarget=`members-${routeKey}` aria-label="Members" title="Members" testId="members"
+          image "symbol:people"
+      if missing
+        EmptyState(symbol="symbol:lock", title="Not in This Room", message="You don’t have access to this room, or it no longer exists.")
+      else if thread.id != "" and thread.messages.length == 0
+        EmptyState(symbol=(isDm ? "symbol:messages" : "symbol:hashtag"), title=(isDm ? `This is the beginning of your conversation with ${thread.title}.` : `Welcome to #${thread.title}`), message=(thread.topic != "" ? thread.topic : "Say something to get it started."))
+      else
+        list id=`transcript-${routeKey}` appearance="none" virtualized=true scroll-start="end" scrollFollowEnd=true flex=1 min-height=0
+          keyboardDismissMode="none" padding-bottom=8
+          for m in thread.messages key=m.id
+            MessageRow(m=m, now=now, offset=offset, hovered=(hovered == m.id), aim=aim, react=react, pickFor=pickFor, hover=hover, reply=reply)
+      column padding="6px 12px 10px" gap=6 flex-shrink=0
+        if thread.typing != ""
+          row gap=6 align-items="center" padding-left=4
+            text thread.typing font="-exact-caption1" color="-exact-secondary-label" testId="typing"
+        if sendRefusal != ""
+          text sendRefusal font="-exact-footnote" color="-exact-system-red" padding-left=4 testId="send-error"
+        if editing != ""
+          row align-items="center" gap=8 padding-left=4
+            image "symbol:pencil" aria-hidden=true font="-exact-caption1" color="-exact-secondary-label"
+            text "Editing message" font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0
+            button press=cancelCompose buttonStyle="plain" aria-label="Cancel editing" testId="cancel-edit"
+              image "symbol:close"
+        else if replyTo != ""
+          row align-items="center" gap=8 padding-left=4
+            image "symbol:reply" aria-hidden=true font="-exact-caption1" color="-exact-secondary-label"
+            text `Replying to ${replyAuthor}` font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0 line-clamp=1 testId="replying-to"
+            button press=cancelCompose buttonStyle="plain" aria-label="Cancel reply" testId="cancel-reply"
+              image "symbol:close"
+        row align-items="flex-end" gap=4 padding="2px 4px 2px 6px" border-radius=22 border="1px solid -exact-separator" background-color="-exact-secondary-background"
+          button press=pickForComposer popovertarget="emoji-picker" aria-label="Emoji" title="Emoji" buttonStyle="plain" testId="emoji-button"
+            image "symbol:icon.emoji"
+          textarea id=`composer-${routeKey}` value=draft input=edit key=composeKey rows=1 field-sizing="content" max-height=140 enterkeyhint="send"
+            placeholder=(thread.id == "" ? "Message" : isDm ? `Message ${thread.title}` : `Message #${thread.title}`) aria-label="Message" testId="composer"
+            flex=1 min-width=0 border="none" background-color="transparent" padding="7px 4px"
+          button press=post disabled=(draft.trim() == "" or sending or thread.id == "") buttonStyle="filled" retainFocus=true
+            aria-label=(editing != "" ? "Save" : "Send") title=(editing != "" ? "Save" : "Send") testId="send"
+            image (editing != "" ? "symbol:checkmark" : "symbol:send")
+      column id=`pins-${routeKey}` popover="auto" testId="pins-popover" padding=12 gap=8 width="22rem" max-width="92vw" max-height="70vh" overflow-y="auto"
+        text "Pinned Messages" role="heading" aria-level=3 font="-exact-headline"
+        if thread.pins.length == 0
+          text "No pinned messages yet. Long-press a message (or right-click it) to pin it." color="-exact-secondary-label" font="-exact-footnote"
+        for p in thread.pins key=p.id
+          column gap=2 padding=10 border-radius=10 background-color="-exact-secondary-background" testId=`pin-${p.id}`
+            row gap=8 align-items="baseline"
+              text p.author font-weight=600 font="-exact-footnote" flex=1 min-width=0 line-clamp=1
+              text formatDay(p.at, now, offset, "list") font="-exact-caption1" color="-exact-secondary-label"
+            text p.body line-clamp=3
+      column id=`members-${routeKey}` popover="auto" testId="members-popover" padding=12 gap=10 width="18rem" max-width="92vw" max-height="70vh" overflow-y="auto"
+        text (thread.members.length == 1 ? "1 Member" : `${thread.members.length} Members`) role="heading" aria-level=3 font="-exact-headline"
+        for p in thread.members key=p.key
+          row gap=10 align-items="center"
+            Avatar(initials=p.initials, hue=p.hue, size="2rem", font="0.8rem")
+            column flex=1 min-width=0
+              text p.name
+              text p.status line-clamp=1 font="-exact-footnote" color="-exact-secondary-label"
+
+// One message: a day separator when the day turns, the author and time when
+// a run starts, the body, its reactions, and the actions that appear on hover.
+component MessageRow
+  props
+    m: Msg
+    now: number
+    offset: number
+    hovered: bool
+    aim: action
+    react: action
+    pickFor: action
+    hover: action
+    reply: action
+  view
+    column id=`message-${m.id}` testId=`message-${m.id}` position="relative" padding=(m.head ? "6px 16px 2px 14px" : "1px 16px 1px 14px") hover=hover(m.id) contextmenu=aim(m.id) contextPopover="message-menu"
+      background-color=(m.mentionsMe ? "mention.wash" : "transparent") border-left=(m.mentionsMe ? "2px solid mention.edge" : "2px solid transparent")
+      if m.newDay
+        row align-items="center" gap=12 padding-top=10 padding-bottom=8 aria-hidden=true
+          box flex=1 height="-exact-hairline" background-color="-exact-separator"
+          text formatDay(m.at, now, offset, "day") font="-exact-caption1" font-weight=600 color="-exact-secondary-label" testId=`day-${m.id}`
+          box flex=1 height="-exact-hairline" background-color="-exact-separator"
+      if m.replyAuthor != "" or m.replyDeleted
+        row align-items="center" gap=6 margin-left="3.25rem" margin-bottom=2
+          image "symbol:reply" aria-hidden=true font="-exact-caption2" color="-exact-secondary-label"
+          text (m.replyDeleted ? "Original message was deleted" : `${m.replyAuthor}  ${m.replyBody}`) font="-exact-footnote" color="-exact-secondary-label" line-clamp=1 flex=1 min-width=0 testId=`reply-${m.id}`
+      row gap=12 align-items="flex-start"
+        if m.head
+          Avatar(initials=m.initials, hue=m.hue, size="2.5rem", font="1rem")
+        else
+          row width="2.5rem" flex-shrink=0 justify-content="flex-end" padding-top=3
+            if hovered
+              text formatTime(m.at, offset, "short") font="-exact-caption2" color="-exact-tertiary-label" white-space="nowrap"
+        column flex=1 min-width=0 gap=1
+          if m.head
+            row gap=8 align-items="baseline" flex-wrap="wrap"
+              text m.author font-weight=600 testId=`author-${m.id}`
+              text formatDay(m.at, now, offset, "day-time") font="-exact-caption1" color="-exact-secondary-label"
+              if m.pinned
+                image "symbol:pin" aria-label="Pinned" font="-exact-caption1" color="-exact-secondary-label" testId=`pinned-${m.id}`
+          row flex-wrap="wrap" align-items="baseline" column-gap=6
+            text m.body white-space="pre-wrap" overflow-wrap="break-word" flex="1 1 100%" min-width=0 opacity=(m.pending ? 0.55 : 1) testId=`body-${m.id}`
+            if m.edited
+              text "(edited)" font="-exact-caption2" color="-exact-tertiary-label"
+          if m.reactions.length > 0
+            row flex-wrap="wrap" gap=4 margin-top=3 align-items="center"
+              for r, i in m.reactions key=r.emoji
+                button appearance="none" press=react(m.id, r.emoji) aria-pressed=r.mine aria-label=`${r.emoji}, ${r.count}` title=r.who testId=`reaction-${m.id}-${i}`
+                  display="flex" align-items="center" gap=5 padding="2px 8px 2px 6px" border-radius=12 -exact-press-haptic="selection"
+                  border=(r.mine ? "1px solid AccentColor" : "1px solid transparent") background-color=(r.mine ? "-exact-fill" : "-exact-tertiary-fill")
+                  Glyph(emoji=r.emoji, custom=r.custom, path=r.path, fill=r.fill, size="1rem")
+                  text `${r.count}` font="-exact-footnote" font-weight=600 font-variant-numeric="tabular-nums" color=(r.mine ? "AccentColor" : "-exact-secondary-label")
+              button press=pickFor(m.id) popovertarget="emoji-picker" aria-label="Add Reaction" title="Add Reaction" buttonStyle="plain" testId=`add-reaction-${m.id}`
+                image "symbol:icon.add-reaction"
+      if hovered
+        row position="absolute" top=-8 right=16 border-radius=8 background-color="-exact-secondary-background" border="1px solid -exact-separator" box-shadow="0 1px 3px rgba(0, 0, 0, 0.12)" testId=`actions-${m.id}`
+          button press=pickFor(m.id) popovertarget="emoji-picker" aria-label="Add Reaction" title="Add Reaction" buttonStyle="plain"
+            image "symbol:icon.add-reaction"
+          button press=reply(m.id) aria-label="Reply" title="Reply" buttonStyle="plain"
+            image "symbol:reply"
+          button press=aim(m.id) popovertarget="message-menu" aria-label="More" title="More" buttonStyle="plain" testId=`more-${m.id}`
+            image "symbol:more"
+
+// A person's initials on their colour.
+component Avatar
+  props
+    initials: string
+    hue: number
+    size: string
+    font: string
+  view
+    row width=size height=size border-radius="50%" background-color=hueToken(hue) align-items="center" justify-content="center" flex-shrink=0 aria-hidden=true
+      text initials color="ink.light" font-weight=600 font-size=font line-height=1.2
+
+// An emoji: a Unicode character, or a custom emoji's one-colour shape.
+component Glyph
+  props
+    emoji: string
+    custom: bool
+    path: string
+    fill: string
+    size: string
+  view
+    // The shape's colour is a brand token on the box, inherited by the path
+    // as `currentcolor`: every host resolves a token on a box's `color`.
+    row align-items="center" justify-content="center" flex-shrink=0 color=(custom ? fillToken(fill) : "-exact-label")
+      if custom
+        svg width=size height=size viewBox="0 0 24 24" aria-label=emoji
+          path d=path fill="currentcolor"
+      else
+        text emoji font-size=size line-height=1.2

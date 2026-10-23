@@ -9,6 +9,15 @@ use contract_syntax::{Attr, Node};
 
 pub(crate) const ROW_LOOK: &str = "-exact-row-look";
 
+/// Whether `a` is a look a node marked [`ROW_LOOK`] yields to a grouped
+/// list's row (the design server's write check keeps no row of it,
+/// `theme::scan`).
+pub(crate) fn look(a: &Attr) -> bool {
+    ["background", "border", "padding", "box-shadow"]
+        .iter()
+        .any(|p| a.name.starts_with(p))
+}
+
 /// `node` without the look it yields to a grouped list's row, and without
 /// the attribute; `None` when it yields none.
 pub(crate) fn yielded(node: &Node) -> Option<Node> {
@@ -26,11 +35,6 @@ pub(crate) fn yielded(node: &Node) -> Option<Node> {
     if !attrs.iter().any(|a| a.name == ROW_LOOK) {
         return None;
     }
-    let look = |a: &Attr| {
-        ["background", "border", "padding", "box-shadow"]
-            .iter()
-            .any(|p| a.name.starts_with(p))
-    };
     Some(Node::Element {
         tag: tag.clone(),
         positional: positional.clone(),

@@ -42,11 +42,12 @@ extension CollectionHost {
     package func geometry(_ id: UInt32) -> CollectionFacts? {
         guard let node = presenter?.views[id], let scroll = node.scroll, !hidden(node) else { return nil }
         // Layout's box, not the one drawn on the pixel grid (`PixelGridIOS.swift`): the runner lays rows to it.
-        let bounds = node.layoutBounds, insets = scroll.adjustedContentInset
+        let bounds = node.layoutBounds, insets = scroll.adjustedContentInset, band = node.pageBand
         let content = node.contentBox()
         let portWidth = max(0, bounds.width - insets.left - insets.right)
-        // A page band (LLP 1130 D3) is past the box, not inside it.
-        let portHeight = max(0, bounds.height - (insets.top - node.pageBand.top) - (insets.bottom - node.pageBand.bottom))
+        // The physical port includes the page bands. Their insets are
+        // padding before and after the rows, not space removed from the port.
+        let portHeight = max(0, bounds.height + band.top + band.bottom - (insets.top - band.top) - (insets.bottom - band.bottom))
         guard portWidth.isFinite, portHeight.isFinite else { return nil }
         let horizontal = entries[id]?.snapshot.horizontal ?? false
         // Animating to a smooth correction: where it is headed is the port
@@ -67,15 +68,19 @@ extension CollectionHost {
         let available = max(0, portWidth - content.minX - (node.layoutBounds.width - content.maxX))
         let width = measured ?? available
         guard width.isFinite else { return nil }
-        let start = max(0, node.padding("top")), end = max(0, node.padding("bottom"))
-        return CollectionFacts(offset: Double(max(-start, at.y + insets.top - content.minY)),
+        let start = max(0, node.padding("top")) + band.top, end = max(0, node.padding("bottom")) + band.bottom
+        return CollectionFacts(offset: Double(max(-start, at.y + insets.top - band.top - content.minY)),
             portMain: Double(portHeight), portCross: Double(portWidth), cross: Double(width),
             measurements: [], focus: nil, interaction: nil, paddingStart: Double(start), paddingEnd: Double(end))
     }
     /// A smooth correction's native targets move with a page band's inset
-    /// (LLP 1130 D3), as the offset itself does (`NodeView.setPageBand`).
+    /// (LLP 1130 D3), as the offset itself does (`NodeView.setPageBand`), and
+    /// so does where the batch found the port: its offset counts the band as
+    /// padding before the first row, so the top of a list the band grew
+    /// under mid-batch is the new band's top.
     func offsetsMoved(_ id: UInt32, by dy: CGFloat) {
         animationTargets[id]?.y += dy; owedTargets[id]?.y += dy
+        entries[id]?.batchStart? += Double(dy)
         offsetDrivers[id]?.moveOffsets(by: dy)
     }
     /// The insets UIKit adjusts the list's port by, at its start edges. A
@@ -84,7 +89,7 @@ extension CollectionHost {
     func portInsets(_ id: UInt32) -> [Double]? {
         guard let node = presenter?.views[id], let scroll = node.scroll else { return nil }
         node.layoutIfNeeded()
-        return [Double(scroll.adjustedContentInset.top), Double(scroll.adjustedContentInset.left)]
+        return [Double(scroll.adjustedContentInset.top - node.pageBand.top), Double(scroll.adjustedContentInset.left)]
     }
     /// The port back at `top` (`geometry`'s offset), within what it can
     /// reach, unless the reader or a smooth correction is moving it.
@@ -94,7 +99,7 @@ extension CollectionHost {
         let content = node.contentBox(), i = scroll.adjustedContentInset
         var target = scroll.contentOffset
         if entries[id]?.snapshot.horizontal ?? false { target.x = CGFloat(top) + content.minX - i.left }
-        else { target.y = CGFloat(top) + content.minY - i.top }
+        else { target.y = CGFloat(top) + content.minY - i.top + node.pageBand.top }
         target = Self.reachable(target, in: scroll)
         if scroll.contentOffset != target { scroll.setContentOffset(target, animated: false) }
     }
@@ -138,7 +143,7 @@ extension CollectionHost {
             // From where the batch began (`geometry`'s offset): UIKit has
             // already pulled the offset in to content that shrank under it.
             let content = node.contentBox()
-            if horizontal { target.x = CGFloat(start) - insets.left + content.minX } else { target.y = CGFloat(start) - insets.top + content.minY }
+            if horizontal { target.x = CGFloat(start) - insets.left + content.minX } else { target.y = CGFloat(start) - insets.top + node.pageBand.top + content.minY }
         }
         if horizontal { target.x += CGFloat(delta) } else { target.y += CGFloat(delta) }
         if !(scroll.isTracking || scroll.isDragging || scroll.isDecelerating) {
@@ -152,6 +157,7 @@ extension CollectionHost {
                 target.y = min(maximum, max(-insets.top, target.y))
             }
         }
+        target = PixelGrid.offset(target, in: scroll, clamped: !(scroll.isTracking || scroll.isDragging || scroll.isDecelerating))
         guard scroll.contentOffset != target else { return }
         let moved = horizontal ? target.x - scroll.contentOffset.x : target.y - scroll.contentOffset.y
         scroll.contentOffset = target
@@ -237,10 +243,7 @@ extension CollectionHost {
     }
     /// `target` within the offsets the port can reach now.
     static func reachable(_ target: CGPoint, in scroll: UIScrollView) -> CGPoint {
-        let i = scroll.adjustedContentInset
-        let maxX = max(-i.left, scroll.contentSize.width + i.right - scroll.bounds.width)
-        let maxY = max(-i.top, scroll.contentSize.height + i.bottom - scroll.bounds.height)
-        return CGPoint(x: min(maxX, max(-i.left, target.x)), y: min(maxY, max(-i.top, target.y)))
+        PixelGrid.offset(target, in: scroll)
     }
     private func startOffsetDriver(_ id: UInt32, _ scroll: UIScrollView, to target: CGPoint) {
         let serial = animationSerial[id] ?? beginAnimation(id, to: target)
@@ -273,7 +276,7 @@ extension CollectionHost {
         // anchor's correction moves with it instead: `shift`). The next
         // native offset notification supplies the continuing intent.
         guard !scroll.isTracking, !scroll.isDragging, !scroll.isDecelerating else { return }
-        let target: CGPoint
+        var target: CGPoint
         if horizontal {
             let maximum = max(-insets.left, scroll.contentSize.width + insets.right - scroll.bounds.width)
             target = CGPoint(x: min(maximum, max(-insets.left, CGFloat(top) + content.minX - insets.left)),
@@ -281,8 +284,9 @@ extension CollectionHost {
         } else {
             let maximum = max(-insets.top, scroll.contentSize.height + insets.bottom - scroll.bounds.height)
             target = CGPoint(x: scroll.contentOffset.x,
-                y: min(maximum, max(-insets.top, CGFloat(top) + content.minY - insets.top)))
+                y: min(maximum, max(-insets.top, CGFloat(top) + content.minY - insets.top + node.pageBand.top)))
         }
+        target = Self.reachable(target, in: scroll)
         // A smooth correction is UIKit's scroll animation (LLP 1070.000
         // §6.2): the window is already built at the destination; rows in
         // between are not (§11 declares it). Under the agent's frozen clock
@@ -379,12 +383,13 @@ extension CollectionHost {
         })?.id
     }
     func startTracking() {
-        guard let viewport = presenter?.viewport else { return }
-        let recognizer = watchContacts(in: viewport)
+        guard let presenter else { return }
+        // The document's two places (`mountDocument`)
+        let recognizers = ([presenter.viewport, presenter.documentMount] as [UIView]).map { ($0, watchContacts(in: $0)) }
         let observer = NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification,
             object: nil, queue: .main) { [weak self] _ in self?.releaseInteractionLater() }
-        stopTracking = { [weak viewport] in
-            viewport?.removeGestureRecognizer(recognizer)
+        stopTracking = {
+            for (port, recognizer) in recognizers { port.removeGestureRecognizer(recognizer) }
             NotificationCenter.default.removeObserver(observer)
         }
     }

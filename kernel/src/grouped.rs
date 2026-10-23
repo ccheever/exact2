@@ -104,6 +104,7 @@ pub struct GroupedRow {
     /// symbol before it at most, and nothing at its trailing edge, whose
     /// title the platform's list draws in the tint (LLP 1116.019 D6), as
     /// the sheet's `grouped-action-color` does (`contract/lower/src/grouped.rs`).
+    /// A row with `aria-selected` is a choice, never one.
     pub action: bool,
     /// `destructive`.
     pub destructive: bool,
@@ -491,8 +492,15 @@ impl Kernel {
         {
             out.custom = true;
         }
+        // A row that says whether it is selected (`aria-selected`, true or
+        // false) is a choice, as a checkmark list's rows are: its title is
+        // the label's whether or not its mark shows now, never an action's.
+        // The sheet's word, where it gave one (`groupedAction`), wins over
+        // the shape that shows now: an unpicked choice row is no action.
         out.action = out.pressable
+            && row.props.bool(PropId::GroupedAction) != Some(false)
             && row.props.str(PropId::Href).is_none()
+            && !row.props.contains(PropId::AccessibilitySelected)
             && out.accessory == Accessory::None
             && out.secondary.is_none()
             && !out.subtitle

@@ -65,6 +65,35 @@ final class RegionWorkerLayout {
         if viewportLines.count < 512 { viewportLines[index] = value }
         return value
     }
+    /// Immutable event geometry; CoreText stays on this worker.
+    func selectionRects(_ selection: NSRange, in box: CGRect) -> [CGRect] {
+        precondition(!Thread.isMainThread)
+        guard selection.location >= 0, selection.length > 0,
+              selection.location <= source.utf16Count,
+              selection.length <= source.utf16Count - selection.location else { return [] }
+        var rects: [CGRect] = []
+        var low = 0, high = lineCount
+        while low < high {
+            let mid = low + (high - low) / 2
+            if NSMaxRange(metadata.lines[mid].range) <= selection.location { low = mid + 1 } else { high = mid }
+        }
+        for i in low..<lineCount {
+            let range = metadata.lines[i].range
+            if range.location >= NSMaxRange(selection) { break }
+            let lo = max(selection.location, range.location), hi = min(NSMaxRange(selection), NSMaxRange(range))
+            guard hi > lo else { continue }
+            let line = line(at: i)
+            let flush: CGFloat = source.align == 1 ? 0.5 : source.align == 2 ? 1 : 0
+            let x = box.minX + TextEngine.penOffset(line, flush: flush, room: Double(box.width), rtl: source.direction == 1)
+            let x0 = CTLineGetOffsetForStringIndex(line, lo, nil), x1 = CTLineGetOffsetForStringIndex(line, hi, nil)
+            var above: CGFloat = 0, below: CGFloat = 0
+            _ = CTLineGetTypographicBounds(line, &above, &below, nil)
+            rects.append(CGRect(x: x + min(x0, x1), y: box.minY + baselines[i].rounded() - above,
+                                width: max(1, abs(x1 - x0)), height: above + below))
+        }
+        return rects
+    }
+
     private init(source: RegionTextSource, lines: [CTLine], baselines: [CGFloat], metadata: RegionParagraph,
                  preparation: RegionPreparedSource) {
         self.source = source; self.lines = lines; self.baselines = baselines; self.metadata = metadata
@@ -84,10 +113,7 @@ final class RegionWorkerLayout {
         let attributed = preparation.attributed
         let typesetter = preparation.typesetter
         let length = source.utf16Count
-        func extents(_ run: RegionTextRun) -> (CGFloat, CGFloat) {
-            (run.font.above, run.font.below)
-        }
-        let minimum = source.strut.map { ($0.above, $0.below) } ?? (0, 0)
+        let minimum = source.strut?.box ?? TextLineBox()
         var explicit = false
         var lineBottoms: [CGFloat] = []
         var lines: [CTLine] = []
@@ -177,15 +203,8 @@ final class RegionWorkerLayout {
             }
             // CSS inline boxes share a baseline. Include the paragraph strut
             // and only the runs on this line, preserving each font's half-leading.
-            var above = minimum.0, below = minimum.1
+            var box = minimum
             var lineInk = fontInk
-            var aboveExplicit = source.strutExplicit, belowExplicit = aboveExplicit
-            func include(_ a: CGFloat, _ b: CGFloat, explicit: Bool) {
-                if a > above { above = a; aboveExplicit = explicit }
-                else if a == above { aboveExplicit = aboveExplicit && explicit }
-                if b > below { below = b; belowExplicit = explicit }
-                else if b == below { belowExplicit = belowExplicit && explicit }
-            }
             for glyphRun in CTLineGetGlyphRuns(line) as! [CTRun] {
                 let range = CTRunGetStringRange(glyphRun)
                 let attributes = CTRunGetAttributes(glyphRun) as NSDictionary
@@ -199,27 +218,24 @@ final class RegionWorkerLayout {
                     if authored.lineHeight != nil {
                         // Explicit boxes use authored metrics; fallback ink
                         // can overflow without enlarging the inline box.
-                        let (a, b) = extents(authored)
-                        include(a, b, explicit: true)
+                        box.include(authored.font.box)
                     } else {
                         includesNormal = true
                     }
                 }
                 if !matched, source.strutExplicit {
-                    let (a, b) = minimum
-                    include(a, b, explicit: true)
+                    box.include(minimum)
                     continue
                 }
                 if matched && !includesNormal { continue }
                 // Normal line height includes the actual emoji/fallback face's
                 // line box, as the browser's does.
-                let (a, d) = CSSLineBox.extents(shapedFont, height: nil)
-                include(a, d, explicit: false)
+                box.include(TextLineBox(shapedFont, height: nil))
             }
-            explicit = explicit || aboveExplicit || belowExplicit
-            if retainHits || lineCount == 0 { baselines.append(y + above) }
-            lastBaseline = y + above
-            y += above + below
+            explicit = explicit || box.explicit
+            if retainHits || lineCount == 0 { baselines.append(y + box.baseline) }
+            lastBaseline = y + box.baseline
+            y += box.height
             if retainHits { lineBottoms.append(y) }
             maxWidth = max(maxWidth, w)
             if retainHits {

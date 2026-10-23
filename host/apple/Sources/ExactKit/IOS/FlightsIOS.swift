@@ -210,7 +210,9 @@ extension Presenter {
     /// Flights whose place is inside `view` land now: it is leaving with an
     /// exit, and they leave with it.
     func landFlights(inside view: UIView) {
-        for f in flights.values where f.slot?.isDescendant(of: view) == true { landFlight(f) }
+        for f in flights.values where f.slot.map({ slot in
+            sequence(first: slot, next: retirementParent).contains { $0 === view }
+        }) == true { landFlight(f) }
     }
 
     /// A reset ends every flight, its view and layer with it.
@@ -357,7 +359,7 @@ extension Presenter {
                 offset.y += nearest(r.minY, r.maxY, visible.minY, visible.maxY)
                 offset.x = min(max(offset.x, -inset.left), max(-inset.left, sv.contentSize.width - sv.bounds.width + inset.right))
                 offset.y = min(max(offset.y, -inset.top), max(-inset.top, sv.contentSize.height - sv.bounds.height + inset.bottom))
-                if offset != sv.contentOffset { sv.setContentOffset(offset, animated: false) }
+                if offset != sv.contentOffset { sv.setContentOffset(PixelGrid.offset(offset, in: sv), animated: false) }
             }
             if current === root { break }
             ancestor = current.superview

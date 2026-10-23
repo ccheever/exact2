@@ -131,6 +131,7 @@ extension Runtime {
                 case .edges(let e)?: (1, [e.top, e.right, e.bottom, e.left])
                 case .whole?: (2, [0, 0, 0, 0])
                 case .inset(let top, let bottom)?: (3, [top, 0, bottom, 0])
+                case .gutter(let right, let bottom)?: (12, [0, right, bottom, 0])
                 }
                 for word in [view, kind] + edges.map({ Float($0).bitPattern }) {
                     withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) }

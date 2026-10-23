@@ -233,7 +233,7 @@ pub(super) fn inline_use(
     // A resolved derive reads no other derive by name, so every
     // one is substituted against the same props, states and actions.
     let records = ctx.records;
-    let derives = resolved_derives(c, records).unwrap_or_else(|e| {
+    let derives = resolved_derives(c).unwrap_or_else(|e| {
         ctx.errors.push(e);
         c.derives.iter().map(|d| (d, absent(d.span))).collect()
     });
@@ -247,7 +247,8 @@ pub(super) fn inline_use(
     for ((derive, _), expr) in derives.iter().zip(resolved) {
         child_subst.insert(derive.name.clone(), expr);
     }
-    let mut child = Subst::new(&child_subst, records);
+    let derive_names = derives.iter().map(|(d, _)| d.name.clone()).collect();
+    let mut child = Subst::new(&child_subst, records).with_value_only(&derive_names);
     for st in &c.states {
         ctx.extra_states.push((
             Binding {
@@ -299,7 +300,9 @@ pub(super) fn inline_use(
         }
         let body = subst_stmts(
             &a.body,
-            &mut Subst::new(&action_subst, records).into_calls(&component_names),
+            &mut Subst::new(&action_subst, records)
+                .with_value_only(&derive_names)
+                .into_calls(&component_names),
             &names,
         );
         let held: Vec<(String, crate::Span)> = captures
@@ -335,6 +338,7 @@ pub(super) fn inline_use(
         Rc::new(Fill {
             nodes: children.clone(),
             subst: subst.map().clone(),
+            value_only: subst.value_only.clone(),
             provides: ctx.provides.clone(),
             outer: ctx.fill.clone(),
             instance: ctx.instance,

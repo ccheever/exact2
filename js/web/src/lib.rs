@@ -378,6 +378,8 @@ impl Module {
                         .map_err(|_| unavailable("a request timeout must be 1 to 3600000 ms"))?,
                 );
             }
+            // `exactHeld` (LLP 1016.000 D9): no clock waits on it.
+            request.held = r["held"] == true;
             // `exactBodyFrom`: the page reads the file into the body.
             match &r["body_from"] {
                 Json::Null => {}

@@ -731,6 +731,8 @@ pub(crate) fn continue_document(
                     arena.mark_export_dirty(slot, NodeFlags::PROPS_DIRTY);
                     view_box_changed(arena, layout, slot, *prop, receipt);
                     // A first `value` makes a `progress` the bar (LLP 1116 D8).
+                    receipt.layout_invalidated |=
+                        crate::style::top_layer::prop_changed(arena, layout, slot, *prop);
                     if matches!(
                         prop,
                         PropId::Type | PropId::AccessibilityRole | PropId::Href
@@ -769,6 +771,8 @@ pub(crate) fn continue_document(
                         }
                         arena.mark_export_dirty(slot, NodeFlags::PROPS_DIRTY);
                         view_box_changed(arena, layout, slot, *prop, receipt);
+                        receipt.layout_invalidated |=
+                            crate::style::top_layer::prop_changed(arena, layout, slot, *prop);
                         if matches!(
                             prop,
                             PropId::Type | PropId::AccessibilityRole | PropId::Href | PropId::Value

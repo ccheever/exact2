@@ -25,6 +25,17 @@ theme
   cards.thumb-ground = -exact-secondary-background
   cards.visit = #6338ff  scheme=fixed
   cards.visit-ink = #ffffff  scheme=fixed
+  // The profile header's: its banner's brand ground and the fade under the
+  // status bar over it, its surface and "Follows you" pill.
+  // The package's brand ground, a default avatar's and a banner's alike.
+  cards.banner = cards.avatar-default
+  // Over the banner's picture, not the page: fixed in both schemes, as the
+  // status bar's white over it is (no platform role is a scrim's colour).
+  cards.banner-shade = #00000080  scheme=fixed
+  cards.profile-surface = -exact-background
+  cards.pill = -exact-secondary-background
+  cards.alert = -exact-secondary-label
+  cards.alert-ground = -exact-secondary-background
   // The post card's spacing, on the base scale.
   cards.pad-start: length = space.sm
   cards.pad-start-thread: length = space.sm
@@ -81,5 +92,48 @@ theme
   cards.at-name-line: length = 0.9375rem
   cards.tiny-size: length = 0.70625rem
   cards.tiny-line: length = 0.8125rem
+  // The profile header's sizes and spacing: the banner (and a compact
+  // one's, a pushed header's), the avatar's box overlapping it, its ring
+  // and picture; the names, handle, counts and the actions' row.
+  cards.banner-height: length = 150px
+  cards.banner-compact: length = 100px
+  // How far the status bar's fade reaches below the safe area's top.
+  cards.banner-shade-reach: length = 20px
+  // The avatar overlaps the banner's bottom by its overlap, whatever the
+  // banner's height; its box is the picture and its ring each side.
+  cards.avatar-overlap: length = 46px
+  cards.avatar-top: length = calc(cards.banner-height - cards.avatar-overlap)
+  cards.avatar-top-compact: length = calc(cards.banner-compact - cards.avatar-overlap)
+  cards.profile-avatar-left: length = 10px
+  cards.profile-avatar: length = 90px
+  cards.profile-avatar-ring: length = 2px
+  cards.profile-avatar-box: length = calc(cards.profile-avatar + cards.profile-avatar-ring * 2)
+  cards.profile-pad: length = space.md
+  cards.profile-top: length = 12px
+  cards.profile-bottom: length = space.sm
+  cards.profile-actions-lead: length = 90px
+  cards.profile-actions-gap: length = space.xs
+  cards.profile-actions-under: length = space.sm
+  cards.profile-actions-height: length = 33px
+  cards.profile-names-gap: length = space.xs
+  cards.profile-names-under: length = space.sm
+  cards.profile-names-top: length = 2px
+  cards.profile-name-size: length = 1.51875rem
+  cards.profile-name-line: length = 1.75rem
+  cards.profile-badge: length = 18px
+  cards.profile-badge-gap: length = space.xs
+  cards.profile-badge-drop: length = 2px
+  cards.profile-handle-gap: length = space.sm
+  cards.profile-meta-line: length = 1.25rem
+  cards.profile-counts-gap: length = space.sm
+  cards.pill-pad-block: length = space.xs
+  cards.pill-pad-inline: length = space.sm
+  cards.pill-corner: length = radius.sm
+  cards.alert-gap: length = space.xs
+  cards.alert-under: length = space.sm
+  cards.alert-icon-gap: length = space.xs
+  cards.alert-pad-block: length = space.xs
+  cards.alert-pad-inline: length = 6px
+  cards.alert-icon: length = 14px
   // The divider, the link's frame and split, and the avatar's ring.
   cards.hairline: length = -exact-hairline

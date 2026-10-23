@@ -11,6 +11,17 @@ import CoreImage
 import IOSurface
 /// A material paints, but never supplies a new hit target or focus owner.
 private final class MaterialContent: NSView {
+    weak var owner: NodeView?
+    override func draw(_ dirtyRect: NSRect) {
+        guard let owner, !owner.cssVisibilityHidden else { return }
+        let path = owner.roundedPath(in: bounds)
+        if owner.standsOnSheetGround || owner.standsOnSplitGround {
+            if let ctx = NSGraphicsContext.current?.cgContext { owner.paintBackground(ctx, border: path.cgPath, color: false) }
+        } else {
+            owner.drawBackground(path, rounded: owner.cornerRadii(in: bounds).contains { $0 > 0 })
+        }
+        if owner.materialPaintsBorder { owner.drawBoxBorder() }
+    }
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? {
         let hit = raisedHit(super.hitTest(point), point)
@@ -203,6 +214,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var imageSource: String?
     var loadGeneration = 0
     package var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
+    var keyboardPressed = false
     var press = PressFeedback() // LLP 1061: the feedback `pressed` drives
     var pressPaint = PressPaint() // LLP 1061 D7: the author's pressed paint
     var presentedAlpha: CGFloat = 1, disabledShown = false // the opacity presented, and whether the disabled look halves it (PressLookMac.swift)
@@ -273,6 +285,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             return
         }
         if pressable, props["href"] == nil ? presses : name == "Enter" {
+            if name == " " { keyboardPressed = true; pressed = true }
             let canvas = inputCanvas, ownerWindow = window
             presenter?.press(id)
             finishPress(canvas: canvas, window: ownerWindow, pointer: false)
@@ -282,8 +295,14 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         super.keyDown(with: event)
     }
     package override func keyUp(with event: NSEvent) {
+        if NodeView.keyName(event) == " " { releaseKeyboardPress() }
         guard !inert else { return }
         if inputCanvas?.canvasInput?.key(event, down: false, source: self) != true { super.keyUp(with: event) }
+    }
+    func releaseKeyboardPress() {
+        guard keyboardPressed else { return }
+        keyboardPressed = false
+        pressed = false
     }
     package override func flagsChanged(with event: NSEvent) {
         guard !inert else { return }
@@ -448,6 +467,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         raster = lease; AnimatedRasters.shared.attach(self); applyImageLayer()
         self.needsDisplay = true
         if let c = canvasAbove { c.needsCapture = true; canvases?.scheduleCapture() }
+        presenter.boxFilters.changed(self)
         return lease.image.naturalSize
     }
 
@@ -525,38 +545,37 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     func updateMaterial() {
         let requested = props["backgroundMaterial"]
         defer { applyBackdrop(); syncGlassSlot(); syncGlassGroup() }
-        let kind = requested
+        let kind = requested ?? (needsSheetMaterial ? "sheet" : nil)
         if materialKind != kind {
             releaseGlassIsolation()
             let children = container.subviews.compactMap { $0 as? NodeView }
             let old = materialView
+            let oldContent = materialContent
             materialView = nil
             materialContent = nil
             materialKind = kind
             if let kind {
                 let content = MaterialContent(frame: bounds)
+                content.owner = self
                 content.autoresizingMask = [.width, .height]
                 let effect: NSView
                 let apple = Materials.resolve(kind) { [weak self] in self?.presenter?.session?.log($0) }
                 if apple == "glass" || apple == "glassClear", #available(macOS 26.0, *) {
                     let glass = GlassBackground(frame: bounds)
                     glass.style = apple == "glass" ? .regular : .clear
-                    glass.contentView = content
                     effect = glass
                 } else {
                     // The table's material; AppKit's stand-in where it lacks
                     // the named one (ultra-thin draws popover), LLP 1053.000 D4.
                     let blur = BlurBackground(frame: bounds)
                     blur.material = Materials.material(apple) ?? .popover
-                    blur.blendingMode = .withinWindow
-                    blur.state = .followsWindowActiveState
-                    blur.addSubview(content)
                     effect = blur
                 }
                 effect.autoresizingMask = [.width, .height]
                 effect.setAccessibilityElement(false)
                 content.setAccessibilityElement(false)
                 addSubview(effect, positioned: .below, relativeTo: subviews.first)
+                addSubview(content, positioned: .above, relativeTo: effect)
                 materialView = effect
                 materialContent = content
             }
@@ -564,8 +583,34 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             // identities, their frames and their native editors intact.
             for child in children where child.superview !== container { container.addSubview(child) }
             old?.removeFromSuperview()
+            oldContent?.removeFromSuperview()
         }
+        if let blur = materialView as? NSVisualEffectView {
+            let sheetGround = requested == nil && needsSheetMaterial
+            blur.blendingMode = sheetGround ? .behindWindow : .withinWindow
+            blur.state = .followsWindowActiveState
+        }
+        syncMaterialVisibility()
         applyMaterialRadius()
+    }
+
+    /// Visible content participates in the native effect. Hidden materials
+    /// leave visible descendants outside it, including their focused editor.
+    func syncMaterialVisibility() {
+        guard let material = materialView, let content = materialContent else { return }
+        GlassGroups.moving(in: self) {
+            if cssVisibilityHidden {
+                let parent = material.superview ?? self
+                if content.superview !== parent {
+                    if #available(macOS 26.0, *), let glass = material as? NSGlassEffectView { glass.contentView = nil }
+                    parent.addSubview(content, positioned: .above, relativeTo: material)
+                }
+            } else if !content.isDescendant(of: material) {
+                if #available(macOS 26.0, *), let glass = material as? NSGlassEffectView { glass.contentView = content }
+                else { material.addSubview(content) }
+            }
+            material.isHidden = cssVisibilityHidden
+        }
     }
 
     /// The material's corners: the box's radius as CSS reduces it to fit the
@@ -699,6 +744,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// without them, and then the canvas itself is the hit.
     package override func hitTest(_ point: NSPoint) -> NSView? {
         guard !inert, !isHiddenOrHasHiddenAncestor, placedAncestor?.placementHidden != true, let point = spaceHit(point) else { return nil }
+        if drawsRowBezel, let bezel = rowBezelRect, !bezel.contains(convert(point, from: superview)) { return nil }
         if let clipPath, !clipPath.contains(convert(point, from: superview), using: clipRule) { return nil }
         if !fragmentHit(convert(point, from: superview)) { return nil }
         if isSurfaceControl, !cssVisibilityHidden, bounds.contains(convert(point, from: superview)) { return self }
@@ -784,7 +830,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// the four; a `light-dark()` pair is two fours and this picks one
     /// (LLP 1034 D1). Anything else is not a colour.
     func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
-        style[key].flatMap { $0.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast, tint: ownTint(for: $0)) }
+        style[key].flatMap { $0.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: window is SheetWindow, tint: ownTint(for: $0)) }
     }
 
     /// Whether any colour on this node is a pair — what says an appearance
@@ -805,7 +851,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if let regions = presenter?.session?.regions, regions.owns(self) { regions.geometryChanged() }
         // An `svg`'s paints are resolved again; paint motion hears the appearance (LLP 1062 D4).
         presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock, tint: viewTint); presenter?.session?.noteAppearance(self)
-        guard hasSchemeColor || inlineText.contains(where: { $0.hasSchemeColor }) else { return }
+        guard hasSchemeColor || fieldGround != nil || inlineText.contains(where: { $0.hasSchemeColor }) else { return }
         reapplyColors()
     }
     /// A system colour changed under this view (the accent, LLP 1095 D5):
@@ -1025,6 +1071,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     func applyStyle(_ s: NodeStyle) {
+        defer { materialContent?.needsDisplay = true }
         defer { video?.update(); layoutContent(); applyCssVisibility(); if columnRecord?.columns.isEmpty == false { layoutColumnRules() } }
         layerPaintCache = nil
         let origin = style["transform_origin"]
@@ -1040,7 +1087,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         decorationChanged(from: old)
         syncDynamicRange(from: old)
         let uniformBorder = number("border_width")
-        hasBoxPaint = s["background_color"] != nil || s["background_image"] != nil
+        hasBoxPaint = s["background_color"] != nil || s["background_image"] != nil || fieldGround != nil
             || number("border_width_top", uniformBorder) > 0
             || number("border_width_right", uniformBorder) > 0
             || number("border_width_bottom", uniformBorder) > 0
@@ -1076,7 +1123,6 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 presenter?.collections.userIntent(id, travel: true)
             }
             sv.drawsBackground = false
-            sv.scrollerStyle = .overlay
             sv.hasVerticalScroller = true
             sv.hasHorizontalScroller = true
             sv.autohidesScrollers = true
@@ -1104,6 +1150,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             }
             observeLiveScroll(nil, replacing: sv)
             scroll = nil
+            presenter?.covers.report("scroller-\(id)", [:])
             presenter?.scrollers.remove(id)
         }
         scroll?.scrollsX = (ox == "scroll" || ox == "auto")
@@ -1236,8 +1283,10 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     func fitScroll() {
-        guard let document = scroll?.documentView else { return }
-        let size = CGSize(width: max(content.width, bounds.width), height: max(content.height, bounds.height))
+        guard let scroll, let document = scroll.documentView else { return }
+        let visible = scroll.contentView.bounds.size
+        let origin = scroll.kernelDocumentOrigin
+        let size = CGSize(width: max(content.width - origin.x, visible.width), height: max(content.height - origin.y, visible.height))
         if document.frame.size != size { document.setFrameSize(size) }
     }
 
@@ -1330,19 +1379,9 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // The box's outline only where something is painted through it.
         lazy var path = roundedPath(in: bounds)
         // A layout transition's size shows the surface on its own layer.
-        if paintsBox { drawBackground(path, rounded: rounded) }
+        if paintsBox, materialContent == nil { drawBackground(path, rounded: rounded) }
         if !cssVisibilityHidden, let ctx = NSGraphicsContext.current?.cgContext { drawCapturedInsetShadow(ctx) }
-        // The host sends each side's colour (`style.rs`), never a uniform
-        // one: each side in its colour, joined as the web joins them.
-        let uniform = number("border_width")
-        if paintsBox, !cssVisibilityHidden, let ctx = NSGraphicsContext.current?.cgContext, surface == nil {
-            let widths = ["top", "right", "bottom", "left"].map { number("border_width_" + $0, uniform) }
-            let top = color("border_color_top", .clear)
-            let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
-            let radii = BorderPaint.radii(style, in: bounds)
-            let styles = ["top", "right", "bottom", "left"].map { style["border_style_" + $0]?.string ?? "solid" }
-            BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii, styles: styles, shape: CornerShape(style["corner_shape"]))
-        }
+        if paintsBox, materialContent == nil { drawBoxBorder() }
         if !cssVisibilityHidden, kind == "image", symbolView == nil, flightLook == nil || imageLayer == nil, !(layerBoxEligible && !Capture.capturing && imageLayer != nil), let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border
             // and padding), clipped by the border box's radius: `fill`

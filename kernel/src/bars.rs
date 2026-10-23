@@ -51,6 +51,8 @@ impl NodeRef<'_> {
 /// What the rule asks of a node: bits, with a heading's level above them
 /// ([`fact::LEVEL`]).
 pub mod fact {
+    use super::{Appearance, Display, NodeType, PropId, PropValue, StyleId};
+
     /// A text whose role is `heading`.
     pub const HEADING: u32 = 1;
     /// An `input type="search"`.
@@ -81,9 +83,66 @@ pub mod fact {
     /// so neither it nor what it holds is the bar's (a menu written in the
     /// header is its button's menu, not more items).
     pub const LAYER: u32 = 1 << 11;
+    /// A button that says `disabled=true`: UIKit's disabled bar item, shown
+    /// dimmed, whether or not anything would press it (a "● Clock" written
+    /// as one); never the title's tap.
+    pub const DISABLED: u32 = 1 << 12;
     /// A heading's `aria-level`, 1 to 6, shifted this far; 0 where it says
     /// none (ARIA's default is then 2).
     pub const LEVEL: u32 = 16;
+
+    /// A node's facts, from its own facts and three that a tree supplies:
+    /// whether it hears `press` (the runner's), whether it is a button that
+    /// opens a popover (`Invocation::opens_popover`, which resolves the
+    /// name it gives), and the `id` the navigation root names as its Back
+    /// control.
+    pub fn of(node: &crate::NodeFacts<'_>, press: bool, menu: bool, back: Option<&str>) -> u32 {
+        let props = node.props;
+        let role = props.str(PropId::AccessibilityRole);
+        let heading = node.node_type == NodeType::Text && role == Some("heading");
+        let level = match props.get(PropId::AccessibilityHeadingLevel) {
+            Some(PropValue::Int(level @ 1..=6)) if heading => *level as u32,
+            _ => 0,
+        };
+        [
+            (heading, HEADING),
+            (
+                node.node_type == NodeType::TextInput && props.str(PropId::Type) == Some("search"),
+                SEARCH,
+            ),
+            (role == Some("tablist"), TABLIST),
+            (role == Some("status"), STATUS),
+            (
+                props.str(PropId::Popover).is_some()
+                    || props.str(PropId::SemanticTag) == Some("dialog"),
+                LAYER,
+            ),
+            (press, PRESS),
+            (menu, MENU),
+            (back.is_some() && props.str(PropId::Id) == back, BACK),
+            (props.str(PropId::SemanticTag) == Some("header"), HEADER),
+            (node.style.display == Display::None, HIDDEN),
+            (
+                node.style.appearance == Appearance::None
+                    && node.style.written.has(StyleId::Appearance),
+                AUTHORED,
+            ),
+            (props.str(PropId::NavigationBar) == Some("none"), NO_BAR),
+            (
+                (node.node_type == NodeType::Pressable
+                    || (node.node_type == NodeType::Control
+                        && props.str(PropId::Type) == Some("button")))
+                    && role == Some("button")
+                    && props.bool(PropId::Disabled) == Some(true),
+                DISABLED,
+            ),
+        ]
+        .into_iter()
+        .fold(
+            level << LEVEL,
+            |facts, (on, bit)| if on { facts | bit } else { facts },
+        )
+    }
 }
 
 /// A tree the rule can read.
@@ -203,7 +262,10 @@ impl<N: Copy + PartialEq> Walk<N> {
                 // Its tabs press, but they are the title's segments, never
                 // bar items.
                 self.segments.get_or_insert(child);
-            } else if facts & (fact::PRESS | fact::MENU) != 0 {
+            } else if facts & (fact::PRESS | fact::MENU) != 0
+                // A disabled button around the heading is walked for it, as a box is.
+                || (facts & fact::DISABLED != 0 && !holds_heading(tree, child))
+            {
                 // A pressable heading's group is the title, tapped.
                 if self.tap.is_none() && facts & fact::PRESS != 0 && holds_heading(tree, child) {
                     self.tap = Some(child);
@@ -398,58 +460,8 @@ impl Tree for Live<'_> {
         let Some(node) = self.kernel.node(id) else {
             return 0;
         };
-        let props = node.props;
-        let role = props.str(PropId::AccessibilityRole);
-        let mut facts = 0;
-        let mut set = |on: bool, bit: u32| {
-            if on {
-                facts |= bit;
-            }
-        };
-        let heading = node.node_type == NodeType::Text && role == Some("heading");
-        set(heading, fact::HEADING);
-        set(
-            node.node_type == NodeType::TextInput && props.str(PropId::Type) == Some("search"),
-            fact::SEARCH,
-        );
-        set(role == Some("tablist"), fact::TABLIST);
-        set(role == Some("status"), fact::STATUS);
-        set(
-            props.str(PropId::Popover).is_some()
-                || props.str(PropId::SemanticTag) == Some("dialog"),
-            fact::LAYER,
-        );
-        set((self.pressed)(id), fact::PRESS);
-        set(
-            crate::Invocation::of(self.kernel, &node).is_some_and(|i| i.opens_popover()),
-            fact::MENU,
-        );
-        set(
-            self.back.is_some() && props.str(PropId::Id) == self.back,
-            fact::BACK,
-        );
-        set(
-            props.str(PropId::SemanticTag) == Some("header"),
-            fact::HEADER,
-        );
-        set(node.style.display == Display::None, fact::HIDDEN);
-        set(
-            node.style.appearance == Appearance::None
-                && node.style.written.has(StyleId::Appearance),
-            fact::AUTHORED,
-        );
-        set(
-            props.str(PropId::NavigationBar) == Some("none"),
-            fact::NO_BAR,
-        );
-        if heading {
-            if let Some(PropValue::Int(level @ 1..=6)) =
-                props.get(PropId::AccessibilityHeadingLevel)
-            {
-                facts |= (*level as u32) << fact::LEVEL;
-            }
-        }
-        facts
+        let menu = crate::Invocation::of(self.kernel, &node).is_some_and(|i| i.opens_popover());
+        fact::of(&node.facts(), (self.pressed)(id), menu, self.back)
     }
     fn children(&self, id: ViewId) -> Vec<ViewId> {
         self.kernel

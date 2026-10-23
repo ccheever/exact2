@@ -31,6 +31,41 @@ final class ReorderRecorder: ReorderCalls {
     }
 }
 
+/// The grouped session's calls, recorded (LLP 1094 D5): the drop answers
+/// `holding` until the test says otherwise.
+final class ReorderGroupRecorder: ReorderGroupCalls {
+    var log: [String] = []
+    var hold = true
+    func state(_ phase: String, target: Int = 1, row: Int = 2, ending: String? = nil, dispatched: Bool = false) -> Batch {
+        var op: [String: Any] = ["op": "reorder", "group": true, "token": "7", "list": 1, "wrapper": 2,
+            "phase": phase, "target": target, "row": row, "dispatched": dispatched]
+        op["ending"] = ending ?? NSNull()
+        return wireBatch([op])
+    }
+    func groupBegin(_ handle: UInt32, scrollTop: Double, ghost: Bool, now: Double) -> Batch {
+        log.append("begin \(handle)\(ghost ? " ghost" : "")")
+        return state("active")
+    }
+    func moveInto(_ token: UInt64, target: UInt32, contentY: Double, scrollTop: Double, inside: Bool, now: Double) -> Batch {
+        log.append("into \(target)")
+        return state("active", target: Int(target))
+    }
+    func groupStep(_ token: UInt64, step: ReorderGroupStep, now: Double) -> Batch {
+        log.append("step \(step.rawValue)")
+        return state("active", target: 5)
+    }
+    func groupEnd(_ token: UInt64, drop: Bool, now: Double) -> Batch {
+        log.append(drop ? "drop" : "cancel")
+        if !drop { return state("cancelling", row: 2) }
+        return hold ? state("holding", target: 5, dispatched: true)
+            : state("settling", target: 5, row: 6, ending: "landed", dispatched: true)
+    }
+    func groupFinish(_ token: UInt64, now: Double) -> Batch {
+        log.append("finish")
+        return state("finished", target: 0, row: 0)
+    }
+}
+
 final class ReorderTests: XCTestCase {
     override class func setUp() { super.setUp(); ExactDrag.install() } // LLP 1047.001 D4
     func testStateKeepsTheSerialExactAndRefusesAMalformedOp() {

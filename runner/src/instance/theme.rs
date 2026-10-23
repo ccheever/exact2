@@ -236,10 +236,16 @@ impl super::NodeInst {
         // A row it sets passes its text on when that read a token, else
         // nothing; a row it does not set, its implied row's or the one around.
         let inherited = std::array::from_fn(|k| match binding_of(plan, &row, INHERITED[k]) {
-            Some(b) if self.themed.sets(b) => {
-                self.themed.get(b).then(|| self.last[b].clone()).flatten()
-            }
-            _ => match self.implied.as_ref().and_then(|implied| implied[k].clone()) {
+            Some(b) if self.themed.sets(b) => self
+                .themed
+                .get(b)
+                .then(|| self.emitted(plan, u.sites, b))
+                .flatten(),
+            _ => match self
+                .rare
+                .as_ref()
+                .and_then(|r| r.implied.as_ref()?[k].clone())
+            {
                 Some(text) => Some(text),
                 None => u.theme.inherited[k].clone(),
             },
@@ -303,7 +309,7 @@ impl super::NodeInst {
     /// unwritten, though what it implies has not changed since.
     fn unimply(&mut self, style: StyleId) {
         let k = INHERITED.iter().position(|s| *s == style);
-        if let (Some(k), Some(implied)) = (k, self.implied.as_mut()) {
+        if let (Some(k), Some(implied)) = (k, self.rare.as_mut().and_then(|r| r.implied.as_mut())) {
             implied[k] = None;
         }
     }
@@ -319,16 +325,17 @@ impl super::NodeInst {
     ) {
         let plan = u.env.plan;
         let row = plan.node(self.node);
+        let (view, tuple) = (self.view, self.tuple);
         for (k, style) in INHERITED.into_iter().enumerate() {
             // Its own row stands: an implied one is set again when it goes.
             if binding_of(plan, &row, style).is_some_and(|b| self.themed.sets(b)) {
-                if let Some(implied) = self.implied.as_mut() {
+                if let Some(implied) = self.rare.as_mut().and_then(|r| r.implied.as_mut()) {
                     implied[k] = None;
                 }
                 continue;
             }
             let want = u.theme.inherited[k].clone();
-            let implied = self.implied.get_or_insert_with(Default::default);
+            let implied = self.rare().implied.get_or_insert_with(Default::default);
             if want == implied[k] && !force {
                 continue;
             }
@@ -340,11 +347,11 @@ impl super::NodeInst {
                     let tokens = exact_kernel::style::theme::take_named();
                     if set.is_ok() {
                         u.ids.theme.put(
-                            self.view,
+                            view,
                             ThemedRow {
                                 style,
                                 text: text.clone(),
-                                tuple: self.tuple,
+                                tuple,
                                 written: false,
                                 implied: true,
                                 tokens,
@@ -356,11 +363,11 @@ impl super::NodeInst {
                     let mut mask = exact_kernel::StyleMask::default();
                     mask.set(style);
                     u.ops.push(exact_kernel::Op::ClearStyle {
-                        id: self.view,
+                        id: view,
                         mask,
                         written: false,
                     });
-                    u.ids.theme.drop_row(self.view, style);
+                    u.ids.theme.drop_row(view, style);
                 }
                 None => {}
             }
