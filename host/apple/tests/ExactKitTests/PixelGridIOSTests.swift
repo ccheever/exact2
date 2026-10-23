@@ -29,14 +29,42 @@ final class PixelGridIOSTests: XCTestCase {
             node.updateTraitsIfNeeded(); scroll.updateTraitsIfNeeded()
             p.regridAll()
             scroll.contentOffset.y = 100
-            p.collections.keepStart(1, at: 100.2)
-            XCTAssertEqual(scroll.contentOffset.y, PixelGrid.round(100.2, scale: scale), accuracy: 1e-6)
-            let reached = CollectionHost.reachable(CGPoint(x: 0, y: 200.2), in: scroll)
-            XCTAssertEqual(reached.y, PixelGrid.round(200.2, scale: scale), accuracy: 1e-6)
+            p.collections.keepStart(1, at: 100.4)
+            XCTAssertEqual(scroll.contentOffset.y, PixelGrid.round(100.4, scale: scale), accuracy: 1e-6)
             scroll.contentOffset.y = 100
-            node.followedScroll = (top: 100.2, end: false, start: false)
+            p.collections.shift(1, by: 0.4, extent: 1000, from: nil)
+            XCTAssertEqual(scroll.contentOffset.y, PixelGrid.round(100.4, scale: scale), accuracy: 1e-6, "relative anchor correction")
+            let reached = CollectionHost.reachable(CGPoint(x: 0, y: 200.4), in: scroll)
+            XCTAssertEqual(reached.y, PixelGrid.round(200.4, scale: scale), accuracy: 1e-6)
+            p.collections.correct(1, top: 200.4, extent: 1000, smooth: true)
+            XCTAssertTrue(p.collections.animating.contains(1))
+            var frames = 0
+            let deadline = Date(timeIntervalSinceNow: 2)
+            while p.collections.animating.contains(1), Date() < deadline {
+                RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+                XCTAssertEqual(scroll.contentOffset.y * scale, (scroll.contentOffset.y * scale).rounded(), accuracy: 1e-6,
+                               "each animated correction frame is on the display's grid")
+                frames += 1
+            }
+            XCTAssertGreaterThan(frames, 0)
+            XCTAssertFalse(p.collections.animating.contains(1))
+            XCTAssertEqual(scroll.contentOffset.y, PixelGrid.round(200.4, scale: scale), accuracy: 1e-6)
+            scroll.contentInset.bottom = 0.3
+            p.collections.shift(1, by: 10000, extent: 1000, from: nil)
+            XCTAssertEqual(scroll.contentOffset.y, 900, accuracy: 1e-6, "relative anchor at a fractional range end")
+            scroll.contentOffset.y = 100
+            p.collections.correct(1, top: 10000, extent: 1000)
+            XCTAssertEqual(scroll.contentOffset.y, 900, accuracy: 1e-6, "fractional range ends snap inward")
+            scroll.contentInset.bottom = scale == 2 ? 0.4 : 0.6
+            node.followedScroll = (top: 900, end: true, start: false)
             node.restoreScrollPosition()
-            XCTAssertEqual(scroll.contentOffset.y, PixelGrid.round(100.2, scale: scale), accuracy: 1e-6)
+            let bound = (900 + scroll.contentInset.bottom) * scale
+            XCTAssertEqual(scroll.contentOffset.y, bound.rounded(.down) / scale, accuracy: 1e-6, "followed fractional end")
+            scroll.contentInset.bottom = 0
+            scroll.contentOffset.y = 100
+            node.followedScroll = (top: 100.4, end: false, start: false)
+            node.restoreScrollPosition()
+            XCTAssertEqual(scroll.contentOffset.y, PixelGrid.round(100.4, scale: scale), accuracy: 1e-6)
             let format = UIGraphicsImageRendererFormat(); format.scale = scale; format.opaque = true; format.preferredRange = .standard
             let rule = try XCTUnwrap(p.views[2])
             rule.layer.backgroundColor = UIColor.black.cgColor
