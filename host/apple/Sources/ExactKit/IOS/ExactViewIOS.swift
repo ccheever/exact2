@@ -604,10 +604,7 @@ public final class ExactView: UIView {
         // drew white across the list's grey): the list's colour goes on
         // under the keys, and the sheet's own surface returns with them.
         #if os(iOS)
-        if let sheet = session.presenter.modals.coordinateView {
-            let surface = edge ?? .platformBackground(in: sheet)
-            if sheet.backgroundColor != surface { sheet.backgroundColor = surface }
-        }
+        (session.presenter.modals.coordinateView?.next as? PaintsSheetSurface)?.paintSurface()
         #endif
     }
 
