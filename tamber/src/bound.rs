@@ -40,6 +40,7 @@ pub(crate) fn preflight(design: &Design) -> Vec<Diagnostic> {
         }
     };
     let pos = |a: &At<String>| (a.line, a.col);
+    value(&design.name, (1, 1));
     for t in design
         .tokens
         .iter()
@@ -47,6 +48,9 @@ pub(crate) fn preflight(design: &Design) -> Vec<Diagnostic> {
         .chain(&design.params)
     {
         value(&t.name.value, pos(&t.name));
+        if let Some(k) = &t.kind {
+            value(k, pos(&t.name));
+        }
         value(&t.value.value, pos(&t.value));
         for w in &t.whens {
             value(&w.value.value, pos(&w.value));
@@ -76,6 +80,7 @@ pub(crate) fn preflight(design: &Design) -> Vec<Diagnostic> {
         value(&c.name.value, pos(&c.name));
         for p in &c.params {
             value(&p.name.value, pos(&p.name));
+            value(&p.kind, pos(&p.name));
             value(&p.value.value, pos(&p.value));
             if let Some((lo, hi)) = &p.range {
                 value(lo, pos(&p.value));
@@ -99,10 +104,39 @@ pub(crate) fn preflight(design: &Design) -> Vec<Diagnostic> {
     out
 }
 
-/// A chain of names past [`MAX_REFERENCE_DEPTH`]: its id and words.
+/// A chain of names past [`MAX_REFERENCE_DEPTH`], the functions its
+/// values nest counted with it: its id and words.
 pub(crate) fn too_deep() -> (&'static str, String) {
     (
         "tamber-reference-depth",
-        format!("a chain of tokens naming one another is at most {MAX_REFERENCE_DEPTH} deep"),
+        format!("a chain of tokens naming one another, with the functions their values nest, is at most {MAX_REFERENCE_DEPTH} deep"),
     )
+}
+
+thread_local! {
+    /// The folds on this thread's stack now: each token followed
+    /// (`Checker::value`) and each function folded (`measure::func`,
+    /// `fold::func`), which compose (Astra's and Grok's round 2: 512 tokens
+    /// each nesting 32 functions inside both bounds overflowed a 2 MB stack).
+    static DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// One level of the fold held while it is alive, or none past
+/// [`MAX_REFERENCE_DEPTH`] (the caller refuses with [`too_deep`]).
+pub(crate) struct Deeper(());
+
+impl Drop for Deeper {
+    fn drop(&mut self) {
+        DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+    }
+}
+
+/// A level more of the fold, if the bound has one left.
+pub(crate) fn deeper() -> Option<Deeper> {
+    DEPTH.with(|d| {
+        (d.get() < MAX_REFERENCE_DEPTH).then(|| {
+            d.set(d.get() + 1);
+            Deeper(())
+        })
+    })
 }
