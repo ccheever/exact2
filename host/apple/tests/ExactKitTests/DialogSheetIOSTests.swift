@@ -1212,7 +1212,11 @@ final class DialogSheetIOSTests: XCTestCase {
         XCTAssertNil(session.boot(plan: plan, size: window.bounds.size).error)
         view.frame = host.view.bounds
         view.layoutIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let agent = Agent(session: session)
+        settle {
+            session.state == .ready && session.presenter.root.window === window
+                && !session.presenter.viewport.bounds.isEmpty && !agent.nativeInFlight()
+        }
         kept = session.presenter
         return session
     }
