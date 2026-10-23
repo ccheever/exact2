@@ -15,6 +15,7 @@ private final class MaterialContent: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let owner, !owner.cssVisibilityHidden else { return }
         owner.drawBackground(owner.roundedPath(in: bounds), rounded: owner.cornerRadii(in: bounds).contains { $0 > 0 })
+        if owner.materialPaintsBorder { owner.drawBoxBorder() }
     }
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -1371,17 +1372,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // A layout transition's size shows the surface on its own layer.
         if paintsBox, materialContent == nil { drawBackground(path, rounded: rounded) }
         if !cssVisibilityHidden, let ctx = NSGraphicsContext.current?.cgContext { drawCapturedInsetShadow(ctx) }
-        // The host sends each side's colour (`style.rs`), never a uniform
-        // one: each side in its colour, joined as the web joins them.
-        let uniform = number("border_width")
-        if paintsBox, !cssVisibilityHidden, let ctx = NSGraphicsContext.current?.cgContext, surface == nil {
-            let widths = ["top", "right", "bottom", "left"].map { number("border_width_" + $0, uniform) }
-            let top = color("border_color_top", .clear)
-            let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
-            let radii = BorderPaint.radii(style, in: bounds)
-            let styles = ["top", "right", "bottom", "left"].map { style["border_style_" + $0]?.string ?? "solid" }
-            BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii, styles: styles, shape: CornerShape(style["corner_shape"]))
-        }
+        if paintsBox, materialContent == nil { drawBoxBorder() }
         if !cssVisibilityHidden, kind == "image", symbolView == nil, flightLook == nil || imageLayer == nil, !(layerBoxEligible && !Capture.capturing && imageLayer != nil), let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border
             // and padding), clipped by the border box's radius: `fill`
