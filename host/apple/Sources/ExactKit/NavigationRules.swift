@@ -47,8 +47,9 @@ enum NavigationRules {
     }
 
     /// D2: a completed transition presses the Back control exactly once —
-    /// only for an interactive pop whose source is still selected. A
-    /// programmatic transition has no interactive source; its completion
+    /// only for a native pop whose live source is still selected. A swipe
+    /// captures its source; a Back-button pop removes it from our last write.
+    /// A stack change Exact writes has no departed source; its completion
     /// must not dismiss a newer route selected while UIKit was animating.
     /// A cancelled swipe shows the same key. Sheets have their own path.
     ///
@@ -176,20 +177,6 @@ enum NavigationRules {
     /// Close is the app's own control either way.
     static func modalRefusesDismissal(closedby: String?) -> Bool {
         closedby == "none"
-    }
-
-    /// D5: a keyboard notification is a session's business only when one of
-    /// its own editors is editing, or it still holds an inset from a show it
-    /// applied; another session's keyboard in the same window is not.
-    static func keyboardConcerns(editing: Bool, holdsInset: Bool) -> Bool {
-        editing || holdsInset
-    }
-
-    /// D5: the viewport freeze that keeps a composer beside a sideways-moving
-    /// keyboard applies only to an initially interactive navigation
-    /// transition outside a sheet — never to a sheet's vertical dismissal.
-    static func freezesViewport(modalActive: Bool, changing: Bool, initiallyInteractive: Bool) -> Bool {
-        !modalActive && changing && initiallyInteractive
     }
 
     /// D3 (as it stands): why a `focus(id)` command cannot be delivered now,

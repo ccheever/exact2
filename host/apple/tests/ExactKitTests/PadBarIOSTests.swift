@@ -120,6 +120,9 @@ final class PadBarIOSTests: XCTestCase {
     private let keys: CGFloat = 524
 
     func testTheBarPaintsNoBandAndTheFieldsSectionStaysAboveIt() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "keyboard ownership requires the hosted app responder chain")
+        }
         let path = try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_PAD_BAR_PLAN"], "build.mjs --test --ios compiles the pad-bar fixture")
         ExactGroupedLists.install()
         let session = ExactApp.shared.makeSession(label: "pad-bar")
@@ -163,17 +166,26 @@ final class PadBarIOSTests: XCTestCase {
         // Focused, as UIKit tells a field that becomes first responder, and
         // the keys come up, the bar counted in their frame.
         from.textFieldDidBeginEditing(try XCTUnwrap(from.field))
-        p.applyKeyboard(top: keys, duration: 0, curve: 0)
+        setKeyboard(p, top: keys)
         let nav = try XCTUnwrap(p.navigation.primaryNavigation)
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
         waitFor("content draws under the accessory while its fields clear it") {
-            abs(box(p.viewport).maxY - self.keys - bar.bounds.height) < 0.5
+            abs(route.node.bounds.height - self.keys) < 0.5
                 && abs(box(list).maxY - self.keys - bar.bounds.height) < 0.5
                 && list.adjustedContentInset.bottom >= bar.bounds.height
                 && [from, swap].allSatisfy { box($0).maxY <= self.keys + 0.5 && box($0).minY >= box(nav.navigationBar).maxY - 0.5 }
         }
-        XCTAssertEqual(box(p.viewport).maxY, keys + bar.bounds.height, accuracy: 0.5, "the viewport runs under the accessory")
+        XCTAssertEqual(box(p.viewport), window.bounds, "the native container remains full-size under the accessory")
         XCTAssertEqual(box(list).maxY, keys + bar.bounds.height, accuracy: 0.5, "the edge scroller draws under the glass keys")
         XCTAssertGreaterThanOrEqual(list.adjustedContentInset.bottom, bar.bounds.height, "its content clears the accessory")
+        XCTAssertEqual(route.contentViewport?.frame, route.view.bounds, "the native scroll view fills its controller")
+        var ancestor = list.superview
+        while let view = ancestor {
+            if view.clipsToBounds {
+                XCTAssertGreaterThanOrEqual(box(view).maxY, keys + bar.bounds.height - 0.5, "the accessory's drawing band survives ancestor clipping")
+            }
+            ancestor = view.superview
+        }
         for v in [from, swap] {
             XCTAssertLessThanOrEqual(box(v).maxY, keys + 0.5, "\(v.props["testId"] ?? "") above the bar: \(box(v))")
             XCTAssertGreaterThanOrEqual(box(v).minY, box(nav.navigationBar).maxY - 0.5, "\(v.props["testId"] ?? "") below the navigation bar: \(box(v))")
@@ -185,7 +197,7 @@ final class PadBarIOSTests: XCTestCase {
 
         // The keys gone, the canvas again.
         from.field?.resignFirstResponder()
-        p.applyKeyboard(top: nil, duration: 0, curve: 0)
+        setKeyboard(p, top: nil)
         waitFor("the drawing band and its background leave with the keyboard") {
             p.keyboardTop == nil && p.views.values.first { $0.props["testId"] == "content" }?.pageBand.bottom == 0
                 && view.backgroundColor?.resolvedColor(with: view.traitCollection) == canvas.resolvedColor(with: view.traitCollection)

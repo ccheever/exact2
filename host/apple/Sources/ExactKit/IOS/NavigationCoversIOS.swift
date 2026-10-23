@@ -187,7 +187,6 @@ extension NavigationHost {
 
     /// Record the controllers Exact set on a stack.
     func recordOwned(_ nav: UINavigationController) {
-        guard NavigationHost.checksOwnership else { return }
         stacks[ObjectIdentifier(nav)]?.written = nav.viewControllers.map(ObjectIdentifier.init)
     }
 
@@ -195,7 +194,7 @@ extension NavigationHost {
     /// back button, the edge swipe) leaves a prefix of what Exact wrote, and
     /// is recorded; any other change is not Exact's and stays to be reported.
     func recordPop(_ nav: UINavigationController) {
-        guard NavigationHost.checksOwnership, let stack = stacks[ObjectIdentifier(nav)] else { return }
+        guard let stack = stacks[ObjectIdentifier(nav)] else { return }
         let now = nav.viewControllers.map(ObjectIdentifier.init)
         if now.count <= stack.written.count, Array(stack.written.prefix(now.count)) == now { stack.written = now }
     }

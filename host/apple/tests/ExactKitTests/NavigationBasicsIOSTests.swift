@@ -98,7 +98,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
     }
 
     func testNativeNavigationKeepsItsViewportWhileThePageScrolls() throws {
-        guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else {
+        guard hostedWindowScene() != nil else {
             throw missing("scene", "UIKit publishes pinned placements through its natural layout pass")
         }
         let session = try fixture("native-allocation", plan: "EXACT_PUSHED_TITLE_PLAN"), p = session.presenter
@@ -112,7 +112,8 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(owner.convert(owner.bounds, to: window), allocation, "page extent does not size the native screen")
         XCTAssertGreaterThan(p.viewport.contentSize.height, p.viewport.bounds.height)
         let route = try XCTUnwrap(p.navigation.primaryNavigation?.topViewController as? RouteController)
-        XCTAssertEqual(p.owners.told[route.node.id]?.block, .size(p.viewportSize), "the native route receives the viewport's layout allocation")
+        XCTAssertEqual(p.owners.told[route.node.id]?.block, .size(p.owners.block(in: route.view).size), "the editing route receives its keyboard allocation")
+        XCTAssertLessThan(route.node.bounds.height, p.viewportSize.height, "the native container stays full size around the editing route")
         let before = try XCTUnwrap(p.owners.told[route.node.id]?.placement).rect
         let editorFrame = field.convert(field.bounds, to: window)
         p.viewport.setContentOffset(CGPoint(x: 0, y: 100), animated: false)
@@ -135,19 +136,22 @@ final class NavigationBasicsIOSTests: XCTestCase {
     }
 
     func testVisualKeyboardInsetsRevealALowNativeRouteFieldWithoutAnInnerScroller() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "keyboard ownership requires the hosted app responder chain")
+        }
         let session = try fixture("native-visual-keyboard", plan: "EXACT_PUSHED_TITLE_PLAN"), p = session.presenter
         try tapNode(session, "home-open-edit-visual")
         let field = try node(session, "edit-draft")
         until("the pushed editor settles") { field.field?.isFirstResponder == true && !p.navigation.inTransition }
         XCTAssertEqual(p.keyboardPolicy, "resizes-visual")
-        p.applyKeyboard(top: nil, duration: 0, curve: 0)
+        setKeyboard(p, top: nil)
         let route = try XCTUnwrap(p.navigation.primaryNavigation?.topViewController as? RouteController)
         let layoutAllocation = route.node.bounds.size
         let owner = try XCTUnwrap(p.navigation.primaryOwner?.view)
         let ownerFrame = owner.convert(owner.bounds, to: window)
         let keys = try XCTUnwrap(window).bounds.maxY - 250
         XCTAssertGreaterThan(field.convert(field.bounds, to: window).maxY, keys, "the authored field starts below the keyboard")
-        p.applyKeyboard(top: keys, duration: 0, curve: 0)
+        setKeyboard(p, top: keys)
         p.viewport.layoutIfNeeded()
         _ = Agent(session: session).clock(["settle": true])
         XCTAssertEqual(route.node.bounds.size, layoutAllocation, "visual keyboard accommodation does not reflow the route")
@@ -180,8 +184,9 @@ final class NavigationBasicsIOSTests: XCTestCase {
         p.navigation.clearOwnerAllocation()
         XCTAssertEqual(p.viewport.contentInset, room, "unchanged ownership preserves room another inset writer added")
         p.navigation.fitOwner()
-        XCTAssertEqual(p.viewport.contentInset.bottom, 0)
-        p.applyKeyboard(top: nil, duration: 0, curve: 0)
+        XCTAssertEqual(p.viewport.contentInset.bottom, 40, "repinning removes only the keyboard's contribution")
+        setKeyboard(p, top: nil)
+        XCTAssertEqual(p.viewport.contentInset.bottom, 40, "dismissal preserves the other writer's contribution")
         XCTAssertEqual(content.contentOffset, .zero, "hiding the keyboard releases its scroll accommodation")
     }
 
@@ -198,7 +203,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
     }
 
     func testNativeRouteKeepsItsPopoverAnchoredAndWaitsForAFillBeforeRevealing() throws {
-        guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else {
+        guard hostedWindowScene() != nil else {
             throw missing("scene", "native route scrolling and anchored popovers need a scene's layout passes")
         }
         let session = try fixture("native-viewport-interop", plan: "EXACT_PUSHED_TITLE_PLAN"), p = session.presenter

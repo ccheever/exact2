@@ -66,14 +66,6 @@ extension Presenter {
         return viewportPoints(viewport.convert(shown, from: nil))
     }
 
-    /// A native module's own text input (a composer's UITextView) focused
-    /// where this session is mounted: the keyboard is this session's
-    /// business as for its own fields, so the page resizes above it.
-    var hasNativeKeyboardEditor: Bool {
-        guard let responder = FirstResponder.current as? UIView, responder is UIKeyInput else { return false }
-        return mounts(responder)
-    }
-
     /// Ends editing wherever the session is mounted; whether any editor resigned.
     @discardableResult
     package func endEditing() -> Bool {
@@ -146,16 +138,16 @@ extension Presenter {
     /// sheet for them, the route a point tall for a frame, and a reveal into
     /// that left the route scrolled, taking the next detent drag.
     @objc func keyboardSettled(_ n: Notification) {
+        refitKeyboard()
         guard keyboardTop != nil else { return }
         owners.revealOnceTold()
     }
     #endif
 
-    /// The editor being edited.
+    /// The authored node containing the live keyboard editor, including a projected field.
     var editor: NodeView? {
-        if let own = editing ?? views.values.first(where: { $0.selectionField?.isFirstResponder == true || $0.textArea?.isFirstResponder == true }) { return own }
-        guard let native = FirstResponder.current as? UIView, native is UIKeyInput, mounts(native) else { return nil }
-        return NodeView.innermost(native)
+        guard let native = keyboardEditor else { return nil }
+        return views.values.first(where: { $0.headerField === native }) ?? NodeView.innermost(native)
     }
 
     /// A native module's input may fill a large wrapper: reveal its caret,
@@ -177,10 +169,9 @@ extension Presenter {
         reveal(editor)
     }
 
-    /// Reveals the editor of a presentation's route while the keys are up.
-    func revealSheetEditor() {
-        guard keyboardTop != nil, let editor,
-              modals.mounts(editor) else { return }
+    /// Reveal after native blocks and any pending list fill have settled.
+    func revealSettledEditor() {
+        guard keyboardTop != nil else { return }
         if ExactEnv.agentFreezes { revealFocusedEditor() } else { UIView.animate(withDuration: 0.25) { self.revealFocusedEditor() } }
     }
 }
@@ -244,38 +235,26 @@ final class OwnerBlocks {
         }
     }
 
-    /// Native chrome caps the route at the pinned viewport; authored chrome at the document's end.
-    /// A content-resizing keyboard shortens the native allocation while tabs stay under the keys.
+    /// A native route keeps its controller's bounds and avoids only its own keyboard.
+    /// Authored chrome keeps the document's allocation.
     func block(in view: UIView) -> CGRect {
-        guard let document = presenter.navigation.container, view.isDescendant(of: document) else {
-            // A route of the top presentation, the one that holds the focused
-            // editor, ends at the docked keyboard: the top of its sheet's
-            // keyboard layout guide, which UIKit lays out with the sheet as
-            // it grows it for the keys and as they leave, follows no
-            // undocked keyboard, and is empty without keys (it leaves out
-            // the bottom safe area, `ModalController.loadView`). The route's
-            // own scroller then reveals the field, and the sheet's bar stays
-            // (LLP 1123 C26).
-            var block = view.bounds
-            // tvOS has no keyboard layout guide.
-            #if !os(tvOS)
-            if let sheet = presenter.modals.coordinateView, view.isDescendant(of: sheet),
-               case let keys = sheet.keyboardLayoutGuide.layoutFrame, keys.height > 0 {
-                let end = view.convert(CGPoint(x: 0, y: keys.minY), from: sheet).y
-                block.size.height = max(0, min(block.height, end - block.minY))
-            }
-            #endif
+        var block = view.bounds
+        if ExactEnv.authoredChrome, let document = presenter.navigation.container, view.isDescendant(of: document) {
+            let end = view.convert(CGPoint(x: 0, y: document.bounds.height), from: document).y
+            block.size.height = max(0, min(block.height, end - block.minY))
             return block
         }
-        let end: CGFloat
-        if ExactEnv.authoredChrome {
-            end = view.convert(CGPoint(x: 0, y: document.bounds.height), from: document).y
-        } else {
-            guard let owner = presenter.navigation.primaryOwner?.viewIfLoaded else { return view.bounds }
-            end = view.convert(CGPoint(x: owner.bounds.minX, y: owner.bounds.minY + presenter.viewportSize.height), from: owner).y
+        guard presenter.ownsKeyboard(in: view) else { return block }
+        #if !os(tvOS)
+        if let sheet = presenter.modals.coordinateView, view.isDescendant(of: sheet),
+           let top = presenter.keyboardGuideTop(in: sheet) {
+            let end = view.convert(CGPoint(x: 0, y: top), from: sheet).y
+            block.size.height = max(0, min(block.height, end - block.minY))
+        } else if presenter.keyboardPolicy == "resizes-content", let top = presenter.keyboardTop, let window = view.window {
+            let end = view.convert(CGPoint(x: 0, y: top), from: window).y
+            block.size.height = max(0, min(block.height, end - block.minY))
         }
-        var block = view.bounds
-        block.size.height = max(0, min(block.height, end - block.minY))
+        #endif
         return block
     }
 
@@ -347,16 +326,18 @@ final class OwnerBlocks {
         // A block taken back forgets its placement with it
         blocks += told.keys.filter { now[$0] == nil && presenter.views[$0] != nil }.map { ($0, nil) }
         told = now
-        if !blocks.isEmpty || !placements.isEmpty { session.applyUnlessEmpty(session.runtime.blocks(blocks, placements: placements), scrolled: true) }
-        // A sheet's editor whose keys settled shows in the blocks just told
+        if !blocks.isEmpty || !placements.isEmpty {
+            session.applyUnlessEmpty(session.runtime.blocks(blocks, placements: placements), scrolled: true)
+        }
+        // Reveal against the blocks just told, after their pending fill
         if revealOwed {
             revealOwed = false
-            presenter.revealSheetEditor()
+            presenter.revealSettledEditor()
         }
     }
 
-    /// Reveals a sheet's editor once the routes' current blocks are told,
-    /// in the order they are (`keyboardSettled`).
+    /// Reveals the editor once the routes' current blocks are told,
+    /// after a pending list fill (`keyboardSettled`).
     func revealOnceTold() {
         revealOwed = true
         publish()

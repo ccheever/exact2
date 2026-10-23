@@ -313,23 +313,6 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertFalse(NavigationRules.modalRefusesDismissal(closedby: nil))
     }
 
-    /// D5: a session answers a keyboard only for its own editor, or while it
-    /// still holds an inset it applied.
-    func testAKeyboardConcernsOnlyTheSessionThatOwnsIt() {
-        XCTAssertTrue(NavigationRules.keyboardConcerns(editing: true, holdsInset: false))
-        XCTAssertTrue(NavigationRules.keyboardConcerns(editing: false, holdsInset: true))
-        XCTAssertFalse(NavigationRules.keyboardConcerns(editing: false, holdsInset: false))
-    }
-
-    /// D5: the viewport freeze is for an initially interactive pop, never a
-    /// sheet — the Messages defect of 2026-09-09.
-    func testTheViewportFreezeIsForAnInteractivePopOnly() {
-        XCTAssertTrue(NavigationRules.freezesViewport(modalActive: false, changing: true, initiallyInteractive: true))
-        XCTAssertFalse(NavigationRules.freezesViewport(modalActive: true, changing: true, initiallyInteractive: true))
-        XCTAssertFalse(NavigationRules.freezesViewport(modalActive: false, changing: false, initiallyInteractive: true))
-        XCTAssertFalse(NavigationRules.freezesViewport(modalActive: false, changing: true, initiallyInteractive: false))
-    }
-
     /// D3: a focus that cannot be delivered has a named reason, in a fixed
     /// order, and a deliverable one has none.
     func testAFocusRefusalNamesItsReason() {

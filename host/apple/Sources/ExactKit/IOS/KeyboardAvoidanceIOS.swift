@@ -2,11 +2,11 @@
 // section stay above the keyboard, as in a UIKit table or a SwiftUI `Form`:
 // the nearest scroller (a `scroll`, a list, a grouped list's collection
 // view) scrolls by the least that shows them, in the keyboard's own
-// animation (Presenter.applyKeyboard), on focus and on every keyboard frame;
+// animation (Presenter.refitKeyboard), on focus and on every keyboard frame;
 // and a tab container keeps the screen's height under the keys, so its
 // floating tab bar is covered by them as UIKit's is, never riding above them
-// over the field. The viewport itself ends at the keyboard's top
-// (`resizes-content`, LLP 1116 D2; ExactView `fit`).
+// over the field. Under `resizes-content`, the editing route's layout block
+// ends at the keyboard; an ordinary page resizes its viewport instead.
 //
 // @ref LLP 1116.008 D8 — and above content pinned over the scroller's bottom
 // edge (an absolute bar riding the keyboard): what a pinned bar hides of the
@@ -14,6 +14,23 @@
 // takes in its toolbar scrolls the field above it.
 #if os(iOS) || os(tvOS)
 import UIKit
+
+/// One keyboard contribution to a scroll view's shared bottom insets.
+final class KeyboardInset {
+    private var amount: CGFloat = 0
+    func apply(_ desired: CGFloat, to scroll: UIScrollView) {
+        let change = desired - amount
+        // Record the contribution before UIKit setters can reenter layout
+        amount = desired
+        guard change != 0 else { return }
+        var inset = scroll.contentInset
+        inset.bottom += change
+        scroll.contentInset = inset
+        var indicators = scroll.verticalScrollIndicatorInsets
+        indicators.bottom += change
+        scroll.verticalScrollIndicatorInsets = indicators
+    }
+}
 
 extension Presenter {
     /// Scroll a node into the part of the viewport the keyboard leaves —
@@ -71,12 +88,16 @@ extension Presenter {
         reveal(node, rect: text.convert(CGRect(x: caret.minX, y: y, width: caret.width, height: height), to: node))
     }
 
-    /// The colour the content at the viewport's bottom edge goes on with
+    /// The colour the content above the keyboard goes on with
     /// below it (ExactView `paintUnderKeys`): the background of the scroller
     /// there (a grouped list's), or the nearest painted box above it (a
     /// route's backdrop), never a row's own. Nil where nothing is painted.
     func bottomEdgeColor() -> UIColor? {
-        let b = viewport.bounds.inset(by: pageMargins) // the page's area, not the band under it
+        var b = viewport.bounds.inset(by: pageMargins)
+        if let top = keyboardTop, let window = viewport.window {
+            let edge = viewport.convert(CGPoint(x: 0, y: top), from: window).y
+            b.size.height = max(0, min(b.maxY, edge) - b.minY)
+        }
         guard b.height > 1, let hit = viewport.hitTest(CGPoint(x: b.midX, y: b.maxY - 1), with: nil) else { return nil }
         let chain = Array(sequence(first: hit, next: { $0 === self.viewport ? nil : $0.superview }))
         let from = chain.firstIndex { $0 is UIScrollView } ?? 0
@@ -329,9 +350,7 @@ extension Presenter {
 }
 
 extension NavigationHost {
-    /// The primary controller fills the document viewport. A tab container
-    /// extends beneath a content-resizing keyboard so its tab bar stays
-    /// covered while route allocations end at the keys.
+    /// The primary controller keeps its native bounds while route content avoids the keyboard.
     func ownerFrame(_ owner: UIViewController, in root: UIView) -> CGRect {
         let viewport = presenter.viewport
         var frame = !ExactEnv.authoredChrome && root.isDescendant(of: viewport) ? viewport.convert(viewport.pageBounds, to: root) : root.bounds
@@ -353,11 +372,8 @@ extension NavigationHost {
     }
 
     func ownerKeyboardExtension(_ owner: UIViewController) -> CGFloat {
-        if owner === tabOwner, !ExactEnv.authoredChrome, !presenter.modals.active, presenter.keyboardPolicy == "resizes-content" {
-            return presenter.keyboardInset
-        }
         #if os(iOS)
-        if owner === primaryOwner, presenter.keyboardPolicy == "resizes-content" { return presenter.keyboardAccessoryHeight }
+        if ExactEnv.authoredChrome, owner === primaryOwner, presenter.keyboardPolicy == "resizes-content" { return presenter.keyboardAccessoryHeight }
         #endif
         return 0
     }
