@@ -149,7 +149,8 @@ globalThis.exact.installMedia = (el, send) => {
 // between `seeking` and `seeked`, nor before a source can play. `{done, release}`, `done` resolving once the element
 // can play at rest (enough data, or its loading suspended as `preload` asks), has no source, fails or stalls
 // (`release` lets go at once; `removeMedia` releases a retired element's), `then` run as it does, at once (the JS
-// target counts `inflight` so); null when nothing is in flight. An `emptied` a load with a source fires is that load beginning, not its end: it once let a changed
+// target counts `inflight` so); null when nothing is in flight. It has no bound of its own: a settle's deadline
+// caps the wait. An `emptied` a load with a source fires is that load beginning, not its end: it once let a changed
 // source's opening seek go unheld.
 const holds = new WeakMap(), gone = new WeakSet(); // element -> its hold's release; the retired
 globalThis.exact.mediaHold = (el, then = () => {}) => {
