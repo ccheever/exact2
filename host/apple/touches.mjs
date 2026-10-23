@@ -644,7 +644,7 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
         const tolerance = Math.max(1, 0.05 * Math.hypot(...net)), w = a.window;
         const startOff = Math.hypot(began.at[0] - w[0], began.at[1] - w[1]), endOff = Math.hypot(end.at[0] - w[0] - net[0], end.at[1] - w[1] - net[1]);
         if (startOff > tolerance) throw new Error(`${what}: the touch began at (${began.at}), not at the aimed (${w}) within ${tolerance.toFixed(1)} pt`);
-        if (endOff > tolerance || (moves && !moved.length)) throw new Error(`${what}: the touch moved (${travel}) in ${moved.length} moves, not the asked (${drag.dx}, ${drag.dy}) within ${tolerance.toFixed(1)} pt`);
+        if (endOff > tolerance || (moves && !moved.length)) throw new Error(`${what}: the touch moved (${travel}) in ${moved.length} moves, not the asked (${net[0]}, ${net[1]}) within ${tolerance.toFixed(1)} pt`);
       }
       return {
         tapped: id, at: a.at, delivery: 'platform',
