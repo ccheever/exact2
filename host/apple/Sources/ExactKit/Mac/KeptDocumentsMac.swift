@@ -70,12 +70,14 @@ public enum KeptDocuments {
         return URL(fileURLWithPath: String(cString: buffer))
     }
 
-    /// What File ▸ Open Recent holds, as paths.
-    static var recent: [String] { NSDocumentController.shared.recentDocumentURLs.map(\.path) }
+    /// What File ▸ Open Recent holds, as paths, newest first: while a clear
+    /// is on its way (`toNote`), what it will hold once noted again.
+    static var recent: [String] { (toNote.map { $0.urls.reversed() } ?? NSDocumentController.shared.recentDocumentURLs).map(\.path) }
 
     /// File ▸ Open Recent ▸ Clear Menu: the list empties, and with it what
     /// every app here keeps.
     static func clear() {
+        toNote = nil
         NSDocumentController.shared.clearRecentDocuments(nil)
         listChanged()
     }
@@ -89,17 +91,48 @@ public enum KeptDocuments {
 
     /// The app forgot a document it kept (`forgetDocument`): it leaves Open
     /// Recent too. AppKit removes no single entry, so the list is noted again
-    /// without it, oldest first.
+    /// without it, oldest first (`noteWhenCleared`); one forgotten while that
+    /// is on its way leaves what is waiting to be noted.
     static func forgotten(device: UInt64, inode: UInt64) {
+        let it = { (url: URL) in identity(url.path).map { $0 == (device, inode) } ?? false }
+        if let waiting = toNote { toNote = (waiting.cleared, waiting.urls.filter { !it($0) }); return }
         let controller = NSDocumentController.shared
         let urls = controller.recentDocumentURLs
-        guard urls.contains(where: { identity($0.path).map { $0 == (device, inode) } ?? false }) else { return }
+        guard urls.contains(where: it) else { return }
         controller.clearRecentDocuments(nil)
-        for url in urls.reversed() where !(identity(url.path).map { $0 == (device, inode) } ?? false) {
-            controller.noteNewRecentDocumentURL(url)
-        }
+        toNote = (Set(urls.map(file)), urls.reversed().filter { !it($0) })
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { noteWhenCleared() }
     }
 
+    /// What waits for AppKit's clear to land, oldest first: the list noted
+    /// again, then each document the app noted meanwhile (`note`); and what
+    /// the list held before (`cleared`). Nil when nothing waits.
+    nonisolated(unsafe) static var toNote: (cleared: Set<String>, urls: [URL])?
+    /// A URL as compared here: AppKit lists `/private/var/…` where the app
+    /// noted `/var/…`.
+    static func file(_ url: URL) -> String { url.resolvingSymlinksInPath().path }
+
+    /// A document the app opened or saved, on Open Recent: held while a clear
+    /// is on its way (it would go with it), then noted newest.
+    static func note(_ url: URL) {
+        if let waiting = toNote { toNote = (waiting.cleared, waiting.urls.filter { file($0) != file(url) } + [url]) } else { NSDocumentController.shared.noteNewRecentDocumentURL(url) }
+    }
+
+    /// AppKit empties the list a turn or more after `clearRecentDocuments`,
+    /// and what is noted before then is dropped with it (measured on macOS
+    /// 27: the oldest entry, or all of them, lost under load). So what waits
+    /// is noted once none of what was cleared is listed, looked for every
+    /// 50 ms from the turn after; after 2 s it is noted all the same.
+    static func noteWhenCleared(tries: Int = 40) {
+        guard let waiting = toNote else { return }
+        let controller = NSDocumentController.shared
+        guard tries == 0 || !controller.recentDocumentURLs.contains(where: { waiting.cleared.contains(file($0)) }) else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { noteWhenCleared(tries: tries - 1) }
+            return
+        }
+        toNote = nil
+        waiting.urls.forEach(controller.noteNewRecentDocumentURL)
+    }
     /// The library's hook, set once.
     static let installed: Void = {
         exact_on_document_forgotten { device, inode in
