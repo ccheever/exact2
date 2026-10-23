@@ -679,8 +679,8 @@ package final class CollectionHost {
                 // and rescue what shows. At rest a report is unlimited.
                 let velocity = motion?(id)
                 let limit: UInt32? = retireLimit ?? sliceLimits.removeValue(forKey: id)
-                    ?? (motion != nil && (velocity != nil || entry.snapshot.pending) ? 0 : nil)
-                let further = limit.map { $0 > 0 && $0 > (entry.lastLimit ?? .max) } ?? (entry.lastLimit != nil)
+                    ?? (motion != nil && (entry.lastFacts == nil || velocity != nil || entry.snapshot.pending) ? 0 : nil)
+                let further = limit.map { $0 > 0 && $0 > (entry.lastLimit ?? .max) } ?? false
                 // Off main only when the report keeps the port, the width and
                 // the pins: a report that changes them may retire (§5).
                 let same = entry.lastFacts.map { ($0.portMain, $0.portCross, $0.cross, $0.focus, $0.interaction)
