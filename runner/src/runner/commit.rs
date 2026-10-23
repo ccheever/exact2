@@ -783,6 +783,7 @@ impl<D: DataSource> Runner<D> {
         self.next_ticket += 1;
         let name = self.target_name(target);
         self.log(super::lines::enqueued(ticket, &name, &request));
+        self.note_asked(target, ticket);
         self.pending.push(PendingReq {
             refusal: None,
             refused: false,
@@ -1083,7 +1084,9 @@ impl<D: DataSource> Runner<D> {
         }
         let what = super::lines::fulfilling(ticket, &self.target_name(p.target), &summary);
         let target = p.target;
-        let result = self.fulfill_inner(p, outcome);
+        // An answer lands as a commit of its request's origin (LLP 1133.002 D12).
+        let origin = self.ticket_origin(ticket);
+        let result = self.as_origin(origin, |r| r.fulfill_inner(p, outcome));
         self.conclude(checkpoint, &result, was_poisoned);
         self.arm_then(result.is_ok());
         self.arm_next(result.is_ok());
