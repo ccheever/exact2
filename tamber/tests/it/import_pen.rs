@@ -744,6 +744,14 @@ fn round_3_recheck_3_descendants_positions_and_prefix() {
             "{id}"
         );
     }
+    // An override's `inputs` is a map of the author's names, as a typed node's is: an input named `width` is no
+    // pixel property, so `n` read there alone is a number.
+    let text = r#"{"version":"2.21","variables":{"n":{"type":"number","value":8}},
+      "children":[{"type":"ref","ref":"a","descendants":{"chart":{"inputs":{"width":"$n"}}}}]}"#;
+    assert_eq!(
+        folded(&go(text).unwrap()).value("pen.n", 0).unwrap().css(),
+        "8"
+    );
     let prefix = "p".repeat(128);
     let vars: Vec<String> = (0..2500)
         .map(|i| format!(r##""c{i}":{{"type":"color","value":"#000000"}}"##))
@@ -873,4 +881,32 @@ fn round_3_recheck_6_each_tuple_s_copy_of_why_a_colour_failed_is_charged() {
     let long = file(&"€".repeat(128));
     assert!(!within(&long, high + 1_000_000), "the failures are charged");
     assert!(within(&long, IMPORT));
+}
+
+#[test]
+fn round_3_recheck_7_a_refusal_carried_down_a_long_chain_is_one_charged_walk() {
+    // The design's `pen.c0000` is a length: the import's colour of that name is refused, and every colour of
+    // the chain that names it goes with it, in one walk, not a pass a link.
+    let design = parse("tamber app\n\ntheme\n  pen.c0000: length = 8px\n").unwrap();
+    let mut vars = vec![r##""c0000":{"type":"color","value":"#000000"}"##.to_string()];
+    vars.extend(
+        (1..4000).map(|i| format!(r#""c{i:04}":{{"type":"color","value":"$c{:04}"}}"#, i - 1)),
+    );
+    let text = format!(r#"{{"version":"2.21","variables":{{{}}}}}"#, vars.join(","));
+    let t = std::time::Instant::now();
+    let import = pen::import_with("x.pen", &text, "pen", &design, &vocab());
+    assert!(
+        t.elapsed() < std::time::Duration::from_secs(20),
+        "{:?}",
+        t.elapsed()
+    );
+    if let Ok(import) = import {
+        assert!(
+            import
+                .unmapped
+                .iter()
+                .any(|u| u.name == "c3999" && u.why.contains("names")),
+            "the chain's end goes too"
+        );
+    }
 }

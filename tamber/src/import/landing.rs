@@ -296,33 +296,40 @@ pub(super) fn landing(
         }
         out
     };
+    // Who names each token, once: what a refusal is carried along (each word charged).
+    let refuse = |m: String| Diagnostic::new("tamber-import-source", m, 1, 1);
+    let index: HashMap<&str, usize> = tokens
+        .iter()
+        .enumerate()
+        .map(|(i, t)| (t.name.as_str(), i))
+        .collect();
+    let mut named_by: Vec<Vec<usize>> = vec![Vec::new(); tokens.len()];
+    for (i, t) in tokens.iter().enumerate() {
+        for w in std::iter::once(t.value.as_str())
+            .chain(t.whens.iter().map(|(_, v)| v.as_str()))
+            .flat_map(words)
+        {
+            crate::budget::spend(1).map_err(refuse)?;
+            if let Some(&j) = index.get(w) {
+                named_by[j].push(i);
+            }
+        }
+    }
     for _ in 0..=tokens.len() + 1 {
         // A token naming a refused one goes with it (the reference would read
-        // the design's token of that name instead).
-        loop {
-            let refused: Vec<&str> = tokens
-                .iter()
-                .zip(&why)
-                .filter(|(_, w)| w.is_some())
-                .map(|(t, _)| t.name.as_str())
-                .collect();
-            let named: Vec<(usize, String)> = tokens
-                .iter()
-                .enumerate()
-                .filter(|(i, _)| why[*i].is_none())
-                .filter_map(|(i, t)| {
-                    std::iter::once(t.value.as_str())
-                        .chain(t.whens.iter().map(|(_, v)| v.as_str()))
-                        .flat_map(words)
-                        .find(|w| refused.contains(w))
-                        .map(|r| (i, r.to_string()))
-                })
-                .collect();
-            if named.is_empty() {
-                break;
-            }
-            for (i, r) in named {
-                why[i] = Some(format!("it names `{r}`, which this import does not set"));
+        // the design's token of that name instead): walked once from the
+        // refused, each step charged.
+        let mut queue: Vec<usize> = (0..tokens.len()).filter(|&j| why[j].is_some()).collect();
+        while let Some(j) = queue.pop() {
+            for &i in &named_by[j] {
+                crate::budget::spend(1).map_err(refuse)?;
+                if why[i].is_none() {
+                    why[i] = Some(format!(
+                        "it names `{}`, which this import does not set",
+                        tokens[j].name
+                    ));
+                    queue.push(i);
+                }
             }
         }
         let skip: Vec<bool> = why.iter().map(Option::is_some).collect();
