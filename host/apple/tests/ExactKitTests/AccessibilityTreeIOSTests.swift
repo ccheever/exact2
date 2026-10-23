@@ -11,6 +11,27 @@ import XCTest
 final class AccessibilityTreeIOSTests: XCTestCase {
     private var window: UIWindow!
 
+    func testLabelledImagesExposeTheirTraitAndDecorativeImagesStayHidden() throws {
+        let p = try fixture()
+        let image = NodeView(id: 20, kind: "image", presenter: p)
+        p.views[image.id] = image
+        p.root.addSubview(image)
+        image.frame = CGRect(x: 200, y: 0, width: 60, height: 60)
+        image.applyProps(set: ["accessibilityLabel": "Station map"], clear: [])
+        XCTAssertTrue(image.isAccessibilityElement)
+        XCTAssertTrue(image.accessibilityTraits.contains(.image))
+        XCTAssertEqual(image.accessibilityLabel, "Station map")
+        image.applyProps(set: ["imageSource": "symbol:train.side.front.car", "symbolName": "train.side.front.car"], clear: [])
+        image.updateSymbol()
+        XCTAssertTrue(image.isAccessibilityElement)
+        XCTAssertTrue(image.accessibilityTraits.contains(.image))
+        image.applyProps(set: [:], clear: ["accessibilityLabel"])
+        XCTAssertFalse(image.isAccessibilityElement)
+        XCTAssertFalse(image.accessibilityTraits.contains(.image))
+        image.applyProps(set: ["accessibilityLabel": ""], clear: [])
+        XCTAssertFalse(image.isAccessibilityElement)
+    }
+
     func testToggleButtonsReportFalseTrueAndMixedFromThePlatform() throws {
         let p = try fixture()
         for value in ["false", "true", "mixed"] {
