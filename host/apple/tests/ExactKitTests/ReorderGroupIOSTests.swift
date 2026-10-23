@@ -28,7 +28,7 @@ final class ReorderGroupIOSTests: XCTestCase {
         node.pressesEnded([press], with: nil)
     }
 
-    private func fixture(_ calls: ReorderGroupRecorder) -> (Presenter, NodeView) {
+    private func fixture(_ calls: ReorderGroupRecorder, nested: Bool = false) -> (Presenter, NodeView) {
         let p = Presenter()
         p.viewport.frame = CGRect(x: 0, y: 0, width: 400, height: 300)
         p.reorderGroupCalls = calls
@@ -38,7 +38,7 @@ final class ReorderGroupIOSTests: XCTestCase {
         }
         p.apply(wireBatch([
             ["op": "collections", "items": [entry(1, 2, 3), entry(5, 6, 7)]],
-            ["op": "create", "id": 9, "kind": "view"],
+            ["op": "create", "id": 9, "kind": "view", "style": nested ? ["overflow_y": "scroll"] : [:]],
             ["op": "create", "id": 1, "kind": "list", "props": ["id": "col-a", "reorderGroup": "cards"], "style": ["overflow_y": "scroll"]],
             ["op": "create", "id": 2, "kind": "view"],
             ["op": "create", "id": 3, "kind": "view", "props": ["reorderFor": "col-a"]],
@@ -69,6 +69,34 @@ final class ReorderGroupIOSTests: XCTestCase {
         window.makeKeyAndVisible()
         self.window = window
         return (p, p.views[3]!)
+    }
+
+    func testAutoscrollPassesAFractionalInnerLimitToItsAncestor() throws {
+        for scale in [2, 3] as [CGFloat] {
+            let (p, grip) = fixture(ReorderGroupRecorder(), nested: true)
+            let inner = try XCTUnwrap(p.views[1]?.scroll), outer = try XCTUnwrap(p.views[9]?.scroll)
+            for scroll in [inner, outer] {
+                scroll.traitOverrides.displayScale = scale
+                scroll.contentInsetAdjustmentBehavior = .never
+                scroll.contentInset.bottom = 0.3
+            }
+            inner.contentSize.height = 300
+            outer.contentSize.height = 400
+            inner.contentOffset.y = 100
+            let candidate = ReorderScroller(scroll: inner, vertical: true, rect: .zero)
+            XCTAssertFalse(candidate.canScroll(toward: 1), "the last reachable pixel is 100 at both scales")
+            XCTAssertFalse(candidate.scroll(by: 10), "a snapped-away request did not move")
+            let hold = try XCTUnwrap(ReorderGroupHold(grip, point: CGPoint(x: 75, y: 190), ghost: false))
+            XCTAssertTrue(hold.move(CGPoint(x: 75, y: 190)))
+            let deadline = Date(timeIntervalSinceNow: 1)
+            while outer.contentOffset.y == 0 && Date() < deadline {
+                RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            }
+            XCTAssertGreaterThan(outer.contentOffset.y, 0, "the eligible ancestor must autoscroll")
+            XCTAssertEqual(inner.contentOffset.y, 100, accuracy: 1e-6)
+            hold.cancel()
+            window?.isHidden = true
+        }
     }
 
     func testAGroupedGripIsASequentialHardwareKeyboardStop() throws {
