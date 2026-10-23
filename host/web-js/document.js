@@ -80,6 +80,25 @@ export function projectRoots(history, navigate, say, after, hostBack, hostGo, ro
   after.push(project); history.activate(root, say);
 }
 
+/** Project route visibility before startup. A modal keeps the underlying page
+ * and intervening sheets visible but inert, as navigation.js `project` does. */
+export function markRoutes(root) {
+  for (const nav of [...root.getElementsByTagName("*")].filter(e => e.hasAttribute("navigationBack"))) {
+    const key = nav.getAttribute("navigationKey"), panels = panelsOf(nav);
+    const stacks = (panels.length ? panels : [nav]).map(p => [...p.children].filter(r => r.hasAttribute("navigationKey")));
+    const at = stacks.findIndex(routes => routes.some(r => r.getAttribute("navigationKey") === key));
+    if (at < 0) continue;
+    const mark = (e, hidden, inert) => { if (hidden) e.style.setProperty("visibility", "hidden"); if (inert) e.setAttribute("inert", ""); };
+    panels.forEach((p, i) => mark(p, i !== at, i !== at));
+    stacks.forEach((routes, i) => {
+      const shown = i === at ? routes.findIndex(r => r.getAttribute("navigationKey") === key) : routes.length - 1;
+      const sheet = routes[shown]?.getAttribute("navigationPresentation") === "modal";
+      const beneath = routes.findLastIndex((r, j) => j < shown && r.getAttribute("navigationPresentation") !== "modal");
+      routes.forEach((r, j) => mark(r, j !== shown && !(sheet && j >= beneath && j < shown), j !== shown));
+    });
+  }
+}
+
 /** The elements that may be the page's scroller: `<html data-scrolldocument>`
  * while one is (D4), which the shell's rule reads, as the web host's glue. */
 export const Docs = new Set();

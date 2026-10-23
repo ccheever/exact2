@@ -501,6 +501,7 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   "import { types, sourceTypes, pages } from './names.js';",
   "import { answers } from './checkpoint.js';",
   "import { markBars } from './navigation.js';",
+  "import { markRoutes } from './document.js';",
   ...(ts ? ["import { install as ts } from './ts-data.js';"] : []),
   ...(rust ? ["import { install } from './rust-data.js';"] : []),
   // Two steps, so a server can send the page's head between them
@@ -519,8 +520,9 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   '  const end = t0 + deadline;',
   '  do await new Promise(r => setTimeout(r, 1)); while (inflight.n && performance.now() < end);',
   '  markBars(document.getElementById("exact-root")); // the bars the glue marks, so their symbols are the size they will be',
+  '  markRoutes(document.getElementById("exact-root"));',
   '  return { root: document.rootHTML(), title: Head.headTitle, description: Head.headDescription, time: clock.now, answers: answers(Resources, types[2], sourceTypes),',
-  '    pending: Resources.filter(r => r.ticket).map(r => r.name), render: performance.now() - t0 };',
+  '    pending: Resources.filter(r => r.ticket).map(r => r.name), scrollDocument: document.documentElement.hasAttribute("data-scrolldocument"), render: performance.now() - t0 };',
   '};',
 ].join('\n'));
 cpSync(resolve(here, 'checkpoint.js'), resolve(gen, 'checkpoint.js'));
