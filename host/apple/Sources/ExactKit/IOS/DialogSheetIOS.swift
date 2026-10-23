@@ -168,6 +168,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         var index: Int
         /// The kernel's frame for the dialog, in its authored parent.
         var frame: CGRect
+        var usedBlock: CGSize?
         weak var source: NodeView?
         /// What held the keyboard's focus when it opened.
         weak var previous: UIView?
@@ -276,8 +277,9 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
             let scroller = controller.scroller
             let clip = NativeGeometry.bounds(of: scroller, in: presenter.viewport)
                 .intersection(NativeGeometry.bounds(of: view, in: presenter.viewport))
+            let block = entry.usedBlock.map { CGRect(origin: CGPoint(x: -entry.frame.minX, y: -entry.frame.minY), size: $0) }
             return TopLayerBox(view: entry.dialog,
-                               frame: (entry.dialog.id, entry.dialog.topLayerFrame(in: presenter.viewport), presenter.viewportPoints(clip)),
+                               frame: (entry.dialog.id, entry.dialog.topLayerFrame(in: presenter.viewport, containingBlock: block), presenter.viewportPoints(clip)),
                                modal: controller)
         }
     }
@@ -581,6 +583,15 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
             entry.dialog.removeFromSuperview()
         }
     }
+    /// The runner maps a block's viewport rectangle through its used size,
+    /// which can exceed the authored dialog's border box.
+    func applied(_ op: BatchOp) {
+        guard op.payload["op"] as? String == "block",
+              let entry = entries.first(where: { $0.dialog.id == op.id && live($0.dialog) }),
+              let w = op.payload["w"] as? NSNumber, let h = op.payload["h"] as? NSNumber else { return }
+        entry.usedBlock = CGSize(width: w.doubleValue, height: h.doubleValue)
+    }
+
     /// A frame op on an open dialog: the box is the sheet's content, its
     /// origin the sheet's to choose.
     func framed(_ node: NodeView) {

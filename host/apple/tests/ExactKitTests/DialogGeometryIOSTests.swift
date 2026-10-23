@@ -60,7 +60,9 @@ final class DialogGeometryIOSTests: XCTestCase {
         let state = slots(s), frame = (state["rect"] as? String ?? "").split(separator: ",").compactMap { Double($0) }
         XCTAssertEqual(frame.count, 4)
         if frame.count == 4 {
-            for (got, want) in zip(frame, [visible.minX, visible.minY, visible.width, visible.height]) { XCTAssertEqual(got, want, accuracy: 2) }
+            for (index, pair) in zip(frame, [visible.minX, visible.minY, visible.width, visible.height]).enumerated() {
+                XCTAssertEqual(pair.0, pair.1, accuracy: 2, "component \(index); read \(frame), visible \(visible), destination \(destination)")
+            }
         }
         XCTAssertEqual(state["hit"] as? String, "content")
         XCTAssertTrue(FrameClock.shared.wants(p.nativeGeometry), "native movement owns geometry frames")
