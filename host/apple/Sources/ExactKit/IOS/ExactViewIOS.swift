@@ -389,6 +389,7 @@ public final class ExactView: UIView {
         // hide notification is not a request to drop the composer below
         // those moving keys; keep the current viewport until it settles.
         guard !presenter.navigation.preservesKeyboardViewport else { return }
+        guard bounds.width > 0, bounds.height > 0 else { return }
         // @ref LLP 1123 D1 — the document is the session view's; a
         // presentation lays its routes out in their own blocks (D2)
         let safe = safeAreaInsets

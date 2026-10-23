@@ -399,6 +399,7 @@ public final class ExactSession {
     weak package var view: ExactView?
     #if os(iOS) || os(tvOS)
     private var systemDark = false
+    var launchViewport: (plan: Data?, cover: Bool)?
     #endif
     /// This session's agent, once a carrier asked for it (`Agent.swift`).
     var agentBox: Agent?
