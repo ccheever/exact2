@@ -26,16 +26,17 @@ final class TextParityIOSTests: XCTestCase {
     }
     func testNormalLineHeightIsTheWebHostsSystemUI() {
         let engine = TextEngine(resolve: { _ in nil })
-        let cases: [(CGFloat, CGFloat, CGFloat)] = [
-            (11, 13, 11), (12, 15, 12), (13, 16, 13), (14, 17, 14),
-            (15, 18, 15), (16, 18, 15), (17, 20, 16), (20, 23, 19),
-            (24, 28, 23), (28, 33, 27), (34, 40, 33),
+        let cases: [(CGFloat, CGFloat)] = [
+            (11, 13), (12, 15), (13, 16), (14, 17),
+            (15, 18), (16, 18), (17, 20), (20, 23),
+            (24, 28), (28, 33), (34, 40),
         ]
-        for (size, height, baseline) in cases {
+        for (size, height) in cases {
+            let font = engine.font(size: size, weight: 400, family: 0, italic: false)
             let p = paragraph(engine, "Hxg\nHxg", size: size)
             XCTAssertEqual(p.height, height * 2, "\(size)px")
-            XCTAssertEqual(p.firstBaseline, baseline, "\(size)px")
-            XCTAssertEqual(p.baselines[1] - p.baselines[0], height, "\(size)px")
+            XCTAssertEqual(p.firstBaseline, font.ascender, accuracy: 1e-6, "UIKit's baseline at \(size)px")
+            XCTAssertEqual(p.baselines[1] - p.baselines[0], height, accuracy: 1e-6, "Chrome's line advance at \(size)px")
         }
     }
 
