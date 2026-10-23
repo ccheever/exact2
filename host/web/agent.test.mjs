@@ -335,6 +335,66 @@ test('a clock waits for an animated image to land on the clock it moved to (LLP 
   expect(await result).toEqual({ clock: 16, epoch: 2, incarnation: 1 });
 });
 
+test('clocks wait for runner requests with no host promise, through release or the deadline', async () => {
+  for (const request of [{ settle: true }, { data: true }, { to: 100 }]) {
+    for (const release of [false, true]) {
+      const f = fixture();
+      let wall = 0, pending = true;
+      f.SETTLE_DEADLINE_MS = 100;
+      f.performance = { now: () => wall };
+      f.setTimeout = (fn, ms) => { queueMicrotask(() => {
+        wall += ms;
+        if (release) { pending = false; f.events.push('release'); }
+        fn();
+      }); return 1; };
+      f.clearTimeout = () => {};
+      f.wasm.exact_requests_pending = () => Number(pending);
+      f.gpuInPlay = () => false;
+      f.settleCandidate = () => f.agentClock;
+      Object.assign(f.collections, { settle() {}, fireOwedScrolls: async () => null, owedScrolls: () => false });
+      f.flowDue = 100;
+      f.wasm.exact_advance = to => { f.events.push('advance'); return JSON.stringify({ ops: [], clock: to }); };
+      vm.runInContext(declaration('waitForInflight'), f);
+      const reply = await f.exact.agent({ op: 'clock', ...request });
+      expect(f.inflight.size).toBe(0);
+      if (release) {
+        expect(f.events[0]).toBe('release');
+        expect(reply.settled).toBe(request.to ? undefined : true);
+      } else {
+        expect(wall).toBe(100);
+        if (request.to) expect(reply.clock).toBe(100);
+        else expect(reply).toMatchObject({ settled: false, reason: 'requests' });
+      }
+    }
+  }
+});
+
+test('a runner request started by the final commit prevents a settled clock reply', async () => {
+  for (const request of [{ settle: true }, { data: true }]) {
+    const f = fixture();
+    let pending = false;
+    f.wasm.exact_requests_pending = () => Number(pending);
+    f.waitForInflight = async () => !pending;
+    f.gpuInPlay = () => false;
+    f.settleCandidate = () => f.agentClock;
+    Object.assign(f.collections, { settle() {}, fireOwedScrolls: async () => null, owedScrolls: () => false });
+    f.wasm.exact_advance = to => { pending = true; return JSON.stringify({ ops: [], clock: to }); };
+    expect(await f.exact.agent({ op: 'clock', ...request })).toMatchObject({ settled: false, reason: 'requests' });
+  }
+});
+
+test('a declared server hold stays named without holding settle or data', async () => {
+  const f = fixture();
+  f.heldAsks.set(7, { target: 'changes', owner: 0 });
+  f.gpuInPlay = () => false;
+  f.settleCandidate = () => f.agentClock;
+  Object.assign(f.collections, { settle() {}, fireOwedScrolls: async () => null, owedScrolls: () => false });
+  vm.runInContext(declaration('waitForInflight'), f);
+  for (const request of [{ settle: true }, { data: true }]) {
+    expect(await f.exact.agent({ op: 'clock', ...request })).toMatchObject({ settled: true, held: 1, heldTargets: ['changes'] });
+  }
+});
+
 test('a clock jump lands what is in flight before each timer fires', async () => {
   const f = fixture();
   timedRequests(f);
