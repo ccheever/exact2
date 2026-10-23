@@ -878,9 +878,9 @@ final class SplitMacTests: XCTestCase {
                 let again = Date().addingTimeInterval(3)
                 while !p.menus.isOpen(pop), Date() < again { settle() }
                 XCTAssertTrue(pop.isDescendant(of: pane))
-                // And one opened after it from the page, in the page's layer.
+                // And one opened after it with no invoker (`showPopover`), in the page's layer.
                 let later = try node("listpop")
-                try press("list-pop-open")
+                p.menus.action("showPopover", ["listpop"])
                 let opened = Date().addingTimeInterval(3)
                 while !p.menus.isOpen(later), Date() < opened { settle() }
                 // A depth from the pane's own ranking (a retained positioned
