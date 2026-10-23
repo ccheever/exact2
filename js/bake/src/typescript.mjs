@@ -58,13 +58,16 @@ function keyedGrants(node, origin, at) {
     if (property.method || property.kind!=='init') refuse(property,'methods and accessors are not allowed');
     const key=property.key;
     if (key.type!=='Literal' || typeof key.value!=='string') refuse(key,`expected a string literal origin key, got ${key.type}`);
-    httpOrigin(key.value,`app.ts:${at(key.start)}: grants key ${JSON.stringify(key.value)}`);
+    // A key is written as the origin it means, so two spellings of one origin cannot both appear.
+    const canonical=httpOrigin(key.value,`app.ts:${at(key.start)}: grants key ${JSON.stringify(key.value)}`);
+    if (canonical!==key.value) refuse(key,`write the origin key ${JSON.stringify(key.value)} as ${JSON.stringify(canonical)}`);
     if (entries.has(key.value)) refuse(key,`duplicate key ${JSON.stringify(key.value)}`);
     const value=property.value;
     entries.set(key.value,value.type==='ArrayExpression' ? value.elements.map(n=>line(n,value)).join('\n') : line(value,value));
   }
-  if (!entries.has(origin)) refuse(node,`no entry for origin ${JSON.stringify(origin)}; keys: ${[...entries.keys()].map(k=>JSON.stringify(k)).join(', ') || '(none)'}`);
-  return entries.get(origin);
+  const wanted=new URL(origin).origin;
+  if (!entries.has(wanted)) refuse(node,`no entry for origin ${JSON.stringify(wanted)}; keys: ${[...entries.keys()].map(k=>JSON.stringify(k)).join(', ') || '(none)'}`);
+  return entries.get(wanted);
 }
 
 /** Select literal keyed grants, or move the plain form's matching fetch and
