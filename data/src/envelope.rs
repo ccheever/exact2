@@ -239,7 +239,11 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
                 Some(Box::new(exact_runner::LongPoll {
                     cursor: name("cursor")?,
                     from: name("from")?,
-                    same_cursor_event: poll["same_cursor_event"].as_bool().unwrap_or(false),
+                    same_cursor_event: match &poll["same_cursor_event"] {
+                        Json::Null => false,
+                        Json::Bool(b) => *b,
+                        _ => return Err(unavailable("turn reply: invalid long poll terms")),
+                    },
                 }))
             }
         },
