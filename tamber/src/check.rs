@@ -2,6 +2,8 @@
 //! mode key, the `under scheme=dark` rules and completeness, folding every
 //! token for every full app tuple as it goes.
 
+#[cfg(test)]
+mod influence_tests;
 mod pairs;
 
 use crate::bound::Walk;
@@ -1066,6 +1068,8 @@ impl<'a> Checker<'a> {
         }
         for (d, dial) in design.dials.iter().enumerate() {
             let mut moving = vec![false; n];
+            #[cfg(test)]
+            let readers = &influence_tests::every_token(&readers, n);
             let mut todo = readers[d].clone();
             let mut reach = Vec::new();
             while let Some(i) = todo.pop() {
