@@ -63,7 +63,27 @@ struct Walk {
     on: Vec<bool>,
     known: Vec<Option<Kind>>,
     cycles: usize,
+    /// Kinds inferred, which only a cycle repeats (a kind found without
+    /// meeting one is kept): past [`Walk::budget`] the rest are colours,
+    /// as a cycle's are, so a small cycle read twice a level is no 2^n.
+    steps: usize,
+    /// The names followed to here: never past [`MAX_REFERENCE_DEPTH`].
+    depth: usize,
 }
+
+impl Walk {
+    /// The kinds a design's walk may infer: every token's once, four times
+    /// over, which no design without a cycle reaches.
+    fn budget(&self) -> usize {
+        4 * self.on.len() + 64
+    }
+}
+
+/// The deepest a chain of tokens naming one another may go (the checker's
+/// own bound, beside a value's bytes and nesting): each name followed is a
+/// level of recursion, so a longer one is refused before it would overflow
+/// the stack (`tamber-reference-depth`).
+pub const MAX_REFERENCE_DEPTH: usize = 256;
 
 struct Checker<'a> {
     design: &'a Design,
@@ -740,6 +760,8 @@ impl<'a> Checker<'a> {
             on: vec![false; design.tokens.len()],
             known: vec![None; design.tokens.len()],
             cycles: 0,
+            steps: 0,
+            depth: 0,
         };
         for i in 0..design.tokens.len() {
             self.kinds[i] = self.kind_of(i, &mut walk);
@@ -811,12 +833,18 @@ impl<'a> Checker<'a> {
         if let Some(k) = walk.known[i] {
             return k;
         }
-        if std::mem::replace(&mut walk.on[i], true) {
+        // A cycle, a walk past its budget (only cycles repeat one), or a
+        // chain past the bound: a colour, not kept (the fold refuses it).
+        if walk.on[i] || walk.steps >= walk.budget() || walk.depth >= MAX_REFERENCE_DEPTH {
             walk.cycles += 1;
             return Kind::Color;
         }
+        walk.on[i] = true;
+        walk.steps += 1;
+        walk.depth += 1;
         let cycles = walk.cycles;
         let kind = self.inferred_kind(i, walk);
+        walk.depth -= 1;
         walk.on[i] = false;
         if walk.cycles == cycles {
             walk.known[i] = Some(kind);
@@ -1000,11 +1028,28 @@ impl<'a> Checker<'a> {
                 .map(|&s| design.tokens[s].name.value.as_str())
                 .collect();
             chain.push(&t.name.value);
+            // (a long one said by its ends: its words stay short)
+            if chain.len() > 12 {
+                chain.splice(6..chain.len() - 6, ["…"]);
+            }
             self.at(
                 &t.name,
                 "tamber-cycle",
                 format!("a cycle: {}", chain.join(" → ")),
             );
+            return None;
+        }
+        // Each name followed recurses: a chain past the bound is refused
+        // where it passes, before the stack would run out.
+        if self.stack.len() >= MAX_REFERENCE_DEPTH {
+            self.at(
+                &t.name,
+                "tamber-reference-depth",
+                format!(
+                    "a chain of tokens naming one another is at most {MAX_REFERENCE_DEPTH} deep"
+                ),
+            );
+            self.memo.insert((i, tuple), None);
             return None;
         }
         self.stack.push(i);
