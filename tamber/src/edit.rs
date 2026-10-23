@@ -281,8 +281,9 @@ pub(crate) fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
     // which the line keeps from before.
     let value = |v: &str| {
         // Past the checker's bound, refused before anything reads it, in
-        // words that give its size and never echo it (rt1's co-sign).
-        if let Some((id, why)) = crate::css::over_limit(v) {
+        // words that give its size and never echo it (rt1's co-sign);
+        // measured trimmed, as a design's line is read.
+        if let Some((id, why)) = crate::css::over_limit(v.trim()) {
             return Err(vec![Diagnostic::new(id, why, 1, 1)]);
         }
         one_line("value", v)?;
@@ -369,6 +370,10 @@ pub(crate) fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
         } => {
             name(n)?;
             if let Some(k) = kind {
+                // In a design's words for a kind (`bound::preflight`).
+                if let Some((id, why)) = crate::css::over_bytes("a kind", k) {
+                    return Err(vec![Diagnostic::new(id, why, 1, 1)]);
+                }
                 ident(k)?;
             }
             value(v)?;

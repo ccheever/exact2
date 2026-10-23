@@ -147,10 +147,13 @@ fn import_unbounded(
             .ok_or_else(|| refuse(format!("the resolved theme has no `{k}` object")))
     };
     let (light, dark) = (side("light")?, side("dark")?);
+    // The theme's own tokens too (`local`): every value the import reads.
+    let own = doc.get("local").and_then(Value::as_object);
     super::source_bound(
         light
             .iter()
             .chain(dark.iter())
+            .chain(own.into_iter().flatten())
             .filter_map(|(k, v)| Some((k.as_str(), v.as_str()?))),
     )?;
     let mut unmapped = Vec::new();
