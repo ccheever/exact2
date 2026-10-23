@@ -425,7 +425,7 @@ public final class ExactSession {
     private var viewsEpoch = 0
     private let published = NSLock()
     /// What the owner committed without main waiting.
-    enum Published { case fill(UInt32), tick, canvas, notice, reply }
+    enum Published { case fill(UInt32), tick, canvas, notice, reply, cancelledReply }
     /// Batches the owner committed without main waiting, in its order: a
     /// slice's (with its list), a frame's tick's and a canvas draw's.
     private var publishedQueue: [(kind: Published, batch: Batch, generation: Int)] = []
@@ -651,10 +651,10 @@ public final class ExactSession {
             case .tick: tickInFlight = false
             case .canvas: canvasInFlight = false
             case .notice: noticesInFlight -= 1
-            case .reply:
-                repliesInFlight -= 1
-                submitted = replySubmissions.removeFirst()
+            case .reply, .cancelledReply:
+                submitted = retireReply()
             }
+            if case .cancelledReply = next.kind { continue }
             guard state != .destroyed, next.generation == generation else {
                 if case .fill(let view) = next.kind { landedFill(view, stale: true) }
                 continue
