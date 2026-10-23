@@ -108,6 +108,28 @@ final class VisibilityMacTests: XCTestCase {
         }
     }
 
+    func testAMaterialLeavesUnauthoredSheetGroundUnpainted() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        let sheet = SheetWindow(contentRect: NSRect(x: 0, y: 0, width: 120, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        sheet.isReleasedWhenClosed = false
+        sheet.appearance = NSAppearance(named: .darkAqua)
+        sheet.contentView = p.viewport
+        window = sheet
+        let ground: [String: Any] = ["sys": "windowBackgroundColor", "c": [[255, 255, 255, 255], [30, 30, 30, 255]]]
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "props": ["backgroundMaterial": "ultra-thin"], "style": ["background_color": ground]],
+            ["op": "roots", "ids": [1]], ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 120, "h": 100],
+        ]))
+        let node = try XCTUnwrap(p.views[1]), content = try XCTUnwrap(node.materialContent)
+        XCTAssertTrue(node.standsOnSheetGround)
+        func alpha() throws -> CGFloat { rgba(try XCTUnwrap(Capture.picture(of: content)), 30, 30)[3] }
+        XCTAssertLessThan(try alpha(), 0.01, "the material shows the sheet's native ground")
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["background_color": ground, "written": ["background_color"]]]]))
+        XCTAssertFalse(node.standsOnSheetGround)
+        XCTAssertGreaterThan(try alpha(), 0.99, "an explicitly authored system colour still paints")
+    }
+
     func testHiddenBackdropBlurIsRemovedAndRestored() throws {
         let p = presenter()
         let blur: [String: Any] = ["backdrop_filter": [["blur": 10.0]]]

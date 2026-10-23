@@ -14,7 +14,12 @@ private final class MaterialContent: NSView {
     weak var owner: NodeView?
     override func draw(_ dirtyRect: NSRect) {
         guard let owner, !owner.cssVisibilityHidden else { return }
-        owner.drawBackground(owner.roundedPath(in: bounds), rounded: owner.cornerRadii(in: bounds).contains { $0 > 0 })
+        let path = owner.roundedPath(in: bounds)
+        if owner.standsOnSheetGround || owner.standsOnSplitGround {
+            if let ctx = NSGraphicsContext.current?.cgContext { owner.paintBackground(ctx, border: path.cgPath, color: false) }
+        } else {
+            owner.drawBackground(path, rounded: owner.cornerRadii(in: bounds).contains { $0 > 0 })
+        }
         if owner.materialPaintsBorder { owner.drawBoxBorder() }
     }
     override var isFlipped: Bool { true }
