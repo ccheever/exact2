@@ -282,7 +282,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
         // nearer the hit still belongs to that node (LLP 1115.000 D11.6).
         if view is NodeView ? NodeView.nativeEditor(hit, below: view) : NodeView.nativeInputOwns(hit, below: view) { return nil }
         if let hit = hit as? NodeView,
-           let nearest = hit.contextMenuSource, nearest !== source { return nil }
+           let nearest = hit.contextMenuSource(at: hit.convert(location, from: view)), nearest !== source { return nil }
         guard let pop = popover(named: name) else { log("context menu \(name) refused: no popover has that id"); return nil }
         // A press released before its menu showed never reached `willEnd`.
         if let previous = open { restore(previous) }
