@@ -991,7 +991,7 @@ package final class Presenter {
                 case "flight": presentFlight(id, x)
                 default: break
                 }
-            default: break
+            default: menus.sheets.applied(op)
             }
         }
         schemes.end(); regridMoved() // every override and move made: the traits before anything reads them
