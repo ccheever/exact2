@@ -9,6 +9,14 @@
 
 use crate::measure::num;
 
+/// The most atoms a length over base names may hold (each base, and each
+/// `min()`, `max()` and `clamp()`, counted through what it holds): the
+/// design checker's own bound. A token naming another copies its residual,
+/// so a chain naming the next three times a level would grow 3^n; it is
+/// refused at the level that passes this, in the build and the design
+/// server's check alike.
+pub const MAX_RESIDUAL_ATOMS: usize = 256;
+
 /// A sum of terms, each an [`Atom`] times a coefficient, plus px.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Residual {
@@ -131,6 +139,21 @@ impl Residual {
     /// `clamp(low, middle, high)`, one at least a residual.
     pub(crate) fn clamp(low: Residual, middle: Residual, high: Residual) -> Residual {
         Residual::atom(Atom::Clamp(Box::new([low, middle, high])))
+    }
+
+    /// How many atoms it holds: each base, and each pick or clamp with
+    /// what it holds ([`MAX_RESIDUAL_ATOMS`]).
+    pub(crate) fn atoms(&self) -> usize {
+        self.terms
+            .iter()
+            .map(|(atom, _)| match atom {
+                Atom::Base(_) => 1,
+                Atom::Min(args) | Atom::Max(args) => {
+                    1 + args.iter().map(Residual::atoms).sum::<usize>()
+                }
+                Atom::Clamp(args) => 1 + args.iter().map(Residual::atoms).sum::<usize>(),
+            })
+            .sum()
     }
 
     /// Whether every coefficient and px is finite.
