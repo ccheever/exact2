@@ -540,7 +540,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             symbolKey = key; loadGeneration += 1
             let generation = loadGeneration
             // An icon with no SF Symbol draws its own path (D10, stage 9 A).
-            image = name.isEmpty ? iconPathImage(side: points) : symbolImage(name, SymbolMeasure.configuration(points: points, weight: weight))
+            image = name.isEmpty ? iconPathImage(side: points) : symbolImage(name, symbolShape(SymbolMeasure.configuration(points: points, weight: weight)))
             symbolFound = image != nil; if points <= 0 { image = nil }
             if name.isEmpty, props["symbolPath"] == nil, !source.hasPrefix("symbol:sf/"), source != "symbol:", symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(source) refused: unknown symbol role") }
             if !name.isEmpty || source.hasPrefix("symbol:sf/") || source == "symbol:" { symbolRefusal = nil }
