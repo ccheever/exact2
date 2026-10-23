@@ -436,5 +436,37 @@ final class PopoverNativeMacTests: XCTestCase {
         XCTAssertTrue(pop.isDescendant(of: p.viewport))
         try f.press("tags")
     }
+
+    /// AppKit's popover is its content's size less its margins as they are
+    /// now: a margin changed while it is open resizes it, never clipping it
+    /// by the margin it had when it opened.
+    func testAMarginChangedWhileOpenResizesThePopover() throws {
+        let f = try SheetFixture(page: """
+        component Proof
+          state far = true
+          action near
+            far = false
+          view
+            column testId="page" width="100%" height="100%" padding=40
+              button testId="open" popovertarget="pop"
+                text "Open"
+              button testId="near" press=near
+                text "Near"
+              column id="pop" testId="pop" popover="manual" width=200 margin=0 margin-top=(far ? 12 : 0)
+                input testId="field" value="draft" width=180 height=100
+        """)
+        fixture = f
+        f.window.setFrameOrigin(NSPoint(x: 200, y: 120))
+        f.window.orderFrontRegardless()
+        f.settle()
+        let p = f.presenter
+        try f.press("open")
+        let native = try XCTUnwrap(p.menus.windowed.first)
+        let open = native.popover.contentSize.height
+        try f.press("near")
+        f.settle()
+        XCTAssertTrue(p.menus.isOpen(try f.node("pop")))
+        XCTAssertEqual(native.popover.contentSize.height, open, "the same content, its margin gone")
+    }
 }
 #endif
