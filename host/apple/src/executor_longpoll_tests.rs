@@ -594,3 +594,26 @@ fn a_long_poll_on_a_real_connection_asks_with_each_cursor_and_closes_when_droppe
         .expect("the server saw the held poll close");
     until_settled(&core);
 }
+
+#[test]
+fn a_long_poll_on_native_work_handed_to_the_executor_is_refused() {
+    // As a deadline the host's other paths can't keep: the host hands it over with no work, the executor refuses.
+    let (core, script, woke) = setup(vec![]);
+    let request = Request::native(b"x".to_vec()).long_poll("since", "seq");
+    core.run_owned(
+        RequestOut {
+            ticket: 1,
+            target: "live".into(),
+            request,
+            forced: false,
+        },
+        None,
+    )
+    .unwrap();
+    let (_, end) = next(&core, &woke);
+    assert!(
+        matches!(&end, Outcome::Failed { kind: FailureKind::Refused, message } if message.starts_with("exactLongPoll")),
+        "{end:?}"
+    );
+    assert!(script.asked.lock().unwrap().is_empty());
+}

@@ -850,6 +850,11 @@ fn hand_out<D: DataSource>(runner: &mut Runner<D>, executor: &Executor, held: &m
     executor.forget(|ticket| runner.holds(ticket));
     lift(executor, held);
     for r in runner.take_requests() {
+        // A long poll on work that is no HTTP request (LLP 1016.000 D8): the executor refuses it.
+        if r.request.long_poll_refusal().is_some() {
+            run(executor, held, r, Dispatch::Missing);
+            continue;
+        }
         // Device capabilities: the environment has none.
         if r.request.surface.is_some() || r.request.storage.is_some() {
             held.refused.insert(r.ticket);
@@ -866,10 +871,6 @@ fn hand_out<D: DataSource>(runner: &mut Runner<D>, executor: &Executor, held: &m
         if let Some(r) = held.parked.remove(&token) {
             run(executor, held, r, dispatch);
         }
-    }
-    // What the runner refused itself (a long poll no host may run, LLP 1016.000 D8) keeps its placeholder.
-    while let Some((ticket, _)) = runner.take_admission_refusal(true) {
-        held.refused.insert(ticket);
     }
     // Again for what this batch put behind a refusal with nothing earlier
     // in flight: no completion would come to lift it.

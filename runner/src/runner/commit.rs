@@ -816,17 +816,12 @@ impl<D: DataSource> Runner<D> {
             long_poll: request.stream && request.long_poll.is_some(),
             replied: false,
         });
-        // A long poll no host may run (LLP 1016.000 D8) is refused here, for every host and path: the
-        // host never sees it, and the refusal settles as a host's admission refusal does.
-        match request.long_poll_refusal() {
-            Some(why) => self.refuse_request(ticket, why, false),
-            None => self.requests.push(RequestOut {
-                ticket,
-                target: name,
-                request,
-                forced,
-            }),
-        }
+        self.requests.push(RequestOut {
+            ticket,
+            target: name,
+            request,
+            forced,
+        });
         self.sync_pending_flags();
     }
 

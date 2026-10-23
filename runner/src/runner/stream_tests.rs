@@ -323,20 +323,19 @@ fn a_long_poll_s_replies_hold_it_and_each_counts() {
     assert!(r.fulfill(ticket, reply).is_err() || r.held_replies().is_empty());
 }
 
-/// A long poll no host may run (here native work's) is refused by the runner:
-/// no host is asked, and the refusal settles as a host's admission refusal.
+/// A long poll on native work is no HTTP request's: `long_poll_refusal` says
+/// so, for the hosts' dispatch, which hands it to the executor to refuse.
 #[test]
-fn a_long_poll_of_other_host_work_is_refused_before_any_host() {
+fn a_long_poll_of_other_host_work_is_one_every_host_refuses() {
     let mut r = boot_with(Scripted {
         native: true,
         ..Scripted::default()
     });
-    assert!(r.take_requests().is_empty(), "no host is asked");
-    let (_, refused) = r.take_request_refusal(true).expect("refused");
-    assert!(
-        matches!(&refused, Outcome::Failed { kind: crate::FailureKind::Refused, message } if message.starts_with("exactLongPoll")),
-        "{refused:?}"
-    );
+    let out = r.take_requests();
+    assert!(out[0]
+        .request
+        .long_poll_refusal()
+        .is_some_and(|w| w.contains("not other host work")));
 }
 
 #[test]
