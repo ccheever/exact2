@@ -92,3 +92,22 @@ test('a real click can call an outer click without leaving its attributes suppre
   expect(await page.evaluate(() => ({ log: fixture.log, target: fixture.outer.getAttribute('popovertarget'), open: fixture.pops[3].matches(':popover-open') })))
     .toEqual({ log: ['ancestor', 'open', 'returned'], target: 'bound-pop', open: true });
 }), 30000);
+
+for (const name of ['popovertarget', 'commandfor']) {
+  test(`an inner click preserves a bound removal of ${name}`, () => fixture(async page => {
+    const result = await page.evaluate(async name => {
+      const { rt, outer, inner, pops } = fixture;
+      outer.removeAttribute('popovertarget');
+      const dialog = rt.h(document.querySelector('#exact-root'), 'dialog', 0, { id: 'dialog' });
+      outer.setAttribute(name, name === 'commandfor' ? 'dialog' : 'outer-pop');
+      outer.setAttribute('command', 'show-modal');
+      rt.on(inner, 'press', () => rt.P(outer, name, () => null), rt.onPress);
+      inner.click();
+      await new Promise(resolve => setTimeout(resolve));
+      const target = outer.getAttribute(name);
+      outer.click();
+      return { target, popover: pops[0].matches(':popover-open'), dialog: dialog.open };
+    }, name);
+    expect(result).toEqual({ target: null, popover: false, dialog: false });
+  }), 30000);
+}
