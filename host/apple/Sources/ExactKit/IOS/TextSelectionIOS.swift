@@ -445,8 +445,7 @@ extension Presenter {
     /// has no word there, or a long press belongs to its own or a row's menu.
     func agentSelect(_ hit: UIView, at point: CGPoint, event: String) -> [String: Any]? {
         guard let node = hit as? NodeView, textSelection.admits(node) else { return nil }
-        if event == "contextmenu", let source = node.contextMenuSource,
-           source !== node || node.hasOwnContextMenu || node.inlineContextTarget(at: node.convert(point, from: nil)) != nil { return nil }
+        if event == "contextmenu", node.contextMenuSource(at: node.convert(point, from: nil)) != nil { return nil }
         guard let found = textSelection.selectWord(in: node, at: node.convert(point, from: nil)) else { return nil }
         return ["text": found.text, "start": found.range.location, "end": NSMaxRange(found.range)]
     }
@@ -460,12 +459,14 @@ extension NodeView {
     /// A row's menu wins a long press over selectable text; an authored
     /// menu on the paragraph itself is the nearest menu. Disabled controls
     /// or inert ancestry admit neither one.
-    var contextMenuSource: NodeView? {
+    var contextMenuSource: NodeView? { contextMenuSource(at: nil) }
+
+    func contextMenuSource(at point: CGPoint?) -> NodeView? {
         guard let presenter, presenter.menus.eligible(self, contextMenu: true) else { return nil }
         var next: UIView? = self
         while let view = next {
             if let node = view as? NodeView,
-               node.hasOwnContextMenu || node.hasInlineContextMenu { return node }
+               node.hasOwnContextMenu || point.map({ node.inlineContextTarget(at: node.convert($0, from: self)) != nil }) == true { return node }
             next = presenter.listenerParent(of: view)
         }
         return nil
@@ -474,7 +475,7 @@ extension NodeView {
     /// added or removed after this paragraph took its text interaction.
     package func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
         guard gesture === contextRecognizer, let paragraph = other.view as? NodeView,
-              paragraph.contextMenuSource === self,
+              paragraph.contextMenuSource(at: other.location(in: paragraph)) === self,
               let text = presenter?.textSelection.text(for: paragraph) else { return false }
         return text.interaction.gesturesForFailureRequirements.contains { $0 === other }
     }
