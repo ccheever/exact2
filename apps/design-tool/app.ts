@@ -404,6 +404,7 @@ async function readChanges(gen: number, epoch: string, client: string, wait: boo
     const now = await call('/__tamber', { method: 'hello' });
     if (gen !== polls) return { ok: true, error: '', missed: false, stream: false, ...changesState() };
     if (!now.error) { takeBuilds((now.reply.ok as { builds?: any[] })?.builds ?? [], client); latch(); resync = false; }
+    else if (!wait) return { ok: false, error: now.error, missed: false, stream: false, ...changesState() }; // (read at once, asked again in 3 s)
   }
   return { ok: true, error: '', missed: r.missed === true, stream: false, ...changesState() };
 }
