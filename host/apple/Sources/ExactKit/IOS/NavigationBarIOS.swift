@@ -988,8 +988,8 @@ extension NavigationHost {
         #if os(iOS)
         if #available(iOS 26.0, *), shape?.level == 1, let scroller,
            scroller.style["scroll_edge_effect"]?.string != "none", !Self.transparentBar(c.node),
-           let bars = ControlBars(presenter).bars(of: scroller, in: c.node, top: true), !bars.isEmpty {
-            riders = bars
+           case let bands = presenter.controlBands(of: scroller, in: c.node, ControlBars(presenter)), !bands.top.isEmpty {
+            riders = bands.top
         }
         #endif
         for old in c.ridingBars where !riders.contains(where: { $0 === old }) { old.controlRide = 0; old.applyTransform() }
