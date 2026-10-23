@@ -198,6 +198,20 @@ final class PushedTitleIOSTests: XCTestCase {
         XCTAssertTrue(long.large)
         XCTAssertEqual(long.scrolled, 0, accuracy: 0.5)
         XCTAssertEqual(long.below, 0, accuracy: 0.5)
+
+        // At its top under a collapsed title (a scroller replaced in place
+        // leaves one): the reselected tab opens it, as UIKit's status-bar
+        // tap goes on to the open title's inset.
+        try scroll("long-scroll", to: 300)
+        let sv = try XCTUnwrap(scroller.scroll)
+        sv.contentOffset.y = -sv.adjustedContentInset.top
+        settle()
+        XCTAssertFalse(try state(nav, "long", "long-scroll").large, "collapsed, at its top")
+        session.presenter.navigation.scrollToTop(route)
+        settle()
+        long = try state(nav, "long", "long-scroll")
+        XCTAssertEqual(long.bar, expanded, accuracy: 0.5, "the title open again")
+        XCTAssertTrue(long.large)
     }
 
     /// Pushed without UIKit's animation, as a context menu's commit pushes

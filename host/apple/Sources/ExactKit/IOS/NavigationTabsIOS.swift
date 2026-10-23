@@ -386,9 +386,11 @@ extension NavigationHost {
     /// scrolls nothing in UIKit alone (iOS 27, a real touch).
     func scrollToTop(_ c: RouteController) {
         guard let node = contentScroller(of: c), let sv = shownScroll(node) else { return }
-        guard sv.contentOffset.y > 0.5 - sv.adjustedContentInset.top else { return }
-        guard scrollsToTopAnimated else { return restAtTop(sv, in: c) }
+        // At its top under a collapsed title it goes on to the open title's
+        // inset, as UIKit's status-bar tap does, and opens it.
         let inset = max(sv.adjustedContentInset.top, node === c.collapseScroll ? node.scrollOrigin : 0)
+        guard sv.contentOffset.y > 0.5 - inset else { return }
+        guard scrollsToTopAnimated else { return restAtTop(sv, in: c) }
         sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: -inset), animated: true)
     }
 
