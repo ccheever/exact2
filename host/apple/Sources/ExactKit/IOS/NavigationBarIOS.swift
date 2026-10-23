@@ -571,8 +571,10 @@ extension NavigationHost {
         }
         // A readout the bar shows (§9.15) is tapped as a person taps it:
         // nothing happens. Its header may be lifted whole or only in part.
-        if shown.contains(where: { c in c.readouts.keys.contains { id in
-            id == node.id || presenter.views[id].map { node.isDescendant(of: $0) } == true } }) {
+        if let readout = shown.lazy.compactMap({ c in c.readouts.first { id, _ in
+            id == node.id || self.presenter.views[id].map { node.isDescendant(of: $0) } == true }?.value }).first {
+            let point = readout.customView.map { $0.convert(CGPoint(x: $0.bounds.midX, y: $0.bounds.midY), to: nil) }
+            guard before(point) else { return ["error": "bar readout #\(id) is unavailable"] }
             return ["tapped": id, "delivery": "host-activation", "native": "bar-readout"]
         }
         guard shown.contains(where: { c in
