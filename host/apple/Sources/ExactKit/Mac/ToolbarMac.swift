@@ -586,6 +586,9 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
                 view.image = face.image
                 view.imageScaling = .scaleNone
                 view.setFrameSize(view.image!.size)
+                view.setAccessibilityElement(true)
+                view.setAccessibilityRole(.group)
+                view.setAccessibilitySubrole(.init(rawValue: "AXApplicationStatus"))
                 view.setAccessibilityIdentifier(node.props["testId"])
                 view.setAccessibilityLabel(node.authoredLabel ?? text(node))
                 item.label = node.authoredLabel ?? text(node)
