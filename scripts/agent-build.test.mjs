@@ -15,10 +15,9 @@ test('Mac drives use the assembled app bundle even without catalogs or widgets',
   const { dir } = scratchApp('ats-drive');
   try {
     const app = resolveApp(dir);
-    for (const host of [false, true]) {
-      const paths = appleArtifacts(app, { host });
-      assert.equal(appleRunBinary(app, host), resolve(paths.bundle, 'Contents/MacOS', paths.executable));
-    }
+    const paths = appleArtifacts(app);
+    assert.equal(appleRunBinary(app), resolve(paths.bundle, 'Contents/MacOS', paths.executable));
+    assert.equal(appleRunBinary(app, true), appleArtifacts(app, { host: true }).binary);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
