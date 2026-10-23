@@ -345,6 +345,9 @@ fn min_content_rows_remeasure_content_dependent_bases() {
 /// including reversed rows, item and container padding, margins and a cap.
 /// `Chrome 151 intrinsic ratio floor` (2026-10-19) checks the ratio height
 /// after intrinsic width sizing, including line alignment and content overflow.
+/// `Chrome 151 intrinsic ratio percentages` (151.0.7922.34, 2026-10-23)
+/// checks item heights and bounds against the ratio basis, including when
+/// content grows beyond it, wrapping, box sizing and a definite-width control.
 /// A max-content root offer must publish wrapped frames without a parent's
 /// definite-width pass.
 #[test]
