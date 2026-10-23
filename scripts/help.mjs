@@ -154,11 +154,11 @@ Ports    --port <n> or EXACT_PORT chooses the page’s port; otherwise web: head
     flags: DRIVE.filter(naming(DRIVE_FIRST, true)),
     more: DRIVE.filter(naming(DRIVE_FIRST, false)),
     internal: ['--test <file>', ...DRIVE_INTERNAL],
-    body: `The development gallery: ios|macos widget|activity <entry> tree|state|screenshot|clock.
+    body: `Gallery: ios|macos widget|activity <entry> tree|state|screenshot|clock · drag: tap <target> drag dx dy [hold ms during "read"] [then dx dy …] (one iOS touch).
 Ops      a target is a testId, else a view's exact text or label
   tree [<target>|--ax] · logs · layout|perf [<target>] · resize <w>x<h> · close · back
   state [<name>] [--full]  a state, resource or field, dotted: groceries.0.done; >8 KB: sizes
-  tap <target> [contextmenu|hover|drag dx dy [hold ms during "read"] [then dx dy …] (same iOS touch)|…] · held: "tap <t> down" "screenshot <png>" "tap up"
+  tap <target> [contextmenu|hover|drag <dx> <dy>|…] · held: "tap <t> down" "screenshot <png>" "tap up"
   type <target> <text>|key <Name>   (a select, date or checkbox: its value)
   clock data|settle|held|+<ms> [real]    land in-flight work · end transitions · wait for a held reply
   check [dark|both]  what is wrong · screenshot <png> [over <ms> every <ms>] [window]  window: bars
