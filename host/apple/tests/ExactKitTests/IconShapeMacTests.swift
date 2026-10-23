@@ -275,16 +275,20 @@ final class IconShapeMacTests: XCTestCase {
     /// (2) The layer's fill follows light and dark, and a selected row drawn
     /// emphasized, from the tint source the image view's tint had.
     @MainActor func testTheFillFollowsTheAppearanceAndASelectedRow() throws {
-        let pair: [Any] = [[200, 30, 40, 255], [90, 200, 250, 255]]
+        // Light opaque, dark at 40%: the colour and the leaf's alpha follow each way.
+        let pair: [Any] = [[200, 30, 40, 255], [90, 200, 250, 102]]
         let p = presenter(Self.ring, frame: Self.frame(.zero), style: ["text_color": pair])
-        let node = try XCTUnwrap(p.views[2]), shape = try XCTUnwrap(node.symbolShape?.shapes.first)
+        let node = try XCTUnwrap(p.views[2]), shape = try XCTUnwrap(node.symbolShape?.shapes.first), leaf = try XCTUnwrap(node.symbolShape)
         XCTAssertEqual(rgb(shape.fillColor), [200, 30, 40], "light")
+        XCTAssertEqual(leaf.alphaValue, 1, accuracy: 0.002, "light: opaque")
         window.appearance = NSAppearance(named: .darkAqua)
         node.viewDidChangeEffectiveAppearance()
         XCTAssertEqual(rgb(shape.fillColor), [90, 200, 250], "dark")
+        XCTAssertEqual(leaf.alphaValue, 0.4, accuracy: 0.002, "dark: its 40%")
         window.appearance = NSAppearance(named: .aqua)
         node.viewDidChangeEffectiveAppearance()
         XCTAssertEqual(rgb(shape.fillColor), [200, 30, 40], "light again")
+        XCTAssertEqual(leaf.alphaValue, 1, accuracy: 0.002, "light again: opaque, not a stale 40%")
         // An unsaid colour is the label's, resolved for the appearance it draws in.
         let unsaid = presenter(Self.ring, frame: Self.frame(.zero), style: ["text_color": NSNull()])
         let plain = try XCTUnwrap(unsaid.views[2]), plainShape = try XCTUnwrap(plain.symbolShape?.shapes.first)
@@ -301,12 +305,20 @@ final class IconShapeMacTests: XCTestCase {
         let row = presenter(Self.ring, frame: Self.frame(.zero), style: ["text_color": role])
         let cell = try XCTUnwrap(row.views[2]), cellShape = try XCTUnwrap(cell.symbolShape?.shapes.first)
         XCTAssertEqual(rgb(cellShape.fillColor), [0, 0, 0])
-        var selected: CGColor?
-        cell.effectiveAppearance.performAsCurrentDrawingAppearance { selected = NSColor.alternateSelectedControlTextColor.cgColor }
+        // The label colour's alpha against the selected item's, each resolved here.
+        var selected: CGColor?, labelAlpha: CGFloat = 0
+        cell.effectiveAppearance.performAsCurrentDrawingAppearance {
+            selected = NSColor.alternateSelectedControlTextColor.cgColor; labelAlpha = NSColor.labelColor.cgColor.alpha
+        }
+        let cellLeaf = try XCTUnwrap(cell.symbolShape)
+        XCTAssertNotEqual(labelAlpha, try XCTUnwrap(selected).alpha, "the two inks' alphas differ, so a stale one shows")
+        XCTAssertEqual(cellLeaf.alphaValue, labelAlpha, accuracy: 0.002, "the label colour's alpha")
         cell.rowEmphasisChanged(true)
         XCTAssertEqual(rgb(cellShape.fillColor), rgb(selected), "selected and emphasized")
+        XCTAssertEqual(cellLeaf.alphaValue, try XCTUnwrap(selected).alpha, accuracy: 0.002, "the selected item's alpha")
         cell.rowEmphasisChanged(false)
         XCTAssertEqual(rgb(cellShape.fillColor), [0, 0, 0], "not emphasized")
+        XCTAssertEqual(cellLeaf.alphaValue, labelAlpha, accuracy: 0.002, "the label colour's alpha again")
         // A colour its author fixed stays the author's in the row (TableInkMac).
         node.rowEmphasisChanged(true)
         XCTAssertEqual(rgb(shape.fillColor), [200, 30, 40], "a fixed colour stays")
@@ -393,16 +405,23 @@ final class IconShapeMacTests: XCTestCase {
         let two: Icon = [Self.rect(2, 2, 12, 12), Self.rect(8, 8, 12, 12)]
         let frame = CGRect(x: 12, y: 12, width: 24, height: 24)
         let label: [String: Any] = ["sys": "labelColor", "c": [[0, 0, 0, 217], [255, 255, 255, 217]]]
-        for (name, ink) in [("rgba .5", [0, 0, 0, 128] as Any), ("labelColor", label as Any)] {
+        // The alphas expected, found without the host: the literal's, and the
+        // system label colour's resolved in the window's (light) appearance.
+        var labelAlpha: CGFloat = 0
+        try XCTUnwrap(NSAppearance(named: .aqua)).performAsCurrentDrawingAppearance { labelAlpha = NSColor.labelColor.cgColor.alpha }
+        XCTAssertGreaterThan(labelAlpha, 0.5); XCTAssertLessThan(labelAlpha, 1)
+        for (name, ink, expected) in [("rgba .5", [0, 0, 0, 128] as Any, CGFloat(128) / 255), ("labelColor", label as Any, labelAlpha)] {
             let p = presenter(two, frame: frame, style: ["text_color": ink])
             let node = try XCTUnwrap(p.views[2]), leaf = try XCTUnwrap(node.symbolShape)
-            let opacity = leaf.alphaValue
-            XCTAssertLessThan(opacity, 1, "\(name): the tint's alpha is the leaf's layer opacity")
-            XCTAssertEqual(CGFloat(try XCTUnwrap(leaf.layer).opacity), opacity, accuracy: 0.0001)
+            let opacity = expected
+            XCTAssertEqual(leaf.alphaValue, expected, accuracy: 0.002, "\(name): the tint's alpha is the leaf's layer opacity")
+            XCTAssertEqual(CGFloat(try XCTUnwrap(leaf.layer).opacity), expected, accuracy: 0.002)
             XCTAssertEqual(leaf.shapes.first?.fillColor?.alpha, 1, "\(name): each path is filled opaque")
             let host = render(try XCTUnwrap(p.views[1]), scale: 1)
             let overlap = alpha(host, 12 + 11, 12 + 11), single = alpha(host, 12 + 4, 12 + 4), other = alpha(host, 12 + 17, 12 + 17)
             print("C1 r1 \(name): opacity \(opacity), overlap \(overlap), first only \(single), second only \(other)")
+            XCTAssertEqual(overlap, Int((expected * 255).rounded()), accuracy: 1, "\(name): inked at the tint's alpha")
+            XCTAssertGreaterThan(single, 0, "\(name): ink is drawn"); XCTAssertGreaterThan(other, 0)
             XCTAssertEqual(overlap, single, "\(name): the overlap is no darker")
             XCTAssertEqual(overlap, other, "\(name)")
             // The union filled once at that alpha.
@@ -437,6 +456,29 @@ final class IconShapeMacTests: XCTestCase {
         XCTAssertEqual(square, 255, "the bar inks the square")
         XCTAssertEqual(alpha(host, 12, 24), 255, "from its left edge")
         XCTAssertEqual(alpha(host, 35, 24), 255, "to its right edge")
+    }
+
+    /// The paths are placed in the em square's own coordinates: an icon
+    /// inked only in its viewBox's top-left quarter, in boxes whose placed
+    /// square starts away from the content box's corner (across, then down),
+    /// lands where the square's corner puts it, computed here by hand.
+    @MainActor func testAnAsymmetricPathLandsInItsPlacedSquare() throws {
+        let corner = "M 0 0 L 6 0 L 6 6 L 0 6 Z"
+        // A 40x24 box at (4, 12): the 24 square starts 8 across, at (12, 12) on the page;
+        // a 24x40 box at (12, 4): 8 down, at (12, 12) too. The quarter is 6 x 6 there.
+        for box in [CGRect(x: 4, y: 12, width: 40, height: 24), CGRect(x: 12, y: 4, width: 24, height: 40)] {
+            let p = presenter([], frame: box, style: ["font_size": 24.0, "object_fit": "contain"])
+            p.apply(wireBatch([["op": "props", "id": 2, "set": props(corner), "clear": []]]))
+            let host = render(try XCTUnwrap(p.views[1]), scale: 1)
+            var wrong: [String] = []
+            for y in 0..<Int(canvas.height) { for x in 0..<Int(canvas.width) {
+                let want = (12..<18).contains(x) && (12..<18).contains(y) ? 255 : 0
+                if alpha(host, x, y) != want { wrong.append("(\(x),\(y))=\(alpha(host, x, y))") }
+            } }
+            print("C1 r2 corner in \(box): \(wrong.count) pixels off")
+            XCTAssertEqual(wrong, [], "\(box): ink exactly at (12,12)-(18,18)")
+            p.reset()
+        }
     }
 
     /// A window whose backing scale changes: the shape layers' contentsScale
