@@ -579,6 +579,19 @@ impl Parser {
                         self.next();
                         w
                     }
+                    // `clock held [<resource>…]`: real time passes, the clock
+                    // frozen, until each held request (LLP 1016.000 D9), or each
+                    // named, has had a reply (the driver's `clock held`).
+                    TokenKind::Ident(w) if w == "held" => {
+                        self.next();
+                        let mut arg = w;
+                        while let TokenKind::Ident(name) = self.peek_kind().clone() {
+                            self.next();
+                            arg.push(' ');
+                            arg.push_str(&name);
+                        }
+                        arg
+                    }
                     TokenKind::Punct("+") => {
                         self.next();
                         match self.peek_kind().clone() {
@@ -613,7 +626,7 @@ impl Parser {
                         return self.err(
                             "syntax-expected-step",
                             format!(
-                                "`clock` takes `settle`, `data`, `+ms`, `+ms real`, or `ms`, found {}",
+                                "`clock` takes `settle`, `data`, `held`, `+ms`, `+ms real`, or `ms`, found {}",
                                 describe(&other)
                             ),
                         )

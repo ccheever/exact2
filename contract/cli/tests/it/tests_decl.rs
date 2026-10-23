@@ -802,3 +802,15 @@ fn media_preferences_inherit_by_name_and_can_change_between_steps() {
             .unwrap();
     assert!(contract::tests_json(&midi).contains("prefer-midi"));
 }
+
+/// `clock held [<resource>…]` (LLP 1016.000 D9): the driver's `clock held`, real time with the clock frozen until each
+/// held request, or each named, has had a reply; the line's names are its targets, the next line's step its own.
+#[test]
+fn clock_held_names_its_targets_up_to_the_line_end() {
+    let src = "test \"push\"\n  clock held\n  clock held changes uses\n  tap \"go\"\n";
+    let tests = contract::tests(src).unwrap();
+    let steps = &tests[0].steps;
+    assert!(matches!(&steps[0], Step::Clock { arg, .. } if arg == "held"));
+    assert!(matches!(&steps[1], Step::Clock { arg, .. } if arg == "held changes uses"));
+    assert!(matches!(&steps[2], Step::Tap { target, .. } if target == "go"));
+}
