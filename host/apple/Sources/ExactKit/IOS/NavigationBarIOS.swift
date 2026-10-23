@@ -96,7 +96,7 @@ struct HeaderShape: Equatable {
             func walk(_ node: NodeView) {
                 for case let child as NodeView in node.container.subviews {
                     if child.kind == "image", let name = child.faceSymbol {
-                        if symbol == nil { symbol = name; ink = (child, "tint_color") }
+                        if symbol == nil { symbol = name; ink = (child, "text_color") }
                     } else if child.isParagraph, text.isEmpty { text = child.accessibleText; ink = ink ?? (child, "text_color") }
                     else { walk(child) }
                 }
@@ -150,10 +150,10 @@ struct HeaderShape: Equatable {
                 ? ButtonConfigurationIOS.font(Self.titleFont(bold: button.traitCollection.legibilityWeight == .bold), rows: rows) : nil
             #endif
             // The platform's tint unless the author said otherwise (LLP
-            // 1115.000 D2): a tint written on the symbol, else a `color`
+            // 1115.000 D2): a `color` written on the symbol, else a `color`
             // written on the button, a platform colour as much as a literal.
             // One the button only inherits, or a sheet wrote, is unsaid.
-            let symbolTint = ink?.1 == "tint_color" ? ink?.0.ownColor("tint_color") : nil
+            let symbolTint = ink?.0.kind == "image" ? ink?.0.ownColor("text_color") : nil
             let row = symbolTint ?? button.ownColor("text_color")
             if let row, let light = row.channels(dark: false), let dark = row.channels(dark: true) {
                 tint = [light, dark]
