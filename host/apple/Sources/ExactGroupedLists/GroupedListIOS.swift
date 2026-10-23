@@ -489,8 +489,12 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     private var carriedOrder: [UInt32] = []
     /// The row whose switch's action is running.
     private var flipping: UInt32?
-    /// A custom cell's height changed since the list was last laid out.
+    /// A custom row's height changed since the list was last laid out.
     var resized = false
+    /// Each custom row's height when it was last carried: what the layout
+    /// learned of its item. A cell UIKit reuses for another row takes that
+    /// row's height, which changes nothing the layout knows.
+    private var heights: [UInt32: CGFloat] = [:]
     /// How far the collection reaches past the list's box at its left and
     /// right: over the window's side safe area where the list's edge meets
     /// it, as a hand-built list spans the screen (iPhone landscape).
@@ -1061,6 +1065,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         for case let carried as NodeView in cell.contentView.subviews { carried.removeFromSuperview() }
         forgetLook(id)
         cell.height = nil
+        heights[id] = nil
         var c: UIListContentConfiguration = row.subtitle ? .subtitleCell() : row.secondary != nil ? .valueCell() : .cell()
         c.image = row.symbol.flatMap { FaceSymbol.image($0, points: GroupedCell.pathPoints(cell.traitCollection)) }
         // An svg-only icon's path (stage 9 A2): the layout space UIKit gives
@@ -1264,7 +1269,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         let height = drawn.height
         // Never invalidated here: a cell is configured inside the data
         // source's update; `mount` lays the list out after it.
-        if cell.height != height { cell.height = height; resized = true }
+        cell.height = height
+        if heights[id] != height { heights[id] = height; resized = true }
         if height > 0 { unsized.remove(id) } else { unsized.insert(id) }
         cell.contentView.clipsToBounds = true
         if row.superview !== cell.contentView {
@@ -1344,10 +1350,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         guard let cell = cell as? GroupedCell, let id = source.itemIdentifier(for: path) else { return }
         // UIKit may prepare a cell before a batch gives its carried row back.
         // Displaying that prepared cell does not configure it again.
-        let height = cell.height
         carry(id, into: cell)
         interact(cell, id)
-        if cell.height != height || resized { host.presenter.requestProjectionSync() } // a line that moved too
+        if resized { host.presenter.requestProjectionSync() } // a line that moved too
     }
 
     func collectionView(_ view: UICollectionView, shouldHighlightItemAt path: IndexPath) -> Bool {
