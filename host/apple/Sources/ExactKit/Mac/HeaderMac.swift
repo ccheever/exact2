@@ -158,12 +158,13 @@ struct WindowHeader {
     }
 
     /// Whether AppKit can present the popover from a toolbar item: its menu,
-    /// an alert sheet, or a native popover without authored fallback placement.
+    /// an alert sheet, or a native popover using the platform's edge and gap.
     static func opensFromTheBar(_ button: NodeView) -> Bool {
         guard let presenter = button.presenter else { return false }
         if presenter.menus.toolbarPopover(of: button) != nil { return true }
         guard let invocation = presenter.invocation(of: button), invocation.opensPopover else { return false }
-        return presenter.alerts.plan(of: invocation.target, popover: true) != nil || presenter.menus.wantsWindow(invocation.target)
+        return presenter.alerts.plan(of: invocation.target, popover: true) != nil
+            || presenter.menus.wantsWindow(invocation.target) && MenuHost.usesToolbarAnchor(invocation.target)
     }
 
     /// Whether a toolbar item can show all of a button's face: a native
