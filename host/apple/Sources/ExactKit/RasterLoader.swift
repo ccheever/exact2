@@ -982,7 +982,12 @@ final class RasterLoader {
     private func report(_ landed: [(view: NodeView, generation: Int, size: CGSize)]) {
         guard let presenter = landed.first?.view.presenter else { return }
         let sizes = landed.compactMap { item -> (UInt32, CGSize?)? in
-            item.view.loadGeneration == item.generation && presenter.views[item.view.id] === item.view ? (item.view.id, item.size) : nil
+            guard item.view.loadGeneration == item.generation, presenter.views[item.view.id] === item.view else { return nil }
+            #if os(iOS) || os(tvOS)
+            return (item.view.buttonRasterView ?? item.view.id, item.size)
+            #else
+            return (item.view.id, item.size)
+            #endif
         }
         if !sizes.isEmpty { presenter.onIntrinsic?(sizes) }
     }

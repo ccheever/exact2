@@ -511,6 +511,7 @@ extension NodeView {
         presenter?.session?.rasters.cancel(id)
         // A symbol keeps its glyph and key: the same symbol again costs no
         // image, and `finishReuse` reports its size under the new id.
+        buttonRasterView = nil
         raster = nil; imageSource = nil
         if symbolView == nil { image = nil }
         symbolRefusal = nil

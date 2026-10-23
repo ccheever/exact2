@@ -146,12 +146,12 @@ enum ButtonConfigurationIOS {
     /// both, where the face was resolved against the latest layout. Measuring
     /// has none and takes the face's.
     static func apply(_ face: ButtonFace, to button: UIButton, traits: UITraitCollection, accent: UIColor?, destructive: Bool = false,
-                      padding: [CGFloat?]? = nil) {
+                      padding: [CGFloat?]? = nil, raster: UIImage? = nil) {
         let rows = face.rows
         var (config, drawn, _) = ControlHost.configuration(face)
         config.title = face.title
         config.subtitle = face.subtitle
-        config.image = face.symbol.flatMap { FaceSymbol.image($0) }
+        config.image = face.symbol.flatMap { FaceSymbol.image($0) } ?? raster ?? ButtonRasterIOS.image(face, lease: nil)
         switch face.placement ?? (face.leading ? "leading" : "trailing") {
         case "trailing": config.imagePlacement = .trailing
         case "top": config.imagePlacement = .top
@@ -261,6 +261,7 @@ enum ButtonConfigurationIOS {
         let resolved = color(rows.symbol["tint_color"], traits: traits, accent: accent), own = follows ? nil : resolved
         let native = button as? NativeButtonIOS
         native?.symbolInk = nil
+        if face.image != nil, follows || own != nil { config.image = config.image?.withRenderingMode(.alwaysTemplate) }
         if follows || own != nil, let template = config.image {
             if !button.isEnabled {
                 // Disabled, an authored colour keeps its look through UIKit's disabled one (D16)

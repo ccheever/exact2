@@ -17,6 +17,8 @@ struct ButtonNode {
     props: PropList,
     inherited: InheritedStyle,
     paragraph: Option<ParagraphStamp>,
+    /// Raster metadata changes the face without a prop or style write.
+    intrinsic: Option<(f32, f32)>,
 }
 
 impl ButtonInputs {
@@ -36,6 +38,10 @@ impl ButtonInputs {
                         || *held.style == *arena.style(s))
                     && held.props == *arena.props(s)
                     && held.paragraph == arena.paragraph_stamp(s)
+                    && held.intrinsic
+                        == arena
+                            .intrinsic(s)
+                            .filter(|_| arena.node_type(s) == NodeType::Image)
                     && held
                         .inherited
                         .changed_mask(&arena.computed_inherited(s))
@@ -130,7 +136,16 @@ impl NodeArena {
                         let source = self.props(child).str(PropId::ImageSource);
                         match source.and_then(|s| s.strip_prefix("symbol:")) {
                             Some(symbol) => face.symbol = Some(symbol.to_owned()),
-                            None => face.raster = source.is_some_and(|s| !s.is_empty()),
+                            None => {
+                                face.raster = source.is_some_and(|s| !s.is_empty());
+                                face.image = source.filter(|s| !s.is_empty()).map(|s| {
+                                    crate::control::ButtonRasterImage {
+                                        view: self.local_id(child),
+                                        source: s.to_owned(),
+                                        size: self.intrinsic(child),
+                                    }
+                                });
+                            }
                         }
                         face.leading = face.title.is_none() && face.subtitle.is_none();
                     }
@@ -167,6 +182,9 @@ impl NodeArena {
                     props: self.props(s).clone(),
                     inherited: self.computed_inherited(s),
                     paragraph: self.paragraph_stamp(s),
+                    intrinsic: self
+                        .intrinsic(s)
+                        .filter(|_| self.node_type(s) == NodeType::Image),
                 })
                 .collect(),
         }
