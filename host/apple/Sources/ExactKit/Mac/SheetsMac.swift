@@ -91,27 +91,25 @@ final class DialogSheet {
 }
 
 extension NodeView {
-    /// Whether its ground is the window's background and no author wrote
-    /// it: the ground the compiler gives a modal route (LLP 1116.009 D3) and
-    /// the Mac's grouped form (LLP 1115.002 D6).
     private var groundIsTheWindows: Bool {
-        guard case .object(let role)? = style["background_color"], role["sys"]?.string == "windowBackgroundColor" else { return false }
-        return !wrote("background_color")
+        guard case .object(let role)? = style["background_color"] else { return false }
+        return role["sys"]?.string == "windowBackgroundColor"
     }
 
-    /// @ref LLP 1095 D3 — the window's background, as a role, names the
-    /// surface a box stands on. In a sheet that surface is the sheet's own
-    /// ground: AppKit's, lighter than a window's in Dark Mode (`#2c2828`
-    /// over `#1e1e1e`, measured) and no colour a box can paint. So a box in
-    /// a sheet that was given that ground and whose author wrote none
-    /// paints none, and the sheet's shows; a ground an author wrote is
-    /// painted as written.
-    var standsOnSheetGround: Bool { window is SheetWindow && groundIsTheWindows }
+    /// @ref LLP 1095 D3 — the background role names the box's surface.
+    /// A sheet supplies its root's ground. Nested authored grounds need
+    /// their own material to cover content behind them; neither paints
+    /// NSColor.windowBackgroundColor over AppKit's sheet material. An
+    /// explicit material keeps its authored colour overlay.
+    var standsOnSheetGround: Bool {
+        window is SheetWindow && groundIsTheWindows && (!wrote("background_color") || props["backgroundMaterial"] == nil)
+    }
+    var needsSheetMaterial: Bool { standsOnSheetGround && wrote("background_color") && !(superview is BlockView) }
 
     /// The subtree moved into a sheet's window, or out of it: its boxes on
     /// the window's ground are painted again, on the ground they now have.
     func sheetGroundChanged() {
-        if groundIsTheWindows { applyBoxLayer(); materialContent?.needsDisplay = true; needsDisplay = true }
+        if groundIsTheWindows { updateMaterial(); applyBoxLayer(); materialContent?.needsDisplay = true; needsDisplay = true }
         for case let child as NodeView in container.subviews { child.sheetGroundChanged() }
     }
 }
