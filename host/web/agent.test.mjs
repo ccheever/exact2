@@ -15,7 +15,7 @@ import { open } from '../../scripts/agent.mjs';
 import { launchFacts, launchEnvironment, parseFlags } from '../../scripts/agent-launch.mjs';
 import { nodeNamed } from '../../scripts/agent-test.mjs';
 import { browserMissing } from '../../scripts/agent-playwright.mjs'; import { required } from '../../scripts/coverage.mjs';
-import { declaration, deferred, fixture, source, timedRequests } from './glue-fixture.mjs';
+import { declaration, deferred, fixture, requestClock, source, timedRequests } from './glue-fixture.mjs';
 
 const mapAt = (digest, line = 12) => ({digest, nodes: [{file: '/app/ui/bubble.contract', line, col: 3, end_col: 9, component: 'Bubble',
   chain: [{file: '/app/app.contract', line: 45, col: 5, end_col: 11, component: 'App'}],
@@ -335,35 +335,22 @@ test('a clock waits for an animated image to land on the clock it moved to (LLP 
   expect(await result).toEqual({ clock: 16, epoch: 2, incarnation: 1 });
 });
 
-test('clocks wait for runner requests with no host promise, through release or the deadline', async () => {
-  for (const request of [{ settle: true }, { data: true }, { to: 100 }]) {
+test('a clock waits for runner requests with no host promise, through release or the deadline', async () => {
+  for (const request of [{ settle: true }, { data: true }]) {
     for (const release of [false, true]) {
-      const f = fixture();
-      let wall = 0, pending = true;
+      const f = fixture(), elapsed = requestClock(f);
       f.SETTLE_DEADLINE_MS = 100;
-      f.performance = { now: () => wall };
-      f.setTimeout = (fn, ms) => { queueMicrotask(() => {
-        wall += ms;
-        if (release) { pending = false; f.events.push('release'); }
-        fn();
-      }); return 1; };
-      f.clearTimeout = () => {};
-      f.wasm.exact_requests_pending = () => Number(pending);
-      f.gpuInPlay = () => false;
-      f.settleCandidate = () => f.agentClock;
-      Object.assign(f.collections, { settle() {}, fireOwedScrolls: async () => null, owedScrolls: () => false });
-      f.flowDue = 100;
+      f.requestsPending = 1;
+      f.pollRequests = () => { if (release) { f.requestsPending = 0; f.events.push('release'); } };
       f.wasm.exact_advance = to => { f.events.push('advance'); return JSON.stringify({ ops: [], clock: to }); };
-      vm.runInContext(declaration('waitForInflight'), f);
       const reply = await f.exact.agent({ op: 'clock', ...request });
       expect(f.inflight.size).toBe(0);
       if (release) {
         expect(f.events[0]).toBe('release');
-        expect(reply.settled).toBe(request.to ? undefined : true);
+        expect(reply.settled).toBe(true);
       } else {
-        expect(wall).toBe(100);
-        if (request.to) expect(reply.clock).toBe(100);
-        else expect(reply).toMatchObject({ settled: false, reason: 'requests' });
+        expect(elapsed()).toBe(100);
+        expect(reply).toMatchObject({ settled: false, reason: 'requests' });
       }
     }
   }
@@ -371,27 +358,41 @@ test('clocks wait for runner requests with no host promise, through release or t
 
 test('a runner request started by the final commit prevents a settled clock reply', async () => {
   for (const request of [{ settle: true }, { data: true }]) {
-    const f = fixture();
+    const f = fixture(); requestClock(f);
     let pending = false;
     f.wasm.exact_requests_pending = () => Number(pending);
     f.waitForInflight = async () => !pending;
-    f.gpuInPlay = () => false;
-    f.settleCandidate = () => f.agentClock;
-    Object.assign(f.collections, { settle() {}, fireOwedScrolls: async () => null, owedScrolls: () => false });
     f.wasm.exact_advance = to => { pending = true; return JSON.stringify({ ops: [], clock: to }); };
     expect(await f.exact.agent({ op: 'clock', ...request })).toMatchObject({ settled: false, reason: 'requests' });
   }
 });
 
 test('a declared server hold stays named without holding settle or data', async () => {
-  const f = fixture();
+  const f = fixture(), elapsed = requestClock(f);
+  f.state.pending = [{ name: 'changes', ticket: 7, held: true }];
+  f.requestsPending = 0; // has_pending() excludes this hold; pending() still contains its ticket.
   f.heldAsks.set(7, { target: 'changes', owner: 0 });
-  f.gpuInPlay = () => false;
-  f.settleCandidate = () => f.agentClock;
-  Object.assign(f.collections, { settle() {}, fireOwedScrolls: async () => null, owedScrolls: () => false });
-  vm.runInContext(declaration('waitForInflight'), f);
   for (const request of [{ settle: true }, { data: true }]) {
     expect(await f.exact.agent({ op: 'clock', ...request })).toMatchObject({ settled: true, held: 1, heldTargets: ['changes'] });
+  }
+  expect(elapsed()).toBe(0);
+  f.state.pending.push({ name: 'library', ticket: 8 }); f.requestsPending = 1;
+  for (const request of [{ settle: true }, { data: true }]) {
+    expect(await f.exact.agent({ op: 'clock', ...request })).toMatchObject({ settled: false, reason: 'requests', held: 1, heldTargets: ['changes'] });
+  }
+});
+
+test('a clock jump stops at each intermediate timer when a runner request is parked', async () => {
+  for (const pending of [0, 1]) {
+    const f = fixture(), elapsed = requestClock(f);
+    f.requestsPending = pending;
+    f.heldAsks.set(7, { target: 'changes', owner: 0 });
+    timedRequests(f, { parked: true });
+    expect(await f.exact.agent({ op: 'clock', to: 1000 })).toMatchObject({ clock: 1000, held: 1, heldTargets: ['changes'] });
+    expect(f.events).toEqual(['advance 1000 until a request → 300', 'advance 1000 until a request → 600', 'advance 1000 until a request → 900', 'advance 1000 → 1000']);
+    expect(elapsed()).toBe(0);
+    expect(f.inflight.size).toBe(0);
+    expect(f.requestsPending).toBe(1);
   }
 });
 
@@ -957,6 +958,22 @@ test('initial flow loading cannot hold the first frame or module activation', as
   await checkpoint();
   expect(f.logs.lines.at(-1)).toContain('textflow module: Error: flow unavailable');
   await boot;
+});
+
+for (const letGo of [false, true]) test(`module replacement reaches the runner without waiting on a parked ticket (letGo=${letGo})`, async () => {
+  const f = fixture(), elapsed = requestClock(f), calls = [];
+  f.requestsPending = 1;
+  f.setInputReady = value => { f.inputReady = value; };
+  f.wasm.exact_boot_module = (...args) => {
+    calls.push(args[3]);
+    return letGo ? '{"ops":[]}' : '{"error":"runner still has a pending request"}';
+  };
+  const candidate = { realm: { id: 1 }, receipt: new Uint8Array([1]), letGo };
+  const result = f.boot(new Uint8Array([1]), null, () => true, candidate);
+  if (letGo) { await result; expect(f.activeModule).toBe(candidate); }
+  else await expect(result).rejects.toThrow('runner still has a pending request');
+  expect(calls).toEqual([Number(letGo)]);
+  expect(elapsed()).toBe(0);
 });
 
 test('module replacement waits for requests, rechecks supersession; the dev loop swaps after its settle window, an update refuses', async () => {
