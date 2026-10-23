@@ -108,6 +108,44 @@ final class SheetSurfaceMacTests: XCTestCase {
         }
     }
 
+    func testGroupedCardFillUsesItsWindowSurface() throws {
+        let f = try SheetFixture(page: """
+        component Proof
+          view
+            column width="100%" height="100%"
+              list appearance="auto" listStyle="inset-grouped" width=300 height=120
+                section
+                  text "Window row" testId="window-row"
+              button testId="open" commandfor="sheet" command="show-modal"
+                text "Open"
+              dialog id="sheet" width=400 height=300
+                list appearance="auto" listStyle="inset-grouped" width=300 height=120
+                  section
+                    text "Sheet row" testId="sheet-row"
+        """)
+        defer { f.close() }
+        f.window.appearance = NSAppearance(named: .darkAqua)
+        func card(above id: String) throws -> NodeView {
+            var view = try f.node(id).superview
+            while let at = view {
+                if let node = at as? NodeView, node.style["background_color"] != nil { return node }
+                view = at.superview
+            }
+            throw NSError(domain: "missing grouped card", code: 1)
+        }
+        let windowCard = try card(above: "window-row")
+        XCTAssertEqual(windowCard.channels("background_color", dark: true), [39, 39, 39, 255])
+        XCTAssertEqual(windowCard.cgColor("background_color", dark: true)?.alpha, 1)
+        try f.press("open")
+        let sheetCard = try card(above: "sheet-row")
+        XCTAssertTrue(sheetCard.window is SheetWindow)
+        let sheet = try XCTUnwrap(sheetCard.channels("background_color", dark: true))
+        XCTAssertEqual(Array(sheet.prefix(3)), [255, 255, 255])
+        XCTAssertEqual(sheet[3] / 255, 0.03, accuracy: 0.002)
+        XCTAssertEqual(windowCard.channels("background_color", dark: true), [39, 39, 39, 255], "opening a sheet must not recolour the window's card")
+        XCTAssertEqual(windowCard.channels("background_color", dark: false), [249, 249, 249, 255])
+    }
+
     func testAnAuthoredLiteralReplacesTheSheetMaterial() throws {
         let f = try SheetFixture(page: """
         component Proof

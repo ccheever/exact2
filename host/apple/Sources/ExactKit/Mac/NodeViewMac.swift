@@ -830,7 +830,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// the four; a `light-dark()` pair is two fours and this picks one
     /// (LLP 1034 D1). Anything else is not a colour.
     func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
-        style[key].flatMap { $0.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast, tint: ownTint(for: $0)) }
+        style[key].flatMap { $0.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: window is SheetWindow, tint: ownTint(for: $0)) }
     }
 
     /// Whether any colour on this node is a pair — what says an appearance
