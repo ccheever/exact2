@@ -545,7 +545,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     func updateMaterial() {
         let requested = props["backgroundMaterial"]
         defer { applyBackdrop(); syncGlassSlot(); syncGlassGroup() }
-        let kind = requested
+        let kind = requested ?? (needsSheetMaterial ? "sheet" : nil)
         if materialKind != kind {
             releaseGlassIsolation()
             let children = container.subviews.compactMap { $0 as? NodeView }
@@ -569,8 +569,6 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                     // the named one (ultra-thin draws popover), LLP 1053.000 D4.
                     let blur = BlurBackground(frame: bounds)
                     blur.material = Materials.material(apple) ?? .popover
-                    blur.blendingMode = .withinWindow
-                    blur.state = .followsWindowActiveState
                     effect = blur
                 }
                 effect.autoresizingMask = [.width, .height]
@@ -586,6 +584,11 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             for child in children where child.superview !== container { container.addSubview(child) }
             old?.removeFromSuperview()
             oldContent?.removeFromSuperview()
+        }
+        if let blur = materialView as? NSVisualEffectView {
+            let sheetGround = requested == nil && needsSheetMaterial
+            blur.blendingMode = sheetGround ? .behindWindow : .withinWindow
+            blur.state = sheetGround ? .active : .followsWindowActiveState
         }
         syncMaterialVisibility()
         applyMaterialRadius()
