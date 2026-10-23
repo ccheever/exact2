@@ -145,6 +145,26 @@ globalThis.exact.installMedia = (el, send) => {
   if (el.error && emit('error', errorCodes[el.error.code] ?? 'src-not-supported')) early.add('error');
 };
 
+// A load or a seek in flight, held for a settle (synthetic-media, QUEUE 2026-10-17): `clock settle` is not taken
+// between `seeking` and `seeked`, nor before a source can play. `{done, release}`, `done` resolving once the element
+// can play at rest, has no source, fails or stalls (`release` lets go at once, a retired view's), `then` run as it
+// does, at once (the JS target counts `inflight` so); null when nothing is in flight. An `emptied` a load with a source fires is that load beginning, not its end: it once let a changed
+// source's opening seek go unheld.
+globalThis.exact.mediaHold = (el, then = () => {}) => {
+  const source = () => el.currentSrc || el.getAttribute?.('src') || el.exactMedia?.props?.src || '';
+  const ready = () => !!el.error || (el.readyState >= 3 && el.seeking !== true) || (el.seeking !== true && !source());
+  if (ready()) return null;
+  let release;
+  const names = ['seeked', 'canplay', 'error', 'emptied', 'stalled'];
+  const done = new Promise(resolve => {
+    const check = ev => { if (ev?.type === 'stalled' || ready()) release(); };
+    let gone = false;
+    release = () => { if (gone) return; gone = true; for (const n of names) el.removeEventListener(n, check); then(); resolve(); };
+    for (const n of names) el.addEventListener(n, check);
+  });
+  return { done, release };
+};
+
 globalThis.exact.removeMedia = el => {
   const state = states.get(el);
   if (state) { state.retired = true; state.observer?.disconnect(); states.delete(el); }
