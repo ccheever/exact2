@@ -7,6 +7,7 @@
 // reachable from here.
 //
 // Every entry is on the main thread (LLP 1067.000 D4).
+import AVFAudio
 import Foundation
 #if os(macOS)
 import AppKit
@@ -60,6 +61,12 @@ public extension ExactPackageView {
 
 /// The session an implementation instance belongs to.
 public final class ExactPackageContext {
+    /// The session's track table, shared by its implementations (LLP
+    /// 1133.009 D10 item 6).
+    public let tracks: ExactTracks
+    /// The process's audio session, which the host owns (D7, D10 item 5).
+    public let audioSession: ExactAudioSession
+    private let fileFn: (String) -> URL?
     /// Under the agent, unless the drive bound the implementation as in
     /// production (`--bind`): an implementation that is its own substitute
     /// then opens no device and asks the OS for nothing (LLP 1133.006 D8).
@@ -67,6 +74,10 @@ public final class ExactPackageContext {
     /// The session's id, unique in the process: what a process object
     /// shared by sessions (a capture, a photo output) keys its consumers by.
     public let session: String
+    /// Who made the call being answered now (`app`, `tool`, `wake`): set by
+    /// the host before each `later`, read by an implementation at its entry,
+    /// as a capture's first lease is refused to a tool's read (LLP 1133.009 D6).
+    public var origin = "app"
     /// Whether the app is in the foreground, as the runner's admission reads
     /// it; the host sets it before `foreground(_:)` is told each change.
     public var foreground = true
@@ -75,10 +86,18 @@ public final class ExactPackageContext {
     private let nowFn: () -> Double
 
     public init(agent: Bool, session: String, changed: @escaping (String) -> Void,
-                log: @escaping (String) -> Void, now: @escaping () -> Double) {
+                log: @escaping (String) -> Void, now: @escaping () -> Double,
+                tracks: ExactTracks = ExactTracks(), file: @escaping (String) -> URL? = { _ in nil },
+                audioSession: ExactAudioSession = ExactAudioSession { _, _, _, _ in nil }) {
         self.agent = agent; self.session = session
         changedFn = changed; logFn = log; nowFn = now
+        self.tracks = tracks; fileFn = file; self.audioSession = audioSession
     }
+
+    /// The file an admitted `app:/` path names (LLP 1133.009 D10 item 4):
+    /// the session's own directories, a scratch tree under the agent.
+    /// Admission has checked the path against the calling source's grants.
+    public func file(_ path: String) -> URL? { fileFn(path) }
 
     /// The readers of `topic` are asked again (LLP 1016.002).
     public func changed(_ topic: String) { changedFn(topic) }
@@ -144,4 +163,89 @@ public extension ExactPackage {
     }
     func displayed(_ id: String, _ shown: Bool, origin: String) {}
     func bound(_ id: String, _ prop: String, origin: String) {}
+}
+
+// MARK: tracks (LLP 1133.009 D3, D6, D10 item 6)
+
+/// Why a track call failed: a `DOMException` name, as answered.
+public struct ExactTrackError: Error {
+    public let code: String
+    public init(_ code: String) { self.code = code }
+}
+
+/// What a subscription returns: `cancel()` leaves, once.
+public final class ExactSubscription {
+    private var leave: (() -> Void)?
+    public init(_ leave: @escaping () -> Void) { self.leave = leave }
+    public func cancel() { let l = leave; leave = nil; l?() }
+}
+
+/// A track or a stream in the table. A track's `owner` is the
+/// implementation that opened it; a stream lists its tracks.
+public final class ExactTrackEntry {
+    public let id: String, kind: String, tracks: [String]
+    public weak var owner: ExactTrackOwner?
+    public init(id: String, kind: String, tracks: [String] = [], owner: ExactTrackOwner? = nil) {
+        self.id = id; self.kind = kind; self.tracks = tracks; self.owner = owner
+    }
+}
+
+/// The implementation that opened a track: it decides whether a consumer
+/// joining takes the track's lease (D6), and tells it the track's changes.
+public protocol ExactTrackOwner: AnyObject {
+    /// `consumer` joins track `id`; `start` is an explicit start, which
+    /// reopens an idle track; `origin` is `app`, `tool` or `wake`.
+    func subscribe(_ id: String, _ consumer: ExactTrackConsumer, start: Bool, origin: String) throws -> ExactSubscription
+}
+
+/// A consumer of a track: a recorder, a level, a hatch's tap. Main thread.
+public protocol ExactTrackConsumer: AnyObject {
+    /// The capture runs: its source, or nil under the agent (no device).
+    func live(_ source: ExactAudioSource?)
+    /// The track is muted: `idle`, `interrupted`, `background`, `silenced`, …
+    func muted(_ reason: String)
+    func unmuted()
+    /// The track ended; nothing more follows.
+    func ended()
+}
+
+/// A running audio capture, which a consumer taps.
+public protocol ExactAudioSource: AnyObject {
+    var format: AVAudioFormat { get }
+    /// `block` hears each buffer of the capture on the audio thread until
+    /// the subscription is cancelled. It must not block.
+    func tap(_ block: @escaping (AVAudioPCMBuffer, AVAudioTime) -> Void) -> ExactSubscription
+}
+
+/// The session's track table: tracks and streams by id.
+public final class ExactTracks {
+    private var entries: [String: ExactTrackEntry] = [:]
+    public init() {}
+    public func add(_ entry: ExactTrackEntry) { entries[entry.id] = entry }
+    public func lookup(_ id: String) -> ExactTrackEntry? { entries[id] }
+    public func remove(_ id: String) { entries[id] = nil }
+    public var all: [ExactTrackEntry] { Array(entries.values) }
+    /// `consumer` joins track `id`, through its owner.
+    public func subscribe(_ id: String, _ consumer: ExactTrackConsumer, start: Bool, origin: String = "app") throws -> ExactSubscription {
+        guard let entry = entries[id], let owner = entry.owner else { throw ExactTrackError("NotFoundError") }
+        return try owner.subscribe(id, consumer, start: start, origin: origin)
+    }
+}
+
+// MARK: the audio session (LLP 1133.009 D7, D10 item 5)
+
+/// The process's audio session, which the host owns: a capture claims it
+/// and the host composes every claim with the app's own sound.
+public final class ExactAudioSession {
+    public typealias Claim = (_ mode: String?, _ options: [String], _ background: Bool, _ events: @escaping (String) -> Void) -> (() -> Void)?
+    private let claimFn: Claim
+    public init(_ claim: @escaping Claim) { claimFn = claim }
+    /// A capture's claim: the session records (`.playAndRecord`) while any
+    /// is held. `events` hears `interrupted`, `resumed` (an interruption
+    /// ended, the session active again), `reset` (media services were
+    /// reset) and `route`. Nil when the host refused it (the session would
+    /// not activate). Release it with `cancel()`.
+    public func claim(mode: String?, options: [String], background: Bool, events: @escaping (String) -> Void) -> ExactSubscription? {
+        claimFn(mode, options, background, events).map(ExactSubscription.init)
+    }
 }

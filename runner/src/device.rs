@@ -77,6 +77,7 @@ pub const DEVICES: &[Device] = &[
         macos: &["NSMicrophoneUsageDescription"],
         hardened: Some("com.apple.security.device.audio-input"),
         web: Some("microphone"),
+        android: &["android.permission.RECORD_AUDIO"],
         ..ROW
     },
     // A camera is a native module's (`rules/DEFERRED.md`, moved 2026-10-02):

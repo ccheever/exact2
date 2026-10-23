@@ -1077,7 +1077,10 @@ export function webImplementations(app) {
 
 /** A declaration's type (`option<number>`, `enum<a|b>`, `T[]`) as TypeScript's. */
 function moduleType(t, inList=false) {
+  // A path option (LLP 1133.009 D10 item 4) is a string; a handle (item 10) is its id.
+  if (t && typeof t==='object' && t.type==='path') t=t.optional ? 'option<string>' : 'string';
   t=String(t).trim();
+  if (/^handle<[^>]*>$/.test(t)) return 'string';
   if (t.endsWith('[]')) return moduleType(t.slice(0,-2),true)+'[]';
   let m, union;
   if ((m=/^option<(.*)>$/.exec(t))) union=moduleType(m[1])+' | null';
@@ -1095,7 +1098,8 @@ export function moduleBinding(name, declaration, implementations) {
   for (const [shape,fields] of Object.entries(shapes)) {
     lines.push(`export interface ${shape} {`, ...Object.entries(fields).map(([f,t])=>`  ${f}: ${moduleType(t)};`), '}');
   }
-  const optional=(t)=>{ const m=/^option<(.*)>$/.exec(String(t).trim()); return m ? ['?',moduleType(m[1])] : ['',moduleType(t)]; };
+  const pathless=(t)=>t && typeof t==='object' && t.type==='path' ? (t.optional ? 'option<string>' : 'string') : t;
+  const optional=(t)=>{ t=pathless(t); const m=/^option<(.*)>$/.exec(String(t).trim()); return m ? ['?',moduleType(m[1])] : ['',moduleType(t)]; };
   for (const entry of declaration.names ?? []) {
     const fn=entry.source ?? entry.send, type=fn[0].toUpperCase()+fn.slice(1)+'Options';
     const fields=Object.entries(entry.options ?? {}).map(([f,t])=>{ const [q,ts]=optional(t); return `  ${f}${q}: ${ts};`; });
@@ -1104,7 +1108,7 @@ export function moduleBinding(name, declaration, implementations) {
       if (words && Object.keys(words).length) fields.push(`  ${i.platform}?: { ${Object.entries(words).map(([w,t])=>`${w}?: ${moduleType(t)}`).join('; ')} };`);
     }
     lines.push(`export interface ${type} {`, ...fields, '}');
-    const required=Object.values(entry.options ?? {}).some(t=>!/^option</.test(String(t).trim()));
+    const required=Object.values(entry.options ?? {}).some(t=>!/^option</.test(String(pathless(t)).trim()));
     const verb=entry.source ? 'source' : 'send';
     lines.push(`export function ${fn}(options: ${type}${required ? '' : ' = {}'}): Promise<${moduleType(entry.answers)}> {`,
       `  return call({ extension: ${JSON.stringify(extension)}, ${verb}: ${JSON.stringify(fn)}, args: options });`, '}');

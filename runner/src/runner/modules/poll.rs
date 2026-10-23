@@ -44,6 +44,9 @@ impl<D: DataSource> Runner<D> {
             .filter(|m| m.live && !m.send && self.route(m) != Route::Substitute)
             .filter_map(|m| {
                 let key = self.key(m);
+                if self.extensions.failed.contains(&key) {
+                    return None;
+                }
                 let last = *self.extensions.polls.get(&key)?;
                 let period = self.poll_period(m)?;
                 Some((key, last + period))
@@ -56,6 +59,21 @@ impl<D: DataSource> Runner<D> {
         if self.poll_of(row).is_some() {
             (self.extensions.polls).insert(self.key(row), self.now_ms);
         }
+    }
+
+    /// A polled source answered: an error (a reader of a recorder or a track
+    /// the session does not hold) is not polled again until a reader asks
+    /// anew or the implementation announces a change, so a reader waiting
+    /// for an id asks nothing each period.
+    pub(in crate::runner) fn note_poll_answer(&mut self, row: &ModulesRow, failed: bool) {
+        if self.poll_of(row).is_none() {
+            return;
+        }
+        let key = self.key(row);
+        match failed {
+            true => self.extensions.failed.insert(key),
+            false => self.extensions.failed.remove(&key),
+        };
     }
 
     /// When the next poll is due, for a host on the live clock to wake at.
