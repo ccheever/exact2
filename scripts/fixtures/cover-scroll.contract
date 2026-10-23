@@ -3,6 +3,8 @@
 // status column, a phone's notch in landscape). UIKit insets it at its top
 // and bottom only, so its content, as wide as it, never scrolls sideways
 // (NavigationCollapseIOSTests). A trimmed `large-title.contract` with a cover root.
+// Picker is a sheet over it whose scroller runs to the sheet's bottom edge,
+// the document's cover notwithstanding (ContentOwnersIOSTests).
 routes nav
   home "/"
     picker "/picker"

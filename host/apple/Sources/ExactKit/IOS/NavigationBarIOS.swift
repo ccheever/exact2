@@ -1089,15 +1089,16 @@ extension NavigationHost {
     /// UIKit insets the scroller (`reportCovers`, `scroller_insets_bottom`),
     /// so an absolutely positioned footer still rests on the bars. A footer under
     /// the scroller keeps the cover; so does a page under `viewport-fit=cover`,
-    /// whose own `env()` insets would be added to UIKit's, and a transparent
-    /// bar's scroller, which UIKit insets nothing (`collapse`).
+    /// whose own `env()` insets would be added to UIKit's, though not a
+    /// sheet's route, which is covered for the sheet's whole safe area
+    /// whatever the document's fit (`reportCovers`); and so does a
+    /// transparent bar's scroller, which UIKit insets nothing (`collapse`).
     private func reachBottom(_ c: RouteController, presented: Bool) {
         // Until a scroller reaches the bottom edge the route's bottom cover
         // pads its in-flow content above the bars, and its content box is
         // the authored one: a scroller there ends that far above it. The
         // cover it has without one, so a scroller that does not grow as the
         // cover goes is at the edge either way.
-        // A presentation owns its safe area independently of the document.
         let found = presented || presenter.viewportFit != "cover" ? Self.bottomScroller(in: c.node, cover: c.bottomClearance) : nil
         let target = found === c.collapseScroll && Self.transparentBar(c.node) ? nil : found
         guard c.edgeScroll !== target || c.contentScrollView(for: .bottom) !== (target?.scrollView ?? c.bandedBottom) else { return }
