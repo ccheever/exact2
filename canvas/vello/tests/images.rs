@@ -15,6 +15,7 @@ unsafe extern "C" fn image(
     len: usize,
     width: *mut u32,
     height: *mut u32,
+    identity: *mut u64,
 ) -> *const u8 {
     // SAFETY: the replay owns this host and each of its pixel buffers.
     let input = unsafe { &mut *ctx.cast::<Input>() };
@@ -22,6 +23,7 @@ unsafe extern "C" fn image(
     let source = unsafe { std::slice::from_raw_parts(src, len) };
     let index: usize = std::str::from_utf8(source).unwrap().parse().unwrap();
     unsafe {
+        *identity = index as u64 + 1;
         *width = 512;
         *height = 512;
     }

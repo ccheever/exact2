@@ -67,6 +67,8 @@ pub struct EcgHost {
             count: *mut usize,
         ) -> *const EcgRun,
     >,
+    /// Premultiplied RGBA8, valid until this host's next callback. Identity
+    /// is process-wide and never reused for different pixels (ABI 3).
     pub image: Option<
         unsafe extern "C" fn(
             ctx: *mut c_void,
@@ -74,12 +76,13 @@ pub struct EcgHost {
             src_len: usize,
             w: *mut u32,
             h: *mut u32,
+            identity: *mut u64,
         ) -> *const u8,
     >,
 }
 
-/// Decoded images, by the host's (pointer, width, height): the same handle
-/// is the same `ImageData`, so vello's atlas keeps it between replays.
+/// Decoded images, by the host's (identity, width, height): the same pixels
+/// use the same `ImageData`, so vello's atlas keeps it between replays.
 fn images() -> &'static Mutex<Images> {
     static IMAGES: OnceLock<Mutex<Images>> = OnceLock::new();
     IMAGES.get_or_init(Default::default)
@@ -117,18 +120,27 @@ impl Host for AbiHost<'_> {
     fn image(&mut self, src: &str) -> Option<ImageData> {
         let h = self.host?;
         let f = h.image?;
-        let (mut w, mut hh) = (0u32, 0u32);
+        let (mut w, mut hh, mut identity) = (0u32, 0u32, 0u64);
         // SAFETY: the host's callback contract.
-        let p = unsafe { f(h.ctx, src.as_ptr(), src.len(), &mut w, &mut hh) };
+        let p = unsafe {
+            f(
+                h.ctx,
+                src.as_ptr(),
+                src.len(),
+                &mut w,
+                &mut hh,
+                &mut identity,
+            )
+        };
         if p.is_null() || w == 0 || hh == 0 {
             return None;
         }
         let mut cache = images().lock().unwrap_or_else(|e| e.into_inner());
-        let key = (p as usize, w, hh);
+        let key = (identity, w, hh);
         if let Some(i) = cache.get(&key) {
             return Some(i);
         }
-        // SAFETY: premultiplied RGBA8, tightly packed, valid for the replay.
+        // SAFETY: premultiplied RGBA8, tightly packed, valid until this host's next callback.
         let len = (w as usize).checked_mul(hh as usize)?.checked_mul(4)?;
         let px = unsafe { std::slice::from_raw_parts(p, len) }.to_vec();
         let image = ImageData {
@@ -184,7 +196,7 @@ pub extern "C" fn ecg_abi() -> u32 {
     if cfg!(exact_no_metal_toolchain) {
         0
     } else {
-        2
+        3
     }
 }
 
