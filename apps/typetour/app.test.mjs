@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { open } from '../../scripts/agent.mjs';
-import { checkOp } from '../../scripts/agent-check.mjs';
+import { checkOp, ratio } from '../../scripts/agent-check.mjs';
 
 // Build first with `bun host/web/build.mjs typetour`.
 for (const appearance of ['system', 'light', 'dark']) {
@@ -79,3 +79,37 @@ for (const appearance of ['system', 'light', 'dark']) {
     }
   }, 30000);
 }
+
+// Static search hints must remain readable even if a role exempts them from checkOp.
+test('search hints clear 3:1 in Settings and Messages in both schemes', async () => {
+  const session = await open({ host: 'web', app: 'typetour', size: [420, 900],
+    env: { EXACT_AGENT_EPHEMERAL_PORT: '1' } });
+  try {
+    const readings = [];
+    await session.tap('lock-unlock');
+    for (const [screen, button] of [['settings', 'dock-settings'], ['messages', 'dock-messages']]) {
+      await session.tap(button);
+      expect((await session.state()).slots.screen).toBe(screen);
+      for (const scheme of ['light', 'dark']) {
+        await session.prefer({ 'prefers-color-scheme': scheme });
+        await session.clock('settle');
+        const observed = await session.op({ op: 'check' });
+        expect(observed.scheme).toBe(scheme);
+        const hints = observed.items.filter(item => item.text === 'Search');
+        expect(hints).toHaveLength(1);
+        const hint = hints[0];
+        expect(hint.y).toBeGreaterThanOrEqual(0);
+        expect(hint.y + hint.h).toBeLessThanOrEqual(observed.viewport.h);
+        expect(hint.bg).toHaveLength(3);
+        // The observer's background includes ancestor fills; composite translucent ink onto it.
+        const alpha = hint.fg[3] ?? 1;
+        const ink = hint.fg.slice(0, 3).map((channel, i) => channel * alpha + hint.bg[i] * (1 - alpha));
+        readings.push({ screen, scheme, contrast: ratio(ink, hint.bg) });
+      }
+      await session.tap('home-bar');
+    }
+    expect(readings.filter(reading => reading.contrast < 3)).toEqual([]);
+  } finally {
+    await session.close();
+  }
+}, 30000);
