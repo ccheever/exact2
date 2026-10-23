@@ -6,7 +6,7 @@ import type { Answer, Result, Sources } from './app.contract.d.ts';
 import * as S from './discord/store';
 import * as rest from './discord/rest';
 import { cmpId, msFromSnowflake } from './discord/ids';
-import { applyEvent, at, call, clock, connect, context, createLive, dispatch, heartbeat, loadSession, nonce, page, recordIdentify, RestError, sendIdentify, touched, view, type Live } from './live';
+import { applyEvent, at, call, clock, connect, context, createLive, digest, dispatch, heartbeat, loadSession, nonce, page, recordIdentify, RestError, sendIdentify, signIn, signOut, touched, view, type Live } from './live';
 import { createRenderer, timeOf, windowOf, type Directories, type Stored, type Unread } from './render';
 
 export const appId = 'com.exact.excord';
@@ -89,6 +89,8 @@ function channelRecord(id: string): Channel {
     typing: typing.length === 0 ? '' : typing.length === 1 ? `${typing[0]} is typing…` : `${typing.join(' and ')} are typing…` };
 }
 const TEXT = new Set([0, 5]);
+const readable = (guild: string) => S.guildChannels(store, guild).flatMap(group => group.channels)
+  .filter(c => TEXT.has(c.type ?? 0) && S.canView(store, c));
 
 const emptyWindow = (channel: string, anchor: string): Window => ({ channel, anchor, rows: [], hasBefore: false,
   hasAfter: false, firstId: '', lastId: '', pin: '', unread: 0, unreadMore: false, unreadAt: 0, need: '', cursor: '' });
@@ -159,17 +161,22 @@ function newest(channel: string): string | null {
 
 const sources: Sources = {
   loadSession: (_args, secrets, storage) => loadSession(live, secrets, storage),
+  signIn: ([text], secrets) => { const error = signIn(live, secrets, text); return error ? { ok: false, error } : OK; },
+  signOut: (_args, secrets) => { signOut(live, secrets); return OK; },
   recordIdentify: async (_args, _secrets, storage) => { await recordIdentify(live, storage); return OK; },
   sendIdentify: () => { sendIdentify(live); return OK; },
   gatewayState: ([ready, epoch], secrets, _storage, native) => connect(live, secrets, native, ready, epoch),
   heartbeat: ([now]) => { heartbeat(live, now); return OK; },
+  digest: ([now], secrets) => digest(live, secrets, now),
   loadGuilds: () => S.guilds(store).filter(g => !g.unavailable).map(g => {
-    const channels = S.guildChannels(store, g.id).flatMap(group => group.channels).filter(c => TEXT.has(c.type ?? 0));
-    const reads = channels.map(c => S.unread(store, c.id));
+    const reads = readable(g.id).map(c => S.unread(store, c.id));
     return { id: g.id, name: g.name ?? '', unread: reads.some(r => r.unread), mentions: reads.reduce((n, r) => n + r.mentionCount, 0) };
   }),
-  loadChannels: ([guild]) => S.guildChannels(store, guild).flatMap(group => group.channels)
-    .filter(c => TEXT.has(c.type ?? 0)).map(c => channelRecord(c.id)),
+  // A guild's text channels the account can see, by category; a category with none is left out.
+  loadChannels: ([guild]) => S.guildChannels(store, guild).map(group => ({
+    id: group.category?.id ?? '', name: group.category?.name ?? '',
+    channels: group.channels.filter(c => TEXT.has(c.type ?? 0) && S.canView(store, c)).map(c => channelRecord(c.id)),
+  })).filter(group => group.channels.length > 0),
   loadDms: () => S.dms(store).map(c => channelRecord(c.id)),
   loadChannel: ([channel]) => (channel ? channelRecord(channel) : channelRecord('')),
   loadWindow: ([channel, anchor, , since]) => loadWindow(channel, anchor, since),
