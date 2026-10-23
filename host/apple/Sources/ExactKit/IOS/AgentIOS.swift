@@ -636,7 +636,7 @@ extension Agent {
            tapHitsControl(node, request: req),
            let activated = presenter.controls.activate(node) {
             if var unsupported = presenter.controls.unopened(node) {
-                unsupported["reason"] = (unsupported["reason"] as? String ?? "") + "; use --touch platform for a real touch"
+                unsupported["reason"] = (unsupported["reason"] as? String ?? "") + "; an iOS simulator can use --touch platform for a real touch"
                 return unsupported
             }
             return activated ? delivered(["tapped": id, "delivery": "host-activation", "native": "control"], node)
