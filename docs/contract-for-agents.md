@@ -2970,6 +2970,14 @@ During a reorder `state.reorder` reads `{ item, from, to, before, phase,
 ending }`; a grouped grip also takes `type <grip> key Space` and the arrows. `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires
 first); its reply says what is still in flight (`inflight`, on every host), and `clock settle` lands it.
+A request the server holds, marked `exactHeld: true` (a long poll, LLP 1016.000 D9), is the exception: no
+clock waits on it, neither a jump nor `clock settle` nor `clock data`, and each of their replies names it
+(`held`, `heldTargets`; `state.pending` marks it `held: true`). Its answer must be safe to supersede.
+After an action that causes a push you will read (a write the server echoes, a build's report), say so with
+`clock held [<target>…] [<n>s]`: real time passes with the clock frozen, so no timer fires, until each held
+request in flight (or each named) has had one reply, the server's own timeout answer included; then `clock
+data` lands what that reply started. Past its bound (20 s) it answers `settled: false, reason: "held"`,
+naming the targets that had none.
 `clock settle` also runs the clock to where the last running finite, unpaused
 transition or animation ends, firing the timers due on the way, so a test on a timer's grid moves with it,
 and on past a task due a commit later (`after(1, …)`, which an input or an answer armed) until none is.

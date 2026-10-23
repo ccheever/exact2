@@ -909,3 +909,12 @@ test('fixed type: a symbol sized in points and a word broken inside are findings
     assert.equal(r.lines[1], "fixed type: 2 findings: a size the reader's text size does not move, or a word broken inside");
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('a relaunch names the requests the server holds, as no finding (LLP 1016.000 D9)', () => {
+  const test = { name: 't', end: { ops: 1, resources: {}, slots: {} } };
+  const shown = { texts: new Set(['Feed']), resources: {}, slots: {} };
+  const r = judgeRelaunch(test, shown, shown, { busy: [], failed: {}, heldBy: ['changes'] });
+  assert.deepEqual(r.problems, []);
+  assert.deepEqual(r.notes, ['  held     changes: the server holds it (exactHeld); no clock waited on it']);
+  assert.equal(judgeRelaunch(test, shown, shown, {}).notes, undefined);
+});
