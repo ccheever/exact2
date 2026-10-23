@@ -8,6 +8,15 @@ import { Cdp, chromium, chromiumBuilds, launchFacts, launchEnvironment, parseFla
 import { PassThrough } from 'node:stream';
 import { placeReporter } from '../host/web/navigation.js';
 
+test('simulator drives reject --phone and preserve explicit --sim selection', () => {
+  for (const host of ['ios', 'host-ios']) {
+    expect(() => parseFlags([host, '--phone', 'other-lane', 'tree'])).toThrow('--phone needs --device; for a simulator use --sim');
+    expect(parseFlags([host, '--sim', 'our-lane', 'tree']).flags.sim).toBe('our-lane');
+  }
+  expect(parseFlags(['ios', '--device', '--phone', 'phone', 'tree']).flags.phone).toBe('phone');
+  expect(parseFlags(['trace', '--phone', 'phone']).flags.phone).toBe('phone');
+});
+
 test('polling host I/O waits for a cold guest and bounds a hung guest', async () => {
   let time = 0, reads = 0;
   const clock = { now: () => time, pause: async ms => { time += ms; } };
