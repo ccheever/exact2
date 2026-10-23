@@ -1221,8 +1221,6 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
 }
 export { runTests, textOf } from './agent-test.mjs';
 export { Cdp, browserDiagnosticNoise };
-// Exported for game/proof.test.mjs, which drives the real CLI with a fake
-// session (`injected.open`) and no app server (`injected.driveServer`).
 export async function main(argv, injected = {}) {
   const { flags, rest } = parseFlags(argv);
   guardFlags(flags.test ? 'test' : 'agent', rest, { parsed: true }); // --help, or a flag parseFlags left (never an op)
@@ -1232,14 +1230,16 @@ export async function main(argv, injected = {}) {
   if (host && flags.test && !help) {
     // A test's `drag` on an iOS simulator is a real gesture by itself; `--touch platform` makes every tap one too (LLP 1080.000).
     if (flags.touch && !['agent', 'platform'].includes(flags.touch)) throw new Error(`--touch ${flags.touch} is not taken with --test: a test's \`drag\` is a real gesture by itself on an iOS simulator; --touch platform makes every tap one too (LLP 1080.000)`);
-    const r = await runTests({ host, browser, file: flags.test, plan: flags.plan, app: flags.app, size: flags.size, device: flags.device, phone: flags.phone, url: flags.url, seed: flags.seed, locale: flags.locale, formatLocale: flags.formatLocale, timeZone: flags.timeZone, epoch: flags.epoch, failFetch: flags.failFetch, storage: flags.storage, touch: flags.touch, chrome: flags.chrome, scale: flags.scale, port: flags.port });
-    for (const t of r.results) {
-      console.log(`test "${t.name}": ${t.failures.length ? 'FAIL' : 'ok'}`);
-      for (const f of t.failures) console.error('  ' + f);
-      for (const n of t.notes ?? []) console.error(`  note: ${n}`);
-    }
-    console.log(`${r.passed} passed, ${r.failed} failed`);
-    return r.failed ? 1 : 0;
+    return (await import('./verify.mjs')).withAppServer(resolveApp(flags.app).dir, async () => {
+      const r = await (injected.runTests ?? runTests)({ host, browser, file: flags.test, plan: flags.plan, app: flags.app, size: flags.size, device: flags.device, phone: flags.phone, url: flags.url, seed: flags.seed, locale: flags.locale, formatLocale: flags.formatLocale, timeZone: flags.timeZone, epoch: flags.epoch, failFetch: flags.failFetch, storage: flags.storage, touch: flags.touch, chrome: flags.chrome, scale: flags.scale, port: flags.port });
+      for (const t of r.results) {
+        console.log(`test "${t.name}": ${t.failures.length ? 'FAIL' : 'ok'}`);
+        for (const f of t.failures) console.error('  ' + f);
+        for (const n of t.notes ?? []) console.error(`  note: ${n}`);
+      }
+      console.log(`${r.passed} passed, ${r.failed} failed`);
+      return r.failed ? 1 : 0;
+    }, { verb: 'test', optional: true });
   }
   // A trace a person's session saved (LLP 1079 D5), read back with no app running.
   if (host === 'trace' && (ops.length === 1 || (!ops.length && (flags.phone || flags.device)))) { const t = await readTrace(ops[0] ?? phoneTrace(phone(flags.phone), resolveApp(flags.app)), traceLocators); console.log(flags.json ? JSON.stringify(t) : renderTrace(t)); return 0; }
