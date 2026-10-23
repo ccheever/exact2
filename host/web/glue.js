@@ -754,7 +754,7 @@ function apply(batch) {
         p = httpHelpers().then(({ request }) => request(op, host))
           .then(r => safelyFulfill(requestIncarnation, op.ticket, r.kind, r.status, r.headers, r.body, performance.now() - started))
           .catch(error => safelyFulfill(requestIncarnation, op.ticket, 1, 0, "", encoder.encode(String(error)), performance.now() - started));
-        const counted = Promise.race([p, opened]); if (!/^(GET|HEAD)$/i.test(op.method) && /^https?:/i.test(op.url)) counted.write = `${op.method} ${op.url}`; track(counted, op.ticket); p.finally(() => { forgettable.delete(controller); controllers.delete(controller); });
+        if (op.held) { const entry = { target: op.target, owner: requestIncarnation }; heldAsks.set(op.ticket, entry); p.finally(() => { if (heldAsks.get(op.ticket) === entry) heldAsks.delete(op.ticket); }); } else { const counted = Promise.race([p, opened]); if (!/^(GET|HEAD)$/i.test(op.method) && /^https?:/i.test(op.url)) counted.write = `${op.method} ${op.url}`; track(counted, op.ticket); } p.finally(() => { forgettable.delete(controller); controllers.delete(controller); }); // a reply the server holds (`exactHeld`, LLP 1016.000 D9) is in flight, but no clock waits on it: listed, not tracked
         break;
       }
       case "command": { if (op.name === "relaunch") { location.reload(); break; }
@@ -942,7 +942,7 @@ function commitFonts(faces) {
 // The agent's settle waits on active fetches; replies return to the wasm.
 let grants = [], grantSet = null, unparsed = "";
 let storageRequests = null;
-const inflight = new Set();
+const inflight = new Set(), heldAsks = new Map(); // `heldAsks`: requests the server holds (LLP 1016.000 D9), ticket to target
 const controllers = new Set(), forgettable = new Map();
 let incarnation = 0, authHost = null; // auth-glue.js once an auth.session grant asks for it (LLP 1069.006 D4)
 // A ticket's work, in flight while the runner holds the ticket (LLP 1016 D5):
@@ -950,7 +950,7 @@ let incarnation = 0, authHost = null; // auth-glue.js once an auth.session grant
 // ticket counts until it ends.
 function track(p, ticket) { if (ticket != null) { p.ticket = ticket; p.owner = incarnation; } inflight.add(p); p.finally(() => inflight.delete(p)); }
 const holds = (ticket, owner = incarnation) => owner === incarnation && wasm?.exact_request_active(ticket) === 1;
-const waiting = () => [...inflight].filter(p => p.ticket == null || holds(p.ticket, p.owner));
+const waiting = () => [...inflight].filter(p => p.ticket == null || holds(p.ticket, p.owner)); const heldNamed = r => { const h = [...heldAsks].filter(([ticket, e]) => holds(ticket, e.owner)); return h.length && r && !r.error ? { ...r, held: h.length, heldTargets: h.map(([, e]) => e.target) } : r; }; // a clock reply names the held asks the runner still holds
 // After each commit: abort the reads whose tickets the runner let go of.
 function letGo() { for (const [controller, ticket] of forgettable) if (!holds(ticket)) { forgettable.delete(controller); controller.abort(); } }
 const HOST_WORK_BYTES=16*1024*1024, HOST_WORK_BASE64=4*Math.ceil(HOST_WORK_BYTES/3);
@@ -1083,7 +1083,7 @@ async function waitForInflight(deadline) {
   return helpers ? helpers.waitForInflight(waiting, deadline) : false;
 }
 async function settleGpu() { loadGpuIfNeeded(); await gpuLoading; return await globalThis.exact.gpu?.settled() ?? []; }
-function gpuPendingReply(request, pending) { const names = pending.map(item => item.name ?? "GPU work"); return request.op === "clock" ? {clock:agentClock, settled:false, reason:"gpu", pending:names} : {error:`GPU is not settled: ${names.join(", ")}`, pending:names}; }
+function gpuPendingReply(request, pending) { const names = pending.map(item => item.name ?? "GPU work"); return request.op === "clock" ? heldNamed({clock:agentClock, settled:false, reason:"gpu", pending:names}) : {error:`GPU is not settled: ${names.join(", ")}`, pending:names}; }
 function agentInputReady() {
   if (viewBox) return Promise.resolve();
   return agentInputLoading ??= loadAfterPaint('./input-glue.js', 'agentInput').then(helpers => {
@@ -1174,7 +1174,7 @@ function agentReply(request) {
         return typedControl(frame) && request.key == null ? typeControl(frame, request, inertAncestor, settleValue) : frame instanceof HTMLIFrameElement ? guestType(frame, request) : { guest: false }; // a control's value (LLP 1069.001 D9)
       }
       case "clock": // then the offset at the new virtual date, in case it crossed a DST change (LLP 1069.007 D2)
-        return clock(request).then((r) => { if (!r.error) followOffset(agentClock); return tagged(r); });
+        return clock(request).then((r) => { if (!r.error) followOffset(agentClock); return tagged(heldNamed(r)); }); // naming what the server holds (LLP 1016.000 D9)
       case "tree": return tree(request);
       case "tags": return ask(request);
       case "reveal": return tagged(reveal(views.get(request.id), request.id, inertAncestor)); // before a tap or a type (input-glue.js)
@@ -1217,7 +1217,7 @@ function tagged(reply) {
 // timers stops after each timer that sends, and its reply is waited for; past
 // the deadline, or 4096 stops, the rest is one advance. The clock lands where
 // the runner says; a timer's refusal is the error. A promise: the driver
-// awaits it.
+// awaits it. The agent's reply names the requests the server holds, which no clock waits on (`heldNamed`, LLP 1016.000 D9).
 async function clock(request) {
   // The end of an input (LLP 1012 §2): the `then`s of the answers it settled
   // land, the clock unmoved and no timer fired (Runner::land_then). `clock data` (web-js agent.js) first
@@ -1351,7 +1351,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}
   grants = []; grantSet = null; unparsed = "";
   for (const controller of controllers) controller.abort();
-  controllers.clear(); forgettable.clear(); inflight.clear(); mediaAttaching.clear(); sizes.clear();
+  controllers.clear(); forgettable.clear(); inflight.clear(); heldAsks.clear(); mediaAttaching.clear(); sizes.clear();
   globalThis.exact.holdQuiet?.(); if (!page?.holding) root.replaceChildren(); document.getElementById("exact-theme")?.remove(); document.getElementById("exact-looks")?.remove(); // a held state goes unsaid (dev.js holds it again); the last plan's theme (LLP 1095 D4) and state looks (LLP 1121 D8): this boot's batch sets its own
   commitFonts(preparedFonts);
   focus.restart(kept, () => applyBatch(batch), () => ask({ op: "tree" }), id => views.get(id));
