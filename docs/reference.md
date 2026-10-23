@@ -63,9 +63,19 @@ Cargo pins the device and its client to the matching release source commit
 app's Rust and TypeScript on every host ([its README](../snapback4/README.md)):
 the protocol in Rust without I/O, the native device, the web's wasm, and the
 TypeScript driver an app mounts with `typescript.sources`. The client is its
-own Cargo workspace, `snapback4/`; its lock carries the private source, so
-root Cargo commands need no Snapback access. Direct Cargo commands use
+own Cargo workspace, `snapback4/`, with its own lock. Direct Cargo commands use
 `--manifest-path snapback4/Cargo.toml`; apps depend on `snapback4/` by path.
+Harmony's crates (`apps/harmony/app/`) are root members, so the root lock
+carries the private source too, and root Cargo commands need Snapback access.
+On a machine without it, a local clone holding the commit seeds Cargo's cache
+once: `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=url.file://<clone>.insteadOf
+GIT_CONFIG_VALUE_0=https://github.com/expo/snapback.git
+CARGO_NET_GIT_FETCH_WITH_CLI=true cargo fetch --locked`.
+The driver imports wasm-bindgen glue (`snapback4/ts/generated/`, never
+committed). The bake of an app that mounts the driver writes it with
+`snapback4/web/build.mjs`, which builds only when the inputs recorded in the
+glue's header have changed, and needs the `wasm32-unknown-unknown` target and
+`wasm-bindgen` 0.2.127 (`cargo install wasm-bindgen-cli --version 0.2.127`).
 
 The canonical [Messages](../apps/messages/README.md) app is the Exact port of Expo's
 chat demo, with model conversations through a local OpenRouter service. It belongs

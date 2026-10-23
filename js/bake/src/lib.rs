@@ -389,6 +389,7 @@ fn build_sources(
             "module client executor is not yet implemented for {platform}"
         ));
     }
+    snapback_glue(app)?;
     let stage = Scratch::new(&std::env::temp_dir())?;
     let baked = bake_in(
         app,
@@ -796,6 +797,29 @@ fn mounts(root: &Path) -> Result<Vec<(String, PathBuf)>, String> {
         }
     }
     Ok(out)
+}
+
+/// This checkout's Snapback driver (`snapback4/ts`) imports wasm-bindgen glue
+/// that is generated, never committed. For an app that mounts the driver,
+/// `snapback4/web/build.mjs` brings the glue up to date first. It builds only
+/// when the inputs recorded in the glue's header have changed, and names
+/// those inputs to Cargo, so a change to them runs this bake again.
+fn snapback_glue(app: &Path) -> Result<(), String> {
+    let driver = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../snapback4/ts");
+    let driver = driver.canonicalize().map_err(|e| e.to_string())?;
+    let root = app.canonicalize().map_err(|e| e.to_string())?;
+    if !mounts(&root)?.iter().any(|(_, dir)| *dir == driver) {
+        return Ok(());
+    }
+    let script = driver.with_file_name("web").join("build.mjs");
+    let built = exact_bake::bun().arg(&script).status();
+    if built.map_err(exact_bake::bun_error)?.success() {
+        return Ok(());
+    }
+    Err(format!(
+        "{} did not write snapback4/ts/generated/device.ts, which the mounted Snapback driver imports (what it said is above)",
+        script.display()
+    ))
 }
 
 /// Where a captured source lives on disk: in the app, or in a mount.

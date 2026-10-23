@@ -3,10 +3,13 @@
 // an app serves (`node snapback4/web/build.mjs <app>/assets/snapback4.wasm`)
 // and its wasm-bindgen glue, which `ts/web.ts` imports (`ts/generated/`,
 // never committed). With no output it writes only the glue, which every
-// host's bake type-checks. Runs under Node or Bun, and from an app's build.rs. Size first (profile `wasm`), then `wasm-opt -Oz` when
+// host's bake type-checks, and builds nothing when the glue is current (below);
+// the bake of an app that mounts `ts/` runs it so (js/bake/src/lib.rs
+// `snapback_glue`). Runs under Node or Bun, and from an app's build.rs. Size first (profile `wasm`), then `wasm-opt -Oz` when
 // binaryen is on PATH or in Exact's cache and it transfers smaller. Files are rewritten only when their bytes change.
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -21,7 +24,7 @@ if (out === '--help' || out === '-h' || out?.startsWith('-')) {
   The output is a path from the current directory; run it from the app's directory:
     node <exact2>/snapback4/web/build.mjs assets/snapback4.wasm
   The web host serves assets/snapback4.wasm at /assets/snapback4.wasm, the driver's default.
-  With no output it writes only the glue, which every host's bake type-checks.`);
+  With no output it writes only the glue, which every host's bake type-checks, and builds nothing when the glue is current.`);
   process.exit(out === '--help' || out === '-h' ? 0 : 2);
 }
 const workspace = resolve(import.meta.dirname, '..');
@@ -36,6 +39,40 @@ env.CARGO_TARGET_DIR = target;
 env.CARGO_INCREMENTAL = '0';
 env.CARGO_PROFILE_DEV_DEBUG = '0';
 env.CARGO_PROFILE_TEST_DEBUG = '0';
+const glueFile = resolve(workspace, 'ts/generated/device.ts');
+// The glue is current when its header names the digest of what built it: each
+// file of this checkout that Cargo's dep-info says the last wasm build read,
+// the manifests and lock that pin everything else, the toolchain file, and
+// this script. No dep-info (a clean target), or one that does not name this
+// crate's root by its absolute path, means a build.
+const pinned = ['Cargo.toml', 'Cargo.lock', 'web/Cargo.toml', 'client/Cargo.toml', 'web/build.mjs', '../rust-toolchain.toml'].map(path => resolve(workspace, path));
+function inputs() {
+  const checkout = resolve(workspace, '..');
+  let info;
+  try { info = readFileSync(resolve(target, 'wasm32-unknown-unknown/wasm/exact_snapback4_web.d'), 'utf8'); } catch { return null; }
+  const read = info.slice(info.indexOf(': ') + 2).trim().split(/(?<!\\)\s+/).map(path => path.replaceAll('\\ ', ' '))
+    .filter(path => path.startsWith(checkout + sep) && !path.startsWith(target + sep));
+  if (!read.includes(resolve(workspace, 'web/src/lib.rs'))) return null;
+  const files = [...new Set([...read, ...pinned])].sort();
+  const hash = createHash('sha256');
+  let newest = 0;
+  for (const file of files) {
+    try { hash.update(`${file}\0`).update(readFileSync(file)).update('\0'); newest = Math.max(newest, statSync(file).mtimeMs); } catch { return null; }
+  }
+  return { files, key: hash.digest('hex'), newest };
+}
+// From a build script (OUT_DIR set), the inputs are Cargo's to watch too.
+const watch = files => { if (process.env.OUT_DIR) for (const file of files) console.log(`cargo:rerun-if-changed=${file}`); };
+if (!out) {
+  const current = inputs();
+  let header = '';
+  try { header = readFileSync(glueFile, 'utf8').slice(0, 300); } catch { /* none yet */ }
+  if (current && header.includes(`from inputs ${current.key}.`)) {
+    watch(current.files);
+    process.exit(0);
+  }
+}
+const started = Date.now();
 // A package id, as cargo writes it: `name 1.0 (source)`, `source#name@1.0`, or
 // `path+file:///…/name#1.0`.
 const packageName = id => /^([\w-]+) \d/.exec(id)?.[1] ?? /#([\w-]+)@/.exec(id)?.[1] ?? /\/([\w-]+)#[\d.]+$/.exec(id)?.[1] ?? 'a dependency';
@@ -87,16 +124,17 @@ if (existsSync(cached)) {
     .filter(bin => existsSync(resolve(bin, process.platform === 'win32' ? 'wasm-opt.exe' : 'wasm-opt')));
   if (bins.length) optEnv.PATH = `${bins[0]}${delimiter}${optEnv.PATH ?? ''}`;
 }
-const opt = spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', built, '-o', optimized],
+// The glue alone needs no optimized wasm.
+const opt = out && spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', built, '-o', optimized],
   { stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8', env: optEnv });
-if (opt.status !== 0) {
+if (opt && opt.status !== 0) {
   console.error(`snapback4 web: ${opt.error?.code === 'ENOENT' ? 'wasm-opt not found (`bun scripts/exact.mjs setup` installs it)' : `wasm-opt failed: ${opt.stderr.trim().split('\n').at(-1)}`}; unoptimized`);
 }
-if (opt.status === 0) validateDevice(readFileSync(optimized), 'wasm-opt output');
+if (opt?.status === 0) validateDevice(readFileSync(optimized), 'wasm-opt output');
 // Keep whichever transfers smaller: -Oz shrinks this module raw but can grow
 // it gzipped (as Snapback's own build-wasm.sh finds and compares).
 const gzipped = path => gzipSync(readFileSync(path), { level: 9 }).length;
-const bytes = readFileSync(opt.status === 0 && gzipped(optimized) < gzipped(built) ? optimized : built);
+const bytes = readFileSync(opt?.status === 0 && gzipped(optimized) < gzipped(built) ? optimized : built);
 function write(path, bytes) {
   if (existsSync(path) && readFileSync(path).equals(bytes)) return;
   mkdirSync(dirname(path), { recursive: true });
@@ -111,5 +149,10 @@ if (out) {
 }
 // The glue as TypeScript the bake captures; it is generated, so unchecked.
 const source = readFileSync(resolve(glue, 'device.js'), 'utf8');
-write(resolve(workspace, 'ts/generated/device.ts'), Buffer.from(`// @ts-nocheck\n// @generated by snapback4/web/build.mjs (wasm-bindgen 0.2.127). Do not edit.\n${source}`));
+// An input changed after the build began may not be what Cargo compiled: no key, so the next run builds.
+const made = inputs();
+const key = made && made.newest < started ? made.key : 'unknown';
+write(glueFile, Buffer.from(`// @ts-nocheck\n// @generated by snapback4/web/build.mjs (wasm-bindgen 0.2.127) from inputs ${key}. Do not edit.\n${source}`));
+// Without dep-info to read, the crates' source directories stand in.
+watch(made?.files ?? [...pinned, ...['web/src', 'client/src'].map(path => resolve(workspace, path))]);
 console.error(`snapback4 web: ${bytes.length} B, ${gzipSync(bytes, { level: 9 }).length} B gzip${out ? ` → ${out}` : ' (glue only)'}`);
