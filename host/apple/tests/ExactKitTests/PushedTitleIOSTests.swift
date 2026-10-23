@@ -430,5 +430,20 @@ final class PushedTitleIOSTests: XCTestCase {
         XCTAssertEqual(try state(nav, "rows", "rows-scroll").scrolled, 0, accuracy: 0.5)
     }
 
+    /// LLP 1141.001 D6: a header's `autofocus` search field, mounted by a
+    /// press's push, is the bar's search field, which takes the focus once
+    /// the push settles, though under an inline title UIKit has collapsed
+    /// it to no height.
+    func testAHeadersAutofocusSearchFieldIsFocusedOnceThePushSettles() throws {
+        let (_, _, nav) = try fixture()
+        try tap("home-open-seek", in: nav, depth: 2)
+        let search = try XCTUnwrap(nav.topViewController?.navigationItem.searchController, "the header's search field is the item's search controller")
+        until("the bar's search field takes the autofocus") { search.searchBar.searchTextField.isFirstResponder }
+        try back(nav, depth: 1)
+        try tap("home-open-find", in: nav, depth: 2)
+        XCTAssertFalse(try XCTUnwrap(nav.topViewController?.navigationItem.searchController).searchBar.searchTextField.isFirstResponder,
+                       "a search field without autofocus waits for a tap")
+    }
+
 }
 #endif
