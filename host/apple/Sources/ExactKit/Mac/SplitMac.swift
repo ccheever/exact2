@@ -261,6 +261,8 @@ final class SplitHost {
     /// and laid out at its size, and the list's selected row.
     private func present() {
         queued = false
+        // A painted popover goes where its invoker now is: the pane or the page.
+        defer { presenter.menus.layout() }
         for (id, entry) in held where presenter.views[id] !== entry.route && !presenter.isLeaving(entry.route) {
             held[id] = nil
             presenter.blocks.release(entry.route)

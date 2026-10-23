@@ -545,11 +545,12 @@ final class MenuHost: NSObject {
     func layout() {
         guard let presenter else { return }
         for entry in entries where entry.menu == nil && entry.native == nil {
+            if let host = layerHost(entry, in: entry.source?.window), entry.layer.superview !== host { host.addSubview(entry.layer) }
             entry.layer.frame = entry.layer.superview?.bounds ?? presenter.viewport.bounds
             let anchor: NSRect = entry.source.map { self.anchor($0, in: entry.layer, run: entry.run) } ?? .zero
             var box = entry.frame
-            // The page scrolls under a layer in it; a sheet's or a split pane's layer is its own extent.
-            let document = presenter.viewport.documentView.flatMap { $0.window != nil && entry.layer.isDescendant(of: presenter.viewport) ? $0 : nil }
+            // The page scrolls under a layer in its own window; a sheet's layer is its own extent.
+            let document = presenter.viewport.documentView.flatMap { $0.window != nil && $0.window === entry.layer.window ? $0 : nil }
             let page = document.map { $0.convert($0.bounds, to: entry.layer) } ?? entry.layer.bounds
             box.origin = PositionArea.origin(PositionArea.of(entry.popover), anchor: anchor, size: box.size,
                                              margins: PositionArea.margins(of: entry.popover),
