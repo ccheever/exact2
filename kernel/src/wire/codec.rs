@@ -280,7 +280,7 @@ impl<'a> Reader<'a> {
 
     /// Read the bounded wire representation before applying row-domain rules.
     pub(crate) fn tracks_for_style(&mut self) -> Result<GridTracks, DecodeError> {
-        GridTracks::parse(self.string()?).ok_or(DecodeError::InvalidGridTrack)
+        GridTracks::parse_wire(self.string()?).ok_or(DecodeError::InvalidGridTrack)
     }
 
     /// Read and validate a grid placement from its canonical CSS text.
@@ -729,7 +729,7 @@ mod tests {
         // schema. The literal makes an accidental removal of that coupling a
         // test failure whenever the byte snapshot above is intentionally moved.
         // Recomputed when the schema changes; the digest test prints the value.
-        assert_eq!(SCHEMA_DIGEST, 0xeaaa_b60c_25e1_223c);
+        assert_eq!(SCHEMA_DIGEST, 0x1a62_5951_b5fd_063b);
     }
 
     #[test]
