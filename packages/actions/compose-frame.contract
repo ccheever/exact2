@@ -146,7 +146,7 @@ component ComposeFrame
               image "symbol:add" width="actions.compose-add-icon"
                 height="actions.compose-add-icon"
                 object-fit="contain"
-                -exact-tint-color="param.tint"
+                color="param.tint"
           row testId="selectLangBtn"
             role="button"
             aria-label=`Post language selection: ${langLabel}`
