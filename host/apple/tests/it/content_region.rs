@@ -852,3 +852,44 @@ fn native_region_promotes_and_clears_the_fields_editor_rect() {
         "{batch}"
     );
 }
+
+/// Stage 14 B's fallback (theme2 09:54): a popover under a registered
+/// region keeps its in-region layout, no viewport block, so the native
+/// region's capture, which takes every node of the content branch, matches
+/// the kernel's publication, and the region publishes.
+#[test]
+fn a_popover_under_a_native_region_stays_in_it_and_publishes() {
+    let source = r##"component App
+  view
+    column width="100%" height="100%"
+      view id="owner" position="relative" width="100%" height=400 flex-shrink=0 overflow-x="hidden" overflow-y="hidden"
+        view id="content" width="100%" height="100%"
+          text "Row" testId="row"
+          column testId="pop" popover="manual" width="50%" height=30
+        text "Preparing" id="pending"
+"##;
+    let plan = contract::compile(source).unwrap().encode();
+    let (mut host, _) = Host::boot_native_region(
+        &plan,
+        Data,
+        Box::new(MonospaceMeasurer::default()),
+        600.,
+        800.,
+        registration(),
+        exact_apple::content_region::NativeProjectionLimits::default(),
+    )
+    .unwrap();
+    let drops = Rc::new(Cell::new(0));
+    settle(&mut host, &drops);
+    assert!(
+        host.region_publication_id().is_some(),
+        "the native region publishes"
+    );
+    let key = host.runner().kernel().find_by_test_id("pop")[0];
+    let pop = host.runner().kernel().node_by_key(key).unwrap().id;
+    assert_eq!(
+        host.runner().kernel().host_block(pop),
+        None,
+        "in the region"
+    );
+}
