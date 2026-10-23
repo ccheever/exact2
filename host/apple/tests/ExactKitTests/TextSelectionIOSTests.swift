@@ -636,6 +636,18 @@ final class TextSelectionIOSTests: XCTestCase {
         hit.touchesBegan([touch], with: event)
         hit.touchesEnded([touch], with: event)
         XCTAssertEqual(presses, [2])
+        for clearsBeforeLift in [false, true] {
+            XCTAssertNotNil(p.textSelection.selectWord(in: first, at: try point(in: first, of: "paragraph")))
+            let selectedTouch = Touch(hit)
+            selectedTouch.point = touch.point
+            hit.touchesBegan([selectedTouch], with: event)
+            XCTAssertFalse(first.pressed, "a selection-clearing tap does not arm a paragraph press")
+            if clearsBeforeLift { input.clear() }
+            hit.touchesEnded([selectedTouch], with: event)
+            XCTAssertEqual(presses, [2], "selection clearing wins before or after touchesEnded")
+            XCTAssertFalse(first.pressed)
+            input.clear()
+        }
     }
 
 }
