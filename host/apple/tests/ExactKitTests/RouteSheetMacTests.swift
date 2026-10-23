@@ -206,6 +206,8 @@ final class RouteSheetMacTests: XCTestCase {
         let route = try f.node("add")
         let sheet = try XCTUnwrap(f.window.attachedSheet)
         XCTAssertTrue(route.window === sheet)
+        XCTAssertFalse(route.isDescendant(of: f.view), "the initial route leaves the parent before a run-loop turn")
+        XCTAssertFalse(route.isDescendant(of: try XCTUnwrap(f.window.contentView)))
         XCTAssertEqual((sheet.contentView as? RouteChrome)?.title.stringValue, "New Book")
     }
 
