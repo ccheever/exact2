@@ -12,11 +12,14 @@ for (const appearance of ['system', 'light', 'dark']) {
       await session.tap('lock-unlock');
       await session.tap('app-settings');
       await session.tap('row-display');
-      await session.type('appearance', appearance);
+      const selection = await session.type('appearance', appearance);
+      expect(selection.error).toBeUndefined();
       const failures = [];
       const check = async (screen) => {
         await session.tree(screen);
         const result = await checkOp(session, [appearance === 'system' ? 'both' : appearance]);
+        expect(result.check.map(report => report.scheme))
+          .toEqual(appearance === 'system' ? ['light', 'dark'] : [appearance]);
         for (const report of result.check) {
           failures.push(...report.findings.filter(f => f.kind === 'contrast')
             .map(f => ({ screen, scheme: report.scheme, ...f })));
