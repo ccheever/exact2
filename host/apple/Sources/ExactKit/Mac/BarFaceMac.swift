@@ -15,7 +15,10 @@ struct MacBarFace {
             node.container.subviews.compactMap { $0 as? NodeView }.filter { $0.style["display"]?.string != "none" }
         }
         func ink(_ node: NodeView, _ key: String, authored: Bool) -> NSColor {
-            authored ? node.color(key, .labelColor) : .labelColor
+            guard authored, let light = node.channels(key, dark: false), let dark = node.channels(key, dark: true) else { return .labelColor }
+            return NSColor(name: nil) { appearance in
+                TextEngine.color(appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light)
+            }
         }
         func visit(_ child: NodeView, fonted: Bool, inked: Bool, alpha: CGFloat) {
             let fonted = fonted || ["font_family", "font_size", "font_weight"].contains(where: child.wrote)
@@ -34,17 +37,20 @@ struct MacBarFace {
                     { rect in (text as NSString).draw(at: rect.origin, withAttributes: attrs) }))
             } else if child.kind == "image", let symbol = child.faceSymbol {
                 let color = ink(child, "tint_color", authored: inked || child.wrote("tint_color"))
-                let image = FaceSymbol.image(symbol, points: child.number("font_size", 13)).map { FaceSymbol.tinted($0, color) }
-                parts.append((image?.size ?? .zero, alpha, { rect in image?.draw(in: rect) }))
-            } else if children(child).isEmpty, child.kind == "view", let fill = child.cgColor("background_color"),
+                let image = FaceSymbol.image(symbol, points: child.number("font_size", 13))
+                parts.append((image?.size ?? .zero, alpha, { rect in
+                    if let image { FaceSymbol.tinted(image, color).draw(in: rect) }
+                }))
+            } else if children(child).isEmpty, child.kind == "view", child.channels("background_color") != nil,
                       let width = child.style["width"]?.number, let height = child.style["height"]?.number, width > 0, height > 0 {
                 dotted = true
+                let fill = ink(child, "background_color", authored: true)
                 let size = CGSize(width: width, height: height)
                 let corners = child.cornerSizes(in: CGRect(origin: .zero, size: size))
                 parts.append((size, alpha, { rect in
                     guard let context = NSGraphicsContext.current?.cgContext else { return }
                     context.addPath(BorderPaint.roundedRect(rect, corners, shape: nil))
-                    context.setFillColor(fill); context.fillPath()
+                    context.setFillColor(fill.cgColor); context.fillPath()
                 }))
             } else if child.kind == "view", !child.pressable, child.props["popover"] == nil {
                 walk(child, fonted: fonted, inked: inked, alpha: alpha)

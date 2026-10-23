@@ -261,6 +261,46 @@ final class HeaderMacTests: XCTestCase {
         p.toolbar.detach()
     }
 
+    private func pixels(_ image: NSImage, appearance: NSAppearance.Name) throws -> NSBitmapImageRep {
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(ceil(image.size.width)),
+            pixelsHigh: Int(ceil(image.size.height)), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+            isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        let context = try XCTUnwrap(NSGraphicsContext(bitmapImageRep: bitmap))
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = context
+        try XCTUnwrap(NSAppearance(named: appearance)).performAsCurrentDrawingAppearance {
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+        return bitmap
+    }
+
+    func testPaintedFaceResolvesBothDotAndTextForEachAppearance() throws {
+        let schemes = [[20, 200, 40, 255], [220, 30, 20, 255]]
+        let p = fixture(extra: view(130) + view(131, "text", ["text": "Clock"])
+            + [["op": "style", "id": 130, "style": ["width": 8, "height": 8, "background_color": schemes]],
+               ["op": "style", "id": 131, "style": ["font_size": 24, "text_color": schemes, "written": ["font_size", "text_color"]]],
+               children(13, [130, 131])])
+        window.appearance = NSAppearance(named: .aqua)
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        let image = try XCTUnwrap(p.toolbar.items[13]?.image)
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            let bitmap = try pixels(image, appearance: name)
+            var dot = 0, text = 0, wrong = 0
+            for y in 0..<bitmap.pixelsHigh { for x in 0..<bitmap.pixelsWide {
+                let c = try XCTUnwrap(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                guard c.alphaComponent > 0.5 else { continue }
+                let green = c.greenComponent > c.redComponent * 2
+                let red = c.redComponent > c.greenComponent * 2
+                if name == .aqua ? green : red { if x < 8 { dot += 1 } else { text += 1 } }
+                if name == .aqua ? red : green { wrong += 1 }
+            } }
+            XCTAssertGreaterThan(dot, 30, name.rawValue)
+            XCTAssertGreaterThan(text, 30, name.rawValue)
+            XCTAssertEqual(wrong, 0, name.rawValue)
+        }
+    }
+
     func testAuthoredDotAndFontKeepTheirToolbarFace() throws {
         let p = fixture(extra: view(130) + view(131, "text", ["text": "Clock"])
             + [["op": "style", "id": 130, "style": ["width": 8, "height": 8, "background_color": [20, 200, 40, 255]]],
