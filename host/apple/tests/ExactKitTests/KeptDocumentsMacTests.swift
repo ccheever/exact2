@@ -127,5 +127,49 @@ final class KeptDocumentsMacTests: XCTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(0.5))
         XCTAssertEqual(controller.recentDocumentURLs, [])
     }
+
+    /// A clear that lands after the 2 s fallback took what it noted: noted
+    /// again once it lands (`watchLate`), and never past a real Clear Menu.
+    /// The late clear is made by hand: the fallback runs on a list it
+    /// assumes cleared, then the test clears it.
+    func testWhatTheFallbackNotedComesBackAfterALateClearButNotAfterClearMenu() throws {
+        _ = NSApplication.shared
+        let controller = NSDocumentController.shared
+        func listed(_ want: [String], within: TimeInterval = 3) -> [String] {
+            let end = Date().addingTimeInterval(within)
+            while controller.recentDocumentURLs.map(\.lastPathComponent) != want, Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+            return controller.recentDocumentURLs.map(\.lastPathComponent)
+        }
+        func clear() { if !controller.recentDocumentURLs.isEmpty { controller.clearRecentDocuments(nil); _ = listed([]) } }
+        let saved = controller.recentDocumentURLs
+        defer {
+            KeptDocuments.late = nil
+            clear()
+            saved.reversed().forEach(controller.noteNewRecentDocumentURL)
+        }
+        let urls = try ["a.md", "b.md", "c.md"].map { try write($0, $0) }
+        for clearMenu in [false, true] {
+            clear()
+            urls.forEach(controller.noteNewRecentDocumentURL)
+            let noted = listed(["c.md", "b.md", "a.md"])
+            try XCTSkipUnless(noted == ["c.md", "b.md", "a.md"], "this test host keeps no recent documents: \(noted)")
+            // b.md forgotten, its clear not landed in 2 s: the fallback notes a.md and c.md over the list as it is.
+            KeptDocuments.toNote = (Set(urls.map(KeptDocuments.file)), [urls[0], urls[2]])
+            KeptDocuments.noteWhenCleared(tries: 0)
+            XCTAssertEqual(listed(["c.md", "a.md", "b.md"]), ["c.md", "a.md", "b.md"])
+            XCTAssertNotNil(KeptDocuments.late, "watched for a later clear")
+            if clearMenu {
+                KeptDocuments.clear()
+                XCTAssertEqual(listed([]), [])
+                RunLoop.main.run(until: Date().addingTimeInterval(1))
+                XCTAssertEqual(controller.recentDocumentURLs, [], "a Clear Menu is not undone")
+            } else {
+                // The clear lands late: what the fallback noted comes back, in its order.
+                controller.clearRecentDocuments(nil)
+                XCTAssertEqual(listed(["c.md", "a.md"], within: 5), ["c.md", "a.md"])
+                XCTAssertNil(KeptDocuments.late)
+            }
+        }
+    }
 }
 #endif
