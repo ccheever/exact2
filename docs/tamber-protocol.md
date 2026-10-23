@@ -163,6 +163,8 @@ on macOS and Linux.
   (stage 13 B, carried into stage 14 A), and every import's `notes` (in the held proposal's `review`
   when it has any): what decided a choice the source didn't say, a Pencil number's kind; and an
   import's `prefix` is at most 128 characters, for every kind (a correction: a longer one is refused).
+  It also adds the checker's own limits (the checker bound): `tamber-value-size`, `tamber-value-depth`,
+  `tamber-length-size` and `tamber-reference-depth`, refused alike by `check`, the build and every write and import.
 
 ## Where it runs
 
@@ -764,13 +766,13 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
   - a token's `kind` is one stage 6 built (`color`, `length`, `number`, `box-shadow`,
     `text-shadow`, `duration`, `easing`, `type`, `family`);
   - the axes may make at most 64 tuples;
-  - a value is at most 4096 bytes (`tamber-value-size`) and nests at most 32 functions or calc
+  - (*1.17*) a value is at most 4096 bytes (`tamber-value-size`) and nests at most 32 functions or calc
     groups deep (`tamber-value-depth`), refused before anything reads it, in every op that
     carries one (a name or metadata word past 4096 bytes too), in words that give its size and
     never echo it; each importer refuses a source value past them with the same id;
-  - a length over base names expands to at most 256 terms (`tamber-length-size`): a chain of
+  - (*1.17*) a length over base names expands to at most 256 terms (`tamber-length-size`): a chain of
     tokens each naming the next more than once, or a sum of many, is refused where it passes;
-  - a chain of tokens naming one another is at most 512 deep (`tamber-reference-depth`), past
+  - (*1.17*) a chain of tokens naming one another, with the functions their values nest, is at most 512 deep (`tamber-reference-depth`), past
     the importers' 256 links;
   - naming a dial, token, `when` or axis value the design doesn't have is refused.
 - **A param's value** (*1.10*): `name` is a param's full name (`post.contract#PostButton.radius`)
