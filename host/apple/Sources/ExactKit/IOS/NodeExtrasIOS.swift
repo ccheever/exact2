@@ -163,6 +163,7 @@ final class NodeExtras {
     var pendingScrollTransfer = false
     /// A collapsing title's scroller (LLP 1075.003 Stage 3): its expanded
     /// title's inset, where `scrollTop` 0 rests; 0 for every other scroller.
+    var controlRide: CGFloat = 0
     var scrollOrigin: CGFloat = 0
     /// …and the smallest inset it has had: its title collapsed.
     var scrollCollapsed: CGFloat = 0
@@ -370,6 +371,7 @@ extension NodeView {
     #endif
 }
 extension NodeView {
+    var controlRide: CGFloat { get { extras?.controlRide ?? 0 } set { if newValue != 0 || extras != nil { more.controlRide = newValue } } }
     var scrollOrigin: CGFloat { get { extras?.scrollOrigin ?? 0 } set { if newValue != 0 || extras != nil { more.scrollOrigin = newValue } } }
     var scrollCollapsed: CGFloat { get { extras?.scrollCollapsed ?? 0 } set { if newValue != 0 || extras != nil { more.scrollCollapsed = newValue } } }
     var scrollWritten: String? { get { extras?.scrollWritten } set { if newValue != nil || extras != nil { more.scrollWritten = newValue } } }

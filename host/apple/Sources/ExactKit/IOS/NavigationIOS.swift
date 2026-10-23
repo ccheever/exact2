@@ -38,6 +38,14 @@ final class RouteController: UIViewController {
     weak var bandedTop: UIScrollView?, bandedBottom: UIScrollView?
     /// Its insets were last taken with no bar shown (LLP 1130 D3), so a title's are measured afresh.
     var insetsBarless = false
+    var ridingBars: [NodeView] = []
+    func rideBars() {
+        let offset = node.convert(CGPoint(x: 0, y: view.safeAreaInsets.top), from: view).y
+        for bar in ridingBars where abs(bar.controlRide - offset) > 0.001 {
+            bar.controlRide = offset
+            bar.applyTransform()
+        }
+    }
     /// The scroller that is the route's last in-flow child, which reaches
     /// the screen's bottom edge (LLP 1116 D2).
     weak var edgeScroll: NodeView?
@@ -70,6 +78,7 @@ final class RouteController: UIViewController {
     // hatch): the route's content area follows (LLP 1075.003 §3.5).
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
+        rideBars()
         host?.coversChanged()
     }
     // Back on a screen whose list pushed the one leaving: the row that was

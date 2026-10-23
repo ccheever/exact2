@@ -94,7 +94,7 @@ extension NavigationHost {
                 // none once the keyboard ends it above them (`ownerFrame`).
                 let reached = c.node.convert(c.node.bounds, to: c.view).maxY - (c.view.bounds.height - safe.bottom)
                 edges = Self.routeEdges(safe: safe, document: presenter.insets, presented: presented, whole: whole, covered: covered,
-                                        collapses: c.collapseScroll != nil, reached: reached)
+                                        collapses: c.collapseScroll != nil || !c.ridingBars.isEmpty, reached: reached)
                 c.bottomClearance = edges?.bottom ?? 0
             } else if case .edges(let e)? = covers[c.node.id] {
                 edges = e
