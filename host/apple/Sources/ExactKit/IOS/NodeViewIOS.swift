@@ -931,7 +931,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             if kind == "native", presenter?.session?.natives.declined(self, at: point, with: event) == true { return nil }
             if event?.type == .touches, isParagraph {
                 touchedText()
+                #if os(iOS)
                 if let surface = presenter?.textSelection.text(for: self)?.document?.surface { return surface }
+                #endif
             } // selectable text takes its interaction for this touch
             // Interactive glass (a pressable glass box) answers a finger
             // itself, swelling and lighting under it, only for touches that
