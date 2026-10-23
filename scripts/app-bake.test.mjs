@@ -605,8 +605,8 @@ test('game web, release and unwired gpu-dev bakes never open registry generation
 // The cache boundary needs real Cargo: a script rerun recompiles its crate,
 // even when the script leaves the generated Rust file unchanged.
 test.skipIf(!process.env.EXACT_RUST_BAKE_TEST)('a linked Rust bake changes its plan without compiling its archive', async () => {
-  const { bakeOutside, linkedBakeDir, linkable } = await import('./linked-plan.mjs');
-  const root = resolve(import.meta.dir, '..'), dir = mkdtempSync(resolve(tmpdir(), 'exact-linked-rust-'));
+  const { bakeOutside, linkedBakeDir, linkable, recordRustBake } = await import('./linked-plan.mjs');
+  const root = resolve(import.meta.dir, '..'), dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-linked-rust-')));
   const write = (name, bytes) => { mkdirSync(dirname(resolve(dir, name)), {recursive:true}); writeFileSync(resolve(dir, name), bytes); };
   try {
     write('rust-toolchain.toml', readFileSync(resolve(root, 'rust-toolchain.toml')));
@@ -640,6 +640,10 @@ test.skipIf(!process.env.EXACT_RUST_BAKE_TEST)('a linked Rust bake changes its p
       return {...result.stdout.split('\n').filter(line=>line.startsWith('{')).map(line=>JSON.parse(line)).find(row=>row.reason==='compiler-artifact'&&row.target.name==='linked_rust_fixture'), diagnostic: result.stderr};
     };
     const first=cargo(), library=first.filenames.find(name=>name.endsWith('.rlib'));
+    recordRustBake(env);
+    const watches=JSON.parse(readFileSync(resolve(env.EXACT_BAKED,'inputs.json'),'utf8'));
+    assert.ok(watches.paths.includes(resolve(dir,'app.contract')),'the first build is ready for the driver freshness check');
+    assert.ok(Number.isFinite(watches.at));
     // The bootstrap creates a watched file during Cargo's first invocation;
     // settle that first watch before measuring a warm edit.
     bakeOutside(app,'macos',target,env);

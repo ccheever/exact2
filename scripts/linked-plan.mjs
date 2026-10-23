@@ -155,6 +155,25 @@ export function bakeOutside(app, platform, target, env) {
   return dir;
 }
 
+/** Publish the watches of a Rust bake bootstrapped or refreshed by Cargo.
+ * A first build must have this record before its driver checks freshness. */
+export function recordRustBake(env) {
+  const dir = env.EXACT_BAKED;
+  if (!dir || !existsSync(resolve(dir, 'rust-baker.json'))) return;
+  const baker = JSON.parse(readFileSync(resolve(dir, 'rust-baker.json'), 'utf8'));
+  const at = resolve(dir, 'inputs.json'), tool = `${baker.executable} ${statSync(baker.executable).mtimeMs}`, pair = pairOf(dir);
+  let previous; try { previous = JSON.parse(readFileSync(at, 'utf8')); } catch { /* bootstrap */ }
+  if (previous?.tool === tool && previous.pair === pair && previous.at >= baker.started) return;
+  const runEnv = { ...cargoEnvironment(env), ...baker.env, OUT_DIR: dir, EXACT_BAKED: dir, EXACT_RUST_BAKE: '1' };
+  const lines = readFileSync(resolve(dir, 'rust-output.txt'), 'utf8').split('\n');
+  const said = key => lines.map(line => new RegExp(`^cargo::?${key}=(.*)$`).exec(line)?.[1]).filter(value => value !== undefined);
+  const record = { version: 1, at: baker.started, tool, pair, warnings: said('warning'),
+    env: Object.fromEntries(said('rerun-if-env-changed').map(name => [name, runEnv[name] ?? null])),
+    paths: said('rerun-if-changed').map(path => resolve(baker.cwd, path)) };
+  writeFileSync(`${at}.${process.pid}.tmp`, JSON.stringify(record));
+  renameSync(`${at}.${process.pid}.tmp`, at);
+}
+
 /** An Apple bake's warning lines for app `name`, in the compiler's order: each, but the SF Symbols only the web draws
  * blank (`webOnly`), which are one line counting them at the first one's place. */
 export function bakeWarnings(name, warnings) {
