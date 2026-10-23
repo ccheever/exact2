@@ -134,11 +134,18 @@ pub(crate) fn parse(text: &str) -> Result<Option<Dimension>, Refused> {
             false => Ok(None),
         };
     }
-    match calculation(t, true) {
+    match calculation(t, true, false) {
         Ok(node) => Ok(Some(super::dimension(super::simplify::simplify(node)))),
         Err(Fail::Env(e)) => Err(Refused::Env(e)),
         Err(Fail::Why(why)) => Err(Refused::Comparison(why)),
     }
+}
+
+/// Grid's length-percentage calculations use the same grammar and limits,
+/// without viewport or environment dependencies.
+pub(crate) fn grid(text: &str) -> Option<super::Comparison> {
+    let tree = calculation(text, true, true).ok()?;
+    Some(super::Comparison::intern(super::simplify::simplify(tree)))
 }
 
 /// The simplified tree a text parses to, for the wire's check that a tree
@@ -146,16 +153,19 @@ pub(crate) fn parse(text: &str) -> Result<Option<Dimension>, Refused> {
 /// written; the wire checks them on the tree itself ([`super::wire`]), since
 /// the text the kernel writes may open parentheses an author did not.
 pub(super) fn tree(text: &str) -> Option<Node> {
-    calculation(text, false).ok().map(super::simplify::simplify)
+    calculation(text, false, false)
+        .ok()
+        .map(super::simplify::simplify)
 }
 
 /// One math function or `env()`, the whole of `text`, as a length's tree.
-fn calculation(text: &str, limited: bool) -> Result<Node, Fail> {
+fn calculation(text: &str, limited: bool, grid: bool) -> Result<Node, Fail> {
     let mut input = ParserInput::new(text);
     let mut p = Parser::new(&mut input);
     let mut calc = Calc {
         values: 0,
         limited,
+        grid,
         comparisons: 0,
     };
     let (node, ty) = calc.value(&mut p, 0).map_err(fail)?;
@@ -193,6 +203,7 @@ fn why<'i, T>(p: &Parser<'i, '_>, why: &'static str) -> Parsed<'i, T> {
 struct Calc {
     values: usize,
     limited: bool,
+    grid: bool,
     /// The comparisons open around the token being read: a wrong `env()`
     /// inside one says why as the comparison's refusal.
     comparisons: usize,
@@ -291,12 +302,17 @@ impl Calc {
         let start = p.position();
         let token = p.next()?.clone();
         let text = p.slice_from(start);
+        if self.grid
+            && matches!(&token, Token::Dimension { unit, .. } if !unit.eq_ignore_ascii_case("px"))
+        {
+            return why(p, "grid calculations take only px and %");
+        }
         match token {
             Token::Function(name) => {
                 let name = name.to_ascii_lowercase();
                 match name.as_str() {
                     // `env()` substitutes a length: no level of the calculation
-                    "env" => p.parse_nested_block(|p| self.env(p, depth)),
+                    "env" if !self.grid => p.parse_nested_block(|p| self.env(p, depth)),
                     "calc" => {
                         let depth = self.deeper(p, depth)?;
                         p.parse_nested_block(|p| self.whole(p, depth))

@@ -754,7 +754,11 @@ Declared deviations, and beside each what is CSS's own:
 **CSS grid's supported grammar follows Chrome's.** Track templates preserve
 named lines and `repeat()` (fixed, `auto-fill` and `auto-fit`) and accept px,
 percent, fr, auto, min/max-content, `fit-content()` and flexible `minmax()`
-maxima. Placement accepts numeric and named lines and spans. Keywords and units
+maxima. `calc()`, `min()`, `max()` and `clamp()` over px and % are lengths in
+ordinary tracks, `minmax()` and valid repetitions. The dimension parser and
+resolver supply their arithmetic, narrowing and zero floor; percentages use
+the grid's content box in that axis, with CSS's intrinsic-sizing treatment
+when the basis is indefinite. Placement accepts numeric and named lines and spans. Keywords and units
 are ASCII-case-insensitive; nested `repeat()` is refused as invalid CSS.
 All six rows are parsed as CSS tokens, so escapes and comments have their CSS
 meaning; canonical output uses the CSS serializer for identifiers and retains a
@@ -762,10 +766,12 @@ shorthand's trailing placement whenever omission would change that meaning.
 The following Chrome-valid forms are the complete declared grid grammar gaps:
 
 - `subgrid`; Taffy has no subgrid layout algorithm;
-- track lengths in units other than px, and calculated/custom/environment
-  track or placement values (`calc()`, `min()`, `max()`, `clamp()`, `var()`,
-  `env()`); Taffy's portable value has no browser unit context, cascade or
-  calculation resolver;
+- track lengths in units other than px; custom/environment track values
+  (`var()`, `env()`); and calculated/custom/environment placement values;
+  these grammars have no unit context or cascade;
+- calculated `fit-content()` limits; Taffy's compact limit stores only a
+  length or percentage. `grid-auto-columns` and `grid-auto-rows` have no
+  Contract rows yet;
 - CSS-wide keywords (`inherit`, `initial`, `unset`, `revert`, `revert-layer`)
   on all six rows, plus custom/environment values on `justify-items`; kernel
   style rows store specified values without a CSS cascade;

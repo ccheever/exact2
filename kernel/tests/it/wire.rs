@@ -233,3 +233,42 @@ fn every_nonempty_payload_padding_width_requires_zero_bytes() {
         );
     }
 }
+
+#[test]
+fn calculated_grid_tracks_roundtrip_through_wire() {
+    for css in [
+        "repeat(auto-fill, minmax(min(100%, 200px), 1fr))",
+        "calc(50% - 10px) max(20px, 10%)",
+        "clamp(10px, 25%, 80px) calc(10px - 20px)",
+        "calc(NaN * 1px) min(1e100px, 20%)",
+    ] {
+        let mut style = StyleProps::default();
+        for id in [StyleId::GridTemplateColumns, StyleId::GridTemplateRows] {
+            style
+                .set_dynamic(id, &exact_kernel::StyleValue::Text(css.into()))
+                .unwrap();
+        }
+        let ops = [
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 1,
+                patch: Box::new(style.clone()),
+            },
+            Op::AttachRoot { id: 1 },
+        ];
+        let mut kernel = Kernel::with_monospace();
+        kernel.apply_frame(&wire::encode(0, 1, &ops)).unwrap();
+        let decoded = &kernel.node(1).unwrap().style;
+        assert_eq!(
+            decoded.rare.grid_template_columns,
+            style.rare.grid_template_columns
+        );
+        assert_eq!(
+            decoded.rare.grid_template_rows,
+            style.rare.grid_template_rows
+        );
+    }
+}
