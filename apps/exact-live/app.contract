@@ -624,7 +624,7 @@ component CrewPanel
                 column max-width="95%" padding=11 gap=6 box-sizing="border-box" border-radius=10 background-color=(m.outgoing ? theme.wash : theme.card)
                   text m.body font-size=(14 * k) line-height=1.45 white-space="pre-wrap" color=theme.ink
                   text m.meta font-size=(10 * k) color=theme.muted
-            button press=reply(m.id) retainFocus=true align-self="flex-end" padding=5 border-width=0 background-color="#00000000" aria-label=`Reply to ${m.sender}`
+            button tabindex=0 press=reply(m.id) retainFocus=true align-self="flex-end" padding=5 border-width=0 background-color="#00000000" aria-label=`Reply to ${m.sender}`
               text "Reply" font-size=(10 * k) color=theme.accent
       column padding=12 gap=6 width="100%" box-sizing="border-box" flex-shrink=0
         if replying != ""
