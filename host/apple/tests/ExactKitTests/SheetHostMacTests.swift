@@ -92,7 +92,7 @@ final class SheetFixture {
     """
 
     /// `page`: another page for the same fixture (`RouteSheetMacTests`).
-    init(page: String = SheetFixture.page, size: CGSize = CGSize(width: 900, height: 640)) throws {
+    init(page: String = SheetFixture.page, size: CGSize = CGSize(width: 900, height: 640), settleOnMount: Bool = true) throws {
         _ = NSApplication.shared
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -111,8 +111,7 @@ final class SheetFixture {
         view = ExactView(session: session)
         view.frame = NSRect(origin: .zero, size: size)
         window.contentView = view
-        window.layoutIfNeeded()
-        settle()
+        if settleOnMount { window.layoutIfNeeded(); settle() }
     }
     func close() {
         presenter.reset()
