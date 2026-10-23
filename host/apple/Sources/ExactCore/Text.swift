@@ -289,20 +289,9 @@ package struct SourceMap: Hashable {
     }
 }
 
-/// A face's CSS line box. macOS follows Chrome, the parity oracle (the web
-/// host's smoke and `browser_cases.rs` run in it), on the same faces: Blink
-/// keeps ascent, descent and line gap as whole pixels, rounded to the
-/// nearest; `line-height: normal` puts the gap's floor half above and the
-/// rest below, and a set height centres the content area with the baseline
-/// floored. Chrome 154 on macOS 26.6 at device scale 1 (the web smoke's),
-/// captured with getBoundingClientRect for SF 10-40 px and the fallback
-/// faces; TextParityMacTests pins it.
-///
-/// iOS keeps CoreText's unrounded metrics, the paragraph's height rounded up
-/// once. Chrome's rule cannot be applied there: iOS's SF has other vertical
-/// metrics (15.23 + 3.86 at 16 px against the Mac's 15.47 + 3.38), so
-/// rounding each gives 16 at 14 px where Chrome has 17, and the scroll
-/// fixture's cross-host 652 (smoke.mjs) would move. See QUEUE.
+/// CSS line boxes use Chrome's rounding of each face's ascent, descent and
+/// gap at scale 1, including iOS faces whose metrics differ from macOS.
+/// Native controls measure through TextPresentation and retain UIKit's metrics.
 package enum CSSLineBox {
     /// A text advance as the browser's layout holds it: rounded up to its
     /// 1/64 px layout unit, never to a whole point (a chip's width).
@@ -310,17 +299,12 @@ package enum CSSLineBox {
 
     /// The content area (an inline background's extent) above and below the baseline.
     package static func content(_ font: CTFont) -> (CGFloat, CGFloat) {
-        #if os(macOS)
         (CTFontGetAscent(font).rounded(), CTFontGetDescent(font).rounded())
-        #else
-        (CTFontGetAscent(font), CTFontGetDescent(font))
-        #endif
     }
 
     /// Above and below the baseline: `line-height: normal` when `height` is
     /// nil, else the authored line height.
     package static func extents(_ font: CTFont, height: CGFloat?) -> (CGFloat, CGFloat) {
-        #if os(macOS)
         let (ascent, descent) = content(font)
         guard let height else {
             let gap = CTFontGetLeading(font).rounded()
@@ -329,11 +313,6 @@ package enum CSSLineBox {
         guard height.isFinite else { return (ascent, descent) }
         let above = ascent + floor((height - ascent - descent) / 2)
         return (above, height - above)
-        #else
-        let ascent = CTFontGetAscent(font), below = CTFontGetDescent(font) + CTFontGetLeading(font)
-        let half = ((height ?? ascent + below) - ascent - below) / 2
-        return (ascent + half, below + half)
-        #endif
     }
 }
 
@@ -1189,8 +1168,8 @@ package final class TextEngine {
             start += count
         }
         // An authored CSS line height fixes the line box, including fractions;
-        // a `normal` one is whole pixels on macOS and CoreText's sum, rounded
-        // up once, on iOS (CSSLineBox). A width rounds up to the browser's
+        // a `normal` one rounds each font metric to whole pixels (CSSLineBox).
+        // A width rounds up to the browser's
         // 1/64 layout unit, so text laid out again at its own measured width
         // still fits on its lines.
         // Balancing moves breaks, never the box: it measures as its greedy lines do.
