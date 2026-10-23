@@ -425,7 +425,7 @@ fn a_held_drop_keeps_the_ghost_until_its_answer_or_its_deadline() {
         "{reply}"
     );
     let due = h.runner.timer_due_ms().unwrap();
-    let batch = h.advance(due);
+    let batch = h.resize_at(400., 700., due);
     assert_eq!(field(&batch, "ending"), "timeout", "{batch}");
     // Home: the ghost lands on the row still in a.
     let home = h
