@@ -13,7 +13,7 @@ use exact_runner::{
 pub mod draw;
 
 /// Seam version, independent of the plan format version.
-pub const ABI: u32 = 3;
+pub const ABI: u32 = 4;
 /// Maximum request or response bytes, enforced on both sides.
 pub const MAX_MESSAGE: usize = exact_runner::MAX_HOST_WORK_BYTES;
 
@@ -280,6 +280,20 @@ fn read_outcome(r: &mut Reader<'_>) -> Result<Outcome, String> {
 }
 fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
     match result {
+        // A long poll that is no stream's independent GET, or with bad terms (LLP
+        // 1016.000 D8), is refused before it crosses, ahead of every other kind.
+        Ok(Answer::Later(r))
+            if r.long_poll.is_some()
+                && (r.long_poll_refusal().is_some()
+                    || r.storage.is_some()
+                    || r.http == HttpScheduling::Ordered) =>
+        {
+            let why = r
+                .long_poll_refusal()
+                .unwrap_or("exactLongPoll: a long poll is a stream's independent HTTP request")
+                .to_string();
+            encode_result(w, Err(DataError::Unavailable(why)))
+        }
         Ok(Answer::Later(r))
             if (r.storage.is_some() || r.continuation.is_some() || r.surface.is_some())
                 && r.http != HttpScheduling::Ordered =>
@@ -350,12 +364,6 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
             bytes(w, r.storage.as_ref().unwrap());
             w.u8(u8::from(r.grants.is_some()));
             w.string(r.grants.as_deref().unwrap_or(""));
-        }
-        // A long poll that is no stream's GET, or with bad terms (LLP 1016.000 D8),
-        // is refused before it crosses.
-        Ok(Answer::Later(r)) if r.long_poll_refusal().is_some() => {
-            let why = r.long_poll_refusal().unwrap_or_default().to_string();
-            encode_result(w, Err(DataError::Unavailable(why)))
         }
         // The seam's HTTP kinds carry no redirect mode yet: a module asking
         // for one is refused, never silently followed.
