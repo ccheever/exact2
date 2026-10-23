@@ -240,5 +240,23 @@ final class PageEdgesIOSTests: XCTestCase {
         XCTAssertEqual(filter.convert(filter.bounds, to: route.view).minY, route.view.safeAreaInsets.top + 8, accuracy: 1)
     }
 
+    func testAControlBarMayIncludeACaptionButACaptionAloneIsNotABar() {
+        let p = Presenter()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "textarea"],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Messages are saved locally"]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "create", "id": 4, "kind": "view"],
+            ["op": "create", "id": 5, "kind": "text", "props": ["text": "Signed in as Ada"]],
+            ["op": "children", "id": 4, "ids": [5]],
+            ["op": "roots", "ids": [1, 4]]
+        ]))
+        XCTAssertTrue(ControlBars(p).isBar(p.views[1]!))
+        XCTAssertFalse(ControlBars(p).isBar(p.views[4]!))
+        p.views[1]?.style["written"] = .array([.string("background_color")])
+        XCTAssertFalse(ControlBars(p).isBar(p.views[1]!))
+    }
+
 }
 #endif

@@ -45,7 +45,7 @@ final class ControlBars {
 
     /// D1: a shown, in-flow box with only its bar ride as a transform, with no
     /// background of the author's, holding at least one control and nothing
-    /// else but wrappers. A control is taken whole; a text, an image, a
+    /// else but wrappers and captions. A control is taken whole; an image, a
     /// picture, a native view, a scroller or a painted wrapper outside one
     /// makes it no bar.
     func isBar(_ box: NodeView) -> Bool {
@@ -80,7 +80,9 @@ final class ControlBars {
         else if isControl(n) { answer = 1 }
         // A wrapper is a plain box with no paint of its own: a text, an image, a picture, a canvas, a native
         // view or a scroller is not.
-        else if n.wrote("background_color") || n.scrollView != nil || n.kind != "view" { answer = nil }
+        else if n.wrote("background_color") || n.scrollView != nil { answer = nil }
+        else if n.isParagraph { answer = 0 }
+        else if n.kind != "view" { answer = nil }
         else if let ids = presenter.flats.children(of: n.id) { answer = ids.reduce(0) { sum, id in sum.flatMap { s in leaf(id).map { s + $0 } } } }
         else { answer = n.container.subviews.reduce(0) { sum, v in sum.flatMap { s in (v as? NodeView).map { contents($0).map { s + $0 } } ?? s } } }
         held[ObjectIdentifier(n)] = answer
