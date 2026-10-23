@@ -11,6 +11,26 @@ import XCTest
 final class AccessibilityTreeIOSTests: XCTestCase {
     private var window: UIWindow!
 
+    func testToggleButtonsReportFalseTrueAndMixedFromThePlatform() throws {
+        let p = try fixture()
+        for value in ["false", "true", "mixed"] {
+            p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityPressed": value]]]))
+            p.syncAccessibility()
+            let ax = p.axElements(roots: [p.viewport])
+            let button = try XCTUnwrap(element(ax, "named"))
+            XCTAssertEqual(button["role"] as? String, "button")
+            let states = try XCTUnwrap(button["states"] as? [String: Any])
+            if value == "mixed" { XCTAssertEqual(states["pressed"] as? String, "mixed") }
+            else { XCTAssertEqual(states["pressed"] as? Bool, value == "true") }
+            XCTAssertNil(states["checked"])
+            XCTAssertTrue((ax["observes"] as? [String] ?? []).contains("pressed"))
+        }
+        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["accessibilityPressed"]]]))
+        let ax = p.axElements(roots: [p.viewport])
+        let button = try XCTUnwrap(element(ax, "named"))
+        XCTAssertNil((button["states"] as? [String: Any])?["pressed"])
+    }
+
     /// Two buttons (one named, one an image with no name) and a column.
     private func fixture() throws -> Presenter {
         let p = Presenter()

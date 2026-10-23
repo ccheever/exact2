@@ -65,3 +65,20 @@ test('tree --ax: Android says a control by its class, a heading by a flag and a 
   expect(details(web('checkbox', 'Milk', 'milk', { checked: true }), droid('checkbox', 'Milk', 'milk', { class: 'android.widget.Button' }, {}))).toEqual(['role checkbox (web) vs button (android)']);
   expect(details(web('checkbox', 'Milk', 'milk', { checked: true }), droid('checkbox', 'Milk', 'milk', { class: 'android.widget.CheckBox' }, {}))).toEqual(['checked missing on android (true vs —)']);
 });
+
+
+test('tree --ax compares pressed toggle states and preserves missing states', () => {
+  const web = value => reply([el('button', 'Bold', 'bold', { states: value == null ? {} : { pressed: value } })]);
+  const ios = value => reply([el('button', 'Bold', 'bold', { value, native: { role: ['button', 'toggleButton'] } })], 'uikit');
+  const mac = value => reply([el('button', 'Bold', 'bold', { states: value == null ? {} : { pressed: value }, native: { role: 'AXCheckBox', subrole: 'AXToggle' } })], 'appkit');
+  for (const [value, native] of [[false, '0'], [true, '1'], ['mixed', '2']]) {
+    expect(details(web(value), ios(native))).toEqual([]);
+    expect(details(web(value), mac(value))).toEqual([]);
+  }
+  expect(details(web(true), ios('0'))).toEqual(['pressed true (web) vs false (uikit)']);
+  expect(details(web('mixed'), mac(false))).toEqual(['pressed mixed (web) vs false (appkit)']);
+  expect(details(web(true), ios('checked'))).toEqual(['pressed missing on uikit (true vs —)']);
+  expect(details(web(true), mac(undefined))).toEqual(['pressed missing on appkit (true vs —)']);
+  expect(details(web(undefined), mac(undefined))).toEqual([]);
+  expect(details(web(undefined), ios('1'))).toEqual(['pressed missing on web (— vs true)']);
+});

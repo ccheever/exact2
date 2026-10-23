@@ -177,7 +177,7 @@ extension Presenter {
             elements = kept.map { w.elements[$0] }
         }
         // The states this runtime can observe (D6): UIKit's expanded status needs iOS 18.
-        var observes = ["checked", "disabled"]
+        var observes = ["checked", "pressed", "disabled"]
         #if os(iOS) || os(tvOS)
         if #available(iOS 18, *) { observes.append("expanded") }
         #else
@@ -434,15 +434,14 @@ extension Presenter {
             : names.contains("link") ? "link" : names.contains("header") ? "heading" : names.contains("searchField") ? "searchbox"
             : names.contains("button") ? "button" : names.contains("image") ? "image" : names.contains("adjustable") ? "adjustable"
             : names.contains("tabBar") ? "tablist" : names.contains("staticText") ? "text" : "unknown")
-        // UIKit's toggle (LLP 1115.000 D13.3, D14.4): the `toggleButton`
-        // trait, or a `UISwitch`, and its value, "1" on and "0" off. It is
-        // UIKit's one form for a checkbox, a switch and a pressed button
-        // alike, so which of them it is here is what its author wrote: the
-        // role or control kind of the view it joins. A toggle whose value is
-        // not UIKit's reports no `checked`, which the comparison names.
-        if forced == nil, names.contains("toggleButton") || Self.isSwitch(obj), let role = id.flatMap({ views[$0] }).flatMap(Self.toggleRole) {
+        // UIKit uses the same toggle trait for checkboxes, switches and pressed buttons.
+        // The joined view identifies the role; the platform's value supplies its state.
+        if forced == nil, names.contains("toggleButton") || Self.isSwitch(obj) {
+            let role = id.flatMap({ views[$0] }).flatMap(Self.toggleRole) ?? "button"
             e["role"] = role
-            if value == "1" || value == "0" { states["checked"] = value == "1" }
+            let state = role == "button" ? "pressed" : "checked"
+            if value == "2" { states[state] = "mixed" }
+            else if value == "1" || value == "0" { states[state] = value == "1" }
         }
         // UIKit has no radio trait: the drawn radio (x2apps survey #2) says
         // what it is by its class, its state by `selected`.
@@ -498,7 +497,11 @@ extension Presenter {
         if r == "AXHeading", let level = f.value as? Int { states["level"] = level }
         // A spinning indicator is AppKit's busy one (LLP 1069.001, amended 2026-10-07).
         if r == "AXBusyIndicator" { states["busy"] = true }
-        if r == "AXCheckBox" || r == "AXRadioButton", let on = f.value as? Int { states["checked"] = on == 1 }
+        if r == "AXCheckBox" || r == "AXRadioButton", let on = f.value as? Int {
+            let toggle = r == "AXCheckBox" && f.subrole == "AXToggle"
+            if toggle { e["role"] = "button" }
+            states[toggle ? "pressed" : "checked"] = on == 2 ? "mixed" as Any : on == 1
+        }
         e["interactive"] = ["AXButton", "AXLink", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton", "AXSlider", "AXPopUpButton", "AXMenuItem", "AXComboBox"].contains(r)
         native["role"] = r
         if let subrole = f.subrole { native["subrole"] = subrole }

@@ -280,13 +280,14 @@ export function axFindings(reply) {
  * they apply, so absence is missing; `expanded` where a control has it. */
 const PLATFORMS = {
   'chrome-cdp': {
-    observes: ['checked', 'level', 'disabled', 'expanded'],
+    observes: ['checked', 'pressed', 'level', 'disabled', 'expanded'],
     role: e => e.role,
     checked: e => e.states?.checked,
+    pressed: e => e.states?.pressed,
   },
   uikit: {
     // UIKit exposes no heading level; its expanded status needs iOS 18 (the reply's `observes` says).
-    observes: ['checked', 'disabled', 'expanded'],
+    observes: ['checked', 'pressed', 'disabled', 'expanded'],
     role(e) {
       const traits = Array.isArray(e.native?.role) ? e.native.role : [];
       if (e.native?.class === 'UITextField' || e.native?.class === 'UITextView') return 'textbox';
@@ -309,9 +310,13 @@ const PLATFORMS = {
       if (!traits.includes('toggleButton') && e.native?.class !== 'UISwitch') return e.states?.checked;
       return { 1: true, 0: false, 2: 'mixed' }[e.value];
     },
+    pressed(e) {
+      const traits = Array.isArray(e.native?.role) ? e.native.role : [];
+      return traits.includes('toggleButton') ? { 1: true, 0: false, 2: 'mixed' }[e.value] : e.states?.pressed;
+    },
   },
   appkit: {
-    observes: ['checked', 'level', 'disabled', 'expanded'],
+    observes: ['checked', 'pressed', 'level', 'disabled', 'expanded'],
     // AppKit's accessor cannot tell an unexpanded control from one with no such state.
     trueOnly: ['expanded'],
     role(e) {
@@ -322,6 +327,7 @@ const PLATFORMS = {
       return { AXButton: 'button', AXLink: 'link', AXHeading: 'heading', AXTextField: 'textbox', AXTextArea: 'textbox', AXCheckBox: 'checkbox', AXRadioButton: 'radio', AXSlider: 'slider', AXPopUpButton: 'combobox' }[raw] ?? e.role;
     },
     checked: e => e.states?.checked,
+    pressed: e => e.states?.pressed,
   },
   android: {
     // Android says a heading by a flag with no level, a link and a tab by a role description (as Material's own
@@ -341,7 +347,7 @@ const PLATFORMS = {
   },
 };
 // The roles a state applies to (D6).
-const APPLIES = { checked: r => r === 'checkbox' || r === 'radio' || r === 'switch', level: r => r === 'heading', disabled: () => true, expanded: () => true };
+const APPLIES = { pressed: r => r === 'button', checked: r => r === 'checkbox' || r === 'radio' || r === 'switch', level: r => r === 'heading', disabled: () => true, expanded: () => true };
 const ABSENT_IS_FALSE = new Set(['disabled']);
 
 /** Parity between two hosts by unique testId (D6), which is what the author
@@ -377,7 +383,8 @@ export function axParity(web, other, testIds) {
     const can = (r, p) => p.observes.filter(s => !Array.isArray(r.ax.observes) || r.ax.observes.includes(s));
     for (const s of can(web, pa).filter(s => can(other, pb).includes(s))) {
       if (!APPLIES[s](rx) || !APPLIES[s](ry)) continue;
-      let vx = s === 'checked' ? pa.checked(x) : x.states?.[s], vy = s === 'checked' ? pb.checked(y) : y.states?.[s];
+      let vx = pa[s] ? pa[s](x) : x.states?.[s], vy = pb[s] ? pb[s](y) : y.states?.[s];
+      if (s === 'pressed' && vx == null && vy == null) continue;
       if (ABSENT_IS_FALSE.has(s)) { vx ??= false; vy ??= false; }
       // Expanded applies where either side reports it.
       if (s === 'expanded' && vx == null && vy == null) continue;
