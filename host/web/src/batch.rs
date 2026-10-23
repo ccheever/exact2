@@ -669,6 +669,17 @@ impl Batch {
         if r.request.stream {
             s.push_str(",\"stream\":true");
         }
+        // A long poll (D8): the page asks again with each reply's cursor.
+        if let Some(poll) = &r.request.long_poll {
+            s.push_str(",\"longPoll\":{\"cursor\":");
+            quote(&poll.cursor, &mut s);
+            s.push_str(",\"from\":");
+            quote(&poll.from, &mut s);
+            s.push_str(match poll.same_cursor_event {
+                true => ",\"sameCursorEvent\":true}",
+                false => ",\"sameCursorEvent\":false}",
+            });
+        }
         s.push('}');
         self.ops.push(s);
     }

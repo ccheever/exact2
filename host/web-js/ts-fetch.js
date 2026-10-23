@@ -74,6 +74,8 @@ function captured(options) {
   return init;
 }
 function fetchOf(input, options, call) {
+  if (options?.exactLongPoll !== undefined && options.exactStream === undefined)
+    return Promise.reject(new TypeError('exactLongPoll asks again for an answer that keeps coming: give exactStream too'));
   if (options?.exactStream === undefined && options?.exactBodyFrom === undefined) return fetchWith(tsGrantSet, input, options);
   let redirect;
   try { redirect = redirectOf(input, options); } catch (e) { return Promise.reject(e); }
