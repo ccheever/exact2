@@ -47,7 +47,11 @@
 //! applying it leaves to the build (lowering rewrites its class rows first,
 //! it chooses between styles, or the `for` or `match` around it isn't typed:
 //! `scan::Said::of`); and refusals outside a style row (an SVG attribute, a
-//! canvas).
+//! canvas). Where the build refuses such a row first, the first refusal the
+//! check says is a later one of the build's: every refusal it says is still
+//! the build's, in its words and place, and none is false (the limit theme2
+//! accepted for shorthand rows at the style rows' sign-off, the same for a
+//! row this check can't type beside one it can).
 
 use super::{bind, fold, profiles, scan, Origin, Refusals, Sink, ThemeEntry};
 use crate::{DeclaredFont, LowerError};
