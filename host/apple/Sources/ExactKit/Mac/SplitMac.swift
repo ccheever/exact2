@@ -321,6 +321,15 @@ final class SplitHost {
         return nil
     }
 
+    private var samplingPlacement = false
+    /// Runtime reads sample native movement even when the pane's model frame is unchanged.
+    func samplePlacement() {
+        guard !samplingPlacement, active, !held.isEmpty, let pane = controller?.detailPane else { return }
+        samplingPlacement = true
+        defer { samplingPlacement = false }
+        resized(pane.bounds.size)
+    }
+
     private func resized(_ size: CGSize) {
         for entry in held.values { presenter.blocks.resize(entry.route, .size(size), placement: controller.map { placement(of: entry.route, in: $0.detailPane) } ?? nil) }
     }

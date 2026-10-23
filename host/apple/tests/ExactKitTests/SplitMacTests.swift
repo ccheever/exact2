@@ -166,7 +166,7 @@ final class SplitMacTests: XCTestCase {
         let columns = compose(ExactView(session: session), width: 1000, sidebar: false)
         let window = try XCTUnwrap(self.window)
         try press("row-a")
-        func check() throws {
+        func check(dx: CGFloat = 0) throws {
             window.layoutIfNeeded()
             session.presenter.settlePump()
             try press("read-geometry")
@@ -178,13 +178,33 @@ final class SplitMacTests: XCTestCase {
             XCTAssertEqual(frame.count, 3)
             guard frame.count == 3 else { return }
             XCTAssertGreaterThan(shown.minX, 200)
-            XCTAssertEqual(frame[0], shown.minX, accuracy: 0.5)
+            XCTAssertEqual(frame[0], shown.minX + dx, accuracy: 0.5)
             XCTAssertEqual(frame[1], shown.minY, accuracy: 0.5)
             XCTAssertEqual(frame[2], shown.width, accuracy: 0.5)
             XCTAssertEqual(words.last, "geometry-card")
         }
         try check()
         width(window, 1200)
+        try check()
+        window.orderFrontRegardless()
+        columns.detailPane.wantsLayer = true
+        window.displayIfNeeded()
+        CATransaction.flush()
+        let layer = try XCTUnwrap(columns.detailPane.layer)
+        let restingFrame = columns.detailPane.frame
+        let end = layer.position.x
+        let motion = CABasicAnimation(keyPath: "position.x")
+        motion.fromValue = end - 80; motion.toValue = end
+        motion.duration = 1; motion.speed = 0; motion.timeOffset = 0.5
+        motion.fillMode = .both; motion.isRemovedOnCompletion = false
+        layer.add(motion, forKey: "split-placement-test")
+        CATransaction.flush()
+        let deadline = Date(timeIntervalSinceNow: 30)
+        while layer.presentation() == nil, Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
+        XCTAssertEqual(try XCTUnwrap(layer.presentation()).position.x, end - 40, accuracy: 0.1)
+        XCTAssertEqual(columns.detailPane.frame, restingFrame, "presentation movement does not resize or move the model pane")
+        try check(dx: -40)
+        layer.removeAnimation(forKey: "split-placement-test")
         try check()
     }
 
