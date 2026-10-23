@@ -1070,7 +1070,7 @@ impl<D: DataSource> Host<D> {
 
     /// The viewport's new size, in one batch.
     pub fn resize(&mut self, width: f32, height: f32) -> String {
-        self.resize_inner(width, height, Batch::new(), None)
+        self.resize_at(width, height, self.now_ms)
     }
 
     /// A placement root's resolved margins and whether its width is the author's

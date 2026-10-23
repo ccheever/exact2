@@ -1266,10 +1266,14 @@ impl<D: DataSource> Bridge<D> {
 
     /// The viewport changed.
     pub fn resize(&mut self, width: f32, height: f32) -> u32 {
+        let observed = self.live_clock.map(|clock| clock());
         let out = self
             .host
             .as_mut()
-            .map_or_else(not_booted, |h| h.resize(width, height));
+            .map_or_else(not_booted, |h| match observed {
+                Some(now) => h.resize_at(width, height, now),
+                None => h.resize(width, height),
+            });
         self.emit(out)
     }
 
