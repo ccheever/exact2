@@ -1198,8 +1198,8 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             "justify-items",
             "v=>gridValue(\"justify\",v)",
         )],
-        // A spring is lowered by the engine (motion.js): the declaration
-        // is the rest, as css.rs `transition_css` leaves springs out.
+        // A spring on a physics property is the engine's (motion.js); on
+        // any other it is its `linear()`, as css.rs `transition_css` writes.
         StyleId::Transition => vec![with(
             "transition",
             TRANSITION_MAP.as_str(),
