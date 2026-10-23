@@ -749,11 +749,16 @@ fn members(arena: &NodeArena, key: NodeKey) -> Result<IdSet<NodeKey>, LayoutErro
 }
 /// Whether an absolutely positioned box is under `owner`: each branch walked
 /// on its own, to the region's node limit (`members`); a branch past it is
-/// taken to hold one, and nothing past it is copied.
+/// taken to hold one, and nothing past it is copied. A box with a block (a
+/// popover's, the viewport) has left the trial, and its subtree with it; so
+/// has a popover before a first layout gives it the viewport.
 fn holds_absolute(arena: &NodeArena, owner: u32) -> bool {
     arena.children(owner).iter().any(|&branch| {
         let (mut stack, mut seen) = (vec![branch], 0);
         while let Some(s) = stack.pop() {
+            if arena.blocks.holds(s) || arena.top_layer_slots.contains(s) {
+                continue;
+            }
             seen += 1;
             let children = arena.children(s);
             if crate::style::top_layer::layout_position(arena, s) == crate::PositionType::Absolute

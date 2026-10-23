@@ -123,9 +123,9 @@ fn a_popover_keeps_only_a_sticky_its_author_wrote() {
         "out of flow: it takes no room"
     );
     assert_eq!(
-        k.node(2).unwrap().frame.y,
-        10.0,
-        "an absolute box's inset is an offset"
+        (k.node(2).unwrap().frame.y, k.host_block_size(2).is_some()),
+        (0.0, true),
+        "in the viewport, its own block, which a host places: no offset"
     );
     assert!(!sticks(&k), "and the sticky machinery lets it go");
 

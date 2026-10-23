@@ -120,7 +120,7 @@ pub fn tags<D: DataSource>(runner: &Runner<D>) -> String {
 /// The kernel's half of `layout agree` (LLP 1080.001 D2), a private
 /// message: `{"op":"frames","limit":N}` answers every live node in preorder
 /// as `[id, parent|null, x, y, w, h, bits]` — the parent-relative frame a
-/// host is sent — with bit 1 for the node's own `display: none`, 2 for an
+/// host is sent, a block's root's in its block — with bit 1 for the node's own `display: none`, 2 for an
 /// own transform row (`translate`, `translate_z`, `rotate`, `rotate_axis`,
 /// `scale`, `transform`) whose value is not the initial one (`scale: 1`,
 /// `translate: 0`, `transform: none` move nothing), 4 for a frame the host owns rather than the
@@ -169,8 +169,10 @@ pub fn frames<D: DataSource>(
         }
         count += 1;
         let f = node.frame;
+        // A block's root is in its block's space, not its parent's.
         let (px, py) = node
             .parent
+            .filter(|_| kernel.host_block(id).is_none())
             .and_then(|p| kernel.node(p))
             .map_or((0.0, 0.0), |p| (p.frame.x, p.frame.y));
         let mut bits = 0u32;
