@@ -888,6 +888,24 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertEqual(container.tabBar.selectedItem, container.tabBar.items?[container.selectedIndex])
     }
 
+    func testSharePresentsOverAnAppOwnedTabContainer() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else {
+            throw missing("scene", "sharing needs a hosted window scene")
+        }
+        setenv("EXACT_FIXTURE_CONTAINER", "app", 1)
+        defer { unsetenv("EXACT_FIXTURE_CONTAINER"); NativeViews.uninstallTable() }
+        let session = try fixture("share-owned-tabs", module: true, wholeScreen: true)
+        let navigation = session.presenter.navigation
+        until("the app's container holds the tabs") { navigation.tabController == nil && navigation.tabOwner != nil }
+        try tapNode(session, "detail")
+        until("Detail is shown") { navigation.primaryNavigation?.viewControllers.count == 2 }
+        let (anchor, rect) = session.presenter.shareAnchor(nil)
+        let sheet = try XCTUnwrap(ShareSheet.present(["Workout"], title: "Workout", from: XCTUnwrap(anchor), at: rect, outcome: { _ in }) as? UIActivityViewController)
+        defer { sheet.dismiss(animated: false) }
+        until("the share sheet is presented over the app's tabs") { sheet.presentingViewController != nil && sheet.viewIfLoaded?.window != nil }
+        XCTAssertNotNil(navigation.tabOwner?.view.window)
+    }
+
     func testTheTabsHatchAContainerTheAppOwnsAndANativeScreen() throws {
         setenv("EXACT_FIXTURE_CONTAINER", "app", 1)
         defer { unsetenv("EXACT_FIXTURE_CONTAINER"); NativeViews.uninstallTable() }
