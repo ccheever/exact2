@@ -225,3 +225,30 @@ fn the_builds_scheme_and_retention_walks_are_linear() {
     assert!(built.is_ok(), "{:?}", built.err());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The axes and `when` caps are design limits: the build refuses past them
+/// with the same ids the design server's check does (theme2's 19:26).
+#[test]
+fn the_build_refuses_past_the_axes_and_when_caps() {
+    let dir = reading("limits-caps");
+    let mut src = String::from("tamber t\n\naxes\n");
+    for a in 0..=exact_tamber::MAX_AXES {
+        src += &format!("  a{a} = v\n");
+    }
+    src += "\ntheme\n  ink = #111111\n";
+    std::fs::write(dir.join("app.tamber"), &src).unwrap();
+    let built = contract::compile_path(&dir.join("app.contract")).unwrap_err();
+    assert_eq!(built.id, "tamber-axes", "{built:?}");
+    let mut src = String::from("tamber t\n\naxes\n  a = v0");
+    for v in 1..=exact_tamber::MAX_WHENS {
+        src += &format!(" | v{v}");
+    }
+    src += "\n\ntheme\n  ink = #111111\n";
+    for v in 0..=exact_tamber::MAX_WHENS {
+        src += &format!("    when a=v{v}: #22222{}\n", v % 10);
+    }
+    std::fs::write(dir.join("app.tamber"), &src).unwrap();
+    let built = contract::compile_path(&dir.join("app.contract")).unwrap_err();
+    assert_eq!(built.id, "tamber-whens", "{built:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
