@@ -413,10 +413,18 @@ pub(crate) fn retry_after(headers: &[(String, String)], now_ms: u64) -> Option<u
 
 /// An IMF-fixdate (`Sun, 06 Nov 1994 08:49:37 GMT`) as ms since the epoch.
 fn http_date_ms(v: &str) -> Option<u64> {
-    let parts: Vec<&str> = v.split_whitespace().collect();
-    let [_, day, month, year, time, "GMT"] = parts.as_slice() else {
+    // (exactly the form, single spaces and a weekday of three letters, as the web host reads it)
+    let parts: Vec<&str> = v.split(' ').collect();
+    let [weekday, day, month, year, time, "GMT"] = parts.as_slice() else {
         return None;
     };
+    let digits = |s: &str, n: usize| s.len() == n && s.bytes().all(|b| b.is_ascii_digit());
+    let named = weekday.len() == 4
+        && weekday.ends_with(',')
+        && weekday.bytes().take(3).all(|b| b.is_ascii_alphabetic());
+    if !named || !digits(day, 2) || !digits(year, 4) || time.len() != 8 {
+        return None;
+    }
     let months = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ];
@@ -429,6 +437,9 @@ fn http_date_ms(v: &str) -> Option<u64> {
     let [h, mi, s] = hms.as_slice() else {
         return None;
     };
+    if !(1..=31).contains(&d) || *h > 23 || *mi > 59 || *s > 60 {
+        return None;
+    }
     // Days from the civil date (Howard Hinnant's algorithm).
     let (y2, m2) = if m <= 2 { (y - 1, m + 9) } else { (y, m - 3) };
     let era = y2.div_euclid(400);
@@ -541,6 +552,15 @@ mod tests {
             Some(5000)
         );
         assert_eq!(retry_after(&[], 0), None);
+        // Only the exact form, as the web host reads it.
+        for loose in [
+            "Sun,  06 Nov 1994 08:49:42 GMT",
+            "Sunday, 06 Nov 1994 08:49:42 GMT",
+            "Sun, 06 Nov 99999999999 08:49:42 GMT",
+            "Sun, 32 Nov 1994 08:49:42 GMT",
+        ] {
+            assert_eq!(retry_after(&h(loose), now), None, "{loose}");
+        }
         let mut failures = 0;
         let waits: Vec<u64> = (0..8).map(|_| backoff(7, &mut failures)).collect();
         for (w, base) in waits
