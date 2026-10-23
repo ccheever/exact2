@@ -53,16 +53,21 @@ extension NodeView {
         [style["symbol_rendering"]?.string ?? "", "\(number("symbol_value", -1))", "\(drawsListSymbol)"].joined(separator: "|")
     }
 
+    /// Shape belongs to the cached image; paint can change without replacing it.
+    func symbolShape(_ base: SymbolConfig) -> SymbolConfig {
+        #if os(iOS) || os(tvOS)
+        return drawsListSymbol ? base.applying(SymbolConfig(scale: .large)) : base
+        #else
+        return base
+        #endif
+    }
+
     /// The symbol's configuration: its size and weight, then its rendering
     /// mode (D10) — hierarchical in the tint, a palette, or multicolor.
     /// `face`: as a native control's face draws it, without the page's ink.
     func symbolConfiguration(_ base: SymbolConfig, face: Bool = false) -> SymbolConfig {
         let tint = (face ? nil : symbolInk) ?? inheritedTint
-        #if os(iOS) || os(tvOS)
-        // A list cell's image is the large scale of its size, as UIKit's
-        // `UIListContentConfiguration` asks (`preferredSymbolConfiguration`).
-        let base = drawsListSymbol ? base.applying(SymbolConfig(scale: .large)) : base
-        #endif
+        let base = symbolShape(base)
         switch style["symbol_rendering"]?.string {
         case "hierarchical": return base.applying(SymbolConfig(hierarchicalColor: tint))
         case "multicolor": return base.applying(SymbolConfig.preferringMulticolor())
