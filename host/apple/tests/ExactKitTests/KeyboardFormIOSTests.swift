@@ -58,8 +58,6 @@ final class KeyboardFormIOSTests: XCTestCase {
 
     private func assertReachable(_ testId: String, below bar: CGFloat, file: StaticString = #filePath, line: UInt = #line) throws {
         let v = try node(testId), r = box(v)
-        let keys = try box(XCTUnwrap(session?.presenter.viewport)).maxY
-        XCTAssertLessThanOrEqual(keys, self.keys + 0.5, "the viewport ends at the keys", file: file, line: line)
         XCTAssertLessThanOrEqual(r.maxY, keys + 0.5, "\(testId) above the keys: \(r)", file: file, line: line)
         XCTAssertGreaterThanOrEqual(r.minY, bar - 0.5, "\(testId) below the bar: \(r)", file: file, line: line)
         let hit = hit(atCenterOf: v)
@@ -80,7 +78,8 @@ final class KeyboardFormIOSTests: XCTestCase {
         let bar = box(nav.navigationBar).maxY
         try assertReachable("reps", below: bar)
         try assertReachable("add-set", below: bar)
-        XCTAssertEqual(box(p.viewport).maxY, keys, accuracy: 0.5, "the viewport ends at the keys")
+        let accessory = try XCTUnwrap(reps.field?.inputAccessoryView)
+        XCTAssertEqual(box(p.viewport).maxY, keys + accessory.bounds.height, accuracy: 0.5, "content draws under the accessory")
         XCTAssertEqual(box(tabs.tabBar).minY, resting.minY, accuracy: 0.5, "the tab bar stays at the bottom, under the keys: \(box(tabs.tabBar))")
 
         let field = try XCTUnwrap(reps.field)
@@ -100,8 +99,8 @@ final class KeyboardFormIOSTests: XCTestCase {
         self.add(attachment)
         XCTAssertNotNil(bench.window, "the clipped field is still mounted")
         XCTAssertFalse(bench.bounds.isEmpty, "the offscreen field has laid-out bounds")
-        XCTAssertGreaterThanOrEqual(box(bench).minY, box(p.viewport).maxY,
-                                    "the next field starts below the viewport, so Next must reveal it")
+        XCTAssertGreaterThanOrEqual(box(bench).minY, keys,
+                                    "the next field starts below the accessory, so Next must reveal it")
         XCTAssertFalse(hit(atCenterOf: bench)?.isDescendant(of: bench) == true,
                        "the offscreen field must not receive a touch before Next")
         _ = weight.textFieldShouldReturn(try XCTUnwrap(weight.field))
