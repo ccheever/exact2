@@ -365,7 +365,7 @@ extension Agent {
             return reply
         }
         if presenter.inlineText(UInt32(id)) == nil {
-            node["radii"] = v.cornerSizes(in: v.bounds).map { [Double($0.width), Double($0.height)] }
+            node["radii"] = v.effectiveCornerSizes(in: v.bounds).map { [Double($0.width), Double($0.height)] }
         }
         let host = v.paragraphOwner
         // @ref LLP 1043.000 §3 D7 — diagnose actual painted fragments, not a replay.

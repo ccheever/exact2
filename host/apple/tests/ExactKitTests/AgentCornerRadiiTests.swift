@@ -59,4 +59,32 @@ final class AgentCornerRadiiTests: XCTestCase {
         XCTAssertEqual(resized[0][1], 200.0 / 3, accuracy: 0.00001)
         XCTAssertEqual(resized[1][0], 200.0 / 3, accuracy: 0.00001)
     }
+    #if os(iOS) || os(tvOS)
+    func testLayoutReportsTheDefaultPopoverCornerAndAuthoredOverride() throws {
+        let session = ExactApp.shared.makeSession(label: "popover-corner")
+        defer { session.destroy() }
+        let p = session.presenter, window = UIWindow(frame: CGRect(x: 0, y: 0, width: 320, height: 400))
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "props": ["popover": "auto", "id": "p",
+                "defaultSurface": "true", "defaultSurfaceRadius": "30"]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 100, "h": 80],
+        ]))
+        let node = try XCTUnwrap(p.views[1]), agent = Agent(session: session)
+        XCTAssertNotNil(node.materialView)
+        func radii() throws -> [[Double]] {
+            let rows = try XCTUnwrap(agent.layout()["nodes"] as? [[String: Any]])
+            return try XCTUnwrap(rows.first { $0["id"] as? Int == 1 }?["radii"] as? [[Double]])
+        }
+        XCTAssertEqual(try radii(), Array(repeating: [30, 30], count: 4))
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["border_radius": 12]]]))
+        XCTAssertEqual(try radii(), Array(repeating: [12, 12], count: 4))
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["border_radius": 0]]]))
+        XCTAssertEqual(try radii(), Array(repeating: [0, 0], count: 4), "an authored square overrides the platform")
+    }
+    #endif
+
 }
