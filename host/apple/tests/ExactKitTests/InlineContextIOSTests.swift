@@ -182,6 +182,34 @@ final class InlineContextIOSTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(preview.parameters.visiblePath).bounds, rect)
     }
 
+    func testAWrappedRunsContextOffsetsKeepTheTargetsOrigin() throws {
+        let p = try presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        let node = try XCTUnwrap(p.views[2])
+        p.apply(wireBatch([["op": "frame", "id": 2, "x": 20, "y": 100, "w": 120, "h": 220]]))
+        var style = InlineStyle()
+        try style.set("font_size", .number(18))
+        p.applyParagraph(2, [InlineText(id: 10, parent: 2, props: ["text": "hashtag wraps across several lines", "contextPopover": "tag-menu"], style: style, handlers: ["contextmenu"], paints: true)])
+        p.menus.context.sync()
+        let rects = node.inlineRects(try XCTUnwrap(p.inlineText(10)))
+        XCTAssertGreaterThan(rects.count, 2)
+        let first = try XCTUnwrap(rects.first), last = try XCTUnwrap(rects.last)
+        let point = CGPoint(x: last.midX, y: last.midY)
+        var sample: [Substring] = []
+        p.onClipboard = { _, kind, line in if kind == 10 { sample = line.split(separator: ",", omittingEmptySubsequences: false) } }
+        let interaction = try XCTUnwrap(node.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
+        _ = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configurationForMenuAtLocation: point))
+        _ = p.menus.context.menu(try XCTUnwrap(p.menus.context.open))
+        XCTAssertEqual(sample.count, 9)
+        guard sample.count == 9 else { return }
+        XCTAssertEqual(try XCTUnwrap(Double(sample[0])), point.x - first.minX, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(Double(sample[1])), point.y - first.minY, accuracy: 0.01)
+        XCTAssertGreaterThan(try XCTUnwrap(Double(sample[1])), last.height, "offsetY does not restart at each wrapped fragment")
+        let client = p.client(node.convert(point, to: nil))
+        XCTAssertEqual(try XCTUnwrap(Double(sample[6])), client.x, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(Double(sample[7])), client.y, accuracy: 0.01)
+    }
+
     func testPlainAndInertRunsDoNotOpenTheInlineMenu() throws {
         let p = try presenter()
         defer { p.menus.reset(); window.isHidden = true }
