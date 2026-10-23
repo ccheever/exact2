@@ -30,7 +30,7 @@ const html = `<style>dialog { max-height: 240px; overflow: auto; }</style>
 </main>
 <script type="module">
   import * as nav from '/navigation.js';
-  import { reveal } from '/input-glue.js';
+  import { reveal, backButton } from '/input-glue.js';
   import '/document-glue.js';
   const { inertAncestor, modalLayers, contextAt, editMenu, liveById } = nav;
   const root = document.getElementById('exact-root');

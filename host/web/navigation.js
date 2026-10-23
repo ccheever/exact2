@@ -195,12 +195,12 @@ function appBarBack(nav, routes, index, split, shown) {
   // `keepsAuthoredHeader`).
   const pushed = index > 0 && !sheet(route) && route.getAttribute("data-navigationbar") !== "none" && !(split && (index === 1 || rowOf.has(route)))
     && !(route.firstElementChild === header && header.matches(authored) && headerShown);
-  // A header iOS makes no bar of draws Back only if its control is hidden or in a menu/dialog (iOS draws it either way).
+  // A header iOS makes no bar of draws Back when it does not show a visible Back control (iOS draws it either way).
   // Discount the bar's own hiding mark. In a header not shown, the Back stays hidden with it.
   const control = pushed ? backControl(nav, route) : null, inShownHeader = headerShown && !!control && header.contains(control) && !header.contains(control.closest("[popover], dialog"));
   const items = headerShown && (inShownHeader || shown) ? barItems(route, header) : null;
   const held = inShownHeader && !!items?.includes(control);
-  if (inShownHeader && !items) control.removeAttribute("data-exact-bar-back");
+  for (const el of route.querySelectorAll("[data-exact-bar-back]")) if (el !== control || !held) el.removeAttribute("data-exact-bar-back");
   const drawn = pushed && (!inShownHeader || !!items || !control.checkVisibility({ visibilityProperty: true }));
   if (shown) header.toggleAttribute("data-exact-bar", !!items); // a shown bar, whose symbols are the bar's size (neutral.css)
   let button = header.shadowRoot?.querySelector('button[part="back"]');
@@ -219,7 +219,7 @@ function appBarBack(nav, routes, index, split, shown) {
   button.lastChild.hidden = !label;
   if (button.lastChild.textContent !== label) button.lastChild.textContent = label;
   if (button.getAttribute("aria-label") !== name) button.setAttribute("aria-label", name);
-  if (held && control.hasAttribute("aria-keyshortcuts")) button.setAttribute("aria-keyshortcuts", control.getAttribute("aria-keyshortcuts")); else button.removeAttribute("aria-keyshortcuts");
+  if (control?.hasAttribute("aria-keyshortcuts") && !control.checkVisibility({ visibilityProperty: true })) button.setAttribute("aria-keyshortcuts", control.getAttribute("aria-keyshortcuts")); else button.removeAttribute("aria-keyshortcuts");
 }
 /** The app bar's Back on `route`, pressed: the browser's Back from its route (`popped`), applied at once: the route's control
  * pressed, else the root's `navigate` with the location beneath, else the runner's own `back` (LLP 1115 D5). The
