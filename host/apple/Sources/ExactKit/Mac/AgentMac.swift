@@ -247,6 +247,7 @@ extension Agent {
         for (id, v) in presenter.views.sorted(by: { $0.key < $1.key }) where v.window != nil {
             let r = box(v)
             var n: [String: Any] = ["id": Int(id), "x": Agent.r2(r.origin.x), "y": Agent.r2(r.origin.y), "w": Agent.r2(r.width), "h": Agent.r2(r.height)]
+            n["radii"] = v.cornerSizes(in: v.bounds).map { [Double($0.width), Double($0.height)] }
             if let toolbar = presenter.toolbar.observation(v) {
                 n = ["id": Int(id), "native": toolbar]
             }
@@ -283,7 +284,7 @@ extension Agent {
         var viewport: [String: Any] = ["w": Agent.r2(clip.bounds.width), "h": Agent.r2(clip.bounds.height)]
         if px != 0 { viewport["ox"] = Agent.r2(px) }
         if py != 0 { viewport["oy"] = Agent.r2(py) }
-        return ["clock": session.now(), "viewport": viewport, "env": env, "nodes": nodes]
+        return ["layoutVersion": 2, "clock": session.now(), "viewport": viewport, "env": env, "nodes": nodes]
     }
 
     /// `layout <node>` (LLP 1035.002 D1): the runner's rows and their sources
@@ -304,6 +305,9 @@ extension Agent {
         // its svg): the runner's rows, and that nothing was mounted for it.
         guard let v = presenter.textHost(UInt32(id)) else { return Self.unmounted(node, into: reply, now: session.now()) }
         MainActor.assumeIsolated { if let held = HeldState.rows(for: UInt32(id), in: presenter) { node["held"] = held } } // what is held on it (LLP 1122 D8)
+        if presenter.inlineText(UInt32(id)) == nil {
+            node["radii"] = v.cornerSizes(in: v.bounds).map { [Double($0.width), Double($0.height)] }
+        }
         let host = v.paragraphOwner
         // @ref LLP 1043.000 §3 D7 — diagnose actual painted fragments, not a replay.
         if !host.flowShapes.isEmpty, let paragraph = host.paragraphLayout() {
