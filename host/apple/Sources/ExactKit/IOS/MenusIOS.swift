@@ -8,8 +8,7 @@
 // paints here (the kernel-painted top layer is the web's; D2's is owed).
 // Items are rebuilt every time the menu opens (UIDeferredMenuElement
 // .uncached), after the invoker's own press has gone to the runner — both
-// fire, D1 — so a menu that refreshes its rows on that press shows the
-// refreshed rows.
+// fire, D1 — so the menu shows rows refreshed by that press.
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -596,6 +595,7 @@ final class MenuHost {
         }
     }
     func reset() {
+        focus.reset()
         resetConfirmation()
         sheets.reset()
         overlays.values.forEach {
@@ -980,7 +980,7 @@ final class MenuHost {
         }
         return nil
     }
-    func unmounted() { resetConfirmation(); sheets.reset() }
+    func unmounted() { focus.reset(); resetConfirmation(); sheets.reset() }
     var inTransition: Bool {
         if sheets.inTransition || pendingConfirmation != nil { return true }
         guard let owner = confirmation else { return false }
