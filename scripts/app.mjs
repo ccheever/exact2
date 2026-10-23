@@ -1282,13 +1282,13 @@ export function buildBake(app, platform, target, options = {}) {
     const archive=apple&&pkg.id===graph.root.id;
     const whole=wholeProgram(kind,options.profile??'release');
     const args=[archive?'rustc':options.check?'check':'build',...(archive?['--crate-type','staticlib']:[]),...cargoReproducibilityFlags(app),...injectedProfiles(app),...whole,...(sized||watch?WEB_STD:[]),...(target==='wasm32-unknown-unknown'?wasmRemapFlags(app,sized?WEB_TOOLCHAIN:null):[]),'-p',pkg.name,'--target',target,'--profile',profile,...(['linux','windows'].includes(kind)&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(gpuPackage(pkg)?['--config',`profile.${profile}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
-    if(archive&&options.link&&!env.EXACT_RUST_BUNDLE&&linkable(app,pkg))env.EXACT_BAKED=bakeOutside(app,platform,target,env);else delete env.EXACT_BAKED; // `link`: the bake's plan is carried by the linker
-    // Bootstrap the baker through an rlib before the first archive. Its
-    // generated inputs then predate the archive's Cargo invocation, so the
-    // first Contract edit does not pay a second archive compilation.
-    if (archive && env.EXACT_BAKED && existsSync(resolve(app.dir,'data/Cargo.toml')) && !existsSync(resolve(env.EXACT_BAKED,'rust-baker.json'))) {
-      buildCommand('cargo',['build',...args.slice(3)],app,env,'inherit');
-    }
+    // Refresh Rust bakers through an rlib before they read a coordinated
+    // Rust/manifest edit. Generated inputs also predate the first archive.
+    if (archive && options.link && !env.EXACT_RUST_BUNDLE && linkable(app,pkg)) {
+      env.EXACT_BAKED = bakeOutside(app,platform,target,env,dir => {
+        buildCommand('cargo',['build',...args.slice(3)],app,{...env,EXACT_BAKED:dir},'inherit');
+      });
+    } else delete env.EXACT_BAKED;
     const result=buildCommand('cargo',args,app,env,'inherit');
     const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name});
     if (archive && env.EXACT_BAKED) recordRustBake(env);
