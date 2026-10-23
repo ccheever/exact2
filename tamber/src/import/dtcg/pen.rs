@@ -69,15 +69,19 @@ const OPAQUE: [&str; 3] = ["uniforms", "inputs", "metadata"];
 /// paints, opacity, rotation, `enabled`, the type longhands, an effect's
 /// colour and spread). A `$…` under any other key (an id, a layout enum, a
 /// position, a `context`) binds nothing and decides no kind.
-const BINDABLE: [&str; 9] = [
+const BINDABLE: [&str; 13] = [
     "fill",
     "color",
     "opacity",
     "rotation",
     "enabled",
     "fontWeight",
+    "fontStyle",
     "lineHeight",
     "fontFamily",
+    "content",
+    "innerRadius",
+    "position",
     "spread",
 ];
 /// A variable's name, at most: Pencil's are short, and a report says one in
@@ -245,6 +249,10 @@ fn readers(v: &Value, at: At, out: &mut BTreeMap<String, Uses>) -> Result<(), St
                 at.opaque || (at.holder.is_some() && at.key.is_some_and(|p| OPAQUE.contains(&p)));
             for (k, x) in m {
                 crate::budget::spend(k.len() as u64)?;
+                // (a node's `theme` names axes and their values, literals all: no variable is bound there)
+                if k == "theme" && !opaque {
+                    continue;
+                }
                 let inner = At {
                     key: Some(k),
                     parent: at.key,

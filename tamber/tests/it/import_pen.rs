@@ -602,3 +602,30 @@ fn round_3_recheck_long_names_long_chains_and_only_bound_properties() {
     assert_eq!(f.value("pen.n", 0).unwrap().css(), "8px");
     assert_eq!(f.value("pen.m", 0).unwrap().css(), "9");
 }
+
+#[test]
+fn round_3_recheck_2_collisions_more_bindings_and_themes() {
+    let design = parse(EMPTY).unwrap();
+    let go = |text: &str| pen::import_with("x.pen", text, "pen", &design, &vocab());
+    // A long name reported never takes a token name, so many names colliding with it copy nothing of it.
+    let dashes = "-".repeat(64 * 1024);
+    let others: Vec<String> = (0..500)
+        .map(|i| format!(r##""!{i}?":{{"type":"color","value":"#000000"}}"##))
+        .collect();
+    let import = go(&format!(r##"{{"version":"2.21","variables":{{"{dashes}":{{"type":"color","value":"#000000"}},{}}}}}"##, others.join(","))).unwrap();
+    assert!(import.unmapped.iter().all(|u| u.why.len() < 300));
+    // innerRadius, a gradient stop's position, fontStyle and content take variables: a use each, none pixels.
+    let text = r#"{"version":"2.21","themes":{"opacity":["a","b"]},"variables":{"r":{"type":"number","value":2},"f":{"type":"string","value":"Inter"},"g":{"type":"number","value":4}},
+      "children":[{"type":"ellipse","gap":"$r","innerRadius":"$r"},{"type":"text","fontFamily":"$f","content":"$f"},
+                  {"type":"frame","gap":"$g","theme":{"opacity":"$g"}}]}"#;
+    let import = go(text).unwrap();
+    let f = folded(&import);
+    assert_eq!(f.value("pen.r", 0).unwrap().css(), "2");
+    assert!(
+        import.unmapped.iter().any(|u| u.name == "f"),
+        "a string read as content too is no family: {:?}",
+        import.unmapped
+    );
+    // A node's theme binds nothing: `g` is read as a gap alone.
+    assert_eq!(f.value("pen.g", 0).unwrap().css(), "4px");
+}
