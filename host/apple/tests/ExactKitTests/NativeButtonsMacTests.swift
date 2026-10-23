@@ -436,6 +436,29 @@ final class NativeButtonsMacTests: XCTestCase {
         XCTAssertTrue(p.menus.isOpen(pop))
     }
 
+    func testAnAncestorCanRetargetAHandlerlessInvokerBetweenPopoverAndDialog() throws {
+        for startsWithPopover in [true, false] {
+            let initial = startsWithPopover ? ["popovertarget": "choices"] : ["command": "show-modal", "commandfor": "form"]
+            let p = presenter(box(1, handlers: ["press"]) + native(2, initial, handlers: [])
+                + box(4, ["id": "choices", "popover": "manual"])
+                + box(5, ["id": "form", "semanticTag": "dialog"]) + [
+                    ["op": "children", "id": 1, "ids": [2, 4, 5]], ["op": "roots", "ids": [1]]], faces: [2: face("Open")])
+            p.menus.painted = true; p.dialogs.painted = true
+            defer { p.menus.reset(); p.dialogs.reset() }
+            var pressed: [UInt32] = []
+            p.onPress = { id in
+                pressed.append(id)
+                let replacement = startsWithPopover ? ["command": "show-modal", "commandfor": "form"] : ["popovertarget": "choices"]
+                let cleared = startsWithPopover ? ["popovertarget"] : ["command", "commandfor"]
+                p.apply(wireBatch([["op": "props", "id": 2, "set": replacement, "clear": cleared]]))
+            }
+            try XCTUnwrap(p.controls.controls[2] as? NSButton).performClick(nil)
+            XCTAssertEqual(pressed, [1])
+            XCTAssertEqual(p.dialogs.active === p.views[5], startsWithPopover)
+            XCTAssertEqual(p.menus.isOpen(try XCTUnwrap(p.views[4])), !startsWithPopover)
+        }
+    }
+
     func testACustomInvokerAlsoPressesItsAncestorAndAMissingTargetIsNotPressable() throws {
         let p = presenter(box(1, handlers: ["press"]) + [
             ["op": "create", "id": 2, "kind": "button", "props": ["popovertarget": "choices"]],
