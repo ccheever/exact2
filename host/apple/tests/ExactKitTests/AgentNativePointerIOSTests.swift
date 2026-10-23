@@ -54,6 +54,32 @@ final class AgentNativePointerIOSTests: XCTestCase {
         XCTAssertTrue(control.isOn)
     }
 
+    func testPositionedControlTapsKeepTheirRequestedPointerCoordinates() throws {
+        let agent = nativeSwitch(), p = session.presenter
+        let control = try XCTUnwrap(p.controls.controls[2] as? UISwitch), node = try XCTUnwrap(p.views[2])
+        let point = control.convert(CGPoint(x: 5, y: 6), to: nil)
+        let local = node.convert(point, from: nil), client = p.client(point), box = agent.box(node)
+        let requests: [([String: Any], CGPoint)] = [
+            (["id": 2, "at": [Double(local.x), Double(local.y)]], client),
+            (["id": 2, "x": Double(client.x), "y": Double(client.y)], client),
+            (["id": 2, "x": Double(client.x)], CGPoint(x: client.x, y: box.midY)),
+            (["id": 2, "y": Double(client.y)], CGPoint(x: box.midX, y: client.y)),
+        ]
+        var samples: [PointerSample] = []
+        p.onPointer = { _, _, sample in samples.append(sample) }
+        for (request, expected) in requests {
+            samples = []
+            let reply = agent.tap(request)
+            XCTAssertNil(reply["error"], "\(reply)")
+            XCTAssertEqual(reply["native"] as? String, "control")
+            XCTAssertEqual(samples.count, 2)
+            for sample in samples {
+                XCTAssertEqual(sample.clientX, Double(expected.x), accuracy: 0.01, "\(request)")
+                XCTAssertEqual(sample.clientY, Double(expected.y), accuracy: 0.01, "\(request)")
+            }
+        }
+    }
+
     func testAPointerHandlerCanDisableANativeControlBeforeItActivates() throws {
         let agent = nativeSwitch(), p = session.presenter
         let control = try XCTUnwrap(p.controls.controls[2] as? UISwitch)
