@@ -11,15 +11,19 @@ import { createHash } from 'node:crypto';
 import { builtinModules } from 'node:module';
 import { resolve, relative, dirname, join, sep, isAbsolute } from 'node:path';
 
+function httpOrigin(value, label) {
+  let url; try { url=new URL(value); } catch { throw new Error(`${label}: expected an http(s) origin`); }
+  if (!['http:','https:'].includes(url.protocol) || url.username || url.password || url.pathname!=='/' || url.search || url.hash)
+    throw new Error(`${label}: expected an http(s) origin without credentials, path, query or fragment`);
+  return url.origin;
+}
+
 /** Explicit build input, ahead of an ignored app-local development selection. */
 export function backendOriginSelection(app, env=process.env) {
   const file=resolve(app,'.exact/backend-origin');
   const value=env.EXACT_BACKEND_ORIGIN ?? (existsSync(file) ? readFileSync(file,'utf8').trim() : null);
   if (value===null) return null;
-  let url; try { url=new URL(value); } catch { throw new Error('EXACT_BACKEND_ORIGIN: expected an http(s) origin'); }
-  if (!['http:','https:'].includes(url.protocol) || url.username || url.password || url.pathname!=='/' || url.search || url.hash)
-    throw new Error('EXACT_BACKEND_ORIGIN: expected an http(s) origin without credentials, path, query or fragment');
-  return { origin: url.origin, source: env.EXACT_BACKEND_ORIGIN != null ? 'EXACT_BACKEND_ORIGIN' : '.exact/backend-origin' };
+  return { origin: httpOrigin(value,'EXACT_BACKEND_ORIGIN'), source: env.EXACT_BACKEND_ORIGIN != null ? 'EXACT_BACKEND_ORIGIN' : '.exact/backend-origin' };
 }
 export const backendOrigin = (app, env=process.env) => backendOriginSelection(app, env)?.origin ?? null;
 
@@ -37,20 +41,60 @@ export function backendOriginWarning(code, selection, parse) {
 }
 /** The socket origin at an http(s) origin's host: ws for http, wss for https. */
 const socketOrigin = (origin) => origin.replace(/^http/, 'ws');
-/** Rewrite only the top-level literal origin and its exact net.fetch grant literals, and the net.websocket
- * literals naming the socket at that origin's host, in the captured copy. */
+// Validate every entry, including those this bake does not select. No value
+// in this form goes through the constant evaluator or the grant URL rewrite.
+function keyedGrants(node, origin, at) {
+  const entries=new Map();
+  const refuse=(node, why)=>{ throw new Error(`app.ts:${at(node.start)}: grants: ${why}`); };
+  const line=(node, place)=>{
+    if (node?.type!=='Literal' || typeof node.value!=='string')
+      refuse(node ?? place, `expected a string literal grant line, got ${node?.type ?? 'array hole'}`);
+    if (/[\r\n\u2028\u2029]/.test(node.value)) refuse(node,'each string literal must contain one grant line');
+    return node.value;
+  };
+  for (const property of node.properties) {
+    if (property.type==='SpreadElement') refuse(property,'spread entries are not allowed');
+    if (property.computed) refuse(property.key,'computed keys are not allowed');
+    if (property.method || property.kind!=='init') refuse(property,'methods and accessors are not allowed');
+    const key=property.key;
+    if (key.type!=='Literal' || typeof key.value!=='string') refuse(key,`expected a string literal origin key, got ${key.type}`);
+    httpOrigin(key.value,`app.ts:${at(key.start)}: grants key ${JSON.stringify(key.value)}`);
+    if (entries.has(key.value)) refuse(key,`duplicate key ${JSON.stringify(key.value)}`);
+    const value=property.value;
+    entries.set(key.value,value.type==='ArrayExpression' ? value.elements.map(n=>line(n,value)).join('\n') : line(value,value));
+  }
+  if (!entries.has(origin)) refuse(node,`no entry for origin ${JSON.stringify(origin)}; keys: ${[...entries.keys()].map(k=>JSON.stringify(k)).join(', ') || '(none)'}`);
+  return entries.get(origin);
+}
+
+/** Select literal keyed grants, or move the plain form's matching fetch and
+ * socket grant lines with the origin. Only the captured copy is rewritten. */
 export function injectBackendOrigin(code, origin, parse) {
-  if (origin===null) return code;
   const parsed=parse('app.ts',code);
-  if (parsed.errors.length) throw new Error('EXACT_BACKEND_ORIGIN: app.ts must parse before selecting a backend');
-  const declarations=parsed.program.body.flatMap(s=>(s.type==='ExportNamedDeclaration' ? s.declaration : s)?.declarations ?? []);
+  if (parsed.errors.length) {
+    if (origin===null) return code;
+    throw new Error('EXACT_BACKEND_ORIGIN: app.ts must parse before selecting a backend');
+  }
+  const statements=parsed.program.body.map(s=>s.type==='ExportNamedDeclaration' ? s.declaration : s);
+  const declarations=statements.flatMap(s=>s?.declarations ?? []);
+  const grants=declarations.filter(d=>d.id.type==='Identifier' && d.id.name==='grants');
+  const keyed=grants.filter(d=>bare(d.init)?.type==='ObjectExpression');
+  if (origin===null && !keyed.length) return code;
   const targets=declarations.filter(d=>d.id.type==='Identifier' && d.id.name==='origin');
   const init=targets[0]?.init;
   const literal=init?.type==='Literal' && typeof init.value==='string' ? init.value
     : init?.type==='TemplateLiteral' && !init.expressions.length ? init.quasis[0].value.cooked : null;
   if (targets.length!==1 || !literal || !/^https?:\/\//.test(literal))
-    throw new Error('EXACT_BACKEND_ORIGIN: app.ts needs one top-level literal const origin; use it in net.fetch ${origin}');
-  const edits=[[init.start,init.end,JSON.stringify(origin)]];
+    throw new Error(keyed.length ? `app.ts:${lineColumn(code)(init?.start ?? keyed[0].start)}: grants keyed by origin need one top-level literal const origin`
+      : 'EXACT_BACKEND_ORIGIN: app.ts needs one top-level literal const origin; use it in net.fetch ${origin}');
+  const edits=origin===null ? [] : [[init.start,init.end,JSON.stringify(origin)]];
+  const at=lineColumn(code);
+  if (keyed.length) {
+    for (const d of [...targets,...keyed]) if (!statements.some(s=>s?.kind==='const' && s.declarations.includes(d)))
+      throw new Error(`app.ts:${at(d.start)}: grants keyed by origin require const ${d.id.name}`);
+    httpOrigin(origin ?? literal,`app.ts:${at(init.start)}: grants origin`);
+    for (const d of keyed) edits.push([d.init.start,d.init.end,JSON.stringify(keyedGrants(bare(d.init),origin ?? literal,at))]);
+  }
   const previous=literal.replace(/\/+$/,'');
   const replace=value=>value.split('\n').map(line=>line===`net.fetch ${previous}` || line===`net.fetch ${previous}/` ? `net.fetch ${origin}`
     : line===`net.websocket ${socketOrigin(previous)}` || line===`net.websocket ${socketOrigin(previous)}/` ? `net.websocket ${socketOrigin(origin)}` : line).join('\n');
@@ -61,7 +105,7 @@ export function injectBackendOrigin(code, origin, parse) {
     if (node.type==='TemplateElement') { if(replace(node.value.cooked)!==node.value.cooked) throw new Error('EXACT_BACKEND_ORIGIN: use net.fetch ${origin} in an interpolated grants template, and write a net.websocket line at its host as a string of its own'); return; }
     for(const child of Object.values(node)) if(Array.isArray(child)) child.forEach(walk); else if(child && typeof child==='object') walk(child);
   };
-  declarations.filter(d=>d.id.type==='Identifier' && d.id.name==='grants').forEach(d=>walk(d.init));
+  if (origin!==null) grants.filter(d=>!keyed.includes(d)).forEach(d=>walk(d.init));
   for(const [start,end,value] of edits.sort((a,b)=>b[0]-a[0])) code=code.slice(0,start)+value+code.slice(end);
   return code;
 }
@@ -754,9 +798,9 @@ export function snapbackMutationTypes(declarations) {
 /** `appId`, `grants` and the export names of the module `code` (app.ts),
  * read from its syntax: no build runs app or package code to learn them. Each
  * of `appId` and `grants` is a constant: a string, a template, `+` or an
- * array's `.join(…)` of constants, `a === b ? x : y` (or `!==`) over
- * constants, or a top-level `const` holding one; any other is refused by
- * name and place. An absent one is `undefined`. */
+ * array's `.join(…)` of constants, or a top-level `const` holding one; any
+ * other is refused by name and place. Keyed grants have already become a
+ * string in `injectBackendOrigin`. An absent one is `undefined`. */
 export function staticFacts(code, parse) {
   const parsed=parse('app.ts',code);
   if (parsed.errors?.length) return { appId: undefined, grants: undefined, exported: [] };
@@ -777,20 +821,20 @@ export function staticFacts(code, parse) {
     const seen=new Set();
     const constant=(node)=>{
       node=bare(node);
-      const refuse=()=>{ throw new Error(`app.ts:${at(node?.start ?? 0)}: ${name} must be a constant the build reads without running the module: a string, a template or + of constants, an array of them .join('\\n'), a === b ? x : y over constants, or a top-level const holding one`); };
+      const refuse=()=>{ throw new Error(`app.ts:${at(node?.start ?? 0)}: ${name} must be a constant the build reads without running the module: a string, a template or + of constants, an array of them .join('\\n'), or a top-level const holding one`); };
       if (!node) refuse();
-      if (node.type==='Literal' && ['string','number'].includes(typeof node.value)) return String(node.value);
+      if (node.type==='Literal' && ['string','number'].includes(typeof node.value)) return node.value;
       if (node.type==='TemplateLiteral') return node.quasis.map((q,i)=>q.value.cooked+(i<node.expressions.length ? constant(node.expressions[i]) : '')).join('');
       if (node.type==='BinaryExpression' && node.operator==='+') return constant(node.left)+constant(node.right);
-      // A choice by the backend selection: `origin === DISCORD ? a : b`.
-      if (node.type==='ConditionalExpression' && node.test.type==='BinaryExpression' && ['===','!=='].includes(node.test.operator))
-        return (constant(node.test.left)===constant(node.test.right))===(node.test.operator==='===') ? constant(node.consequent) : constant(node.alternate);
       if (node.type==='Identifier' && consts.has(node.name) && !seen.has(node.name)) { seen.add(node.name); const v=constant(consts.get(node.name)); seen.delete(node.name); return v; }
       if (node.type==='CallExpression' && node.arguments.length<=1 && propertyName(bare(node.callee))==='join' && bare(bare(node.callee).object)?.type==='ArrayExpression')
         return bare(bare(node.callee).object).elements.map(constant).join(node.arguments.length ? constant(node.arguments[0]) : ',');
       return refuse();
     };
-    return constant(consts.get(exported.get(name)) ?? null);
+    // A number is refused: native evaluation reads `grants: string`, and an app id is a string too.
+    const v=constant(consts.get(exported.get(name)) ?? null);
+    if (typeof v!=="string") throw new Error(`app.ts: ${name} must be a string; it is the number ${v}`);
+    return v;
   };
   return { appId: value('appId'), grants: value('grants'), exported: [...exported.keys()] };
 }
