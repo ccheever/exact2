@@ -97,6 +97,38 @@ final class NavigationBasicsIOSTests: XCTestCase {
         (try? node(session, testId))?.accessibleText
     }
 
+    func testStationaryNavigationKeepsItsBarsOutsideThePageScroller() throws {
+        let session = try fixture("stationary-navigation")
+        let presenter = session.presenter
+        let owner = try XCTUnwrap(presenter.navigation.primaryOwner?.view)
+        var ancestor = owner.superview
+        while let view = ancestor {
+            XCTAssertFalse(view is UIScrollView, "Duo's native Back must not sit inside a page scroller")
+            ancestor = view.superview
+        }
+        XCTAssertTrue(presenter.mounts(owner))
+        XCTAssertFalse(presenter.viewport.isScrollEnabled)
+    }
+
+    func testNavigationDocumentsKeepScrollingWhenTheirContentGrows() throws {
+        let session = try fixture("scrolling-navigation-document")
+        let presenter = session.presenter
+        let root = try XCTUnwrap(presenter.root.subviews.first)
+        let original = root.frame
+        root.frame.size.height = presenter.viewportSize.height + 300
+        presenter.fitDocument()
+        XCTAssertTrue(root.isDescendant(of: presenter.viewport))
+        XCTAssertTrue(presenter.viewport.isScrollEnabled)
+        let before = root.convert(CGPoint.zero, to: session.view)
+        presenter.viewport.setContentOffset(CGPoint(x: 0, y: 100), animated: false)
+        XCTAssertEqual(root.convert(CGPoint.zero, to: session.view).y, before.y - 100, accuracy: 0.5)
+        presenter.viewport.setContentOffset(.zero, animated: false)
+        root.frame = original
+        presenter.fitDocument()
+        XCTAssertFalse(root.isDescendant(of: presenter.viewport))
+        XCTAssertTrue(presenter.mounts(root))
+    }
+
     func testDeclaredProtocolCarriesColdAndWarmURLsThroughTheRouter() throws {
         let session = try fixture("protocol", plan: "EXACT_NAVIGATION_BARS_PLAN", launch: "exacttest://auth/start#cold")
         func state() -> String { session.agent(#"{"op":"state"}"#) }
