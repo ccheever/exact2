@@ -568,6 +568,63 @@ final class CustomInvokerIOSTests: XCTestCase {
         settle { !p.menus.inTransition && self.window?.rootViewController?.presentedViewController == nil }
     }
 
+    func testPointerdownRearmsAHandlerlessInvokersPath() throws {
+        let session = ExactApp.shared.makeSession(label: "invoker-rearm")
+        let p = page(session: session), agent = Agent(session: session)
+        let source = try XCTUnwrap(p.views[2]), parent = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[4])
+        parent.handlers = []
+        source.handlers = ["pointerdown"]
+        p.onPointer = { id, phase, _ in
+            guard id == 2, phase == .down else { return }
+            p.apply(wireBatch([["op": "props", "id": 2, "set": ["disabled": "true"]]]))
+            p.apply(wireBatch([["op": "props", "id": 2, "clear": ["disabled"]]]))
+        }
+        XCTAssertNil(agent.tap(["id": 2, "phase": "down"])["error"])
+        XCTAssertNil(agent.tap(["phase": "up"])["error"])
+        XCTAssertTrue(p.menus.isOpen(pop))
+    }
+
+    func testHeldInlineLinkAndSvgContactsKeepTheirCancellation() throws {
+        let session = ExactApp.shared.makeSession(label: "held-content")
+        let p = page(session: session), agent = Agent(session: session)
+        p.session = session
+        let source = try XCTUnwrap(p.views[2])
+        source.props.removeValue(forKey: "popovertarget")
+        p.apply(wireBatch([
+            ["op": "create", "id": 25, "kind": "text", "style": ["font_size": 16]],
+            ["op": "create", "id": 28, "kind": "svg"],
+            ["op": "svg", "id": 28, "scene": ["box": [0, 0, 20, 20], "t": [1, 0, 0, 1, 0, 0], "els": [
+                ["id": 29, "n": 29, "h": true, "o": 1, "p": [0, 0, 0, 1, 20, 0, 1, 20, 20, 1, 0, 20, 3], "f": [0, 0, 0, 255]],
+            ]]],
+            ["op": "children", "id": 2, "ids": [25, 28]],
+            ["op": "frame", "id": 25, "x": 0, "y": 0, "w": 120, "h": 24],
+            ["op": "frame", "id": 28, "x": 130, "y": 0, "w": 20, "h": 20],
+        ]))
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        for mode in ["inline", "link", "svg"] {
+            p.apply(wireBatch([["op": "paragraph", "id": 25, "runs": [["id": 27, "parent": 25, "paint": true,
+                "props": mode == "link" ? ["text": "Read", "href": "/guide"] : ["text": "Read"], "style": [:], "handlers": mode == "link" ? [] : ["press"]]]]]))
+            let node = try XCTUnwrap(p.views[mode == "svg" ? 28 : 25])
+            let fragment = mode == "svg" ? node.bounds : try XCTUnwrap(node.inlineRects(try XCTUnwrap(p.inlineText(27))).first)
+            let point = CGPoint(x: fragment.midX, y: fragment.midY), at = p.client(node.convert(point, to: nil))
+            for synthetic in [false, true] {
+                presses = []
+                let touch = Touch(node); touch.point = point
+                if synthetic { XCTAssertNil(agent.tap(["id": Int(node.id), "phase": "down", "x": Double(at.x), "y": Double(at.y)])["error"]) }
+                else { node.touchesBegan([touch], with: nil) }
+                p.apply(wireBatch([["op": "props", "id": node.id, "set": ["disabled": "true"]]]))
+                p.apply(wireBatch([["op": "props", "id": node.id, "clear": ["disabled"]]]))
+                if synthetic {
+                    let up = agent.tap(["phase": "up"])
+                    XCTAssertNil(up["followed"], mode)
+                    XCTAssertTrue(up["pressed"] is NSNull, "\(mode): \(up)")
+                } else { node.touchesEnded([touch], with: nil) }
+                XCTAssertEqual(presses, [], "\(mode), agent: \(synthetic)")
+            }
+        }
+    }
+
     func testKeysAndAgentResolveTheTargetAfterTheAncestorPress() throws {
         let session = ExactApp.shared.makeSession(label: "late-invoker")
         let p = page(session: session), source = try XCTUnwrap(p.views[2]), pop = try XCTUnwrap(p.views[4])
