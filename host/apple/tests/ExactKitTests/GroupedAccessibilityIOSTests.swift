@@ -29,6 +29,43 @@ final class GroupedAccessibilityIOSTests: GroupedListFixture {
         XCTAssertFalse(milk.accessibilityTraits.contains(.selected))
     }
 
+    func testTheDetailButtonSurvivesAccessibilityAndRowUpdates() throws {
+        var detail = Row(view: 12, title: "Information", accessory: "detail", target: 13)
+        let p = presenter {
+            var m = self.model()
+            m.sections[0].rows[2] = detail
+            return m
+        }
+        defer { window.isHidden = true }
+        let row = try cell(p, 12)
+        let list = try list(p)
+        let button = try XCTUnwrap(list.accessory(12) as? UIButton)
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+
+        p.apply(wireBatch([["op": "props", "id": 12, "set": [
+            "accessibilityLabel": "Read information", "accessibilitySelected": "true"
+        ]]]))
+        XCTAssertTrue(try cell(p, 12) === row)
+        XCTAssertTrue(list.accessory(12) === button)
+        XCTAssertEqual(row.accessibilityLabel, "Read information")
+        XCTAssertTrue(row.accessibilityTraits.contains(.selected))
+        _ = button.accessibilityLabel
+        _ = button.accessibilityTraits
+        row.updateConfiguration(using: row.configurationState)
+        XCTAssertTrue(list.accessory(12) === button)
+
+        detail.title = "Updated information"
+        p.apply(wireBatch([["op": "props", "id": 12, "set": ["accessibilitySelected": "false"],
+                           "clear": ["accessibilityLabel"]]]))
+        XCTAssertTrue(try cell(p, 12) === row)
+        XCTAssertTrue(list.accessory(12) === button)
+        XCTAssertEqual(row.accessibilityLabel, "Updated information")
+        XCTAssertFalse(row.accessibilityTraits.contains(.selected))
+        button.sendActions(for: .touchUpInside)
+        XCTAssertEqual(presses, [13])
+    }
+
     func testAStandardRowsNameAndSelectionComeFromItsParts() throws {
         var row = Row(view: 10, symbol: "checkmark.circle", title: "Milk", secondary: "Two bottles", pressable: true)
         let p = presenter {
