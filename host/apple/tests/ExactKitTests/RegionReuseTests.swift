@@ -436,6 +436,7 @@ import XCTest
             let dense = RegionParagraph(source: s,sourceSHA256: p.sourceSHA256,lines: layout.lines,baselines: p.baselines,
                 width: p.width,height: p.height,lineBottoms: p.lineBottoms,offeredWidth: p.offeredWidth)
             reference.rectangles = dense.selectionRects(NSRange(location: 0,length: 12),in: box,dirty: box)
+            XCTAssertEqual(layout.selectionRects(NSRange(location: 0, length: 12), in: box), reference.rectangles)
             completed.signal()
         }
         completed.wait()
