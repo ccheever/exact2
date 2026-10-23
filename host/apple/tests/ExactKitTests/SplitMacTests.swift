@@ -827,5 +827,36 @@ final class SplitMacTests: XCTestCase {
         XCTAssertTrue(again.superview === columns.detailPane)
         XCTAssertFalse(library.isHidden)
     }
+
+    /// A popover declared in a route the split shows in its detail pane opens,
+    /// painted and as AppKit's: the pane is a block's native container, and the
+    /// menus walk out of it to the route's authored home, as events do (theme2
+    /// 12:32; it had never opened there, the pane being under no page root).
+    func testAPopoverInTheDetailPaneOpens() throws {
+        for painted in [true, false] {
+            let source = app(tabs: false).replacingOccurrences(
+                of: "testId=`field-${e.params.id}`",
+                with: "testId=`field-${e.params.id}`\n            button testId=\"pop-open\" popovertarget=\"bookpop\"\n              text \"More\"\n            column id=\"bookpop\" testId=\"bookpop\" popover=\"auto\" width=100 height=40")
+            let session = try boot(tabs: false, size: CGSize(width: 1000, height: 500), source: source)
+            _ = compose(ExactView(session: session), width: 1000, sidebar: false)
+            let window = try XCTUnwrap(self.window)
+            window.setFrameOrigin(NSPoint(x: 120, y: 120))
+            window.orderFrontRegardless()
+            let p = session.presenter
+            p.menus.painted = painted
+            func settle() { for _ in 0..<20 { p.settlePump(); session.drainFill(); RunLoop.main.run(until: Date().addingTimeInterval(0.02)) } }
+            try press("row-a")
+            settle()
+            window.layoutIfNeeded()
+            let pop = try node("bookpop"), opener = try node("pop-open")
+            XCTAssertTrue(p.navigation.split.holds(try node("route-book-a")), "the book is in the detail pane")
+            XCTAssertFalse(opener.isDescendant(of: p.root), "its invoker is under no page root")
+            try press("pop-open")
+            settle()
+            XCTAssertTrue(p.menus.isOpen(pop), painted ? "painted" : "AppKit's popover")
+            if !painted { XCTAssertEqual(p.menus.windowed.count, 1) }
+            session.destroy(); self.session = nil; window.close(); self.window = nil
+        }
+    }
 }
 #endif
