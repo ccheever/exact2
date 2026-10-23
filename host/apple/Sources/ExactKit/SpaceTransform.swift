@@ -235,4 +235,28 @@ extension NodeView {
         let xs = corners.map { $0.x }, ys = corners.map { $0.y }
         return CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
     }
+
+    /// Layout supplies the untransformed overflow; the presenter adds boxes
+    /// carried outside it by transforms, stopping at each clipping boundary.
+    func documentOverflow(in document: SpaceView) -> CGRect {
+        var reach = drawnRect(CGRect(origin: .zero, size: content ?? bounds.size), in: document)
+        var below = container.subviews.compactMap { $0 as? NodeView }
+        while let child = below.popLast() {
+            guard child.style["display"]?.string != "none", child.props["semanticTag"] != "dialog",
+                  child.props["popover"] == nil else { continue }
+            if child.bounds.width > 0, child.bounds.height > 0 {
+                let box = child.drawnRect(child.bounds, in: document)
+                if box.origin.x.isFinite, box.origin.y.isFinite, box.width.isFinite, box.height.isFinite {
+                    reach = reach.union(box)
+                }
+            }
+            #if canImport(UIKit)
+            let scrolls = child.scrollView != nil
+            #else
+            let scrolls = child.scroll != nil
+            #endif
+            if !scrolls, !child.overflowClips { below.append(contentsOf: child.container.subviews.compactMap { $0 as? NodeView }) }
+        }
+        return reach
+    }
 }
