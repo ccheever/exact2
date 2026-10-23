@@ -140,6 +140,11 @@ export function modules(rows, bound = {}) {
     if (!impl?.[name]) return { error: "NotSupportedError" };
     if (row.live) live.add(row.key);
     const answered = Promise.resolve(impl[name](args ?? {}, route(row) === "agent" ? { preferred: preferred.get(row.key) } : undefined));
+    if (row.live && row.sub.poll) {
+      polls.set(row.key, clock.now);
+      asking.add(row.key);
+      answered.finally(() => { asking.delete(row.key); if (!clock.agent) setTimeout(pollCheck, periodOf(row) ?? 0); });
+    }
     if (row.live && reader) {
       const by = readers.get(row.key) ?? new Map(), told = groups.get(row.key) ?? new Map();
       readers.set(row.key, by.set(reader, JSON.stringify(args ?? {})));
@@ -149,6 +154,26 @@ export function modules(rows, bound = {}) {
     }
     return answered.then(json => overlaid(row, json));
   });
+  // Polled live sources (LLP 1133.009 D10 item 7, as the runner's `modules/poll.rs`): asked again each period of the
+  // option `poll` names (or its default) while a reader reads them, once after an advance that crossed a period, and
+  // on the live clock once a period. No plan timer: a poll never stops a jump, which waits for the ask it made
+  // (`polling`). At most one ask of a source is in flight.
+  const polls = new Map(), asking = new Set();
+  const periodOf = row => {
+    const option = typeof row.sub.poll === "string" ? row.sub.poll : row.sub.poll?.option;
+    const asked = [...(readers.get(row.key)?.values() ?? [])].map(a => JSON.parse(a)[option]).filter(ms => typeof ms === "number" && ms > 0);
+    return asked.length ? Math.min(...asked) : row.sub.poll?.default > 0 ? row.sub.poll.default : null;
+  };
+  const pollCheck = () => {
+    const due = [...polls].filter(([key, last]) => {
+      const row = byKey.get(key), period = periodOf(row);
+      return period != null && route(row) !== "substitute" && !asking.has(key) && live.has(key) && clock.now - last >= period;
+    }).map(([key]) => key);
+    for (const key of due) { polls.set(key, clock.now); say(`poll ${key}`); }
+    if (due.length) reask(due);
+  };
+  let pollQueued = false;
+  Clocked.push(() => { if (!pollQueued && polls.size) { pollQueued = true; queueMicrotask(() => { pollQueued = false; pollCheck(); }); } });
   // Admission (LLP 1133.002 D14): why the call is refused, or null.
   const admit = (row, args, origin) => {
     const sub = row.sub, lines = (data.grants ?? "").split("\n").map(l => l.trim().split(/\s+/)[0]);
@@ -185,6 +210,7 @@ export function modules(rows, bound = {}) {
       live.delete(key);
       readers.delete(key);
       groups.delete(key);
+      polls.delete(key);
       implementation(row)?.then(impl => impl?.release?.(key.slice(key.indexOf(".") + 1)));
     }
   });
@@ -261,6 +287,8 @@ export function modules(rows, bound = {}) {
     return v;
   };
   (globalThis.exact ??= {}).extensions = {
+    // A polled source's ask in flight: what a jump waits for (agent.js).
+    polling: () => asking.size > 0,
     // `state.extensions` (LLP 1133.002 §6), as the runner's `extensions_json` writes it.
     state() {
       const out = {};
