@@ -48,6 +48,7 @@ export function fixture(agentMode = true) {
     waitForInflight: async () => { const all = [...context.inflight]; if (all.some(p => p.stuck)) return false; await Promise.all(all); return true; },
     memory: { buffer: new ArrayBuffer(1024) }, readOut: value => value,
     wasm: { exact_in: () => 0, exact_plan: () => 1, exact_out: () => 0,
+      exact_requests_pending: () => 0,
       exact_plan_fonts: () => '[]', exact_boot: () => '{"ops":[],"timers":true}',
       exact_boot_plan: () => '{"ops":[],"timers":true}', exact_advance: () => '{"ops":[],"clock":16}' },
     devAssets: null, bootAttempt: 0, encoder: new TextEncoder(), location: { pathname: '/', search: '', href: 'https://fixture.invalid/' }, URL,
