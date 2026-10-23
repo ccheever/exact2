@@ -303,9 +303,8 @@ enum Seed<'a> {
 #[derive(Clone)]
 struct PendingReq {
     refusal: Option<(&'static str, bool)>,
-    /// The host refused this request before execution (LLP 1041 §8.4), ordered
-    /// or not: no later reply comes. Earlier source turns may already have
-    /// executed effects.
+    /// The host refused this ordered request before execution (LLP 1041 §8.4).
+    /// Earlier source turns may already have executed effects.
     refused: bool,
     ticket: u64,
     target: Target,

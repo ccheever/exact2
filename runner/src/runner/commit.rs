@@ -1082,25 +1082,23 @@ impl<D: DataSource> Runner<D> {
             self.count_held_reply(p.target);
         }
         let what = super::lines::fulfilling(ticket, &self.target_name(p.target), &summary);
-        let (refused, target) = (p.refused, p.target);
+        let target = p.target;
         let result = self.fulfill_inner(p, outcome);
         self.conclude(checkpoint, &result, was_poisoned);
         self.arm_then(result.is_ok());
         self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
         if let Err(e) = &result {
-            // A mutation's reply is spent whatever refused its commit: left
-            // in flight, its write would show forever.
-            if (refused
-                || matches!(e, RunnerError::Data { .. } | RunnerError::Shape { .. })
-                || matches!(target, Target::Mutation(_)))
-                && self.holds(ticket)
-            {
-                // The failure is in the journal (above); what the host needs now
-                // is the commit that takes the target out of `pending`.
-                // A refused request has no later reply, even when its shaped
-                // failure traps during settlement. Admission refusal alone
-                // cannot restart a source whose earlier turns may have written.
+            // A one-shot reply is spent whatever refused its commit: the host
+            // delivers it once, so left in flight by the rollback it would be
+            // pending forever (a mutation's write shown, a resource's
+            // `pending(…)`, a clock waiting on it), whether the source failed
+            // to take it, a refusal's shaped failure trapped, or a value it
+            // took trapped in a derive. The failure is in the journal (above);
+            // what the host needs now is the commit that takes the target out
+            // of `pending`. Admission refusal alone cannot restart a source
+            // whose earlier turns may have written.
+            if self.holds(ticket) {
                 return self.release_failed(ticket, target, crate::failure::Failure::of(e));
             }
         }
