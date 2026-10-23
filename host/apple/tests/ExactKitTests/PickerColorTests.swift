@@ -29,7 +29,7 @@ final class PickerColorTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let unknown = directory.appendingPathComponent("archive.xyz")
+        let unknown = directory.appendingPathComponent("my archive.xyz")
         try Data("any bytes".utf8).write(to: unknown)
         let copied = directory.appendingPathComponent("copied.xyz")
         try Picker.copy(unknown, to: copied, accept: [])
@@ -42,7 +42,7 @@ final class PickerColorTests: XCTestCase {
     }
 
     #if os(macOS)
-    func testAnsweredCopiesAnUnknownFileWithNoAcceptIntoAppTmp() throws {
+    func testAnsweredCopiesAnUnknownFileWithSpacesIntoAppTmp() throws {
         _ = NSApplication.shared
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -67,10 +67,10 @@ final class PickerColorTests: XCTestCase {
         defer { session.destroy() }
         XCTAssertNil(session.boot(plan: try Data(contentsOf: directory.appendingPathComponent("app.plan")), size: CGSize(width: 300, height: 100)).error)
         let request = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(session.agent(#"{"op":"picker","id":"attach"}"#).utf8)) as? [String: Any])?["view"] as? NSNumber)
-        let file = directory.appendingPathComponent("archive.xyz")
+        let file = directory.appendingPathComponent("my archive.xyz")
         try Data("any bytes".utf8).write(to: file)
         XCTAssertNil(session.presenter.views[request.uint32Value]?.props["accept"])
-        session.picker.answered(["capability": "pick", "node": request, "answered": "value"], request: ["text": file.path])
+        session.picker.answered(["capability": "pick", "node": request, "answered": "value"], request: ["text": file.path + "\n"])
         let state = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(session.agent(#"{"op":"state"}"#).utf8)) as? [String: Any])
         let slots = try XCTUnwrap(state["slots"] as? [String: Any])
         let path = try XCTUnwrap(slots["picked"] as? String)
