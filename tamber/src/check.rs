@@ -58,9 +58,6 @@ pub(crate) enum DialValue {
     Length(f64),
 }
 
-/// The tokens [`Checker::kind_of`] is following (`on`), the kinds it has
-/// found that met no cycle (`known`), and the cycles it has met.
-
 struct Checker<'a> {
     design: &'a Design,
     errors: Vec<Diagnostic>,
