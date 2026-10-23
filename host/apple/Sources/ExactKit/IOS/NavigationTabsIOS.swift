@@ -317,8 +317,9 @@ extension NavigationHost {
             if selected.ownColor("tint_color") != nil,
                let light = selected.channels("tint_color", dark: false), let dark = selected.channels("tint_color", dark: true) {
                 let wanted = [light, dark]
-                guard tabTint != wanted else { return }
+                guard tabTint != wanted || !tabTintOwn else { return }
                 tabTint = wanted
+                tabTintOwn = true
                 bar.tintColor = UIColor { TextEngine.color($0.userInterfaceStyle == .dark ? dark : light) }
                 return
             }
@@ -332,14 +333,16 @@ extension NavigationHost {
         // an alert or a menu is already dimmed (`tintAdjustmentMode`), and
         // the bar would dim it a second time.
         if case .object(let o)? = source?.style["accent_color"], o["sys"]?.string == "@tint", let source, inheritsSameTint(bar, as: source) {
-            guard tabTint != [] else { return }
+            guard tabTint != [] || tabTintOwn else { return }
             tabTint = []
+            tabTintOwn = false
             bar.tintColor = nil
             return
         }
         let wanted = [source?.channels("accent_color", dark: false), source?.channels("accent_color", dark: true)]
-        guard wanted != tabTint else { return }
+        guard wanted != tabTint || tabTintOwn else { return }
         tabTint = wanted
+        tabTintOwn = false
         // Never `.tintColor` in its place: that is the bar's own tint, this
         // colour, and a tablist whose accent went before the next sync (a
         // style that drops it) resolved it until the stack ran out. The
@@ -466,6 +469,7 @@ extension NavigationHost {
         tabItems = []
         tabItemsSource = nil
         tabTint = nil
+        tabTintOwn = false
         adoptedTablist = nil
         tablistAppearanceNone = false
         measuredTablist = nil
