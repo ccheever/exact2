@@ -19,6 +19,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// the journal is written out when asked for (`canvas/journal.rs`).
     pub fn requests(&mut self) -> Option<Vec<i32>> {
         self.echo_journal();
+        crate::canvas::jni::jni_extensions::stamp(self.p.host().runner().now_ms());
         if let Some(names) = crate::canvas::jni::jni_extensions::take_bound() {
             self.bind_extensions(&names);
         }
@@ -79,10 +80,9 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// agent, which answer only an interface that is its own substitute
     /// (LLP 1124 D7, LLP 1133.006 D8).
     pub fn bind_extensions(&mut self, names: &str) {
-        let agent = std::env::var("EXACT_AGENT").is_ok_and(|v| v == "1");
-        let chosen = std::env::var("EXACT_AGENT_BIND").unwrap_or_default();
-        let (real, under): (Vec<&str>, Vec<&str>) = (names.lines().filter(|n| !n.is_empty()))
-            .partition(|n| !agent || chosen.split(',').any(|c| c == *n));
+        let under_agent = crate::canvas::jni::jni_extensions::under_agent;
+        let (under, real): (Vec<&str>, Vec<&str>) =
+            (names.lines().filter(|n| !n.is_empty())).partition(|n| under_agent(n));
         self.p
             .host_mut()
             .runner_mut()

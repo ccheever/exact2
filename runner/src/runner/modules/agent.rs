@@ -161,7 +161,7 @@ impl<D: DataSource> Runner<D> {
                 }
             }
         }
-        let mut told: Vec<String> = Vec::new();
+        let mut told = std::collections::BTreeSet::new();
         for (key, value) in group {
             if value == "clear" {
                 self.extensions.preferred.remove(key);
@@ -172,10 +172,9 @@ impl<D: DataSource> Runner<D> {
             self.announce(key);
             let row = (self.plan.modules.iter()).find(|m| self.key(m) == *key);
             if let Some(row) = row.filter(|r| self.route(r) == Route::Agent) {
-                told.push(self.plan.str(row.extension).to_owned());
+                told.insert(self.plan.str(row.extension).to_owned());
             }
         }
-        told.dedup();
         for extension in told {
             self.tell_preferred(&extension);
         }

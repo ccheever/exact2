@@ -44,6 +44,8 @@ impl<D: DataSource> Runner<D> {
         if result.is_err() {
             self.transport.suspend = false;
             self.page = previous;
+        } else if previous.hidden != page.hidden {
+            self.tell_foreground();
         }
         result
     }

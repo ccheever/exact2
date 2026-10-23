@@ -180,8 +180,14 @@ object Native {
     @JvmStatic external fun answer(id: Int, answer: String?)
     /** A topic an extension announced ([ExtensionContext.changed]): its readers are asked again. On the host's thread. */
     @JvmStatic external fun changed(topic: String)
-    /** The extensions the APK carries, one a line ([Extensions]): bound outside the agent. On the host's thread. */
+    /** The extensions the APK carries, one a line ([Extensions]); under the agent, told so unless the drive names them
+     * (`--bind`). On the host's thread. */
     @JvmStatic external fun bindExtensions(names: String)
+    /** The session's clock, ms, as of the host's last turn and moved on by the wall's outside the agent
+     * ([ExtensionContext.now]). Any thread. */
+    @JvmStatic external fun now(): Double
+    /** Whether extension [name] is told it runs under the agent ([ExtensionContext.agent]). Any thread. */
+    @JvmStatic external fun underAgent(name: String): Boolean
     /** What the app's Kotlin hatches ask, for node [node] or 0 for their module (LLP 1115.001.000 D4; the kinds are
      * `hatches::reader::act`'s): its answer, a ticket for a registration, -1 when refused. */
     @JvmStatic external fun hatchAct(node: Int, kind: Int, text: String?): Long

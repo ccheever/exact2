@@ -103,18 +103,26 @@ export function modules(rows, bound = {}) {
   // under the agent (an interface that is its own substitute), or the substitute.
   const extensionOf = row => row.key.slice(0, row.key.indexOf("."));
   const route = row => !bound[extensionOf(row)] ? "substitute" : !clock.agent ? "real" : row.sub.implementation ? "agent" : "substitute";
-  // The bound implementation, loaded on first use (LLP 1133.002 D15).
+  // The bound implementation, loaded on first use (LLP 1133.002 D15), with its context (LLP 1133.009 D10 items 2, 3):
+  // `changed`, `agent`, the session's clock (`now`, the agent's under the agent) and whether the page is in the
+  // foreground (`foreground()`; `foreground(shown)` on the implementation is told each change). The web has no
+  // session end an implementation could finish in.
   const loaded = new Map(), live = new Set();
+  const shown = () => typeof document !== "object" || document.visibilityState !== "hidden";
   const implementation = row => {
     const extension = extensionOf(row);
     if (route(row) === "substitute") return null;
     if (!loaded.has(extension)) loaded.set(extension, bound[extension]().then(m => {
-      const impl = m.implementation?.({ changed: key => byKey.has(key) && reask([key]), agent: clock.agent }) ?? null;
+      const context = { changed: key => byKey.has(key) && reask([key]), agent: clock.agent, now: () => clock.now, foreground: shown };
+      const impl = m.implementation?.(context) ?? null;
       if (clock.agent) impl?.preferred?.(preferredOf(extension));
       return impl;
     }));
     return loaded.get(extension);
   };
+  if (typeof addEventListener === "function") {
+    addEventListener("visibilitychange", () => { for (const impl of loaded.values()) impl.then(i => i?.foreground?.(shown())); });
+  }
   // The agent's preferred values for an extension's names, by name.
   const preferredOf = extension => Object.fromEntries([...preferred].filter(([k]) => k.startsWith(`${extension}.`)).map(([k, v]) => [k.slice(extension.length + 1), v]));
   // Under the agent, the preferred value laid over the implementation's answer field by field (LLP 1133.009 D10 item 11).

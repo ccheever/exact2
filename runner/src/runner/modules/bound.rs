@@ -40,20 +40,22 @@ impl<D: DataSource> Runner<D> {
         if !real.is_empty() {
             self.log(format!("modules bound here: {}", real.join(", ")));
         }
-        let answering: Vec<String> = (self.plan.modules.iter())
+        let answering: std::collections::BTreeSet<String> = (self.plan.modules.iter())
             .filter(|m| self.route(m) == Route::Agent)
             .map(|m| self.plan.str(m.extension).to_owned())
             .collect();
-        let mut answering: Vec<&str> = answering.iter().map(String::as_str).collect();
-        answering.dedup();
         if !answering.is_empty() {
+            let names: Vec<&str> = answering.iter().map(String::as_str).collect();
             self.log(format!(
                 "modules bound under the agent: {}",
-                answering.join(", ")
+                names.join(", ")
             ));
         }
-        for extension in answering {
+        for extension in &answering {
             self.tell_preferred(extension);
+        }
+        if self.page.hidden {
+            self.tell_foreground();
         }
         self.publish_sync();
         let keys: Vec<String> = (self.plan.modules.iter())
@@ -139,6 +141,24 @@ impl<D: DataSource> Runner<D> {
             .collect();
         let body = json!({ "extension": extension, "preferred": values });
         handler(body.to_string().into_bytes(), Reply::new(|_| {}));
+    }
+
+    /// The app went to the foreground or left it: each implementation that
+    /// answers here is told, `{"extension", "foreground": bool}`, as the
+    /// fact admission reads (LLP 1133.009 D10 item 3). An implementation
+    /// begins in the foreground.
+    pub(in crate::runner) fn tell_foreground(&self) {
+        let Some(handler) = self.native_slot().handler() else {
+            return;
+        };
+        let told: std::collections::BTreeSet<&str> = (self.plan.modules.iter())
+            .filter(|m| self.route(m) != Route::Substitute)
+            .map(|m| self.plan.str(m.extension))
+            .collect();
+        for extension in told {
+            let body = json!({ "extension": extension, "foreground": !self.page.hidden });
+            handler(body.to_string().into_bytes(), Reply::new(|_| {}));
+        }
     }
 
     /// A data-code read of a bound live source, counted as a reader too.
