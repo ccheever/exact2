@@ -339,11 +339,22 @@ pub struct Choice {
     pub disabled: bool,
 }
 
+/// A native face's raster image and its decoded natural size, in points.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ButtonRasterImage {
+    /// The authored image receives intrinsic-size reports even though it has no native view.
+    pub view: ViewId,
+    /// The authored source, resolved by the host's image pipeline.
+    pub source: String,
+    /// The decoded natural dimensions; unknown until the host reports them.
+    pub size: Option<(f32, f32)>,
+}
+
 /// A button's face (LLP 1069.011.000 D1): what every host projection shows
 /// of it — a toolbar item, a tab, a menu row, a swipe action, a shortcut —
 /// read live from its direct children, a custom `button` (`Pressable`) and a
 /// native one (`ControlKind::Button`) alike.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct PressFace {
     /// Its first `text` child's text, white space collapsed; a blank title is
     /// none.
@@ -358,6 +369,8 @@ pub struct PressFace {
     /// Whether that image child is a raster instead (the projection keeps its
     /// own path for it).
     pub raster: bool,
+    /// Raster source and geometry beside the projection's raster flag.
+    pub image: Option<ButtonRasterImage>,
     /// Whether the image comes before the title (the inline start).
     pub leading: bool,
     /// Its `aria-label`.

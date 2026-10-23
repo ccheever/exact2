@@ -47,6 +47,7 @@ final class NodeAside {
     var imageLayer: CALayer?
     var imageSource: String?
     var loadGeneration = 0
+    var buttonRasterView: UInt32?
     var paintGhosts = 0
     weak var ghostParent: NodeView?
 }
@@ -226,12 +227,14 @@ extension NodeView {
     /// An image node's picture, once loaded (decoded off the main thread),
     /// the source it came from, and which load is current: a completion
     /// from an older load, or for a view that was destroyed, is dropped.
+    var buttonRasterView: UInt32? { get { aside?.buttonRasterView } set { if newValue != nil || aside != nil { asideMade.buttonRasterView = newValue } } }
     var image: UIImage? { get { aside?.image } set { if newValue != nil || aside != nil { asideMade.image = newValue } } }
     var raster: NativeRasterLease? {
         get { aside?.raster }
         set {
             if newValue != nil || aside != nil { asideMade.raster = newValue }
             if newValue == nil, let l = imageLayer { l.removeFromSuperlayer(); imageLayer = nil }
+            if isNativeButton { presenter?.controls.refreshRaster(self) }
         }
     }
     /// An image's pixels as a sublayer's contents (`applyImageLayer`).

@@ -951,7 +951,7 @@ fn face_counts(
                 if !matches!(tag.as_str(), "text" | "image") {
                     return err(
                         "lower-button-style-attr",
-                        format!("a native button shows `text`s and a symbol `image`, not a `{tag}`; write a custom `button` for other children"),
+                        format!("a native button shows `text`s and one `image`, not a `{tag}`; write a custom `button` for other children"),
                         *span,
                     );
                 }
@@ -1023,19 +1023,16 @@ fn face_counts(
                             })
                         };
                         let ok = match positional.first() {
-                            Some(Expr::Template(parts, _)) => matches!(
-                                parts.first(),
-                                Some(contract_syntax::TemplatePart::Text(t)) if t.starts_with("symbol:")
-                            ),
+                            Some(Expr::Template(_, _)) => true,
                             Some(e) => {
-                                literals(e).is_some_and(|srcs| srcs.iter().all(|s| symbol(s)))
+                                literals(e).is_none_or(|srcs| srcs.iter().all(|s| !s.is_empty() && (!s.starts_with("symbol:") || symbol(s))))
                             }
                             None => false,
                         };
                         if !ok {
                             return err(
                                 "lower-button-content",
-                                "a native button's image is a symbol, `image \"symbol:…\"` (a role, an icon token, or `sf/` and an SF Symbol's name, a choice between them, or a template that starts `symbol:`)",
+                                "a native button's `symbol:` image needs a symbol role, an icon token or a nonempty SF Symbol name",
                                 *span,
                             );
                         }

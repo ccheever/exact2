@@ -58,6 +58,20 @@ pub(crate) fn face_json_named(
         Some(l) => quote(l, &mut json),
         None => json.push_str("null"),
     }
+    json.push_str(",\"image\":");
+    if let Some(image) = &face.image {
+        json.push_str(&format!("{{\"view\":{},\"source\":", image.view));
+        quote(&image.source, &mut json);
+        json.push_str(",\"size\":");
+        if let Some((width, height)) = image.size {
+            json.push_str(&format!("[{width},{height}]"));
+        } else {
+            json.push_str("null");
+        }
+        json.push('}');
+    } else {
+        json.push_str("null");
+    }
     json.push_str(",\"style\":");
     match style {
         Some(style) => quote(style, &mut json),
@@ -133,6 +147,36 @@ pub(crate) fn face_json_named(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_raster_size_report_refreshes_the_native_button_face() {
+        let plan = contract::compile("component App\n  view\n    button appearance=\"auto\"\n      image \"photo.png\"\n      text \"Photo\"\n").unwrap();
+        let (mut host, _) = crate::Host::boot(
+            &plan.encode(),
+            NoData,
+            Box::new(exact_kernel::MonospaceMeasurer::default()),
+            400.0,
+            800.0,
+        )
+        .unwrap();
+        let button = host.runner().kernel().roots()[0];
+        let image = host
+            .runner()
+            .kernel()
+            .press_face(button)
+            .unwrap()
+            .image
+            .unwrap();
+        let batch: serde_json::Value =
+            serde_json::from_str(&host.set_intrinsic(image.view, Some((32.0, 20.0)))).unwrap();
+        assert_eq!(batch["controls"], true);
+        let face = host.runner().kernel().press_face(button).unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&face_json(Some(&face), None, None)).unwrap();
+        assert_eq!(json["image"]["view"], image.view);
+        assert_eq!(json["image"]["source"], "photo.png");
+        assert_eq!(json["image"]["size"], serde_json::json!([32, 20]));
+    }
+
     #[test]
     fn bridge_rows_keep_authorship_and_child_overrides_and_semantic_fields() {
         let plan = contract::compile(r#"component Buttons

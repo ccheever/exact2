@@ -1281,8 +1281,11 @@ UIKit can read the cell's face; explicit `appearance="auto"` carries a custom na
 asks for the platform's button and refuses unsupported rows or children. The
 switch must resolve to a literal after class merging; use `if` with two
 buttons to switch. Its first `text` is the title, its second is the subtitle, and
-its one `image "symbol:…"` is the symbol. These are semantic face data, not
-layout children. A symbol-only face needs a nonempty `aria-label`. With
+its one `image "symbol:…"` is the symbol. An iOS body button with explicit
+`appearance="auto"` also accepts a raster image, loaded through the app's image
+pipeline at its natural dimensions. Bar and menu projections and other native
+hosts still need a custom button for raster faces. These are semantic face data, not layout children. An image-only face
+needs a nonempty `aria-label`. With
 `flex-direction="row"` (or absent), an image before/after the texts is
 leading/trailing; with `flex-direction="column"` it is top/bottom.
 
