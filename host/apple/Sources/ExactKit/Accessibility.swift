@@ -53,7 +53,8 @@ extension NodeView {
     func updateImageAccessibility() {
         guard !actsAsButton, rangeRole == nil, kind == "image" || props["accessibilityRole"] == "img" else { return }
         let labelled = authoredLabel != nil
-        if isAccessibilityElement != labelled { isAccessibilityElement = labelled }
+        // The getter masks CSS-hidden nodes; their stored exposure still changes.
+        isAccessibilityElement = labelled
         if accessibilityTraits.contains(.image) != labelled { accessibilityTraits.formSymmetricDifference(.image) }
         if accessibilityValue != nil { accessibilityValue = nil }
     }
