@@ -319,6 +319,7 @@ extension NodeView {
         ink.applyTextRange(headroom: result.headroom, limit: style["dynamic_range_limit"]?.string)
         ink.applyTextCast(result.cast, headroom: result.castHeadroom, limit: style["dynamic_range_limit"]?.string, rolling: roll)
         textRasterLayer = ink
+        presenter?.boxFilters.changed(self)
     }
     func dropTextRaster() {
         textRasterLayer?.dropTextCast(); textRasterLayer?.removeFromSuperlayer(); textRasterLayer = nil; textRasterTint = nil
