@@ -31,11 +31,19 @@ pub(crate) fn of(style: &crate::StyleProps, props: &crate::PropList) -> Position
     }
 }
 
+/// Whether `slot` is in the top layer: a popover its author didn't make
+/// `sticky`. It is laid out in the viewport (`Kernel::imply_blocks`).
+pub(crate) fn lifted(arena: &NodeArena, slot: u32) -> bool {
+    arena.props(slot).str(crate::PropId::Popover).is_some()
+        && layout_position(arena, slot) == PositionType::Absolute
+}
+
 /// A top-layer box's engine style: absolute, out of flow, its insets
-/// offsets (a platform start's sticky row had laid them out as `auto`). Its
-/// containing block stays its positioned ancestor, not the viewport
-/// (QUEUE). One its author made `sticky` keeps its own machinery
-/// (`cover::scroller_insets_bottom`).
+/// offsets (a platform start's sticky row had laid them out as `auto`).
+/// Its containing block is the viewport, a block the kernel implies
+/// (`block::apply` then unsets the insets: a host places it), unless it
+/// is a root or an inline run. One its author made `sticky` keeps its own
+/// machinery (`cover::scroller_insets_bottom`).
 pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
     if layout_position(arena, slot) == PositionType::Absolute {
         s.position = taffy::style::Position::Absolute;
