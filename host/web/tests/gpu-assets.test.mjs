@@ -2,6 +2,32 @@ import {assetDelivery} from '../gpu-assets.js';
 import {test, expect} from 'bun:test';
 import {readFileSync} from 'node:fs';
 const source = readFileSync(new URL('../gpu-glue.js', import.meta.url), 'utf8');
+test('world log decoration retains journal ticks and cursors', () => {
+  const surfaces = new Map([[7, {logCursor:0}], [9, {logCursor:5}]]);
+  const journals = new Map([[7, {tick:0, from:2, next:4, lines:['a','b']}],
+    [9, {tick:81, from:5, next:5, lines:[]}]]);
+  const calls = [], restoreJournal = [{canvas:13, error:'restore refused'}];
+  const agent = (canvas, request) => { calls.push([canvas, request]); return journals.get(canvas); };
+  const method = source.slice(source.indexOf('  decorate(request, reply) {'),
+    source.indexOf('  // The existing clock loop'));
+  const decorate = new Function('surfaces', 'agent', 'restoreJournal',
+    'const trapped=()=>undefined, restoreReply=x=>x, editsAdmitted=false;'
+    + 'const api={answers:()=>false,' + method + '}; return api.decorate;')(
+    surfaces, agent, restoreJournal);
+  const other = {canvas:11, tick:19, from:0, next:1, lines:['other']};
+  expect(decorate({op:'logs'}, {world:[other]}).world).toEqual([other,
+    {canvas:7, tick:0, from:2, next:4, lines:['a','b'], dropped:2},
+    {canvas:9, tick:81, from:5, next:5, lines:[], dropped:0},
+    {canvas:13, lines:['restore refused']}]);
+  expect(calls).toEqual([[7, {op:'logs', since:0}], [9, {op:'logs', since:5}]]);
+  expect([...surfaces.values()].map(entry=>entry.logCursor)).toEqual([4,5]);
+  expect(restoreJournal).toEqual([]);
+  calls.length = 0;
+  expect(decorate({op:'logs', all:true}, {}).world).toEqual([
+    {canvas:7, tick:0, from:2, next:4, lines:['a','b'], dropped:2},
+    {canvas:9, tick:81, from:5, next:5, lines:[], dropped:5}]);
+  expect(calls).toEqual([[7, {op:'logs', since:0}], [9, {op:'logs', since:0}]]);
+});
 test('asset fetches have at most eight simultaneous requests', async () => {
   let active = 0, peak = 0;
   const release = [];
