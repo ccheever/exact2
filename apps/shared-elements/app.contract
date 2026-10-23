@@ -146,13 +146,13 @@ component App
                         button press=closeCard testId="close-card" aria-label="Close" class=Tab background-color="-exact-fill"
                           text "Close"
                       text c.body font-size=17 line-height=1.5
-                      text "The card is a box with children: its surface flies, and its children keep their laid-out places." font-size=14 color="-exact-secondary-label"
+                      text "The card is a box with children: its surface flies, and its children keep their laid-out places." font-size=14
                   case none
                     column padding=12 gap=12
                       for c in cards key=c.id
                         button press=openCard(c.id) testId=`card-${c.id}` aria-label=`Open ${c.title}` sharedElement=`card-${c.id}` class=Fly padding=16 border-width=0 border-radius=16 background-color=c.color display="flex" flex-direction="column" align-items="flex-start" gap=6
                           text c.title font-size=20 font-weight=600
-                          text c.body font-size=14 color="-exact-secondary-label" line-clamp=1
+                          text c.body font-size=14 line-clamp=1
               if tab == "tasks"
                 row padding=12 gap=12 align-items="flex-start"
                   column flex=1 gap=8 min-width=0
