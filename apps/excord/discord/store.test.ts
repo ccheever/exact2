@@ -317,6 +317,11 @@ describe('bounded windows', () => {
     applyHistoryPage(s, cid, { before: '96', limit: 5 }, page(94, 95));
     expect(latestWindow(s, cid)).toMatchObject({ reachesStart: true, reachesNewest: true, fetchBefore: null, fetchAfter: null });
   });
+  test('a full page after id 0 reaches the channel start (a channel never read opens there)', () => {
+    const s = seeded();
+    applyHistoryPage(s, cid, { after: '0', limit: 3 }, page(1, 3));
+    expect(windowAround(s, cid, '0')).toMatchObject({ reachesStart: true, moreBefore: false, fetchBefore: null, fetchAfter: '3' });
+  });
   test('fetch cursors include uncached endpoint messages and make the next page meet the run', () => {
     const s = seeded();
     applyHistoryPage(s, cid, { after: '20', limit: 3 }, page(21, 23));

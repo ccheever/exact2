@@ -641,7 +641,8 @@ export function applyHistoryPage(s: Store, channelId: string, query: HistoryQuer
   if (query.before) include(page, query.before, false);
   if (query.after) include(page, query.after, false);
   const short = messages.length < query.limit;
-  page.reachesStart = !query.after && !query.around && short;
+  // A page after id 0 begins at the channel's first message.
+  page.reachesStart = query.after === '0' || (!query.after && !query.around && short);
   page.reachesNewest = (!query.before && !query.after && !query.around) || (!!query.after && short);
   const latest = s.channelMap.get(channelId)?.last_message_id;
   if (latest && page.high !== null && cmpId(page.high, latest) >= 0 && !query.before) page.reachesNewest = true;
@@ -885,6 +886,20 @@ export function messageByKey(s: Store, channelId: string, key: string): MessageR
   if (found) return found;
   for (const entry of s.histories.get(channelId)?.messages.values() ?? []) if (entry.row.key === key) return entry.row;
   return null;
+}
+
+/** Whether a cached message is confirmed by a page fetched since the last fresh READY; a local send is. */
+export function verified(s: Store, channelId: string, id: string): boolean {
+  return s.histories.get(channelId)?.messages.get(id)?.verified ?? true;
+}
+
+/** Whether a cached message replies to one of these ids. */
+export function repliesTo(s: Store, channelId: string, ids: string[]): boolean {
+  const wanted = new Set(ids);
+  for (const entry of s.histories.get(channelId)?.messages.values() ?? []) {
+    if (wanted.has(entry.row.message_reference?.message_id)) return true;
+  }
+  return false;
 }
 
 /** Whether the store saw this message deleted, as opposed to never having held it. */

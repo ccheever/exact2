@@ -343,5 +343,5 @@ test('empty windows return empty boundaries and no rendered rows', () => {
   const f = fixture([]);
   expect(windowOf({ rows: [], hasBefore: false, hasAfter: false }, cid, '', '',
     { count: 0, more: false, at: 0 }, f.render)).toEqual({ channel: cid, anchor: '', rows: [],
-    hasBefore: false, hasAfter: false, firstId: '', lastId: '', pin: '', unread: 0, unreadMore: false, unreadAt: 0 });
+    hasBefore: false, hasAfter: false, firstId: '', lastId: '', pin: '', unread: 0, unreadMore: false, unreadAt: 0, need: '', cursor: '' });
 });

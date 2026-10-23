@@ -30,7 +30,8 @@ export const channelSpecs = [
   { id: 'general', name: 'general', topic: 'Building Exact, and everything around it.', count: 10000, unread: 37, days: 400, seed: 721 },
   { id: 'help', name: 'help', topic: 'Small reproductions and patient explanations.', count: 1200, unread: 260, days: 120, seed: 819 },
   { id: 'random', name: 'random', topic: 'Bikes, lunch, and the view from outside.', count: 300, unread: 0, days: 90, seed: 917 },
-  { id: 'announcements', name: 'announcements', topic: 'Releases and community notes.', count: 60, unread: 0, days: 360, seed: 1015 },
+  // Never read: its read state names no message.
+  { id: 'announcements', name: 'announcements', topic: 'Releases and community notes.', count: 60, unread: 60, days: 360, seed: 1015 },
 ];
 
 export const emojiNames = ['exact', 'ferris', 'party', 'shipit', 'coffee', 'bike', 'spark', 'heart', 'check'];
@@ -189,5 +190,5 @@ export function generate(channel: string): { messages: Message[]; lastRead: stri
     if (i % 863 === 1) { msg.type = 7; msg.content = ''; msg.message_reference = undefined; }
     messages.push(msg);
   }
-  return { messages, lastRead: messages[spec.count - spec.unread - 1].id, deleted };
+  return { messages, lastRead: messages[spec.count - spec.unread - 1]?.id ?? '', deleted };
 }

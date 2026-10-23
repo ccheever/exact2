@@ -1,25 +1,28 @@
 // Excord's data module (llp/0001 §4.2): the protocol client of `discord/` in module state (`live.ts`).
 // The gateway is a stream resource whose snapshot is versions; each list the view shows is a
-// resource that takes its version and answers from the store, and the open channel's window fetches
-// the history it lacks with its own REST pages.
+// resource that takes its version and answers from the store. The open channel's window answers from
+// the store too and names the page it lacks, which a mutation fetches.
 import type { Answer, Result, Sources } from './app.contract.d.ts';
 import * as S from './discord/store';
 import * as rest from './discord/rest';
 import { cmpId, msFromSnowflake } from './discord/ids';
-import { applyEvent, at, call, clock, connect, context, createLive, dispatch, heartbeat, nonce, page, RestError, subscribe, touched, type Live } from './live';
+import { applyEvent, at, call, clock, connect, context, createLive, dispatch, heartbeat, loadSession, nonce, page, RestError, touched, view, type Live } from './live';
 import { createRenderer, timeOf, windowOf, type Directories, type Stored, type Unread } from './render';
 
 export const appId = 'com.exact.excord';
-// Where Discord is: the fixture (`bun apps/excord/fixture/server.ts --world transcript`) unless the bake
-// says otherwise. `EXACT_BACKEND_ORIGIN=https://discord.com` (or `.exact/backend-origin`) replaces this
-// literal at bake, and with it the grants below; only Charlie makes that build, by hand (llp/0001 §2).
-// Such a build has no token until a person signs in, so it makes no request before then.
+// Where Discord is: the fixture (app.json's `commands.server`) unless the bake says otherwise.
+// `EXACT_BACKEND_ORIGIN=https://discord.com` (or `.exact/backend-origin`) replaces this literal at bake,
+// and the bake takes the grants below for the origin it bakes; only Charlie makes that build, by hand
+// (llp/0001 §2). Such a build has no token until a person signs in, so it makes no request before then.
 export const origin = 'http://127.0.0.1:4790';
 const DISCORD: string = 'https://discord.com';
-export const grants = origin === DISCORD
-  ? ['net.fetch https://discord.com', 'net.websocket wss://gateway.discord.gg', 'net.websocket wss://*.discord.gg',
-    'secret.keep discord-token'].join('\n')
-  : [`net.fetch ${origin}`, 'net.websocket ws://127.0.0.1:4790', 'secret.keep fixture-token'].join('\n');
+export const grants = {
+  'http://127.0.0.1:4790': ['net.fetch http://127.0.0.1:4790', 'net.websocket ws://127.0.0.1:4790',
+    'secret.keep fixture-token', 'secret.keep fixture-identifies'],
+  // The gateway resumes on other subdomains (`resume_gateway_url`).
+  'https://discord.com': ['net.fetch https://discord.com', 'net.websocket wss://gateway.discord.gg',
+    'net.websocket wss://*.discord.gg', 'secret.keep discord-token', 'secret.keep discord-identifies'],
+};
 
 const live: Live = createLive({
   rest: origin,
@@ -59,8 +62,11 @@ function unreadAfter(channel: string, since: string | null): Unread {
   const rows = after.rows.length ? after.rows : S.latestWindow(store, channel, LIMIT).rows.filter(r => r.id && cmpId(r.id, since) > 0);
   const located = after.rows.length > 0 || !!S.message(store, channel, since);
   const more = !located || !after.reachesNewest;
-  return { count: rows.length, more, at: rows[0] && !more ? timeOf(rows[0] as Stored) : msFromSnowflake(since) };
+  const first = rows[0] ? timeOf(rows[0] as Stored) : 0;
+  return { count: rows.length, more, at: since === NEVER || (first && !more) ? first : msFromSnowflake(since) };
 }
+// The read position of a channel never read: before its first message.
+const NEVER = '0';
 
 function displayName(id: string): string {
   const u = S.user(store, id);
@@ -76,40 +82,70 @@ function channelRecord(id: string): Channel {
   const name = c?.name || (c?.recipients ?? []).map((u: { id: string }) => displayName(u.id)).join(', ');
   return { id, guild: c?.guild_id ?? '', name, topic: c?.topic ?? '', version: S.channelVersion(store, id),
     unread: read.unread ? Math.max(1, known.count) : 0, mentions: read.mentionCount,
-    firstUnread: first ?? '', firstUnreadAt: read.unread ? known.at : 0, lastRead: read.lastReadId ?? '',
+    firstUnread: first ?? '', firstUnreadAt: read.unread ? known.at : 0,
+    lastRead: read.lastReadId ?? (read.unread ? NEVER : ''),
     arrived: live.arrived.get(id) ?? 0,
     typing: typing.length === 0 ? '' : typing.length === 1 ? `${typing[0]} is typing…` : `${typing.join(' and ')} are typing…` };
 }
 const TEXT = new Set([0, 5]);
 
 const emptyWindow = (channel: string, anchor: string): Window => ({ channel, anchor, rows: [], hasBefore: false,
-  hasAfter: false, firstId: '', lastId: '', pin: '', unread: 0, unreadMore: false, unreadAt: 0 });
-const position = (w: S.MessageWindow, id: string): number => w.rows.findIndex(r => r.id === id || r.key === id);
+  hasAfter: false, firstId: '', lastId: '', pin: '', unread: 0, unreadMore: false, unreadAt: 0, need: '', cursor: '' });
 
-// The window: one run of at most 200 messages, the live tail or around an anchor, fetching the pages
-// (50 each, one at a time) the store cannot fill: a cold tail's whole window, which the view pages
-// from 50 rows before its edge, and up to two on each side of an anchor. After a fresh READY its
-// rows are refetched.
-async function loadWindow(channel: string, anchor: string, since: string): Promise<Window> {
+// The window: one run of at most 200 cached messages, the live tail or around an anchor, of the rows
+// a page has confirmed since the last fresh READY (the rest are left out until a page confirms them).
+// It names the one page it lacks (`need`, `cursor`), which the view asks for: the newest 50 for a
+// tail with none, 50 around an anchor not held, and 50 beyond an anchor within EDGE rows of the
+// window's edge, since the view moves its anchor there only as the reader nears that edge (§2: one
+// page on opening a channel, the next as the reader moves toward the edge).
+const EDGE = 15;
+export function loadWindow(channel: string, anchor: string, since: string): Window {
   if (!channel) return emptyWindow(channel, anchor);
-  const read = () => (anchor ? S.windowAround(store, channel, anchor, LIMIT) : S.latestWindow(store, channel, LIMIT));
-  let w = read();
-  if (w.stale) { await page(live, channel, anchor ? { around: anchor, limit: 50 } : { limit: 50 }); w = read(); }
-  if (anchor && w.fetchAround) { await page(live, channel, { around: anchor, limit: 50 }); w = read(); }
-  if (!anchor && w.fetchLatest) { await page(live, channel, { limit: 50 }); w = read(); }
-  for (let i = 0; i < (anchor ? 2 : 3) && w.fetchBefore && (anchor ? position(w, anchor) < HALF : w.rows.length < LIMIT); i++) {
-    await page(live, channel, { before: w.fetchBefore, limit: 50 });
-    w = read();
+  const w = anchor ? S.windowAround(store, channel, anchor, LIMIT) : S.latestWindow(store, channel, LIMIT);
+  const held = (r: S.MessageRow) => r.id === null || S.verified(store, channel, r.id);
+  let lo: number, hi: number, pos = -1;
+  if (!anchor) {
+    hi = w.rows.length; lo = hi;
+    while (lo > 0 && held(w.rows[lo - 1])) lo--;
+  } else {
+    pos = w.rows.findIndex(r => r.id === anchor || r.key === anchor);
+    // An anchor that is gone (deleted) holds its place: the first row after it.
+    if (pos < 0 && !w.fetchAround) pos = w.rows.findIndex(r => r.id !== null && cmpId(r.id, anchor) > 0);
+    if (pos < 0 || !held(w.rows[pos])) { lo = hi = 0; pos = -1; }
+    else {
+      lo = pos; hi = pos + 1;
+      while (lo > 0 && held(w.rows[lo - 1])) lo--;
+      while (hi < w.rows.length && held(w.rows[hi])) hi++;
+      pos -= lo;
+    }
   }
-  for (let i = 0; anchor && i < 2 && w.fetchAfter && w.rows.length - position(w, anchor) - 1 < HALF - 1; i++) {
-    await page(live, channel, { after: w.fetchAfter, limit: 50 });
-    w = read();
+  const rows = w.rows.slice(lo, hi);
+  const hasBefore = lo > 0 || w.moreBefore, hasAfter = hi < w.rows.length || w.moreAfter;
+  let need = '', cursor = '';
+  const firstId = rows.find(r => r.id !== null)?.id ?? '';
+  // A tail shorter than a page (a cold channel that heard a message, or one whose older rows a fresh
+  // READY left unconfirmed) is filled with one page before it.
+  if (!anchor) {
+    if (!firstId && (w.fetchLatest || w.rows.length)) need = 'latest';
+    else if (firstId && rows.length < 50 && hasBefore) { need = 'before'; cursor = firstId; }
   }
-  const firstKey = w.rows[0] ? (w.rows[0].id ?? w.rows[0].key) : '';
+  else if (pos < 0) { need = 'around'; cursor = anchor; }
+  else if (pos < EDGE && hasBefore) { need = 'before'; cursor = firstId; }
+  else if (rows.length - 1 - pos < EDGE && hasAfter) { need = 'after'; cursor = rows[rows.length - 1].id ?? ''; }
+  const firstKey = rows[0] ? (rows[0].id ?? rows[0].key) : '';
   const previous = firstKey ? S.windowBefore(store, channel, firstKey, 1).rows[0] : undefined;
-  return windowOf({ rows: w.rows as Stored[], previous: previous as Stored | undefined, hasBefore: w.moreBefore,
-    hasAfter: w.moreAfter }, channel, anchor, since, unreadAfter(channel, since || null), render);
+  const shown = windowOf({ rows: rows as Stored[], previous: previous as Stored | undefined, hasBefore, hasAfter },
+    channel, anchor, since, unreadAfter(channel, since || null), render);
+  // The pin answers this same window with no page: far enough from its top that no page is needed.
+  const pinAt = Math.max(shown.rows.length - HALF, Math.min(EDGE, shown.rows.length - 1));
+  return { ...shown, pin: anchor || shown.rows[pinAt]?.id || '', need, cursor };
 }
+
+const QUERIES: Record<string, (cursor: string) => S.HistoryQuery> = {
+  // Around a channel's start (a channel never read) is its first page.
+  latest: () => ({ limit: 50 }), around: around => (around === NEVER ? { after: NEVER, limit: 50 } : { around, limit: 50 }),
+  before: before => ({ before, limit: 50 }), after: after => ({ after, limit: 50 }),
+};
 
 async function write(work: () => Promise<unknown>): Promise<Ack> {
   try { await work(); return OK; } catch (error) { return refused(error); }
@@ -121,7 +157,8 @@ function newest(channel: string): string | null {
 }
 
 const sources: Sources = {
-  gatewayState: (_args, secrets, _storage, native) => connect(live, secrets, native),
+  loadSession: (_args, secrets) => loadSession(live, secrets),
+  gatewayState: ([ready, epoch], secrets, _storage, native) => connect(live, secrets, native, ready, epoch),
   heartbeat: ([now]) => { heartbeat(live, now); return OK; },
   loadGuilds: () => S.guilds(store).filter(g => !g.unavailable).map(g => {
     const channels = S.guildChannels(store, g.id).flatMap(group => group.channels).filter(c => TEXT.has(c.type ?? 0));
@@ -133,7 +170,12 @@ const sources: Sources = {
   loadDms: () => S.dms(store).map(c => channelRecord(c.id)),
   loadChannel: ([channel]) => (channel ? channelRecord(channel) : channelRecord('')),
   loadWindow: ([channel, anchor, , since]) => loadWindow(channel, anchor, since),
-  subscribe: ([channel]) => { subscribe(live, S.channel(store, channel)?.guild_id ?? ''); return OK; },
+  loadPage: ([channel, need, cursor]) => write(async () => {
+    const query = QUERIES[need];
+    if (!query) throw new Error(`No page called ${need}`);
+    await page(live, channel, query(cursor));
+  }),
+  viewChannel: ([channel]) => { view(live, channel); return OK; },
   echoMessage: ([channel, content, replyTo, now]) => {
     if (!content.trim()) return { ok: false, error: 'A message needs some text.', key: '', channel };
     const key = nonce(live, now);

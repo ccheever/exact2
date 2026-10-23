@@ -48,7 +48,7 @@ test('all channel histories preserve the generator, unread positions, replies, m
     expect(history).toHaveLength(spec.count);
     expect(Date.parse(history.at(-1)!.timestamp) - Date.parse(history[0].timestamp)).toBe(spec.days * 86400000);
     const entry = world.read_state.entries.find(entry => entry.id === channel.id)!;
-    expect(entry.last_message_id).toBe(history[spec.count - spec.unread - 1].id);
+    expect(entry.last_message_id).toBe(history[spec.count - spec.unread - 1]?.id ?? null);
     const unread = history.slice(history.findIndex(message => message.id === entry.last_message_id) + 1);
     expect(unread).toHaveLength(spec.unread);
     expect(entry.mention_count).toBe(unread.filter(message => message.mention_everyone
