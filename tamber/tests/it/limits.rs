@@ -241,6 +241,57 @@ fn each_importer_refuses_a_value_past_the_bound_with_its_id() {
         dtcg::pen::import_with("big.pen", &pen, "pen", &empty, &vocab()),
         "pen",
     );
+    // A value nested past the bound, within its bytes: each kind refuses it
+    // with the depth's id (theme2's condition (2), at import).
+    let deep = format!(
+        "{}1px{}",
+        "calc(".repeat(MAX_VALUE_DEPTH + 1),
+        ")".repeat(MAX_VALUE_DEPTH + 1)
+    );
+    let too_deep = |r: Result<exact_tamber::import::Import, Vec<exact_tamber::Diagnostic>>,
+                    kind: &str| {
+        let Err(d) = r else {
+            panic!("{kind}: imported")
+        };
+        assert_eq!(d[0].id, "tamber-value-depth", "{kind}: {d:?}");
+    };
+    too_deep(
+        tailwind::import(
+            &format!("@theme {{ --spacing-deep: {deep}; }}"),
+            "tw",
+            &empty,
+        ),
+        "tailwind",
+    );
+    too_deep(
+        shadcn::import(
+            &format!(":root {{ --deep: {deep}; }}"),
+            "shadcn",
+            &empty,
+            &vocab(),
+        ),
+        "shadcn",
+    );
+    let side = format!("{{\"--spacing-deep\": \"{deep}\"}}");
+    too_deep(
+        astryx::import(
+            &format!("{{\"source\": \"t\", \"core\": \"t\", \"light\": {side}, \"dark\": {side}}}"),
+            "astryx",
+            &empty,
+            &vocab(),
+        ),
+        "astryx",
+    );
+    let files = vec![(
+        "tokens.json".to_string(),
+        format!("{{\"deep\": {{\"$type\": \"dimension\", \"$value\": \"{deep}\"}}}}"),
+    )];
+    too_deep(dtcg::import(&files, "dt", &empty), "dtcg");
+    let pen = format!("{{\"version\": \"2.21\", \"variables\": {{\"deep\": {{\"type\": \"color\", \"value\": \"{deep}\"}}}}}}");
+    too_deep(
+        dtcg::pen::import_with("deep.pen", &pen, "pen", &empty, &vocab()),
+        "pen",
+    );
 }
 
 /// A sum of many lengths, each within the bound, stops as it passes it
@@ -402,6 +453,17 @@ fn importers_check_source_values_not_reports() {
     let d =
         exact_tamber::export::reimport_against(&edited, None, &[], design, &vocab()).unwrap_err();
     assert_eq!(d[0].id, "tamber-value-size", "{d:?}");
+    // The Figma plugin's push: a DTCG re-import against the baseline it
+    // pulled. A value nested past the bound is refused with the depth's id.
+    let deep = format!(
+        "{}1px{}",
+        "calc(".repeat(MAX_VALUE_DEPTH + 1),
+        ")".repeat(MAX_VALUE_DEPTH + 1)
+    );
+    let edited = export.replacen("#111111", &deep, 1);
+    let d = exact_tamber::export::reimport_against(&edited, Some(&export), &[], design, &vocab())
+        .unwrap_err();
+    assert_eq!(d[0].id, "tamber-value-depth", "{d:?}");
 }
 
 /// Tokens followed and the functions their values nest are counted

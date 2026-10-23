@@ -471,4 +471,42 @@ mod tests {
         // The same input, the same report.
         assert_eq!(refused(base, &members), first);
     }
+
+    /// A chain of members each exposed only when the last is refused (Astra's
+    /// round 2 on the checker bound: one recursion per edit) is taken out in
+    /// the loop: 1,500 rounds on a 2 MiB stack, each member refused with
+    /// its own reason.
+    #[test]
+    fn a_chain_of_refusals_each_exposing_the_next_is_a_loop_not_a_recursion() {
+        let n = 1_500;
+        let mut base = String::from("tamber t\n\ntheme\n");
+        for k in 0..n {
+            base += &format!("  t{k} = 4px\n");
+        }
+        // Each a colour naming the next; the last refused on its own line
+        // (no such axis), which leaves it a length, so the one before names
+        // a length as a colour, and so on down.
+        let mut members: Vec<Vec<Op>> = (0..n - 1)
+            .map(|k| {
+                vec![set(
+                    &format!("t{k}"),
+                    &format!("light-dark(t{}, #000000)", k + 1),
+                )]
+            })
+            .collect();
+        members.push(vec![Op::SetToken {
+            name: format!("t{}", n - 1),
+            when: vec![("nope".into(), "x".into())],
+            value: "#ffffff".into(),
+            at: None,
+            comment: None,
+        }]);
+        let refused = std::thread::Builder::new()
+            .stack_size(2 << 20)
+            .spawn(move || refused(&base, &members).0.len())
+            .unwrap()
+            .join()
+            .unwrap();
+        assert_eq!(refused, n);
+    }
 }
