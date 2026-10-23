@@ -1038,7 +1038,7 @@ fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     if field_bool(line, "land") {
         let (landed, e) = p.land_then();
         p.sync_surfaces();
-        return match e {
+        let reply = match e {
             Some(e) => {
                 let mut s = String::from("{\"error\":");
                 exact_runner::agent::quote(&format!("clock: {e}"), &mut s);
@@ -1046,12 +1046,32 @@ fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             }
             None => format!("{{\"clock\":{}}}", num(landed)),
         };
+        return held_named(p, reply);
     }
     if field_bool(line, "data") {
-        return land_data(p, SETTLE_BOUND);
+        let reply = land_data(p, SETTLE_BOUND);
+        return held_named(p, reply);
     }
     let reply = clock_within(p, line, SETTLE_BOUND);
     retell_offset(p);
+    held_named(p, reply)
+}
+
+/// `reply` naming the requests the server holds, which no clock waited on
+/// (LLP 1016.000 D9): `held` and `heldTargets`, as the web hosts' do. An
+/// error reply is left as it is.
+fn held_named<D: DataSource>(p: &Presenter<D>, mut reply: String) -> String {
+    let held = p.host().runner().held_requests();
+    if held.is_empty() || reply.starts_with("{\"error\"") || !reply.ends_with('}') {
+        return reply;
+    }
+    let targets: Vec<&str> = held.iter().map(|(name, _)| name.as_str()).collect();
+    reply.pop();
+    reply.push_str(&format!(
+        ",\"held\":{},\"heldTargets\":{}}}",
+        held.len(),
+        serde_json::json!(targets)
+    ));
     reply
 }
 

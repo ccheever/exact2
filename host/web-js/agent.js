@@ -302,10 +302,12 @@ export function install(exact) {
   { const i = exact.After.indexOf(exact.holdEarly); if (i >= 0) { exact.After.splice(i, 1); seek(false); } }
   // Held device requests (LLP 1069.007 D3): `openAuthSession`'s (auth.js).
   const holds = () => [...exact.auth?.holds() ?? [], ...exact.files?.holds() ?? [], ...exact.extensions?.holds?.() ?? []];
+  // Asks the server holds (`exactHeld`, LLP 1016.000 D9): no clock waited on them; the reply says which.
+  const heldNamed = r => { const h = exact.heldAsks?.() ?? []; return h.length && r && !r.error ? { ...r, held: h.length, heldTargets: h.map(x => x.name) } : r; };
   const settleGpu = async () => await exact.gpu?.settled?.() ?? [];
   const gpuPendingReply = (req, pending) => {
     const names = pending.map(item => item.name ?? 'GPU work');
-    return req.op === 'clock' ? { ...tags(), settled: false, reason: 'gpu', pending: names }
+    return req.op === 'clock' ? heldNamed({ ...tags(), settled: false, reason: 'gpu', pending: names })
       : { error: `GPU is not settled: ${names.join(', ')}`, pending: names };
   };
   exact.agentSettled = async (req) => {
@@ -392,7 +394,8 @@ export function install(exact) {
         if (req.target != null) { const hit = targetOf(all(), req.target); if (!hit) return { error: `no view matches ${req.target}` }; el = views.get(hit.id); }
         return perf.reply(el, tags());
       }
-      case 'clock': {
+      // Each clock reply names what it left out because the server holds it (LLP 1016.000 D9).
+      case 'clock': return heldNamed(await (async () => {
         exact.hatchActs?.command(); // a command's hatch caps start at nothing (LLP 1075.003.000.001 §2.4)
         // The end of an input (LLP 1012 §2): the `then`s of the answers it
         // settled land, the clock unmoved and no timer fired (Runner::land_then).
@@ -506,7 +509,7 @@ export function install(exact) {
         const inflight = exact.inflight.n - holds().length, b = exact.data?.background?.(), background = b ? b.queued + b.inFlight : 0;
         // The module's storage still to land beside it (LLP 1097 D9).
         return { clock: exact.clock.now, ...(inflight > 0 ? { inflight } : {}), ...(background > 0 ? { background } : {}) };
-      }
+      })());
       case 'tags': return tags();
       // `screenshot` and `check` (LLP 1116.003 D8): transitions under way shown where they end, for this picture only.
       // An animation begun since the last commit (a spinner's turn, LLP 1069.001) is put on the clock first: a
@@ -536,7 +539,11 @@ export function install(exact) {
         const [slots, derives, resources] = names.map((list, k) => Object.fromEntries(list.map((n, i) => [n, typed(exact.state[k][i](), types[k][i])])));
         // What is in flight: the network's by resource, then held device requests.
         // A stream is pending until its first message, then listed in `streams` (LLP 1016.000 D5).
-        const pending = [...exact.resources.filter(r => r.ticket && !r.ticket.messages).map(r => ({ name: r.name, ticket: r.ticket.id })), ...holds()];
+        // One whose answer awaits a fetch the server holds is marked `held` (LLP 1016.000 D9).
+        const held = new Set((exact.heldAsks?.() ?? []).map(h => h.ticket));
+        // A resource whose region ended (`gone`) has let its request go, as the runner's forget path does.
+        const pending = [...exact.resources.filter(r => r.ticket && !r.ticket.messages && !r.gone).map(r => ({ name: r.name, ticket: r.ticket.id, ...(held.has(r.ticket.id) ? { held: true } : {}) })),
+          ...(exact.mutations ?? []).filter(m => held.has(m.ticket?.id)).map(m => ({ name: m.name, ticket: m.ticket.id, held: true })), ...holds()];
         const streams = exact.resources.filter(r => r.ticket?.ctl).map(r => ({ name: r.name, ticket: r.ticket.id, messages: r.ticket.messages, coalesced: r.ticket.coalesced, ...(r.ticket.ctl.grant ? { grant: r.ticket.ctl.grant } : {}), ...(r.ticket.ctl.socket ? { readyState: r.ticket.ctl.socket.readyState, bufferedAmount: r.ticket.ctl.socket.bufferedAmount, sent: r.ticket.ctl.socket.sent } : {}) }));
         // The painted surface of views with presence rows, exit ghosts included (glue.js `st.presence`).
         // Focus, the keyboard's overlap and the document's language, as glue.js's `state` adds them.
@@ -563,7 +570,7 @@ export function install(exact) {
         const mutationFailures = Object.fromEntries(exact.mutations.flatMap(m => { const failure = m.e(); return failure ? [[m.name, {code: failure[0], message: failure[1]}]] : []; }));
         // The writes shown over resources until they end or are answered (overlay.js), as the runner's `state.writes`.
         const writes = exact.writes?.() ?? [];
-        return { slots, derives, resources, ...(Object.keys(mutationFailures).length ? {mutationFailures} : {}), mutationRequests: exact.mutations.reduce((n,m)=>n+m.requests,0), device: { displayMode: displayMode(), navigationType: ownPage().read()['navigation-type'], gpuTier: (exact.page ?? ownPage()).read()['gpu-tier'] }, ...(writes.length ? { writes } : {}), ...(Object.keys(failed).length ? { failed } : {}), pending, streams, watches: exact.watchState?.() ?? [], ...(faults.length ? { faults } : {}), ...(background ? { background } : {}), tasks, queued, notifications: exact.notices ?? [], ...(exact.sounds ? { sounds: exact.sounds.state(req.sounds === 'all') } : {}), ...(exact.transport?.declared() ? { transport: exact.transport.state() } : {}), ...(exact.midi ? { midi: exact.midi.state(req.midi === 'all') } : {}), ...(exact.extensions ? { extensions: exact.extensions.state() } : {}), wakelock: exact.wakelock?.() ?? { held: false, by: [] }, head, focus, language, storage, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, mediaSession: exact.mediaSession?.state(id) ?? { owner: null, claimants: [], actions: [], playbackState: 'none', published: 'none' }, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.surfaceRefusals ? { surfaceRefusals: exact.surfaceRefusals() } : {}), reorder: exact.reorderState?.() ?? null, ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hatchState ? { hatches: exact.hatchState() } : {}), ...tags() };
+        return { slots, derives, resources, ...(Object.keys(mutationFailures).length ? {mutationFailures} : {}), mutationRequests: exact.mutations.reduce((n,m)=>n+m.requests,0), device: { displayMode: displayMode(), navigationType: ownPage().read()['navigation-type'], gpuTier: (exact.page ?? ownPage()).read()['gpu-tier'] }, ...(writes.length ? { writes } : {}), ...(Object.keys(failed).length ? { failed } : {}), pending, ...(Object.keys(exact.heldReplies?.() ?? {}).length ? { heldReplies: exact.heldReplies() } : {}), streams, watches: exact.watchState?.() ?? [], ...(faults.length ? { faults } : {}), ...(background ? { background } : {}), tasks, queued, notifications: exact.notices ?? [], ...(exact.sounds ? { sounds: exact.sounds.state(req.sounds === 'all') } : {}), ...(exact.transport?.declared() ? { transport: exact.transport.state() } : {}), ...(exact.midi ? { midi: exact.midi.state(req.midi === 'all') } : {}), ...(exact.extensions ? { extensions: exact.extensions.state() } : {}), wakelock: exact.wakelock?.() ?? { held: false, by: [] }, head, focus, language, storage, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, mediaSession: exact.mediaSession?.state(id) ?? { owner: null, claimants: [], actions: [], playbackState: 'none', published: 'none' }, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.surfaceRefusals ? { surfaceRefusals: exact.surfaceRefusals() } : {}), reorder: exact.reorderState?.() ?? null, ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hatchState ? { hatches: exact.hatchState() } : {}), ...tags() };
       }
       // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js); else the drive's facts
       // held here, so `root-font-size` still sets the root element's size `rem` follows (D3), as glue.js does.

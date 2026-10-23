@@ -2,7 +2,7 @@ export { liveTime } from "./live-time.js";
 import { commitGuestOrigin, guestMessageAuthorized, inertAncestor, sheetLeaves, liveById, renderMarkup, reportPlace, onSelection, textField, sourceField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { Docs, Head, head, markDocument, projectRoots, openTabs, unopened, tp } from "./document.js"; export { Head, unopened, tp }; import { conforms, eq, equal, failureCode, failureReason } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
 let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq, equal }; // the compiler installs `Paint` only when a plan can layer boxes
-import * as Ov from "./overlay.js"; import { beatAfter } from "./beat.js"; // optimistic writes shown over answers (the runner's writes.rs)
+import * as Ov from "./overlay.js"; import { beatAfter } from "./beat.js"; import { counted, heldAsks, heldReplies } from "./held.js"; export { heldAsks, heldReplies }; // optimistic writes shown over answers (the runner's writes.rs)
 const heldOr = (fact, value, apply) => { const x = globalThis.exact; if (!x) return apply(); (x.asked ??= {})[fact] = { value, apply }; if (!x.held?.[fact]) apply(); else x.onAsked?.(); }; // a fact a development page holds over the app's own: kept as asked, applied when not held (LLP 1122 T7, theme2's F2)
 export const writeRecords = () => Ov.Writes.list.map(w => ({ id: w.id, mutation: w.m.name, landed: !!w.landed })); // the agent's `state.writes`
 let Media = null; export function useMedia(m) { Media = m; } // and media.js only where a plan has a `video` or `audio`
@@ -400,12 +400,12 @@ const sameReq = (a, b) => a && b && a.storage === b.storage && a.method === b.me
 export const inflight = { n: 0 };
 function send(t, land) {
   Out.push(() => {
-    inflight.n++; t.waiting = true;
+    t.waiting = true; counted(t, inflight);
     const started = performance.now();
     // A stream's message (`more`) keeps its ticket; anything else ends it.
     const done = (o, more) => {
       if (t.closed) return;
-      if (t.waiting) { t.waiting = false; inflight.n--; }
+      if (t.waiting) { t.waiting = false; counted(t, inflight); }
       t.elapsed = Math.max(0, Math.round(performance.now() - started));
       if (more) { t.messages++; t.coalesced += (o.streamed ?? o).coalesced ?? 0; o.more = true; } else Open.delete(t);
       say(`${more ? "message" : "reply"} ${t.id}; wall ${t.elapsed} ms`); land(o);
@@ -427,7 +427,7 @@ const Open = new Set();
 function closeLetGo() {
   for (const t of Open) if (!t.held() || t.r?.gone) {
     Open.delete(t); t.closed = true; t.ctl.abort();
-    if (t.waiting) { t.waiting = false; inflight.n--; }
+    if (t.waiting) { t.waiting = false; counted(t, inflight); }
     say(`close stream ${t.id}: its ticket was let go`);
   }
 }
@@ -519,7 +519,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     }
     if (ans && (ans.req || ans.promise || ans.stream)) {
       hold();
-      const t = { id: ++Ticket, args: a, req: ans.req, promise: ans.promise, stream: ans.stream, baked, r, origin: Ov.tick() }; if (baked) say(`${name} shows its build-time answer until its source answers`);
+      const t = { id: ++Ticket, name, owner: r, args: a, req: ans.req, promise: ans.promise, call: ans.call, stream: ans.stream, baked, r, origin: Ov.tick() }; if (baked) say(`${name} shows its build-time answer until its source answers`);
       if (r.ticket) say(`forget ticket ${r.ticket.id} (${name})`);
       r.ticket = t; flag(pend, true); send(t, land(t));
       return r.value;
@@ -598,7 +598,7 @@ export function mut(name, slot, refreshes, type, queue) {
         landWrite(a.v, undo);
         if (m.wait && pend.n.v !== !!m.wait.length) { undo.push([pend.n, pend.n.v]); write(pend.n, !!m.wait.length); } // a queue: pending while one waits
       } else {
-        const t = { id: ++Ticket, source, args, req: a.req, promise: a.promise, stream: a.stream, write: Ov.asked(m) };
+        const t = { id: ++Ticket, name: m.name, owner: m, source, args, req: a.req, promise: a.promise, call: a.call, stream: a.stream, write: Ov.asked(m) };
         m.ticket = t; undo.push([pend.n, pend.n.v]); write(pend.n, true); send(t, land(t));
       }
       if ("v" in a) for (const r of refreshes) R(r.r); // answered at once, it has landed: what it changes is forced (commit.rs `landed_now`)
