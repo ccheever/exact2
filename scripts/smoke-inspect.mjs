@@ -220,4 +220,10 @@ export async function messageMenuKeys(s, { host, check }) {
   const state = await s.state();
   check(state.slots.selected === '' && state.slots.replyBody === body, 'Messages: Space on Reply selects this message');
   check((await focused())?.props.testId === 'composer', 'Messages: Reply focuses the composer');
+  await s.reveal(source.id);
+  const b = (await s.layout()).nodes.find(n => n.id === source.id);
+  const tap = await s.tap(source.id, { at: [b.w / 2, b.h / 2] });
+  if (host === 'ios') check(tap.delivery === 'platform', 'Messages: the bubble receives a real touch');
+  check((await focused())?.props.testId === 'composer', 'Messages: a bubble tap keeps the composer focused');
+  check((await s.state()).slots.selected === '', 'Messages: a single tap leaves the menu closed');
 }
