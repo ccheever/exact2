@@ -676,7 +676,7 @@ test "a move up the chain that lands higher than asked (the page's tree had fewe
   request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 11, "site": 6, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": [{"file": "/stub/row.contract", "line": 6, "col": 3, "end_col": 9, "component": "Row"}, {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App"}]}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}, {"name": "text_color", "value": "#f7f9f9ff", "source": "inherited", "from": 1, "origin": null, "editable": {"rung": null, "reason": "inherited from #1: the token is that node's to edit", "link": "text.primary"}}, {"name": "padding", "value": "12px", "source": "authored", "origin": "class:Panel", "editable": {"rung": null, "reason": "a style's row (Panel): comes with template editing (T5)"}}]} as ada
   clock +1
   clock data
-  // A page that can't step (Apple's, for now): its up control greyed and said so, inspect itself left on.
+  // A page that can't step (none of the shipped hosts now; an older build): its up control greyed and said so, inspect itself left on.
   expect tree has "selection-up-none"
   expect disabled "selection-up-1"
   expect text "inspect-toggle" == "Stop inspecting"

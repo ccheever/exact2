@@ -198,5 +198,35 @@ final class InspectIOSTests: XCTestCase {
         XCTAssertFalse(Inspect.answersClick(["click": click]))
         XCTAssertNil(Inspect.select(session, id: node.id, clicked: true), "no selection outside inspect mode")
     }
+
+    /// `select {up}` (tamber/1.16) by the runner's own tree, as the web pages': the first level with a node
+    /// above the selection, the outermost there; an ask for a selection that moved, or one with nothing of
+    /// its levels above, is nil, the selection as it is now. (The levels here are the node's own ancestors'
+    /// sites, standing in for the server's map.)
+    func testSelectUpLandsOnTheOutermostAncestorOfTheFirstLevelWithOneAndAStaleAskOnNone() throws {
+        let (session, window, _, _) = try chat()
+        Inspect.set(true, seq: 4)
+        defer { Inspect.set(false, seq: 4) }
+        func above(_ id: UInt32) -> [(view: Int, site: Int)] {
+            let o = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"ancestors\",\"id\":\(id)}").utf8))) as? [String: Any]
+            return (o?["ancestors"] as? [[Any]] ?? []).dropFirst().compactMap { p in (p[0] as? Int).flatMap { v in (p[1] as? Int).map { (v, $0) } } }
+        }
+        let node = try XCTUnwrap(session.presenter.views.values.first { $0.window === window && !$0.isHidden && $0.props["testId"] != nil && Set(above($0.id).map(\.site)).count >= 2 })
+        let ancestors = above(node.id)
+        let selected = try XCTUnwrap(Inspect.select(session, id: node.id, clicked: true)?["selected"] as? [String: Any])
+        func ask(_ levels: [[Int]], plan: Any? = nil, instance: Any? = nil) -> [String: Any] {
+            ["up": 1, "levels": levels, "plan": plan ?? selected["planDigest"] ?? NSNull(), "from": selected["site"] ?? NSNull(), "instance": instance ?? selected["instance"] ?? []]
+        }
+        let level = [ancestors[0].site, try XCTUnwrap(ancestors.first { $0.site != ancestors[0].site }).site]
+        XCTAssertNil(Inspect.selectUp(session, ask([[-1]])), "nothing of its levels above it")
+        XCTAssertNil(Inspect.selectUp(session, ask([level], plan: "another plan")), "asked of another plan's selection")
+        XCTAssertNil(Inspect.selectUp(session, ask([level], instance: [["key": "elsewhere"]])), "asked of another copy")
+        XCTAssertEqual(Inspect.selected?.id, node.id, "a stale ask leaves the selection")
+        let body = try XCTUnwrap(Inspect.selectUp(session, ask([[-1], level])))
+        let outermost = try XCTUnwrap(ancestors.last { level.contains($0.site) })
+        XCTAssertEqual((body["selected"] as? [String: Any])?["node"] as? Int, outermost.view, "\(ancestors)")
+        XCTAssertNotNil(body["click"] as? String, "selected as a tap selects it")
+        XCTAssertEqual(Inspect.selected?.id, UInt32(outermost.view))
+    }
 }
 #endif
