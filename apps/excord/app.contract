@@ -1,14 +1,16 @@
 // Excord (apps/excord/llp/0001): a Discord client. Stage 1 is the transcript and
-// its composer on iOS, against the stand-in world in `world.ts` (§3, §4.2).
+// its composer on iOS, against the fixture server (§3, §4.2, §4.4).
 //
-// The data seam is §4.2's: `gatewayState` is the small snapshot (a version per
-// channel), and the transcript is one resource, `loadWindow`, answering one
-// contiguous run of at most 200 messages around `anchor` ("" is the live tail).
+// The data seam is §4.2's: `gatewayState` is the gateway's stream and its small
+// snapshot (a version for the lists and one per channel); each list is a
+// resource taking its version, and the transcript is one resource, `loadWindow`,
+// answering one contiguous run of at most 200 messages around `anchor` ("" is
+// the live tail).
 // Paging moves the anchor a page ahead of the reader (`scrolled`, with
 // `reachstart` and `reachend` behind it); a jump replaces the window and places
 // its target with `scrollIntoView`.
 
-use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Gateway, Ack from "./shapes.contract"
+use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Version, Gateway, Ack, Sent from "./shapes.contract"
 use MessageRow from "./transcript.contract"
 use Badge from "exact:content"
 
@@ -28,7 +30,11 @@ routes nav
   home "/"
     channel "/c/:channel"
 
-fn channelOf(cs: Channel[], id: string): Channel = match first(cs.filter(c => c.id == id)) { case some(c) => c, case none => Channel(id="", name="", topic="", version=0, total=0, unread=0, mentions=0, firstUnread="", firstUnreadAt=0, lastRead="", arrived=0, typing="") }
+fn channelOf(cs: Channel[], id: string): Channel = match first(cs.filter(c => c.id == id)) { case some(c) => c, case none => Channel(id="", guild="", name="", topic="", version=0, unread=0, mentions=0, firstUnread="", firstUnreadAt=0, lastRead="", arrived=0, typing="") }
+fn versionOf(vs: Version[], id: string): number = match first(vs.filter(v => v.id == id)) { case some(v) => v.version, case none => 0 }
+fn historyOf(vs: Version[], id: string): number = match first(vs.filter(v => v.id == id)) { case some(v) => v.history, case none => 0 }
+// The gateway holds a session, or is opening one, so the heartbeat runs.
+fn connected(state: string): bool = state == "awaiting-hello" or state == "identifying" or state == "resuming" or state == "ready"
 
 // Drafts are kept per channel, across launches, as `channel\ttext` entries.
 fn draftOf(drafts: string[], channel: string): string = match first(drafts.filter(d => d.startsWith(`${channel}\t`))) { case some(d) => d.slice(channel.length + 1), case none => "" }
@@ -63,8 +69,6 @@ component Excord
   state savingChannel = ""
   state savingId = ""
   state savingStash = ""
-  state dividerAt = 0
-  state unreadCount = 0
   state unreadBar = false
   state baseArrived = 0
   state followed = 0
@@ -91,18 +95,32 @@ component Excord
   resource time = exactTime() as shape Time
   resource page = exactPage() as shape Page
   resource gateway = gatewayState() as shape Gateway else empty(state="connecting")
-  derive chan = channelOf(gateway.channels, open)
+  resource guilds = loadGuilds(gateway.sidebar) as shape Guild[] else empty()
+  derive guild = match first(guilds) { case some(g) => g, case none => Guild(id="", name="", unread=false, mentions=0) }
+  resource channels = loadChannels(guild.id, gateway.sidebar) as shape Channel[] else empty()
+  resource dms = loadDms(gateway.sidebar) as shape Channel[] else empty()
+  derive chanVersion = versionOf(gateway.versions, open)
+  derive histVersion = historyOf(gateway.versions, open)
+  resource chan = loadChannel(open, chanVersion) as shape Channel else empty()
   // Slow history (the fixture's): the window is asked with the anchor and version as of
   // the last pump, every 150 ms of the test clock, as a real store's page takes a while.
   // The delay is in the request because a data module has no clock, and a native
   // host refuses an answer that waits on a promise another call settles.
   derive askAnchor = slow ? lagAnchor : anchor
-  derive askVersion = slow ? lagVersion : chan.version
+  derive askVersion = slow ? lagVersion : histVersion
   resource win = loadWindow(open, askAnchor, askVersion, since) as shape Window else empty()
-  mutation sent as shape Ack queue refreshes gateway
-  mutation settled as shape Ack refreshes gateway
-  mutation changed as shape Ack queue refreshes gateway
-  mutation edited as shape Ack refreshes gateway then afterEdit
+  // A send shows at once (`echoed`, the local row), then posts (`sent`).
+  mutation echoed as shape Sent queue refreshes win, chan then postEchoed
+  mutation sent as shape Ack queue refreshes win, chan, channels
+  mutation changed as shape Ack queue refreshes win, chan, channels, dms, guilds
+  mutation edited as shape Ack refreshes win then afterEdit
+  // An ack changes the read state, not the history the window shows.
+  mutation acked as shape Ack queue refreshes chan, channels, dms, guilds
+  mutation beat as shape Ack
+  // The clock moved on and the gateway asked again: a backoff's retry.
+  mutation redialed as shape Ack refreshes gateway
+  mutation typed as shape Ack
+  mutation joined as shape Ack
   derive rows = win.channel == open ? win.rows : []
   derive keys = rows.map(r => r.key)
   derive lastKey = match rows.at(-1) { case some(r) => r.key, case none => "" }
@@ -116,17 +134,22 @@ component Excord
   derive editFailure = match edited { case some(r) => (r.ok ? "" : r.error), case none => "" }
   derive clock = time.epochAtZero + now
   derive newCount = max(0, chan.arrived - baseArrived)
+  derive unreadText = `${win.unread}${win.unreadMore ? "+" : ""} new ${win.unread == 1 and not win.unreadMore ? "message" : "messages"} since ${formatTime(win.unreadAt, time.utcOffset, "short")}`
 
   task tick mount
     every(60000, step)
-  // The stand-in's server confirms every pending send, in any channel, as Discord's
-  // MESSAGE_CREATE with its nonce follows the POST.
-  task confirm when gateway.pending > 0
-    every(300, confirmSends)
+  // The heartbeat is the gateway session's (`discord/gateway.ts`); this asks it each
+  // second whether one is due, which is also the data module's clock.
+  task heartbeat when connected(gateway.state)
+    every(1000, beatNow)
+  // A dropped connection resumes once its backoff has passed.
+  task redial when gateway.state == "backoff"
+    every(1000, redialNow)
   task traffic when live and open != ""
     every(2500, trafficTick)
-  task typingEnds when chan.typing != ""
-    after(8000, stopTyping)
+  // Discord's typing lasts ten seconds unless sent again.
+  task typingEnds when chan.typing != "" key=chan.version
+    after(10000, stopTyping)
   task unhighlight when highlight != "" key=highlight
     after(2500, clearHighlight)
   // A jump, a restored place or a return to the present lands once the window
@@ -147,17 +170,19 @@ component Excord
 
   action step
     now = performanceNow()
-  action confirmSends
-    send settled = settleSends()
+  action beatNow
+    send beat = heartbeat(time.epochAtZero + performanceNow())
+  action redialNow
+    send redialed = heartbeat(time.epochAtZero + performanceNow())
   action trafficTick
     send changed = inject(open, "message", topKey, time.epochAtZero + performanceNow())
   action stopTyping
-    send changed = inject(open, "typing-stop", topKey, time.epochAtZero + performanceNow())
+    send changed = expireTyping(time.epochAtZero + performanceNow())
   action clearHighlight
     highlight = ""
   action ackNow
     if not away
-      send changed = markRead(open)
+      send acked = markRead(open)
   action followEnd
     followed = chan.arrived
     if not away and endGap > 0.5
@@ -166,7 +191,7 @@ component Excord
   // Opening a channel: at its newest (§3.1), at its first unread with the bar
   // (§3.2), or where this session left it (§3.3).
   action openChannel(id: string)
-    let c = channelOf(gateway.channels, id)
+    let c = channelOf(channels.concat(dms), id)
     let p = placeOf(places, id)
     now = performanceNow()
     open = id
@@ -177,10 +202,8 @@ component Excord
     away = false
     // A New divider only for what was unread on opening: what arrives while the
     // reader watches is not new to them.
-    since = c.firstUnread != "" ? c.lastRead : ""
-    dividerAt = c.firstUnreadAt
-    unreadCount = c.unread
-    unreadBar = c.firstUnread != ""
+    since = c.unread > 0 ? c.lastRead : ""
+    unreadBar = c.unread > 0
     baseArrived = c.arrived
     followed = c.arrived
     if p.channel == id and not p.atEnd
@@ -191,6 +214,7 @@ component Excord
     else
       anchor = ""
       target = ""
+    send joined = subscribe(id)
     nav = push(nav, path("channel", id))
   // Leaving keeps the reader's place, puts an unsaved edit away and acknowledges
   // what was on screen at the end.
@@ -208,7 +232,7 @@ component Excord
       editError = ""
       stash = ""
     if not away and anchor == "" and chan.unread > 0
-      send changed = markRead(open)
+      send acked = markRead(open)
 
   // The window: the reader's place decides which run of history it holds.
   // The reader is at the end within the last row's height of it (§3.7). The
@@ -233,7 +257,7 @@ component Excord
       if isAway
         baseArrived = chan.arrived
         if anchor == "" and chan.unread > 0 and reading
-          send changed = markRead(open)
+          send acked = markRead(open)
         if anchor == ""
           anchor = win.pin
       else
@@ -294,7 +318,7 @@ component Excord
         target = "new"
   action dismissUnread
     unreadBar = false
-    send changed = markRead(open)
+    send acked = markRead(open)
   action toPresent
     away = false
     if anchor == ""
@@ -335,6 +359,8 @@ component Excord
   // (§3.9). An edit keeps its text until the server takes it.
   action edit(v: string)
     drafts = withDraft(drafts, open, v)
+    if v.trim() != "" and editing == ""
+      send typed = sendTyping(open, time.epochAtZero + performanceNow())
   action keyed(k: string, e: KeyboardEvent)
     if k == "Enter" and not e.shiftKey
       preventDefault()
@@ -347,7 +373,7 @@ component Excord
         savingStash = stash
         send edited = editMessage(open, editing, draft.trim())
       else
-        send sent = sendMessage(open, draft.trim(), replyTo, time.epochAtZero + performanceNow())
+        send echoed = echoMessage(open, draft.trim(), replyTo, time.epochAtZero + performanceNow())
         replyTo = ""
         drafts = withDraft(drafts, open, "")
         if away or anchor != ""
@@ -356,6 +382,13 @@ component Excord
           target = "end"
           settling = true
     focus("composer")
+  action postEchoed
+    match echoed
+      case some(r)
+        if r.ok
+          send sent = postMessage(r.channel, r.key)
+      case none
+        aimed = aimed
   // An edit's reply settles the edit it answers, in its own channel: one the
   // reader has since left or cancelled is not reopened or overwritten.
   action afterEdit
@@ -408,7 +441,7 @@ component Excord
   action toggleReaction(id: string, emoji: string)
     send changed = react(open, id, emoji)
   action retry(key: string)
-    send sent = retrySend(open, key)
+    send echoed = retrySend(open, key)
   action discard(key: string)
     send changed = deleteMessage(open, key)
   action swipe(key: string, dx: number, dy: number)
@@ -432,10 +465,10 @@ component Excord
   action toggleSlow
     slow = not slow
     lagAnchor = anchor
-    lagVersion = chan.version
+    lagVersion = histVersion
   action pumpNow
     lagAnchor = anchor
-    lagVersion = chan.version
+    lagVersion = histVersion
 
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" navigate=leave interactive-widget="resizes-content" width="100%" height="100%"
@@ -443,22 +476,33 @@ component Excord
         if e.name == "home"
           column navigationKey=`${e.id}` navigationScroll="channels" position="absolute" inset=0
             header
-              h1 "Exact Club"
+              h1 (guild.name != "" ? guild.name : "Excord")
             list id="channels" appearance="auto" flex=1 min-height=0
               section
-                for c in gateway.channels key=c.id
-                  button press=openChannel(c.id) testId=`channel-${c.id}` aria-label=`${c.name}${c.unread > 0 ? ", unread" : ""}`
+                for c in channels key=c.id
+                  button press=openChannel(c.id) testId=`channel-${c.name}` aria-label=`${c.name}${c.unread > 0 ? ", unread" : ""}`
                     row gap=8 align-items="center" flex=1 min-width=0
                       text "#" color="-exact-secondary-label"
                       text c.name font-weight=(c.unread > 0 ? 600 : 400) flex=1 min-width=0
                       if c.mentions > 0
                         Badge(label=`${c.mentions}`, tint=some("-exact-system-red"))
+              if dms.length > 0
+                section
+                  header
+                    text "Direct Messages"
+                  for c in dms key=c.id
+                    button press=openChannel(c.id) testId=`dm-${c.id}` aria-label=`${c.name}${c.unread > 0 ? ", unread" : ""}`
+                      row gap=8 align-items="center" flex=1 min-width=0
+                        text c.name font-weight=(c.unread > 0 ? 600 : 400) flex=1 min-width=0
+                        if c.mentions > 0
+                          Badge(label=`${c.mentions}`, tint=some("-exact-system-red"))
         else
           column navigationKey=`${e.id}` navigationScroll="transcript" position="absolute" inset=0
             header
-              h2 `# ${chan.name}`
-              button popovertarget="fixture-menu" aria-label="Fixture traffic" testId="fixture"
-                image "symbol:more"
+              h2 (chan.guild != "" ? `# ${chan.name}` : chan.name)
+              if gateway.fixture
+                button popovertarget="fixture-menu" aria-label="Fixture traffic" testId="fixture"
+                  image "symbol:more"
             column id="fixture-menu" popover="auto" role="menu" aria-label="Fixture traffic"
               button press=injectNow("message") popovertarget="fixture-menu" popovertargetaction="hide" testId="inject-message"
                 text "Receive a message"
@@ -522,10 +566,10 @@ component Excord
                   text "Delete"
                 button commandfor="confirm-delete" command="close" testId="delete-cancel"
                   text "Cancel"
-              if unreadBar
+              if unreadBar and win.channel == open
                 row position="absolute" top=0 left=0 right=0 align-items="center" column-gap=12 padding="0px 16px" flex-wrap="wrap" background-color="AccentColor" testId="unread"
                   button appearance="none" press=jumpToUnread testId="unread-bar" flex="1 1 12rem" min-width=0 padding="9px 0px"
-                    text `${unreadCount} new ${unreadCount == 1 ? "message" : "messages"} since ${formatTime(dividerAt, time.utcOffset, "short")}` color="AccentColorText" font="-exact-footnote" font-weight=600
+                    text unreadText color="AccentColorText" font="-exact-footnote" font-weight=600
                   button appearance="none" press=dismissUnread testId="mark-read" padding="9px 0px"
                     text "Mark As Read" color="AccentColorText" font="-exact-footnote" font-weight=600
               if chan.typing != ""
