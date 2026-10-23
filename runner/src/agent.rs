@@ -51,6 +51,10 @@ pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         // The module's storage still to land (LLP 1097 D10): what a host's
         // quit or suspension waits for, cheaper than `state`.
         Some("background") => format!("{{\"operations\":{}}}", runner.background_operations()),
+        // The requests the server holds and the replies landed for them (LLP
+        // 1016.000 D9): what `clock held` polls and a clock reply names,
+        // cheaper than `state`.
+        Some("held") => pending::held(runner),
         Some("perf") => crate::perf::reply(runner, request),
         // What `showPicker(id)` names (LLP 1069.002 D2): the file input's
         // view, `accept` and `multiple`, for the host that presents it.
