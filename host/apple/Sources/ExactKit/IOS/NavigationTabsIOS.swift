@@ -305,13 +305,24 @@ extension NavigationHost {
         tint(tabs.tablist)
     }
 
-    /// The tablist's `accent-color` tints the bar's selected item, as it
-    /// tints a control (recipes F20, shop F28); `auto` keeps the system's.
+    /// The selected tab's own tint, else the tablist's accent colour, tints
+    /// the bar's selected item; an inherited tab tint leaves that fallback.
     /// The row is inherited, as in CSS, and reaches the host only on the
     /// node that sets it: the nearest ancestor that does is read. Resolved
     /// per appearance, so dark mode follows.
     func tint(_ list: NodeView) {
         guard let bar = tabController?.tabBar else { return }
+        if let tabs = tabItemsSource?.0, tabs.tablist === list, tabs.tabs.indices.contains(routerTab) {
+            let selected = tabs.tabs[routerTab]
+            if selected.ownColor("tint_color") != nil,
+               let light = selected.channels("tint_color", dark: false), let dark = selected.channels("tint_color", dark: true) {
+                let wanted = [light, dark]
+                guard tabTint != wanted else { return }
+                tabTint = wanted
+                bar.tintColor = UIColor { TextEngine.color($0.userInterfaceStyle == .dark ? dark : light) }
+                return
+            }
+        }
         var view: UIView? = list
         while let at = view, (at as? NodeView)?.channels("accent_color", dark: false) == nil { view = at.superview }
         let source = view as? NodeView
