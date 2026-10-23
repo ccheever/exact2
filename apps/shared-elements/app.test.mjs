@@ -1,4 +1,6 @@
 import { expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 import { open } from '../../scripts/agent.mjs';
 import { checkOp, ratio } from '../../scripts/agent-check.mjs';
 
@@ -102,14 +104,20 @@ test('surfaces adapt, selections remain distinct and photo viewers stay dark', a
 
     await tap('tab-cards');
     await check('card-c1', { tab: 'cards' });
+    const cardSurfaces = [];
     for (const id of ['c1', 'c2', 'c3']) {
       const source = await check(`card-${id}`, { surface: `card-${id}` });
+      cardSurfaces.push(source);
       await tap(`card-${id}`);
       expect((await session.state()).slots.card).toBe(id);
       const destination = await check('card-detail', { surface: 'card-detail' });
       expect(destination.map(p => p.fill)).toEqual(source.map(p => p.fill));
       await tap('close-card');
       expect((await session.state()).slots.card).toBe('');
+    }
+
+    for (let scheme = 0; scheme < 2; scheme++) {
+      expect(new Set(cardSurfaces.map(pair => JSON.stringify(pair[scheme].fill))).size).toBe(3);
     }
 
     await tap('tab-tasks');
@@ -140,5 +148,36 @@ test('surfaces adapt, selections remain distinct and photo viewers stay dark', a
     expect(failures).toEqual([]);
   } finally {
     await session.close();
+  }
+}, 30000);
+
+
+test('launch colours and the dark empty web shell match the first frame', async () => {
+  const manifest = JSON.parse(readFileSync(new URL('./app.json', import.meta.url), 'utf8'));
+  const shell = readFileSync(new URL('../../host/web/dist/index.html', import.meta.url), 'utf8');
+  const browser = await suiteBrowser();
+  const session = await open({ host: 'web', app: 'shared-elements',
+    env: { EXACT_AGENT_EPHEMERAL_PORT: '1' } });
+  try {
+    const failures = [];
+    for (const scheme of ['light', 'dark']) {
+      await session.prefer({ 'prefers-color-scheme': scheme });
+      const firstFrame = await session.carrier.evaluate(`getComputedStyle(
+        document.querySelector('[data-testid="app"]').firstElementChild).backgroundColor`);
+      const hex = '#' + firstFrame.match(/\d+/g).map(n => Number(n).toString(16).padStart(2, '0')).join('');
+      const launch = scheme === 'light' ? manifest.background_color : manifest.background_color_dark;
+      if (launch !== hex) failures.push({ scheme, launch, firstFrame: hex });
+      if (scheme === 'dark') {
+        // Disable scripts to observe the built shell before any app nodes mount.
+        const page = await browser.newPage({ javaScriptEnabled: false, colorScheme: scheme });
+        await page.setContent(shell);
+        expect(await page.locator('#exact-root').evaluate(root => root.childNodes.length)).toBe(0);
+        const empty = await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
+        if (empty !== firstFrame) failures.push({ scheme, empty, firstFrame });
+      }
+    }
+    expect(failures).toEqual([]);
+  } finally {
+    try { await session.close(); } finally { await browser.close(); }
   }
 }, 30000);
