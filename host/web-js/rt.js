@@ -1,3 +1,4 @@
+import { oneActivation, suppressedInvocation, releaseAsset as rel } from "./elements.js";
 export { liveTime } from "./live-time.js";
 import { commitGuestOrigin, guestMessageAuthorized, inertAncestor, sheetLeaves, liveById, renderMarkup, reportPlace, onSelection, textField, sourceField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { Docs, Head, head, markDocument, projectRoots, openTabs, unopened, tp } from "./document.js"; export { Head, unopened, tp }; import { conforms, eq, equal, failureCode, failureReason } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
@@ -18,14 +19,18 @@ let Media = null; export function useMedia(m) { Media = m; } // and media.js onl
 //   is; a later answer lands in its own commit, if its ticket is current;
 // - timers fire on a clock the host moves (`advance`), each at its own time.
 let Listener = null, Owner = null, Queue = [], FocusQueue = [], Flushing = false, Rev = 0;
-const CLEAN = 0, CHECK = 1, DIRTY = 2; function node(fn, v, effect) {   const n = { fn, v, effect, s: fn ? DIRTY : CLEAN, src: [], obs: new Set(), kids: null, gone: 0 };
+const CLEAN = 0, CHECK = 1, DIRTY = 2;
+function node(fn, v, effect) {
+  const n = { fn, v, effect, s: fn ? DIRTY : CLEAN, src: [], obs: new Set(), kids: null, gone: 0 };
   if (Owner) { (Owner.kids ??= []).push(n); n.up = Owner; }
   return n;
-} function read(n) {
+}
+function read(n) {
   if (Listener && !n.obs.has(Listener)) { n.obs.add(Listener); Listener.src.push(n); }
   if (n.fn) fresh(n);
   return n.v;
-} function fresh(n) {
+}
+function fresh(n) {
   if (n.s === CHECK) for (const s of n.src) { if (s.fn) fresh(s); if (n.s === DIRTY) break; }
   if (n.s === DIRTY) run(n);
   n.s = CLEAN;
@@ -607,16 +612,6 @@ export function M(m, source, args, own) { Sends.push([m, source, args, own]); }
 // ---------------------------------------------------------------- the DOM
 const SVG = "http://www.w3.org/2000/svg";
 /** An element under `p`: its static class, attributes and text. */
-/** An app file named from the root (`/assets/…`, `/deck/…`, `/shaders/…`)
- * is its published release's when the page is one (its base, LLP 1038 D7),
- * as the web host's `localAssetURL` resolves it. */
-let Release;
-const rel = (k, v) => (k === "src" || k === "poster") && /^\/(assets|deck|shaders)\//.test(v ?? "")
-  && (Release ??= (() => { try { return /^\/\.exact\/root\/web\/releases\/[0-9a-f]{64}\/$/.test(new URL(document.baseURI).pathname); } catch { return false; } })()) ? "." + v : v;
-// One activation button per click; authored writes and reentrant click() keep their order.
-let Invokers = new Map(); const invocationAttrs = new Set(["popovertarget", "commandfor"]);
-function muteInvoker(e) { if (Invokers.has(e)) return; const values = new Map([...invocationAttrs].map(k => [k, e.getAttribute(k)])), set = e.setAttribute, remove = e.removeAttribute, setOwn = Object.getOwnPropertyDescriptor(e, "setAttribute"), removeOwn = Object.getOwnPropertyDescriptor(e, "removeAttribute"); for (const k of invocationAttrs) remove.call(e, k); e.setAttribute = function(k, v) { k = String(k).toLowerCase(); if (invocationAttrs.has(k)) values.set(k, String(v)); else set.call(this, k, v); }; e.removeAttribute = function(k) { k = String(k).toLowerCase(); if (invocationAttrs.has(k)) values.set(k, null); else remove.call(this, k); }; Invokers.set(e, () => { if (setOwn) Object.defineProperty(e, "setAttribute", setOwn); else delete e.setAttribute; if (removeOwn) Object.defineProperty(e, "removeAttribute", removeOwn); else delete e.removeAttribute; for (const [k, v] of values) { if (v == null) remove.call(e, k); else set.call(e, k, v); } }); }
-function oneActivation(e) { const click = e.click; e.click = function() { const outer = Invokers, nodes = [...outer.keys()]; for (const restore of outer.values()) restore(); Invokers = new Map(); try { return click.call(this); } finally { for (const restore of Invokers.values()) restore(); outer.clear(); Invokers = outer; for (const node of nodes) muteInvoker(node); } }; e.addEventListener("click", ev => { const target = ev.composedPath().find(n => n.localName === "button" || n.localName === "a" && n.hasAttribute("href")); if (target === e) return; muteInvoker(e); const scope = Invokers; setTimeout(() => { if (Invokers !== scope) return; for (const restore of scope.values()) restore(); Invokers = new Map(); }); }, true); }
 export function h(p, tag, cls, attrs, text, ns) {
   if (attrs?.["aria-keyshortcuts"] != null || attrs?.["data-exact-looks"] != null) input(); // (a look snaps by its edges too, LLP 1121 D8)
   if (Adopt) { const e = adopt(p, tag, cls, attrs); if (tag === "video" || tag === "audio") Media.media(e, attrs); if (tag === "iframe") frame(e, attrs?.["data-app-src"]); if (tag === "button") oneActivation(e); return e; }
@@ -646,7 +641,8 @@ export function cv(e) {
 // class it would have had and drops the renderer's view ids, and inserts
 // the region anchors a fresh build would have made. A
 // mismatch abandons adoption and builds afresh (LLP 1048.000 D6).
-let Adopt = false; class Mismatch extends Refusal {}
+let Adopt = false;
+class Mismatch extends Refusal {}
 // The next node to adopt under `p`; insertions go before it and never move it.
 const at = p => (p.$n === undefined ? (p.$n = p.firstChild) : p.$n);
 function adopt(p, tag, cls, attrs) {
@@ -706,7 +702,7 @@ export function P(e, name, f) {
     else if (name === "value") { if (e.localName === "select") { Selects.add(e); e.$value = v ?? ""; e.$set = true; } writeValue(e, v ?? ""); e.exactDecorations?.sync(); }
     else if (name === "scrollTop" || name === "scrollLeft") { if (v != null) (Scrolls.get(e) ?? Scrolls.set(e, {}).get(e))[name] = Number(v); }
     else if (BOOL.test(name)) { e.toggleAttribute(name, v === "true"); if (name === "disabled" && v === "true" && document.activeElement === e && e.matches(":disabled")) e.blur(); /* HTML focus fixup, now, for a control only (glue.js) */ if (name === "checked") e.checked = e.$checked = v === "true"; if (name === "muted") e.muted = v === "true"; if (name === "autofocus") { if (v === "true") e.removeAttribute("data-autofocus"); else e.setAttribute("data-autofocus", "false"); } }
-    else if (v == null) { if (e.hasAttribute(name) || Invokers.has(e) && invocationAttrs.has(name)) { e.removeAttribute(name); if (name.startsWith("data-exact-")) Paint?.facts(e); } }
+    else if (v == null) { if (e.hasAttribute(name) || suppressedInvocation(e, name)) { e.removeAttribute(name); if (name.startsWith("data-exact-")) Paint?.facts(e); } }
     else if (e.getAttribute(name) !== v) { e.setAttribute(name, v); if (name.startsWith("data-exact-")) Paint?.facts(e); }
     if (e.localName === "a" && (name === "target" || name === "href" && (!e.hasAttribute("target") || e.rel === "external noopener"))) { const out = name === "href" && v != null && /^\s*(https?:)?\/\//i.test(v), t = name === "target" ? v : out ? "_blank" : null; if (t) e.setAttribute("target", t); else e.removeAttribute("target"); if (t === "_blank") e.rel = out ? "external noopener" : "noopener"; else e.removeAttribute("rel"); } // a link to an absolute URL leaves the app in a new browsing context unless its `target` is authored (element.rs `leaves_app`, `props_of`; chat F11)
     if (name === "sandbox" && e.localName === "iframe" && !e.exactAppFrame) { const source = e.$src ?? e.getAttribute("src"); if (source != null) { const s = navigable(source, e) ? source : "about:blank"; if (sandboxChanged || e.getAttribute("src") !== s) e.setAttribute("src", s); } } // a new sandbox takes effect on navigation, even to the same source; a literal source stays in src, a refused `data:` source in $src
