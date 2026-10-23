@@ -377,7 +377,8 @@ extension NodeView {
     /// once. An untransformed box has no press in it to undo.
     func pressInside(_ windowPoint: NSPoint) -> Bool {
         let p = local(windowPoint), f = plane == nil ? 1 : pressFactor, o = transformOriginPoint
-        return bounds.contains(CGPoint(x: o.x + (p.x - o.x) * f, y: o.y + (p.y - o.y) * f))
+        let area = drawsRowBezel ? rowBezelRect ?? bounds : bounds
+        return area.contains(CGPoint(x: o.x + (p.x - o.x) * f, y: o.y + (p.y - o.y) * f))
     }
     #endif
 }
