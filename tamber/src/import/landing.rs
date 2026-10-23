@@ -13,7 +13,7 @@
 use super::{Mapped, Unmapped};
 use crate::syntax::{At, Axis, Token, When};
 use crate::{Design, Diagnostic, Vocab};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Where a laid token's lines are said to be: past any design's own.
 const LAID: u32 = 10_000_000;
@@ -263,13 +263,19 @@ pub(super) fn landing(
     }
     // A name's text as laid: an import token's value and `when` lines with
     // the design's kept ones, or a design token's.
+    // (each found by name in one step: a refusal's reads walk many names; each step charged)
+    let mut design_at: HashMap<&str, usize> = HashMap::new();
+    for (i, d) in design.tokens.iter().enumerate() {
+        design_at.entry(d.name.value.as_str()).or_insert(i);
+    }
+    let mut laid_at: HashMap<&str, usize> = HashMap::new();
+    for (i, t) in tokens.iter().enumerate() {
+        laid_at.entry(t.name.as_str()).or_insert(i);
+    }
     let text = |n: &str, skip: &[bool]| -> Vec<String> {
-        let found = design.tokens.iter().find(|d| d.name.value == n);
-        match tokens
-            .iter()
-            .position(|t| t.name == n)
-            .filter(|i| !skip[*i])
-        {
+        let _ = crate::budget::spend(1);
+        let found = design_at.get(n).map(|&i| &design.tokens[i]);
+        match laid_at.get(n).copied().filter(|i| !skip[*i]) {
             Some(i) => {
                 let t = &tokens[i];
                 std::iter::once(t.value.clone())
@@ -289,10 +295,10 @@ pub(super) fn landing(
     };
     // Every name a value reads, through the tokens it names, as laid.
     let reads = |value: &str, skip: &[bool]| -> Vec<String> {
-        let mut out: Vec<String> = Vec::new();
+        let (mut out, mut seen): (Vec<String>, HashSet<String>) = (Vec::new(), HashSet::new());
         let mut stack: Vec<String> = words(value).into_iter().map(str::to_string).collect();
         while let Some(n) = stack.pop() {
-            if out.contains(&n) {
+            if !seen.insert(n.clone()) {
                 continue;
             }
             for v in text(&n, skip) {
